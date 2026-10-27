@@ -22,6 +22,16 @@ nonisolated struct GlyphKeyEntry: Equatable, Sendable {
     }
 }
 
+/// A color `wt` paints a glyph in.
+nonisolated enum TerminalColor: Sendable, Equatable {
+    case foreground
+    case dim
+    case green
+    case red
+    case yellow
+    case magenta
+}
+
 /// The terminal vocabulary `wt` and `stack` share: colors, the PR glyphs, PR
 /// chips, the symbol key and the picker. A value rather than globals, so a
 /// command renders with whatever settings it was handed.
@@ -256,6 +266,46 @@ nonisolated struct TerminalUI: Equatable, Sendable {
             lines += section("stack graph", extra)
         }
         return lines
+    }
+
+    /// Every glyph a `wt list` row can print, each in the color it prints in,
+    /// so Settings can preview them against the terminal theme. A glyph this
+    /// set leaves empty drops out.
+    var listGlyphs: [(glyph: String, color: TerminalColor)] {
+        let glyphs: [(glyph: String, color: TerminalColor)] = [
+            (github, .dim),
+            (gitlab, .dim),
+            (Self.open, .foreground),
+            (Self.draft, .foreground),
+            (checksPass, .green),
+            (checksFail, .red),
+            (checksPending, .yellow),
+            (Self.approved, .green),
+            (Self.changesRequested, .red),
+            (merged, .magenta),
+            (Self.closed, .red),
+            (Self.noPullRequest, .dim),
+            (Self.loading, .dim),
+            (netOff, .red),
+            (netOff, .dim),
+            (Self.ahead, .dim),
+            (Self.up, .green),
+            (Self.down, .green),
+            ("+", .green),
+        ]
+        return glyphs.filter { !$0.glyph.isEmpty }
+    }
+
+    /// The escape that paints `color`, empty for the default foreground.
+    func escape(for color: TerminalColor) -> String {
+        switch color {
+        case .foreground: ""
+        case .dim: dim
+        case .green: green
+        case .red: red
+        case .yellow: yellow
+        case .magenta: magenta
+        }
     }
 
     /// Rewinds over an `lines`-tall block already printed: cursor up, then

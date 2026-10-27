@@ -13,7 +13,9 @@ nonisolated struct ProjectSettings: Codable, Equatable, Sendable {
     var branchPrefix: String?
     /// Default: sniffed from the origin URL.
     var forge: ForgeKind?
-    /// Default: `automatic`.
+    /// Retired: the mode is global now (`NerdFontMode.userDefaultsKey`). Still
+    /// decoded so old configurations load, and the defaults row's value is
+    /// read once, to migrate it.
     var nerdFont: NerdFontMode?
     /// Worktree folder names (basenames, never branches) that refuse delete,
     /// rename and foreground. Default: none.
@@ -76,6 +78,13 @@ nonisolated struct ProjectsConfiguration: Codable, Equatable, Sendable {
 
 nonisolated protocol ProjectSettingsSource {
     func load() -> ProjectsConfiguration
+    func nerdFontMode() -> NerdFontMode
+}
+
+nonisolated extension ProjectSettingsSource {
+    func nerdFontMode() -> NerdFontMode {
+        NerdFontMode.global(stored: nil, legacyDefault: load().defaults.nerdFont)
+    }
 }
 
 /// Reads the app's own UserDefaults domain, so the tool sees Settings ▸
@@ -108,5 +117,13 @@ nonisolated struct UserDefaultsProjectSettingsSource: ProjectSettingsSource {
               let configuration = try? JSONDecoder().decode(ProjectsConfiguration.self, from: data)
         else { return ProjectsConfiguration() }
         return configuration
+    }
+
+    /// Falls back to the defaults row until the app has migrated it.
+    func nerdFontMode() -> NerdFontMode {
+        NerdFontMode.global(
+            stored: defaults?.string(forKey: NerdFontMode.userDefaultsKey),
+            legacyDefault: load().defaults.nerdFont
+        )
     }
 }

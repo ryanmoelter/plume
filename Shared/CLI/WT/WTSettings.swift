@@ -52,13 +52,14 @@ nonisolated enum WTSettings {
     /// needs a terminal on stdout and no `NO_COLOR`.
     static func terminalUI(
         settings: ProjectSettings,
+        nerdFont: NerdFontMode,
         stdoutIsTerminal: Bool,
         environment: [String: String]
     ) -> TerminalUI {
         let noColor = !(environment["NO_COLOR"] ?? "").isEmpty
         return TerminalUI(
             palette: stdoutIsTerminal && !noColor ? .ansi : .plain,
-            glyphSet: NerdFontMode.usesNerdFont(settings.nerdFont, environment: environment) ? .nerd : .plain,
+            glyphSet: NerdFontMode.usesNerdFont(nerdFont, environment: environment) ? .nerd : .plain,
             ignoredPendingChecks: IgnoredChecksResolver.resolve(settings: settings)
         )
     }

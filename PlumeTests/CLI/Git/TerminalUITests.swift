@@ -238,6 +238,26 @@ struct TerminalUITests {
 
     // MARK: redraw
 
+    /// Settings previews `listGlyphs`, so every colored glyph the symbol key
+    /// documents must be in it, in the same color.
+    @Test(arguments: [TerminalUI.GlyphSet.plain, .nerd])
+    func listGlyphsCoverEveryColoredGlyphInTheKey(glyphSet: TerminalUI.GlyphSet) throws {
+        let ui = TerminalUI(palette: .ansi, glyphSet: glyphSet)
+        let colors: [String: TerminalColor] = ["2": .dim, "31": .red, "32": .green, "33": .yellow, "35": .magenta]
+        let pattern = try Regex(#"^    \x{1B}\[(\d+)m([^\s\x{1B}]+)"#)
+        let samples = ui.listGlyphs.map { "\($0.glyph) \($0.color)" }
+        var checked = 0
+        for line in ui.glyphKey(forgeIcon: ui.github) {
+            guard let match = try pattern.firstMatch(in: line),
+                  let code = match.output[1].substring, let glyph = match.output[2].substring
+            else { continue }
+            let color = try #require(colors[String(code)], "\(line)")
+            #expect(samples.contains("\(glyph) \(color)"), "\(glyph) in \(color)")
+            checked += 1
+        }
+        #expect(checked >= 14)
+    }
+
     @Test func redrawMovesUpByTheLineCountAndClears() {
         #expect(TerminalUI.redrawPrefix(lines: 3) == "\u{1B}[3A\u{1B}[J")
     }

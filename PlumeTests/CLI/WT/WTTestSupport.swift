@@ -302,6 +302,7 @@ nonisolated final class FakeWTContext: WTContext {
     var newWorktreesDirectory: String
     var mainName: String
     var settings = ProjectSettings()
+    var nerdFontMode = NerdFontMode.automatic
     var baseBranch: String
     var baseRef: String { "origin/\(baseBranch)" }
     var trunkBranches: Set<String> = []

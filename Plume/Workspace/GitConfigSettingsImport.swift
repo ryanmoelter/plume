@@ -78,14 +78,26 @@ nonisolated enum GitConfigSettingsImport {
     }
 
     /// `imported` under `existing`: a field already set in Projects keeps
-    /// its value, and a repository that imports nothing gets no row.
+    /// its value, and a repository that imports nothing gets no row. The
+    /// Nerd Font mode is global, so it never lands in a row; see
+    /// `nerdFontMode(importing:stored:)`.
     static func merging(_ imported: ProjectsConfiguration, into existing: ProjectsConfiguration) -> ProjectsConfiguration {
         var merged = existing
-        merged.defaults = existing.defaults.overriding(imported.defaults)
-        for (root, settings) in imported.repositories where settings != ProjectSettings() {
+        var importedDefaults = imported.defaults
+        importedDefaults.nerdFont = nil
+        merged.defaults = existing.defaults.overriding(importedDefaults)
+        for (root, var settings) in imported.repositories {
+            settings.nerdFont = nil
+            guard settings != ProjectSettings() else { continue }
             merged.repositories[root] = (existing.repositories[root] ?? ProjectSettings()).overriding(settings)
         }
         return merged
+    }
+
+    /// The global config's mode, when nothing is stored yet. A repository's
+    /// own `nerdFont` is ignored, since the mode is no longer per project.
+    static func nerdFontMode(importing imported: ProjectsConfiguration, isStored: Bool) -> NerdFontMode? {
+        isStored ? nil : imported.defaults.nerdFont
     }
 
     // MARK: Reading git
@@ -130,6 +142,9 @@ extension GitConfigSettingsImport {
         Task {
             let imported = await Task.detached { read(repositoryPaths: paths) }.value
             settings.projectsConfiguration = merging(imported, into: settings.projectsConfiguration)
+            if let mode = nerdFontMode(importing: imported, isStored: settings.hasStoredNerdFontMode) {
+                settings.nerdFontMode = mode
+            }
             defaults.set(true, forKey: completedDefaultsKey)
             settings.migrateLegacyIgnoredPendingChecks()
             Log.app.info("Imported git config settings for \(imported.repositories.count) repositories")

@@ -37,6 +37,7 @@ nonisolated extension WT {
             } catch is CLIFailure where arguments.isEmpty || helpCommands.contains(arguments[0]) {
                 let ui = WTSettings.terminalUI(
                     settings: settingsSource.load().defaults,
+                    nerdFont: settingsSource.nerdFontMode(),
                     stdoutIsTerminal: console.stdoutIsTerminal,
                     environment: environment
                 )

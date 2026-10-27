@@ -1,7 +1,9 @@
 import Foundation
 
-/// Whether `wt` prints Nerd Font icons. Stored as a string; a stored `Bool`
-/// from before the automatic mode still decodes, as `on` or `off`.
+/// Whether `wt` prints Nerd Font icons. One setting for every repository,
+/// stored as its raw value under `userDefaultsKey`. Inside the retired
+/// per-project field, a `Bool` from before the automatic mode still decodes,
+/// as `on` or `off`.
 nonisolated enum NerdFontMode: String, Codable, CaseIterable, Sendable {
     /// On inside a Plume tab whose terminal uses the bundled font, which has
     /// the icons; off anywhere else.
@@ -12,6 +14,17 @@ nonisolated enum NerdFontMode: String, Codable, CaseIterable, Sendable {
     /// Set to `1` in every tab when the user's ghostty config names its own
     /// `font-family`, which may lack the icons.
     static let customTerminalFontEnvironmentKey = "PLUME_CUSTOM_TERMINAL_FONT"
+
+    /// The UserDefaults key, in the app's domain, holding the mode.
+    static let userDefaultsKey = "nerdFontMode"
+
+    /// The stored mode, else the Projects defaults row's from before the
+    /// setting was global, else automatic. A stored value that names no mode
+    /// reads as automatic.
+    static func global(stored: String?, legacyDefault: NerdFontMode?) -> NerdFontMode {
+        guard let stored else { return legacyDefault ?? .automatic }
+        return NerdFontMode(rawValue: stored) ?? .automatic
+    }
 
     init(from decoder: any Decoder) throws {
         let container = try decoder.singleValueContainer()

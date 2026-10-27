@@ -48,6 +48,7 @@ nonisolated protocol WTContext: AnyObject {
     /// The project's settings over the defaults row, before derived
     /// fallbacks.
     var settings: ProjectSettings { get }
+    var nerdFontMode: NerdFontMode { get }
     var baseBranch: String { get }
     /// `origin/<baseBranch>`.
     var baseRef: String { get }
@@ -106,6 +107,7 @@ nonisolated final class WorktreeContext: WTContext {
     let newWorktreesDirectory: String
     let mainName: String
     let settings: ProjectSettings
+    let nerdFontMode: NerdFontMode
     let baseBranch: String
     let baseRef: String
     let trunkBranches: Set<String>
@@ -122,6 +124,7 @@ nonisolated final class WorktreeContext: WTContext {
         newWorktreesDirectory: String,
         mainName: String,
         settings: ProjectSettings = ProjectSettings(),
+        nerdFontMode: NerdFontMode = .automatic,
         console: any CLIConsole = BufferConsole(),
         ui: TerminalUI = .plain,
         tabs: (any TabOpener)? = nil
@@ -133,6 +136,7 @@ nonisolated final class WorktreeContext: WTContext {
         self.newWorktreesDirectory = newWorktreesDirectory
         self.mainName = mainName
         self.settings = settings
+        self.nerdFontMode = nerdFontMode
         self.console = console
         self.ui = ui
         self.tabs = tabs ?? PlumeTabOpener(client: SocketPlumeAppClient(socketPath: ""), environment: [:], console: console)
@@ -160,6 +164,7 @@ nonisolated final class WorktreeContext: WTContext {
         git.repoDir = repoDir
 
         let settings = settingsSource.load().settings(forRepository: layoutRoot)
+        let nerdFontMode = settingsSource.nerdFontMode()
         let tabs = PlumeTabOpener(
             client: SocketPlumeAppClient(socketPath: CLISocket.resolvedPath(environment: environment)),
             environment: environment,
@@ -173,9 +178,11 @@ nonisolated final class WorktreeContext: WTContext {
             newWorktreesDirectory: layout == .bare ? layoutRoot : "\(layoutRoot)/.plume/worktrees",
             mainName: layout == .bare ? "" : (layoutRoot as NSString).lastPathComponent,
             settings: settings,
+            nerdFontMode: nerdFontMode,
             console: console,
             ui: WTSettings.terminalUI(
                 settings: settings,
+                nerdFont: nerdFontMode,
                 stdoutIsTerminal: console.stdoutIsTerminal,
                 environment: environment
             ),

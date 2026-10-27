@@ -4,9 +4,9 @@ import Testing
 @testable import Plume
 
 /// Covers how `CommandLineHelper` classifies whatever sits at each install
-/// path — absent, Plume's own link, an older Plume's, someone else's, or a
-/// link whose target has gone away — and that install, uninstall and the
-/// launch-time repoint touch only links Plume owns.
+/// path — absent, Plume's own link, another copy of Plume's, someone else's,
+/// or a link whose target has gone away — and that install, uninstall and
+/// the launch-time repoint touch only links some copy of Plume placed.
 @MainActor
 struct CommandLineHelperTests {
     private let scratch: URL
@@ -61,47 +61,38 @@ struct CommandLineHelperTests {
         #expect(state("plume") == .occupiedByOther(other.standardizedFileURL))
     }
 
-    @Test(arguments: [false, true])
-    func aLinkToThisBundlesLegacyScriptIsOutdated(claimsOtherPlumeBundles: Bool) throws {
+    @Test func aLinkToThisBundlesLegacyScriptIsOutdated() throws {
         defer { try? FileManager.default.removeItem(at: scratch) }
         let legacy = CommandLineHelper.legacyScriptURL(inBundle: bundle)
         try FileManager.default.createDirectory(at: legacy.deletingLastPathComponent(), withIntermediateDirectories: true)
         try Data().write(to: legacy)
         try link("plume-notify", to: legacy)
-        let state = CommandLineHelper.state(
-            of: bin.appending(path: "plume-notify"), bundledURL: tool, claimsOtherPlumeBundles: claimsOtherPlumeBundles
-        )
-        #expect(state == .outdated(legacy.standardizedFileURL))
+        #expect(state("plume-notify") == .outdated(legacy.standardizedFileURL))
     }
 
-    /// A release build takes over another Plume's link; a debug build leaves
-    /// it to that Plume.
-    @Test func aLinkIntoAnotherPlumeBundleIsOursOnlyInARelease() throws {
+    @Test func aLinkIntoAnotherPlumeBundleIsAnotherCopys() throws {
         defer { try? FileManager.default.removeItem(at: scratch) }
         let otherTool = try makeOtherPlumeTool()
         try link("plume", to: otherTool)
-        let url = bin.appending(path: "plume")
-
-        #expect(CommandLineHelper.state(of: url, bundledURL: tool, claimsOtherPlumeBundles: true)
-            == .outdated(otherTool.standardizedFileURL))
-        #expect(CommandLineHelper.state(of: url, bundledURL: tool, claimsOtherPlumeBundles: false)
-            == .ownedByOtherPlume(otherTool.standardizedFileURL))
+        #expect(state("plume") == .ownedByOtherPlume(otherTool.standardizedFileURL))
     }
 
-    @Test func aDebugBuildNeitherReplacesNorRemovesAnotherPlumesLink() throws {
+    @Test func turningOnRepointsAnotherPlumesLinksAndTurningOffRemovesThem() throws {
         defer { try? FileManager.default.removeItem(at: scratch) }
         let otherTool = try makeOtherPlumeTool()
         try link("plume", to: otherTool)
 
-        #expect(throws: CommandLineHelper.InstallError.self) {
-            try CommandLineHelper.install(in: bin, bundledURL: tool, claimsOtherPlumeBundles: false)
-        }
-        #expect(try destination("plume") == otherTool.path)
+        try CommandLineHelper.install(in: bin, bundledURL: tool)
+        #expect(try destination("plume") == tool.path)
         #expect(try destination("plume-notify") == tool.path)
 
-        try CommandLineHelper.uninstall(in: bin, bundledURL: tool, claimsOtherPlumeBundles: false)
-        #expect(try destination("plume") == otherTool.path)
+        try FileManager.default.removeItem(at: bin.appending(path: "plume"))
+        try link("plume", to: otherTool)
+        try link("wt", to: otherTool)
+        try CommandLineHelper.uninstall(in: bin, bundledURL: tool)
+        #expect(state("plume") == .notInstalled)
         #expect(state("plume-notify") == .notInstalled)
+        #expect(wtState() == .notInstalled)
     }
 
     private func makeOtherPlumeTool() throws -> URL {
@@ -133,13 +124,12 @@ struct CommandLineHelperTests {
         #expect(summary() == .init(isOn: true, canToggle: true, needsUpdate: false, notes: ["Another tool owns plume"]))
     }
 
-    /// A debug build shows another copy's link as on, but leaves it to that copy.
-    @Test func linkedOnlyByAnotherPlumeIsOnButLocked() {
+    @Test func linkedOnlyByAnotherPlumeIsOnAndCanBeTurnedOffOrUpdated() {
         let summary = CommandLineHelper.summary(of: [
             ("plume", .ownedByOtherPlume(URL(fileURLWithPath: "/Applications/Plume.app/Contents/Helpers/plume"))),
             ("plume-notify", .notInstalled),
         ])
-        #expect(summary == .init(isOn: true, canToggle: false, needsUpdate: false, notes: ["Another copy of Plume owns plume"]))
+        #expect(summary == .init(isOn: true, canToggle: true, needsUpdate: true, notes: ["Another copy of Plume owns plume"]))
     }
 
     @Test func anOutdatedLinkIsOnAndNeedsUpdating() {
@@ -274,8 +264,8 @@ struct CommandLineHelperTests {
 
     // MARK: wt
 
-    private func wtState(claimsOtherPlumeBundles: Bool = true) -> CommandLineHelper.State {
-        CommandLineHelper.wtState(in: bin, bundledURL: tool, claimsOtherPlumeBundles: claimsOtherPlumeBundles)
+    private func wtState() -> CommandLineHelper.State {
+        CommandLineHelper.wtState(in: bin, bundledURL: tool)
     }
 
     @Test func wtIsLinkedOnlyWhenAskedAndRemovableOnItsOwn() throws {
@@ -284,11 +274,11 @@ struct CommandLineHelperTests {
         CommandLineHelper.repointLegacyLinks(in: bin, bundleURL: bundle, bundledURL: tool)
         try CommandLineHelper.install(in: bin, bundledURL: tool)
         #expect(wtState() == .notInstalled)
-        #expect(CommandLineHelper.wtSummary(of: wtState()).installTitle == "Link")
+        #expect(CommandLineHelper.wtSummary(of: wtState()) == .init(isOn: false, canToggle: true, needsUpdate: false, note: nil))
 
         try CommandLineHelper.installWT(in: bin, bundledURL: tool)
         #expect(try destination("wt") == tool.path)
-        #expect(CommandLineHelper.wtSummary(of: wtState()) == .init(status: "Linked", installTitle: nil, canRemove: true))
+        #expect(CommandLineHelper.wtSummary(of: wtState()) == .init(isOn: true, canToggle: true, needsUpdate: false, note: nil))
 
         try CommandLineHelper.uninstallWT(in: bin, bundledURL: tool)
         #expect(wtState() == .notInstalled)
@@ -302,7 +292,8 @@ struct CommandLineHelperTests {
         try Data().write(to: homebrew)
         try link("wt", to: homebrew)
 
-        #expect(CommandLineHelper.wtSummary(of: wtState()) == .init(status: "Another tool owns wt", installTitle: nil, canRemove: false))
+        #expect(CommandLineHelper.wtSummary(of: wtState())
+            == .init(isOn: false, canToggle: false, needsUpdate: false, note: "Another tool owns wt"))
         #expect(throws: CommandLineHelper.InstallError.self) {
             try CommandLineHelper.installWT(in: bin, bundledURL: tool)
         }
@@ -325,19 +316,21 @@ struct CommandLineHelperTests {
         #expect(try destination("wt") == tool.path)
     }
 
-    @Test func aDebugBuildLeavesAnotherPlumesWTAlone() throws {
+    @Test func anotherPlumesWTIsRepointedOnAndRemovedOff() throws {
         defer { try? FileManager.default.removeItem(at: scratch) }
         let otherTool = try makeOtherPlumeTool()
         try link("wt", to: otherTool)
 
-        #expect(wtState(claimsOtherPlumeBundles: false) == .ownedByOtherPlume(otherTool.standardizedFileURL))
-        #expect(throws: CommandLineHelper.InstallError.self) {
-            try CommandLineHelper.installWT(in: bin, bundledURL: tool, claimsOtherPlumeBundles: false)
-        }
-        try CommandLineHelper.uninstallWT(in: bin, bundledURL: tool, claimsOtherPlumeBundles: false)
-        #expect(try destination("wt") == otherTool.path)
+        #expect(wtState() == .ownedByOtherPlume(otherTool.standardizedFileURL))
+        #expect(CommandLineHelper.wtSummary(of: wtState())
+            == .init(isOn: true, canToggle: true, needsUpdate: true, note: "Another copy of Plume owns wt"))
 
-        try CommandLineHelper.installWT(in: bin, bundledURL: tool, claimsOtherPlumeBundles: true)
+        try CommandLineHelper.installWT(in: bin, bundledURL: tool)
         #expect(try destination("wt") == tool.path)
+
+        try FileManager.default.removeItem(at: bin.appending(path: "wt"))
+        try link("wt", to: otherTool)
+        try CommandLineHelper.uninstallWT(in: bin, bundledURL: tool)
+        #expect(wtState() == .notInstalled)
     }
 }

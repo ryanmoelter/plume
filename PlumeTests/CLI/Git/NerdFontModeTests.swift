@@ -4,7 +4,9 @@ import Testing
 
 /// Automatic uses the icons only inside a Plume tab whose terminal keeps the
 /// bundled font; On and Off ignore the environment. A `Bool` stored before
-/// the automatic mode decodes as On or Off.
+/// the automatic mode decodes as On or Off. The mode is one global setting:
+/// the Projects defaults row's value migrates into it once, a project's is
+/// ignored, and the tool reads it from the app's domain.
 struct NerdFontModeTests {
     private let tab = ["PLUME_TAB_ID": UUID().uuidString]
 
@@ -53,6 +55,80 @@ struct NerdFontModeTests {
             let data = try JSONEncoder().encode(ProjectSettings(nerdFont: mode))
             #expect(String(decoding: data, as: UTF8.self).contains(#""nerdFont":"\#(mode.rawValue)""#))
             #expect(try JSONDecoder().decode(ProjectSettings.self, from: data).nerdFont == mode)
+        }
+    }
+
+    @Test func theGlobalModeIsTheStoredOneThenTheDefaultsRowsThenAutomatic() {
+        #expect(NerdFontMode.global(stored: "off", legacyDefault: .on) == .off)
+        #expect(NerdFontMode.global(stored: "automatic", legacyDefault: .on) == .automatic)
+        #expect(NerdFontMode.global(stored: nil, legacyDefault: .on) == .on)
+        #expect(NerdFontMode.global(stored: nil, legacyDefault: nil) == .automatic)
+        #expect(NerdFontMode.global(stored: "sometimes", legacyDefault: .on) == .automatic)
+    }
+
+    // MARK: AppSettings
+
+    private func withDefaults(_ body: (UserDefaults, String) throws -> Void) throws {
+        let suite = "NerdFontModeTests-\(UUID().uuidString)"
+        let defaults = try #require(UserDefaults(suiteName: suite))
+        defer { defaults.removePersistentDomain(forName: suite) }
+        try body(defaults, suite)
+    }
+
+    private func store(_ configuration: ProjectsConfiguration, in defaults: UserDefaults) throws {
+        defaults.set(try JSONEncoder().encode(configuration), forKey: ProjectsConfiguration.userDefaultsKey)
+    }
+
+    @MainActor @Test func theDefaultsRowsModeMigratesOnceAndProjectsAreIgnored() throws {
+        try withDefaults { defaults, suite in
+            try store(ProjectsConfiguration(
+                defaults: ProjectSettings(nerdFont: .off),
+                repositories: ["/r": ProjectSettings(nerdFont: .on)]
+            ), in: defaults)
+
+            let settings = AppSettings(defaults: defaults, domainName: suite)
+            #expect(settings.nerdFontMode == .off)
+            #expect(defaults.string(forKey: NerdFontMode.userDefaultsKey) == "off")
+
+            settings.nerdFontMode = .on
+            #expect(AppSettings(defaults: defaults, domainName: suite).nerdFontMode == .on)
+        }
+    }
+
+    @MainActor @Test func nothingStoredIsAutomaticAndStaysUnset() throws {
+        try withDefaults { defaults, suite in
+            try store(ProjectsConfiguration(repositories: ["/r": ProjectSettings(nerdFont: .on)]), in: defaults)
+            let settings = AppSettings(defaults: defaults, domainName: suite)
+            #expect(settings.nerdFontMode == .automatic)
+            #expect(!settings.hasStoredNerdFontMode)
+        }
+    }
+
+    @Test func gitConfigImportSetsTheModeOnlyWhenUnset() {
+        let imported = ProjectsConfiguration(
+            defaults: ProjectSettings(nerdFont: .on),
+            repositories: ["/r": ProjectSettings(nerdFont: .off)]
+        )
+        #expect(GitConfigSettingsImport.nerdFontMode(importing: imported, isStored: false) == .on)
+        #expect(GitConfigSettingsImport.nerdFontMode(importing: imported, isStored: true) == nil)
+        #expect(GitConfigSettingsImport.nerdFontMode(importing: ProjectsConfiguration(), isStored: false) == nil)
+
+        let merged = GitConfigSettingsImport.merging(imported, into: ProjectsConfiguration())
+        #expect(merged == ProjectsConfiguration())
+    }
+
+    // MARK: The tool
+
+    @Test func theToolReadsTheGlobalMode() throws {
+        try withDefaults { defaults, suite in
+            let source = UserDefaultsProjectSettingsSource(suiteName: suite)
+            #expect(source.nerdFontMode() == .automatic)
+
+            try store(ProjectsConfiguration(defaults: ProjectSettings(nerdFont: .on)), in: defaults)
+            #expect(source.nerdFontMode() == .on)
+
+            defaults.set("off", forKey: NerdFontMode.userDefaultsKey)
+            #expect(source.nerdFontMode() == .off)
         }
     }
 

@@ -51,6 +51,10 @@ nonisolated enum ZshrcSetup {
         return URL(fileURLWithPath: (zdotdir as NSString).expandingTildeInPath).appending(path: ".zshrc")
     }
 
+    static func displayPath(_ url: URL) -> String {
+        (url.path as NSString).abbreviatingWithTildeInPath
+    }
+
     /// The `.zshrc` zsh itself would read. A GUI-launched app rarely
     /// inherits `ZDOTDIR`, which is usually set in `~/.zshenv`, so this asks
     /// zsh. Blocks on a process, so call it off the main actor.

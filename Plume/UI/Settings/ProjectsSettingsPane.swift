@@ -49,7 +49,6 @@ struct ProjectsSettingsPane: View {
             baseBranch: fallbacks.baseBranch,
             branchPrefix: fallbacks.branchPrefix,
             forge: fallbacks.forge,
-            nerdFont: .automatic,
             protectedWorktrees: [],
             ignoredPendingChecks: []
         )
@@ -253,22 +252,6 @@ private struct ProjectSettingsFields: View {
         }
         .plumeID(AccessibilityID.settingsProjectForgePicker, value: settings.forge?.rawValue ?? "auto")
 
-        Picker(selection: nerdFont) {
-            if isDefaults {
-                Text(Self.name(NerdFontMode.automatic)).tag(NerdFontMode?.none)
-            } else {
-                Text("Default (\(Self.name(inherited.nerdFont ?? .automatic)))").tag(NerdFontMode?.none)
-                Text(Self.name(NerdFontMode.automatic)).tag(NerdFontMode?.some(.automatic))
-            }
-            Text(Self.name(NerdFontMode.on)).tag(NerdFontMode?.some(.on))
-            Text(Self.name(NerdFontMode.off)).tag(NerdFontMode?.some(.off))
-        } label: {
-            Text("Nerd Font icons")
-            NerdFontPreview()
-            Text("Automatic shows them in Plume's terminals unless your Ghostty config sets its own font-family.")
-        }
-        .plumeID(AccessibilityID.settingsProjectNerdFontPicker, value: settings.nerdFont?.rawValue ?? "default")
-
         NameListEditor(
             title: "Protected worktrees",
             caption: "Worktree folders that wt refuses to delete, rename or foreground.",
@@ -317,22 +300,6 @@ private struct ProjectSettingsFields: View {
             get: { settings[keyPath: keyPath] ?? "" },
             set: { value in update { $0[keyPath: keyPath] = value.isEmpty ? nil : value } }
         )
-    }
-
-    /// The defaults row stores Automatic as nil, so it has one option for it.
-    private var nerdFont: Binding<NerdFontMode?> {
-        Binding(
-            get: { isDefaults && settings.nerdFont == .automatic ? nil : settings.nerdFont },
-            set: { value in update { $0.nerdFont = value } }
-        )
-    }
-
-    private static func name(_ mode: NerdFontMode) -> String {
-        switch mode {
-        case .automatic: "Automatic"
-        case .on: "On"
-        case .off: "Off"
-        }
     }
 
     private static func name(_ kind: ForgeKind) -> String {
@@ -451,46 +418,5 @@ private struct NameListEditor: View {
         let updated = display.adding(draft)
         draft = ""
         set(updated)
-    }
-}
-
-/// The glyphs `wt` prints in each mode, in the bundled Nerd Font, so the
-/// choice can be made by eye.
-private struct NerdFontPreview: View {
-    var body: some View {
-        Grid(alignment: .leading, horizontalSpacing: 8, verticalSpacing: 2) {
-            row("Nerd Font", TerminalUI(glyphSet: .nerd))
-            row("Plain", TerminalUI(glyphSet: .plain))
-        }
-    }
-
-    private func row(_ title: String, _ ui: TerminalUI) -> some View {
-        GridRow {
-            Text(title)
-            HStack(spacing: 6) {
-                ForEach(Array(Self.glyphs(ui).enumerated()), id: \.offset) { _, glyph in
-                    Text(glyph.text).foregroundStyle(glyph.color)
-                }
-            }
-            .font(Self.font)
-        }
-    }
-
-    private static var font: Font {
-        BundledFonts.isCodeAvailable ? .custom(BundledFonts.code, size: 13) : .system(size: 13, design: .monospaced)
-    }
-
-    /// The glyphs that differ between the sets, each in the color `wt`
-    /// paints it. The plain set has no forge icon, so that one drops out.
-    private static func glyphs(_ ui: TerminalUI) -> [(text: String, color: Color)] {
-        [
-            (ui.github, Color.secondary),
-            (ui.gitlab, Color.secondary),
-            (ui.checksPass, Color.green),
-            (ui.checksFail, Color.red),
-            (ui.checksPending, Color.yellow),
-            (ui.merged, Color.purple),
-            (ui.netOff, Color.red),
-        ].filter { !$0.0.isEmpty }
     }
 }

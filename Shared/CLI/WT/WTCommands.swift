@@ -683,7 +683,7 @@ nonisolated extension WT {
           baseBranch           \(ctx.baseBranch)
           branchPrefix         \(prefix)
           forge                \(kind.rawValue)
-          nerdFont             \(ui.glyphSet == .nerd ? "yes" : "no") (\((ctx.settings.nerdFont ?? .automatic).rawValue))
+          nerdFont             \(ui.glyphSet == .nerd ? "yes" : "no") (\(ctx.nerdFontMode.rawValue), set in Settings ▸ Command line)
           protectedWorktrees   \(ctx.protected.isEmpty ? "(none)" : ctx.protected.joined(separator: ", "))
           ignoredPendingChecks \(ignored.isEmpty ? "(none)" : "\(ignored.count) check(s)")
           core.untrackedCache  \(untrackedCache.isEmpty ? "(unset — `git config core.untrackedCache true` speeds up `wt list`)" : untrackedCache)

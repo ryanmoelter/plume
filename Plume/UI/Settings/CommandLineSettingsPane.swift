@@ -2,6 +2,7 @@ import AppKit
 import SwiftUI
 
 struct CommandLineSettingsPane: View {
+    @State private var settings = AppSettings.shared
     @State private var links: Links?
     @State private var isChangingLinks = false
     @State private var helperError: String?
@@ -25,36 +26,53 @@ struct CommandLineSettingsPane: View {
     private enum Row { case helper, wt }
 
     private var isToolOn: Bool { links?.helper.isOn ?? false }
+    private var isWTOn: Bool { links?.wt.isOn ?? false }
+
+    private var zshrcDisplayPath: String {
+        ZshrcSetup.displayPath(zshrcURL ?? ZshrcSetup.zshrcURL(zdotdir: nil))
+    }
+
+    private static var accent: Color { Color(nsColor: ThemeChrome.accentNSColor()) }
 
     var body: some View {
         Form {
             Section {
                 commandLineToolRow
                 if isToolOn {
-                    wtLinkRow
+                    wtRow
                     shellSetupRow
                 }
+            } header: {
+                Text("Installation")
+            }
+
+            Section {
+                nerdFontPicker
+                NerdFontPreview()
+            } header: {
+                Text("Customization")
             }
         }
         .formStyle(.grouped)
         .task {
-            await refreshLinks()
-            let (url, added) = await Task.detached {
-                let url = ZshrcSetup.resolveZshrcURL()
-                return (url, ZshrcSetup.isAdded(to: url))
-            }.value
+            let url = await Task.detached { ZshrcSetup.resolveZshrcURL() }.value
             zshrcURL = url
-            zshrcHasInitLine = added
+            await refresh()
         }
+        // Returning from a terminal, where the user may have pasted the
+        // line or linked a name by hand, activates the app and keys a window.
         .onReceive(NotificationCenter.default.publisher(for: NSApplication.didBecomeActiveNotification)) { _ in
-            Task { await refreshLinks() }
+            Task { await refresh() }
+        }
+        .onReceive(NotificationCenter.default.publisher(for: NSWindow.didBecomeKeyNotification)) { _ in
+            Task { await refresh() }
         }
     }
 
     private var commandLineToolRow: some View {
         LabeledContent {
             VStack(alignment: .trailing) {
-                Toggle("Command line tool", isOn: toolBinding)
+                Toggle("Command line tool", isOn: Binding(get: { isToolOn }, set: { setTool(on: $0) }))
                     .labelsHidden()
                     .toggleStyle(.switch)
                     .plumeID(
@@ -82,13 +100,9 @@ struct CommandLineSettingsPane: View {
             }
         } label: {
             Text("Command line tool")
-            Text("Links `plume` into `~/.local/bin`, for `plume notify`, `plume wt`, and more")
+            Text("Links `plume` into `~/.local/bin`")
                 .foregroundStyle(.secondary)
         }
-    }
-
-    private var toolBinding: Binding<Bool> {
-        Binding(get: { isToolOn }, set: { setTool(on: $0) })
     }
 
     private func setTool(on: Bool) {
@@ -97,31 +111,29 @@ struct CommandLineSettingsPane: View {
         }
     }
 
-    private var wtLinkRow: some View {
+    private var wtRow: some View {
         LabeledContent {
             VStack(alignment: .trailing) {
-                if let wt = links?.wt {
-                    Text(wt.status)
+                Toggle("`wt` command", isOn: Binding(get: { isWTOn }, set: { setWT(on: $0) }))
+                    .labelsHidden()
+                    .toggleStyle(.switch)
+                    .plumeID(
+                        AccessibilityID.settingsWTToggle,
+                        value: isWTOn ? "on" : "off",
+                        invoke: { setWT(on: !isWTOn) }
+                    )
+                    .disabled(links?.wt.canToggle != true || isChangingLinks)
+                if let note = links?.wt.note {
+                    Text(note)
                         .foregroundStyle(.secondary)
-                        .plumeID(AccessibilityID.settingsWTLinkStatus, value: wt.status)
-                    HStack {
-                        if let installTitle = wt.installTitle {
-                            Button(installTitle) { changeLinks(of: .wt) { try CommandLineHelper.installWT() } }
-                                .plumeID(
-                                    AccessibilityID.settingsWTLinkButton,
-                                    invoke: { changeLinks(of: .wt) { try CommandLineHelper.installWT() } }
-                                )
-                                .disabled(isChangingLinks)
-                        }
-                        if wt.canRemove {
-                            Button("Remove") { changeLinks(of: .wt) { try CommandLineHelper.uninstallWT() } }
-                                .plumeID(
-                                    AccessibilityID.settingsWTUnlinkButton,
-                                    invoke: { changeLinks(of: .wt) { try CommandLineHelper.uninstallWT() } }
-                                )
-                                .disabled(isChangingLinks)
-                        }
-                    }
+                }
+                if links?.wt.needsUpdate == true {
+                    Button("Update") { changeLinks(of: .wt) { try CommandLineHelper.installWT() } }
+                        .plumeID(
+                            AccessibilityID.settingsWTUpdateButton,
+                            invoke: { changeLinks(of: .wt) { try CommandLineHelper.installWT() } }
+                        )
+                        .disabled(isChangingLinks)
                 }
                 if let wtError {
                     Text(wtError)
@@ -130,33 +142,45 @@ struct CommandLineSettingsPane: View {
             }
         } label: {
             Text("`wt` command")
-            Text("Also links `wt` into `~/.local/bin`, running `plume wt`")
+            Text("Links `wt` into `~/.local/bin`, for agents and non-interactive terminals")
                 .foregroundStyle(.secondary)
+        }
+    }
+
+    private func setWT(on: Bool) {
+        changeLinks(of: .wt) {
+            if on { try CommandLineHelper.installWT() } else { try CommandLineHelper.uninstallWT() }
         }
     }
 
     private var shellSetupRow: some View {
         LabeledContent {
             VStack(alignment: .trailing) {
-                Text(ZshrcSetup.initLine)
-                    .font(.system(.body, design: .monospaced))
-                    .textSelection(.enabled)
-                HStack {
-                    Button("Copy", action: copyInitLine)
-                        .plumeID(AccessibilityID.settingsShellSetupCopyButton, invoke: copyInitLine)
-                    if zshrcHasInitLine {
-                        Text("Added")
-                            .foregroundStyle(.secondary)
-                            .plumeID(AccessibilityID.settingsShellSetupStatus, value: "Added")
-                    } else {
-                        Button("Add to .zshrc", action: addInitLine)
-                            .plumeID(AccessibilityID.settingsShellSetupAddButton, invoke: addInitLine)
-                            .disabled(zshrcURL == nil)
+                HStack(spacing: 6) {
+                    Text(ZshrcSetup.initLine)
+                        .font(.system(.body, design: .monospaced))
+                        .textSelection(.enabled)
+                    Button(action: copyInitLine) {
+                        Image(systemName: "doc.on.doc")
                     }
+                    .buttonStyle(.bordered)
+                    .buttonBorderShape(.circle)
+                    .controlSize(.small)
+                    .tint(Self.accent)
+                    .help("Copy")
+                    .plumeID(AccessibilityID.settingsShellSetupCopyButton, invoke: copyInitLine)
                 }
-                if let zshrcURL, !zshrcHasInitLine {
-                    Text("Appends to \((zshrcURL.path as NSString).abbreviatingWithTildeInPath)")
-                        .foregroundStyle(.secondary)
+                if zshrcHasInitLine {
+                    HStack(spacing: 4) {
+                        Image(systemName: "checkmark")
+                        Text("in \(zshrcDisplayPath)")
+                    }
+                    .foregroundStyle(.secondary)
+                    .plumeID(AccessibilityID.settingsShellSetupStatus, value: "in \(zshrcDisplayPath)")
+                } else {
+                    Button("Append to \(zshrcDisplayPath)", action: addInitLine)
+                        .plumeID(AccessibilityID.settingsShellSetupAddButton, invoke: addInitLine)
+                        .disabled(zshrcURL == nil)
                 }
                 if let zshrcError {
                     Text(zshrcError)
@@ -165,13 +189,38 @@ struct CommandLineSettingsPane: View {
             }
         } label: {
             Text("Shell integration")
-            Text("Completions, `wt`, and a `wt switch` that changes directory")
+            Text("Completions and `wt switch` support")
                 .foregroundStyle(.secondary)
         }
     }
 
-    private func refreshLinks() async {
-        links = await Task.detached { Links.read() }.value
+    private var nerdFontPicker: some View {
+        Picker(selection: $settings.nerdFontMode) {
+            ForEach(NerdFontMode.allCases, id: \.self) { mode in
+                Text(Self.name(mode)).tag(mode)
+            }
+        } label: {
+            Text("Nerd Font icons")
+            Text("Automatic shows them in Plume's terminals unless your Ghostty config sets its own font-family.")
+        }
+        .plumeID(AccessibilityID.settingsNerdFontPicker, value: settings.nerdFontMode.rawValue)
+    }
+
+    private static func name(_ mode: NerdFontMode) -> String {
+        switch mode {
+        case .automatic: "Automatic"
+        case .on: "On"
+        case .off: "Off"
+        }
+    }
+
+    private func refresh() async {
+        let url = zshrcURL
+        let (links, hasInitLine) = await Task.detached {
+            (Links.read(), url.map(ZshrcSetup.isAdded(to:)))
+        }.value
+        self.links = links
+        if let hasInitLine { zshrcHasInitLine = hasInitLine }
     }
 
     /// Runs a link change off the main actor, then rereads every link, since
@@ -218,6 +267,53 @@ struct CommandLineSettingsPane: View {
             }.value
             zshrcError = error
             zshrcHasInitLine = error == nil
+        }
+    }
+}
+
+/// The glyphs a `wt list` row can print, in each glyph set, painted in the
+/// terminal theme's own colors on its background, so the choice can be made
+/// by eye.
+private struct NerdFontPreview: View {
+    @Environment(\.colorScheme) private var colorScheme
+
+    var body: some View {
+        let colors = ThemeChrome.terminalColors(for: colorScheme)
+        Grid(alignment: .leading, horizontalSpacing: 10, verticalSpacing: 4) {
+            row("Nerd Font", TerminalUI(glyphSet: .nerd), colors)
+            row("Plain", TerminalUI(glyphSet: .plain), colors)
+        }
+        .padding(10)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .background(colors.background, in: RoundedRectangle(cornerRadius: 6))
+    }
+
+    private func row(_ title: String, _ ui: TerminalUI, _ colors: ThemeChrome.TerminalColors) -> some View {
+        GridRow {
+            Text(title)
+                .foregroundStyle(Self.color(.dim, colors))
+            HStack(spacing: 6) {
+                ForEach(Array(ui.listGlyphs.enumerated()), id: \.offset) { _, glyph in
+                    Text(glyph.glyph).foregroundStyle(Self.color(glyph.color, colors))
+                }
+            }
+            .font(Self.font)
+        }
+    }
+
+    private static var font: Font {
+        BundledFonts.isCodeAvailable ? .custom(BundledFonts.code, size: 13) : .system(size: 13, design: .monospaced)
+    }
+
+    /// Dim text is the foreground at ghostty's default `faint-opacity`.
+    private static func color(_ color: TerminalColor, _ colors: ThemeChrome.TerminalColors) -> Color {
+        switch color {
+        case .foreground: colors.foreground
+        case .dim: colors.foreground.opacity(0.5)
+        case .red: colors.palette[1]
+        case .green: colors.palette[2]
+        case .yellow: colors.palette[3]
+        case .magenta: colors.palette[5]
         }
     }
 }

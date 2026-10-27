@@ -79,4 +79,10 @@ struct ZshrcSetupTests {
         #expect(ZshrcSetup.zshrcURL(zdotdir: nil, home: home).path == "/Users/me/.zshrc")
         #expect(ZshrcSetup.zshrcURL(zdotdir: "", home: home).path == "/Users/me/.zshrc")
     }
+
+    @Test func theDisplayPathAbbreviatesHome() {
+        let zdotdir = URL.homeDirectory.appending(path: ".config/zsh").path
+        #expect(ZshrcSetup.displayPath(ZshrcSetup.zshrcURL(zdotdir: zdotdir)) == "~/.config/zsh/.zshrc")
+        #expect(ZshrcSetup.displayPath(ZshrcSetup.zshrcURL(zdotdir: nil)) == "~/.zshrc")
+    }
 }

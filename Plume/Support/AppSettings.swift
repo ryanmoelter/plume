@@ -265,9 +265,17 @@ final class AppSettings {
 
         self.hasPromptedForFullDiskAccess = defaults.bool(forKey: Key.hasPromptedForFullDiskAccess)
 
-        self.projectsConfiguration = defaults.data(forKey: ProjectsConfiguration.userDefaultsKey)
+        let projectsConfiguration = defaults.data(forKey: ProjectsConfiguration.userDefaultsKey)
             .flatMap { try? JSONDecoder().decode(ProjectsConfiguration.self, from: $0) }
             ?? ProjectsConfiguration()
+        self.projectsConfiguration = projectsConfiguration
+
+        let storedNerdFontMode = defaults.string(forKey: NerdFontMode.userDefaultsKey)
+        let legacyNerdFontMode = projectsConfiguration.defaults.nerdFont
+        self.nerdFontMode = NerdFontMode.global(stored: storedNerdFontMode, legacyDefault: legacyNerdFontMode)
+        if storedNerdFontMode == nil, let legacyNerdFontMode {
+            defaults.set(legacyNerdFontMode.rawValue, forKey: NerdFontMode.userDefaultsKey)
+        }
 
         self.updateInstallSourceOverride = defaults.string(forKey: Key.updateInstallSourceOverrideRaw)
             .flatMap(UpdateInstallSource.init(rawValue:))
@@ -714,6 +722,17 @@ final class AppSettings {
         didSet {
             defaults.set(try? JSONEncoder().encode(projectsConfiguration), forKey: ProjectsConfiguration.userDefaultsKey)
         }
+    }
+
+    /// Settings ▸ Command line. `plume wt` reads the same key from this app's
+    /// domain (`UserDefaultsProjectSettingsSource`).
+    var nerdFontMode: NerdFontMode {
+        didSet { defaults.set(nerdFontMode.rawValue, forKey: NerdFontMode.userDefaultsKey) }
+    }
+
+    /// False until the mode is chosen, imported from git config, or migrated.
+    var hasStoredNerdFontMode: Bool {
+        defaults.object(forKey: NerdFontMode.userDefaultsKey) != nil
     }
 
     /// Moves the retired Settings ▸ Integrations ignored-checks list into

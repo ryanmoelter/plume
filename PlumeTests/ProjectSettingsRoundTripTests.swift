@@ -24,25 +24,26 @@ struct ProjectSettingsRoundTripTests {
         try GitRunner.run(["commit", "-m", "init"], in: path)
     }
 
-    nonisolated private static func settingsTheToolReads(from directory: String, suite: String) throws -> ProjectSettings {
-        try WorktreeContext.detect(
+    nonisolated private static func contextTheToolBuilds(from directory: String, suite: String) throws -> (settings: ProjectSettings, nerdFontMode: NerdFontMode) {
+        let context = try WorktreeContext.detect(
             git: ProcessWorktreeGit(workingDirectory: directory),
             settingsSource: UserDefaultsProjectSettingsSource(suiteName: suite),
             console: BufferConsole(),
             environment: [:]
-        ).settings
+        )
+        return (context.settings, context.nerdFontMode)
     }
 
     /// Writes through `AppSettings` under the root found from `checkout`,
     /// then reads as the tool does from `directory`.
-    private func roundTrip(savingFrom checkout: String, readingFrom directory: String) async throws -> ProjectSettings {
+    private func roundTrip(savingFrom checkout: String, readingFrom directory: String) async throws -> (settings: ProjectSettings, nerdFontMode: NerdFontMode) {
         let root = try #require(await Task.detached { ProjectRoot.containing(checkout) }.value)
         let defaults = try #require(UserDefaults(suiteName: suite))
         let app = AppSettings(defaults: defaults, domainName: suite)
-        app.projectsConfiguration.defaults.nerdFont = .on
+        app.nerdFontMode = .on
         app.projectsConfiguration.repositories = [root: ProjectSettings(branchPrefix: "", protectedWorktrees: ["keep"])]
         let suite = suite
-        return try await Task.detached { try Self.settingsTheToolReads(from: directory, suite: suite) }.value
+        return try await Task.detached { try Self.contextTheToolBuilds(from: directory, suite: suite) }.value
     }
 
     private func cleanUp() {
@@ -60,10 +61,11 @@ struct ProjectSettingsRoundTripTests {
         }.value
 
         for (saving, reading) in [(repository, worktree), (worktree, repository)] {
-            let settings = try await roundTrip(savingFrom: saving, readingFrom: reading)
+            let context = try await roundTrip(savingFrom: saving, readingFrom: reading)
+            let settings = context.settings
             #expect(settings.branchPrefix == "")
             #expect(settings.protectedWorktrees == ["keep"])
-            #expect(settings.nerdFont == .on)
+            #expect(context.nerdFontMode == .on)
         }
     }
 
@@ -80,7 +82,7 @@ struct ProjectSettingsRoundTripTests {
         }.value
 
         for saving in [layout, "\(layout)/.bare"] {
-            let settings = try await roundTrip(savingFrom: saving, readingFrom: worktree)
+            let settings = try await roundTrip(savingFrom: saving, readingFrom: worktree).settings
             #expect(settings.protectedWorktrees == ["keep"])
         }
     }

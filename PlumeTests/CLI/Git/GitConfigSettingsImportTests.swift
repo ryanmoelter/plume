@@ -92,7 +92,7 @@ struct GitConfigSettingsImportTests {
             ]
         )
         let merged = GitConfigSettingsImport.merging(imported, into: existing)
-        #expect(merged.defaults == ProjectSettings(branchPrefix: "kept/", nerdFont: .on))
+        #expect(merged.defaults == ProjectSettings(branchPrefix: "kept/"))
         #expect(merged.repositories["/repo"] == ProjectSettings(baseBranch: "develop", ignoredPendingChecks: ["mine"]))
         #expect(merged.repositories["/other"] == ProjectSettings(forge: .github))
         #expect(merged.repositories["/empty"] == nil)
