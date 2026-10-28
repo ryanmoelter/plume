@@ -21,7 +21,7 @@ The build itself still signs automatically with the Apple Development identity. 
 
 This is a Release-only property. In Debug the real code lives in `Plume.debug.dylib` beside a small launcher stub, which is why `nm` on a Debug binary looks empty.
 
-**`scrcpy-server` must be the real zip, not a Git LFS pointer.** The physical-device server lives in Git LFS, and a checkout without `git lfs` builds a bundle with a small text pointer in its place, so every physical device tab fails to connect. `install-release.sh` checks that `Plume/Resources/Scrcpy/scrcpy-server` starts with the zip magic `PK` before anything else, and checks the bundled `Contents/Resources/scrcpy-server` again next to the dylib check. Either failure says to run `git lfs pull` and rebuild Release.
+**`scrcpy-server` must be the real zip, not a Git LFS pointer.** The physical-device server lives in Git LFS, and a checkout without `git lfs` builds a bundle with a small text pointer in its place, so every physical device tab fails to connect. Both `install-release.sh` and `package-release.sh` check, through `scripts/lib/scrcpy-server.sh`, that `Plume/Resources/Scrcpy/scrcpy-server` starts with the zip magic `PK` before the build, and that the bundled `Contents/Resources/scrcpy-server` does too once the build finishes, before signing. Either failure says to run `git lfs pull` and rebuild Release.
 
 ## Steps
 

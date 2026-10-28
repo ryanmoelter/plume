@@ -24,6 +24,8 @@ set -uo pipefail
 
 # shellcheck source=lib/sign-bundle.sh
 source "$(dirname "${BASH_SOURCE[0]}")/lib/sign-bundle.sh"
+# shellcheck source=lib/scrcpy-server.sh
+source "$(dirname "${BASH_SOURCE[0]}")/lib/scrcpy-server.sh"
 # shellcheck source=lib/changelog.sh
 source "$(dirname "${BASH_SOURCE[0]}")/lib/changelog.sh"
 
@@ -122,6 +124,8 @@ git rev-parse "$TAG" >/dev/null 2>&1 \
   && echo "note: tag $TAG already exists" \
   || echo "note: tag $TAG does not exist yet — the script stops before the draft to let you make it"
 
+check_scrcpy_server_source
+
 rm -rf "$OUT"; mkdir -p "$OUT"
 
 # --- 2. build ---------------------------------------------------------------
@@ -177,6 +181,7 @@ echo "sign_update: $SIGN_UPDATE"
 
 APP="$OUT/Plume.app"
 cp -R "$SRC" "$APP" || fail "could not stage the bundle"
+check_scrcpy_server_bundled "$APP"
 
 # --- 3. re-sign with Developer ID -------------------------------------------
 # The build signs with whatever automatic signing picked (an Apple Development
