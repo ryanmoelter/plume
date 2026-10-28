@@ -183,10 +183,14 @@ nonisolated enum AndroidKeycodeMapper {
 /// the device sends nothing. Modifiers go down and up as the Mac reports them, and a key-down first
 /// brings the device's modifiers in line with the event's flags, which covers a modifier pressed
 /// before this view had focus or after `releaseAll()`.
+///
+/// AppKit delivers no key-up for a key released while ⌘ is held, so releasing Meta first releases
+/// every key that went down with it.
 nonisolated struct AndroidPressedKeys {
     private struct PressedKey {
         var keycode: UInt32
         var repeatCount: UInt32
+        var isMetaChord: Bool
     }
 
     /// Keyed by Mac virtual keycode: what its key-down sent.
@@ -194,6 +198,8 @@ nonisolated struct AndroidPressedKeys {
     private var modifiers: [AndroidModifierKey] = []
 
     var isEmpty: Bool { pressed.isEmpty && modifiers.isEmpty }
+
+    func holds(keyCode: UInt16) -> Bool { pressed[keyCode] != nil }
 
     /// Nil when the event isn't the device's, so the caller passes it on.
     mutating func inputs(
@@ -209,8 +215,13 @@ nonisolated struct AndroidPressedKeys {
             guard let key = AndroidModifierKey(macKeyCode: keyCode) else { return nil }
             let isDown = AndroidModifierKey.held(in: modifierFlags).contains(key)
             guard isDown != modifiers.contains(key) else { return [] }
-            if isDown { modifiers.append(key) } else { modifiers.removeAll { $0 == key } }
-            return [.key(phase: isDown ? .down : .up, keycode: key.keycode, metaState: metaState)]
+            if isDown {
+                modifiers.append(key)
+                return [.key(phase: .down, keycode: key.keycode, metaState: metaState)]
+            }
+            let chordKeys = releaseMetaChordKeys(before: key)
+            modifiers.removeAll { $0 == key }
+            return chordKeys + [.key(phase: .up, keycode: key.keycode, metaState: metaState)]
         }
         if type == .keyUp, let key = pressed.removeValue(forKey: keyCode) {
             return [.key(phase: .up, keycode: key.keycode, metaState: metaState)]
@@ -221,9 +232,11 @@ nonisolated struct AndroidPressedKeys {
         ) else { return nil }
         guard type == .keyDown else { return [] }
         let repeatCount = isRepeat ? (pressed[keyCode]?.repeatCount ?? 0) + 1 : 0
-        return syncModifiers(to: modifierFlags) + inputs.map { input in
+        let synced = syncModifiers(to: modifierFlags)
+        let isMetaChord = modifiers.contains(where: \.isMeta)
+        return synced + inputs.map { input in
             guard case .key(.down, let keycode, let metaState, _) = input else { return input }
-            pressed[keyCode] = PressedKey(keycode: keycode, repeatCount: repeatCount)
+            pressed[keyCode] = PressedKey(keycode: keycode, repeatCount: repeatCount, isMetaChord: isMetaChord)
             return .key(phase: .down, keycode: keycode, metaState: metaState, repeatCount: repeatCount)
         }
     }
@@ -258,12 +271,25 @@ nonisolated struct AndroidPressedKeys {
 
     private mutating func syncModifiers(to flags: NSEvent.ModifierFlags) -> [AndroidKeyInput] {
         let held = AndroidModifierKey.held(in: flags)
-        var inputs = modifiers.filter { !held.contains($0) }.map { release($0) }
+        var inputs: [AndroidKeyInput] = []
+        for key in modifiers where !held.contains(key) {
+            inputs += releaseMetaChordKeys(before: key) + [release(key)]
+        }
         for key in held where !modifiers.contains(key) {
             modifiers.append(key)
             inputs.append(.key(phase: .down, keycode: key.keycode, metaState: AndroidModifierKey.metaState(of: modifiers)))
         }
         return inputs
+    }
+
+    private mutating func releaseMetaChordKeys(before key: AndroidModifierKey) -> [AndroidKeyInput] {
+        guard key.isMeta else { return [] }
+        let metaState = AndroidModifierKey.metaState(of: modifiers)
+        return pressed.keys.sorted().compactMap { keyCode in
+            guard pressed[keyCode]!.isMetaChord else { return nil }
+            let key = pressed.removeValue(forKey: keyCode)!
+            return .key(phase: .up, keycode: key.keycode, metaState: metaState)
+        }
     }
 
     private mutating func release(_ key: AndroidModifierKey) -> AndroidKeyInput {

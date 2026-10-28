@@ -18,7 +18,7 @@ enum DeviceSessionState: Equatable {
     case booting
     case connecting
     case connected
-    /// A physical device whose connection closed while no sink watched it. The next sink reconnects.
+    /// A physical device that is ready but unconnected because no sink watches it. The next sink connects.
     case suspended
     case disconnected(String)
     case failed(String)
@@ -106,6 +106,11 @@ final class DeviceSession {
     }
 
     func locate() {
+        locate(waitingForSink: true)
+    }
+
+    /// `waitingForSink` false is for the picker, whose own view is no sink but is about to be replaced by one.
+    private func locate(waitingForSink: Bool) {
         guard let target else {
             state = .needsDevice
             return
@@ -127,7 +132,14 @@ final class DeviceSession {
                 guard !Task.isCancelled else { return }
                 if let adbURL = physicalDiscovery.adbURL,
                    physicalDiscovery.devices.contains(where: { $0.serial == serial && $0.isReady }) {
-                    connect(to: .physical(serial: serial, adbURL: adbURL))
+                    let device = ResolvedDevice.physical(serial: serial, adbURL: adbURL)
+                    if hasSinks || !waitingForSink {
+                        connect(to: device)
+                    } else {
+                        // A hidden tab would start the phone's encoder only to stop it after the grace period.
+                        connectedDevice = device
+                        state = .suspended
+                    }
                 } else {
                     state = .notRunning
                 }
@@ -144,7 +156,7 @@ final class DeviceSession {
     func attach(_ device: PhysicalDevice) {
         choose(.physical(serial: device.serial), displayName: device.displayName)
         guard let adbURL = physicalDiscovery.adbURL else {
-            locate()
+            locate(waitingForSink: false)
             return
         }
         connect(to: .physical(serial: device.serial, adbURL: adbURL))
@@ -338,6 +350,10 @@ final class DeviceSession {
         EmulatorLog.error("\(logPrefix) lost the connection: \(reason)")
         disconnect()
         state = .disconnected(reason)
+    }
+
+    private var hasSinks: Bool {
+        sinks.values.contains { $0.sink != nil }
     }
 
     private func updateStreaming() {

@@ -11,7 +11,7 @@ final class DeviceSurfaceView: NSView, DeviceFrameSink {
             guard session !== oldValue else { return }
             if let oldValue, isSink { oldValue.removeSink(self) }
             isSink = false
-            pressedAndroidKeys = AndroidPressedKeys()
+            releaseAndroidKeys(to: oldValue)
             updateSink()
         }
     }
@@ -27,6 +27,7 @@ final class DeviceSurfaceView: NSView, DeviceFrameSink {
     private var pressedAndroidKeys = AndroidPressedKeys()
     private var occlusionObserver: NSObjectProtocol?
     private var resignKeyObserver: NSObjectProtocol?
+    private var keyUpMonitor: Any?
     private var resizeWork: DispatchWorkItem?
 
     override init(frame: NSRect) {
@@ -64,6 +65,7 @@ final class DeviceSurfaceView: NSView, DeviceFrameSink {
     override func viewDidMoveToWindow() {
         super.viewDidMoveToWindow()
         removeWindowObservers()
+        if window == nil { removeKeyUpMonitor() }
         if let window {
             occlusionObserver = NotificationCenter.default.addObserver(
                 forName: NSWindow.didChangeOcclusionStateNotification, object: window, queue: .main
@@ -93,6 +95,7 @@ final class DeviceSurfaceView: NSView, DeviceFrameSink {
     func detach() {
         resizeWork?.cancel()
         removeWindowObservers()
+        removeKeyUpMonitor()
         session = nil
     }
 
@@ -206,9 +209,35 @@ final class DeviceSurfaceView: NSView, DeviceFrameSink {
         return forward(type: .keyDown, event: event)
     }
 
+    override func becomeFirstResponder() -> Bool {
+        guard super.becomeFirstResponder() else { return false }
+        installKeyUpMonitor()
+        return true
+    }
+
     override func resignFirstResponder() -> Bool {
         releaseAndroidKeys()
+        removeKeyUpMonitor()
         return super.resignFirstResponder()
+    }
+
+    /// AppKit never sends `keyUp(with:)` for a key released while ⌘ is held, so a forwarded ⌘ chord
+    /// would leave its key down on the device. The monitor sees every key-up before dispatch and
+    /// consumes the ones the device holds, so `keyUp(with:)` never sends them twice.
+    private func installKeyUpMonitor() {
+        guard keyUpMonitor == nil else { return }
+        keyUpMonitor = NSEvent.addLocalMonitorForEvents(matching: .keyUp) { [weak self] event in
+            guard let self, event.window === window, window?.firstResponder === self,
+                  pressedAndroidKeys.holds(keyCode: event.keyCode)
+            else { return event }
+            _ = forward(type: .keyUp, event: event)
+            return nil
+        }
+    }
+
+    private func removeKeyUpMonitor() {
+        if let keyUpMonitor { NSEvent.removeMonitor(keyUpMonitor) }
+        keyUpMonitor = nil
     }
 
     private var forwardsAndroidKeys: Bool { session?.isPhysical == true && session?.isConnected == true }
@@ -225,6 +254,10 @@ final class DeviceSurfaceView: NSView, DeviceFrameSink {
     /// Lifts every key the device holds, so focus leaving or a Plume shortcut firing mid-chord never
     /// leaves a key or Meta stuck down.
     private func releaseAndroidKeys() {
+        releaseAndroidKeys(to: session)
+    }
+
+    private func releaseAndroidKeys(to session: DeviceSession?) {
         let inputs = pressedAndroidKeys.releaseAll()
         guard let session, session.isConnected else { return }
         for input in inputs { session.send(.androidKey(input)) }

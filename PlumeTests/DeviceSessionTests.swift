@@ -431,12 +431,38 @@ struct DeviceSessionTests {
 
     @Test func retryConnectsOnceTheDeviceAppears() async {
         let h = Harness(target: .physical(serial: "S1"))
+        let sink = FakeSink(size: CGSize(width: 100, height: 200))
+        h.session.addSink(sink)
         h.session.start()
         await waitUntil { h.session.state == .notRunning }
         h.adb.listing.devices = [pixel]
         h.session.locate()
         await waitUntil { h.session.state == .connected }
         #expect(h.session.state == .connected)
+    }
+
+    @Test func anUnwatchedPhysicalTabWaitsForASinkToConnect() async {
+        let h = Harness(target: .physical(serial: "S1"), devices: [pixel])
+        h.session.start()
+        await waitUntil { h.session.state == .suspended }
+        #expect(h.session.state == .suspended)
+        #expect(h.fake.connectCount == 0)
+
+        let sink = FakeSink(size: CGSize(width: 100, height: 200))
+        h.session.addSink(sink)
+        await waitUntil { h.session.isStreaming }
+        #expect(h.session.state == .connected)
+        #expect(h.fake.connectCount == 1)
+    }
+
+    @Test func aWatchedPhysicalTabConnectsOnStart() async {
+        let h = Harness(target: .physical(serial: "S1"), devices: [pixel])
+        let sink = FakeSink(size: CGSize(width: 100, height: 200))
+        h.session.addSink(sink)
+        h.session.start()
+        await waitUntil { h.session.isStreaming }
+        #expect(h.session.state == .connected)
+        #expect(h.fake.connectCount == 1)
     }
 
     @Test func attachingAPhysicalDeviceReportsItsTarget() async {

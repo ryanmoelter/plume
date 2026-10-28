@@ -224,6 +224,30 @@ struct AndroidKeycodeMapperTests {
         #expect(pressed.isEmpty)
     }
 
+    /// AppKit's real sequence for ⌘V: the V key-down arrives through `performKeyEquivalent`, and
+    /// no V key-up arrives while ⌘ is held. AKEYCODE_V is 50.
+    @Test func releasingCommandReleasesAKeyWhoseKeyUpNeverArrived() {
+        var pressed = AndroidPressedKeys()
+        let cmd = flags(.command, device: 0x08)
+        _ = modifier(&pressed, 55, cmd)
+        #expect(pressed.inputs(type: .keyDown, keyCode: 9, modifierFlags: cmd, characters: "v", charactersIgnoringModifiers: "v")
+            == [.key(phase: .down, keycode: 50, metaState: meta)])
+        #expect(modifier(&pressed, 55, []) == [
+            .key(phase: .up, keycode: 50, metaState: meta),
+            .key(phase: .up, keycode: 117, metaState: 0),
+        ])
+        #expect(pressed.isEmpty)
+        #expect(pressed.inputs(type: .keyUp, keyCode: 9, modifierFlags: [], characters: "v", charactersIgnoringModifiers: "v") == [])
+    }
+
+    @Test func releasingCommandLeavesAKeyPressedBeforeIt() {
+        var pressed = AndroidPressedKeys()
+        _ = pressed.inputs(type: .keyDown, keyCode: 0, modifierFlags: [], characters: "a", charactersIgnoringModifiers: "a")
+        _ = modifier(&pressed, 55, flags(.command, device: 0x08))
+        #expect(modifier(&pressed, 55, []) == [.key(phase: .up, keycode: 117, metaState: 0)])
+        #expect(pressed.holds(keyCode: 0))
+    }
+
     @Test func aModifierHeldBeforeFocusGoesDownWithTheNextKey() {
         var pressed = AndroidPressedKeys()
         #expect(pressed.inputs(type: .keyDown, keyCode: 0, modifierFlags: flags(.command, device: 0x08), characters: "a", charactersIgnoringModifiers: "a")
