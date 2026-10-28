@@ -60,18 +60,21 @@ struct PlumeToolLaunchTests {
         process.standardError = terminal
 
         let collected = Collected()
-        output.fileHandleForReading.readabilityHandler = { collected.append($0.availableData) }
+        let drained = DispatchSemaphore(value: 0)
         let exited = DispatchSemaphore(value: 0)
         process.terminationHandler = { _ in exited.signal() }
         try process.run()
+        DispatchQueue.global().async {
+            collected.append(output.fileHandleForReading.readDataToEndOfFile())
+            drained.signal()
+        }
 
         let timedOut = exited.wait(timeout: .now() + 5) == .timedOut
         if timedOut {
             kill(process.processIdentifier, SIGKILL)
             exited.wait()
         }
-        output.fileHandleForReading.readabilityHandler = nil
-        collected.append(output.fileHandleForReading.readDataToEndOfFile())
+        drained.wait()
 
         #expect(!timedOut, "plume \(arguments.joined(separator: " ")) still running after 5 s")
         #expect(process.terminationStatus == 0)
