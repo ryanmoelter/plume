@@ -2,7 +2,6 @@ import os
 import SwiftUI
 import SwiftData
 
-@main
 struct PlumeApp: App {
     @NSApplicationDelegateAdaptor(AppDelegate.self) private var appDelegate
 
