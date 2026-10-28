@@ -45,7 +45,7 @@ nonisolated enum ShellIntegration {
               shift words
               (( CURRENT-- ))
               _arguments '--aliases[Also define a bare wt, whose switch cds, and stack]' \\
-                '*--alias[Also define one bare function]:name:(wt stack)'
+                '*--alias[Also define one bare command]:name:(wt stack)'
             fi
             """),
         Command(name: "help", summary: "Show help", completion: ":"),
@@ -142,13 +142,14 @@ nonisolated enum ShellIntegration {
         fi
         """
 
-    /// The `plume` subcommands `--aliases` defines as bare functions, and
+    /// The `plume` subcommands `--aliases` defines as bare commands, and
     /// `--alias` defines one at a time, each completing as its `plume` form.
     static let aliasedSubcommands = ["wt", "stack"]
 
-    /// `aliasNames` picks which bare functions to define. `wt()` cds on
-    /// `wt switch`; `stack()` calls through to `plume stack`. `--alias` exists
-    /// because a bare `stack` shadows other tools of that name.
+    /// `aliasNames` picks which bare commands to define. `wt` is a function,
+    /// because `wt switch` must cd this shell; `stack` is an alias for
+    /// `plume stack`. `--alias` exists because a bare `stack` shadows other
+    /// tools of that name.
     static func zsh(aliasNames: [String] = []) -> String {
         let list = commands.map { "    '\($0.name):\($0.summary)'" }.joined(separator: "\n")
         let cases = commands.map { command in
@@ -190,7 +191,7 @@ nonisolated enum ShellIntegration {
 
     private static func aliasFunctions(for names: [String]) -> String {
         aliasedSubcommands.filter(names.contains).map { name in
-            name == "wt" ? wtFunction : stackFunction
+            name == "wt" ? wtFunction : stackAlias
         }.joined()
     }
 
@@ -220,21 +221,11 @@ nonisolated enum ShellIntegration {
 
         """
 
-    private static let stackFunction = """
+    /// zsh completes an alias by expanding it, so `stack` needs no compdef
+    /// of its own.
+    private static let stackAlias = """
 
-        stack() {
-          command plume stack "$@"
-        }
-
-        _plume_stack() {
-          words=(plume stack "${(@)words[2,-1]}")
-          (( CURRENT++ ))
-          _plume
-        }
-
-        if (( $+functions[compdef] )); then
-          compdef _plume_stack stack
-        fi
+        alias stack='plume stack'
 
         """
 }

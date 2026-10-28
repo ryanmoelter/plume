@@ -8,7 +8,7 @@ nonisolated enum CLIInvocation: Equatable, Sendable {
     case notify(title: String, body: String)
     case presence(json: Bool)
     case newTab(directory: String?, taskID: String?, select: Bool)
-    /// `aliasNames` are the bare functions to define, in the order asked.
+    /// `aliasNames` are the bare commands to define, in the order asked.
     case shellInit(aliasNames: [String])
     /// `plume wt …`, or any arguments when invoked as `wt`.
     case wt([String])
@@ -48,7 +48,8 @@ nonisolated enum CLICommandLine {
           stack <command>           Manage stacked branches (`plume stack help`)
           init zsh [--aliases] [--alias NAME]
                                     Print zsh completions, for `eval "$(plume init zsh)"`;
-                                    --aliases adds a bare `wt`, whose `wt switch` cds
+                                    --aliases adds a bare `wt`, whose `wt switch` cds,
+                                    and a `stack` alias; --alias adds one of them
           help                      Show this help
           --version                 Print Plume's version
         """

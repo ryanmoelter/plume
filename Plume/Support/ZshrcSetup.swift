@@ -3,11 +3,12 @@ import Foundation
 /// The line that loads `plume init zsh`, and adding it to the
 /// user's `.zshrc` once.
 nonisolated enum ZshrcSetup {
-    /// Names `plume` rather than a path: the functions it defines call
-    /// `command plume`, so the tool has to be on PATH whatever this says.
+    /// Names `plume` rather than a path: the `wt` function and `stack` alias
+    /// it defines run `plume`, so the tool has to be on PATH whatever this
+    /// says.
     static let initLine = recommendedLine(executables: [:])
 
-    /// The line that defines the bare `wt` and `stack` functions no other
+    /// The line that defines the bare `wt` function and `stack` alias no other
     /// tool already provides. `executables` maps each name to the files it
     /// resolves to on the user's PATH; a file inside a Plume bundle is
     /// Plume's own link and never counts.

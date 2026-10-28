@@ -3,8 +3,10 @@ import Testing
 @testable import Plume
 
 /// `plume init zsh` carries wt's completion and leaves `plume` itself a
-/// plain command. `--aliases` defines a bare `wt()`, the only place `wt switch`
-/// becomes a `cd`, and a bare `stack()`; `--alias wt` defines only the first. Ported from the wt half of `test_init.py`.
+/// plain command. `--aliases` defines a bare `wt()`, the only place
+/// `wt switch` becomes a `cd`, and a bare `stack` alias that completes as
+/// `plume stack`; `--alias wt` defines only the first. Ported from the wt
+/// half of `test_init.py`.
 struct WTInitTests {
     private func parses(_ script: String) throws -> Bool {
         try zsh(["-n", "-c", script]).status == 0
@@ -112,19 +114,50 @@ struct WTInitTests {
         return lines(ShellIntegration.zsh(aliasNames: names))
     }
 
-    @Test func aliasesAddBareWtAndStackFunctionsWithTheirCompletions() throws {
+    @Test func aliasesAddABareWtFunctionAndAStackAlias() throws {
         let script = try script(for: ["--aliases"])
         #expect(script.contains("wt() {"))
         #expect(script.contains { $0.hasPrefix("compdef ") && $0.hasSuffix(" wt") })
-        #expect(script.contains("stack() {"))
-        #expect(script.contains { $0.hasPrefix("compdef ") && $0.hasSuffix(" stack") })
+        #expect(script.contains("alias stack='plume stack'"))
+        #expect(!script.contains("stack() {"))
+        #expect(!script.contains { $0.hasPrefix("compdef ") && $0.hasSuffix(" stack") })
     }
 
     @Test func aliasWtAddsOnlyABareWtFunction() throws {
         let script = try script(for: ["--alias", "wt"])
         #expect(script.contains("wt() {"))
-        #expect(!script.contains("stack() {"))
-        #expect(!script.contains { $0.hasPrefix("compdef ") && $0.hasSuffix(" stack") })
+        #expect(!script.contains { $0.hasPrefix("alias stack=") })
+    }
+
+    /// zsh completes an alias by expanding it unless `complete_aliases` is
+    /// set, so with no compdef of its own `stack <Tab>` completes as
+    /// `plume stack`.
+    @Test func anEvaluatedStackAliasCompletesAsPlume() throws {
+        let probe = """
+            autoload -Uz compinit && compinit -u -D
+            \(ShellIntegration.zsh(aliasNames: ["wt", "stack"]))
+            print -r -- "alias=${aliases[stack]}"
+            print -r -- "function=${+functions[stack]}"
+            print -r -- "stack=${_comps[stack]-none} plume=${_comps[plume]} wt=${_comps[wt]}"
+            [[ -o complete_aliases ]] && print complete_aliases=on || print complete_aliases=off
+            """
+        let result = try zsh(["-f", "-c", probe], path: "/usr/bin:/bin")
+        #expect(result.status == 0)
+        #expect(result.stdout == """
+            alias=plume stack
+            function=0
+            stack=none plume=_plume wt=_plume_wt
+            complete_aliases=off
+
+            """)
+    }
+
+    @Test func bareStackRunsPlumeStack() throws {
+        let (bin, _, calls, root) = try fakePlume()
+        defer { try? FileManager.default.removeItem(at: root) }
+        let script = ShellIntegration.zsh(aliasNames: ["stack"]) + "\neval 'stack list --all'"
+        #expect(try zsh(["-f", "-c", script], path: "\(bin.path):/usr/bin:/bin").status == 0)
+        #expect(try String(contentsOf: calls, encoding: .utf8) == "stack list --all\n")
     }
 
     /// The script is eval'd at shell startup, so a quoting slip would break

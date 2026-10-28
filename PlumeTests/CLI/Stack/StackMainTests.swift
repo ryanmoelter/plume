@@ -344,8 +344,10 @@ struct StackNavigationTests {
 }
 
 /// `plume init zsh` completes `stack` as a subcommand, and `--alias stack` adds
-/// a bare `stack()` that calls through `plume`.
+/// a bare `stack` alias for `plume stack`.
 struct StackInitTests {
+    static let aliasLine = "alias stack='plume stack'"
+
     private func lines(_ script: String) -> [String] {
         script.components(separatedBy: "\n").map { $0.trimmingCharacters(in: .whitespaces) }
     }
@@ -356,19 +358,20 @@ struct StackInitTests {
         #expect(ShellIntegration.zsh().contains("command plume stack __complete stack-branches"))
     }
 
-    @Test func onlyAnAliasNameAddsABareStackFunction() {
-        #expect(!lines(ShellIntegration.zsh()).contains("stack() {"))
+    @Test func onlyAnAliasNameAddsABareStackAlias() {
+        #expect(!lines(ShellIntegration.zsh()).contains(Self.aliasLine))
         let script = lines(ShellIntegration.zsh(aliasNames: ["stack"]))
-        #expect(script.contains("stack() {"))
-        #expect(script.contains("command plume stack \"$@\""))
-        #expect(script.contains { $0.hasPrefix("compdef ") && $0.hasSuffix(" stack") })
+        #expect(script.contains(Self.aliasLine))
+        #expect(!script.contains("stack() {"))
+        #expect(!script.contains { $0.contains("_plume_stack") })
+        #expect(!script.contains { $0.hasPrefix("compdef ") && $0.hasSuffix(" stack") })
         #expect(!script.contains("wt() {"))
         #expect(!script.contains { $0.hasPrefix("compdef ") && $0.hasSuffix(" wt") })
     }
 
-    @Test func bothNamesDefineBothFunctions() {
+    @Test func bothNamesDefineAWtFunctionAndAStackAlias() {
         let script = lines(ShellIntegration.zsh(aliasNames: ["wt", "stack"]))
         #expect(script.contains("wt() {"))
-        #expect(script.contains("stack() {"))
+        #expect(script.contains(Self.aliasLine))
     }
 }
