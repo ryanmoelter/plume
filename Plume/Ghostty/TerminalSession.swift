@@ -106,7 +106,9 @@ final class TerminalSession {
     /// `Plume` executable as `plume`, ahead of the tool in `~/.local/bin`, so
     /// `eval "$(plume init zsh)"` in a `.zshrc` launches a second copy of the
     /// app and never returns. A surface's own variables apply after that
-    /// append, so an explicit `PATH` replaces it.
+    /// append, so an explicit `PATH` replaces it. An app launched from a
+    /// terminal inherits that terminal's `Contents/MacOS` the same way, so
+    /// every app bundle's executable directory is dropped.
     nonisolated static func pinningPath(
         _ options: TerminalSurfaceOptions,
         environment: [String: String] = ProcessInfo.processInfo.environment
@@ -114,7 +116,16 @@ final class TerminalSession {
         guard options.envVars["PATH"] == nil, let path = environment["PATH"] else { return options }
         var pinned = options
         pinned.envVars["PATH"] = path
+            .split(separator: ":", omittingEmptySubsequences: false)
+            .filter { !isAppExecutableDirectory($0) }
+            .joined(separator: ":")
         return pinned
+    }
+
+    private nonisolated static func isAppExecutableDirectory(_ entry: Substring) -> Bool {
+        var entry = entry
+        while entry.count > 1, entry.hasSuffix("/") { entry = entry.dropLast() }
+        return entry.hasSuffix(".app/Contents/MacOS")
     }
 
     var isHostedInWindow: Bool {
