@@ -87,6 +87,8 @@ public final class ScrcpyServerLaunch: @unchecked Sendable {
             "video=true",
             "audio=false",
             "control=true",
+            // Plume never reads the device clipboard, so the server shouldn't push every copy.
+            "clipboard_autosync=false",
             "video_codec=h264",
             "cleanup=true",
             "send_device_meta=true",
@@ -102,8 +104,16 @@ public final class ScrcpyServerLaunch: @unchecked Sendable {
         try throwIfStopped()
         try await adb(["push", jarURL.path, remoteJarPath], timeout: pushTimeout)
         try throwIfStopped()
-        let forwardOutput = try await adb(["forward", "tcp:0", "localabstract:scrcpy_\(scid)"], timeout: forwardTimeout)
+        let forwardOutput: String
+        do {
+            forwardOutput = try await adb(["forward", "tcp:0", remoteSocket], timeout: forwardTimeout)
+        } catch {
+            // A cancelled or timed-out forward may still have been created, on a port nobody read.
+            await removeForwards(.toRemoteSocket)
+            throw error
+        }
         guard let port = UInt16(forwardOutput.trimmingCharacters(in: .whitespacesAndNewlines)) else {
+            await removeForwards(.toRemoteSocket)
             throw ScrcpyLaunchError.unparsableForwardPort(forwardOutput)
         }
         let stoppedDuringForward = lock.withLock {
@@ -111,7 +121,7 @@ public final class ScrcpyServerLaunch: @unchecked Sendable {
             return stopped
         }
         if stoppedDuringForward {
-            _ = try? await adb(["forward", "--remove", "tcp:\(port)"], timeout: forwardTimeout)
+            await removeForwards(.port(port))
             throw ScrcpyLaunchError.stopped
         }
         do {
@@ -143,7 +153,7 @@ public final class ScrcpyServerLaunch: @unchecked Sendable {
         }
     }
 
-    /// Starts the stop and returns at once, for app termination; `awaitTerminations()` waits for it.
+    /// Starts the stop and returns at once; `awaitTerminations()` waits for it.
     public func terminate() {
         beginStop(onForwardRemoved: nil)
     }
@@ -184,6 +194,49 @@ public final class ScrcpyServerLaunch: @unchecked Sendable {
                 Thread.sleep(forTimeInterval: 0.05)
             }
             if running.isRunning { kill(running.processIdentifier, SIGKILL) }
+        }
+    }
+
+    private var remoteSocket: String { "localabstract:scrcpy_\(scid)" }
+
+    private enum ForwardSelection {
+        case port(UInt16)
+        /// Whatever `adb forward --list` shows pointing at this launch's socket.
+        case toRemoteSocket
+    }
+
+    /// Runs on a background queue joined to `terminations` rather than through the cancellable
+    /// `ADBCommand.run`, so neither a cancelled connect nor a quit skips it.
+    private func removeForwards(_ selection: ForwardSelection) async {
+        let adbURL = adbURL, serial = serial, forwardTimeout = forwardTimeout, remoteSocket = remoteSocket
+        Self.terminations.enter()
+        await withCheckedContinuation { (continuation: CheckedContinuation<Void, Never>) in
+            DispatchQueue.global(qos: .utility).async {
+                defer {
+                    Self.terminations.leave()
+                    continuation.resume()
+                }
+                let locals: [String]
+                switch selection {
+                case .port(let port):
+                    locals = ["tcp:\(port)"]
+                case .toRemoteSocket:
+                    let listing = try? ADBCommand.runBlocking(adbURL, ["-s", serial, "forward", "--list"], timeout: forwardTimeout)
+                    locals = Self.forwards(in: listing?.output ?? "", serial: serial, remote: remoteSocket)
+                }
+                for local in locals {
+                    _ = try? ADBCommand.runBlocking(adbURL, ["-s", serial, "forward", "--remove", local], timeout: forwardTimeout)
+                }
+            }
+        }
+    }
+
+    /// The local side of each `adb forward --list` line (`<serial> <local> <remote>`) for this device and remote.
+    static func forwards(in listing: String, serial: String, remote: String) -> [String] {
+        listing.split(whereSeparator: \.isNewline).compactMap { line in
+            let fields = line.split(whereSeparator: \.isWhitespace)
+            guard fields.count == 3, fields[0] == serial, fields[2] == remote else { return nil }
+            return String(fields[1])
         }
     }
 

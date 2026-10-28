@@ -63,6 +63,7 @@ public enum H264DecoderError: Error, CustomStringConvertible {
     case session(OSStatus)
     case sampleBuffer(OSStatus)
     case decode(OSStatus)
+    case noImage
 
     public var description: String {
         switch self {
@@ -70,6 +71,7 @@ public enum H264DecoderError: Error, CustomStringConvertible {
         case let .session(status): "Could not create a VideoToolbox decoder (\(status))."
         case let .sampleBuffer(status): "Could not wrap an H.264 frame (\(status))."
         case let .decode(status): "VideoToolbox failed to decode a frame (\(status))."
+        case .noImage: "VideoToolbox decoded a frame but produced no image."
         }
     }
 }
@@ -110,7 +112,8 @@ public final class H264Decoder {
     }
 
     /// Returns nil for a frame that can't be shown yet: before any parameter sets, or a
-    /// non-key frame while waiting for a key frame.
+    /// non-key frame while waiting for a key frame. Throws for a frame that should have decoded
+    /// and didn't, so the caller can ask for a key frame.
     public func decode(_ packet: Data, pts: UInt64, isKeyFrame: Bool) throws -> DecodedFrame? {
         var units = AnnexB.split(packet)
         try absorbParameterSets(from: units)
@@ -142,10 +145,11 @@ public final class H264Decoder {
             awaitingKeyFrame = true
             throw H264DecoderError.decode(status)
         }
+        // A frame VideoToolbox drops without an error still breaks the reference chain, so it
+        // throws: returning nil would leave the stream waiting for a key frame nobody asked for.
         guard box.status == noErr, let imageBuffer = box.imageBuffer else {
             awaitingKeyFrame = true
-            if box.status != noErr { throw H264DecoderError.decode(box.status) }
-            return nil
+            throw box.status == noErr ? H264DecoderError.noImage : H264DecoderError.decode(box.status)
         }
         let size = CGSize(width: CVPixelBufferGetWidth(imageBuffer), height: CVPixelBufferGetHeight(imageBuffer))
         return DecodedFrame(pixelBuffer: imageBuffer, pixelSize: size, pts: pts)

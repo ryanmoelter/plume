@@ -116,8 +116,8 @@ public actor ScrcpyConnection {
         await tearDown(error: nil)
     }
 
-    /// Stops the server and removes the forward without waiting, for app termination.
-    /// `ScrcpyServerLaunch.awaitTerminations()` waits for it.
+    /// Starts stopping the server and removing the forward, and returns at once.
+    /// `ScrcpyServerLaunch.awaitTerminations()` waits for it; `close()` still tears down the rest.
     public nonisolated func terminate() {
         controlContinuation.finish()
         launch.terminate()

@@ -9,8 +9,6 @@ nonisolated enum AndroidKeyInput: Sendable, Hashable {
 /// Maps Mac key events to scrcpy input for a physical device. Unmodified printable keys go as text,
 /// so the Mac's keyboard layout decides the character; everything else goes as an Android keycode.
 nonisolated enum AndroidKeycodeMapper {
-    private static let commandKeyCodes: Set<UInt16> = [54, 55]
-
     /// Keys that never type a character. Keyed by Mac virtual keycode.
     private static let namedKeys: [UInt16: UInt32] = [
         36: Android.KeyCode.enter, 76: Android.KeyCode.enter,
@@ -53,7 +51,6 @@ nonisolated enum AndroidKeycodeMapper {
     ) -> [AndroidKeyInput]? {
         guard type != .flagsChanged else { return nil }
         if type == .keyDown, modifierFlags.contains(.command) { return nil }
-        if commandKeyCodes.contains(keyCode) { return nil }
         let phase: DeviceKeyPhase = type == .keyDown ? .down : .up
         let meta = metaState(modifierFlags)
 
@@ -86,21 +83,30 @@ nonisolated enum AndroidKeycodeMapper {
     }
 }
 
-/// Drops a key-up whose key-down never reached the device, such as the release of a key pressed
-/// with ⌘ held, whose down went to Plume's menus.
+/// Routes each key-up by what its key-down sent, not by the modifiers held at release: a Control-C
+/// whose Control is let go first must still release KEYCODE_C. A key-up whose key-down never reached
+/// the device as a keycode, such as one pressed with ⌘ held, sends nothing.
 nonisolated struct AndroidPressedKeys {
-    private var pressed: Set<UInt32> = []
+    /// Mac virtual keycode to the Android keycode its key-down sent.
+    private var pressed: [UInt16: UInt32] = [:]
 
-    mutating func filter(_ inputs: [AndroidKeyInput]) -> [AndroidKeyInput] {
-        inputs.filter { input in
-            guard case .key(let phase, let keycode, _) = input else { return true }
-            switch phase {
-            case .down:
-                pressed.insert(keycode)
-                return true
-            case .up:
-                return pressed.remove(keycode) != nil
-            }
+    /// Nil when the event isn't the device's, so the caller passes it on.
+    mutating func inputs(
+        type: KeyEventType,
+        keyCode: UInt16,
+        modifierFlags: NSEvent.ModifierFlags,
+        characters: String?
+    ) -> [AndroidKeyInput]? {
+        if type == .keyUp, let keycode = pressed.removeValue(forKey: keyCode) {
+            return [.key(phase: .up, keycode: keycode, metaState: AndroidKeycodeMapper.metaState(modifierFlags))]
         }
+        guard let inputs = AndroidKeycodeMapper.inputs(
+            type: type, keyCode: keyCode, modifierFlags: modifierFlags, characters: characters
+        ) else { return nil }
+        guard type == .keyDown else { return [] }
+        for case .key(.down, let keycode, _) in inputs {
+            pressed[keyCode] = keycode
+        }
+        return inputs
     }
 }

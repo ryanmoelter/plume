@@ -52,6 +52,17 @@ struct ScrcpyServerLaunchTests {
         #expect(UInt32(launch.scid, radix: 16)! < 0x8000_0000)
         #expect(launch.serverArguments.contains("scid=\(launch.scid)"))
         #expect(!launch.serverArguments.contains { $0.hasPrefix("max_size") })
+        #expect(launch.serverArguments.contains("clipboard_autosync=false"))
+    }
+
+    @Test func picksThisLaunchsForwardsOutOfTheList() {
+        let listing = """
+        S1 tcp:27183 localabstract:scrcpy_0000abcd
+        S1 tcp:5555 localabstract:scrcpy_ffff0000
+        S2 tcp:6000 localabstract:scrcpy_0000abcd
+        S1 tcp:27184 localabstract:scrcpy_0000abcd
+        """
+        #expect(ScrcpyServerLaunch.forwards(in: listing, serial: "S1", remote: "localabstract:scrcpy_0000abcd") == ["tcp:27183", "tcp:27184"])
     }
 
     @Test func vendoredJarMatchesThePinnedVersion() throws {

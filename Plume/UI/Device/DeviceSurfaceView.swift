@@ -179,13 +179,13 @@ final class DeviceSurfaceView: NSView, DeviceFrameSink {
         guard let session, session.isConnected else { return false }
         let inputs: [DeviceInput]
         if session.isPhysical {
-            guard let keys = AndroidKeycodeMapper.inputs(
+            guard let keys = pressedAndroidKeys.inputs(
                 type: type,
                 keyCode: event.keyCode,
                 modifierFlags: event.modifierFlags,
                 characters: type == .flagsChanged ? nil : event.characters
             ) else { return false }
-            inputs = pressedAndroidKeys.filter(keys).map { .androidKey($0) }
+            inputs = keys.map { .androidKey($0) }
         } else {
             let keys = EmulatorKeyMapper.keyEvents(
                 type: type,

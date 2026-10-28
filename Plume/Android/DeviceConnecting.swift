@@ -109,7 +109,8 @@ nonisolated protocol DeviceConnecting: AnyObject, Sendable {
     func rotate(to rotation: DeviceRotation) async throws
     func shutDown() async throws
     func close() async
-    /// Starts releasing anything that outlives the app, without waiting, for app termination.
+    /// Starts releasing anything that would outlive the app, without waiting, so a quit right after
+    /// can wait for it. `close()` still tears down the rest.
     func terminate()
 }
 

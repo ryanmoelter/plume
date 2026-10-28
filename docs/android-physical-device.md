@@ -18,7 +18,7 @@ A device tab (`TabKind.device`, platform `androidPhysical`) can mirror a physica
 
 ## Discovery
 
-`AndroidSDKLocator` prefers an SDK with `emulator/emulator`, and otherwise takes the first candidate with `platform-tools/adb`. An adb-only install (Homebrew's `android-platform-tools`, say) therefore finds physical devices, and the picker reports that the emulator isn't installed.
+`AndroidSDKLocator` prefers an SDK with `emulator/emulator`, and otherwise takes the first candidate with `platform-tools/adb`. An adb-only install (Homebrew's `android-platform-tools`, say) therefore finds physical devices, and the picker reports that the emulator isn't installed. An SDK without `platform-tools/adb` gets the reverse: the Devices section says adb wasn't found.
 
 `PhysicalDeviceDiscovery` runs `adb devices -l` off the main actor every 2 seconds while the picker is on screen, and never otherwise. `emulator-*` serials are dropped, since emulators reach the picker through their discovery files. `unauthorized` and `offline` devices are listed but disabled, with a hint. The name is the `model:` field with underscores turned into spaces, or the serial.
 
@@ -26,17 +26,17 @@ A device tab (`TabKind.device`, platform `androidPhysical`) can mirror a physica
 
 The tab persists `devicePlatformRaw = "androidPhysical"` and the adb serial in `deviceIdentifier`. A tab from before physical devices has `androidEmulator` and an AVD id, and still resolves to an emulator; so does a tab with an identifier but no platform.
 
-On start, the session refreshes the adb list. If the serial is missing or not `device`, it shows "isn't connected" with **Try Again**, which looks again. Otherwise `ScrcpyConnection.connect()`:
+Picking a device in the picker connects at once, since the picker's adb list is current. On start, the session refreshes the adb list. If the serial is missing or not `device`, it shows "isn't connected" with **Try Again**, which looks again. Otherwise `ScrcpyConnection.connect()`:
 
 1. pushes the server to `/data/local/tmp/plume-scrcpy-server-<scid>.jar`, a path per launch so two tabs on one device never overwrite each other's jar (`cleanup=true` deletes it),
 2. runs `adb forward tcp:0 localabstract:scrcpy_<scid>`, where the scid is random,
-3. starts the server with `adb shell app_process` (H.264, no audio, control on, `tunnel_forward=true`),
+3. starts the server with `adb shell app_process` (H.264, no audio, control on, `tunnel_forward=true`, `clipboard_autosync=false` since Plume never reads the device clipboard),
 4. retries the video socket until the server sends its dummy byte (a forward accepts before the server listens), then opens the control socket,
 5. reads the device name, codec and the initial video size.
 
-Every adb command has a deadline: 30 seconds for the push and 5 for each forward command. A command that misses it is killed, and the tab shows the failure with **Reconnect**. Cancelling the connect kills the command in flight too.
+Every adb command has a deadline: 30 seconds for the push and 5 for each forward command. A command that misses it is killed, and the tab shows the failure with **Reconnect**. Cancelling the connect kills the command in flight too. A killed `forward` may still have created the forward on a port nobody read, so the launch then runs `adb forward --list` and removes every entry pointing at its `localabstract:scrcpy_<scid>`. That cleanup, like every forward removal, runs on a background queue rather than as a cancellable command, so a cancelled connect still completes it.
 
-Closing the session (closing the tab, or `TaskStore.forgetTab`) stops the server and removes the forward. `ScrcpyServerLaunch.stop()` is safe at any point: a close during the push or the forward releases whatever exists by then, and the launch then creates nothing more. Nothing ever powers a physical device off: the shut-down item is hidden for it in both the device view and the tab-strip menu.
+Closing the session (closing the tab, `TaskStore.forgetTab`, or the idle stop) stops the server and removes the forward. The session starts that stop synchronously, through the connection's `terminate()`, before the asynchronous `close()` tears down the sockets, so a quit straight after a close still waits for it. `ScrcpyServerLaunch.stop()` is safe at any point: a close during the push or the forward releases whatever exists by then, and the launch then creates nothing more. Nothing ever powers a physical device off: the shut-down item is hidden for it in both the device view and the tab-strip menu.
 
 On quit, `DeviceSessionManager.terminateAll()` starts each stop without waiting, and `applicationWillTerminate` then blocks in `DeviceSessionManager.awaitTerminations()`, alongside `AgentProcess.awaitTerminations()`, until the `adb shell` children have exited and the forwards are gone. The wait is bounded at a few seconds.
 
@@ -46,7 +46,7 @@ On quit, `DeviceSessionManager.terminateAll()` starts each stop without waiting,
 - Frames arrive already rotated, so the session reports every physical frame as `.portrait`.
 - `DeviceFrame` carries an IOSurface for physical frames and a `CGImage` for emulator frames. The surface view sets either as `layer.contents` and holds the frame until the next one, which keeps the pixel buffer that owns the surface alive.
 - scrcpy sends a frame only when the screen changes. The session keeps the last frame and hands it to a sink that attaches mid-stream, so a tab shown again within the grace period doesn't stay black on a static screen.
-- A config packet the decoder rejects, or a frame it fails to decode, costs frames, not the connection. The decoder drops frames until the next key frame, and the pump sends `RESET_VIDEO` for one, at most once a second until a frame decodes (`KeyFrameRecovery`).
+- A config packet the decoder rejects, or a frame it fails to decode (including one VideoToolbox returns with no image and no error), costs frames, not the connection. The decoder drops frames until the next key frame, and the pump sends `RESET_VIDEO` for one, at most once a second until a frame decodes (`KeyFrameRecovery`).
 
 ## Hidden tabs and the grace period
 
@@ -59,7 +59,7 @@ Reconnecting costs about a second and a visible stall, which a quick tab switch 
 - **Coordinates.** A touch is in current video pixels, sent with that video size (`ScrcpyPosition`). The server drops any event whose size differs from its current one, so a touch that races a rotation vanishes instead of landing in the wrong place. The session sets `deviceSize` from each frame's video size, and the surface sends the size it mapped the point against, so `DeviceCoordinateMapper` needs nothing physical-specific.
 - **Touches** go as `injectTouch` with the generic finger pointer id: down, moves, up; pressure 1, then 0 on up.
 - **Scroll** goes as `injectScroll` at the pointer, one unit per notch (`WheelAccumulator`'s 120 units divided by 120). A wheel off the screen is dropped, since the server scrolls at a position.
-- **Keys.** Unmodified printable keys go as `injectText`, so the Mac's keyboard layout decides the character. Return, Tab, Delete, Forward Delete, Escape, the arrows, Home, End, Page Up and Page Down go as keycodes with their meta state (so Shift-Tab works). Control chords go as keycodes by ANSI position. ⌘ chords stay with Plume's menus, matching emulator tabs. Modifier presses alone are not forwarded. Each surface tracks which keycodes it sent down (`AndroidPressedKeys`) and drops a release with no matching press, such as the release of a key pressed while ⌘ was held.
+- **Keys.** Unmodified printable keys go as `injectText`, so the Mac's keyboard layout decides the character. Return, Tab, Delete, Forward Delete, Escape, the arrows, Home, End, Page Up and Page Down go as keycodes with their meta state (so Shift-Tab works). Control chords go as keycodes by ANSI position. ⌘ chords stay with Plume's menus, matching emulator tabs. Modifier presses alone are not forwarded. Each surface tracks which keycode each Mac key sent down (`AndroidPressedKeys`) and routes the release by that, not by the modifiers held at release: a Control-C whose Control is let go first still releases KEYCODE_C. A release with no matching press sends nothing, such as the release of a key pressed while ⌘ was held.
 - **Buttons.** Back is `backOrScreenOn`, which wakes a sleeping screen. Home, Overview, Power and the volume keys are keycodes, down then up.
 - **Rotate** is `rotateDevice`, which only toggles between portrait and landscape, so a physical tab shows one rotate button.
 

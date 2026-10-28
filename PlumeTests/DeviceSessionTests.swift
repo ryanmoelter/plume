@@ -102,7 +102,15 @@ final class ManualSleeper {
 nonisolated final class ListingBox: @unchecked Sendable {
     private let lock = NSLock()
     private var _listing: ADBListing
+    private var _listCount = 0
     init(_ listing: ADBListing) { _listing = listing }
+    var listCount: Int { lock.withLock { _listCount } }
+    func list() -> ADBListing {
+        lock.withLock {
+            _listCount += 1
+            return _listing
+        }
+    }
     var listing: ADBListing {
         get { lock.withLock { _listing } }
         set { lock.withLock { _listing = newValue } }
@@ -149,6 +157,7 @@ private struct Harness {
     let session: DeviceSession
     let fake: FakeConnection
     let adb: ListingBox
+    let physicalDiscovery: PhysicalDeviceDiscovery
     let sleeper = ManualSleeper()
 
     init(
@@ -162,10 +171,12 @@ private struct Harness {
         let directory = FileManager.default.temporaryDirectory
             .appendingPathComponent("emulator-session-\(UUID().uuidString)", isDirectory: true)
         let sleeper = sleeper
+        let physicalDiscovery = PhysicalDeviceDiscovery { adb.list() }
+        self.physicalDiscovery = physicalDiscovery
         session = DeviceSession(
             tabID: UUID(), target: target, displayName: target?.identifier,
             discovery: EmulatorDiscovery(directories: [directory]),
-            physicalDiscovery: PhysicalDeviceDiscovery { adb.listing },
+            physicalDiscovery: physicalDiscovery,
             makeConnection: { _ in fake },
             idleSleep: { await sleeper.sleep($0) }
         )
@@ -176,8 +187,10 @@ private struct Harness {
         await waitUntil { session.state == .connected }
     }
 
+    /// Lists adb first, as the picker does before offering the device.
     func connectedPhysically() async {
         adb.listing.devices = [pixel]
+        await physicalDiscovery.refresh()
         session.attach(pixel)
         await waitUntil { session.state == .connected }
     }
@@ -301,6 +314,13 @@ struct DeviceSessionTests {
         #expect(h.fake.shutDownCount == 0)
     }
 
+    @Test func closeStartsReleasingTheConnectionBeforeReturning() async {
+        let h = Harness(target: nil)
+        await h.connectedPhysically()
+        h.session.close()
+        #expect(h.fake.terminateCount == 1)
+    }
+
     @Test func shutDownEmulatorShutsDownAndLeavesNotRunning() async {
         let h = Harness()
         await h.connected()
@@ -402,6 +422,21 @@ struct DeviceSessionTests {
         #expect(reported.first?.1 == "Pixel 9")
     }
 
+    @Test func attachingAPhysicalDeviceConnectsWithoutListingAdbAgain() async {
+        let h = Harness(target: nil)
+        await h.connectedPhysically()
+        #expect(h.adb.listCount == 1)
+        #expect(h.fake.connectCount == 1)
+    }
+
+    @Test func attachingBeforeAdbWasListedLooksItUp() async {
+        let h = Harness(target: nil, devices: [pixel])
+        h.session.attach(pixel)
+        await waitUntil { h.session.state == .connected }
+        #expect(h.session.state == .connected)
+        #expect(h.adb.listCount == 1)
+    }
+
     @Test func physicalStreamIgnoresResizes() async {
         let h = Harness(target: nil)
         await h.connectedPhysically()
@@ -425,6 +460,7 @@ struct DeviceSessionTests {
         h.sleeper.fire()
         await waitUntil { h.fake.closeCount == 1 }
         #expect(h.fake.closeCount == 1)
+        #expect(h.fake.terminateCount == 1)
         #expect(h.session.state == .suspended)
         #expect(!h.session.isStreaming)
     }

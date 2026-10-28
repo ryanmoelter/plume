@@ -140,9 +140,14 @@ final class DeviceSession {
         connect(to: .emulator(emulator))
     }
 
+    /// Connects without listing adb again, since the picker just did.
     func attach(_ device: PhysicalDevice) {
         choose(.physical(serial: device.serial), displayName: device.displayName)
-        locate()
+        guard let adbURL = physicalDiscovery.adbURL else {
+            locate()
+            return
+        }
+        connect(to: .physical(serial: device.serial, adbURL: adbURL))
     }
 
     func boot(_ avd: AVD) {
@@ -322,6 +327,8 @@ final class DeviceSession {
         stopStreaming()
         guard let connection else { return }
         self.connection = nil
+        // Starting the release here, not in the task, means a quit straight after still waits for it.
+        connection.terminate()
         Task { await connection.close() }
     }
 

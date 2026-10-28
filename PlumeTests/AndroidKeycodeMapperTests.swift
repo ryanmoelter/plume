@@ -59,15 +59,31 @@ struct AndroidKeycodeMapperTests {
 
     @Test func aReleaseWhosePressWentToTheMacIsDropped() {
         var pressed = AndroidPressedKeys()
-        #expect(map(.keyDown, 125, .command, nil) == nil)
-        #expect(pressed.filter(map(.keyUp, 125, .command, nil)!) == [])
+        #expect(pressed.inputs(type: .keyDown, keyCode: 125, modifierFlags: .command, characters: nil) == nil)
+        #expect(pressed.inputs(type: .keyUp, keyCode: 125, modifierFlags: .command, characters: nil) == [])
 
-        let down = AndroidKeyInput.key(phase: .down, keycode: Android.KeyCode.dpadDown, metaState: 0)
-        let up = AndroidKeyInput.key(phase: .up, keycode: Android.KeyCode.dpadDown, metaState: 0)
-        #expect(pressed.filter([down]) == [down])
-        #expect(pressed.filter([up]) == [up])
-        #expect(pressed.filter([up]) == [])
-        #expect(pressed.filter([.text("a")]) == [.text("a")])
+        #expect(pressed.inputs(type: .keyDown, keyCode: 125, modifierFlags: [], characters: nil)
+            == [.key(phase: .down, keycode: Android.KeyCode.dpadDown, metaState: 0)])
+        #expect(pressed.inputs(type: .keyUp, keyCode: 125, modifierFlags: [], characters: nil)
+            == [.key(phase: .up, keycode: Android.KeyCode.dpadDown, metaState: 0)])
+        #expect(pressed.inputs(type: .keyUp, keyCode: 125, modifierFlags: [], characters: nil) == [])
+    }
+
+    @Test func aControlChordReleasesItsKeycodeAfterControlIsLetGo() {
+        var pressed = AndroidPressedKeys()
+        let meta = Android.Meta.ctrlOn | Android.Meta.ctrlLeftOn
+        // Mac keycode 8 is C; AKEYCODE_C is 31.
+        #expect(pressed.inputs(type: .keyDown, keyCode: 8, modifierFlags: .control, characters: "\u{3}")
+            == [.key(phase: .down, keycode: 31, metaState: meta)])
+        #expect(pressed.inputs(type: .flagsChanged, keyCode: 59, modifierFlags: [], characters: nil) == nil)
+        #expect(pressed.inputs(type: .keyUp, keyCode: 8, modifierFlags: [], characters: "c")
+            == [.key(phase: .up, keycode: 31, metaState: 0)])
+    }
+
+    @Test func textKeysSendNothingOnRelease() {
+        var pressed = AndroidPressedKeys()
+        #expect(pressed.inputs(type: .keyDown, keyCode: 0, modifierFlags: [], characters: "a") == [.text("a")])
+        #expect(pressed.inputs(type: .keyUp, keyCode: 0, modifierFlags: [], characters: "a") == [])
     }
 
     @Test func metaStateCombinesModifiers() {

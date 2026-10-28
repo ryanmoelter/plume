@@ -50,14 +50,16 @@ struct DevicePickerView: View {
                     .plumeID(AccessibilityID.devicePickerRetryButton)
             }
         case .found(let sdk):
-            physicalSection
+            physicalSection(hasADB: sdk.adbURL != nil)
             emulatorSections(hasEmulator: sdk.emulatorURL != nil)
         }
     }
 
-    private var physicalSection: some View {
+    private func physicalSection(hasADB: Bool) -> some View {
         section("Devices") {
-            if physicalDiscovery.devices.isEmpty {
+            if !hasADB {
+                placeholder("adb wasn't found. Install Android SDK Platform-Tools with Android Studio's SDK Manager.")
+            } else if physicalDiscovery.devices.isEmpty {
                 placeholder("No devices are connected. Connect one over USB with USB debugging on.")
             }
             ForEach(physicalDiscovery.devices) { device in
