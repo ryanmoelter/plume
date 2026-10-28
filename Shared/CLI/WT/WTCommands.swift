@@ -444,7 +444,7 @@ nonisolated extension WT {
 
         let records = ctx.git.worktreeRecords()
         let candidates = pruneCandidates(
-            records: records, prs: prs, protected: ctx.protected, cwdName: ctx.currentWorktreeNameOrNone(),
+            records: records, prs: prs, protected: ctx.protected, cwdName: ctx.currentWorktreeNameOrNone(), trunkBranches: ctx.trunkBranches,
             baseBranch: ctx.baseBranch, locallyMerged: locallyMerged, withinPRHead: withinPRHead
         )
         func chip(_ pr: PullRequest?) -> String {

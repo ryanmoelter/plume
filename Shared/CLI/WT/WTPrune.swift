@@ -38,9 +38,10 @@ nonisolated extension WT {
         return git.revParse(ref) == headOid || git.isAncestor(ref, of: headOid)
     }
 
-    /// Why a branch is prunable, or nil when it isn't. A merged or closed
-    /// PR's branch is still listed but kept, with a note, when it has commits
-    /// the PR doesn't, unless the base already contains them.
+    /// Why a branch is prunable, or nil when it isn't. A merged or closed PR
+    /// names the reason even when the base also contains the branch. Its
+    /// branch is still listed but kept, with a note, when it has commits the
+    /// PR doesn't, unless the base already contains them.
     private static func mergeVerdict(
         _ pr: PullRequest?,
         branch: String,
@@ -48,31 +49,33 @@ nonisolated extension WT {
         locallyMerged: (String) -> Bool,
         withinPRHead: (_ branch: String, _ headOid: String) -> Bool
     ) -> (reason: String, skipNote: String?)? {
-        let localReason = "merged into \(baseBranch)"
         if let pr, pr.state == .merged || pr.state == .closed {
-            if let headOid = pr.headRefOid, withinPRHead(branch, headOid) { return (pr.state.rawValue.lowercased(), nil) }
-            if locallyMerged(branch) { return (localReason, nil) }
-            return (pr.state.rawValue.lowercased(), "has commits the PR doesn't")
+            let reason = pr.state.rawValue.lowercased()
+            if let headOid = pr.headRefOid, withinPRHead(branch, headOid) { return (reason, nil) }
+            if locallyMerged(branch) { return (reason, nil) }
+            return (reason, "has commits the PR doesn't")
         }
-        if locallyMerged(branch) { return (localReason, nil) }
+        if locallyMerged(branch) { return ("merged into \(baseBranch)", nil) }
         return nil
     }
 
     /// The worktrees whose PR is merged or closed, or whose branch is merged
     /// into the base, skipping protected names, the working directory's
-    /// worktree and the base branch.
+    /// worktree and every trunk branch.
     static func pruneCandidates(
         records: [WorktreeRecord],
         prs: PullRequestMap,
         protected: [String],
         cwdName: String?,
+        trunkBranches: Set<String>,
         baseBranch: String,
         locallyMerged: (String) -> Bool,
         withinPRHead: (_ branch: String, _ headOid: String) -> Bool
     ) -> [PruneCandidate] {
         records.compactMap { record in
             let name = (record.path as NSString).lastPathComponent
-            if protected.contains(name) || name == cwdName || record.branch == baseBranch { return nil }
+            if protected.contains(name) || name == cwdName { return nil }
+            if record.branch == baseBranch || trunkBranches.contains(record.branch) { return nil }
             let pr = prs[record.branch]
             guard let verdict = mergeVerdict(
                 pr, branch: record.branch, baseBranch: baseBranch, locallyMerged: locallyMerged, withinPRHead: withinPRHead

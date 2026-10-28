@@ -50,7 +50,8 @@ struct WTPruneTests {
         withinPRHead: (String, String) -> Bool = withinEveryPR
     ) -> [PruneCandidate] {
         WT.pruneCandidates(
-            records: records, prs: prs, protected: protected, cwdName: cwd, baseBranch: "main",
+            records: records, prs: prs, protected: protected, cwdName: cwd,
+            trunkBranches: ["main", "develop"], baseBranch: "main",
             locallyMerged: locallyMerged, withinPRHead: withinPRHead
         )
     }
@@ -84,6 +85,14 @@ struct WTPruneTests {
         prs["main"] = Self.pr(9, .merged)
         let names = candidates(records: Self.records + [WorktreeRecord(branch: "main", path: "/repo/.wt/main-copy")], prs: prs).map(\.name)
         #expect(!names.contains("main-copy"))
+    }
+
+    @Test func everyTrunkBranchIsSkippedEvenWhenMerged() {
+        var prs = Self.prs
+        prs["develop"] = Self.pr(9, .merged)
+        let develop = WorktreeRecord(branch: "develop", path: "/repo/.wt/develop")
+        let names = candidates(records: Self.records + [develop], prs: prs, locallyMerged: { _ in true }).map(\.name)
+        #expect(!names.contains("develop"))
     }
 
     @Test func nothingQualifyingIsEmpty() {
@@ -125,7 +134,7 @@ struct WTPruneTests {
     @Test func aLocalMergeOutweighsCommitsThePRLacks() {
         let kept = candidates(locallyMerged: { $0 == "ryanm/merged" }, withinPRHead: { _, _ in false })
         #expect(kept.first { $0.name == "merged" }?.skipNote == nil)
-        #expect(kept.first { $0.name == "merged" }?.reason == "merged into main")
+        #expect(kept.first { $0.name == "merged" }?.reason == "merged")
     }
 
     @Test func aBranchAtThePRHeadIsWithinIt() {
