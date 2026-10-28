@@ -83,7 +83,7 @@ struct CLIServerTests {
         defer { server.stop() }
 
         let lines = try await Task.detached {
-            let fd = try CLISocket.connect(to: path)
+            let fd = try CLISocket.connect(to: path, timeout: nil)
             defer { close(fd) }
             var data = try CLILineCodec.encode(CLIRequest.newTab(.init(taskID: first, select: false)))
             data.append(try CLILineCodec.encode(CLIRequest.newTab(.init(taskID: second, select: false))))
@@ -199,7 +199,7 @@ struct CLIServerTests {
         defer { server.stop() }
 
         let replies = try await Task.detached {
-            let fd = try CLISocket.connect(to: path, timeout: 10)
+            let fd = try CLISocket.connect(to: path, timeout: nil)
             defer { close(fd) }
             let ping = try CLILineCodec.encode(CLIRequest.ping)
             try CLISocket.writeAll(ping, to: fd)
