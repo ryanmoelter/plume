@@ -93,6 +93,18 @@ struct WTTabsTests {
         #expect(client.requests == [.tab(directory: path, caller: .tab(Self.tabID))])
     }
 
+    @Test(arguments: [false, true])
+    func aTabWhoseAppExportedNoSocketPrintsTheHint(_ asTask: Bool) {
+        let console = BufferConsole()
+        let tabs = PlumeTabOpener(
+            client: SocketPlumeAppClient(socketPath: CLISocket.resolvedPath(environment: Self.insidePlume)),
+            environment: Self.insidePlume,
+            console: console
+        )
+        tabs.open("/wt/foo", asTask: asTask)
+        #expect(console.stdout == Self.hint)
+    }
+
     // MARK: open
 
     private func openContext() -> FakeWTContext {

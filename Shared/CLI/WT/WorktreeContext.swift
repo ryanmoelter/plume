@@ -139,7 +139,7 @@ nonisolated final class WorktreeContext: WTContext {
         self.nerdFontMode = nerdFontMode
         self.console = console
         self.ui = ui
-        self.tabs = tabs ?? PlumeTabOpener(client: SocketPlumeAppClient(socketPath: ""), environment: [:], console: console)
+        self.tabs = tabs ?? PlumeTabOpener(client: SocketPlumeAppClient(socketPath: nil), environment: [:], console: console)
 
         let originHead = git.originHead()
         baseBranch = WTSettings.baseBranch(configured: settings.baseBranch, originHead: originHead)

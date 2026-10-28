@@ -44,21 +44,22 @@ nonisolated extension PlumeAppClient {
     func openSettings(section: String?) -> Bool { false }
 }
 
-/// `PlumeAppClient` over the socket at `socketPath`.
+/// `PlumeAppClient` over the socket at `socketPath`. A nil path means no
+/// app is reachable, so every request fails.
 nonisolated final class SocketPlumeAppClient: PlumeAppClient {
-    let socketPath: String
+    let socketPath: String?
 
-    init(socketPath: String) {
+    init(socketPath: String?) {
         self.socketPath = socketPath
     }
 
-    /// `task.new` waits on git in the app, which can take longer than the
-    /// default timeout on a large repository.
-    static let newTaskTimeout: TimeInterval = 15
+    /// Every request changes the app, which answers on its main queue — late
+    /// when busy, and `task.new` only after git.
+    static let replyTimeout: TimeInterval = 30
 
-    private func succeeds(_ request: CLIRequest, timeout: TimeInterval = 3) -> Bool {
-        guard !socketPath.isEmpty else { return false }
-        return (try? CLISocket.send(request, to: socketPath, timeout: timeout))?.ok == true
+    private func succeeds(_ request: CLIRequest) -> Bool {
+        guard let socketPath, !socketPath.isEmpty else { return false }
+        return (try? CLISocket.send(request, to: socketPath, replyTimeout: Self.replyTimeout))?.ok == true
     }
 
     func openTab(directory: String, caller: PlumeCaller) -> Bool {
@@ -66,10 +67,7 @@ nonisolated final class SocketPlumeAppClient: PlumeAppClient {
     }
 
     func openTask(worktreePath: String, caller: PlumeCaller) -> Bool {
-        succeeds(
-            .newTask(.init(worktreePath: worktreePath, taskID: caller.taskID, tabID: caller.tabID, select: false)),
-            timeout: Self.newTaskTimeout
-        )
+        succeeds(.newTask(.init(worktreePath: worktreePath, taskID: caller.taskID, tabID: caller.tabID, select: false)))
     }
 
     func openSettings(section: String?) -> Bool {
