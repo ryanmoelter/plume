@@ -262,6 +262,34 @@ struct DeviceSessionTests {
         #expect(h.session.rotation == .landscape)
     }
 
+    @Test func reconnectingKeepsAnEmulatorsRotation() async {
+        let h = Harness()
+        await h.connected()
+        let sink = FakeSink(size: CGSize(width: 100, height: 200))
+        h.session.addSink(sink)
+        h.fake.push(makeFrame(rotation: .landscape))
+        await waitUntil { h.session.rotation == .landscape }
+
+        h.session.attach(makeRunning())
+        await waitUntil { h.fake.connectCount == 2 && h.session.state == .connected }
+        #expect(h.fake.connectCount == 2)
+        #expect(h.session.rotation == .landscape)
+    }
+
+    @Test func connectingAPhysicalDeviceResetsRotation() async {
+        let h = Harness()
+        await h.connected()
+        let sink = FakeSink(size: CGSize(width: 100, height: 200))
+        h.session.addSink(sink)
+        h.fake.push(makeFrame(rotation: .landscape))
+        await waitUntil { h.session.rotation == .landscape }
+
+        await h.connectedPhysically()
+        await waitUntil { h.fake.connectCount == 2 && h.session.state == .connected }
+        #expect(h.fake.connectCount == 2)
+        #expect(h.session.rotation == .portrait)
+    }
+
     @Test func sinkSizeChangeRestartsOnlyWhenLargestRequestMoves() async {
         let h = Harness()
         await h.connected()

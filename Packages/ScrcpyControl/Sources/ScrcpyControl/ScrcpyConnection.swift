@@ -61,33 +61,19 @@ public actor ScrcpyConnection {
             guard let video = videoSocket, !closed else { throw ScrcpyConnectionError.closed }
 
             var demuxer = ScrcpyDemuxer()
-            var deviceName: String?
-            var initialSize: CGSize?
-            var pending: [ScrcpyDemuxerEvent] = []
-            while initialSize == nil {
+            var handshake = ScrcpyHandshake()
+            while handshake.initialSize == nil {
                 guard let chunk = try await video.receive() else {
                     throw launch.exitError ?? ScrcpyConnectionError.disconnected
                 }
-                for event in try demuxer.feed(chunk) {
-                    switch event {
-                    case let .deviceName(name):
-                        deviceName = name
-                    case let .codec(codec) where codec != ScrcpyVideoCodec.h264:
-                        throw ScrcpyConnectionError.unsupportedCodec(codec)
-                    case let .session(width, height) where initialSize == nil:
-                        initialSize = CGSize(width: width, height: height)
-                        hub.setVideoSize(initialSize!)
-                    case .codec, .session:
-                        break
-                    default:
-                        pending.append(event)
-                    }
-                }
+                try handshake.absorb(demuxer.feed(chunk))
             }
             if closed { throw ScrcpyConnectionError.closed }
-            startPump(video: video, demuxer: demuxer, pending: pending)
+            let initialSize = handshake.initialSize!
+            hub.setVideoSize(initialSize)
+            startPump(video: video, demuxer: demuxer, pending: handshake.pending)
             startControl(control)
-            return (deviceName ?? serial, initialSize!)
+            return (handshake.deviceName ?? serial, initialSize)
         } catch {
             // A close() that ran while connect was suspended already tore down, so tearDown is a
             // no-op here; release what was created since.
@@ -241,6 +227,36 @@ public actor ScrcpyConnection {
                 _ = parser.feed(chunk)
             }
         })
+    }
+}
+
+/// Reads the stream's opening events up to the first session. Everything after that session,
+/// including a second session in the same chunk, is left in `pending` for the pump, so it applies
+/// in stream order.
+struct ScrcpyHandshake {
+    private(set) var deviceName: String?
+    private(set) var initialSize: CGSize?
+    private(set) var pending: [ScrcpyDemuxerEvent] = []
+
+    mutating func absorb(_ events: [ScrcpyDemuxerEvent]) throws {
+        for event in events {
+            if initialSize != nil {
+                pending.append(event)
+                continue
+            }
+            switch event {
+            case let .deviceName(name):
+                deviceName = name
+            case let .codec(codec) where codec != ScrcpyVideoCodec.h264:
+                throw ScrcpyConnectionError.unsupportedCodec(codec)
+            case let .session(width, height):
+                initialSize = CGSize(width: width, height: height)
+            case .codec:
+                break
+            case .config, .frame:
+                pending.append(event)
+            }
+        }
     }
 }
 

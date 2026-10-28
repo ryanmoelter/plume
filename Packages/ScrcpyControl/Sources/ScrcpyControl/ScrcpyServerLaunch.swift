@@ -59,6 +59,7 @@ public final class ScrcpyServerLaunch: @unchecked Sendable {
     private var outputTail = OutputTail()
     private var forwardedPort: UInt16?
     private var stopped = false
+    private let forwardRemovals = DispatchGroup()
 
     public init(
         adbURL: URL,
@@ -104,6 +105,21 @@ public final class ScrcpyServerLaunch: @unchecked Sendable {
         try throwIfStopped()
         try await adb(["push", jarURL.path, remoteJarPath], timeout: pushTimeout)
         try throwIfStopped()
+        let port = try await forward()
+        do {
+            try spawnServer()
+        } catch {
+            await stop()
+            throw error
+        }
+        return port
+    }
+
+    /// Holds `terminations` from before `adb forward` runs until its forward is either recorded for
+    /// `beginStop` or removed, so a quit mid-forward still waits for the cleanup.
+    private func forward() async throws -> UInt16 {
+        Self.terminations.enter()
+        defer { Self.terminations.leave() }
         let forwardOutput: String
         do {
             forwardOutput = try await adb(["forward", "tcp:0", remoteSocket], timeout: forwardTimeout)
@@ -124,12 +140,6 @@ public final class ScrcpyServerLaunch: @unchecked Sendable {
             await removeForwards(.port(port))
             throw ScrcpyLaunchError.stopped
         }
-        do {
-            try spawnServer()
-        } catch {
-            await stop()
-            throw error
-        }
         return port
     }
 
@@ -145,17 +155,19 @@ public final class ScrcpyServerLaunch: @unchecked Sendable {
         lock.withLock { outputTail.text }
     }
 
-    /// Returns once the forward is gone. The server's shell gets SIGKILL on a background queue if
-    /// it outlives SIGTERM.
+    /// Returns once the recorded forward is gone, including one an earlier `terminate()` is still
+    /// removing. A forward that `start()` is still creating is removed by `start()` itself. The
+    /// server's shell gets SIGKILL on a background queue if it outlives SIGTERM.
     public func stop() async {
+        beginStop()
         await withCheckedContinuation { continuation in
-            beginStop { continuation.resume() }
+            forwardRemovals.notify(queue: .global(qos: .utility)) { continuation.resume() }
         }
     }
 
     /// Starts the stop and returns at once; `awaitTerminations()` waits for it.
     public func terminate() {
-        beginStop(onForwardRemoved: nil)
+        beginStop()
     }
 
     private static let terminations = DispatchGroup()
@@ -166,28 +178,27 @@ public final class ScrcpyServerLaunch: @unchecked Sendable {
         _ = terminations.wait(timeout: .now() + exitGracePeriod + 5)
     }
 
-    private func beginStop(onForwardRemoved: (@Sendable () -> Void)?) {
+    private func beginStop() {
         let (running, port) = lock.withLock { () -> (Process?, UInt16?) in
             stopped = true
+            // Entered under the lock so a concurrent stop() that finds nothing left still waits.
+            if forwardedPort != nil { forwardRemovals.enter() }
             defer {
                 process = nil
                 forwardedPort = nil
             }
             return (process, forwardedPort)
         }
-        guard running != nil || port != nil else {
-            onForwardRemoved?()
-            return
-        }
+        guard running != nil || port != nil else { return }
         Self.terminations.enter()
-        let adbURL = adbURL, serial = serial, forwardTimeout = forwardTimeout
+        let adbURL = adbURL, serial = serial, forwardTimeout = forwardTimeout, forwardRemovals = forwardRemovals
         DispatchQueue.global(qos: .utility).async {
             defer { Self.terminations.leave() }
             if let running, running.isRunning { running.terminate() }
             if let port {
                 _ = try? ADBCommand.runBlocking(adbURL, ["-s", serial, "forward", "--remove", "tcp:\(port)"], timeout: forwardTimeout)
+                forwardRemovals.leave()
             }
-            onForwardRemoved?()
             guard let running else { return }
             let deadline = Date().addingTimeInterval(Self.exitGracePeriod)
             while running.isRunning, Date() < deadline {

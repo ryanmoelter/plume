@@ -35,23 +35,30 @@ nonisolated enum AndroidSDKLocator {
 
     static func invalidate() { cache.value = nil }
 
-    /// First candidate whose `emulator/emulator` is executable, else the first with `platform-tools/adb`.
-    /// Expands `~`, drops duplicates.
+    /// `root` is the first candidate whose `emulator/emulator` is executable, else the first with
+    /// `platform-tools/adb`. `adbRoot` is `root` when it has adb, else the first candidate that does,
+    /// so an emulator-only SDK still pairs with an adb found elsewhere. Expands `~`, drops duplicates.
     static func resolve(
         candidates: [String],
         isExecutable: (String) -> Bool,
         home: String = NSHomeDirectory()
-    ) -> (root: String?, searched: [String]) {
+    ) -> (root: String?, adbRoot: String?, searched: [String]) {
         var searched: [String] = []
-        var adbOnly: String?
+        var emulatorRoot: String?
+        var firstADBRoot: String?
         for candidate in candidates {
             let expanded = expandTilde(candidate, home: home)
             guard !expanded.isEmpty, !searched.contains(expanded) else { continue }
             searched.append(expanded)
-            if isExecutable(expanded + "/emulator/emulator") { return (expanded, searched) }
-            if adbOnly == nil, isExecutable(expanded + "/platform-tools/adb") { adbOnly = expanded }
+            let hasADB = isExecutable(expanded + "/platform-tools/adb")
+            if emulatorRoot == nil, isExecutable(expanded + "/emulator/emulator") {
+                if hasADB { return (expanded, expanded, searched) }
+                emulatorRoot = expanded
+            }
+            if firstADBRoot == nil, hasADB { firstADBRoot = expanded }
+            if emulatorRoot != nil, firstADBRoot != nil { break }
         }
-        return (adbOnly, searched)
+        return (emulatorRoot ?? firstADBRoot, firstADBRoot, searched)
     }
 
     static func expandTilde(_ path: String, home: String) -> String {
@@ -105,17 +112,17 @@ nonisolated enum AndroidSDKLocator {
             candidates.append(root)
         }
 
-        let (root, searched) = resolve(candidates: candidates, isExecutable: isExecutable, home: home)
+        let (root, adbRoot, searched) = resolve(candidates: candidates, isExecutable: isExecutable, home: home)
         guard let root else { return .notFound(searchedPaths: searched) }
         let rootURL = URL(fileURLWithPath: root, isDirectory: true)
         let emulator = rootURL.appending(path: "emulator/emulator")
-        let adb = rootURL.appending(path: "platform-tools/adb")
+        let adb = adbRoot.map { URL(fileURLWithPath: $0, isDirectory: true).appending(path: "platform-tools/adb") }
         var environment = shell.environment
         environment["ANDROID_HOME"] = root
         return .found(AndroidSDK(
             root: rootURL,
             emulatorURL: isExecutable(emulator.path) ? emulator : nil,
-            adbURL: isExecutable(adb.path) ? adb : nil,
+            adbURL: adb,
             launchEnvironment: environment
         ))
     }

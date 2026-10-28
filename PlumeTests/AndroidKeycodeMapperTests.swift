@@ -80,6 +80,19 @@ struct AndroidKeycodeMapperTests {
             == [.key(phase: .up, keycode: 31, metaState: 0)])
     }
 
+    @Test func autoRepeatCountsUpUntilTheKeyIsReleased() {
+        var pressed = AndroidPressedKeys()
+        let down = { (isRepeat: Bool) in
+            pressed.inputs(type: .keyDown, keyCode: 125, modifierFlags: [], characters: nil, isRepeat: isRepeat)
+        }
+        #expect(down(false) == [.key(phase: .down, keycode: Android.KeyCode.dpadDown, metaState: 0, repeatCount: 0)])
+        #expect(down(true) == [.key(phase: .down, keycode: Android.KeyCode.dpadDown, metaState: 0, repeatCount: 1)])
+        #expect(down(true) == [.key(phase: .down, keycode: Android.KeyCode.dpadDown, metaState: 0, repeatCount: 2)])
+        #expect(pressed.inputs(type: .keyUp, keyCode: 125, modifierFlags: [], characters: nil)
+            == [.key(phase: .up, keycode: Android.KeyCode.dpadDown, metaState: 0)])
+        #expect(down(false) == [.key(phase: .down, keycode: Android.KeyCode.dpadDown, metaState: 0, repeatCount: 0)])
+    }
+
     @Test func textKeysSendNothingOnRelease() {
         var pressed = AndroidPressedKeys()
         #expect(pressed.inputs(type: .keyDown, keyCode: 0, modifierFlags: [], characters: "a") == [.text("a")])

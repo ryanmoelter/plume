@@ -2,7 +2,8 @@ import AppKit
 import ScrcpyControl
 
 nonisolated enum AndroidKeyInput: Sendable, Hashable {
-    case key(phase: DeviceKeyPhase, keycode: UInt32, metaState: UInt32)
+    /// `repeatCount` is how many auto-repeats of the key-down came before this one.
+    case key(phase: DeviceKeyPhase, keycode: UInt32, metaState: UInt32, repeatCount: UInt32 = 0)
     case text(String)
 }
 
@@ -87,26 +88,34 @@ nonisolated enum AndroidKeycodeMapper {
 /// whose Control is let go first must still release KEYCODE_C. A key-up whose key-down never reached
 /// the device as a keycode, such as one pressed with ⌘ held, sends nothing.
 nonisolated struct AndroidPressedKeys {
-    /// Mac virtual keycode to the Android keycode its key-down sent.
-    private var pressed: [UInt16: UInt32] = [:]
+    private struct PressedKey {
+        var keycode: UInt32
+        var repeatCount: UInt32
+    }
+
+    /// Keyed by Mac virtual keycode: what its key-down sent.
+    private var pressed: [UInt16: PressedKey] = [:]
 
     /// Nil when the event isn't the device's, so the caller passes it on.
     mutating func inputs(
         type: KeyEventType,
         keyCode: UInt16,
         modifierFlags: NSEvent.ModifierFlags,
-        characters: String?
+        characters: String?,
+        isRepeat: Bool = false
     ) -> [AndroidKeyInput]? {
-        if type == .keyUp, let keycode = pressed.removeValue(forKey: keyCode) {
-            return [.key(phase: .up, keycode: keycode, metaState: AndroidKeycodeMapper.metaState(modifierFlags))]
+        if type == .keyUp, let key = pressed.removeValue(forKey: keyCode) {
+            return [.key(phase: .up, keycode: key.keycode, metaState: AndroidKeycodeMapper.metaState(modifierFlags))]
         }
         guard let inputs = AndroidKeycodeMapper.inputs(
             type: type, keyCode: keyCode, modifierFlags: modifierFlags, characters: characters
         ) else { return nil }
         guard type == .keyDown else { return [] }
-        for case .key(.down, let keycode, _) in inputs {
-            pressed[keyCode] = keycode
+        let repeatCount = isRepeat ? (pressed[keyCode]?.repeatCount ?? 0) + 1 : 0
+        return inputs.map { input in
+            guard case .key(.down, let keycode, let metaState, _) = input else { return input }
+            pressed[keyCode] = PressedKey(keycode: keycode, repeatCount: repeatCount)
+            return .key(phase: .down, keycode: keycode, metaState: metaState, repeatCount: repeatCount)
         }
-        return inputs
     }
 }

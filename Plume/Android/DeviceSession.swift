@@ -312,7 +312,8 @@ final class DeviceSession {
                 let info = try await connection.connect()
                 guard let self, self.connection === connection else { return }
                 deviceSize = info.deviceSize
-                rotation = .portrait
+                // Physical frames arrive already rotated; an emulator's rotation is real and outlives a reconnect.
+                if case .physical = device { rotation = .portrait }
                 EmulatorLog.info("\(logPrefix) connected, display \(String(describing: info.deviceSize))")
                 state = .connected
                 updateStreaming()

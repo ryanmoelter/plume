@@ -6,10 +6,37 @@ struct AndroidSDKLocatorTests {
     @Test func firstExecutableCandidateWins() {
         let result = AndroidSDKLocator.resolve(
             candidates: ["/a", "/b", "/c"],
-            isExecutable: { $0 == "/b/emulator/emulator" || $0 == "/c/emulator/emulator" }
+            isExecutable: { $0 == "/b/emulator/emulator" || $0 == "/b/platform-tools/adb" || $0 == "/c/emulator/emulator" }
         )
         #expect(result.root == "/b")
+        #expect(result.adbRoot == "/b")
         #expect(result.searched == ["/a", "/b"])
+    }
+
+    @Test func anEmulatorSDKWithoutAdbTakesAdbFromAnotherCandidate() {
+        let later = AndroidSDKLocator.resolve(
+            candidates: ["/sdk", "/a", "/tools", "/b"],
+            isExecutable: { $0 == "/sdk/emulator/emulator" || $0 == "/tools/platform-tools/adb" || $0 == "/b/platform-tools/adb" }
+        )
+        #expect(later.root == "/sdk")
+        #expect(later.adbRoot == "/tools")
+        #expect(later.searched == ["/sdk", "/a", "/tools"])
+
+        let earlier = AndroidSDKLocator.resolve(
+            candidates: ["/tools", "/sdk"],
+            isExecutable: { $0 == "/tools/platform-tools/adb" || $0 == "/sdk/emulator/emulator" }
+        )
+        #expect(earlier.root == "/sdk")
+        #expect(earlier.adbRoot == "/tools")
+    }
+
+    @Test func anEmulatorSDKPrefersItsOwnAdb() {
+        let result = AndroidSDKLocator.resolve(
+            candidates: ["/tools", "/sdk"],
+            isExecutable: { $0 == "/tools/platform-tools/adb" || $0 == "/sdk/emulator/emulator" || $0 == "/sdk/platform-tools/adb" }
+        )
+        #expect(result.root == "/sdk")
+        #expect(result.adbRoot == "/sdk")
     }
 
     @Test func adbOnlyInstallIsFoundWhenNoCandidateHasAnEmulator() {
@@ -18,6 +45,7 @@ struct AndroidSDKLocatorTests {
             isExecutable: { $0 == "/tools/platform-tools/adb" || $0 == "/b/platform-tools/adb" }
         )
         #expect(result.root == "/tools")
+        #expect(result.adbRoot == "/tools")
         #expect(result.searched == ["/a", "/tools", "/b"])
     }
 

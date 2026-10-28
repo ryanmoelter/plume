@@ -68,8 +68,8 @@ nonisolated final class PhysicalDeviceConnection: DeviceConnecting {
                 vScroll: Float(dy) / Float(WheelAccumulator.unitsPerNotch),
                 buttons: 0
             ))
-        case .androidKey(.key(let phase, let keycode, let metaState)):
-            connection.send(.injectKeycode(action: phase.androidAction, keycode: keycode, metaState: metaState))
+        case .androidKey(.key(let phase, let keycode, let metaState, let repeatCount)):
+            connection.send(.injectKeycode(action: phase.androidAction, keycode: keycode, repeat: repeatCount, metaState: metaState))
         case .androidKey(.text(let text)):
             connection.send(.injectText(text))
         case .emulatorKey:

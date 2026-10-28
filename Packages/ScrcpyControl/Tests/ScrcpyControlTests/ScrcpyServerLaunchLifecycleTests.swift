@@ -5,6 +5,8 @@ import Testing
 /// Runs `ScrcpyServerLaunch` and `ScrcpyConnection` against a fake `adb` script that logs each
 /// invocation. `push` and `forward tcp:0` block until the test creates their release file, so a
 /// test can stop the launch while either is in flight. `forward --list` prints the `forward-list` file.
+/// `forward --remove` takes a moment and then records itself in `removals`, so a test can tell a
+/// removal that finished from one that only started.
 struct ScrcpyServerLaunchLifecycleTests {
     private struct FakeADB {
         let directory: URL
@@ -24,6 +26,7 @@ struct ScrcpyServerLaunchLifecycleTests {
             wait_for() { i=0; while [ ! -e "\(dir)/$1" ] && [ $i -lt 300 ]; do sleep 0.05; i=$((i+1)); done; }
             case "$*" in
               *"forward --list"*) cat "\(dir)/forward-list" 2>/dev/null ;;
+              *"forward --remove"*) sleep 0.2; echo "$*" >> "\(dir)/removals" ;;
               *" push "*) wait_for push-release ;;
               *"forward tcp:0"*) wait_for forward-release; echo 27183 ;;
               *" shell "*) echo $$ > "\(dir)/shell-pid"; exec sleep 30 ;;
@@ -36,6 +39,11 @@ struct ScrcpyServerLaunchLifecycleTests {
 
         var log: [String] {
             ((try? String(contentsOf: directory.appendingPathComponent("log"), encoding: .utf8)) ?? "")
+                .split(separator: "\n").map(String.init)
+        }
+
+        var removals: [String] {
+            ((try? String(contentsOf: directory.appendingPathComponent("removals"), encoding: .utf8)) ?? "")
                 .split(separator: "\n").map(String.init)
         }
 
@@ -128,6 +136,37 @@ struct ScrcpyServerLaunchLifecycleTests {
         launch.terminate()
         ScrcpyServerLaunch.awaitTerminations()
         #expect(adb.log.contains { $0.hasSuffix("forward --remove tcp:27183") })
+    }
+
+    @Test func aQuitDuringTheForwardWaitsForItsCleanup() async throws {
+        let adb = try FakeADB()
+        defer { adb.remove() }
+        adb.release("push-release")
+        // A short timeout, because under parallel tests the forward sometimes never reaches EOF and
+        // times out instead; its cleanup then finds the forward through the listing.
+        let launch = ScrcpyServerLaunch(adbURL: adb.adbURL, serial: "S1", jarURL: adb.jarURL, version: "5.0.1", forwardTimeout: .seconds(2))
+        try adb.listForwards(["S1 tcp:27183 localabstract:scrcpy_\(launch.scid)"])
+        let starting = Task { try await launch.start() }
+        await adb.waitForLog(containing: "forward tcp:0")
+
+        launch.terminate()
+        DispatchQueue.global().asyncAfter(deadline: .now() + 0.3) { adb.release("forward-release") }
+        await Task.detached { ScrcpyServerLaunch.awaitTerminations() }.value
+        #expect(adb.removals.contains { $0.hasSuffix("forward --remove tcp:27183") })
+        await #expect(throws: (any Error).self) { try await starting.value }
+    }
+
+    @Test func stopWaitsForARemovalThatTerminateStarted() async throws {
+        let adb = try FakeADB()
+        defer { adb.remove() }
+        adb.release("push-release")
+        adb.release("forward-release")
+        let launch = ScrcpyServerLaunch(adbURL: adb.adbURL, serial: "S1", jarURL: adb.jarURL, version: "5.0.1")
+        _ = try await launch.start()
+
+        launch.terminate()
+        await launch.stop()
+        #expect(adb.removals.contains { $0.hasSuffix("forward --remove tcp:27183") })
     }
 
     @Test func stopAfterStartKillsTheServerAndRemovesTheForward() async throws {
