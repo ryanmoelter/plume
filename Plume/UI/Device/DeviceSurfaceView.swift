@@ -184,6 +184,7 @@ final class DeviceSurfaceView: NSView, DeviceFrameSink {
                 keyCode: event.keyCode,
                 modifierFlags: event.modifierFlags,
                 characters: type == .flagsChanged ? nil : event.characters,
+                charactersIgnoringModifiers: type == .flagsChanged ? nil : event.charactersIgnoringModifiers,
                 isRepeat: type == .keyDown && event.isARepeat
             ) else { return false }
             inputs = keys.map { .androidKey($0) }

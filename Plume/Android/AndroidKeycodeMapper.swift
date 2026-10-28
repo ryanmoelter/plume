@@ -7,12 +7,13 @@ nonisolated enum AndroidKeyInput: Sendable, Hashable {
     case text(String)
 }
 
-/// Maps Mac key events to scrcpy input for a physical device. Unmodified printable keys go as text,
-/// so the Mac's keyboard layout decides the character; everything else goes as an Android keycode.
+/// Maps Mac key events to scrcpy input for a physical device, following the scrcpy client's default
+/// "mixed" key injection: named keys, letters and space go as Android keycodes, and every other
+/// printable character goes as text, so the Mac's keyboard layout decides it.
 nonisolated enum AndroidKeycodeMapper {
     /// Keys that never type a character. Keyed by Mac virtual keycode.
     private static let namedKeys: [UInt16: UInt32] = [
-        36: Android.KeyCode.enter, 76: Android.KeyCode.enter,
+        36: Android.KeyCode.enter, 76: numpadEnter,
         48: Android.KeyCode.tab,
         51: Android.KeyCode.del,
         117: Android.KeyCode.forwardDel,
@@ -22,33 +23,16 @@ nonisolated enum AndroidKeycodeMapper {
         115: Android.KeyCode.moveHome, 119: Android.KeyCode.moveEnd,
         116: Android.KeyCode.pageUp, 121: Android.KeyCode.pageDown,
     ]
+    private static let numpadEnter: UInt32 = 160
+    private static let keycodeA: UInt32 = 29
 
-    /// ANSI positions, for chords such as Control-C that must reach the app as keycodes, not text.
-    private static let characterKeys: [UInt16: UInt32] = {
-        let letters: [Character: UInt16] = [
-            "a": 0, "s": 1, "d": 2, "f": 3, "h": 4, "g": 5, "z": 6, "x": 7, "c": 8, "v": 9,
-            "b": 11, "q": 12, "w": 13, "e": 14, "r": 15, "y": 16, "t": 17, "o": 31, "u": 32,
-            "i": 34, "p": 35, "l": 37, "j": 38, "k": 40, "n": 45, "m": 46,
-        ]
-        var map: [UInt16: UInt32] = [:]
-        for (letter, macCode) in letters {
-            map[macCode] = 29 + UInt32(letter.asciiValue! - Character("a").asciiValue!)
-        }
-        let digits: [UInt16] = [29, 18, 19, 20, 21, 23, 22, 26, 28, 25]
-        for (digit, macCode) in digits.enumerated() { map[macCode] = 7 + UInt32(digit) }
-        let punctuation: [UInt16: UInt32] = [
-            50: 68, 27: 69, 24: 70, 33: 71, 30: 72, 42: 73, 41: 74, 39: 75, 44: 76, 43: 55, 47: 56,
-            49: Android.KeyCode.space,
-        ]
-        map.merge(punctuation) { _, new in new }
-        return map
-    }()
-
+    /// Nil when nothing goes to the device, so the caller passes the event on.
     static func inputs(
         type: KeyEventType,
         keyCode: UInt16,
         modifierFlags: NSEvent.ModifierFlags,
-        characters: String?
+        characters: String?,
+        charactersIgnoringModifiers: String?
     ) -> [AndroidKeyInput]? {
         guard type != .flagsChanged else { return nil }
         if type == .keyDown, modifierFlags.contains(.command) { return nil }
@@ -58,11 +42,16 @@ nonisolated enum AndroidKeycodeMapper {
         if let keycode = namedKeys[keyCode] {
             return [.key(phase: phase, keycode: keycode, metaState: meta)]
         }
-        if modifierFlags.contains(.control) {
-            guard let keycode = characterKeys[keyCode] else { return nil }
+        // Empty for a dead key, which composes into the next key's characters.
+        guard let characters, !characters.isEmpty else { return nil }
+        let typesText = isPrintable(characters)
+        // The letter comes from the layout rather than the key's position, so an AZERTY "a" sends
+        // KEYCODE_A. A key that types anything else, such as Option-A's "å", goes as text alone.
+        if let keycode = letterOrSpaceKeycode(charactersIgnoringModifiers),
+           !typesText || isLetterOrSpace(characters.unicodeScalars.first!) {
             return [.key(phase: phase, keycode: keycode, metaState: meta)]
         }
-        guard let characters, isPrintable(characters) else { return nil }
+        guard typesText else { return nil }
         // The text was injected on key down; the release has nothing left to send but is still the device's.
         return type == .keyDown ? [.text(characters)] : []
     }
@@ -72,8 +61,21 @@ nonisolated enum AndroidKeycodeMapper {
         if flags.contains(.shift) { meta |= Android.Meta.shiftOn | Android.Meta.shiftLeftOn }
         if flags.contains(.control) { meta |= Android.Meta.ctrlOn | Android.Meta.ctrlLeftOn }
         if flags.contains(.option) { meta |= Android.Meta.altOn | Android.Meta.altLeftOn }
+        if flags.contains(.command) { meta |= Android.Meta.metaOn | Android.Meta.metaLeftOn }
         if flags.contains(.capsLock) { meta |= Android.Meta.capsLockOn }
         return meta
+    }
+
+    private static func letterOrSpaceKeycode(_ characters: String?) -> UInt32? {
+        guard let characters, characters.unicodeScalars.count == 1,
+              let scalar = characters.lowercased().unicodeScalars.first, isLetterOrSpace(scalar)
+        else { return nil }
+        if scalar == " " { return Android.KeyCode.space }
+        return keycodeA + scalar.value - Character("a").unicodeScalars.first!.value
+    }
+
+    private static func isLetterOrSpace(_ scalar: Unicode.Scalar) -> Bool {
+        scalar == " " || ("a"..."z").contains(scalar) || ("A"..."Z").contains(scalar)
     }
 
     /// Function keys arrive as characters in the U+F700 private-use block.
@@ -102,13 +104,15 @@ nonisolated struct AndroidPressedKeys {
         keyCode: UInt16,
         modifierFlags: NSEvent.ModifierFlags,
         characters: String?,
+        charactersIgnoringModifiers: String?,
         isRepeat: Bool = false
     ) -> [AndroidKeyInput]? {
         if type == .keyUp, let key = pressed.removeValue(forKey: keyCode) {
             return [.key(phase: .up, keycode: key.keycode, metaState: AndroidKeycodeMapper.metaState(modifierFlags))]
         }
         guard let inputs = AndroidKeycodeMapper.inputs(
-            type: type, keyCode: keyCode, modifierFlags: modifierFlags, characters: characters
+            type: type, keyCode: keyCode, modifierFlags: modifierFlags,
+            characters: characters, charactersIgnoringModifiers: charactersIgnoringModifiers
         ) else { return nil }
         guard type == .keyDown else { return [] }
         let repeatCount = isRepeat ? (pressed[keyCode]?.repeatCount ?? 0) + 1 : 0
