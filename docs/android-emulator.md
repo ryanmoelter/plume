@@ -1,17 +1,17 @@
 # Android emulator tabs
 
-A device tab (`TabKind.device`, platform `androidEmulator`) shows a live Android emulator and forwards mouse, scroll and keyboard input. It talks to the emulator's gRPC control service (`EmulatorController` in `emulator_controller.proto`), the same service Android Studio's Running Devices panel uses. Every fact below marked *measured* was checked against emulator 37.1.11 on Apple silicon.
+A device tab (`TabKind.device`, platform `androidEmulator`) shows a live Android emulator and forwards mouse, scroll and keyboard input. The same tab can show a physical device instead, through scrcpy; `docs/android-physical-device.md` covers that path. It talks to the emulator's gRPC control service (`EmulatorController` in `emulator_controller.proto`), the same service Android Studio's Running Devices panel uses. Every fact below marked *measured* was checked against emulator 37.1.11 on Apple silicon.
 
 ## Layout
 
 - `Packages/EmulatorControl/` holds all gRPC and protobuf code. It is a local package rather than part of the app target because the app's `SWIFT_DEFAULT_ACTOR_ISOLATION = MainActor` breaks generated protobuf code. Its public facade (`EmulatorConnection` and value types) is the only API the app sees.
 - `Packages/EmulatorControl/Sources/EmulatorControl/Generated/` is generated. Never edit it by hand; run `scripts/android/generate-emulator-grpc.sh`. `--update-proto` first copies the proto from the SDK into `Packages/EmulatorControl/Protos/`; `--check` diffs a fresh generation against the checked-in files.
-- `Plume/Android/` holds SDK discovery, the AVD catalog, the running-emulator discovery, the launcher, the input mappers and the per-tab session.
-- `Plume/UI/Device/` holds the tab host, the picker and the device view.
+- `Plume/Android/` holds SDK discovery, the AVD catalog, the running-emulator discovery, the launcher, the input mappers and the per-tab `DeviceSession`. `EmulatorDeviceConnection` adapts `EmulatorConnection` to `DeviceConnecting`, the protocol the session talks to.
+- `Plume/UI/Device/` holds the tab host, the picker (physical devices, running emulators and AVDs in one list) and the device view.
 
 ## Finding the SDK
 
-`AndroidSDKLocator` takes the first candidate whose `emulator/emulator` is executable: `ANDROID_HOME`, `ANDROID_SDK_ROOT`, the same two read from an interactive login shell, `~/Library/Android/sdk`, `~/.android/sdk`, then the root above the login shell's `adb`. The login-shell step exists because an app opened from Finder inherits none of the shell's environment, and `ANDROID_HOME` usually lives in `.zshrc`.
+`AndroidSDKLocator` takes the first candidate whose `emulator/emulator` is executable: `ANDROID_HOME`, `ANDROID_SDK_ROOT`, the same two read from an interactive login shell, `~/Library/Android/sdk`, `~/.android/sdk`, then the root above the login shell's `adb`. Failing that, it takes the first with `platform-tools/adb`, and `AndroidSDK.emulatorURL` is nil. The login-shell step exists because an app opened from Finder inherits none of the shell's environment, and `ANDROID_HOME` usually lives in `.zshrc`.
 
 An AVD's id is its `<id>.ini` basename in `~/.android/avd`, not the name of the `.avd` directory that ini points at. `-avd` and the discovery file both use the id.
 
@@ -51,7 +51,7 @@ With `-no-window` the emulator runs `qemu-system-aarch64-headless` and renders w
 
 ## Hidden tabs
 
-A hidden tab unmounts its device view, and the view stops streaming when it leaves the window or its window is occluded. A stream exists only while a view is on screen. Nothing ticks while hidden: no frame stream, no status polling, no discovery watch.
+A hidden tab unmounts its device view, and the view stops streaming when it leaves the window or its window is occluded. A stream exists only while a view is on screen. (A physical device keeps streaming for a 5-second grace period instead; see `docs/android-physical-device.md`.) Nothing ticks while hidden: no frame stream, no status polling, no discovery watch.
 
 ## Logging
 
