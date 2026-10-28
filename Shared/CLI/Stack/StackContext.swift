@@ -43,7 +43,7 @@ nonisolated final class StackContext {
         self.forge = forge
         self.forgeKind = forgeKind ?? forge?.kind ?? .none
         self.nerdFontMode = nerdFontMode
-        self.app = app ?? SocketPlumeAppClient(socketPath: "")
+        self.app = app ?? SocketPlumeAppClient(socketPath: nil)
         self.fzfPath = fzfPath
     }
 
@@ -89,18 +89,8 @@ nonisolated final class StackContext {
             forgeKind: kind,
             nerdFontMode: nerdFontMode,
             app: SocketPlumeAppClient(socketPath: CLISocket.resolvedPath(environment: environment)),
-            fzfPath: executable(named: "fzf", environment: environment)
+            fzfPath: CLIProcess.which("fzf", environment: environment)
         )
-    }
-
-    /// The first executable `name` on the environment's PATH.
-    static func executable(named name: String, environment: [String: String]) -> String? {
-        let path = environment["PATH"] ?? ""
-        for directory in path.split(separator: ":") where !directory.isEmpty {
-            let candidate = "\(directory)/\(name)"
-            if FileManager.default.isExecutableFile(atPath: candidate) { return candidate }
-        }
-        return nil
     }
 
     /// `stack: <message>` on stderr, unless quiet.
