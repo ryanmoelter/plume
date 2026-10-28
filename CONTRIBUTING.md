@@ -7,6 +7,7 @@
 - macOS 26.2 or later.
 - Xcode 27. The deployment target is macOS 26.2, but the code uses APIs that only the Xcode 27 SDK has.
 - `claude` installed and logged in, to run an agent tab. `codex` and `gh` are optional.
+- Git LFS. The repo stores `Plume/Resources/Scrcpy/scrcpy-server` in LFS. Run `git lfs install` once, then `git lfs pull` in your clone. Without it, the jar is a text pointer and physical-device tabs fail with a message that says so.
 
 ## Build and test
 

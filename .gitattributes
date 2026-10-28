@@ -1,0 +1,2 @@
+# No .jar extension: Xcode classifies a .jar as a Java archive and leaves it out of the bundle's resources.
+Plume/Resources/Scrcpy/scrcpy-server filter=lfs diff=lfs merge=lfs -text
