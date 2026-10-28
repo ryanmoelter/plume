@@ -1,5 +1,6 @@
 import Testing
 import Foundation
+import os
 @testable import Plume
 
 struct IgnoredChecksResolverTests {
@@ -47,6 +48,17 @@ struct IgnoredChecksResolverTests {
 
         let result = IgnoredChecksResolver.resolve(repository: repository, configuration: ProjectsConfiguration())
         #expect(result.isEmpty)
+    }
+
+    @Test func aRepositorysRootIsLookedUpOnce() {
+        let lookups = OSAllocatedUnfairLock(initialState: 0)
+        let cache = ProjectRootCache { path in
+            lookups.withLock { $0 += 1 }
+            return path == "/repo/sub" ? "/repo" : nil
+        }
+        #expect(cache.root(containing: "/repo/sub") == "/repo")
+        #expect(cache.root(containing: "/repo/sub") == "/repo")
+        #expect(lookups.withLock { $0 } == 1)
     }
 
     private func makeRepository() throws -> String {
