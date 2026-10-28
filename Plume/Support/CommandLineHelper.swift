@@ -40,14 +40,15 @@ enum CommandLineHelper {
         case installed
         case notInstalled
         /// Something else already owns the name — a real file, or a symlink
-        /// to another tool. Overwriting it is the user's call, not ours.
+        /// to another tool, even one that has since gone. Overwriting it is
+        /// the user's call, not ours.
         case occupiedByOther(URL?)
         /// A link into another Plume bundle that this build doesn't claim.
         case ownedByOtherPlume(URL)
         /// A link into a Plume bundle, but not at this build's tool: the old
         /// script, or another copy of Plume. Ours to replace.
         case outdated(URL)
-        /// Installed by Plume, but the bundle it pointed at is gone.
+        /// A link into a Plume bundle that is gone.
         case brokenLink
 
         /// A link Plume placed and may remove.
@@ -98,12 +99,8 @@ enum CommandLineHelper {
         if let bundledURL, resolved == bundledURL.standardizedFileURL {
             return .installed
         }
-        guard manager.fileExists(atPath: resolved.path) else {
-            // A dangling link into some app bundle is ours in every case that
-            // matters; a dangling link to anything else is equally safe to replace.
-            return .brokenLink
-        }
         guard isInsidePlumeBundle(resolved) else { return .occupiedByOther(resolved) }
+        guard manager.fileExists(atPath: resolved.path) else { return .brokenLink }
         if claimsOtherPlumeBundles { return .outdated(resolved) }
         if let bundledURL, isInside(resolved, bundle: bundleURL(containingTool: bundledURL)) {
             return .outdated(resolved)

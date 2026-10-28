@@ -148,10 +148,29 @@ struct CommandLineHelperTests {
         #expect(summary.statusLines == ["Another tool owns plume", "Another tool owns plume-notify"])
     }
 
-    @Test func aLinkWhoseTargetIsGoneIsBroken() throws {
+    @Test func aLinkIntoAVanishedPlumeBundleIsBroken() throws {
         defer { try? FileManager.default.removeItem(at: scratch) }
-        try link("plume", to: scratch.appending(path: "vanished"))
+        try link("plume", to: CommandLineHelper.toolURL(inBundle: scratch.appending(path: "Gone/Plume.app")))
         #expect(state("plume") == .brokenLink)
+    }
+
+    @Test func aDanglingLinkOutsideAnyPlumeBundleIsAnotherTools() throws {
+        defer { try? FileManager.default.removeItem(at: scratch) }
+        let vanished = scratch.appending(path: "vanished")
+        try link("plume", to: vanished)
+        #expect(state("plume") == .occupiedByOther(vanished))
+    }
+
+    @Test func launchLeavesADanglingForeignLinkAlone() throws {
+        defer { try? FileManager.default.removeItem(at: scratch) }
+        try link("plume-notify", to: CommandLineHelper.legacyScriptURL(inBundle: bundle))
+        let vanished = scratch.appending(path: "vanished")
+        try link("plume", to: vanished)
+
+        let outcomes = CommandLineHelper.repointLegacyLinks(in: bin, bundleURL: bundle, bundledURL: tool)
+
+        #expect(outcomes.map(\.isLinked) == [false, true])
+        #expect(try destination("plume") == vanished.path)
     }
 
     @Test func installLinksEveryNameAndSkipsAForeignFile() throws {
