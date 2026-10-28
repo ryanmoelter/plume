@@ -314,4 +314,15 @@ struct CLIServerTests {
         try await server.value
         #expect(response.ok)
     }
+
+    @Test func anAcceptedSocketClosesOnExec() throws {
+        var fds: [Int32] = [0, 0]
+        #expect(socketpair(AF_UNIX, SOCK_STREAM, 0, &fds) == 0)
+        defer { fds.forEach { close($0) } }
+
+        CLIServer.prepareAcceptedSocket(fds[0])
+
+        #expect(fcntl(fds[0], F_GETFD) & FD_CLOEXEC != 0)
+        #expect(fcntl(fds[0], F_GETFL) & O_NONBLOCK != 0)
+    }
 }

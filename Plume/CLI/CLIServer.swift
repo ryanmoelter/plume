@@ -209,9 +209,7 @@ final class CLIServer {
                     return
                 }
             }
-            var noSigpipe: Int32 = 1
-            setsockopt(fd, SOL_SOCKET, SO_NOSIGPIPE, &noSigpipe, socklen_t(MemoryLayout<Int32>.size))
-            _ = fcntl(fd, F_SETFL, fcntl(fd, F_GETFL) | O_NONBLOCK)
+            Self.prepareAcceptedSocket(fd)
 
             var uid: uid_t = 0
             var gid: gid_t = 0
@@ -228,6 +226,15 @@ final class CLIServer {
             }
             if connection.isOpen { connections[fd] = connection }
         }
+    }
+
+    /// Close-on-exec, so a child the app spawns — a shell, an agent — never
+    /// holds a client's connection open.
+    nonisolated static func prepareAcceptedSocket(_ fd: Int32) {
+        var noSigpipe: Int32 = 1
+        setsockopt(fd, SOL_SOCKET, SO_NOSIGPIPE, &noSigpipe, socklen_t(MemoryLayout<Int32>.size))
+        _ = fcntl(fd, F_SETFL, fcntl(fd, F_GETFL) | O_NONBLOCK)
+        _ = fcntl(fd, F_SETFD, fcntl(fd, F_GETFD) | FD_CLOEXEC)
     }
 
     private func pauseAccepting() {
