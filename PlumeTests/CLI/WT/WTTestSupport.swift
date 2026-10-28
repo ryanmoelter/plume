@@ -159,6 +159,8 @@ nonisolated final class FakeWorktreeGit: WorktreeGit {
     var workingDirectoryPath = "/nonexistent-wt-fake"
     func toplevel() -> String? { top }
     func commonDir(root: String) -> String? { common }
+    func gitDir(root: String) -> String? { nil }
+    func coreWorktree(commonDir: String) -> String? { nil }
     func configGet(_ key: String) -> String? { config[key] }
     func originURL() -> String? { origin }
     func originHead() -> String? { head }

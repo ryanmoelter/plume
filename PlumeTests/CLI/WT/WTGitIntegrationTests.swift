@@ -74,6 +74,36 @@ struct WTGitIntegrationTests {
         #expect((ctx.console as? BufferConsole)?.stdout.contains("main") == true)
     }
 
+    /// A submodule's common dir is `<super>/.git/modules/<name>`, whose
+    /// parent is no checkout.
+    @Test func detectInASubmoduleFindsItsCheckout() throws {
+        let tmp = try makeScratchDirectory()
+        defer { try? FileManager.default.removeItem(atPath: tmp) }
+        let source = try makeScratchRepository(in: tmp, name: "source")
+        let superproject = try makeScratchRepository(in: tmp, name: "super")
+        try runGit(["-c", "protocol.file.allow=always", "submodule", "add", "-q", source, "sub"], in: superproject)
+        let submodule = "\(superproject)/sub"
+        let linked = "\(tmp)/sub-linked"
+        try runGit(["worktree", "add", "-q", "-b", "x", linked], in: submodule)
+
+        #expect(try detect(from: submodule).root == submodule)
+        #expect(try detect(from: linked).root == submodule)
+        #expect(ProjectRoot.containing(linked) == submodule)
+    }
+
+    @Test func detectWithASeparateGitDirFindsTheCheckout() throws {
+        let tmp = try makeScratchDirectory()
+        defer { try? FileManager.default.removeItem(atPath: tmp) }
+        let work = "\(tmp)/work"
+        try runGit(["init", "-q", "-b", "main", "--separate-git-dir", "\(tmp)/store.git", work], in: tmp)
+
+        let ctx = try detect(from: work)
+        #expect(ctx.layout == .standard)
+        #expect(ctx.root == work)
+        #expect(ctx.mainName == "work")
+        #expect(ProjectRoot.containing(work) == work)
+    }
+
     @Test func detectReadsTheProjectsIgnoredChecks() throws {
         let tmp = try makeScratchDirectory()
         defer { try? FileManager.default.removeItem(atPath: tmp) }

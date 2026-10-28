@@ -56,6 +56,11 @@ nonisolated protocol WorktreeGit: AnyObject {
     var workingDirectoryPath: String { get }
     func toplevel() -> String?
     func commonDir(root: String) -> String?
+    /// The checkout's own git dir: the common dir in the main worktree.
+    func gitDir(root: String) -> String?
+    /// `core.worktree` from the common dir's config, as written. A
+    /// submodule's points from its git dir back to its checkout.
+    func coreWorktree(commonDir: String) -> String?
 
     // Repository-wide.
     func configGet(_ key: String) -> String?
@@ -208,6 +213,14 @@ nonisolated final class ProcessWorktreeGit: WorktreeGit {
 
     func commonDir(root: String) -> String? {
         outputOrNil(worktreeGit(root, "rev-parse", "--git-common-dir"))
+    }
+
+    func gitDir(root: String) -> String? {
+        outputOrNil(worktreeGit(root, "rev-parse", "--git-dir"))
+    }
+
+    func coreWorktree(commonDir: String) -> String? {
+        outputOrNil(["git", "config", "--file", "\(commonDir)/config", "--get", "core.worktree"])
     }
 
     // MARK: Repository-wide

@@ -196,10 +196,27 @@ nonisolated final class WorktreeContext: WTContext {
     static func locate(git: any WorktreeGit) throws -> (root: String, commonDir: String) {
         if let bareLayout = bareLayoutAtWorkingDirectory(git: git) { return bareLayout }
         guard let top = git.toplevel() else { throw CLIFailure("not inside a git repo") }
-        guard var common = git.commonDir(root: top) else { throw CLIFailure("failed to resolve git common dir") }
-        // `--git-common-dir` can be relative to the directory it ran in.
-        if !common.hasPrefix("/") { common = lexicallyNormalized("\(top)/\(common)") }
-        return ((common as NSString).deletingLastPathComponent, common)
+        guard let reported = git.commonDir(root: top) else { throw CLIFailure("failed to resolve git common dir") }
+        let common = absolute(reported, from: top)
+        return (mainWorktree(git: git, top: top, commonDir: common), common)
+    }
+
+    /// The common dir's parent only when it is a `.git` folder: a submodule
+    /// keeps it in the superproject's `.git/modules`, and `--separate-git-dir`
+    /// anywhere at all.
+    private static func mainWorktree(git: any WorktreeGit, top: String, commonDir: String) -> String {
+        let parent = (commonDir as NSString).deletingLastPathComponent
+        if (commonDir as NSString).lastPathComponent == ".git" { return parent }
+        if let gitDir = git.gitDir(root: top), absolute(gitDir, from: top) == commonDir { return top }
+        if let coreWorktree = git.coreWorktree(commonDir: commonDir) { return absolute(coreWorktree, from: commonDir) }
+        // A linked worktree of a `--separate-git-dir` repository: its git dir
+        // records no path back to the main worktree.
+        return parent
+    }
+
+    /// git reports some paths relative to the directory it ran in.
+    private static func absolute(_ path: String, from directory: String) -> String {
+        path.hasPrefix("/") ? lexicallyNormalized(path) : lexicallyNormalized("\(directory)/\(path)")
     }
 
     /// Neither the bare layout's root nor its `.bare` is a checkout, so
