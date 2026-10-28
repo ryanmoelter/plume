@@ -183,6 +183,53 @@ struct ZshrcSetupTests {
         #expect(Date().timeIntervalSince(started) < 10)
     }
 
+    private func pid(in file: URL) throws -> pid_t {
+        try #require(pid_t(contents(file).trimmingCharacters(in: .whitespacesAndNewlines)))
+    }
+
+    /// A killed process lingers as a zombie until launchd reaps it.
+    private func isGone(_ pid: pid_t) -> Bool {
+        let deadline = Date().addingTimeInterval(2)
+        while Date() < deadline {
+            if kill(pid, 0) == -1, errno == ESRCH { return true }
+            usleep(20_000)
+        }
+        return false
+    }
+
+    @Test func aBackgroundedChildHoldingStdoutNeitherBlocksNorSurvives() throws {
+        let child = directory.appending(path: "child.pid")
+        let shell = try fakeShell("sleep 30 &\necho $! > '\(child.path)'\nprintf '\\n__PLUME_PATH__/x/bin\\n'")
+        let started = Date()
+        #expect(LoginShellPath.directories(shell: shell, timeout: 10, fallback: ["/fallback"]) == ["/x/bin"])
+        #expect(Date().timeIntervalSince(started) < 5)
+        #expect(isGone(try pid(in: child)))
+    }
+
+    @Test func aShellIgnoringSIGTERMIsKilledWithItsChildrenAtTheTimeout() throws {
+        let shellPID = directory.appending(path: "shell.pid")
+        let child = directory.appending(path: "child.pid")
+        let shell = try fakeShell("trap '' TERM\necho $$ > '\(shellPID.path)'\nsleep 30 &\necho $! > '\(child.path)'\nwait")
+        let started = Date()
+        #expect(LoginShellPath.directories(shell: shell, timeout: 0.5, fallback: ["/fallback"]) == ["/fallback"])
+        #expect(Date().timeIntervalSince(started) < 5)
+        #expect(isGone(try pid(in: shellPID)))
+        #expect(isGone(try pid(in: child)))
+    }
+
+    @Test func aZshrcBackgroundingAJobStillYieldsThePath() throws {
+        let child = directory.appending(path: "child.pid")
+        try "sleep 30 &\necho $! > '\(child.path)'\nexport PATH=/from/zshrc:$PATH\n"
+            .write(to: directory.appending(path: ".zshrc"), atomically: true, encoding: .utf8)
+        var environment = ProcessInfo.processInfo.environment
+        environment["ZDOTDIR"] = directory.path
+        let started = Date()
+        let path = LoginShellPath.directories(environment: environment, timeout: 10, fallback: ["/fallback"])
+        #expect(path.first == "/from/zshrc")
+        #expect(Date().timeIntervalSince(started) < 5)
+        #expect(isGone(try pid(in: child)))
+    }
+
     @Test func theFallbackIncludesLocalBin() {
         #expect(LoginShellPath.fallbackDirectories().contains(URL.homeDirectory.appending(path: ".local/bin").path))
     }
