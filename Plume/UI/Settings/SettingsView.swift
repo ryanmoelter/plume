@@ -81,6 +81,7 @@ struct SettingsView: View {
         case .visuals: VisualsSettingsPane()
         case .keepAwake: KeepAwakeSettingsPane()
         case .shortcuts: ShortcutsSettingsPane()
+        case .devices: DevicesSettingsPane()
         case .integrations: IntegrationsSettingsPane()
         case .updates: UpdatesSettingsPane()
         case .about: AboutSettingsPane()
@@ -97,6 +98,7 @@ enum SettingsPane: String, CaseIterable, Identifiable {
     case visuals
     case keepAwake
     case shortcuts
+    case devices
     case integrations
     case updates
     case about
@@ -113,6 +115,7 @@ enum SettingsPane: String, CaseIterable, Identifiable {
         case .visuals: "Visuals"
         case .keepAwake: "Keep awake"
         case .shortcuts: "Shortcuts"
+        case .devices: "Devices"
         case .integrations: "Integrations"
         case .updates: "Updates"
         case .about: "About"
@@ -129,6 +132,7 @@ enum SettingsPane: String, CaseIterable, Identifiable {
         case .visuals: "paintpalette"
         case .keepAwake: "cup.and.saucer"
         case .shortcuts: "keyboard"
+        case .devices: "iphone"
         case .integrations: "puzzlepiece.extension"
         case .updates: "arrow.down.circle"
         case .about: "info.circle"

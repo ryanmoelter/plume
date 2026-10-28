@@ -4,15 +4,15 @@ struct DeviceTabHost: View {
     let tab: TaskTab
     let isVisible: Bool
 
-    @State private var session: EmulatorSession?
+    @State private var session: DeviceSession?
 
     var body: some View {
         Group {
             if isVisible, let session {
                 if session.state == .needsDevice {
-                    EmulatorPickerView(onAttach: session.attach, onBoot: session.boot)
+                    DevicePickerView(onConnect: session.attach, onAttach: session.attach, onBoot: session.boot)
                 } else {
-                    EmulatorDeviceView(session: session)
+                    AndroidDeviceView(session: session)
                 }
             } else {
                 Color.clear
@@ -23,14 +23,14 @@ struct DeviceTabHost: View {
 
     private func makeSession() {
         guard session == nil else { return }
-        let session = EmulatorSessionManager.shared.session(
+        let target = tab.deviceTarget
+        let session = DeviceSessionManager.shared.session(
             for: tab.id,
-            avdID: tab.deviceIdentifier,
-            displayName: tab.deviceIdentifier == nil ? nil : tab.title
+            target: target,
+            displayName: target == nil ? nil : tab.title
         )
-        session.onDeviceChange = { [tab] avdID, displayName in
-            tab.deviceIdentifier = avdID
-            tab.title = displayName
+        session.onDeviceChange = { [tab] target, displayName in
+            tab.setDevice(target, displayName: displayName)
         }
         session.start()
         self.session = session

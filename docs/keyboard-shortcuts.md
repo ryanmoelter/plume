@@ -48,6 +48,10 @@ Settings (⌘,), Hide (⌘H) and Quit (⌘Q) come from AppKit's standard app men
 
 Undo/Cut/Copy/Paste/Select All (⌘Z/X/C/V/A) are the same kind of automatic item and are deliberately *not* in that list: a terminal needs them for its own editing and clipboard, and claiming them back would break that.
 
+## Physical device tabs
+
+A focused physical Android device tab keeps the same chords `TerminalShortcutMonitor` claims and sends every other ⌘ chord to the device as Meta plus the key. Settings ▸ Devices ▸ "Keep Plume shortcuts on the Mac" turned off sends it every ⌘ chord, Plume's own included: the surface answers `MenuShortcutYielding.keepsChordFromMenu`, so the monitor leaves the chord alone, and takes it in `performKeyEquivalent` before the menu. Before the monitor hands the menu a chord, it calls `menuWillPerformShortcut`, which releases every key the device holds. `docs/android-physical-device.md` has the details.
+
 ## Tests must not read the live bindings
 
 `PlumeShortcuts.all` reads `AppSettings.shared`, so a test asserting against the shipped chords fails on any machine whose owner has rebound one. Pass an explicit set instead: `PlumeShortcuts.all(with: ShortcutBindings())` for the defaults, and `TerminalShortcutMonitor.isClaimed(shortcuts:characters:flags:)` to match against it. Never assign to `AppSettings.shared.shortcutBindings` from a test — it writes the developer's real preferences.

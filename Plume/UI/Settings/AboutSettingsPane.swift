@@ -43,6 +43,7 @@ struct AboutSettingsPane: View {
                 creditLink("Ghostty", destination: URL(string: "https://ghostty.org")!)
                 creditLink("libghostty-spm", destination: URL(string: "https://github.com/Lakr233/libghostty-spm")!)
                 creditLink("Sparkle", destination: URL(string: "https://sparkle-project.org")!)
+                creditLink("scrcpy", destination: URL(string: "https://github.com/Genymobile/scrcpy")!)
             } header: {
                 Text("Credits")
             }

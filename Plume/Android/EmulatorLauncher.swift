@@ -56,6 +56,9 @@ nonisolated final class EmulatorLaunch: @unchecked Sendable {
 
     /// Spawns in its own session so closing a tab or quitting Plume leaves the emulator running.
     static func boot(avdID: String, sdk: AndroidSDK) throws -> EmulatorLaunch {
+        guard let emulatorURL = sdk.emulatorURL else {
+            throw EmulatorLaunchError(message: "The Android emulator isn't installed in \(sdk.root.path).")
+        }
         let logURL = logURL(avdID: avdID)
         try FileManager.default.createDirectory(at: logURL.deletingLastPathComponent(), withIntermediateDirectories: true)
         let logFD = open(logURL.path, O_WRONLY | O_CREAT | O_TRUNC, 0o644)
@@ -88,7 +91,7 @@ nonisolated final class EmulatorLaunch: @unchecked Sendable {
         sigemptyset(&noSignals)
         posix_spawnattr_setsigmask(&attributes, &noSignals)
 
-        let argv = [sdk.emulatorURL.path] + arguments(avdID: avdID)
+        let argv = [emulatorURL.path] + arguments(avdID: avdID)
         let environment = ProcessInfo.processInfo.environment
             .merging(sdk.launchEnvironment) { _, new in new }
             .map { "\($0.key)=\($0.value)" }
@@ -102,7 +105,7 @@ nonisolated final class EmulatorLaunch: @unchecked Sendable {
 
         let launchedAt = Date()
         var pid: pid_t = 0
-        let status = posix_spawn(&pid, sdk.emulatorURL.path, &actions, &attributes, cArgv, cEnv)
+        let status = posix_spawn(&pid, emulatorURL.path, &actions, &attributes, cArgv, cEnv)
         guard status == 0 else {
             throw EmulatorLaunchError(message: "Could not start the emulator: \(String(cString: strerror(status)))")
         }

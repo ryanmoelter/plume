@@ -27,6 +27,8 @@ set -uo pipefail
 
 # shellcheck source=lib/sign-bundle.sh
 source "$(dirname "${BASH_SOURCE[0]}")/lib/sign-bundle.sh"
+# shellcheck source=lib/scrcpy-server.sh
+source "$(dirname "${BASH_SOURCE[0]}")/lib/scrcpy-server.sh"
 
 LOG="${LOG:-/tmp/plume-install.log}"
 NOTARY_PROFILE="${NOTARY_PROFILE:-plume-notary}"
@@ -51,6 +53,8 @@ echo "=== $(date) installing ==="
 fail() { echo "FAILED: $*"; exit 1; }
 
 # --- 1. preflight -----------------------------------------------------------
+
+check_scrcpy_server_source
 
 SRC="$(xcodebuild -scheme Plume -configuration Release -destination 'platform=macOS' \
   -showBuildSettings 2>/dev/null | awk '$1 == "BUILT_PRODUCTS_DIR" {print $3; exit}')/Plume.app"
@@ -95,6 +99,8 @@ if [ "$dylib_count" -eq 0 ]; then
 elif [ "$dylib_count" -ne 1 ] || ! grep -q '@rpath/Sparkle\.framework' <<<"$non_system_dylibs"; then
   fail "unexpected non-system dylibs — expected exactly @rpath/Sparkle.framework"
 fi
+
+check_scrcpy_server_bundled "$APP"
 
 echo "--- notarizing (a few minutes) ---"
 ZIP="$STAGE_DIR/Plume-submit.zip"

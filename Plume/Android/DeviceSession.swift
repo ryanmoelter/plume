@@ -6,31 +6,38 @@ import Observation
 /// Receives frames on the main actor. Frames bypass observation entirely, so a
 /// streaming device never invalidates a SwiftUI view.
 @MainActor
-protocol EmulatorFrameSink: AnyObject {
+protocol DeviceFrameSink: AnyObject {
     var requestedPixelSize: CGSize { get }
-    func present(_ frame: EmulatorFrame)
+    func present(_ frame: DeviceFrame)
 }
 
-enum EmulatorSessionState: Equatable {
+enum DeviceSessionState: Equatable {
     case needsDevice
     case locating
     case notRunning
     case booting
     case connecting
     case connected
+    /// A physical device that is ready but unconnected because no sink watches it. The next sink connects.
+    case suspended
     case disconnected(String)
     case failed(String)
 }
 
-/// One tab's link to one emulator. It streams frames only while a sink is
-/// attached, and closing it never stops the emulator.
+/// One tab's link to one device. It streams frames only while a sink is
+/// attached, and closing it never stops an emulator.
 @MainActor
 @Observable
-final class EmulatorSession {
+final class DeviceSession {
+    /// How long a physical device stays connected after its last sink leaves. Reconnecting costs
+    /// about a second, which a quick tab switch shouldn't pay; a phone encoding for a hidden tab
+    /// costs battery and heat.
+    static let physicalIdleStopDelay: Duration = .seconds(5)
+
     let tabID: UUID
-    private(set) var avdID: String?
+    private(set) var target: DeviceTarget?
     private(set) var displayName: String?
-    private(set) var state: EmulatorSessionState {
+    private(set) var state: DeviceSessionState {
         didSet {
             guard state != oldValue else { return }
             EmulatorLog.info("\(logPrefix) state \(oldValue) -> \(state)")
@@ -42,39 +49,54 @@ final class EmulatorSession {
     private(set) var isStreaming = false
 
     /// Called when the user picks a device, so the tab can persist it.
-    @ObservationIgnored var onDeviceChange: ((_ avdID: String?, _ displayName: String?) -> Void)?
+    @ObservationIgnored var onDeviceChange: ((_ target: DeviceTarget?, _ displayName: String?) -> Void)?
 
     @ObservationIgnored private let discovery: EmulatorDiscovery
-    @ObservationIgnored private let makeConnection: (RunningEmulator) -> EmulatorConnecting
-    @ObservationIgnored private var connection: EmulatorConnecting?
+    @ObservationIgnored private let physicalDiscovery: PhysicalDeviceDiscovery
+    @ObservationIgnored private let makeConnection: (ResolvedDevice) -> DeviceConnecting
+    @ObservationIgnored private let idleSleep: (Duration) async -> Void
+    @ObservationIgnored private var connection: DeviceConnecting?
+    /// What `connection` was made for, so a suspended session can reconnect without a fresh lookup.
+    @ObservationIgnored private var connectedDevice: ResolvedDevice?
     @ObservationIgnored private var sinks: [ObjectIdentifier: WeakSink] = [:]
     @ObservationIgnored private var streamTask: Task<Void, Never>?
     @ObservationIgnored private var streamPixelSize: CGSize = .zero
+    @ObservationIgnored private var idleStopTask: Task<Void, Never>?
+    @ObservationIgnored private var lastFrame: DeviceFrame?
     @ObservationIgnored private var workTask: Task<Void, Never>?
     @ObservationIgnored private var started = false
 
     init(
         tabID: UUID,
-        avdID: String?,
+        target: DeviceTarget?,
         displayName: String? = nil,
         discovery: EmulatorDiscovery = .shared,
-        makeConnection: @escaping (RunningEmulator) -> EmulatorConnecting = EmulatorSession.liveConnection
+        physicalDiscovery: PhysicalDeviceDiscovery = .shared,
+        makeConnection: @escaping (ResolvedDevice) -> DeviceConnecting = DeviceSession.liveConnection,
+        idleSleep: @escaping (Duration) async -> Void = { try? await Task.sleep(for: $0) }
     ) {
         self.tabID = tabID
-        self.avdID = avdID
+        self.target = target
         self.displayName = displayName
         self.discovery = discovery
+        self.physicalDiscovery = physicalDiscovery
         self.makeConnection = makeConnection
-        state = avdID == nil ? .needsDevice : .locating
+        self.idleSleep = idleSleep
+        state = target == nil ? .needsDevice : .locating
     }
 
-    nonisolated static func liveConnection(for emulator: RunningEmulator) -> EmulatorConnecting {
-        EmulatorConnection(endpoint: EmulatorEndpoint(port: emulator.grpcPort, token: emulator.grpcToken))
+    nonisolated static func liveConnection(for device: ResolvedDevice) -> DeviceConnecting {
+        switch device {
+        case .emulator(let emulator): EmulatorDeviceConnection(emulator: emulator)
+        case .physical(let serial, let adbURL): PhysicalDeviceConnection(serial: serial, adbURL: adbURL)
+        }
     }
 
     var isConnected: Bool { state == .connected }
+    var isPhysical: Bool { target?.isPhysical == true }
+    var canShutDownEmulator: Bool { isConnected && !isPhysical }
 
-    private var logPrefix: String { "tab \(tabID.uuidString.prefix(8)) [\(avdID ?? "no device")]" }
+    private var logPrefix: String { "tab \(tabID.uuidString.prefix(8)) [\(target?.identifier ?? "no device")]" }
 
     /// Reattaches to the tab's device if it is already running. Never boots one.
     func start() {
@@ -84,35 +106,69 @@ final class EmulatorSession {
     }
 
     func locate() {
-        guard let avdID else {
+        locate(waitingForSink: true)
+    }
+
+    /// `waitingForSink` false is for the picker, whose own view is no sink but is about to be replaced by one.
+    private func locate(waitingForSink: Bool) {
+        guard let target else {
             state = .needsDevice
             return
         }
         state = .locating
         runWork { [weak self] in
             guard let self else { return }
-            await discovery.refresh()
-            guard !Task.isCancelled else { return }
-            if let running = discovery.running.first(where: { $0.avdID == avdID && $0.grpcToken != nil }) {
-                connect(to: running)
-            } else {
-                state = .notRunning
+            switch target {
+            case .emulator(let avdID):
+                await discovery.refresh()
+                guard !Task.isCancelled else { return }
+                if let running = discovery.running.first(where: { $0.avdID == avdID && $0.grpcToken != nil }) {
+                    connect(to: .emulator(running))
+                } else {
+                    state = .notRunning
+                }
+            case .physical(let serial):
+                await physicalDiscovery.refresh()
+                guard !Task.isCancelled else { return }
+                if let adbURL = physicalDiscovery.adbURL,
+                   physicalDiscovery.devices.contains(where: { $0.serial == serial && $0.isReady }) {
+                    let device = ResolvedDevice.physical(serial: serial, adbURL: adbURL)
+                    if hasSinks || !waitingForSink {
+                        connect(to: device)
+                    } else {
+                        // A hidden tab would start the phone's encoder only to stop it after the grace period.
+                        connectedDevice = device
+                        state = .suspended
+                    }
+                } else {
+                    state = .notRunning
+                }
             }
         }
     }
 
     func attach(_ emulator: RunningEmulator) {
-        choose(avdID: emulator.avdID, displayName: emulator.avdName)
-        connect(to: emulator)
+        choose(.emulator(avdID: emulator.avdID), displayName: emulator.avdName)
+        connect(to: .emulator(emulator))
+    }
+
+    /// Connects without listing adb again, since the picker just did.
+    func attach(_ device: PhysicalDevice) {
+        choose(.physical(serial: device.serial), displayName: device.displayName)
+        guard let adbURL = physicalDiscovery.adbURL else {
+            locate(waitingForSink: false)
+            return
+        }
+        connect(to: .physical(serial: device.serial, adbURL: adbURL))
     }
 
     func boot(_ avd: AVD) {
-        choose(avdID: avd.id, displayName: avd.displayName)
+        choose(.emulator(avdID: avd.id), displayName: avd.displayName)
         bootChosenDevice()
     }
 
     func bootChosenDevice() {
-        guard let avdID else { return }
+        guard case .emulator(let avdID) = target else { return }
         state = .booting
         runWork { [weak self] in
             guard let self else { return }
@@ -140,7 +196,7 @@ final class EmulatorSession {
         while ContinuousClock.now < deadline, !Task.isCancelled {
             await discovery.refresh()
             if let running = discovery.running.first(where: { isBoot(of: launch, avdID: avdID, $0) }) {
-                connect(to: running)
+                connect(to: .emulator(running))
                 return
             }
             if launch.hasExited {
@@ -167,12 +223,12 @@ final class EmulatorSession {
         workTask?.cancel()
         workTask = nil
         disconnect()
-        choose(avdID: nil, displayName: nil)
+        choose(nil, displayName: nil)
         state = .needsDevice
     }
 
     func shutDownEmulator() {
-        guard let connection else { return }
+        guard !isPhysical, let connection else { return }
         EmulatorLog.info("\(logPrefix) shutting down the emulator")
         workTask?.cancel()
         workTask = nil
@@ -193,14 +249,25 @@ final class EmulatorSession {
         disconnect()
     }
 
+    /// Like `close()`, but never waits on the connection, for app termination.
+    func terminate() {
+        workTask?.cancel()
+        workTask = nil
+        sinks.removeAll()
+        stopStreaming()
+        connection?.terminate()
+        connection = nil
+    }
+
     // MARK: Sinks
 
-    func addSink(_ sink: EmulatorFrameSink) {
+    func addSink(_ sink: DeviceFrameSink) {
         sinks[ObjectIdentifier(sink)] = WeakSink(sink)
+        if streamTask != nil, let lastFrame { sink.present(lastFrame) }
         updateStreaming()
     }
 
-    func removeSink(_ sink: EmulatorFrameSink) {
+    func removeSink(_ sink: DeviceFrameSink) {
         sinks[ObjectIdentifier(sink)] = nil
         updateStreaming()
     }
@@ -212,12 +279,12 @@ final class EmulatorSession {
 
     // MARK: Input
 
-    func send(_ input: EmulatorInput) {
+    func send(_ input: DeviceInput) {
         guard isConnected else { return }
         connection?.send(input)
     }
 
-    func press(_ button: HardwareButton) {
+    func press(_ button: DeviceButton) {
         guard isConnected, let connection else { return }
         connection.press(button, phase: .down)
         connection.press(button, phase: .up)
@@ -227,31 +294,39 @@ final class EmulatorSession {
         guard isConnected, let connection else { return }
         let next = rotation.rotated(clockwise: clockwise)
         runWork {
-            try? await connection.rotate(to: next.emulatorRotation)
+            try? await connection.rotate(to: next)
         }
     }
 
     // MARK: Private
 
-    private func choose(avdID: String?, displayName: String?) {
-        guard avdID != self.avdID || displayName != self.displayName else { return }
-        self.avdID = avdID
+    private func choose(_ target: DeviceTarget?, displayName: String?) {
+        guard target != self.target || displayName != self.displayName else { return }
+        self.target = target
         self.displayName = displayName
-        onDeviceChange?(avdID, displayName)
+        onDeviceChange?(target, displayName)
     }
 
-    private func connect(to emulator: RunningEmulator) {
+    private func connect(to device: ResolvedDevice) {
         disconnect()
         state = .connecting
-        let connection = makeConnection(emulator)
+        let connection = makeConnection(device)
         self.connection = connection
-        EmulatorLog.info("\(logPrefix) connecting to qemu pid \(emulator.pid) on port \(emulator.grpcPort)")
+        connectedDevice = device
+        switch device {
+        case .emulator(let emulator):
+            EmulatorLog.info("\(logPrefix) connecting to qemu pid \(emulator.pid) on port \(emulator.grpcPort)")
+        case .physical(let serial, _):
+            EmulatorLog.info("\(logPrefix) connecting to \(serial) through scrcpy-server")
+        }
         runWork { [weak self] in
             do {
-                let status = try await connection.status()
+                let info = try await connection.connect()
                 guard let self, self.connection === connection else { return }
-                deviceSize = status.displaySize
-                EmulatorLog.info("\(logPrefix) connected, booted \(status.booted), display \(String(describing: status.displaySize))")
+                deviceSize = info.deviceSize
+                // Physical frames arrive already rotated; an emulator's rotation is real and outlives a reconnect.
+                if case .physical = device { rotation = .portrait }
+                EmulatorLog.info("\(logPrefix) connected, display \(String(describing: info.deviceSize))")
                 state = .connected
                 updateStreaming()
             } catch {
@@ -265,23 +340,39 @@ final class EmulatorSession {
         stopStreaming()
         guard let connection else { return }
         self.connection = nil
+        // Starting the release here, not in the task, means a quit straight after still waits for it.
+        connection.terminate()
         Task { await connection.close() }
     }
 
-    private func lose(_ lost: EmulatorConnecting, reason: String) {
+    private func lose(_ lost: DeviceConnecting, reason: String) {
         guard connection === lost else { return }
         EmulatorLog.error("\(logPrefix) lost the connection: \(reason)")
         disconnect()
         state = .disconnected(reason)
     }
 
+    private var hasSinks: Bool {
+        sinks.values.contains { $0.sink != nil }
+    }
+
     private func updateStreaming() {
         sinks = sinks.filter { $0.value.sink != nil }
         let sinks = sinks.values.compactMap(\.sink)
-        guard isConnected, let connection, !sinks.isEmpty else {
+        if state == .suspended, !sinks.isEmpty, let connectedDevice {
+            EmulatorLog.info("\(logPrefix) a sink returned, reconnecting")
+            connect(to: connectedDevice)
+            return
+        }
+        guard isConnected, let connection else {
             stopStreaming()
             return
         }
+        guard !sinks.isEmpty else {
+            if isPhysical { scheduleIdleStop() } else { stopStreaming() }
+            return
+        }
+        cancelIdleStop()
         let size = sinks.map(\.requestedPixelSize).reduce(CGSize.zero) {
             CGSize(width: max($0.width, $1.width), height: max($0.height, $1.height))
         }
@@ -289,7 +380,8 @@ final class EmulatorSession {
             stopStreaming()
             return
         }
-        if streamTask != nil, size == streamPixelSize { return }
+        // A physical device streams at its native size and the layer scales it.
+        if streamTask != nil, size == streamPixelSize || isPhysical { return }
         stopStreaming()
         streamPixelSize = size
         isStreaming = true
@@ -304,12 +396,10 @@ final class EmulatorSession {
                         isFirstFrame = false
                         EmulatorLog.info("\(logPrefix) first frame \(Int(frame.pixelSize.width))x\(Int(frame.pixelSize.height))")
                     }
-                    let rotation = DeviceRotation(frame.rotation)
-                    if rotation != self.rotation { self.rotation = rotation }
-                    for entry in self.sinks.values { entry.sink?.present(frame) }
+                    present(frame)
                 }
                 guard !Task.isCancelled else { return }
-                self?.lose(connection, reason: "The emulator stopped sending frames.")
+                self?.lose(connection, reason: "The device stopped sending frames.")
             } catch {
                 guard !Task.isCancelled else { return }
                 self?.lose(connection, reason: error.localizedDescription)
@@ -317,11 +407,43 @@ final class EmulatorSession {
         }
     }
 
+    private func present(_ frame: DeviceFrame) {
+        if frame.rotation != rotation { rotation = frame.rotation }
+        if let size = frame.deviceSize, size != deviceSize { deviceSize = size }
+        lastFrame = frame
+        for entry in sinks.values { entry.sink?.present(frame) }
+    }
+
+    private func scheduleIdleStop() {
+        guard idleStopTask == nil else { return }
+        EmulatorLog.info("\(logPrefix) no sinks, closing the connection in \(Self.physicalIdleStopDelay)")
+        idleStopTask = Task { [weak self, idleSleep] in
+            await idleSleep(Self.physicalIdleStopDelay)
+            guard !Task.isCancelled, let self else { return }
+            idleStopTask = nil
+            suspend()
+        }
+    }
+
+    private func suspend() {
+        guard isConnected else { return }
+        EmulatorLog.info("\(logPrefix) suspending until a sink returns")
+        disconnect()
+        state = .suspended
+    }
+
+    private func cancelIdleStop() {
+        idleStopTask?.cancel()
+        idleStopTask = nil
+    }
+
     private func stopStreaming() {
+        cancelIdleStop()
         if streamTask != nil { EmulatorLog.info("\(logPrefix) stopped streaming") }
         streamTask?.cancel()
         streamTask = nil
         streamPixelSize = .zero
+        lastFrame = nil
         if isStreaming { isStreaming = false }
     }
 
@@ -332,12 +454,12 @@ final class EmulatorSession {
 }
 
 private struct WeakSink {
-    weak var sink: EmulatorFrameSink?
-    init(_ sink: EmulatorFrameSink) { self.sink = sink }
+    weak var sink: DeviceFrameSink?
+    init(_ sink: DeviceFrameSink) { self.sink = sink }
 }
 
 extension DeviceRotation {
-    init(_ rotation: EmulatorRotation) {
+    nonisolated init(_ rotation: EmulatorRotation) {
         switch rotation {
         case .portrait: self = .portrait
         case .landscape: self = .landscape
@@ -346,7 +468,7 @@ extension DeviceRotation {
         }
     }
 
-    var emulatorRotation: EmulatorRotation {
+    nonisolated var emulatorRotation: EmulatorRotation {
         switch self {
         case .portrait: .portrait
         case .landscape: .landscape

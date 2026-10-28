@@ -42,6 +42,14 @@ struct AppSettingsTests {
         #expect(reloaded.defaultProvider == .codex)
     }
 
+    @Test func keepsPlumeShortcutsOnMacDefaultsOnAndPersists() {
+        let defaults = makeDefaults()
+        #expect(AppSettings(defaults: defaults).keepsPlumeShortcutsOnMac)
+
+        AppSettings(defaults: defaults).keepsPlumeShortcutsOnMac = false
+        #expect(!AppSettings(defaults: defaults).keepsPlumeShortcutsOnMac)
+    }
+
     @Test func bothChatAnimationsDefaultOnAndPersistSeparately() {
         let defaults = makeDefaults()
         #expect(AppSettings(defaults: defaults).animateChatMotion)

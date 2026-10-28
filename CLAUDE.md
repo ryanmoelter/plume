@@ -44,13 +44,14 @@ Plume/
   Status/     StatusEngine, StatusPersistence
   Workspace/  WorkspaceProvisioner, GitRunner
   Linear/     LinearStore, LinearSyncCache (delta-synced disk cache; docs/linear-sync.md), LinearClient, LinearAccounts
-  Android/    SDK and AVD discovery, running-emulator discovery, EmulatorLauncher, EmulatorSession(Manager), input mappers
+  Android/    SDK, AVD, emulator and adb device discovery, EmulatorLauncher, DeviceSession(Manager), connection adapters, input mappers
   Support/    Log, AppPaths, AppSettings, FileWatcher, HexColor, CommandLineHelper, SmokeHarness (DEBUG)
   Control/    The debug control server: PlumeID, ControlRegistry, ControlServer, InProcessControlBackend (DEBUG)
   Resources/  Fonts, Themes, Mermaid, Skills, plume-notify (the CLI helper)
   UI/         Sidebar/, Task/, Settings/, Device/
 Packages/
   EmulatorControl/  The emulator's gRPC client: generated code plus a small public facade
+  ScrcpyControl/    A physical device over scrcpy-server: launch, demuxer, H.264 decoder, control messages
 ```
 
 ## Terminals
@@ -122,13 +123,14 @@ Stable PIDs across many switches is the real proof that hide/show doesn't kill p
 
 Always walk down from Plume's own PID. A global `pgrep`/`grep` for `claude` matches the Claude desktop app's helper processes and will convince you an agent launched when none did.
 
-## Android emulator tabs
+## Android device tabs
 
-A device tab (`TabKind.device`) shows a live Android emulator over its gRPC control service. **`docs/android-emulator.md` is the reference** — discovery, auth, launch flags, the frame pipeline and the measured input quirks. Read it before touching `Plume/Android/`, `Plume/UI/Device/` or `Packages/EmulatorControl/`.
+A device tab (`TabKind.device`) shows a live Android emulator over its gRPC control service, or a physical device over scrcpy-server. **`docs/android-emulator.md` and `docs/android-physical-device.md` are the references** — discovery, auth, launch flags, the frame pipelines and the measured input quirks. Read them before touching `Plume/Android/`, `Plume/UI/Device/` or the `EmulatorControl` and `ScrcpyControl` packages.
 
 - **All gRPC and protobuf code lives in `Packages/EmulatorControl`**, because the app target's default MainActor isolation breaks generated protobuf code. Never edit its `Generated/` folder; run `scripts/android/generate-emulator-grpc.sh`.
-- `EmulatorSessionManager.shared` owns one `EmulatorSession` per tab ID. `TaskStore.forgetTab` closes it, which stops streaming and **never stops the emulator** — an agent may still be using it over adb. Only the tab's "Shut Down Emulator" does that.
-- **Frames never pass through `@Observable` state.** `EmulatorSurfaceView` sets its layer's contents directly, and the session streams only while a surface in a visible window is attached. A hidden tab unmounts its surface, so it costs nothing.
+- `DeviceSessionManager.shared` owns one `DeviceSession` per tab ID. `TaskStore.forgetTab` closes it, which stops streaming and **never stops the emulator** — an agent may still be using it over adb. Only the tab's "Shut Down Emulator" does that; a physical device is never powered off.
+- **`scrcpy-server` ships without a `.jar` extension and lives in Git LFS.** Xcode drops a `.jar` from Resources, and a checkout without LFS has a pointer file there.
+- **Frames never pass through `@Observable` state.** `DeviceSurfaceView` sets its layer's contents directly, and the session streams only while a surface in a visible window is attached. A hidden tab unmounts its surface, so it costs nothing — except that a physical device stays connected for 5 seconds, so a quick tab switch doesn't pay a reconnect, and then closes its connection until the tab is shown again.
 
 ## Ghostty
 

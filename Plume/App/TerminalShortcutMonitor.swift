@@ -42,8 +42,11 @@ final class TerminalShortcutMonitor {
     /// returned to AppKit untouched, so every key Plume does not bind reaches
     /// the terminal exactly as before.
     private func handle(_ event: NSEvent) -> Bool {
+        let yielding = event.window?.firstResponder as? MenuShortcutYielding
+        if yielding?.keepsChordFromMenu(event) == true { return false }
         guard Self.isClaimed(characters: event.charactersIgnoringModifiers, flags: event.modifierFlags)
         else { return false }
+        yielding?.menuWillPerformShortcut()
 
         // `performKeyEquivalent` respects each item's `disabled` state, so a
         // command with no selected task declines here and the chord falls
@@ -85,4 +88,15 @@ final class TerminalShortcutMonitor {
         MenuShortcut("h"), // Hide Plume
         MenuShortcut("q"), // Quit Plume
     ]
+}
+
+/// A first responder that forwards keys somewhere else, a device say, and so has a say in which
+/// chords the monitor hands to the menu.
+@MainActor
+protocol MenuShortcutYielding: AnyObject {
+    /// True keeps the chord away from the monitor, so the responder's own `performKeyEquivalent`
+    /// handles it.
+    func keepsChordFromMenu(_ event: NSEvent) -> Bool
+    /// Called just before the menu is offered a chord this responder will never see.
+    func menuWillPerformShortcut()
 }
