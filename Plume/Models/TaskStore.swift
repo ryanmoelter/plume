@@ -88,9 +88,6 @@ enum TaskStore {
                 tab.codexCollaborationMode = AppSettings.shared.defaultCodexCollaborationMode
             }
         }
-        if kind == .device {
-            tab.devicePlatform = .androidEmulator
-        }
         context.insert(tab)
         task.tabs.append(tab)
         selectTab(tab, in: task)

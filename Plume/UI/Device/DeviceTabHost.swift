@@ -10,7 +10,7 @@ struct DeviceTabHost: View {
         Group {
             if isVisible, let session {
                 if session.state == .needsDevice {
-                    DevicePickerView(onAttach: session.attach, onBoot: session.boot)
+                    DevicePickerView(onConnect: session.attach, onAttach: session.attach, onBoot: session.boot)
                 } else {
                     AndroidDeviceView(session: session)
                 }
@@ -23,14 +23,14 @@ struct DeviceTabHost: View {
 
     private func makeSession() {
         guard session == nil else { return }
+        let target = tab.deviceTarget
         let session = DeviceSessionManager.shared.session(
             for: tab.id,
-            avdID: tab.deviceIdentifier,
-            displayName: tab.deviceIdentifier == nil ? nil : tab.title
+            target: target,
+            displayName: target == nil ? nil : tab.title
         )
-        session.onDeviceChange = { [tab] avdID, displayName in
-            tab.deviceIdentifier = avdID
-            tab.title = displayName
+        session.onDeviceChange = { [tab] target, displayName in
+            tab.setDevice(target, displayName: displayName)
         }
         session.start()
         self.session = session

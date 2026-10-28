@@ -1,10 +1,9 @@
 import AppKit
-import EmulatorControl
 import QuartzCore
 import SwiftUI
 
-/// Draws an emulator's frames into its layer and turns mouse, scroll and key
-/// events into emulator input. It streams only while it is in a visible
+/// Draws a device's frames into its layer and turns mouse, scroll and key
+/// events into device input. It streams only while it is in a visible
 /// window, so a hidden or occluded tab costs nothing.
 final class DeviceSurfaceView: NSView, DeviceFrameSink {
     var session: DeviceSession? {
@@ -20,6 +19,8 @@ final class DeviceSurfaceView: NSView, DeviceFrameSink {
     private var imageSize: CGSize = .zero
     private var deviceRotation: DeviceRotation = .portrait
     private var isTouching = false
+    /// Owns the layer's surface until the next frame replaces it.
+    private var presentedFrame: DeviceFrame?
     private var wheel = WheelAccumulator()
     private var previousFlags: NSEvent.ModifierFlags = []
     private var occlusionObserver: NSObjectProtocol?
@@ -45,13 +46,14 @@ final class DeviceSurfaceView: NSView, DeviceFrameSink {
         return CGSize(width: (bounds.width * scale).rounded(), height: (bounds.height * scale).rounded())
     }
 
-    func present(_ frame: EmulatorFrame) {
+    func present(_ frame: DeviceFrame) {
         imageSize = frame.pixelSize
-        deviceRotation = DeviceRotation(frame.rotation)
+        deviceRotation = frame.rotation
         CATransaction.begin()
         CATransaction.setDisableActions(true)
-        layer?.contents = frame.image
+        layer?.contents = frame.layerContents
         CATransaction.commit()
+        presentedFrame = frame
     }
 
     // MARK: Visibility
@@ -97,6 +99,7 @@ final class DeviceSurfaceView: NSView, DeviceFrameSink {
         } else {
             session.removeSink(self)
             layer?.contents = nil
+            presentedFrame = nil
         }
     }
 
@@ -106,19 +109,19 @@ final class DeviceSurfaceView: NSView, DeviceFrameSink {
         window?.makeFirstResponder(self)
         guard let point = devicePoint(for: event, clamped: false) else { return }
         isTouching = true
-        sendTouch(at: point, pressure: 1)
+        session?.send(.touch(.down, point))
     }
 
     override func mouseDragged(with event: NSEvent) {
         guard isTouching, let point = devicePoint(for: event, clamped: true) else { return }
-        sendTouch(at: point, pressure: 1)
+        session?.send(.touch(.move, point))
     }
 
     override func mouseUp(with event: NSEvent) {
         guard isTouching else { return }
         isTouching = false
         guard let point = devicePoint(for: event, clamped: true) else { return }
-        sendTouch(at: point, pressure: 0)
+        session?.send(.touch(.up, point))
     }
 
     override func scrollWheel(with event: NSEvent) {
@@ -129,22 +132,20 @@ final class DeviceSurfaceView: NSView, DeviceFrameSink {
             hasPreciseDeltas: event.hasPreciseScrollingDeltas
         )
         guard delta.dx != 0 || delta.dy != 0 else { return }
-        if let point = devicePoint(for: event, clamped: false) {
-            session?.send(.mouse(x: Int32(point.x), y: Int32(point.y), buttons: 0))
-        }
-        session?.send(.wheel(dx: delta.dx, dy: delta.dy))
+        session?.send(.scroll(at: devicePoint(for: event, clamped: false), dx: delta.dx, dy: delta.dy))
     }
 
-    private func devicePoint(for event: NSEvent, clamped: Bool) -> CGPoint? {
-        let point = convert(event.locationInWindow, from: nil)
-        return DeviceCoordinateMapper.devicePoint(
-            for: point,
+    private func devicePoint(for event: NSEvent, clamped: Bool) -> DevicePoint? {
+        let deviceSize = naturalDeviceSize
+        let point = DeviceCoordinateMapper.devicePoint(
+            for: convert(event.locationInWindow, from: nil),
             viewSize: bounds.size,
             imageSize: imageSize,
-            deviceSize: naturalDeviceSize,
+            deviceSize: deviceSize,
             rotation: deviceRotation,
             clampOutside: clamped
         )
+        return point.map { DevicePoint(point: $0, deviceSize: deviceSize) }
     }
 
     /// Falls back to the frame itself, un-rotated, when status gave no size.
@@ -154,10 +155,6 @@ final class DeviceSurfaceView: NSView, DeviceFrameSink {
         case .portrait, .reversePortrait: return imageSize
         case .landscape, .reverseLandscape: return CGSize(width: imageSize.height, height: imageSize.width)
         }
-    }
-
-    private func sendTouch(at point: CGPoint, pressure: Int32) {
-        session?.send(.touch([TouchPoint(x: Int32(point.x), y: Int32(point.y), identifier: 0, pressure: pressure)]))
     }
 
     // MARK: Keys
@@ -178,33 +175,27 @@ final class DeviceSurfaceView: NSView, DeviceFrameSink {
 
     private func forward(type: KeyEventType, event: NSEvent) -> Bool {
         guard let session, session.isConnected else { return false }
-        let keys = EmulatorKeyMapper.keyEvents(
-            type: type,
-            keyCode: event.keyCode,
-            modifierFlags: event.modifierFlags,
-            previousFlags: previousFlags
-        )
-        guard !keys.isEmpty else { return false }
-        for key in keys { session.send(.key(key.input)) }
+        let inputs: [DeviceInput]
+        if session.isPhysical {
+            guard let keys = AndroidKeycodeMapper.inputs(
+                type: type,
+                keyCode: event.keyCode,
+                modifierFlags: event.modifierFlags,
+                characters: type == .flagsChanged ? nil : event.characters
+            ) else { return false }
+            inputs = keys.map { .androidKey($0) }
+        } else {
+            let keys = EmulatorKeyMapper.keyEvents(
+                type: type,
+                keyCode: event.keyCode,
+                modifierFlags: event.modifierFlags,
+                previousFlags: previousFlags
+            )
+            guard !keys.isEmpty else { return false }
+            inputs = keys.map { .emulatorKey($0) }
+        }
+        for input in inputs { session.send(input) }
         return true
-    }
-}
-
-private extension DeviceKey {
-    var input: KeyInput {
-        switch self {
-        case .mac(let keyCode, let phase): .mac(keyCode: keyCode, phase: phase.keyPhase)
-        case .evdev(let keyCode, let phase): .evdev(keyCode: keyCode, phase: phase.keyPhase)
-        }
-    }
-}
-
-private extension DeviceKeyPhase {
-    var keyPhase: KeyPhase {
-        switch self {
-        case .down: .down
-        case .up: .up
-        }
     }
 }
 

@@ -144,8 +144,8 @@ struct PlumeCommands: Commands {
                 .keyboardShortcut(PlumeShortcuts.newAgentTab)
                 .disabled(task == nil)
 
-            Button("New Android Emulator Tab") { task?.addTab(.device) }
-                .plumeID(AccessibilityID.newAndroidEmulatorTabCommand)
+            Button("New Android Device Tab") { task?.addTab(.device) }
+                .plumeID(AccessibilityID.newAndroidDeviceTabCommand)
                 .disabled(task == nil)
         }
 

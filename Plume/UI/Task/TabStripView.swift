@@ -59,9 +59,9 @@ struct TabStripView: View {
                 Button {
                     TaskStore.addTab(to: task, kind: .device, pane: pane, in: context)
                 } label: {
-                    Label("Android Emulator Tab", systemImage: "smartphone")
+                    Label("Android Device Tab", systemImage: "smartphone")
                 }
-                .plumeID(AccessibilityID.newAndroidEmulatorTabMenuItem)
+                .plumeID(AccessibilityID.newAndroidDeviceTabMenuItem)
             } label: {
                 Image(systemName: "plus")
                     .frame(width: 22, height: 22)
@@ -181,7 +181,7 @@ private struct TabChip: View {
                     .font(.caption)
                     .accessibilityHidden(true)
             case .device:
-                Image(systemName: "smartphone")
+                Image(systemName: tab.devicePlatform == .androidEmulator ? "macbook.and.iphone" : "smartphone")
                     .font(.caption)
                     .accessibilityHidden(true)
             }
@@ -227,7 +227,7 @@ private struct TabChip: View {
             invoke: select
         )
         .contextMenu {
-            if tab.kind == .device {
+            if tab.kind == .device, tab.devicePlatform == .androidEmulator {
                 Button("Shut Down Emulator…") { isConfirmingEmulatorShutDown = true }
                     .plumeID(AccessibilityID.shutDownEmulatorMenuItem)
                     .disabled(!DeviceSessionManager.shared.canShutDownEmulator(for: tab.id))

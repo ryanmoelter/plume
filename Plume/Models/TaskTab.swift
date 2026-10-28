@@ -64,7 +64,7 @@ final class TaskTab {
 
     var devicePlatformRaw: String? = nil
 
-    /// The AVD name of the emulator a device tab mirrors.
+    /// The AVD id of an emulator, or the adb serial of a physical device.
     var deviceIdentifier: String? = nil
 
     /// Reserved for extra launch args and statusline preferences.
@@ -87,6 +87,16 @@ final class TaskTab {
     var devicePlatform: DevicePlatform? {
         get { devicePlatformRaw.flatMap(DevicePlatform.init(rawValue:)) }
         set { devicePlatformRaw = newValue?.rawValue }
+    }
+
+    var deviceTarget: DeviceTarget? {
+        DeviceTarget(platform: devicePlatform, identifier: deviceIdentifier)
+    }
+
+    func setDevice(_ target: DeviceTarget?, displayName: String?) {
+        devicePlatform = target?.platform
+        deviceIdentifier = target?.identifier
+        title = displayName
     }
 
     var titleSource: TitleSource? {
@@ -155,7 +165,7 @@ final class TaskTab {
         switch kind {
         case .agent: return "Agent"
         case .terminal: return "Terminal"
-        case .device: return "Emulator"
+        case .device: return "Device"
         }
     }
 }

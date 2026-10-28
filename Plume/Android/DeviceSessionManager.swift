@@ -10,9 +10,9 @@ final class DeviceSessionManager {
 
     private var sessions: [UUID: DeviceSession] = [:]
 
-    func session(for tabID: UUID, avdID: String?, displayName: String?) -> DeviceSession {
+    func session(for tabID: UUID, target: DeviceTarget?, displayName: String?) -> DeviceSession {
         if let existing = sessions[tabID] { return existing }
-        let session = DeviceSession(tabID: tabID, avdID: avdID, displayName: displayName)
+        let session = DeviceSession(tabID: tabID, target: target, displayName: displayName)
         sessions[tabID] = session
         return session
     }
@@ -35,6 +35,6 @@ final class DeviceSessionManager {
     }
 
     func canShutDownEmulator(for tabID: UUID) -> Bool {
-        sessions[tabID]?.isConnected ?? false
+        sessions[tabID]?.canShutDownEmulator ?? false
     }
 }

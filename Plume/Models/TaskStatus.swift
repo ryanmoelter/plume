@@ -130,6 +130,7 @@ enum TabKind: String, CaseIterable, Sendable {
 /// What a `.device` tab mirrors. Persisted on `TaskTab.devicePlatformRaw`.
 enum DevicePlatform: String, Sendable {
     case androidEmulator
+    case androidPhysical
 }
 
 /// Which coding-agent CLI an agent tab runs. Orthogonal to `AgentTransport`,
