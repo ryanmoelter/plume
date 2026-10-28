@@ -372,6 +372,8 @@ private final class ADBInvocation: @unchecked Sendable {
     private let lock = NSLock()
     private var aborted: Abort?
     private var completion: (@Sendable (Swift.Result<ADBCommand.Result, Error>) -> Void)?
+    private var output: Data?
+    private var exitStatus: Int32?
 
     init(adb: URL, arguments: [String]) {
         process.executableURL = adb
@@ -383,6 +385,11 @@ private final class ADBInvocation: @unchecked Sendable {
     }
 
     func start(timeout: Duration, completion: @escaping @Sendable (Swift.Result<ADBCommand.Result, Error>) -> Void) {
+        // Not `waitUntilExit()`: on a dispatch worker it sometimes never returns after the child has
+        // exited, so the command would only finish at its timeout.
+        process.terminationHandler = { [self] process in
+            record { $0.exitStatus = process.terminationStatus }
+        }
         do {
             try lock.withLock {
                 if aborted != nil { throw CancellationError() }
@@ -390,6 +397,7 @@ private final class ADBInvocation: @unchecked Sendable {
                 try process.run()
             }
         } catch {
+            process.terminationHandler = nil
             lock.withLock { self.completion = nil }
             completion(.failure(error))
             return
@@ -402,10 +410,19 @@ private final class ADBInvocation: @unchecked Sendable {
         // Read to EOF off the caller's thread so a chatty command can't fill the pipe and stall.
         DispatchQueue.global().async { [self] in
             let output = reader.readDataToEndOfFile()
-            process.waitUntilExit()
-            let text = String(decoding: output, as: UTF8.self).trimmingCharacters(in: .whitespacesAndNewlines)
-            finish(.success(ADBCommand.Result(status: process.terminationStatus, output: text)))
+            record { $0.output = output }
         }
+    }
+
+    /// Finishes once both the output's EOF and the exit have arrived, in either order.
+    private func record(_ update: (ADBInvocation) -> Void) {
+        let result = lock.withLock { () -> ADBCommand.Result? in
+            update(self)
+            guard let output, let exitStatus else { return nil }
+            let text = String(decoding: output, as: UTF8.self).trimmingCharacters(in: .whitespacesAndNewlines)
+            return ADBCommand.Result(status: exitStatus, output: text)
+        }
+        if let result { finish(.success(result)) }
     }
 
     /// Finishes at once rather than waiting for the output to reach EOF, which a forked adb server can hold open.

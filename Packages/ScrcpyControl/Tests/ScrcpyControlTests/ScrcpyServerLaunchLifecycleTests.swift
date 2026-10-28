@@ -64,6 +64,16 @@ struct ScrcpyServerLaunchLifecycleTests {
         func remove() { try? FileManager.default.removeItem(at: directory) }
     }
 
+    /// `awaitTerminations()` blocks its thread, which must not be one of the cooperative pool's.
+    private func awaitTerminations() async {
+        await withCheckedContinuation { continuation in
+            DispatchQueue.global().async {
+                ScrcpyServerLaunch.awaitTerminations()
+                continuation.resume()
+            }
+        }
+    }
+
     @Test func closingDuringThePushStartsNothing() async throws {
         let adb = try FakeADB()
         defer { adb.remove() }
@@ -134,7 +144,7 @@ struct ScrcpyServerLaunchLifecycleTests {
         _ = try await launch.start()
 
         launch.terminate()
-        ScrcpyServerLaunch.awaitTerminations()
+        await awaitTerminations()
         #expect(adb.log.contains { $0.hasSuffix("forward --remove tcp:27183") })
     }
 
@@ -142,16 +152,13 @@ struct ScrcpyServerLaunchLifecycleTests {
         let adb = try FakeADB()
         defer { adb.remove() }
         adb.release("push-release")
-        // A short timeout, because under parallel tests the forward sometimes never reaches EOF and
-        // times out instead; its cleanup then finds the forward through the listing.
-        let launch = ScrcpyServerLaunch(adbURL: adb.adbURL, serial: "S1", jarURL: adb.jarURL, version: "5.0.1", forwardTimeout: .seconds(2))
-        try adb.listForwards(["S1 tcp:27183 localabstract:scrcpy_\(launch.scid)"])
+        let launch = ScrcpyServerLaunch(adbURL: adb.adbURL, serial: "S1", jarURL: adb.jarURL, version: "5.0.1")
         let starting = Task { try await launch.start() }
         await adb.waitForLog(containing: "forward tcp:0")
 
         launch.terminate()
         DispatchQueue.global().asyncAfter(deadline: .now() + 0.3) { adb.release("forward-release") }
-        await Task.detached { ScrcpyServerLaunch.awaitTerminations() }.value
+        await awaitTerminations()
         #expect(adb.removals.contains { $0.hasSuffix("forward --remove tcp:27183") })
         await #expect(throws: (any Error).self) { try await starting.value }
     }
