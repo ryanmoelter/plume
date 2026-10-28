@@ -21,6 +21,8 @@ The build itself still signs automatically with the Apple Development identity. 
 
 This is a Release-only property. In Debug the real code lives in `Plume.debug.dylib` beside a small launcher stub, which is why `nm` on a Debug binary looks empty.
 
+**`scrcpy-server` must be the real zip, not a Git LFS pointer.** The physical-device server lives in Git LFS, and a checkout without `git lfs` builds a bundle with a small text pointer in its place, so every physical device tab fails to connect. `install-release.sh` checks that `Plume/Resources/Scrcpy/scrcpy-server` starts with the zip magic `PK` before anything else, and checks the bundled `Contents/Resources/scrcpy-server` again next to the dylib check. Either failure says to run `git lfs pull` and rebuild Release.
+
 ## Steps
 
 **Tag and release a commit that is already on `main`.** A tag pointing at a release branch names a commit that history may never keep, and the installed build then answers for a version nobody can check out. So the order is: verify on a Debug build, merge to `main`, then build Release from `main` and tag it.
@@ -101,9 +103,10 @@ codesign --verify --deep --strict /Applications/Plume.app
 spctl -a -vvv --type execute /Applications/Plume.app
 codesign -d --verbose=2 /Applications/Plume.app/Contents/MacOS/PlumeSleepHelper 2>&1 | grep Authority
 otool -L /Applications/Plume.app/Contents/MacOS/Plume | grep -v '/usr/lib\|/System/Library'
+head -c 2 /Applications/Plume.app/Contents/Resources/scrcpy-server; echo
 ```
 
-Expect the version you just set, a silent `codesign` (it only speaks up on failure), `source=Notarized Developer ID` from `spctl`, a `Developer ID Application` authority on the helper, and exactly one non-system dylib: `@rpath/Sparkle.framework`. An `Apple Development` authority anywhere means a re-sign did not take, and the lid-closed toggle will fail to register.
+Expect the version you just set, a silent `codesign` (it only speaks up on failure), `source=Notarized Developer ID` from `spctl`, a `Developer ID Application` authority on the helper, exactly one non-system dylib: `@rpath/Sparkle.framework`, and `PK` from `scrcpy-server`. An `Apple Development` authority anywhere means a re-sign did not take, and the lid-closed toggle will fail to register.
 
 Then launch it and open a terminal tab. Verify the processes rather than a screenshot — surfaces are real PTYs, so the process tree is the better evidence:
 

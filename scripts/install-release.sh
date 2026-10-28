@@ -50,7 +50,14 @@ echo "=== $(date) installing ==="
 
 fail() { echo "FAILED: $*"; exit 1; }
 
+# A checkout without Git LFS holds a text pointer where scrcpy-server's zip belongs.
+is_zip() { [ "$(head -c 2 "$1" 2>/dev/null)" = "PK" ]; }
+LFS_FIX="run \`git lfs pull\`, then rebuild Release"
+
 # --- 1. preflight -----------------------------------------------------------
+
+SCRCPY_SOURCE="$(dirname "${BASH_SOURCE[0]}")/../Plume/Resources/Scrcpy/scrcpy-server"
+is_zip "$SCRCPY_SOURCE" || fail "Plume/Resources/Scrcpy/scrcpy-server is not a zip (a Git LFS pointer?) — $LFS_FIX"
 
 SRC="$(xcodebuild -scheme Plume -configuration Release -destination 'platform=macOS' \
   -showBuildSettings 2>/dev/null | awk '$1 == "BUILT_PRODUCTS_DIR" {print $3; exit}')/Plume.app"
@@ -95,6 +102,12 @@ if [ "$dylib_count" -eq 0 ]; then
 elif [ "$dylib_count" -ne 1 ] || ! grep -q '@rpath/Sparkle\.framework' <<<"$non_system_dylibs"; then
   fail "unexpected non-system dylibs — expected exactly @rpath/Sparkle.framework"
 fi
+
+echo "--- bundled scrcpy-server (expect a zip, not a Git LFS pointer) ---"
+SCRCPY_SERVER="$APP/Contents/Resources/scrcpy-server"
+[ -f "$SCRCPY_SERVER" ] || fail "scrcpy-server missing from Contents/Resources — $LFS_FIX"
+is_zip "$SCRCPY_SERVER" || fail "bundled scrcpy-server is not a zip (a Git LFS pointer?) — $LFS_FIX"
+ls -l "$SCRCPY_SERVER"
 
 echo "--- notarizing (a few minutes) ---"
 ZIP="$STAGE_DIR/Plume-submit.zip"
