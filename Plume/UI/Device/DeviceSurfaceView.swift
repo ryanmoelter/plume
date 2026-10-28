@@ -26,6 +26,7 @@ final class DeviceSurfaceView: NSView, DeviceFrameSink {
     private var previousFlags: NSEvent.ModifierFlags = []
     private var pressedAndroidKeys = AndroidPressedKeys()
     private var occlusionObserver: NSObjectProtocol?
+    private var resignKeyObserver: NSObjectProtocol?
     private var resizeWork: DispatchWorkItem?
 
     override init(frame: NSRect) {
@@ -62,13 +63,18 @@ final class DeviceSurfaceView: NSView, DeviceFrameSink {
 
     override func viewDidMoveToWindow() {
         super.viewDidMoveToWindow()
-        if let occlusionObserver { NotificationCenter.default.removeObserver(occlusionObserver) }
-        occlusionObserver = nil
+        removeWindowObservers()
         if let window {
             occlusionObserver = NotificationCenter.default.addObserver(
                 forName: NSWindow.didChangeOcclusionStateNotification, object: window, queue: .main
             ) { [weak self] _ in
                 MainActor.assumeIsolated { self?.updateSink() }
+            }
+            // ⌘Tab away never delivers ⌘'s release.
+            resignKeyObserver = NotificationCenter.default.addObserver(
+                forName: NSWindow.didResignKeyNotification, object: window, queue: .main
+            ) { [weak self] _ in
+                MainActor.assumeIsolated { self?.releaseAndroidKeys() }
             }
         }
         updateSink()
@@ -86,9 +92,16 @@ final class DeviceSurfaceView: NSView, DeviceFrameSink {
 
     func detach() {
         resizeWork?.cancel()
-        if let occlusionObserver { NotificationCenter.default.removeObserver(occlusionObserver) }
-        occlusionObserver = nil
+        removeWindowObservers()
         session = nil
+    }
+
+    private func removeWindowObservers() {
+        for observer in [occlusionObserver, resignKeyObserver].compactMap({ $0 }) {
+            NotificationCenter.default.removeObserver(observer)
+        }
+        occlusionObserver = nil
+        resignKeyObserver = nil
     }
 
     private func updateSink() {
@@ -162,7 +175,12 @@ final class DeviceSurfaceView: NSView, DeviceFrameSink {
     // MARK: Keys
 
     override func keyDown(with event: NSEvent) {
-        if !forward(type: .keyDown, event: event) { super.keyDown(with: event) }
+        if keepsShortcutOnMac(event) {
+            releaseAndroidKeys()
+            super.keyDown(with: event)
+        } else if !forward(type: .keyDown, event: event) {
+            super.keyDown(with: event)
+        }
     }
 
     override func keyUp(with event: NSEvent) {
@@ -173,6 +191,43 @@ final class DeviceSurfaceView: NSView, DeviceFrameSink {
         _ = forward(type: .flagsChanged, event: event)
         previousFlags = event.modifierFlags
         super.flagsChanged(with: event)
+    }
+
+    /// Takes a ⌘ chord ahead of the menu bar, so one that isn't a Plume shortcut reaches the device as
+    /// Meta plus the key, even where an Edit or Window item binds it.
+    override func performKeyEquivalent(with event: NSEvent) -> Bool {
+        guard event.type == .keyDown, event.modifierFlags.contains(.command), window?.firstResponder === self,
+              forwardsAndroidKeys
+        else { return super.performKeyEquivalent(with: event) }
+        if keepsShortcutOnMac(event) {
+            releaseAndroidKeys()
+            return false
+        }
+        return forward(type: .keyDown, event: event)
+    }
+
+    override func resignFirstResponder() -> Bool {
+        releaseAndroidKeys()
+        return super.resignFirstResponder()
+    }
+
+    private var forwardsAndroidKeys: Bool { session?.isPhysical == true && session?.isConnected == true }
+
+    private func keepsShortcutOnMac(_ event: NSEvent) -> Bool {
+        forwardsAndroidKeys && AndroidShortcutPolicy.keepsOnMac(
+            characters: event.charactersIgnoringModifiers,
+            flags: event.modifierFlags,
+            keepsPlumeShortcuts: AppSettings.shared.keepsPlumeShortcutsOnMac,
+            isPlumeShortcut: { TerminalShortcutMonitor.isClaimed(characters: $0, flags: $1) }
+        )
+    }
+
+    /// Lifts every key the device holds, so focus leaving or a Plume shortcut firing mid-chord never
+    /// leaves a key or Meta stuck down.
+    private func releaseAndroidKeys() {
+        let inputs = pressedAndroidKeys.releaseAll()
+        guard let session, session.isConnected else { return }
+        for input in inputs { session.send(.androidKey(input)) }
     }
 
     private func forward(type: KeyEventType, event: NSEvent) -> Bool {
@@ -200,6 +255,16 @@ final class DeviceSurfaceView: NSView, DeviceFrameSink {
         }
         for input in inputs { session.send(input) }
         return true
+    }
+}
+
+extension DeviceSurfaceView: MenuShortcutYielding {
+    func keepsChordFromMenu(_ event: NSEvent) -> Bool {
+        forwardsAndroidKeys && event.modifierFlags.contains(.command) && !keepsShortcutOnMac(event)
+    }
+
+    func menuWillPerformShortcut() {
+        releaseAndroidKeys()
     }
 }
 
