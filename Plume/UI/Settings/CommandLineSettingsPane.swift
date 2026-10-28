@@ -10,8 +10,11 @@ struct CommandLineSettingsPane: View {
     @State private var zshrcURL: URL?
     @State private var zshrcHasInitLine = false
     @State private var zshrcError: String?
-    @State private var initLine = ZshrcSetup.initLine
+    /// Nil until the login shell's PATH is first read, since the line
+    /// shown before then would not be the one tailored to it.
+    @State private var initLine: String?
     @State private var loginPathDirectories: [String]?
+    @State private var loginPathRead: Task<[String], Never>?
 
     private struct Links {
         var helper: CommandLineHelper.Summary
@@ -176,9 +179,16 @@ struct CommandLineSettingsPane: View {
         LabeledContent {
             VStack(alignment: .trailing) {
                 HStack(spacing: 6) {
-                    Text(initLine)
-                        .font(.system(.body, design: .monospaced))
-                        .textSelection(.enabled)
+                    if let initLine {
+                        Text(initLine)
+                            .font(.system(.body, design: .monospaced))
+                            .textSelection(.enabled)
+                    } else {
+                        ProgressView()
+                            .controlSize(.small)
+                        Text("Reading your shell's PATH…")
+                            .foregroundStyle(.secondary)
+                    }
                     Button(action: copyInitLine) {
                         Image(systemName: "doc.on.doc")
                     }
@@ -188,6 +198,7 @@ struct CommandLineSettingsPane: View {
                     .tint(Self.accent)
                     .help("Copy")
                     .plumeID(AccessibilityID.settingsShellSetupCopyButton, invoke: copyInitLine)
+                    .disabled(initLine == nil)
                 }
                 if zshrcHasInitLine {
                     HStack(spacing: 4) {
@@ -199,7 +210,7 @@ struct CommandLineSettingsPane: View {
                 } else {
                     Button("Append to \(zshrcDisplayPath)", action: addInitLine)
                         .plumeID(AccessibilityID.settingsShellSetupAddButton, invoke: addInitLine)
-                        .disabled(zshrcURL == nil)
+                        .disabled(zshrcURL == nil || initLine == nil)
                 }
                 if let zshrcError {
                     Text(zshrcError)
@@ -250,20 +261,37 @@ struct CommandLineSettingsPane: View {
         }
     }
 
-    /// The login-shell PATH runs a shell, so only the pane appearing and the
-    /// app becoming active reread it; a window becoming key reuses it.
+    /// The links publish first, because reading the login-shell PATH runs
+    /// a shell that can take seconds. Only the pane appearing and the app
+    /// becoming active reread it; a window becoming key reuses it.
     private func refresh(rereadingLoginPath: Bool = false) async {
         let url = zshrcURL
-        let knownPath = rereadingLoginPath ? nil : loginPathDirectories
-        let (links, hasInitLine, path, line) = await Task.detached { () -> (Links, Bool?, [String], String) in
-            let path = knownPath ?? LoginShellPath.directories()
-            let line = ZshrcSetup.recommendedLine(executables: ZshrcSetup.executables(in: path))
-            return (Links.read(), url.map(ZshrcSetup.isAdded(to:)), path, line)
+        let (links, hasInitLine) = await Task.detached { () -> (Links, Bool?) in
+            (Links.read(), url.map(ZshrcSetup.isAdded(to:)))
         }.value
         self.links = links
-        loginPathDirectories = path
-        initLine = line
         if let hasInitLine { zshrcHasInitLine = hasInitLine }
+
+        let path: [String]
+        if !rereadingLoginPath, let known = loginPathDirectories {
+            path = known
+        } else {
+            path = await readLoginPath()
+        }
+        initLine = await Task.detached {
+            ZshrcSetup.recommendedLine(executables: ZshrcSetup.executables(in: path))
+        }.value
+    }
+
+    /// Joins a read already running, so overlapping refreshes start one shell.
+    private func readLoginPath() async -> [String] {
+        if let loginPathRead { return await loginPathRead.value }
+        let read = Task.detached { LoginShellPath.directories() }
+        loginPathRead = read
+        let path = await read.value
+        loginPathDirectories = path
+        loginPathRead = nil
+        return path
     }
 
     /// Runs a link change off the main actor, then rereads every link, since
@@ -298,14 +326,14 @@ struct CommandLineSettingsPane: View {
     }
 
     private func copyInitLine() {
+        guard let initLine else { return }
         NSPasteboard.general.clearContents()
         NSPasteboard.general.setString(initLine, forType: .string)
     }
 
     private func addInitLine() {
-        guard let zshrcURL else { return }
+        guard let zshrcURL, let line = initLine else { return }
         zshrcError = nil
-        let line = initLine
         Task {
             let error = await Task.detached { () -> String? in
                 do {
