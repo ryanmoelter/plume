@@ -145,8 +145,9 @@ nonisolated extension Stack {
     }
 
     /// Prints the graph, filling in the PR column as `fetch` lands. `live`
-    /// paints at once and redraws in place; otherwise it waits and prints
-    /// once, so a piped reader never sees a stale frame.
+    /// fits the graph to the terminal's width, paints at once and redraws in
+    /// place; otherwise it waits and prints once, never cut, so a piped
+    /// reader never sees a stale frame.
     static func printLive(
         _ ctx: StackContext,
         _ branches: StackBranches,
@@ -158,10 +159,11 @@ nonisolated extension Stack {
         live: Bool
     ) throws {
         let cache = AheadBehindCache()
+        let columns = live ? ctx.console.terminalSize?.columns : nil
         func lines(_ state: PRState, _ prs: PullRequestMap) throws -> [Chip] {
             try renderLines(
                 ctx, branches, roots: roots, current: current, prs: prs, prState: state,
-                forgeIcon: forgeIcon, numberPrefix: numberPrefix, aheadBehind: cache
+                forgeIcon: forgeIcon, numberPrefix: numberPrefix, aheadBehind: cache, columns: columns
             )
         }
         func graph(_ state: PRState, _ prs: PullRequestMap) throws -> String {
@@ -223,7 +225,12 @@ nonisolated extension Stack {
         ))
     }
 
-    /// `render`'s lines, each with its display width for counting screen rows.
+    /// `render`'s lines, each with its display width.
+    ///
+    /// `columns`, the terminal's width, caps every line. The tree glyphs,
+    /// markers and PR chips keep their full width; branch names narrow to
+    /// fit, down to `fittedNameFloor`, and a line still too wide is cut at
+    /// its tail. The fit reserves only the chips this frame prints.
     static func renderLines(
         _ ctx: StackContext,
         _ branches: StackBranches,
@@ -233,7 +240,8 @@ nonisolated extension Stack {
         prState: PRState,
         forgeIcon: String? = nil,
         numberPrefix: String = "#",
-        aheadBehind: AheadBehindCache? = nil
+        aheadBehind: AheadBehindCache? = nil,
+        columns: Int? = nil
     ) throws -> [Chip] {
         var renderer = GraphRenderer(
             ctx: ctx,
@@ -243,10 +251,14 @@ nonisolated extension Stack {
             forgeIcon: forgeIcon ?? ctx.ui.github,
             numberPrefix: numberPrefix,
             cache: aheadBehind ?? AheadBehindCache(),
-            drift: prState == .on ? StackGraph.githubStackDrift(branches, prs) : [:]
+            drift: prState == .on ? StackGraph.githubStackDrift(branches, prs) : [:],
+            columns: columns
         )
         return try renderer.render(branches, roots: roots)
     }
+
+    /// The narrowest a terminal's width cuts a branch name to.
+    static let fittedNameFloor = 8
 }
 
 /// One line of the graph. A node row carries a name and chip that align
@@ -270,6 +282,7 @@ private nonisolated struct GraphRenderer {
     let numberPrefix: String
     let cache: AheadBehindCache
     let drift: [String: String]
+    let columns: Int?
     var rows: [GraphRow] = []
 
     var ui: TerminalUI { ctx.ui }
@@ -282,7 +295,8 @@ private nonisolated struct GraphRenderer {
         forgeIcon: String,
         numberPrefix: String,
         cache: AheadBehindCache,
-        drift: [String: String]
+        drift: [String: String],
+        columns: Int?
     ) {
         self.ctx = ctx
         self.current = current
@@ -292,6 +306,7 @@ private nonisolated struct GraphRenderer {
         self.numberPrefix = numberPrefix
         self.cache = cache
         self.drift = drift
+        self.columns = columns
     }
 
     mutating func render(_ branches: StackBranches, roots: [String]) throws -> [Chip] {
@@ -320,9 +335,10 @@ private nonisolated struct GraphRenderer {
         // With no root below the head, the head node is already the bottom.
         if !below.isEmpty { rows.append(GraphRow(graph: Stack.nodeGlyph)) }
 
+        let chipWidth = rows.compactMap { $0.chip?.width }.max() ?? 0
+        if let columns { fitNames(to: columns, chipField: chipWidth > 0 ? 2 + chipWidth : 0) }
         let nodes = rows.filter { $0.graphWidth != nil && $0.name != nil }
         let nameField = nodes.map { $0.graphWidth! + 1 + $0.nameWidth }.max() ?? 0
-        let chipWidth = nodes.compactMap { $0.chip?.width }.max() ?? 0
         return rows.map { row in
             var line = row.graph
             if let name = row.name, let graphWidth = row.graphWidth {
@@ -334,7 +350,30 @@ private nonisolated struct GraphRenderer {
                 line += label
             }
             line = Self.trimmingTrailingWhitespace(line)
+            if let columns, TerminalUI.visibleWidth(line) > columns {
+                line = TerminalUI.truncate(line, toWidth: columns)
+            }
             return Chip(text: line, width: TerminalUI.visibleWidth(line))
+        }
+    }
+
+    /// Cuts every node's name to the widest that keeps its row, padded to
+    /// the shared name field and followed by `chipField`, within `columns`.
+    /// Names are measured in display columns here, since the fit must match
+    /// what the terminal draws.
+    private mutating func fitNames(to columns: Int, chipField: Int) {
+        let nodes = rows.indices.filter { rows[$0].graphWidth != nil && rows[$0].name != nil }
+        for index in nodes { rows[index].nameWidth = TerminalUI.visibleWidth(rows[index].name!) }
+        let measured = rows
+        let widest = nodes.map { measured[$0].nameWidth }.max() ?? 0
+        let cap = TerminalUI.fitColumns([widest], floor: Stack.fittedNameFloor) { widths in
+            let field = nodes.map { measured[$0].graphWidth! + 1 + min(measured[$0].nameWidth, widths[0]) }.max() ?? 0
+            return field + chipField <= columns
+        }[0]
+        for index in nodes where rows[index].nameWidth > cap {
+            let name = TerminalUI.truncate(rows[index].name!, toWidth: cap)
+            rows[index].name = name
+            rows[index].nameWidth = TerminalUI.visibleWidth(name)
         }
     }
 

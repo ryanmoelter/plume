@@ -14,6 +14,7 @@ PLUME-317 ported Ryan's Python `stack` tool (`dotfiles/cli-tools/src/stack`, ver
 - `restack` replays commits in a dry run with `git commit-tree --no-gpg-sign`. The replayed commits are thrown away, and a signing prompt there would stall the command.
 - A bare `stack`, `help`, `-h` and `--help` print the usage and succeed, outside a repository too. Outside a repository they omit the resolved settings. `__complete` prints nothing and succeeds there.
 - The plain-glyph marker for a GitHub native stack member is `≡`. The Nerd Font glyph is U+F51E.
+- Unlike the Python tool, `list` on a terminal of known width never lets a line wrap, as `wt list` does (`docs/wt-port.md`). The tree glyphs, the current-branch marker, the count labels and the PR chips keep their full width. The branch names narrow instead, all to one cap, down to 8 columns (`Stack.fittedNameFloor`), measured in display columns and cut with `TerminalUI.truncate`. If a line is still too wide, its tail is cut. Each frame fits around the chips it prints, so the names can shift when PR status arrives. Because a frame is then one screen row per line, `LiveRedraw` rewinds exactly the line count. Piped output, `--json` and a terminal of unknown width are never cut, and keep Python's alignment by code points.
 
 ### Safety
 
@@ -48,7 +49,7 @@ PLUME-317 ported Ryan's Python `stack` tool (`dotfiles/cli-tools/src/stack`, ver
 |---|---|
 | `tests/load_stack.py`, `tests/fakes.py` | `PlumeTests/CLI/Stack/StackTestSupport.swift` |
 | `test_stack_state.py` | `StackStateTests.swift`, `StackJSONTests.swift` |
-| `test_stack_list.py` | `StackListTests.swift` |
+| `test_stack_list.py` | `StackListTests.swift`, and `StackListFitTests.swift` for the terminal-width fit |
 | `test_stack_restack.py` | `StackRestackTests.swift` |
 | `test_stack_sync.py` | `StackSyncTests.swift` |
 | none (command dispatch, shape and navigation commands, shell integration) | `StackMainTests.swift`, `CLICommandLineTests.swift`, `CommandLineHelperTests.swift` |
