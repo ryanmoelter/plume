@@ -87,7 +87,9 @@ nonisolated enum CLISocket {
     /// Darwin refuses a connect to a live listener whose backlog is full the
     /// same way it refuses one to a stale socket file, so a refusal is retried
     /// briefly while the file is there.
-    static func connect(to path: String, timeout: TimeInterval = 3, retry: Retry = Retry()) throws -> Int32 {
+    ///
+    /// A nil `timeout` waits as long as the server takes.
+    static func connect(to path: String, timeout: TimeInterval? = 3, retry: Retry = Retry()) throws -> Int32 {
         guard var address = makeAddress(path) else { throw ClientError.unreachable("socket path too long") }
         var attempt = 0
         while true {
@@ -95,9 +97,11 @@ nonisolated enum CLISocket {
             guard fd >= 0 else { throw ClientError.io("socket: \(errnoText)") }
             var noSigpipe: Int32 = 1
             setsockopt(fd, SOL_SOCKET, SO_NOSIGPIPE, &noSigpipe, socklen_t(MemoryLayout<Int32>.size))
-            var limit = timeval(tv_sec: Int(timeout), tv_usec: Int32((timeout - timeout.rounded(.down)) * 1_000_000))
-            setsockopt(fd, SOL_SOCKET, SO_RCVTIMEO, &limit, socklen_t(MemoryLayout<timeval>.size))
-            setsockopt(fd, SOL_SOCKET, SO_SNDTIMEO, &limit, socklen_t(MemoryLayout<timeval>.size))
+            if let timeout {
+                var limit = timeval(tv_sec: Int(timeout), tv_usec: Int32((timeout - timeout.rounded(.down)) * 1_000_000))
+                setsockopt(fd, SOL_SOCKET, SO_RCVTIMEO, &limit, socklen_t(MemoryLayout<timeval>.size))
+                setsockopt(fd, SOL_SOCKET, SO_SNDTIMEO, &limit, socklen_t(MemoryLayout<timeval>.size))
+            }
             let connected = withUnsafePointer(to: &address) {
                 $0.withMemoryRebound(to: sockaddr.self, capacity: 1) {
                     Darwin.connect(fd, $0, socklen_t(MemoryLayout<sockaddr_un>.size))
@@ -128,7 +132,7 @@ nonisolated enum CLISocket {
     static func send(
         _ request: CLIRequest,
         to path: String,
-        timeout: TimeInterval = 3,
+        timeout: TimeInterval? = 3,
         retry: Retry = Retry(),
         readReply: (Int32) throws -> Data? = readLine(from:)
     ) throws -> CLIResponse {

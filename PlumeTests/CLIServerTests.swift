@@ -6,7 +6,12 @@ import Testing
 
 /// `CLIServer` answers `CLISocket.send` over a real socket, keeps the socket
 /// private, refuses other users, and binds a path only while holding its lock.
+///
+/// The server answers on the main queue, which the rest of the suite can hold
+/// for seconds, so a client waiting on it sets no deadline of its own; the
+/// time limit catches a server that never answers.
 @MainActor
+@Suite(.timeLimit(.minutes(1)))
 struct CLIServerTests {
     /// A socket in its own directory, which the server makes private.
     private func temporarySocketPath() -> String {
@@ -19,7 +24,7 @@ struct CLIServerTests {
 
     /// The server answers on the main queue, so the blocking client runs off it.
     private func send(_ request: CLIRequest, to path: String) async throws -> CLIResponse {
-        try await Task.detached { try CLISocket.send(request, to: path) }.value
+        try await Task.detached { try CLISocket.send(request, to: path, timeout: nil) }.value
     }
 
     private func bindWithoutListening(at path: String) throws -> Int32 {
@@ -80,7 +85,7 @@ struct CLIServerTests {
         defer { server.stop() }
 
         let reply = try await Task.detached {
-            let fd = try CLISocket.connect(to: path)
+            let fd = try CLISocket.connect(to: path, timeout: nil)
             defer { close(fd) }
             try CLISocket.writeAll(Data("{\"command\":\"launch\"}\n".utf8), to: fd)
             return try CLISocket.readLine(from: fd)
@@ -98,7 +103,7 @@ struct CLIServerTests {
         defer { server.stop() }
 
         let reply = try await Task.detached {
-            let fd = try CLISocket.connect(to: path)
+            let fd = try CLISocket.connect(to: path, timeout: nil)
             defer { close(fd) }
             try CLISocket.writeAll(Data("{\"command\":\"ping\"}".utf8), to: fd)
             shutdown(fd, SHUT_WR)
@@ -119,7 +124,7 @@ struct CLIServerTests {
         defer { server.stop() }
 
         let (reply, afterReply) = try await Task.detached {
-            let fd = try CLISocket.connect(to: path)
+            let fd = try CLISocket.connect(to: path, timeout: nil)
             defer { close(fd) }
             try CLISocket.writeAll(Data(repeating: UInt8(ascii: "x"), count: 200), to: fd)
             return (try CLISocket.readLine(from: fd), try CLISocket.readLine(from: fd))
@@ -131,7 +136,7 @@ struct CLIServerTests {
     }
 
     /// The client's read returns at end-of-file, which only the server's
-    /// idle close produces; the client's own timeout is far longer.
+    /// idle close produces.
     @Test func anIdleConnectionIsClosed() async throws {
         var limits = CLIServer.Limits()
         limits.idleTimeout = 0.1
@@ -142,7 +147,7 @@ struct CLIServerTests {
         defer { server.stop() }
 
         let line = try await Task.detached {
-            let fd = try CLISocket.connect(to: path, timeout: 10)
+            let fd = try CLISocket.connect(to: path, timeout: nil)
             defer { close(fd) }
             return try CLISocket.readLine(from: fd)
         }.value
@@ -173,7 +178,7 @@ struct CLIServerTests {
         defer { server.stop() }
 
         let (reply, wrote, afterReply) = try await Task.detached {
-            let fd = try CLISocket.connect(to: path)
+            let fd = try CLISocket.connect(to: path, timeout: nil)
             defer { close(fd) }
             let reply = try CLISocket.readLine(from: fd)
             let wrote = (try? CLISocket.writeAll(CLILineCodec.encode(CLIRequest.ping), to: fd)) != nil
