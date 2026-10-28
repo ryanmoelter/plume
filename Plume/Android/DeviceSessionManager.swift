@@ -1,5 +1,6 @@
 import Foundation
 import Observation
+import ScrcpyControl
 
 /// Owns every device tab's `DeviceSession`, keyed by tab ID. Closing a
 /// session stops streaming, never the emulator.
@@ -25,9 +26,16 @@ final class DeviceSessionManager {
         sessions.removeValue(forKey: tabID)?.close()
     }
 
-    func closeAll() {
-        for session in sessions.values { session.close() }
+    /// Starts tearing every session down for app termination; `awaitTerminations()` waits for it.
+    func terminateAll() {
+        for session in sessions.values { session.terminate() }
         sessions.removeAll()
+    }
+
+    /// Blocks until physical devices' servers are stopped and their forwards removed, or gives up.
+    /// Only for app termination.
+    nonisolated static func awaitTerminations() {
+        ScrcpyServerLaunch.awaitTerminations()
     }
 
     func shutDownEmulator(for tabID: UUID) {

@@ -89,7 +89,7 @@ struct AndroidDeviceView: View {
         switch session.state {
         case .connected, .needsDevice:
             EmptyView()
-        case .locating, .connecting:
+        case .locating, .connecting, .suspended:
             ProgressView()
                 .controlSize(.small)
         case .booting:
@@ -154,6 +154,7 @@ struct AndroidDeviceView: View {
         case .booting: "booting"
         case .connecting: "connecting"
         case .connected: session.isStreaming ? "streaming" : "connected"
+        case .suspended: "suspended"
         case .disconnected: "disconnected"
         case .failed: "failed"
         }

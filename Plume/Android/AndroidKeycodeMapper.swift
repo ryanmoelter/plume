@@ -85,3 +85,22 @@ nonisolated enum AndroidKeycodeMapper {
         }
     }
 }
+
+/// Drops a key-up whose key-down never reached the device, such as the release of a key pressed
+/// with ⌘ held, whose down went to Plume's menus.
+nonisolated struct AndroidPressedKeys {
+    private var pressed: Set<UInt32> = []
+
+    mutating func filter(_ inputs: [AndroidKeyInput]) -> [AndroidKeyInput] {
+        inputs.filter { input in
+            guard case .key(let phase, let keycode, _) = input else { return true }
+            switch phase {
+            case .down:
+                pressed.insert(keycode)
+                return true
+            case .up:
+                return pressed.remove(keycode) != nil
+            }
+        }
+    }
+}

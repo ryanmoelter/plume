@@ -52,11 +52,13 @@ public actor ScrcpyConnection {
         guard !closed, videoSocket == nil else { throw ScrcpyConnectionError.closed }
         do {
             let port = try await launch.start()
-            let video = try await openVideoSocket(port: port)
-            videoSocket = video
+            if closed { throw ScrcpyConnectionError.closed }
+            videoSocket = try await openVideoSocket(port: port)
+            if closed { throw ScrcpyConnectionError.closed }
             let control = LocalSocket(port: port, label: "control")
-            try await control.open()
             controlSocket = control
+            try await control.open()
+            guard let video = videoSocket, !closed else { throw ScrcpyConnectionError.closed }
 
             var demuxer = ScrcpyDemuxer()
             var deviceName: String?
@@ -87,7 +89,11 @@ public actor ScrcpyConnection {
             startControl(control)
             return (deviceName ?? serial, initialSize!)
         } catch {
+            // A close() that ran while connect was suspended already tore down, so tearDown is a
+            // no-op here; release what was created since.
             await tearDown(error: error)
+            closeSockets()
+            await launch.stop()
             throw error
         }
     }
@@ -110,6 +116,13 @@ public actor ScrcpyConnection {
         await tearDown(error: nil)
     }
 
+    /// Stops the server and removes the forward without waiting, for app termination.
+    /// `ScrcpyServerLaunch.awaitTerminations()` waits for it.
+    public nonisolated func terminate() {
+        controlContinuation.finish()
+        launch.terminate()
+    }
+
     private var serial: String { launch.serial }
 
     private func tearDown(error: Error?) async {
@@ -118,12 +131,16 @@ public actor ScrcpyConnection {
         controlContinuation.finish()
         for task in tasks { task.cancel() }
         tasks = []
+        closeSockets()
+        hub.finish(throwing: error)
+        await launch.stop()
+    }
+
+    private func closeSockets() {
         videoSocket?.close()
         controlSocket?.close()
         videoSocket = nil
         controlSocket = nil
-        hub.finish(throwing: error)
-        await launch.stop()
     }
 
     private func streamEnded(_ error: Error?) async {
@@ -154,14 +171,16 @@ public actor ScrcpyConnection {
 
     private func startPump(video: LocalSocket, demuxer: ScrcpyDemuxer, pending: [ScrcpyDemuxerEvent]) {
         let hub = hub
+        let control = controlContinuation
         tasks.append(Task.detached { [weak self] in
             var demuxer = demuxer
             let decoder = H264Decoder()
+            var recovery = KeyFrameRecovery { control.yield(ScrcpyControlMessage.resetVideo.encoded()) }
             do {
-                try Self.handle(pending, decoder: decoder, hub: hub)
+                Self.handle(pending, decoder: decoder, hub: hub, recovery: &recovery)
                 while !Task.isCancelled {
                     guard let chunk = try await video.receive() else { break }
-                    try Self.handle(demuxer.feed(chunk), decoder: decoder, hub: hub)
+                    Self.handle(try demuxer.feed(chunk), decoder: decoder, hub: hub, recovery: &recovery)
                 }
                 await self?.streamEnded(nil)
             } catch {
@@ -170,13 +189,19 @@ public actor ScrcpyConnection {
         })
     }
 
-    private static func handle(_ events: [ScrcpyDemuxerEvent], decoder: H264Decoder, hub: FrameHub) throws {
+    /// A rejected config or a corrupt frame costs frames, not the session: the decoder waits for
+    /// the next key frame and the server is asked for one.
+    private static func handle(_ events: [ScrcpyDemuxerEvent], decoder: H264Decoder, hub: FrameHub, recovery: inout KeyFrameRecovery) {
         for event in events {
             switch event {
             case let .session(width, height):
                 hub.setVideoSize(CGSize(width: width, height: height))
             case let .config(data):
-                try decoder.configure(with: data)
+                do {
+                    try decoder.configure(with: data)
+                } catch {
+                    recovery.decoderFailed()
+                }
             case let .frame(data, pts, isKeyFrame):
                 guard hub.wantsFrames() else {
                     decoder.resynchronize()
@@ -184,10 +209,13 @@ public actor ScrcpyConnection {
                 }
                 do {
                     if let decoded = try decoder.decode(data, pts: pts, isKeyFrame: isKeyFrame) {
+                        recovery.decoded()
                         hub.publish(decoded)
+                    } else {
+                        recovery.frameDropped()
                     }
-                } catch is H264DecoderError {
-                    // A corrupt or unsupported frame costs a frame, not the session; the decoder waits for the next key frame.
+                } catch {
+                    recovery.decoderFailed()
                 }
             case .deviceName, .codec:
                 break
@@ -213,6 +241,42 @@ public actor ScrcpyConnection {
                 _ = parser.feed(chunk)
             }
         })
+    }
+}
+
+/// Asks the server for a key frame after a decode failure, at most once per `interval`, until a
+/// frame decodes again.
+struct KeyFrameRecovery {
+    static let interval: Duration = .seconds(1)
+
+    private let request: () -> Void
+    private let now: () -> ContinuousClock.Instant
+    private var isRecovering = false
+    private var lastRequest: ContinuousClock.Instant?
+
+    init(now: @escaping () -> ContinuousClock.Instant = { .now }, request: @escaping () -> Void) {
+        self.now = now
+        self.request = request
+    }
+
+    mutating func decoderFailed() {
+        isRecovering = true
+        requestIfDue()
+    }
+
+    mutating func frameDropped() {
+        if isRecovering { requestIfDue() }
+    }
+
+    mutating func decoded() {
+        isRecovering = false
+    }
+
+    private mutating func requestIfDue() {
+        let time = now()
+        if let lastRequest, time - lastRequest < Self.interval { return }
+        lastRequest = time
+        request()
     }
 }
 

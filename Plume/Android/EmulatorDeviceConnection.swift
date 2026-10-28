@@ -54,6 +54,9 @@ nonisolated final class EmulatorDeviceConnection: DeviceConnecting {
     func close() async {
         await connection.close()
     }
+
+    /// The gRPC channel dies with the app, and the emulator is meant to outlive it.
+    func terminate() {}
 }
 
 private extension DeviceButton {

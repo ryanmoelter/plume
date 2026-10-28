@@ -18,6 +18,8 @@ enum DeviceSessionState: Equatable {
     case booting
     case connecting
     case connected
+    /// A physical device whose connection closed while no sink watched it. The next sink reconnects.
+    case suspended
     case disconnected(String)
     case failed(String)
 }
@@ -27,8 +29,9 @@ enum DeviceSessionState: Equatable {
 @MainActor
 @Observable
 final class DeviceSession {
-    /// How long a physical device keeps streaming after its last sink leaves. Restarting
-    /// scrcpy's encoder costs a key frame and a visible stall, which a quick tab switch shouldn't pay.
+    /// How long a physical device stays connected after its last sink leaves. Reconnecting costs
+    /// about a second, which a quick tab switch shouldn't pay; a phone encoding for a hidden tab
+    /// costs battery and heat.
     static let physicalIdleStopDelay: Duration = .seconds(5)
 
     let tabID: UUID
@@ -53,6 +56,8 @@ final class DeviceSession {
     @ObservationIgnored private let makeConnection: (ResolvedDevice) -> DeviceConnecting
     @ObservationIgnored private let idleSleep: (Duration) async -> Void
     @ObservationIgnored private var connection: DeviceConnecting?
+    /// What `connection` was made for, so a suspended session can reconnect without a fresh lookup.
+    @ObservationIgnored private var connectedDevice: ResolvedDevice?
     @ObservationIgnored private var sinks: [ObjectIdentifier: WeakSink] = [:]
     @ObservationIgnored private var streamTask: Task<Void, Never>?
     @ObservationIgnored private var streamPixelSize: CGSize = .zero
@@ -227,6 +232,16 @@ final class DeviceSession {
         disconnect()
     }
 
+    /// Like `close()`, but never waits on the connection, for app termination.
+    func terminate() {
+        workTask?.cancel()
+        workTask = nil
+        sinks.removeAll()
+        stopStreaming()
+        connection?.terminate()
+        connection = nil
+    }
+
     // MARK: Sinks
 
     func addSink(_ sink: DeviceFrameSink) {
@@ -280,6 +295,7 @@ final class DeviceSession {
         state = .connecting
         let connection = makeConnection(device)
         self.connection = connection
+        connectedDevice = device
         switch device {
         case .emulator(let emulator):
             EmulatorLog.info("\(logPrefix) connecting to qemu pid \(emulator.pid) on port \(emulator.grpcPort)")
@@ -319,12 +335,17 @@ final class DeviceSession {
     private func updateStreaming() {
         sinks = sinks.filter { $0.value.sink != nil }
         let sinks = sinks.values.compactMap(\.sink)
+        if state == .suspended, !sinks.isEmpty, let connectedDevice {
+            EmulatorLog.info("\(logPrefix) a sink returned, reconnecting")
+            connect(to: connectedDevice)
+            return
+        }
         guard isConnected, let connection else {
             stopStreaming()
             return
         }
         guard !sinks.isEmpty else {
-            if isPhysical, streamTask != nil { scheduleIdleStop() } else { stopStreaming() }
+            if isPhysical { scheduleIdleStop() } else { stopStreaming() }
             return
         }
         cancelIdleStop()
@@ -371,13 +392,20 @@ final class DeviceSession {
 
     private func scheduleIdleStop() {
         guard idleStopTask == nil else { return }
-        EmulatorLog.info("\(logPrefix) no sinks, stopping the stream in \(Self.physicalIdleStopDelay)")
+        EmulatorLog.info("\(logPrefix) no sinks, closing the connection in \(Self.physicalIdleStopDelay)")
         idleStopTask = Task { [weak self, idleSleep] in
             await idleSleep(Self.physicalIdleStopDelay)
             guard !Task.isCancelled, let self else { return }
             idleStopTask = nil
-            stopStreaming()
+            suspend()
         }
+    }
+
+    private func suspend() {
+        guard isConnected else { return }
+        EmulatorLog.info("\(logPrefix) suspending until a sink returns")
+        disconnect()
+        state = .suspended
     }
 
     private func cancelIdleStop() {

@@ -28,33 +28,38 @@ The tab persists `devicePlatformRaw = "androidPhysical"` and the adb serial in `
 
 On start, the session refreshes the adb list. If the serial is missing or not `device`, it shows "isn't connected" with **Try Again**, which looks again. Otherwise `ScrcpyConnection.connect()`:
 
-1. pushes the server to `/data/local/tmp/plume-scrcpy-server.jar`,
-2. runs `adb forward tcp:0 localabstract:scrcpy_<scid>` with a random scid,
+1. pushes the server to `/data/local/tmp/plume-scrcpy-server-<scid>.jar`, a path per launch so two tabs on one device never overwrite each other's jar (`cleanup=true` deletes it),
+2. runs `adb forward tcp:0 localabstract:scrcpy_<scid>`, where the scid is random,
 3. starts the server with `adb shell app_process` (H.264, no audio, control on, `tunnel_forward=true`),
 4. retries the video socket until the server sends its dummy byte (a forward accepts before the server listens), then opens the control socket,
 5. reads the device name, codec and the initial video size.
 
-Closing the session (closing the tab, `TaskStore.forgetTab`, or quitting) stops the server and removes the forward. Nothing ever powers a physical device off: the shut-down item is hidden for it in both the device view and the tab-strip menu. On quit the stop is best-effort, because termination doesn't wait for it; the server exits once its sockets close anyway (`cleanup=true`).
+Every adb command has a deadline: 30 seconds for the push and 5 for each forward command. A command that misses it is killed, and the tab shows the failure with **Reconnect**. Cancelling the connect kills the command in flight too.
+
+Closing the session (closing the tab, or `TaskStore.forgetTab`) stops the server and removes the forward. `ScrcpyServerLaunch.stop()` is safe at any point: a close during the push or the forward releases whatever exists by then, and the launch then creates nothing more. Nothing ever powers a physical device off: the shut-down item is hidden for it in both the device view and the tab-strip menu.
+
+On quit, `DeviceSessionManager.terminateAll()` starts each stop without waiting, and `applicationWillTerminate` then blocks in `DeviceSessionManager.awaitTerminations()`, alongside `AgentProcess.awaitTerminations()`, until the `adb shell` children have exited and the forwards are gone. The wait is bounded at a few seconds.
 
 ## Frames
 
 - The device encodes at its native size. **A resize never restarts the stream**; the layer's `resizeAspect` scales it. (Emulators restart at the largest requested size instead.)
 - Frames arrive already rotated, so the session reports every physical frame as `.portrait`.
 - `DeviceFrame` carries an IOSurface for physical frames and a `CGImage` for emulator frames. The surface view sets either as `layer.contents` and holds the frame until the next one, which keeps the pixel buffer that owns the surface alive.
-- scrcpy sends a frame only when the screen changes. The session keeps the last frame and hands it to a sink that attaches mid-stream, so a tab shown again doesn't stay black on a static screen.
+- scrcpy sends a frame only when the screen changes. The session keeps the last frame and hands it to a sink that attaches mid-stream, so a tab shown again within the grace period doesn't stay black on a static screen.
+- A config packet the decoder rejects, or a frame it fails to decode, costs frames, not the connection. The decoder drops frames until the next key frame, and the pump sends `RESET_VIDEO` for one, at most once a second until a frame decodes (`KeyFrameRecovery`).
 
 ## Hidden tabs and the grace period
 
-A physical tab keeps streaming for `DeviceSession.physicalIdleStopDelay` (5 seconds) after its last sink leaves. A sink returning within that time cancels the stop. Once it expires the session cancels the frame stream but keeps the connection open while the tab exists. The pump keeps draining the socket without decoding, and when a stream starts again `ScrcpyConnection` sends `RESET_VIDEO` and waits for a key frame. Emulators still stop at once.
+A physical tab stays connected for `DeviceSession.physicalIdleStopDelay` (5 seconds) after its last sink leaves, or after connecting with no sink at all. A sink returning within that time cancels the stop and keeps the same connection and stream. Once the delay expires the session closes the connection, which stops the server and removes the forward, so a hidden tab never keeps the phone encoding. The session's state is then `.suspended`, which is not an error and offers no button. The next sink to attach reconnects to the same device, which takes about a second. Emulators stop streaming at once and keep their connection.
 
-Restarting the encoder costs a key frame and a visible stall, which a quick tab switch shouldn't pay. The delay is injected (`idleSleep`), so tests fire it by hand rather than waiting on a clock.
+Reconnecting costs about a second and a visible stall, which a quick tab switch shouldn't pay. The delay is injected (`idleSleep`), so tests fire it by hand rather than waiting on a clock.
 
 ## Input
 
 - **Coordinates.** A touch is in current video pixels, sent with that video size (`ScrcpyPosition`). The server drops any event whose size differs from its current one, so a touch that races a rotation vanishes instead of landing in the wrong place. The session sets `deviceSize` from each frame's video size, and the surface sends the size it mapped the point against, so `DeviceCoordinateMapper` needs nothing physical-specific.
 - **Touches** go as `injectTouch` with the generic finger pointer id: down, moves, up; pressure 1, then 0 on up.
 - **Scroll** goes as `injectScroll` at the pointer, one unit per notch (`WheelAccumulator`'s 120 units divided by 120). A wheel off the screen is dropped, since the server scrolls at a position.
-- **Keys.** Unmodified printable keys go as `injectText`, so the Mac's keyboard layout decides the character. Return, Tab, Delete, Forward Delete, Escape, the arrows, Home, End, Page Up and Page Down go as keycodes with their meta state (so Shift-Tab works). Control chords go as keycodes by ANSI position. ⌘ chords stay with Plume's menus, matching emulator tabs. Modifier presses alone are not forwarded.
+- **Keys.** Unmodified printable keys go as `injectText`, so the Mac's keyboard layout decides the character. Return, Tab, Delete, Forward Delete, Escape, the arrows, Home, End, Page Up and Page Down go as keycodes with their meta state (so Shift-Tab works). Control chords go as keycodes by ANSI position. ⌘ chords stay with Plume's menus, matching emulator tabs. Modifier presses alone are not forwarded. Each surface tracks which keycodes it sent down (`AndroidPressedKeys`) and drops a release with no matching press, such as the release of a key pressed while ⌘ was held.
 - **Buttons.** Back is `backOrScreenOn`, which wakes a sleeping screen. Home, Overview, Power and the volume keys are keycodes, down then up.
 - **Rotate** is `rotateDevice`, which only toggles between portrait and landscape, so a physical tab shows one rotate button.
 

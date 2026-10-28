@@ -130,7 +130,7 @@ A device tab (`TabKind.device`) shows a live Android emulator over its gRPC cont
 - **All gRPC and protobuf code lives in `Packages/EmulatorControl`**, because the app target's default MainActor isolation breaks generated protobuf code. Never edit its `Generated/` folder; run `scripts/android/generate-emulator-grpc.sh`.
 - `DeviceSessionManager.shared` owns one `DeviceSession` per tab ID. `TaskStore.forgetTab` closes it, which stops streaming and **never stops the emulator** — an agent may still be using it over adb. Only the tab's "Shut Down Emulator" does that; a physical device is never powered off.
 - **`scrcpy-server` ships without a `.jar` extension and lives in Git LFS.** Xcode drops a `.jar` from Resources, and a checkout without LFS has a pointer file there.
-- **Frames never pass through `@Observable` state.** `DeviceSurfaceView` sets its layer's contents directly, and the session streams only while a surface in a visible window is attached. A hidden tab unmounts its surface, so it costs nothing — except that a physical device keeps streaming for 5 seconds, so a quick tab switch doesn't restart its encoder.
+- **Frames never pass through `@Observable` state.** `DeviceSurfaceView` sets its layer's contents directly, and the session streams only while a surface in a visible window is attached. A hidden tab unmounts its surface, so it costs nothing — except that a physical device stays connected for 5 seconds, so a quick tab switch doesn't pay a reconnect, and then closes its connection until the tab is shown again.
 
 ## Ghostty
 

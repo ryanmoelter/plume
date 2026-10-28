@@ -90,9 +90,18 @@ public final class H264Decoder {
     }
 
     /// Takes the SPS and PPS from a config packet. The next decoded frame must be a key frame.
+    /// A rejected config leaves no parameter sets, so frames are dropped until a usable one arrives
+    /// rather than decoded against the previous stream's.
     public func configure(with config: Data) throws {
-        try absorbParameterSets(from: AnnexB.split(config))
         awaitingKeyFrame = true
+        do {
+            try absorbParameterSets(from: AnnexB.split(config))
+        } catch {
+            sps = nil
+            pps = nil
+            formatDescription = nil
+            throw error
+        }
     }
 
     /// Drops frames until the next key frame, for a consumer that missed the frames in between.

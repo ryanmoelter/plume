@@ -8,6 +8,8 @@ public enum ScrcpyLaunchError: Error, Equatable, CustomStringConvertible {
     case unparsableForwardPort(String)
     case serverExited(status: Int32, output: String)
     case connectTimedOut
+    case adbTimedOut(command: String)
+    case stopped
 
     public var description: String {
         switch self {
@@ -25,13 +27,21 @@ public enum ScrcpyLaunchError: Error, Equatable, CustomStringConvertible {
             "scrcpy-server exited with status \(status): \(output)"
         case .connectTimedOut:
             "scrcpy-server did not accept a connection in time."
+        case let .adbTimedOut(command):
+            "`adb \(command)` did not finish in time."
+        case .stopped:
+            "The scrcpy connection was closed."
         }
     }
 }
 
 /// Pushes scrcpy-server to a device, forwards a local port to it, and runs it.
+///
+/// `stop()` may run before, during or after `start()`: whatever `start()` has created by then is
+/// released, and a `start()` still running afterwards creates nothing more.
 public final class ScrcpyServerLaunch: @unchecked Sendable {
-    public static let remoteJarPath = "/data/local/tmp/plume-scrcpy-server.jar"
+    /// How long a stopped server's `adb shell` gets to exit on SIGTERM before SIGKILL.
+    static let exitGracePeriod: TimeInterval = 1
 
     public let adbURL: URL
     public let serial: String
@@ -39,23 +49,38 @@ public final class ScrcpyServerLaunch: @unchecked Sendable {
     public let version: String
     /// The socket id the server listens on, as 8 lowercase hex digits.
     public let scid: String
+    /// Per launch, so two tabs on one device never overwrite each other's jar; `cleanup=true` deletes it.
+    public let remoteJarPath: String
+    private let pushTimeout: Duration
+    private let forwardTimeout: Duration
 
     private let lock = NSLock()
     private var process: Process?
     private var outputTail = OutputTail()
     private var forwardedPort: UInt16?
+    private var stopped = false
 
-    public init(adbURL: URL, serial: String, jarURL: URL, version: String) {
+    public init(
+        adbURL: URL,
+        serial: String,
+        jarURL: URL,
+        version: String,
+        pushTimeout: Duration = .seconds(30),
+        forwardTimeout: Duration = .seconds(5)
+    ) {
         self.adbURL = adbURL
         self.serial = serial
         self.jarURL = jarURL
         self.version = version
+        self.pushTimeout = pushTimeout
+        self.forwardTimeout = forwardTimeout
         scid = String(format: "%08x", UInt32.random(in: 0..<0x8000_0000))
+        remoteJarPath = "/data/local/tmp/plume-scrcpy-server-\(scid).jar"
     }
 
     public var serverArguments: [String] {
         [
-            "CLASSPATH=\(Self.remoteJarPath)", "app_process", "/", "com.genymobile.scrcpy.Server", version,
+            "CLASSPATH=\(remoteJarPath)", "app_process", "/", "com.genymobile.scrcpy.Server", version,
             "scid=\(scid)",
             "log_level=info",
             "tunnel_forward=true",
@@ -74,16 +99,25 @@ public final class ScrcpyServerLaunch: @unchecked Sendable {
     /// Returns the local TCP port forwarded to the server's socket.
     public func start() async throws -> UInt16 {
         try Self.verifyJar(at: jarURL)
-        try await adb(["push", jarURL.path, Self.remoteJarPath])
-        let forwardOutput = try await adb(["forward", "tcp:0", "localabstract:scrcpy_\(scid)"])
+        try throwIfStopped()
+        try await adb(["push", jarURL.path, remoteJarPath], timeout: pushTimeout)
+        try throwIfStopped()
+        let forwardOutput = try await adb(["forward", "tcp:0", "localabstract:scrcpy_\(scid)"], timeout: forwardTimeout)
         guard let port = UInt16(forwardOutput.trimmingCharacters(in: .whitespacesAndNewlines)) else {
             throw ScrcpyLaunchError.unparsableForwardPort(forwardOutput)
         }
-        lock.withLock { forwardedPort = port }
+        let stoppedDuringForward = lock.withLock {
+            if !stopped { forwardedPort = port }
+            return stopped
+        }
+        if stoppedDuringForward {
+            _ = try? await adb(["forward", "--remove", "tcp:\(port)"], timeout: forwardTimeout)
+            throw ScrcpyLaunchError.stopped
+        }
         do {
             try spawnServer()
         } catch {
-            await removeForward()
+            await stop()
             throw error
         }
         return port
@@ -101,30 +135,60 @@ public final class ScrcpyServerLaunch: @unchecked Sendable {
         lock.withLock { outputTail.text }
     }
 
-    /// Never blocks: escalates to SIGKILL on a background queue if the shell outlives SIGTERM.
+    /// Returns once the forward is gone. The server's shell gets SIGKILL on a background queue if
+    /// it outlives SIGTERM.
     public func stop() async {
-        let running = lock.withLock { () -> Process? in
-            defer { process = nil }
-            return process
+        await withCheckedContinuation { continuation in
+            beginStop { continuation.resume() }
         }
-        if let running, running.isRunning {
-            running.terminate()
-            let pid = running.processIdentifier
-            DispatchQueue.global().asyncAfter(deadline: .now() + 2) {
-                if running.isRunning { kill(pid, SIGKILL) }
-            }
-        }
-        await removeForward()
     }
 
-    private func removeForward() async {
-        let port = lock.withLock { () -> UInt16? in
-            defer { forwardedPort = nil }
-            return forwardedPort
+    /// Starts the stop and returns at once, for app termination; `awaitTerminations()` waits for it.
+    public func terminate() {
+        beginStop(onForwardRemoved: nil)
+    }
+
+    private static let terminations = DispatchGroup()
+
+    /// Blocks until every stop in flight has removed its forward and seen its shell exit, or gives up.
+    /// Only for app termination.
+    public static func awaitTerminations() {
+        _ = terminations.wait(timeout: .now() + exitGracePeriod + 5)
+    }
+
+    private func beginStop(onForwardRemoved: (@Sendable () -> Void)?) {
+        let (running, port) = lock.withLock { () -> (Process?, UInt16?) in
+            stopped = true
+            defer {
+                process = nil
+                forwardedPort = nil
+            }
+            return (process, forwardedPort)
         }
-        if let port {
-            _ = try? await adb(["forward", "--remove", "tcp:\(port)"])
+        guard running != nil || port != nil else {
+            onForwardRemoved?()
+            return
         }
+        Self.terminations.enter()
+        let adbURL = adbURL, serial = serial, forwardTimeout = forwardTimeout
+        DispatchQueue.global(qos: .utility).async {
+            defer { Self.terminations.leave() }
+            if let running, running.isRunning { running.terminate() }
+            if let port {
+                _ = try? ADBCommand.runBlocking(adbURL, ["-s", serial, "forward", "--remove", "tcp:\(port)"], timeout: forwardTimeout)
+            }
+            onForwardRemoved?()
+            guard let running else { return }
+            let deadline = Date().addingTimeInterval(Self.exitGracePeriod)
+            while running.isRunning, Date() < deadline {
+                Thread.sleep(forTimeInterval: 0.05)
+            }
+            if running.isRunning { kill(running.processIdentifier, SIGKILL) }
+        }
+    }
+
+    private func throwIfStopped() throws {
+        if lock.withLock({ stopped }) { throw ScrcpyLaunchError.stopped }
     }
 
     private func spawnServer() throws {
@@ -144,13 +208,17 @@ public final class ScrcpyServerLaunch: @unchecked Sendable {
             guard let self else { return }
             self.lock.withLock { self.outputTail.append(data) }
         }
-        try process.run()
-        lock.withLock { self.process = process }
+        // Spawning under the lock means a concurrent stop() either prevents the spawn or sees the process.
+        try lock.withLock {
+            guard !stopped else { throw ScrcpyLaunchError.stopped }
+            try process.run()
+            self.process = process
+        }
     }
 
     @discardableResult
-    private func adb(_ arguments: [String]) async throws -> String {
-        let result = try await ADBCommand.run(adbURL, ["-s", serial] + arguments)
+    private func adb(_ arguments: [String], timeout: Duration) async throws -> String {
+        let result = try await ADBCommand.run(adbURL, ["-s", serial] + arguments, timeout: timeout)
         guard result.status == 0 else {
             throw ScrcpyLaunchError.adbFailed(command: arguments.joined(separator: " "), status: result.status, output: result.output)
         }
@@ -191,30 +259,117 @@ private struct OutputTail {
 }
 
 enum ADBCommand {
-    struct Result {
+    struct Result: Sendable {
         var status: Int32
         var output: String
     }
 
-    static func run(_ adb: URL, _ arguments: [String]) async throws -> Result {
-        let process = Process()
+    /// A timeout throws `ScrcpyLaunchError.adbTimedOut` and cancellation throws `CancellationError`;
+    /// both kill the command.
+    static func run(_ adb: URL, _ arguments: [String], timeout: Duration) async throws -> Result {
+        let invocation = ADBInvocation(adb: adb, arguments: arguments)
+        return try await withTaskCancellationHandler {
+            try await withCheckedThrowingContinuation { continuation in
+                invocation.start(timeout: timeout) { continuation.resume(with: $0) }
+            }
+        } onCancel: {
+            invocation.abort(.cancelled)
+        }
+    }
+
+    /// Blocks the calling thread, so never call it from the main actor.
+    static func runBlocking(_ adb: URL, _ arguments: [String], timeout: Duration) throws -> Result {
+        let invocation = ADBInvocation(adb: adb, arguments: arguments)
+        let semaphore = DispatchSemaphore(value: 0)
+        let box = OutcomeBox()
+        invocation.start(timeout: timeout) { outcome in
+            box.outcome = outcome
+            semaphore.signal()
+        }
+        semaphore.wait()
+        return try box.outcome!.get()
+    }
+
+    private final class OutcomeBox: @unchecked Sendable {
+        var outcome: Swift.Result<Result, Error>?
+    }
+}
+
+/// One adb command that finishes exactly once: when it exits, when it times out, or when it is aborted.
+private final class ADBInvocation: @unchecked Sendable {
+    enum Abort {
+        case cancelled
+        case timedOut
+    }
+
+    private let process = Process()
+    private let pipe = Pipe()
+    private let commandDescription: String
+    private let lock = NSLock()
+    private var aborted: Abort?
+    private var completion: (@Sendable (Swift.Result<ADBCommand.Result, Error>) -> Void)?
+
+    init(adb: URL, arguments: [String]) {
         process.executableURL = adb
         process.arguments = arguments
-        let pipe = Pipe()
         process.standardOutput = pipe
         process.standardError = pipe
         process.standardInput = FileHandle.nullDevice
+        commandDescription = arguments.joined(separator: " ")
+    }
 
-        try process.run()
-        return await withCheckedContinuation { continuation in
-            let reader = pipe.fileHandleForReading
-            // Read to EOF off the caller's thread so a chatty command can't fill the pipe and stall.
-            DispatchQueue.global().async {
-                let output = reader.readDataToEndOfFile()
-                process.waitUntilExit()
-                let text = String(decoding: output, as: UTF8.self).trimmingCharacters(in: .whitespacesAndNewlines)
-                continuation.resume(returning: Result(status: process.terminationStatus, output: text))
+    func start(timeout: Duration, completion: @escaping @Sendable (Swift.Result<ADBCommand.Result, Error>) -> Void) {
+        do {
+            try lock.withLock {
+                if aborted != nil { throw CancellationError() }
+                self.completion = completion
+                try process.run()
+            }
+        } catch {
+            lock.withLock { self.completion = nil }
+            completion(.failure(error))
+            return
+        }
+        let seconds = Double(timeout.components.seconds) + Double(timeout.components.attoseconds) / 1e18
+        DispatchQueue.global().asyncAfter(deadline: .now() + seconds) { [weak self] in
+            self?.abort(.timedOut)
+        }
+        let reader = pipe.fileHandleForReading
+        // Read to EOF off the caller's thread so a chatty command can't fill the pipe and stall.
+        DispatchQueue.global().async { [self] in
+            let output = reader.readDataToEndOfFile()
+            process.waitUntilExit()
+            let text = String(decoding: output, as: UTF8.self).trimmingCharacters(in: .whitespacesAndNewlines)
+            finish(.success(ADBCommand.Result(status: process.terminationStatus, output: text)))
+        }
+    }
+
+    /// Finishes at once rather than waiting for the output to reach EOF, which a forked adb server can hold open.
+    func abort(_ reason: Abort) {
+        let pending = lock.withLock { () -> Bool in
+            guard aborted == nil else { return false }
+            aborted = reason
+            return completion != nil
+        }
+        guard pending else { return }
+        if process.isRunning {
+            process.terminate()
+            let process = process
+            DispatchQueue.global().asyncAfter(deadline: .now() + 1) {
+                if process.isRunning { kill(process.processIdentifier, SIGKILL) }
             }
         }
+        switch reason {
+        case .cancelled: finish(.failure(CancellationError()))
+        case .timedOut: finish(.failure(ScrcpyLaunchError.adbTimedOut(command: commandDescription)))
+        }
+    }
+
+    private func finish(_ outcome: Swift.Result<ADBCommand.Result, Error>) {
+        let completion = lock.withLock { () -> (@Sendable (Swift.Result<ADBCommand.Result, Error>) -> Void)? in
+            defer { self.completion = nil }
+            return self.completion
+        }
+        completion?(outcome)
     }
 }

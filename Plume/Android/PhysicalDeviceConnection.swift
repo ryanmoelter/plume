@@ -106,6 +106,10 @@ nonisolated final class PhysicalDeviceConnection: DeviceConnecting {
         await connection?.close()
     }
 
+    func terminate() {
+        connection?.terminate()
+    }
+
     private static nonisolated func describe(_ error: Error) -> Error {
         if error is LocalizedError || error is CancellationError { return error }
         return DeviceConnectionError(message: String(describing: error))

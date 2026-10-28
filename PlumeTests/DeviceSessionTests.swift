@@ -13,6 +13,8 @@ nonisolated final class FakeConnection: DeviceConnecting, @unchecked Sendable {
     private var _rotations: [DeviceRotation] = []
     private var _shutDownCount = 0
     private var _closeCount = 0
+    private var _connectCount = 0
+    private var _terminateCount = 0
     private var _cancelledStreams = 0
     var connectResult: Result<DeviceConnectionInfo, Error> = .success(
         DeviceConnectionInfo(deviceSize: CGSize(width: 1080, height: 2400))
@@ -24,9 +26,14 @@ nonisolated final class FakeConnection: DeviceConnecting, @unchecked Sendable {
     var rotations: [DeviceRotation] { lock.withLock { _rotations } }
     var shutDownCount: Int { lock.withLock { _shutDownCount } }
     var closeCount: Int { lock.withLock { _closeCount } }
+    var connectCount: Int { lock.withLock { _connectCount } }
+    var terminateCount: Int { lock.withLock { _terminateCount } }
     var cancelledStreams: Int { lock.withLock { _cancelledStreams } }
 
-    func connect() async throws -> DeviceConnectionInfo { try connectResult.get() }
+    func connect() async throws -> DeviceConnectionInfo {
+        lock.withLock { _connectCount += 1 }
+        return try connectResult.get()
+    }
 
     func frames(maxPixelSize: CGSize) -> AsyncThrowingStream<DeviceFrame, Error> {
         let (stream, continuation) = AsyncThrowingStream<DeviceFrame, Error>.makeStream()
@@ -46,6 +53,7 @@ nonisolated final class FakeConnection: DeviceConnecting, @unchecked Sendable {
     func rotate(to rotation: DeviceRotation) async throws { lock.withLock { _rotations.append(rotation) } }
     func shutDown() async throws { lock.withLock { _shutDownCount += 1 } }
     func close() async { lock.withLock { _closeCount += 1 } }
+    func terminate() { lock.withLock { _terminateCount += 1 } }
 
     func push(_ frame: DeviceFrame) {
         let continuation = lock.withLock { _continuations.last }
@@ -65,20 +73,29 @@ final class FakeSink: DeviceFrameSink {
     func present(_ frame: DeviceFrame) { presented.append(frame) }
 }
 
-/// Stands in for the idle-stop clock: every sleep waits until the test fires it.
+/// Stands in for the idle-stop clock: every sleep waits until the test fires it. A cancelled sleep
+/// leaves `pending` at once, so a test waiting for the next sleep never counts a stale one.
 @MainActor
 final class ManualSleeper {
-    private var waiters: [CheckedContinuation<Void, Never>] = []
+    private var waiters: [UUID: CheckedContinuation<Void, Never>] = [:]
     var pending: Int { waiters.count }
 
     func sleep(_ duration: Duration) async {
-        await withCheckedContinuation { waiters.append($0) }
+        let id = UUID()
+        await withTaskCancellationHandler {
+            await withCheckedContinuation { continuation in
+                if Task.isCancelled { continuation.resume() } else { waiters[id] = continuation }
+            }
+        } onCancel: {
+            // The session cancels its idle stop from the main actor.
+            MainActor.assumeIsolated { self.waiters.removeValue(forKey: id)?.resume() }
+        }
     }
 
     func fire() {
         let waiters = waiters
-        self.waiters = []
-        waiters.forEach { $0.resume() }
+        self.waiters = [:]
+        waiters.values.forEach { $0.resume() }
     }
 }
 
@@ -395,7 +412,7 @@ struct DeviceSessionTests {
         #expect(h.fake.frameRequests.count == 1)
     }
 
-    @Test func physicalStreamOutlivesItsLastSinkUntilTheGraceExpires() async {
+    @Test func graceExpiryClosesThePhysicalConnection() async {
         let h = Harness(target: nil)
         await h.connectedPhysically()
         let sink = FakeSink(size: CGSize(width: 100, height: 200))
@@ -403,16 +420,45 @@ struct DeviceSessionTests {
         h.session.removeSink(sink)
         #expect(h.session.isStreaming)
         await waitUntil { h.sleeper.pending == 1 }
+        #expect(h.fake.closeCount == 0)
 
         h.sleeper.fire()
-        await waitUntil { !h.session.isStreaming }
+        await waitUntil { h.fake.closeCount == 1 }
+        #expect(h.fake.closeCount == 1)
+        #expect(h.session.state == .suspended)
         #expect(!h.session.isStreaming)
-        await waitUntil { h.fake.cancelledStreams == 1 }
-        #expect(h.fake.cancelledStreams == 1)
-        #expect(h.fake.closeCount == 0)
     }
 
-    @Test func sinkReturningWithinTheGraceKeepsTheStream() async {
+    @Test func aHiddenPhysicalConnectionClosesAfterTheGraceEvenUnwatched() async {
+        let h = Harness(target: nil)
+        await h.connectedPhysically()
+        await waitUntil { h.sleeper.pending == 1 }
+        h.sleeper.fire()
+        await waitUntil { h.session.state == .suspended }
+        #expect(h.session.state == .suspended)
+        #expect(h.fake.frameRequests.isEmpty)
+    }
+
+    @Test func sinkReturningAfterTheGraceReconnects() async {
+        let h = Harness(target: nil)
+        await h.connectedPhysically()
+        let sink = FakeSink(size: CGSize(width: 100, height: 200))
+        h.session.addSink(sink)
+        h.session.removeSink(sink)
+        await waitUntil { h.sleeper.pending == 1 }
+        h.sleeper.fire()
+        await waitUntil { h.session.state == .suspended }
+        #expect(h.fake.connectCount == 1)
+
+        h.session.addSink(sink)
+        #expect(h.session.state == .connecting)
+        await waitUntil { h.session.isStreaming }
+        #expect(h.session.state == .connected)
+        #expect(h.fake.connectCount == 2)
+        #expect(h.fake.frameRequests.count == 2)
+    }
+
+    @Test func sinkReturningWithinTheGraceKeepsTheConnection() async {
         let h = Harness(target: nil)
         await h.connectedPhysically()
         let sink = FakeSink(size: CGSize(width: 100, height: 200))
@@ -428,8 +474,20 @@ struct DeviceSessionTests {
         h.sleeper.fire()
         for _ in 0..<100 { await Task.yield() }
         #expect(h.session.isStreaming)
+        #expect(h.session.state == .connected)
+        #expect(h.fake.connectCount == 1)
+        #expect(h.fake.closeCount == 0)
         #expect(h.fake.frameRequests.count == 1)
         #expect(h.fake.cancelledStreams == 0)
+    }
+
+    @Test func terminateReleasesTheConnectionWithoutWaiting() async {
+        let h = Harness(target: nil)
+        await h.connectedPhysically()
+        h.session.terminate()
+        #expect(h.fake.terminateCount == 1)
+        for _ in 0..<100 { await Task.yield() }
+        #expect(h.fake.closeCount == 0)
     }
 
     @Test func emulatorStreamStopsAtOnceWhenItsLastSinkLeaves() async {

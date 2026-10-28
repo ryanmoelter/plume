@@ -72,6 +72,18 @@ struct H264DecoderTests {
         #expect(try decoder.decode(landscape[0].data, pts: 1, isKeyFrame: true)?.pixelSize == CGSize(width: 320, height: 240))
     }
 
+    @Test func aRejectedConfigDropsFramesInsteadOfDecodingAgainstTheOldOne() throws {
+        let (config, frames) = try Self.encode(width: 320, height: 240, count: 1)
+        let decoder = H264Decoder()
+        try decoder.configure(with: config)
+        let garbage = Data([0, 0, 0, 1, 0x67, 0xFF, 0, 0, 0, 1, 0x68, 0xFF])
+        #expect(throws: H264DecoderError.self) { try decoder.configure(with: garbage) }
+        #expect(try decoder.decode(frames[0].data, pts: 0, isKeyFrame: true) == nil)
+
+        try decoder.configure(with: config)
+        #expect(try decoder.decode(frames[0].data, pts: 1, isKeyFrame: true) != nil)
+    }
+
     @Test func waitsForParameterSets() throws {
         let (_, frames) = try Self.encode(width: 320, height: 240, count: 1)
         #expect(try H264Decoder().decode(frames[0].data, pts: 0, isKeyFrame: true) == nil)

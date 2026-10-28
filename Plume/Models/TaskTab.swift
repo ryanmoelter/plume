@@ -93,6 +93,10 @@ final class TaskTab {
         DeviceTarget(platform: devicePlatform, identifier: deviceIdentifier)
     }
 
+    var isEmulatorTab: Bool {
+        kind == .device && deviceTarget?.isPhysical == false
+    }
+
     func setDevice(_ target: DeviceTarget?, displayName: String?) {
         devicePlatform = target?.platform
         deviceIdentifier = target?.identifier

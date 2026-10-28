@@ -57,6 +57,19 @@ struct AndroidKeycodeMapperTests {
         #expect(map(.keyDown, 0, [], "") == nil)
     }
 
+    @Test func aReleaseWhosePressWentToTheMacIsDropped() {
+        var pressed = AndroidPressedKeys()
+        #expect(map(.keyDown, 125, .command, nil) == nil)
+        #expect(pressed.filter(map(.keyUp, 125, .command, nil)!) == [])
+
+        let down = AndroidKeyInput.key(phase: .down, keycode: Android.KeyCode.dpadDown, metaState: 0)
+        let up = AndroidKeyInput.key(phase: .up, keycode: Android.KeyCode.dpadDown, metaState: 0)
+        #expect(pressed.filter([down]) == [down])
+        #expect(pressed.filter([up]) == [up])
+        #expect(pressed.filter([up]) == [])
+        #expect(pressed.filter([.text("a")]) == [.text("a")])
+    }
+
     @Test func metaStateCombinesModifiers() {
         let meta = AndroidKeycodeMapper.metaState([.shift, .option, .capsLock])
         #expect(meta == Android.Meta.shiftOn | Android.Meta.shiftLeftOn | Android.Meta.altOn | Android.Meta.altLeftOn | Android.Meta.capsLockOn)

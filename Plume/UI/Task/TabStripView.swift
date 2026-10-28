@@ -181,7 +181,7 @@ private struct TabChip: View {
                     .font(.caption)
                     .accessibilityHidden(true)
             case .device:
-                Image(systemName: tab.devicePlatform == .androidEmulator ? "macbook.and.iphone" : "smartphone")
+                Image(systemName: tab.isEmulatorTab ? "macbook.and.iphone" : "smartphone")
                     .font(.caption)
                     .accessibilityHidden(true)
             }
@@ -227,7 +227,7 @@ private struct TabChip: View {
             invoke: select
         )
         .contextMenu {
-            if tab.kind == .device, tab.devicePlatform == .androidEmulator {
+            if tab.isEmulatorTab {
                 Button("Shut Down Emulator…") { isConfirmingEmulatorShutDown = true }
                     .plumeID(AccessibilityID.shutDownEmulatorMenuItem)
                     .disabled(!DeviceSessionManager.shared.canShutDownEmulator(for: tab.id))

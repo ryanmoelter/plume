@@ -89,6 +89,18 @@ struct DeviceTabTests {
         #expect(tab.deviceTarget == nil)
     }
 
+    @Test func onlyATabTargetingAnEmulatorIsAnEmulatorTab() {
+        let legacy = TaskTab(kind: .device, orderIndex: 0)
+        legacy.deviceIdentifier = "Pixel_8"
+        #expect(legacy.isEmulatorTab)
+
+        let physical = TaskTab(kind: .device, orderIndex: 0)
+        physical.setDevice(.physical(serial: "S1"), displayName: "Pixel")
+        #expect(!physical.isEmulatorTab)
+
+        #expect(!TaskTab(kind: .device, orderIndex: 0).isEmulatorTab)
+    }
+
     @Test func existingEmulatorTabsKeepTheirTarget() {
         let tab = TaskTab(kind: .device, orderIndex: 0)
         tab.devicePlatformRaw = "androidEmulator"

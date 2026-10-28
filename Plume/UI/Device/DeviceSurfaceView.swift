@@ -11,6 +11,7 @@ final class DeviceSurfaceView: NSView, DeviceFrameSink {
             guard session !== oldValue else { return }
             if let oldValue, isSink { oldValue.removeSink(self) }
             isSink = false
+            pressedAndroidKeys = AndroidPressedKeys()
             updateSink()
         }
     }
@@ -23,6 +24,7 @@ final class DeviceSurfaceView: NSView, DeviceFrameSink {
     private var presentedFrame: DeviceFrame?
     private var wheel = WheelAccumulator()
     private var previousFlags: NSEvent.ModifierFlags = []
+    private var pressedAndroidKeys = AndroidPressedKeys()
     private var occlusionObserver: NSObjectProtocol?
     private var resizeWork: DispatchWorkItem?
 
@@ -183,7 +185,7 @@ final class DeviceSurfaceView: NSView, DeviceFrameSink {
                 modifierFlags: event.modifierFlags,
                 characters: type == .flagsChanged ? nil : event.characters
             ) else { return false }
-            inputs = keys.map { .androidKey($0) }
+            inputs = pressedAndroidKeys.filter(keys).map { .androidKey($0) }
         } else {
             let keys = EmulatorKeyMapper.keyEvents(
                 type: type,
