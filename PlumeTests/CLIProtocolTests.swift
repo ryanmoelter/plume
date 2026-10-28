@@ -73,7 +73,16 @@ struct CLISocketPathTests {
 
     @Test func theEnvironmentOverridesTheDefault() {
         #expect(CLISocket.resolvedPath(environment: ["PLUME_SOCKET": "/tmp/x.sock"]) == "/tmp/x.sock")
-        #expect(CLISocket.resolvedPath(environment: [:]).hasSuffix("/Library/Application Support/Plume/run/cli.sock"))
+        #expect(CLISocket.resolvedPath(environment: [:])?.hasSuffix("/Library/Application Support/Plume/run/cli.sock") == true)
+    }
+
+    /// A tab whose app exported no socket must not reach whichever Plume owns
+    /// the release socket instead.
+    @Test func aTabWithNoSocketReachesNoApp() {
+        let tabID = UUID().uuidString
+        #expect(CLISocket.resolvedPath(environment: ["PLUME_TAB_ID": tabID]) == nil)
+        #expect(CLISocket.resolvedPath(environment: ["PLUME_TASK_ID": tabID]) == nil)
+        #expect(CLISocket.resolvedPath(environment: ["PLUME_TAB_ID": tabID, "PLUME_SOCKET": "/tmp/x.sock"]) == "/tmp/x.sock")
     }
 }
 

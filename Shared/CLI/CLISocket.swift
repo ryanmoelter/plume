@@ -36,9 +36,12 @@ nonisolated enum CLISocket {
         return home + "/Library/Application Support/Plume"
     }
 
-    static func resolvedPath(environment: [String: String]) -> String {
+    /// Nil inside a tab whose app exported no socket: the release socket may
+    /// belong to a different Plume than the one that owns the tab.
+    static func resolvedPath(environment: [String: String]) -> String? {
         if let path = environment[pathEnvironmentKey], !path.isEmpty { return path }
-        return path(applicationSupport: releaseApplicationSupport)
+        let isInsideTab = [tabIDEnvironmentKey, taskIDEnvironmentKey].contains { environment[$0]?.isEmpty == false }
+        return isInsideTab ? nil : path(applicationSupport: releaseApplicationSupport)
     }
 
     /// FNV-1a, because `Hasher` is seeded per process and the app and the
@@ -58,12 +61,15 @@ nonisolated enum CLISocket {
         /// Nothing is listening: the app isn't running, or this path is stale.
         case unreachable(String)
         case io(String)
+        /// The request was written, but no reply came before the deadline.
+        case noReply(String)
         case badResponse
 
         var errorDescription: String? {
             switch self {
             case .unreachable(let detail): "Plume isn't running (\(detail))"
             case .io(let detail): detail
+            case .noReply(let detail): "Plume did not answer (\(detail))"
             case .badResponse: "Plume sent an unreadable reply"
             }
         }
@@ -98,7 +104,7 @@ nonisolated enum CLISocket {
             var noSigpipe: Int32 = 1
             setsockopt(fd, SOL_SOCKET, SO_NOSIGPIPE, &noSigpipe, socklen_t(MemoryLayout<Int32>.size))
             if let timeout {
-                var limit = timeval(tv_sec: Int(timeout), tv_usec: Int32((timeout - timeout.rounded(.down)) * 1_000_000))
+                var limit = timeLimit(timeout)
                 setsockopt(fd, SOL_SOCKET, SO_RCVTIMEO, &limit, socklen_t(MemoryLayout<timeval>.size))
                 setsockopt(fd, SOL_SOCKET, SO_SNDTIMEO, &limit, socklen_t(MemoryLayout<timeval>.size))
             }
@@ -128,11 +134,14 @@ nonisolated enum CLISocket {
         return lstat(path, &info) == 0 && info.st_mode & S_IFMT == S_IFSOCK
     }
 
-    /// Sends one request and waits for its one reply line.
+    /// Sends one request and waits for its one reply line. `timeout` bounds
+    /// the connect and the write, `replyTimeout` the wait after: an app whose
+    /// main queue is busy answers late, not never.
     static func send(
         _ request: CLIRequest,
         to path: String,
         timeout: TimeInterval? = 3,
+        replyTimeout: TimeInterval? = 3,
         retry: Retry = Retry(),
         readReply: (Int32) throws -> Data? = readLine(from:)
     ) throws -> CLIResponse {
@@ -147,7 +156,16 @@ nonisolated enum CLISocket {
             guard let reply = try? readReply(fd) else { throw error }
             return try decodeResponse(reply)
         }
-        return try decodeResponse(readReply(fd))
+        // `SO_RCVTIMEO` reads zero as no limit.
+        var limit = timeLimit(replyTimeout ?? 0)
+        setsockopt(fd, SOL_SOCKET, SO_RCVTIMEO, &limit, socklen_t(MemoryLayout<timeval>.size))
+        let reply: Data?
+        do {
+            reply = try readReply(fd)
+        } catch ClientError.io(let detail) {
+            throw ClientError.noReply(detail)
+        }
+        return try decodeResponse(reply)
     }
 
     private static func decodeResponse(_ line: Data?) throws -> CLIResponse {
@@ -191,6 +209,10 @@ nonisolated enum CLISocket {
                 throw ClientError.io("read: \(errnoText)")
             }
         }
+    }
+
+    private static func timeLimit(_ seconds: TimeInterval) -> timeval {
+        timeval(tv_sec: Int(seconds), tv_usec: Int32((seconds - seconds.rounded(.down)) * 1_000_000))
     }
 
     static var errnoText: String {

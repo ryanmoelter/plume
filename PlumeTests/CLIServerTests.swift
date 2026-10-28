@@ -24,7 +24,7 @@ struct CLIServerTests {
 
     /// The server answers on the main queue, so the blocking client runs off it.
     private func send(_ request: CLIRequest, to path: String) async throws -> CLIResponse {
-        try await Task.detached { try CLISocket.send(request, to: path, timeout: nil) }.value
+        try await Task.detached { try CLISocket.send(request, to: path, timeout: nil, replyTimeout: nil) }.value
     }
 
     private func bindWithoutListening(at path: String) throws -> Int32 {
@@ -279,12 +279,39 @@ struct CLIServerTests {
         #expect(listen(listener, 1) == 0)
 
         var reads = 0
-        #expect(throws: CLISocket.ClientError.self) {
-            try CLISocket.send(.ping, to: path, timeout: 0.1) { fd in
+        let error = #expect(throws: CLISocket.ClientError.self) {
+            try CLISocket.send(.ping, to: path, replyTimeout: 0.1) { fd in
                 reads += 1
                 return try CLISocket.readLine(from: fd)
             }
         }
         #expect(reads == 1)
+        guard case .noReply = error else {
+            Issue.record("expected noReply, got \(String(describing: error))")
+            return
+        }
+    }
+
+    /// A reply slower than the connect deadline still arrives within its own.
+    @Test func theReplyWaitsLongerThanTheConnect() async throws {
+        let path = temporarySocketPath()
+        defer { removeDirectory(of: path) }
+        #expect(mkdir((path as NSString).deletingLastPathComponent, 0o700) == 0)
+        let listener = try bindWithoutListening(at: path)
+        defer { close(listener) }
+        #expect(listen(listener, 1) == 0)
+
+        let server = Task.detached {
+            let fd = accept(listener, nil, nil)
+            defer { close(fd) }
+            _ = try CLISocket.readLine(from: fd)
+            usleep(300_000)
+            try CLISocket.writeAll(CLILineCodec.encode(CLIResponse.success), to: fd)
+        }
+        let response = try await Task.detached {
+            try CLISocket.send(.ping, to: path, timeout: 0.1, replyTimeout: 10)
+        }.value
+        try await server.value
+        #expect(response.ok)
     }
 }

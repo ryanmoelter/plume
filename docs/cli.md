@@ -24,7 +24,7 @@ The code is split three ways:
 
 **`notify` never fails its caller**, which is often a hook. It tries, in order:
 
-1. With `PLUME_TAB_ID` set, the `notify` request over the socket. The app posts it the way it posts an OSC 777 notification from a terminal, through `TerminalAlerts.notify(tabID:title:body:)`, and skips it when the user is already looking at that tab.
+1. With `PLUME_TAB_ID` and `PLUME_SOCKET` set, the `notify` request over the socket. The app posts it the way it posts an OSC 777 notification from a terminal, through `TerminalAlerts.notify(tabID:title:body:)`, and skips it when the user is already looking at that tab.
 2. If that fails, an OSC 777 escape written to `/dev/tty`. The tool attempts the open rather than testing for it, since a writable `/dev/tty` doesn't mean a controlling terminal exists.
 3. If there is no terminal either, nothing, exit 0.
 
@@ -59,7 +59,7 @@ A Claude Code terminal tab already carried `PLUME_TAB_ID` and `PLUME_TASK_ID` fo
 
 At launch the app unsets any of these it inherited, along with `PLUME_EVENTS_DIR` (`LoginShellCommand.dropInheritedInstanceKeys`), so no child inherits them. A debug Plume launched from another Plume's tab would otherwise hand its own children that Plume's socket and IDs.
 
-Outside any Plume tab, `PLUME_SOCKET` is unset and the tool uses the installed app's socket, `~/Library/Application Support/Plume/run/cli.sock`.
+Outside any Plume tab, `PLUME_SOCKET` is unset and the tool uses the installed app's socket, `~/Library/Application Support/Plume/run/cli.sock`. With `PLUME_TAB_ID` or `PLUME_TASK_ID` set but no `PLUME_SOCKET`, the tab's app serves no socket, and the installed app's may belong to a different Plume. The tool then reaches no app: `notify` goes straight to OSC 777, and `tab new` fails.
 
 ## Socket
 
@@ -75,7 +75,7 @@ The app starts the server in `PlumeApp.init`, before any view exists, because a 
 
 ## Wire protocol
 
-Newline-delimited JSON over a stream socket: the tool writes one request line and reads one response line. The server reads on the main queue and answers requests on one connection in order. It never blocks there: a reply the client isn't reading waits in a buffer that a write source drains. A connection that holds more than 1 MiB of unread input gets an error reply and is closed, as is one with more than 1 MiB of unsent output, or one idle for 30 seconds (`CLIServer.Limits`). When the process runs out of file descriptors, accepting pauses briefly instead of spinning. The tool sets three-second send and receive timeouts (two for `notify`), so a wedged app can't hang a hook. It reads the reply once; only after a failed write does it read again, for a refusal the server sent first. A last request with no trailing newline is still answered when the client shuts down its writing side.
+Newline-delimited JSON over a stream socket: the tool writes one request line and reads one response line. The server reads on the main queue and answers requests on one connection in order. It never blocks there: a reply the client isn't reading waits in a buffer that a write source drains. A connection that holds more than 1 MiB of unread input gets an error reply and is closed, as is one with more than 1 MiB of unsent output, or one idle for 30 seconds (`CLIServer.Limits`). When the process runs out of file descriptors, accepting pauses briefly instead of spinning. The tool bounds the connect and the write at three seconds (two for `notify`), so a wedged app can't hang a hook. The wait for the reply has its own thirty-second deadline, since the server answers on the main queue and a busy app answers late rather than never. It reads the reply once; only after a failed write does it read again, for a refusal the server sent first. A last request with no trailing newline is still answered when the client shuts down its writing side.
 
 Requests name a `command` and carry its `params`:
 

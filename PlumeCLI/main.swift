@@ -37,9 +37,10 @@ enum Notify {
     /// app routes it, otherwise the terminal gets an OSC 777, and with no
     /// terminal at all it does nothing.
     static func send(title: String, body: String) {
-        if let tabID = environment[CLISocket.tabIDEnvironmentKey].flatMap(UUID.init(uuidString:)) {
+        if let tabID = environment[CLISocket.tabIDEnvironmentKey].flatMap(UUID.init(uuidString:)),
+           let path = CLISocket.resolvedPath(environment: environment) {
             let request = CLIRequest.notify(.init(tabID: tabID, title: title, body: body))
-            let response = try? CLISocket.send(request, to: CLISocket.resolvedPath(environment: environment), timeout: 2)
+            let response = try? CLISocket.send(request, to: path, timeout: 2, replyTimeout: 30)
             if response?.ok == true { return }
         }
         writeToTerminal(CLICommandLine.osc777(title: title, body: body))
@@ -85,9 +86,13 @@ enum NewTab {
             target.directory = path
         }
 
+        guard let path = CLISocket.resolvedPath(environment: environment) else {
+            printError("plume: this tab's Plume exported no \(CLISocket.pathEnvironmentKey), so it can't be reached")
+            return CLIExitCode.failure
+        }
         let request = CLIRequest.newTab(target)
         do {
-            let response = try CLISocket.send(request, to: CLISocket.resolvedPath(environment: environment))
+            let response = try CLISocket.send(request, to: path, replyTimeout: 30)
             guard response.ok, let tabID = response.tabID else {
                 printError("plume: \(response.error ?? "Plume could not open the tab")")
                 return CLIExitCode.failure
