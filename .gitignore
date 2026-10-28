@@ -10,3 +10,5 @@ out/
 *~lock~
 .worktrees/
 .claude/settings.local.json
+Packages/EmulatorControl/.build/
+/.build/

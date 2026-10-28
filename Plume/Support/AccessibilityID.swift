@@ -123,6 +123,27 @@ enum AccessibilityID {
     /// One per on-screen tab; `value` is "focused" on the focused one.
     static let tabPane = "tab-pane"
     static let splitDivider = "split-divider"
+    static let newAndroidEmulatorTabMenuItem = "new-android-emulator-tab-menu-item"
+    static let newAndroidEmulatorTabCommand = "new-android-emulator-tab-command"
+    static let shutDownEmulatorMenuItem = "shut-down-emulator-menu-item"
+    static let emulatorSurface = "emulator-surface"
+    static let emulatorBackButton = "emulator-back-button"
+    static let emulatorHomeButton = "emulator-home-button"
+    static let emulatorOverviewButton = "emulator-overview-button"
+    static let emulatorRotateLeftButton = "emulator-rotate-left-button"
+    static let emulatorRotateRightButton = "emulator-rotate-right-button"
+    static let emulatorVolumeDownButton = "emulator-volume-down-button"
+    static let emulatorVolumeUpButton = "emulator-volume-up-button"
+    static let emulatorPowerButton = "emulator-power-button"
+    static let emulatorMoreMenu = "emulator-more-menu"
+    static let emulatorChangeDeviceMenuItem = "emulator-change-device-menu-item"
+    static let emulatorShutDownMenuItem = "emulator-shut-down-menu-item"
+    static let emulatorChangeDeviceButton = "emulator-change-device-button"
+    static let emulatorBootButton = "emulator-boot-button"
+    static let emulatorReconnectButton = "emulator-reconnect-button"
+    static let emulatorPickerRunningRow = "emulator-picker-running-row"
+    static let emulatorPickerAvailableRow = "emulator-picker-available-row"
+    static let emulatorPickerRetryButton = "emulator-picker-retry-button"
 
     // MARK: Composer
 

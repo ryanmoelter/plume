@@ -31,7 +31,7 @@ struct TabContentView: View {
                     ContentUnavailableView {
                         Label("No Tabs", systemImage: "square.on.square")
                     } description: {
-                        Text("Use the + button above to add an agent or terminal tab.")
+                        Text("Use the + button above to add an agent, terminal or Android emulator tab.")
                     }
                     .themeTint(colorScheme: colorScheme)
                     .frame(width: proxy.size.width, height: proxy.size.height)
@@ -146,10 +146,13 @@ struct TabContentView: View {
     /// leave the tab running a bare shell.
     @ViewBuilder
     private func tabContent(for tab: TaskTab, isVisible: Bool, isFocused: Bool) -> some View {
-        if tab.kind == .agent {
+        switch tab.kind {
+        case .agent:
             AgentTabContent(task: task, tab: tab, isVisible: isVisible, isFocused: isFocused)
-        } else {
+        case .terminal:
             TerminalTabHost(task: task, tab: tab, isVisible: isVisible, isFocused: isFocused)
+        case .device:
+            DeviceTabHost(tab: tab, isVisible: isVisible)
         }
     }
 }

@@ -10,4 +10,5 @@ enum Log {
     static let status = Logger(subsystem: subsystem, category: "status")
     static let chatList = Logger(subsystem: subsystem, category: "chat-list")
     static let control = Logger(subsystem: subsystem, category: "control")
+    static let emulator = Logger(subsystem: subsystem, category: "emulator")
 }

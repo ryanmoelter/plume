@@ -143,6 +143,10 @@ struct PlumeCommands: Commands {
             Button("New Chat Tab") { task?.addTab(.agent) }
                 .keyboardShortcut(PlumeShortcuts.newAgentTab)
                 .disabled(task == nil)
+
+            Button("New Android Emulator Tab") { task?.addTab(.device) }
+                .plumeID(AccessibilityID.newAndroidEmulatorTabCommand)
+                .disabled(task == nil)
         }
 
         CommandGroup(after: .importExport) {
