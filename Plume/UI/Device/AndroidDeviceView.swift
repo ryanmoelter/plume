@@ -42,13 +42,12 @@ struct AndroidDeviceView: View {
                 button("circle", "Home", AccessibilityID.deviceHomeButton) { session.press(.home) }
                 button("square.on.square", "Overview", AccessibilityID.deviceOverviewButton) { session.press(.overview) }
                 Divider().frame(height: 14).padding(.horizontal, 4)
-                if session.isPhysical {
-                    button("rotate.right", "Rotate", AccessibilityID.deviceRotateButton) { session.rotate(clockwise: true) }
-                } else {
+                // A phone's orientation follows its own sensor and auto-rotate setting.
+                if !session.isPhysical {
                     button("rotate.left", "Rotate Left", AccessibilityID.deviceRotateLeftButton) { session.rotate(clockwise: false) }
                     button("rotate.right", "Rotate Right", AccessibilityID.deviceRotateRightButton) { session.rotate(clockwise: true) }
+                    Divider().frame(height: 14).padding(.horizontal, 4)
                 }
-                Divider().frame(height: 14).padding(.horizontal, 4)
                 button("speaker.minus", "Volume Down", AccessibilityID.deviceVolumeDownButton) { session.press(.volumeDown) }
                 button("speaker.plus", "Volume Up", AccessibilityID.deviceVolumeUpButton) { session.press(.volumeUp) }
                 button("power", "Power", AccessibilityID.devicePowerButton) { session.press(.power) }

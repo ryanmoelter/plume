@@ -61,7 +61,7 @@ Reconnecting costs about a second and a visible stall, which a quick tab switch 
 - **Scroll** goes as `injectScroll` at the pointer, one unit per notch (`WheelAccumulator`'s 120 units divided by 120). A wheel off the screen is dropped, since the server scrolls at a position.
 - **Keys.** Unmodified printable keys go as `injectText`, so the Mac's keyboard layout decides the character. Return, Tab, Delete, Forward Delete, Escape, the arrows, Home, End, Page Up and Page Down go as keycodes with their meta state (so Shift-Tab works). A held key's auto-repeats go as further key-downs with a rising repeat count, which the release resets. Control chords go as keycodes by ANSI position. ⌘ chords stay with Plume's menus, matching emulator tabs. Modifier presses alone are not forwarded. Each surface tracks which keycode each Mac key sent down (`AndroidPressedKeys`) and routes the release by that, not by the modifiers held at release: a Control-C whose Control is let go first still releases KEYCODE_C. A release with no matching press sends nothing, such as the release of a key pressed while ⌘ was held.
 - **Buttons.** Back is `backOrScreenOn`, which wakes a sleeping screen. Home, Overview, Power and the volume keys are keycodes, down then up.
-- **Rotate** is `rotateDevice`, which only toggles between portrait and landscape, so a physical tab shows one rotate button.
+- **Rotate** has no button. A phone turns with its own sensor and auto-rotate setting, and the stream follows. `PhysicalDeviceConnection.rotate` still sends `rotateDevice`, which only toggles between portrait and landscape.
 
 ## Logging
 
