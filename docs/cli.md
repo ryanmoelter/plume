@@ -16,7 +16,7 @@ The code is split three ways:
 |---|---|---|
 | `plume notify <title> [body]` | No | Posts a desktop notification that routes back to the calling tab. Also takes `--title`, `--body` and `--message`, as the script did. Arguments apply in order and the last to name a field wins, again as the script did, so the first positional sets the title even after `--title`. `--` is skipped without ending the flags, and `-h` prints the usage to stderr and exits 2. |
 | `plume presence [--json]` | No | Prints `awake`, `asleep` or `locked`. |
-| `plume tab new [--cwd DIR] [--task ID] [--select]` | Yes | Opens a terminal tab in the calling task, or in `--task`, and prints its ID. The tab saves `--cwd` and reopens there after a relaunch, unless the folder is gone. |
+| `plume tab new [--cwd DIR] [--task ID] [--select]` | Yes | Opens a terminal tab in the calling task, or in `--task`, and prints its ID. Like every terminal tab, it reopens after a relaunch in the folder it last reported, unless that folder is gone. |
 | `plume init zsh` | No | Prints zsh completions; load with `eval "$(plume init zsh)"`. |
 | `plume help`, `plume --version` | No | `--version` reads the enclosing app's `Info.plist`. |
 
