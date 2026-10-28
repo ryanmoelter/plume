@@ -3,8 +3,8 @@ import Testing
 @testable import Plume
 
 /// The retired Settings ▸ Integrations list joins the end of the Projects
-/// defaults row's list, without duplicates or blanks, and its key is deleted
-/// so the move happens once.
+/// defaults row's list, and of every project row's own list, without
+/// duplicates or blanks. Its key is deleted so the move happens once.
 @MainActor
 struct LegacyIgnoredChecksMigrationTests {
     private let suite = "plume-ignored-migration-\(UUID().uuidString)"
@@ -17,25 +17,35 @@ struct LegacyIgnoredChecksMigrationTests {
     }
 
     @Test func fillsAnUnsetDefaultsList() {
-        let migrated = AppSettings.addingDefaultIgnoredPendingChecks(["a", "b"], to: ProjectsConfiguration())
+        let migrated = AppSettings.addingLegacyIgnoredPendingChecks(["a", "b"], to: ProjectsConfiguration())
         #expect(migrated.defaults.ignoredPendingChecks == ["a", "b"])
     }
 
     @Test func appendsAfterTheExistingListWithoutDuplicates() {
         let existing = ProjectsConfiguration(defaults: ProjectSettings(ignoredPendingChecks: ["git", "shared"]))
-        let migrated = AppSettings.addingDefaultIgnoredPendingChecks(["shared", "plume", " ", "plume"], to: existing)
+        let migrated = AppSettings.addingLegacyIgnoredPendingChecks(["shared", "plume", " ", "plume"], to: existing)
         #expect(migrated.defaults.ignoredPendingChecks == ["git", "shared", "plume"])
     }
 
     @Test func anEmptyListLeavesTheDefaultsUnset() {
-        let migrated = AppSettings.addingDefaultIgnoredPendingChecks(["", "  "], to: ProjectsConfiguration())
+        let migrated = AppSettings.addingLegacyIgnoredPendingChecks(["", "  "], to: ProjectsConfiguration())
         #expect(migrated.defaults.ignoredPendingChecks == nil)
     }
 
-    @Test func projectRowsAreUntouched() {
-        let existing = ProjectsConfiguration(repositories: ["/r": ProjectSettings(ignoredPendingChecks: ["mine"])])
-        let migrated = AppSettings.addingDefaultIgnoredPendingChecks(["plume"], to: existing)
+    /// A project's own list replaces the inherited one, so without the
+    /// legacy names it would stop ignoring them.
+    @Test func aProjectRowWithItsOwnListGainsTheLegacyNames() {
+        let existing = ProjectsConfiguration(repositories: ["/r": ProjectSettings(ignoredPendingChecks: ["mine", "plume"])])
+        let migrated = AppSettings.addingLegacyIgnoredPendingChecks(["plume", "other"], to: existing)
+        #expect(migrated.repositories["/r"]?.ignoredPendingChecks == ["mine", "plume", "other"])
+        #expect(migrated.settings(forRepository: "/r").ignoredPendingChecks == ["mine", "plume", "other"])
+    }
+
+    @Test func aProjectRowThatInheritsTheListKeepsInheriting() {
+        let existing = ProjectsConfiguration(repositories: ["/r": ProjectSettings(baseBranch: "trunk")])
+        let migrated = AppSettings.addingLegacyIgnoredPendingChecks(["plume"], to: existing)
         #expect(migrated.repositories == existing.repositories)
+        #expect(migrated.settings(forRepository: "/r").ignoredPendingChecks == ["plume"])
     }
 
     @Test func migratingMovesTheListAndDeletesTheKey() throws {

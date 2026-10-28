@@ -736,25 +736,34 @@ final class AppSettings {
     }
 
     /// Moves the retired Settings ▸ Integrations ignored-checks list into
-    /// the Projects defaults row, then deletes it, so this runs once.
+    /// Projects, then deletes it, so this runs once.
     func migrateLegacyIgnoredPendingChecks() {
         guard let legacy = defaults.stringArray(forKey: Key.legacyIgnoredPendingChecks) else { return }
-        projectsConfiguration = Self.addingDefaultIgnoredPendingChecks(legacy, to: projectsConfiguration)
+        projectsConfiguration = Self.addingLegacyIgnoredPendingChecks(legacy, to: projectsConfiguration)
         defaults.removeObject(forKey: Key.legacyIgnoredPendingChecks)
     }
 
-    /// `names` appended to the defaults row's list, skipping blanks and
-    /// names already there.
-    nonisolated static func addingDefaultIgnoredPendingChecks(
+    /// `names` appended to the defaults row's list and to every project
+    /// row that sets its own, skipping blanks and names already there. The
+    /// legacy list applied everywhere, and a project's list replaces the
+    /// inherited one rather than adding to it.
+    nonisolated static func addingLegacyIgnoredPendingChecks(
         _ names: [String],
         to configuration: ProjectsConfiguration
     ) -> ProjectsConfiguration {
         let additions = names.map { $0.trimmingCharacters(in: .whitespaces) }.filter { !$0.isEmpty }
         guard !additions.isEmpty else { return configuration }
+        func appending(to list: [String]) -> [String] {
+            var list = list
+            for name in additions where !list.contains(name) { list.append(name) }
+            return list
+        }
         var updated = configuration
-        var list = configuration.defaults.ignoredPendingChecks ?? []
-        for name in additions where !list.contains(name) { list.append(name) }
-        updated.defaults.ignoredPendingChecks = list
+        updated.defaults.ignoredPendingChecks = appending(to: configuration.defaults.ignoredPendingChecks ?? [])
+        for (root, settings) in configuration.repositories {
+            guard let own = settings.ignoredPendingChecks else { continue }
+            updated.repositories[root]?.ignoredPendingChecks = appending(to: own)
+        }
         return updated
     }
 
