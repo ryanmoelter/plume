@@ -12,3 +12,4 @@ out/
 .claude/settings.local.json
 Packages/EmulatorControl/.build/
 /.build/
+Packages/ScrcpyControl/.build/

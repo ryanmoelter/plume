@@ -51,6 +51,7 @@ Plume/
   UI/         Sidebar/, Task/, Settings/, Device/
 Packages/
   EmulatorControl/  The emulator's gRPC client: generated code plus a small public facade
+  ScrcpyControl/    A physical device over scrcpy-server: launch, demuxer, H.264 decoder, control messages
 ```
 
 ## Terminals

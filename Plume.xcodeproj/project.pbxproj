@@ -16,6 +16,7 @@
 		PL0000000000000000022 /* com.ryanmoelter.Plume.SleepHelper.plist in Embed Sleep Helper Daemon */ = {isa = PBXBuildFile; fileRef = PL0000000000000000012 /* com.ryanmoelter.Plume.SleepHelper.plist */; };
 		PL0000000000000000032 /* Sparkle in Frameworks */ = {isa = PBXBuildFile; productRef = PL0000000000000000031 /* Sparkle */; };
 		PL0000000000000000041 /* EmulatorControl in Frameworks */ = {isa = PBXBuildFile; productRef = PL0000000000000000040 /* EmulatorControl */; };
+		PL0000000000000000044 /* ScrcpyControl in Frameworks */ = {isa = PBXBuildFile; productRef = PL0000000000000000043 /* ScrcpyControl */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXContainerItemProxy section */
@@ -108,6 +109,7 @@
 				PL0000000000000000005 /* GhosttyTheme in Frameworks */,
 				PL0000000000000000032 /* Sparkle in Frameworks */,
 				PL0000000000000000041 /* EmulatorControl in Frameworks */,
+				PL0000000000000000044 /* ScrcpyControl in Frameworks */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -181,6 +183,7 @@
 				PL0000000000000000004 /* GhosttyTheme */,
 				PL0000000000000000031 /* Sparkle */,
 				PL0000000000000000040 /* EmulatorControl */,
+				PL0000000000000000043 /* ScrcpyControl */,
 			);
 			productName = Plume;
 			productReference = C6A1E5D830464812003EAFC1 /* Plume.app */;
@@ -293,6 +296,7 @@
 				PL0000000000000000003 /* XCRemoteSwiftPackageReference "libghostty-spm" */,
 				PL0000000000000000030 /* XCRemoteSwiftPackageReference "Sparkle" */,
 				PL0000000000000000039 /* XCLocalSwiftPackageReference "Packages/EmulatorControl" */,
+				PL0000000000000000042 /* XCLocalSwiftPackageReference "Packages/ScrcpyControl" */,
 			);
 			preferredProjectObjectVersion = 77;
 			productRefGroup = C6A1E5D930464812003EAFC1 /* Products */;
@@ -745,6 +749,10 @@
 			isa = XCLocalSwiftPackageReference;
 			relativePath = Packages/EmulatorControl;
 		};
+		PL0000000000000000042 /* XCLocalSwiftPackageReference "Packages/ScrcpyControl" */ = {
+			isa = XCLocalSwiftPackageReference;
+			relativePath = Packages/ScrcpyControl;
+		};
 /* End XCLocalSwiftPackageReference section */
 
 /* Begin XCRemoteSwiftPackageReference section */
@@ -796,6 +804,11 @@
 			isa = XCSwiftPackageProductDependency;
 			package = PL0000000000000000039 /* XCLocalSwiftPackageReference "Packages/EmulatorControl" */;
 			productName = EmulatorControl;
+		};
+		PL0000000000000000043 /* ScrcpyControl */ = {
+			isa = XCSwiftPackageProductDependency;
+			package = PL0000000000000000042 /* XCLocalSwiftPackageReference "Packages/ScrcpyControl" */;
+			productName = ScrcpyControl;
 		};
 /* End XCSwiftPackageProductDependency section */
 	};
