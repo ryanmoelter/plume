@@ -3,8 +3,8 @@ import SwiftUI
 
 /// A live emulator with its controls. Depends only on the session, so any
 /// container can host it.
-struct EmulatorDeviceView: View {
-    let session: EmulatorSession
+struct AndroidDeviceView: View {
+    let session: DeviceSession
     @State private var confirmingShutDown = false
 
     var body: some View {
@@ -12,7 +12,7 @@ struct EmulatorDeviceView: View {
             toolbar
             Divider()
             ZStack {
-                EmulatorSurface(session: session)
+                DeviceSurface(session: session)
                     .plumeID(AccessibilityID.emulatorSurface, value: stateDescription)
                 overlay
             }

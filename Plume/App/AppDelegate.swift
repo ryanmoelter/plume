@@ -142,7 +142,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         Log.app.info("Terminating, closing \(AgentSessionManager.shared.activeSessionCount, privacy: .public) agent session(s)")
         CodexTerminalMonitor.shared.stopAll()
         AgentSessionManager.shared.closeAll()
-        EmulatorSessionManager.shared.closeAll()
+        DeviceSessionManager.shared.closeAll()
         AgentProcess.awaitTerminations()
 
         KeepAwakeCoordinator.shared.releaseForTermination()

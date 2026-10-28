@@ -6,12 +6,12 @@ import Observation
 /// Receives frames on the main actor. Frames bypass observation entirely, so a
 /// streaming device never invalidates a SwiftUI view.
 @MainActor
-protocol EmulatorFrameSink: AnyObject {
+protocol DeviceFrameSink: AnyObject {
     var requestedPixelSize: CGSize { get }
     func present(_ frame: EmulatorFrame)
 }
 
-enum EmulatorSessionState: Equatable {
+enum DeviceSessionState: Equatable {
     case needsDevice
     case locating
     case notRunning
@@ -26,11 +26,11 @@ enum EmulatorSessionState: Equatable {
 /// attached, and closing it never stops the emulator.
 @MainActor
 @Observable
-final class EmulatorSession {
+final class DeviceSession {
     let tabID: UUID
     private(set) var avdID: String?
     private(set) var displayName: String?
-    private(set) var state: EmulatorSessionState {
+    private(set) var state: DeviceSessionState {
         didSet {
             guard state != oldValue else { return }
             EmulatorLog.info("\(logPrefix) state \(oldValue) -> \(state)")
@@ -45,8 +45,8 @@ final class EmulatorSession {
     @ObservationIgnored var onDeviceChange: ((_ avdID: String?, _ displayName: String?) -> Void)?
 
     @ObservationIgnored private let discovery: EmulatorDiscovery
-    @ObservationIgnored private let makeConnection: (RunningEmulator) -> EmulatorConnecting
-    @ObservationIgnored private var connection: EmulatorConnecting?
+    @ObservationIgnored private let makeConnection: (RunningEmulator) -> DeviceConnecting
+    @ObservationIgnored private var connection: DeviceConnecting?
     @ObservationIgnored private var sinks: [ObjectIdentifier: WeakSink] = [:]
     @ObservationIgnored private var streamTask: Task<Void, Never>?
     @ObservationIgnored private var streamPixelSize: CGSize = .zero
@@ -58,7 +58,7 @@ final class EmulatorSession {
         avdID: String?,
         displayName: String? = nil,
         discovery: EmulatorDiscovery = .shared,
-        makeConnection: @escaping (RunningEmulator) -> EmulatorConnecting = EmulatorSession.liveConnection
+        makeConnection: @escaping (RunningEmulator) -> DeviceConnecting = DeviceSession.liveConnection
     ) {
         self.tabID = tabID
         self.avdID = avdID
@@ -68,7 +68,7 @@ final class EmulatorSession {
         state = avdID == nil ? .needsDevice : .locating
     }
 
-    nonisolated static func liveConnection(for emulator: RunningEmulator) -> EmulatorConnecting {
+    nonisolated static func liveConnection(for emulator: RunningEmulator) -> DeviceConnecting {
         EmulatorConnection(endpoint: EmulatorEndpoint(port: emulator.grpcPort, token: emulator.grpcToken))
     }
 
@@ -195,12 +195,12 @@ final class EmulatorSession {
 
     // MARK: Sinks
 
-    func addSink(_ sink: EmulatorFrameSink) {
+    func addSink(_ sink: DeviceFrameSink) {
         sinks[ObjectIdentifier(sink)] = WeakSink(sink)
         updateStreaming()
     }
 
-    func removeSink(_ sink: EmulatorFrameSink) {
+    func removeSink(_ sink: DeviceFrameSink) {
         sinks[ObjectIdentifier(sink)] = nil
         updateStreaming()
     }
@@ -268,7 +268,7 @@ final class EmulatorSession {
         Task { await connection.close() }
     }
 
-    private func lose(_ lost: EmulatorConnecting, reason: String) {
+    private func lose(_ lost: DeviceConnecting, reason: String) {
         guard connection === lost else { return }
         EmulatorLog.error("\(logPrefix) lost the connection: \(reason)")
         disconnect()
@@ -332,8 +332,8 @@ final class EmulatorSession {
 }
 
 private struct WeakSink {
-    weak var sink: EmulatorFrameSink?
-    init(_ sink: EmulatorFrameSink) { self.sink = sink }
+    weak var sink: DeviceFrameSink?
+    init(_ sink: DeviceFrameSink) { self.sink = sink }
 }
 
 extension DeviceRotation {

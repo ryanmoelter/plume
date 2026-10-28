@@ -230,7 +230,7 @@ private struct TabChip: View {
             if tab.kind == .device {
                 Button("Shut Down Emulator…") { isConfirmingEmulatorShutDown = true }
                     .plumeID(AccessibilityID.shutDownEmulatorMenuItem)
-                    .disabled(!EmulatorSessionManager.shared.canShutDownEmulator(for: tab.id))
+                    .disabled(!DeviceSessionManager.shared.canShutDownEmulator(for: tab.id))
                 Divider()
             }
             if paneCount > 1 {
@@ -262,7 +262,7 @@ private struct TabChip: View {
             isPresented: $isConfirmingEmulatorShutDown
         ) {
             Button("Shut Down", role: .destructive) {
-                EmulatorSessionManager.shared.shutDownEmulator(for: tab.id)
+                DeviceSessionManager.shared.shutDownEmulator(for: tab.id)
             }
             Button("Cancel", role: .cancel) {}
         } message: {

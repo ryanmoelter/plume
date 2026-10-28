@@ -44,7 +44,7 @@ Plume/
   Status/     StatusEngine, StatusPersistence
   Workspace/  WorkspaceProvisioner, GitRunner
   Linear/     LinearStore, LinearSyncCache (delta-synced disk cache; docs/linear-sync.md), LinearClient, LinearAccounts
-  Android/    SDK and AVD discovery, running-emulator discovery, EmulatorLauncher, EmulatorSession(Manager), input mappers
+  Android/    SDK and AVD discovery, running-emulator discovery, EmulatorLauncher, DeviceSession(Manager), input mappers
   Support/    Log, AppPaths, AppSettings, FileWatcher, HexColor, CommandLineHelper, SmokeHarness (DEBUG)
   Control/    The debug control server: PlumeID, ControlRegistry, ControlServer, InProcessControlBackend (DEBUG)
   Resources/  Fonts, Themes, Mermaid, Skills, plume-notify (the CLI helper)
@@ -128,8 +128,8 @@ Always walk down from Plume's own PID. A global `pgrep`/`grep` for `claude` matc
 A device tab (`TabKind.device`) shows a live Android emulator over its gRPC control service. **`docs/android-emulator.md` is the reference** — discovery, auth, launch flags, the frame pipeline and the measured input quirks. Read it before touching `Plume/Android/`, `Plume/UI/Device/` or `Packages/EmulatorControl/`.
 
 - **All gRPC and protobuf code lives in `Packages/EmulatorControl`**, because the app target's default MainActor isolation breaks generated protobuf code. Never edit its `Generated/` folder; run `scripts/android/generate-emulator-grpc.sh`.
-- `EmulatorSessionManager.shared` owns one `EmulatorSession` per tab ID. `TaskStore.forgetTab` closes it, which stops streaming and **never stops the emulator** — an agent may still be using it over adb. Only the tab's "Shut Down Emulator" does that.
-- **Frames never pass through `@Observable` state.** `EmulatorSurfaceView` sets its layer's contents directly, and the session streams only while a surface in a visible window is attached. A hidden tab unmounts its surface, so it costs nothing.
+- `DeviceSessionManager.shared` owns one `DeviceSession` per tab ID. `TaskStore.forgetTab` closes it, which stops streaming and **never stops the emulator** — an agent may still be using it over adb. Only the tab's "Shut Down Emulator" does that.
+- **Frames never pass through `@Observable` state.** `DeviceSurfaceView` sets its layer's contents directly, and the session streams only while a surface in a visible window is attached. A hidden tab unmounts its surface, so it costs nothing.
 
 ## Ghostty
 

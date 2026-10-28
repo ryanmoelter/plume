@@ -2,7 +2,7 @@ import SwiftUI
 
 /// Lists running emulators to attach to and AVDs to boot. Discovery watches
 /// the running directory only while this view is on screen.
-struct EmulatorPickerView: View {
+struct DevicePickerView: View {
     let onAttach: (RunningEmulator) -> Void
     let onBoot: (AVD) -> Void
 

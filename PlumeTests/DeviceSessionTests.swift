@@ -5,7 +5,7 @@ import Testing
 
 @testable import Plume
 
-nonisolated final class FakeConnection: EmulatorConnecting, @unchecked Sendable {
+nonisolated final class FakeConnection: DeviceConnecting, @unchecked Sendable {
     private let lock = NSLock()
     private var _frameRequests: [CGSize] = []
     private var _continuations: [AsyncThrowingStream<EmulatorFrame, Error>.Continuation] = []
@@ -53,7 +53,7 @@ nonisolated final class FakeConnection: EmulatorConnecting, @unchecked Sendable 
 }
 
 @MainActor
-final class FakeSink: EmulatorFrameSink {
+final class FakeSink: DeviceFrameSink {
     var requestedPixelSize: CGSize
     private(set) var presented: [EmulatorFrame] = []
     init(size: CGSize) { requestedPixelSize = size }
@@ -94,14 +94,14 @@ private func makeRunning(avdID: String = "Pixel_8", name: String = "Pixel 8") ->
 
 @MainActor
 private struct Harness {
-    let session: EmulatorSession
+    let session: DeviceSession
     let fake: FakeConnection
 
     init(avdID: String? = "Pixel_8", fake: FakeConnection = FakeConnection()) {
         self.fake = fake
         let directory = FileManager.default.temporaryDirectory
             .appendingPathComponent("emulator-session-\(UUID().uuidString)", isDirectory: true)
-        session = EmulatorSession(
+        session = DeviceSession(
             tabID: UUID(), avdID: avdID, displayName: avdID,
             discovery: EmulatorDiscovery(directories: [directory]),
             makeConnection: { _ in fake }
@@ -116,7 +116,7 @@ private struct Harness {
 
 /// Covers the session's state machine, sink-driven streaming, input gating and teardown against a fake connection.
 @MainActor
-struct EmulatorSessionTests {
+struct DeviceSessionTests {
     @Test func newSessionWithoutAvdNeedsDevice() {
         #expect(Harness(avdID: nil).session.state == .needsDevice)
     }

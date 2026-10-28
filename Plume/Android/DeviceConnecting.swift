@@ -2,7 +2,7 @@ import CoreGraphics
 import EmulatorControl
 
 /// The slice of `EmulatorConnection` a session uses, so tests can stand in a fake.
-nonisolated protocol EmulatorConnecting: AnyObject, Sendable {
+nonisolated protocol DeviceConnecting: AnyObject, Sendable {
     func status() async throws -> EmulatorStatusSnapshot
     func frames(maxPixelSize: CGSize) -> AsyncThrowingStream<EmulatorFrame, Error>
     func send(_ input: EmulatorInput)
@@ -12,7 +12,7 @@ nonisolated protocol EmulatorConnecting: AnyObject, Sendable {
     func close() async
 }
 
-extension EmulatorConnection: EmulatorConnecting {
+extension EmulatorConnection: DeviceConnecting {
     nonisolated func frames(maxPixelSize: CGSize) -> AsyncThrowingStream<EmulatorFrame, Error> {
         frames(maxPixelSize: maxPixelSize, useSharedMemory: true)
     }

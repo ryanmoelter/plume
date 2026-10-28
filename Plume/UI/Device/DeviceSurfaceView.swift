@@ -6,8 +6,8 @@ import SwiftUI
 /// Draws an emulator's frames into its layer and turns mouse, scroll and key
 /// events into emulator input. It streams only while it is in a visible
 /// window, so a hidden or occluded tab costs nothing.
-final class EmulatorSurfaceView: NSView, EmulatorFrameSink {
-    var session: EmulatorSession? {
+final class DeviceSurfaceView: NSView, DeviceFrameSink {
+    var session: DeviceSession? {
         didSet {
             guard session !== oldValue else { return }
             if let oldValue, isSink { oldValue.removeSink(self) }
@@ -208,20 +208,20 @@ private extension DeviceKeyPhase {
     }
 }
 
-struct EmulatorSurface: NSViewRepresentable {
-    let session: EmulatorSession
+struct DeviceSurface: NSViewRepresentable {
+    let session: DeviceSession
 
-    func makeNSView(context: Context) -> EmulatorSurfaceView {
-        let view = EmulatorSurfaceView(frame: .zero)
+    func makeNSView(context: Context) -> DeviceSurfaceView {
+        let view = DeviceSurfaceView(frame: .zero)
         view.session = session
         return view
     }
 
-    func updateNSView(_ view: EmulatorSurfaceView, context: Context) {
+    func updateNSView(_ view: DeviceSurfaceView, context: Context) {
         view.session = session
     }
 
-    static func dismantleNSView(_ view: EmulatorSurfaceView, coordinator: ()) {
+    static func dismantleNSView(_ view: DeviceSurfaceView, coordinator: ()) {
         view.detach()
     }
 }

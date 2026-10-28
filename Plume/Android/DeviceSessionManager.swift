@@ -1,23 +1,23 @@
 import Foundation
 import Observation
 
-/// Owns every device tab's `EmulatorSession`, keyed by tab ID. Closing a
+/// Owns every device tab's `DeviceSession`, keyed by tab ID. Closing a
 /// session stops streaming, never the emulator.
 @MainActor
 @Observable
-final class EmulatorSessionManager {
-    static let shared = EmulatorSessionManager()
+final class DeviceSessionManager {
+    static let shared = DeviceSessionManager()
 
-    private var sessions: [UUID: EmulatorSession] = [:]
+    private var sessions: [UUID: DeviceSession] = [:]
 
-    func session(for tabID: UUID, avdID: String?, displayName: String?) -> EmulatorSession {
+    func session(for tabID: UUID, avdID: String?, displayName: String?) -> DeviceSession {
         if let existing = sessions[tabID] { return existing }
-        let session = EmulatorSession(tabID: tabID, avdID: avdID, displayName: displayName)
+        let session = DeviceSession(tabID: tabID, avdID: avdID, displayName: displayName)
         sessions[tabID] = session
         return session
     }
 
-    func existingSession(for tabID: UUID) -> EmulatorSession? {
+    func existingSession(for tabID: UUID) -> DeviceSession? {
         sessions[tabID]
     }
 
