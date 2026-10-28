@@ -70,8 +70,9 @@ nonisolated enum AVDCatalog {
     }
 
     private static func runListAVDs(sdk: AndroidSDK) -> String {
+        guard let emulatorURL = sdk.emulatorURL else { return "" }
         let process = Process()
-        process.executableURL = sdk.emulatorURL
+        process.executableURL = emulatorURL
         process.arguments = ["-list-avds"]
         process.environment = ProcessInfo.processInfo.environment.merging(sdk.launchEnvironment) { _, new in new }
         let output = Pipe()

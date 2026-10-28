@@ -12,6 +12,23 @@ struct AndroidSDKLocatorTests {
         #expect(result.searched == ["/a", "/b"])
     }
 
+    @Test func adbOnlyInstallIsFoundWhenNoCandidateHasAnEmulator() {
+        let result = AndroidSDKLocator.resolve(
+            candidates: ["/a", "/tools", "/b"],
+            isExecutable: { $0 == "/tools/platform-tools/adb" || $0 == "/b/platform-tools/adb" }
+        )
+        #expect(result.root == "/tools")
+        #expect(result.searched == ["/a", "/tools", "/b"])
+    }
+
+    @Test func emulatorInstallBeatsAnEarlierAdbOnlyOne() {
+        let result = AndroidSDKLocator.resolve(
+            candidates: ["/tools", "/sdk"],
+            isExecutable: { $0 == "/tools/platform-tools/adb" || $0 == "/sdk/emulator/emulator" }
+        )
+        #expect(result.root == "/sdk")
+    }
+
     @Test func invalidCandidatesAreSkipped() {
         let result = AndroidSDKLocator.resolve(candidates: ["", "/a"], isExecutable: { _ in false })
         #expect(result.root == nil)

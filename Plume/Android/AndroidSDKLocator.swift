@@ -2,7 +2,8 @@ import Foundation
 
 nonisolated struct AndroidSDK: Sendable, Equatable {
     let root: URL
-    let emulatorURL: URL
+    /// Nil for an adb-only install, such as Homebrew's platform-tools.
+    let emulatorURL: URL?
     let adbURL: URL?
     /// `ANDROID_*` from the login shell, plus `ANDROID_HOME` pointing at `root`.
     let launchEnvironment: [String: String]
@@ -34,20 +35,23 @@ nonisolated enum AndroidSDKLocator {
 
     static func invalidate() { cache.value = nil }
 
-    /// First candidate whose `emulator/emulator` is executable. Expands `~`, drops duplicates.
+    /// First candidate whose `emulator/emulator` is executable, else the first with `platform-tools/adb`.
+    /// Expands `~`, drops duplicates.
     static func resolve(
         candidates: [String],
         isExecutable: (String) -> Bool,
         home: String = NSHomeDirectory()
     ) -> (root: String?, searched: [String]) {
         var searched: [String] = []
+        var adbOnly: String?
         for candidate in candidates {
             let expanded = expandTilde(candidate, home: home)
             guard !expanded.isEmpty, !searched.contains(expanded) else { continue }
             searched.append(expanded)
             if isExecutable(expanded + "/emulator/emulator") { return (expanded, searched) }
+            if adbOnly == nil, isExecutable(expanded + "/platform-tools/adb") { adbOnly = expanded }
         }
-        return (nil, searched)
+        return (adbOnly, searched)
     }
 
     static func expandTilde(_ path: String, home: String) -> String {
@@ -104,12 +108,13 @@ nonisolated enum AndroidSDKLocator {
         let (root, searched) = resolve(candidates: candidates, isExecutable: isExecutable, home: home)
         guard let root else { return .notFound(searchedPaths: searched) }
         let rootURL = URL(fileURLWithPath: root, isDirectory: true)
+        let emulator = rootURL.appending(path: "emulator/emulator")
         let adb = rootURL.appending(path: "platform-tools/adb")
         var environment = shell.environment
         environment["ANDROID_HOME"] = root
         return .found(AndroidSDK(
             root: rootURL,
-            emulatorURL: rootURL.appending(path: "emulator/emulator"),
+            emulatorURL: isExecutable(emulator.path) ? emulator : nil,
             adbURL: isExecutable(adb.path) ? adb : nil,
             launchEnvironment: environment
         ))
