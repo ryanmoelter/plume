@@ -1,11 +1,11 @@
 import AppKit
 
-nonisolated enum DeviceKeyPhase: Sendable, Equatable {
+nonisolated enum DeviceKeyPhase: Sendable, Hashable {
     case down
     case up
 }
 
-nonisolated enum DeviceKey: Sendable, Equatable {
+nonisolated enum DeviceKey: Sendable, Hashable {
     case mac(keyCode: Int32, phase: DeviceKeyPhase)
     case evdev(keyCode: Int32, phase: DeviceKeyPhase)
 }
