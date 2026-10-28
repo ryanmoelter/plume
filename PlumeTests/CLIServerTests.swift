@@ -242,6 +242,21 @@ struct CLIServerTests {
         #expect(line == nil)
     }
 
+    @Test func aRequestSlowerThanTheIdleTimeoutIsStillAnswered() async throws {
+        var limits = CLIServer.Limits()
+        limits.idleTimeout = 0.1
+        let server = CLIServer(handler: { _ in
+            try? await Task.sleep(for: .milliseconds(500))
+            return .success
+        }, limits: limits)
+        let path = temporarySocketPath()
+        defer { removeDirectory(of: path) }
+        try server.start(path: path)
+        defer { server.stop() }
+
+        #expect(try await send(.ping, to: path).ok)
+    }
+
     @Test func aPeerFromAnotherUserIsRefused() async throws {
         var handled = false
         let server = CLIServer(handler: { _ in handled = true; return .success }, allowedUID: getuid() + 1)

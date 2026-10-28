@@ -355,8 +355,12 @@ private final class CLIConnection {
         if output.isEmpty { close() }
     }
 
+    /// No timer runs while a request is being answered: the client is
+    /// waiting on the handler, not idle.
     private func resetIdleTimer() {
         idleTimer?.cancel()
+        idleTimer = nil
+        guard !isAnswering else { return }
         let timer = DispatchWorkItem { [weak self] in
             MainActor.assumeIsolated { self?.close() }
         }
@@ -444,9 +448,12 @@ private final class CLIConnection {
             queuedRequests -= 1
             queuedBytes -= line.count
             isAnswering = true
+            resetIdleTimer()
             Task { @MainActor [self] in
                 let response = await respond(to: line)
                 isAnswering = false
+                guard !isClosed else { return }
+                resetIdleTimer()
                 send(response)
                 answerPending()
             }
