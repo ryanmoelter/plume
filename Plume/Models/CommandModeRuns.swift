@@ -68,8 +68,7 @@ final class CommandModeRuns {
     ) -> Run.ID {
         var run = Run(command: command, taskID: taskID)
         let runID = run.id
-        let environment = taskID.map { LoginShellCommand.plumeEnvironment(taskID: $0, tabID: tabID) }
-            ?? LoginShellCommand.sharedPlumeEnvironment()
+        let environment = LoginShellCommand.plumeEnvironment(taskID: taskID, tabID: tabID)
         run.task = Task {
             let result = await CommandModeRunner.run(command, in: directory, environment: environment) { line in
                 Task { @MainActor in self.setLatestOutput(line, runID: runID, tabID: tabID) }

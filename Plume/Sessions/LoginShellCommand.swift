@@ -31,15 +31,15 @@ enum LoginShellCommand {
 
     /// Everything `plume` needs inside one tab: the socket, and which tab and
     /// task it runs in.
-    static func plumeEnvironment(taskID: UUID, tabID: UUID) -> [String: String] {
+    static func plumeEnvironment(taskID: UUID?, tabID: UUID) -> [String: String] {
         plumeEnvironment(taskID: taskID, tabID: tabID, socketPath: CLIServer.shared.socketPath)
     }
 
-    static func plumeEnvironment(taskID: UUID, tabID: UUID, socketPath: String?) -> [String: String] {
-        sharedPlumeEnvironment(socketPath: socketPath).merging([
-            CLISocket.taskIDEnvironmentKey: taskID.uuidString,
-            CLISocket.tabIDEnvironmentKey: tabID.uuidString,
-        ]) { $1 }
+    static func plumeEnvironment(taskID: UUID?, tabID: UUID, socketPath: String?) -> [String: String] {
+        var environment = sharedPlumeEnvironment(socketPath: socketPath)
+        environment[CLISocket.tabIDEnvironmentKey] = tabID.uuidString
+        environment[CLISocket.taskIDEnvironmentKey] = taskID?.uuidString
+        return environment
     }
 
     /// Keys that name a Plume instance, tab or task. A Plume launched from

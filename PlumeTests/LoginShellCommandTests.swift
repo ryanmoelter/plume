@@ -50,6 +50,14 @@ struct LoginShellCommandTests {
         #expect(LoginShellCommand.sharedPlumeEnvironment(socketPath: "/serving/cli.sock")["PLUME_TAB_ID"] == nil)
     }
 
+    @Test func aTabWithNoTaskStillExportsItsTab() {
+        let tabID = UUID()
+        let environment = LoginShellCommand.plumeEnvironment(taskID: nil, tabID: tabID, socketPath: "/serving/cli.sock")
+        #expect(environment["PLUME_TAB_ID"] == tabID.uuidString)
+        #expect(environment["PLUME_TASK_ID"] == nil)
+        #expect(environment["PLUME_SOCKET"] == "/serving/cli.sock")
+    }
+
     @Test func noSocketIsExportedWhenTheServerIsNotServing() {
         let environment = LoginShellCommand.plumeEnvironment(taskID: UUID(), tabID: UUID(), socketPath: nil)
         #expect(environment["PLUME_SOCKET"] == nil)

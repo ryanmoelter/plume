@@ -163,4 +163,15 @@ struct RunRetirementTests {
         let socket = CLIServer.shared.socketPath ?? ""
         #expect(result.stdout == "1|\(tabID.uuidString)|\(taskID.uuidString)|\(socket)")
     }
+
+    @Test func aCommandWithNoTaskStillNamesItsTab() async throws {
+        let runs = CommandModeRuns()
+        let tabID = UUID()
+        let result = await withCheckedContinuation { continuation in
+            runs.start(#"printf '%s|%s' "$PLUME_TAB_ID" "$PLUME_TASK_ID""#, in: nil, tabID: tabID) {
+                continuation.resume(returning: $1)
+            }
+        }
+        #expect(result.stdout == "\(tabID.uuidString)|")
+    }
 }
