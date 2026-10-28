@@ -38,6 +38,7 @@ enum AccessibilityID {
     static let keepAwakeReasonRow = "keep-awake-reason-row"
     static let keepAwakeLidNote = "keep-awake-lid-note"
     static let keepAwakeLidToggle = "keep-awake-lid-toggle"
+    static let devicesKeepShortcutsToggle = "devices-keep-shortcuts-toggle"
     static let taskLinearIssueLine = "task-linear-issue-line"
     static let taskLinkLinearIssueMenuItem = "task-link-linear-issue-menu-item"
     static let linkLinearIssueField = "link-linear-issue-field"

@@ -21,6 +21,7 @@ final class AppSettings {
         static let confirmSystemInitiatedQuit = "confirmSystemInitiatedQuit"
         static let composerSendKeyRaw = "composerSendKeyRaw"
         static let escapeInterruptsTurn = "escapeInterruptsTurn"
+        static let keepsPlumeShortcutsOnMac = "keepsPlumeShortcutsOnMac"
         static let queuedMessageDeliveryRaw = "queuedMessageDeliveryRaw"
         static let defaultAgentTransportRaw = "defaultAgentTransportRaw"
         static let defaultPermissionModeRaw = "defaultPermissionModeRaw"
@@ -131,6 +132,9 @@ final class AppSettings {
         self.escapeInterruptsTurn = defaults.object(forKey: Key.escapeInterruptsTurn) == nil
             ? true
             : defaults.bool(forKey: Key.escapeInterruptsTurn)
+        self.keepsPlumeShortcutsOnMac = defaults.object(forKey: Key.keepsPlumeShortcutsOnMac) == nil
+            ? true
+            : defaults.bool(forKey: Key.keepsPlumeShortcutsOnMac)
         self.queuedMessageDelivery = defaults.string(forKey: Key.queuedMessageDeliveryRaw)
             .flatMap(QueuedMessageDelivery.init(rawValue:)) ?? .endOfTurn
 
@@ -366,6 +370,14 @@ final class AppSettings {
     var escapeInterruptsTurn: Bool {
         didSet {
             defaults.set(escapeInterruptsTurn, forKey: Key.escapeInterruptsTurn)
+        }
+    }
+
+    /// Whether Plume's own shortcuts work while a physical device tab has focus. Off sends every ⌘
+    /// chord to the device.
+    var keepsPlumeShortcutsOnMac: Bool {
+        didSet {
+            defaults.set(keepsPlumeShortcutsOnMac, forKey: Key.keepsPlumeShortcutsOnMac)
         }
     }
 
