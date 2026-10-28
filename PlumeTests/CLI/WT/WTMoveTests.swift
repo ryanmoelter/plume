@@ -91,4 +91,21 @@ struct WTMoveTests {
         let failure = cliFailure { try WT.foreground(ctx, ["other"]) }
         #expect(failure?.message?.hasPrefix("checked out ryanm/other in repo, but could not remove other") == true)
     }
+
+    // MARK: a tag named like the branch
+
+    /// A bare name would detach at a same-named tag, which git prefers.
+    @Test func backgroundDetachesAtTheBranchNotATagOfTheSameName() throws {
+        let ctx = context(branch: "ryanm/feat")
+        ctx.fakeGit.checkoutFails = { _, ref, detach in detach && ref != GitRef.local("ryanm/feat") }
+        try WT.background(ctx, ["--no-tab"])
+        #expect(ctx.fakeGit.added.map(\.path) == ["/repo/.plume/worktrees/feat"])
+    }
+
+    @Test func foregroundDetachesAtTheBranchNotATagOfTheSameName() throws {
+        let ctx = context(branch: "main", clean: true)
+        ctx.fakeGit.checkoutFails = { _, ref, detach in detach && ref != GitRef.local("ryanm/other") }
+        try WT.foreground(ctx, ["other"])
+        #expect(ctx.fakeGit.removed == ["/repo/.plume/worktrees/other"])
+    }
 }

@@ -259,7 +259,7 @@ nonisolated extension WT {
             ctx.console.print("\(programName): moving \(originalBranch) out of \(cwdName)...")
             // Detached first, so the branch is free to check out elsewhere.
             do {
-                try ctx.git.checkoutFatal(cwdPath, ref: originalBranch, detach: true, quietStdout: true)
+                try ctx.git.checkoutFatal(cwdPath, ref: GitRef.local(originalBranch), detach: true, quietStdout: true)
             } catch {
                 throw failureRestoringStash("could not detach \(cwdName)")
             }
@@ -347,7 +347,7 @@ nonisolated extension WT {
         // The source is detached first, which is reversible, and removed
         // only once the checkout here succeeds.
         do {
-            try ctx.git.checkoutFatal(sourcePath, ref: sourceBranch, detach: true, quietStdout: false)
+            try ctx.git.checkoutFatal(sourcePath, ref: GitRef.local(sourceBranch), detach: true, quietStdout: false)
         } catch {
             guard let stash else { throw CLIFailure("could not detach \(name)") }
             if restoreStash(in: sourcePath, silent: true) { throw CLIFailure("could not detach \(name); changes restored there") }
