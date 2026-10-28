@@ -27,7 +27,25 @@ import Testing
         second.close()
     }
 
-    /// One terminal, its surface and window, running `sleep` under a marker
+    /// libghostty appends `Contents/MacOS` to a child's PATH, where `plume`
+    /// finds the app's own `Plume` executable on a case-insensitive volume.
+    @Test func surfacePathLeavesOutTheAppExecutableDirectory() async throws {
+        let output = FileManager.default.temporaryDirectory.appending(path: "surface-path-\(UUID().uuidString)")
+        defer { try? FileManager.default.removeItem(at: output) }
+        let probe = Probe(script: "printf %s \"$PATH\" > \(output.path); sleep 30")
+        defer { probe.close() }
+
+        let deadline = ContinuousClock.now + .seconds(10)
+        while !FileManager.default.fileExists(atPath: output.path), ContinuousClock.now < deadline {
+            try await Task.sleep(for: .milliseconds(100))
+        }
+        let path = try String(contentsOf: output, encoding: .utf8)
+        let executableDirectory = try #require(Bundle.main.executableURL).deletingLastPathComponent().path
+        #expect(!path.split(separator: ":").contains { $0 == executableDirectory }, "PATH: \(path)")
+        #expect(path == ProcessInfo.processInfo.environment["PATH"])
+    }
+
+    /// One terminal, its surface and window, running `script` under a marker
     /// unique enough to find in the process list.
     @MainActor
     private struct Probe {
@@ -35,12 +53,12 @@ import Testing
         let window: NSWindow
         let session: TerminalSession
 
-        init() {
+        init(script: String = "sleep 30") {
             session = TerminalSession(
                 id: UUID(),
                 options: TerminalSurfaceOptions(
                     workingDirectory: NSTemporaryDirectory(),
-                    command: "/bin/sh -c 'sleep 30 # \(marker)'"
+                    command: "/bin/sh -c '\(script) # \(marker)'"
                 )
             )
 
