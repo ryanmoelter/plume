@@ -103,16 +103,22 @@ public final class ScrcpyServerLaunch: @unchecked Sendable {
     public func start() async throws -> UInt16 {
         try Self.verifyJar(at: jarURL)
         try throwIfStopped()
-        try await adb(["push", jarURL.path, remoteJarPath], timeout: pushTimeout)
-        try throwIfStopped()
-        let port = try await forward()
         do {
-            try spawnServer()
+            try await adb(["push", jarURL.path, remoteJarPath], timeout: pushTimeout)
+            try throwIfStopped()
+            let port = try await forward()
+            do {
+                try spawnServer()
+            } catch {
+                await stop()
+                throw error
+            }
+            return port
         } catch {
-            await stop()
+            // Only a running server's `cleanup=true` deletes the jar; a push cut short may leave part of one.
+            await removeRemoteJar()
             throw error
         }
-        return port
     }
 
     /// Holds `terminations` from before `adb forward` runs until its forward is either recorded for
@@ -242,6 +248,21 @@ public final class ScrcpyServerLaunch: @unchecked Sendable {
         }
     }
 
+    /// Like `removeForwards`, never skipped by a cancelled connect or a quit.
+    private func removeRemoteJar() async {
+        let adbURL = adbURL, serial = serial, forwardTimeout = forwardTimeout, remoteJarPath = remoteJarPath
+        Self.terminations.enter()
+        await withCheckedContinuation { (continuation: CheckedContinuation<Void, Never>) in
+            DispatchQueue.global(qos: .utility).async {
+                defer {
+                    Self.terminations.leave()
+                    continuation.resume()
+                }
+                _ = try? ADBCommand.runBlocking(adbURL, ["-s", serial, "shell", "rm", "-f", remoteJarPath], timeout: forwardTimeout)
+            }
+        }
+    }
+
     /// The local side of each `adb forward --list` line (`<serial> <local> <remote>`) for this device and remote.
     static func forwards(in listing: String, serial: String, remote: String) -> [String] {
         listing.split(whereSeparator: \.isNewline).compactMap { line in
@@ -360,7 +381,7 @@ enum ADBCommand {
 }
 
 /// One adb command that finishes exactly once: when it exits, when it times out, or when it is aborted.
-private final class ADBInvocation: @unchecked Sendable {
+final class ADBInvocation: @unchecked Sendable {
     enum Abort {
         case cancelled
         case timedOut
@@ -372,6 +393,7 @@ private final class ADBInvocation: @unchecked Sendable {
     private let lock = NSLock()
     private var aborted: Abort?
     private var completion: (@Sendable (Swift.Result<ADBCommand.Result, Error>) -> Void)?
+    private var received = Data()
     private var output: Data?
     private var exitStatus: Int32?
 
@@ -390,27 +412,38 @@ private final class ADBInvocation: @unchecked Sendable {
         process.terminationHandler = { [self] process in
             record { $0.exitStatus = process.terminationStatus }
         }
+        // Drained as it arrives so a chatty command can't fill the pipe and stall. Not a blocking read
+        // to EOF: a forked adb server can hold the pipe open forever, and that read would never return.
+        pipe.fileHandleForReading.readabilityHandler = { [weak self] handle in
+            let data = handle.availableData
+            guard let self else {
+                handle.readabilityHandler = nil
+                return
+            }
+            if data.isEmpty {
+                handle.readabilityHandler = nil
+                record { $0.output = $0.received }
+            } else {
+                lock.withLock { received.append(data) }
+            }
+        }
         do {
+            // `completion` is stored only once the process runs, so `abort` can never also take it
+            // from a start that failed.
             try lock.withLock {
                 if aborted != nil { throw CancellationError() }
-                self.completion = completion
                 try process.run()
+                self.completion = completion
             }
         } catch {
             process.terminationHandler = nil
-            lock.withLock { self.completion = nil }
+            pipe.fileHandleForReading.readabilityHandler = nil
             completion(.failure(error))
             return
         }
         let seconds = Double(timeout.components.seconds) + Double(timeout.components.attoseconds) / 1e18
         DispatchQueue.global().asyncAfter(deadline: .now() + seconds) { [weak self] in
             self?.abort(.timedOut)
-        }
-        let reader = pipe.fileHandleForReading
-        // Read to EOF off the caller's thread so a chatty command can't fill the pipe and stall.
-        DispatchQueue.global().async { [self] in
-            let output = reader.readDataToEndOfFile()
-            record { $0.output = output }
         }
     }
 
@@ -433,6 +466,7 @@ private final class ADBInvocation: @unchecked Sendable {
             return completion != nil
         }
         guard pending else { return }
+        pipe.fileHandleForReading.readabilityHandler = nil
         if process.isRunning {
             process.terminate()
             let process = process

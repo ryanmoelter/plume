@@ -12,16 +12,18 @@ public struct ScrcpyFrame: @unchecked Sendable {
     public let seq: UInt64
 }
 
-public enum ScrcpyConnectionError: Error, CustomStringConvertible {
+public enum ScrcpyConnectionError: Error, Equatable, CustomStringConvertible {
     case closed
     case disconnected
     case unsupportedCodec(UInt32)
+    case undecodable
 
     public var description: String {
         switch self {
         case .closed: "The scrcpy connection is closed."
         case .disconnected: "The device disconnected."
         case let .unsupportedCodec(codec): "scrcpy-server chose codec 0x\(String(codec, radix: 16)), not H.264."
+        case .undecodable: "The device's video couldn't be decoded."
         }
     }
 }
@@ -163,10 +165,10 @@ public actor ScrcpyConnection {
             let decoder = H264Decoder()
             var recovery = KeyFrameRecovery { control.yield(ScrcpyControlMessage.resetVideo.encoded()) }
             do {
-                Self.handle(pending, decoder: decoder, hub: hub, recovery: &recovery)
+                try Self.handle(pending, decoder: decoder, hub: hub, recovery: &recovery)
                 while !Task.isCancelled {
                     guard let chunk = try await video.receive() else { break }
-                    Self.handle(try demuxer.feed(chunk), decoder: decoder, hub: hub, recovery: &recovery)
+                    try Self.handle(try demuxer.feed(chunk), decoder: decoder, hub: hub, recovery: &recovery)
                 }
                 await self?.streamEnded(nil)
             } catch {
@@ -176,8 +178,8 @@ public actor ScrcpyConnection {
     }
 
     /// A rejected config or a corrupt frame costs frames, not the session: the decoder waits for
-    /// the next key frame and the server is asked for one.
-    private static func handle(_ events: [ScrcpyDemuxerEvent], decoder: H264Decoder, hub: FrameHub, recovery: inout KeyFrameRecovery) {
+    /// the next key frame and the server is asked for one. Throws once recovery gives up.
+    private static func handle(_ events: [ScrcpyDemuxerEvent], decoder: H264Decoder, hub: FrameHub, recovery: inout KeyFrameRecovery) throws {
         for event in events {
             switch event {
             case let .session(width, height):
@@ -186,22 +188,26 @@ public actor ScrcpyConnection {
                 do {
                     try decoder.configure(with: data)
                 } catch {
-                    recovery.decoderFailed()
+                    try recovery.decoderFailed()
                 }
             case let .frame(data, pts, isKeyFrame):
                 guard hub.wantsFrames() else {
                     decoder.resynchronize()
+                    recovery.reset()
                     continue
                 }
+                let decoded: DecodedFrame?
                 do {
-                    if let decoded = try decoder.decode(data, pts: pts, isKeyFrame: isKeyFrame) {
-                        recovery.decoded()
-                        hub.publish(decoded)
-                    } else {
-                        recovery.frameDropped()
-                    }
+                    decoded = try decoder.decode(data, pts: pts, isKeyFrame: isKeyFrame)
                 } catch {
-                    recovery.decoderFailed()
+                    try recovery.decoderFailed()
+                    continue
+                }
+                if let decoded {
+                    recovery.reset()
+                    hub.publish(decoded)
+                } else {
+                    try recovery.frameDropped()
                 }
             case .deviceName, .codec:
                 break
@@ -261,13 +267,15 @@ struct ScrcpyHandshake {
 }
 
 /// Asks the server for a key frame after a decode failure, at most once per `interval`, until a
-/// frame decodes again.
+/// frame decodes again. Gives up, throwing `ScrcpyConnectionError.undecodable`, once nothing has
+/// decoded for `giveUpAfter`, so a stream that never recovers ends instead of staying black.
 struct KeyFrameRecovery {
     static let interval: Duration = .seconds(1)
+    static let giveUpAfter: Duration = .seconds(10)
 
     private let request: () -> Void
     private let now: () -> ContinuousClock.Instant
-    private var isRecovering = false
+    private var failingSince: ContinuousClock.Instant?
     private var lastRequest: ContinuousClock.Instant?
 
     init(now: @escaping () -> ContinuousClock.Instant = { .now }, request: @escaping () -> Void) {
@@ -275,21 +283,23 @@ struct KeyFrameRecovery {
         self.request = request
     }
 
-    mutating func decoderFailed() {
-        isRecovering = true
-        requestIfDue()
+    mutating func decoderFailed() throws {
+        if failingSince == nil { failingSince = now() }
+        try requestIfDue()
     }
 
-    mutating func frameDropped() {
-        if isRecovering { requestIfDue() }
+    mutating func frameDropped() throws {
+        if failingSince != nil { try requestIfDue() }
     }
 
-    mutating func decoded() {
-        isRecovering = false
+    /// A frame decoded, or nobody is watching, so the decoder resynchronizes on its own.
+    mutating func reset() {
+        failingSince = nil
     }
 
-    private mutating func requestIfDue() {
+    private mutating func requestIfDue() throws {
         let time = now()
+        if let failingSince, time - failingSince >= Self.giveUpAfter { throw ScrcpyConnectionError.undecodable }
         if let lastRequest, time - lastRequest < Self.interval { return }
         lastRequest = time
         request()

@@ -6,7 +6,7 @@ import Testing
 /// invocation. `push` and `forward tcp:0` block until the test creates their release file, so a
 /// test can stop the launch while either is in flight. `forward --list` prints the `forward-list` file.
 /// `forward --remove` takes a moment and then records itself in `removals`, so a test can tell a
-/// removal that finished from one that only started.
+/// removal that finished from one that only started. `shell rm -f` records itself in `jar-removals`.
 struct ScrcpyServerLaunchLifecycleTests {
     private struct FakeADB {
         let directory: URL
@@ -29,6 +29,7 @@ struct ScrcpyServerLaunchLifecycleTests {
               *"forward --remove"*) sleep 0.2; echo "$*" >> "\(dir)/removals" ;;
               *" push "*) wait_for push-release ;;
               *"forward tcp:0"*) wait_for forward-release; echo 27183 ;;
+              *" shell rm -f "*) echo "$*" >> "\(dir)/jar-removals" ;;
               *" shell "*) echo $$ > "\(dir)/shell-pid"; exec sleep 30 ;;
             esac
             exit 0
@@ -42,8 +43,11 @@ struct ScrcpyServerLaunchLifecycleTests {
                 .split(separator: "\n").map(String.init)
         }
 
-        var removals: [String] {
-            ((try? String(contentsOf: directory.appendingPathComponent("removals"), encoding: .utf8)) ?? "")
+        var removals: [String] { lines(of: "removals") }
+        var jarRemovals: [String] { lines(of: "jar-removals") }
+
+        private func lines(of name: String) -> [String] {
+            ((try? String(contentsOf: directory.appendingPathComponent(name), encoding: .utf8)) ?? "")
                 .split(separator: "\n").map(String.init)
         }
 
@@ -84,7 +88,8 @@ struct ScrcpyServerLaunchLifecycleTests {
         adb.release("push-release")
         await #expect(throws: (any Error).self) { try await connecting.value }
 
-        #expect(!adb.log.contains { $0.contains("forward") || $0.contains("shell") })
+        #expect(!adb.log.contains { $0.contains("forward") || $0.contains("app_process") })
+        #expect(adb.jarRemovals.count == 1)
     }
 
     @Test func stoppingDuringTheForwardRemovesItAndSpawnsNoServer() async throws {
@@ -99,7 +104,8 @@ struct ScrcpyServerLaunchLifecycleTests {
         await #expect(throws: ScrcpyLaunchError.stopped) { try await starting.value }
 
         #expect(adb.log.contains { $0.hasSuffix("forward --remove tcp:27183") })
-        #expect(!adb.log.contains { $0.contains(" shell ") })
+        #expect(!adb.log.contains { $0.contains("app_process") })
+        #expect(adb.jarRemovals == ["-s S1 shell rm -f \(launch.remoteJarPath)"])
     }
 
     @Test func cancellingDuringTheForwardRemovesWhateverItCreated() async throws {
@@ -120,7 +126,8 @@ struct ScrcpyServerLaunchLifecycleTests {
         #expect(adb.log.contains { $0.hasSuffix("forward --list") })
         let removed = adb.log.filter { $0.contains("forward --remove") }
         #expect(removed == ["-s S1 forward --remove tcp:27183"])
-        #expect(!adb.log.contains { $0.contains(" shell ") })
+        #expect(!adb.log.contains { $0.contains("app_process") })
+        #expect(adb.jarRemovals.count == 1)
     }
 
     @Test func aHungForwardTimesOutAndRemovesWhateverItCreated() async throws {
@@ -133,6 +140,7 @@ struct ScrcpyServerLaunchLifecycleTests {
             try await launch.start()
         }
         #expect(adb.log.contains { $0.hasSuffix("forward --remove tcp:27183") })
+        #expect(adb.jarRemovals.count == 1)
     }
 
     @Test func aStopStartedByTerminateIsCoveredByAwaitTerminations() async throws {
@@ -197,6 +205,7 @@ struct ScrcpyServerLaunchLifecycleTests {
         }
         #expect(kill(pid, 0) != 0)
         #expect(adb.log.first { $0.contains(" push ") }?.hasSuffix(launch.remoteJarPath) == true)
+        #expect(adb.jarRemovals.isEmpty)
     }
 
     @Test func aHungPushTimesOut() async throws {
@@ -218,6 +227,44 @@ struct ScrcpyServerLaunchLifecycleTests {
         await adb.waitForLog(containing: "push")
         starting.cancel()
         await #expect(throws: CancellationError.self) { try await starting.value }
+        #expect(adb.jarRemovals.count == 1)
+    }
+
+    @Test func anUnparsableForwardPortRemovesThePushedJar() async throws {
+        let adb = try FakeADB()
+        defer { adb.remove() }
+        adb.release("push-release")
+        try Data("""
+        #!/bin/sh
+        echo "$*" >> "\(adb.directory.path)/log"
+        case "$*" in
+          *"forward tcp:0"*) echo "error: more than one device" ;;
+          *" shell rm -f "*) echo "$*" >> "\(adb.directory.path)/jar-removals" ;;
+        esac
+        exit 0
+        """.utf8).write(to: adb.adbURL)
+        let launch = ScrcpyServerLaunch(adbURL: adb.adbURL, serial: "S1", jarURL: adb.jarURL, version: "5.0.1")
+        await #expect(throws: ScrcpyLaunchError.unparsableForwardPort("error: more than one device")) {
+            try await launch.start()
+        }
+        #expect(adb.jarRemovals == ["-s S1 shell rm -f \(launch.remoteJarPath)"])
+        #expect(!adb.log.contains { $0.contains("app_process") })
+    }
+
+    @Test func anInvocationThatFailsToRunFinishesOnceEvenIfAbortedAfter() {
+        let invocation = ADBInvocation(adb: URL(fileURLWithPath: "/nonexistent/adb"), arguments: ["devices"])
+        let count = Counter()
+        invocation.start(timeout: .seconds(5)) { _ in count.increment() }
+        invocation.abort(.cancelled)
+        invocation.abort(.timedOut)
+        #expect(count.value == 1)
+    }
+
+    private final class Counter: @unchecked Sendable {
+        private let lock = NSLock()
+        private var count = 0
+        var value: Int { lock.withLock { count } }
+        func increment() { lock.withLock { count += 1 } }
     }
 
     @Test func eachLaunchPushesToItsOwnPath() {
