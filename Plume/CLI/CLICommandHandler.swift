@@ -144,7 +144,7 @@ final class CLICommandHandler {
 
     /// Opens a new task in the frontmost window whose terminal runs `command` from the home
     /// folder, then brings that window forward. Nil when no main window is open.
-    func openCommandTask(title: String, command: String) -> TerminalSession? {
+    func openCommandTask(title: String, command: String) -> (taskID: UUID, session: TerminalSession)? {
         guard let registration = frontmostFirst.first else { return nil }
         let context = registration.context
         let ungrouped = ((try? context.fetch(FetchDescriptor<WorkTask>())) ?? []).filter { !$0.isArchived && $0.group == nil }
@@ -162,7 +162,18 @@ final class CLICommandHandler {
         registration.reveal(task.id)
         activateApp()
         registration.window()?.makeKeyAndOrderFront(nil)
-        return session
+        return (task.id, session)
+    }
+
+    /// Deletes a task through `TaskStore`, which closes its terminals. A no-op when no open
+    /// window's store has it.
+    func deleteTask(_ id: UUID) {
+        for registration in frontmostFirst {
+            let tasks = (try? registration.context.fetch(FetchDescriptor<WorkTask>())) ?? []
+            guard let task = tasks.first(where: { $0.id == id }) else { continue }
+            TaskStore.delete(task, in: registration.context)
+            return
+        }
     }
 
     /// Git answers with symlinks resolved, so `/var/…` must match

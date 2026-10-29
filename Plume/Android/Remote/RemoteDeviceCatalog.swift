@@ -161,21 +161,28 @@ final class RemoteDeviceCatalog {
     }
 
     /// `auth login` may open a browser and wait on the terminal, so it runs in a terminal task.
-    /// The account is checked again once it exits.
+    /// The account is checked again once it exits, and the task goes away if that finds it
+    /// signed in. A failed login keeps the task so its error stays readable.
     func signIn() {
         guard let cliPath else { return }
-        guard let session = CLICommandHandler.shared.openCommandTask(
+        let commands = CLICommandHandler.shared
+        if let earlier = settings.remoteDeviceSignInTaskID {
+            commands.deleteTask(earlier)
+            settings.remoteDeviceSignInTaskID = nil
+        }
+        guard let opened = commands.openCommandTask(
             title: "Sign in to Device Streaming",
             command: "\(shellQuoted(cliPath)) auth login"
         ) else {
             Log.app.error("Couldn't sign in to Device Streaming: no Plume window is open")
             return
         }
-        reloadWhenExited(session)
+        settings.remoteDeviceSignInTaskID = opened.taskID
+        reloadWhenExited(opened.session, taskID: opened.taskID)
     }
 
     /// Also reloads when the tab closes before `auth login` exits, which never marks it exited.
-    private func reloadWhenExited(_ session: TerminalSession) {
+    private func reloadWhenExited(_ session: TerminalSession, taskID: UUID) {
         let tabID = session.id
         withObservationTracking {
             _ = session.hasExited
@@ -183,11 +190,15 @@ final class RemoteDeviceCatalog {
         } onChange: { [weak self, weak session] in
             Task { @MainActor [weak self, weak session] in
                 guard let self else { return }
-                if let session, !session.hasExited, SurfaceManager.shared.existingSession(for: tabID) === session {
-                    reloadWhenExited(session)
-                } else {
-                    await load(refresh: true)
+                let isOpen = session.map { SurfaceManager.shared.existingSession(for: tabID) === $0 } ?? false
+                if let session, isOpen, !session.hasExited {
+                    reloadWhenExited(session, taskID: taskID)
+                    return
                 }
+                await load(refresh: true)
+                guard isOpen, isSignedIn, settings.remoteDeviceSignInTaskID == taskID else { return }
+                settings.remoteDeviceSignInTaskID = nil
+                CLICommandHandler.shared.deleteTask(taskID)
             }
         }
     }

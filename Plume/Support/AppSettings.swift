@@ -69,6 +69,7 @@ final class AppSettings {
         static let updateInstallSourceOverrideRaw = "updateInstallSourceOverrideRaw"
         static let automaticallyChecksForUpdates = "automaticallyChecksForUpdates"
         static let remoteDeviceProjectID = "remoteDeviceProjectID"
+        static let remoteDeviceSignInTaskID = "remoteDeviceSignInTaskID"
     }
 
     /// Effort a tab starts at when it has never chosen one. The CLI reports
@@ -177,6 +178,7 @@ final class AppSettings {
         }
 
         self.remoteDeviceProjectID = defaults.string(forKey: Key.remoteDeviceProjectID)
+        self.remoteDeviceSignInTaskID = defaults.string(forKey: Key.remoteDeviceSignInTaskID).flatMap(UUID.init(uuidString:))
         // Unset must read as true: the feature is opt-out, not opt-in.
         self.showsPullRequestStatus = defaults.object(forKey: Key.showsPullRequestStatus) == nil
             ? true
@@ -533,6 +535,13 @@ final class AppSettings {
     var remoteDeviceProjectID: String? {
         didSet {
             defaults.set(remoteDeviceProjectID, forKey: Key.remoteDeviceProjectID)
+        }
+    }
+
+    /// The task Settings opened for `android auth login`, so the next Sign In replaces it.
+    var remoteDeviceSignInTaskID: UUID? {
+        didSet {
+            defaults.set(remoteDeviceSignInTaskID?.uuidString, forKey: Key.remoteDeviceSignInTaskID)
         }
     }
 

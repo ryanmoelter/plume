@@ -62,7 +62,7 @@ At launch, `RemoteReservationLedger.sweepAtLaunch` releases every entry off the 
 ## The picker and Settings
 
 - The picker's Devices list leaves out the `localhost:` serials Plume's own reservations attached, since those show in their own tabs. A remote device connected some other way, by an agent running `android device remote connect` say, still shows there.
-- With the tool missing or signed out, the section points to Settings ▸ Integrations ▸ Android Device Streaming. That section shows the tool, the account, Sign In… (which opens an ungrouped "Sign in to Device Streaming" task whose terminal runs `android auth login` from the home folder, since login may be interactive, and checks the account again when it exits) and Sign Out (`auth logout`), and the project picker the device picker shares.
+- With the tool missing or signed out, the section points to Settings ▸ Integrations ▸ Android Device Streaming. That section shows the tool, the account, Sign In… (which opens an ungrouped "Sign in to Device Streaming" task whose terminal runs `android auth login` from the home folder, since login may be interactive, and checks the account again when it exits or its tab closes. A sign-in that ends signed in deletes the task, and a failed one keeps it so its error stays readable. `AppSettings.remoteDeviceSignInTaskID` remembers the task, so the next Sign In… replaces it instead of adding another) and Sign Out (`auth logout`), and the project picker the device picker shares.
 
 ## Logging
 
