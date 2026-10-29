@@ -33,6 +33,7 @@ final class FakeMentionSources: MentionSources {
     /// The queries asked with `includingLookups`.
     private(set) var pullRequestLookups: [String] = []
     private(set) var linearSearches: [String] = []
+    private(set) var linearLimits: [Int] = []
     private(set) var heldFiles: [Call] = []
     private(set) var heldPullRequests: [Call] = []
     /// Called whenever a call parks, so a test can wait for it.
@@ -57,8 +58,9 @@ final class FakeMentionSources: MentionSources {
         }
     }
 
-    func cachedLinearIssues(matching text: String) async -> [RankedMention] {
-        linearAnswer(text)
+    func cachedLinearIssues(matching text: String, limit: Int) async -> [RankedMention] {
+        linearLimits.append(limit)
+        return linearAnswer(text)
     }
 
     func searchLinear(_ text: String) async {

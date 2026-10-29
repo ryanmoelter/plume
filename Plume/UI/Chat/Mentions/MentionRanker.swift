@@ -25,20 +25,33 @@ nonisolated enum MentionRanker {
     /// a few files under them.
     static let bareFileLimit = 3
     static let totalLimit = 20
+    /// A filter prefix leaves one source, which then gets the whole menu, so
+    /// `@file:` can browse a directory.
+    static let filteredLimit = 50
 
-    static func limit(for source: MentionCandidate.Source, isBare: Bool) -> Int {
-        switch source {
+    static func limit(for source: MentionCandidate.Source, isBare: Bool, isFiltered: Bool = false) -> Int {
+        if isFiltered { return filteredLimit }
+        return switch source {
         case .files: isBare ? bareFileLimit : fileLimit
         case .linear, .pullRequests: perSourceLimit
         }
     }
 
+    /// How many ranked matches each source should hand back for `query`.
+    static func matchLimit(for query: MentionQuery) -> Int {
+        query.filter == nil ? FileMentionMatcher.defaultLimit : filteredLimit
+    }
+
     /// Each source's list must already be in its own best-first order.
-    static func merge(_ results: [MentionCandidate.Source: [RankedMention]], isBare: Bool) -> [MentionCandidate] {
+    static func merge(
+        _ results: [MentionCandidate.Source: [RankedMention]],
+        isBare: Bool,
+        isFiltered: Bool = false
+    ) -> [MentionCandidate] {
         let merged = sourceOrder.flatMap { source in
-            (results[source] ?? []).prefix(limit(for: source, isBare: isBare)).map(\.candidate)
+            (results[source] ?? []).prefix(limit(for: source, isBare: isBare, isFiltered: isFiltered)).map(\.candidate)
         }
-        return Array(merged.prefix(totalLimit))
+        return Array(merged.prefix(isFiltered ? filteredLimit : totalLimit))
     }
 
     /// Where the selection belongs after the list changes: on the same

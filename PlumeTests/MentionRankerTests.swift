@@ -79,6 +79,21 @@ struct MentionRankerTests {
         ])
     }
 
+    @Test func aFilteredQueryShowsFiftyOfItsSource() {
+        let files = MentionRanker.merge([.files: (0..<80).map { file("f\($0)", .prefix) }], isBare: false, isFiltered: true)
+        #expect(files.count == MentionRanker.filteredLimit)
+        #expect(files.map(\.id) == (0..<50).map { "file:f\($0)" })
+        let issues = MentionRanker.merge([.linear: (0..<80).map { linear("DROID-\($0)", .prefix) }], isBare: false, isFiltered: true)
+        #expect(issues.count == MentionRanker.filteredLimit)
+    }
+
+    @Test func onlyAFilteredQueryAsksSourcesForFifty() {
+        let filtered = MentionQuery(trigger: .at, text: "src/", filter: .file, triggerLocation: 0, caretLocation: 10)
+        let plain = MentionQuery(trigger: .at, text: "src/", triggerLocation: 0, caretLocation: 5)
+        #expect(MentionRanker.matchLimit(for: filtered) == 50)
+        #expect(MentionRanker.matchLimit(for: plain) == FileMentionMatcher.defaultLimit)
+    }
+
     @Test func aSourceKeepsItsOwnOrder() {
         let merged = MentionRanker.merge([.files: [file("b", .loose), file("a", .exact)]], isBare: false)
         #expect(merged.map(\.id) == ["file:b", "file:a"])

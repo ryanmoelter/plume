@@ -42,6 +42,26 @@ struct MentionAutocompleteControllerTests {
         #expect(controller.candidates.map(\.id) == ["file:src/abc.swift"])
     }
 
+    @Test func aFilterPrefixListsFiftyOfItsSource() async {
+        sources.fileAnswer = { _ in (0..<60).map { MentionFixtures.ranked(.file(MentionFixtures.file("src/f\($0).swift"))) } }
+        sources.linearAnswer = { _ in (0..<60).map { MentionFixtures.ranked(.linear(MentionFixtures.issue("DROID-\($0)", "x"))) } }
+        let controller = makeController()
+
+        type("@file:src/", into: controller)
+        await controller.settled()
+        #expect(controller.candidates.count == 50)
+
+        type("@linear:x", into: controller)
+        await controller.settled()
+        #expect(controller.candidates.count == 50)
+        #expect(sources.linearLimits.allSatisfy { $0 == 50 })
+
+        type("@x", into: controller)
+        await controller.settled()
+        #expect(sources.linearLimits.last == FileMentionMatcher.defaultLimit)
+        #expect(controller.candidates.count == MentionRanker.perSourceLimit + MentionRanker.fileLimit)
+    }
+
     @Test func escapeKeepsTheTokenClosedUntilTheCaretLeavesIt() async {
         sources.linearAnswer = { _ in [MentionFixtures.ranked(.linear(MentionFixtures.issue("DROID-1", "Layout")))] }
         let controller = makeController()

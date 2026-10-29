@@ -9,7 +9,7 @@ protocol MentionSources: AnyObject, Sendable {
     /// Without `includingLookups`, only what needs no new request.
     func pullRequests(for query: MentionQuery, in directory: String?, includingLookups: Bool) async -> [RankedMention]
     /// The cache only, with no request.
-    func cachedLinearIssues(matching text: String) async -> [RankedMention]
+    func cachedLinearIssues(matching text: String, limit: Int) async -> [RankedMention]
     /// Fills the cache with what a remote search finds.
     func searchLinear(_ text: String) async
 }
@@ -17,15 +17,20 @@ protocol MentionSources: AnyObject, Sendable {
 @MainActor
 final class LiveMentionSources: MentionSources {
     func files(for query: MentionQuery, in directory: String?) async -> [RankedMention] {
-        await FileMentionIndex.shared.matches(for: query, in: directory)
+        await FileMentionIndex.shared.matches(for: query, in: directory, limit: MentionRanker.matchLimit(for: query))
     }
 
     func pullRequests(for query: MentionQuery, in directory: String?, includingLookups: Bool) async -> [RankedMention] {
-        await PullRequestMentionSource.shared.matches(for: query, in: directory, includingLookups: includingLookups)
+        await PullRequestMentionSource.shared.matches(
+            for: query,
+            in: directory,
+            includingLookups: includingLookups,
+            limit: MentionRanker.matchLimit(for: query)
+        )
     }
 
-    func cachedLinearIssues(matching text: String) async -> [RankedMention] {
-        await LinearStore.shared.mentionCandidates(matching: text)
+    func cachedLinearIssues(matching text: String, limit: Int) async -> [RankedMention] {
+        await LinearStore.shared.mentionCandidates(matching: text, limit: limit)
     }
 
     func searchLinear(_ text: String) async {
@@ -175,12 +180,13 @@ final class MentionAutocompleteController: ComposerAutocompleteHandler {
         selectedID = nil
 
         let wanted = query.sources
+        let limit = MentionRanker.matchLimit(for: query)
         var next: [MentionCandidate.Source: [RankedMention]] = [:]
-        if wanted.contains(.files) { next[.files] = Self.narrowedFiles(results[.files], to: query.text) }
+        if wanted.contains(.files) { next[.files] = Self.narrowedFiles(results[.files], to: query.text, limit: limit) }
         if wanted.contains(.pullRequests) {
-            next[.pullRequests] = Self.narrowedPullRequests(results[.pullRequests], to: query.text)
+            next[.pullRequests] = Self.narrowedPullRequests(results[.pullRequests], to: query.text, limit: limit)
         }
-        if wanted.contains(.linear) { next[.linear] = Self.narrowedLinear(results[.linear], to: query.text) }
+        if wanted.contains(.linear) { next[.linear] = Self.narrowedLinear(results[.linear], to: query.text, limit: limit) }
         results = next
         pending = wanted
         publish()
@@ -195,13 +201,13 @@ final class MentionAutocompleteController: ComposerAutocompleteHandler {
                 }
                 if wanted.contains(.linear) {
                     group.addTask { @MainActor in
-                        Answer(.linear, await sources.cachedLinearIssues(matching: query.text), isFinal: false)
+                        Answer(.linear, await sources.cachedLinearIssues(matching: query.text, limit: limit), isFinal: false)
                     }
                     group.addTask { @MainActor in
                         do { try await sleep(debounce.linearSearch) } catch { return Answer(.linear, nil) }
                         await sources.searchLinear(query.text)
                         if Task.isCancelled { return Answer(.linear, nil) }
-                        return Answer(.linear, await sources.cachedLinearIssues(matching: query.text))
+                        return Answer(.linear, await sources.cachedLinearIssues(matching: query.text, limit: limit))
                     }
                 }
                 if wanted.contains(.pullRequests) {
@@ -268,7 +274,7 @@ final class MentionAutocompleteController: ComposerAutocompleteHandler {
     private func publish() {
         guard let query else { return }
         let filters = query.suggestedFilters.map(MentionCandidate.filter)
-        let merged = filters + MentionRanker.merge(results, isBare: query.isBare)
+        let merged = filters + MentionRanker.merge(results, isBare: query.isBare, isFiltered: query.filter != nil)
         if merged != candidates { candidates = merged }
         let index = MentionRanker.selectionIndex(keeping: selectedID, in: merged)
         if index != selectedIndex { selectedIndex = index }
@@ -299,19 +305,19 @@ final class MentionAutocompleteController: ComposerAutocompleteHandler {
         return term.count >= PullRequestMentionSource.minimumSearchLength ? debounce.pullRequestSearch : nil
     }
 
-    private static func narrowedFiles(_ ranked: [RankedMention]?, to text: String) -> [RankedMention] {
+    private static func narrowedFiles(_ ranked: [RankedMention]?, to text: String, limit: Int) -> [RankedMention] {
         let entries = (ranked ?? []).compactMap { if case .file(let entry) = $0.candidate { entry } else { nil } }
-        return entries.isEmpty ? [] : FileMentionMatcher.matches(text, in: entries)
+        return entries.isEmpty ? [] : FileMentionMatcher.matches(text, in: entries, limit: limit)
     }
 
-    private static func narrowedLinear(_ ranked: [RankedMention]?, to text: String) -> [RankedMention] {
+    private static func narrowedLinear(_ ranked: [RankedMention]?, to text: String, limit: Int) -> [RankedMention] {
         let issues = (ranked ?? []).compactMap { if case .linear(let issue) = $0.candidate { issue } else { nil } }
-        return issues.isEmpty ? [] : LinearMentionMatcher.matches(text, in: issues)
+        return issues.isEmpty ? [] : LinearMentionMatcher.matches(text, in: issues, limit: limit)
     }
 
-    private static func narrowedPullRequests(_ ranked: [RankedMention]?, to text: String) -> [RankedMention] {
+    private static func narrowedPullRequests(_ ranked: [RankedMention]?, to text: String, limit: Int) -> [RankedMention] {
         let pulls = (ranked ?? []).compactMap { if case .pullRequest(let pull) = $0.candidate { pull } else { nil } }
-        return pulls.isEmpty ? [] : PullRequestMentionMatcher.matches(text, in: pulls)
+        return pulls.isEmpty ? [] : PullRequestMentionMatcher.matches(text, in: pulls, limit: limit)
     }
 
     // MARK: ComposerAutocompleteHandler
