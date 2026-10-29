@@ -61,6 +61,17 @@ struct ShortcutsSettingsPane: View {
             } header: {
                 Text("Keyboard shortcuts")
             }
+
+            Section {
+                Toggle("Intercept Plume keyboard shortcuts", isOn: $settings.keepsPlumeShortcutsOnMac)
+                    .plumeID(
+                        AccessibilityID.devicesKeepShortcutsToggle,
+                        value: String(settings.keepsPlumeShortcutsOnMac),
+                        setValue: { settings.keepsPlumeShortcutsOnMac = ($0 == "true" || $0 == "1") }
+                    )
+            } header: {
+                Text("Devices")
+            }
         }
         .formStyle(.grouped)
     }
