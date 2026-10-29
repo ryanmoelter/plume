@@ -135,12 +135,15 @@ final class TranscriptStore {
         // called again on every hook event for the tab — enough to keep a
         // core busy re-parsing a file nothing has written to.
         guard paths[tabID] != transcriptPath else { return }
-        // A caller still holding the path this session moved away from — a
-        // remount, a relaunch, an unarchive — would otherwise tear down the
-        // relocated watch and blank the chat.
+        // The same session file somewhere else. A caller still holding the
+        // path it moved away from — a remount, a relaunch, an unarchive — is
+        // ignored, and a hook reporting where it moved to re-points without
+        // the teardown that would blank the chat.
         if let current = paths[tabID],
-           (current as NSString).lastPathComponent == (transcriptPath as NSString).lastPathComponent,
-           !SessionJSONLReader.hasContent(atPath: transcriptPath) {
+           (current as NSString).lastPathComponent == (transcriptPath as NSString).lastPathComponent {
+            if SessionJSONLReader.hasContent(atPath: transcriptPath) {
+                relocate(tabID: tabID, to: transcriptPath)
+            }
             return
         }
 
@@ -236,15 +239,18 @@ final class TranscriptStore {
         let sessionID = (path as NSString).lastPathComponent.replacingOccurrences(of: ".jsonl", with: "")
         let found = SessionJSONLReader.locateTranscript(sessionID: sessionID, inProjectsDirectory: projectsDirectory)
         guard let relocated = found, relocated != path else { return false }
+        relocate(tabID: tabID, to: relocated)
+        return true
+    }
 
+    private func relocate(tabID: UUID, to path: String) {
         watchers.removeValue(forKey: tabID)?.stop()
         stopSubagentWatchers(tabID: tabID)
         awaitingSubagents.removeValue(forKey: tabID)?.watcher.stop()
         pending.removeValue(forKey: tabID)?.cancel()
-        paths[tabID] = relocated
-        startWatcher(tabID: tabID, transcriptPath: relocated)
+        paths[tabID] = path
+        startWatcher(tabID: tabID, transcriptPath: path)
         read(tabID: tabID)
-        return true
     }
 
     private func awaitSubagents(tabID: UUID, transcriptPath: String) {
@@ -277,13 +283,15 @@ final class TranscriptStore {
     /// `parentData` is passed in rather than re-read: the caller has just read
     /// it to parse the main transcript, and the spawn scan is a fallback that
     /// only runs when a subagent has no sidecar.
-    /// `complete` is false when a listed file was gone by the time it was
-    /// read, which is what a move of `subagents/` looks like mid-read.
+    /// `intact` is false when `subagents/` could not be listed, or a listed
+    /// file was gone by the time it was read — what a move of the directory
+    /// looks like from either side of it.
     private nonisolated static func readSubagents(
         transcriptPath: String,
         parentData: Data
-    ) -> (subagents: [SubagentTranscript], complete: Bool) {
-        let paths = SessionJSONLReader.subagentTranscriptPaths(forTranscriptPath: transcriptPath)
+    ) -> (subagents: [SubagentTranscript], intact: Bool) {
+        guard let paths = SessionJSONLReader.listedSubagentTranscriptPaths(forTranscriptPath: transcriptPath)
+        else { return ([], false) }
         guard !paths.isEmpty else { return ([], true) }
 
         let results = SubagentSpawnResults(parentData: parentData)
@@ -380,16 +388,13 @@ final class TranscriptStore {
             await afterLoading?(path)
             let parsed = data.map { data in
                 let transcript = TranscriptParser.parse(data)
-                let (subagents, complete) = Self.readSubagents(transcriptPath: path, parentData: data)
-                let hasDirectory = FileManager.default.fileExists(
-                    atPath: SessionJSONLReader.subagentsDirectory(forTranscriptPath: path)
-                )
+                let (subagents, intact) = Self.readSubagents(transcriptPath: path, parentData: data)
                 var referenceCache = referenceCache
                 let references = ConversationReferenceScanner.scan(transcript.messages, cache: &referenceCache)
                 return ParsedRead(
                     transcript: transcript,
                     subagents: subagents,
-                    subagentsIntact: hasDirectory && complete,
+                    subagentsIntact: intact,
                     backgroundTasks: BackgroundTaskScanner.inFlight(parentData: data),
                     transcriptEvidence: LinearActivityScanner.scan(transcript.messages, subagent: nil),
                     subagentEvidence: Self.linearEvidence(subagents: subagents),

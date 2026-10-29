@@ -9,12 +9,9 @@ import Foundation
 @MainActor
 struct TranscriptRelocationTests {
     enum Sequence: String, CaseIterable, CustomTestStringConvertible {
-        /// A → B → C back to back, subagents after the file, then the send.
-        case renameTwiceThenAppend
-        /// A → B, the send lands at B, then B → C.
-        case appendBetweenRenames
-        /// Subagents move first, then A → B → C, then the send.
-        case subagentsFirst
+        /// A → B → C, `subagents/` and the send all land before the store
+        /// reads again, so it sees only where the session ended up.
+        case moveAndSendBeforeAnyRead
         /// A → B, a debounced read runs, then B → C and the send.
         case readBetweenRenames
         /// A parse of A is still running when the file moves, so the read the
@@ -38,20 +35,10 @@ struct TranscriptRelocationTests {
         #expect(await recorder.wait { store.transcript(forTab: fixture.tab)?.messages.isEmpty == false })
 
         switch sequence {
-        case .renameTwiceThenAppend:
+        case .moveAndSendBeforeAnyRead:
             try fixture.renameAToB()
             try fixture.renameBToC()
             try fixture.moveSubagents(from: fixture.dirA, to: fixture.dirC)
-            fixture.appendSend(to: fixture.pathC)
-        case .appendBetweenRenames:
-            try fixture.renameAToB()
-            fixture.appendSend(to: fixture.pathB)
-            try fixture.renameBToC()
-            try fixture.moveSubagents(from: fixture.dirA, to: fixture.dirC)
-        case .subagentsFirst:
-            try fixture.moveSubagents(from: fixture.dirA, to: fixture.dirC)
-            try fixture.renameAToB()
-            try fixture.renameBToC()
             fixture.appendSend(to: fixture.pathC)
         case .readBetweenRenames:
             try fixture.renameAToB()
@@ -92,7 +79,7 @@ struct TranscriptRelocationTests {
         )
     }
 
-    @Test(arguments: [Sequence.renameTwiceThenAppend, .readBetweenRenames, .renameLeavingAnEmptyStub])
+    @Test(arguments: [Sequence.moveAndSendBeforeAnyRead, .readBetweenRenames, .renameLeavingAnEmptyStub])
     func aMoveNeverEmptiesOrShrinksTheTranscript(_ sequence: Sequence) async throws {
         let fixture = try Fixture()
         defer { fixture.remove() }
@@ -161,6 +148,70 @@ struct TranscriptRelocationTests {
         let later = recorder.reads[readsBefore...]
         #expect(later.allSatisfy { ($0.messageCount ?? 0) >= (transcript?.messages.count ?? 0) })
         #expect(later.allSatisfy { !$0.subagents.isEmpty })
+    }
+
+    /// The terminal transport's hooks report the moved path, often before
+    /// the store has noticed the move itself.
+    @Test func aHookReportingTheMovedPathKeepsTheTab() async throws {
+        let fixture = try Fixture()
+        defer { fixture.remove() }
+        let tracker = SubagentCompletionTracker()
+        let store = TranscriptStore(
+            debounce: .milliseconds(10), completionTracker: tracker, projectsDirectory: fixture.root
+        )
+        defer { store.stopAll() }
+        let recorder = ReadRecorder(store: store, tab: fixture.tab)
+
+        store.watch(tabID: fixture.tab, transcriptPath: fixture.pathA)
+        #expect(await recorder.wait { store.subagents(forTab: fixture.tab).first?.status == .done })
+        let transcript = store.transcript(forTab: fixture.tab)
+        let subagents = store.subagents(forTab: fixture.tab)
+        let readsBefore = recorder.reads.count
+
+        try fixture.renameAToB()
+        try fixture.renameBToC()
+        try fixture.moveSubagents(from: fixture.dirA, to: fixture.dirC)
+        store.watch(tabID: fixture.tab, transcriptPath: fixture.pathC)
+
+        #expect(recorder.reads.count == readsBefore)
+        #expect(store.watchedPath(forTab: fixture.tab) == fixture.pathC)
+        #expect(store.transcript(forTab: fixture.tab) == transcript)
+        #expect(store.subagents(forTab: fixture.tab) == subagents)
+
+        #expect(await recorder.wait { recorder.hasRead(fixture.pathC) })
+        let subagent = try #require(store.subagents(forTab: fixture.tab).first)
+        #expect(tracker.hasSettled(subagent, tabID: fixture.tab))
+        #expect(tracker.completionInstant(forSubagentID: Fixture.subagentID, tabID: fixture.tab) == nil)
+    }
+
+    /// `/clear` starts a new session file, which shares nothing with the old
+    /// one even after the old one has moved.
+    @Test func aDifferentSessionFileStillTearsDownAfterAMove() async throws {
+        let fixture = try Fixture()
+        defer { fixture.remove() }
+        let tracker = SubagentCompletionTracker()
+        let store = TranscriptStore(
+            debounce: .milliseconds(10), completionTracker: tracker, projectsDirectory: fixture.root
+        )
+        defer { store.stopAll() }
+        let recorder = ReadRecorder(store: store, tab: fixture.tab)
+
+        store.watch(tabID: fixture.tab, transcriptPath: fixture.pathA)
+        #expect(await recorder.wait { store.subagents(forTab: fixture.tab).first?.status == .done })
+        try fixture.renameAToB()
+        try fixture.renameBToC()
+        try fixture.moveSubagents(from: fixture.dirA, to: fixture.dirC)
+        #expect(await recorder.wait { recorder.hasRead(fixture.pathC) })
+        let subagent = try #require(store.subagents(forTab: fixture.tab).first)
+
+        let newSession = fixture.dirC.appending(path: "\(UUID().uuidString).jsonl").path
+        try Data(Fixture.userLine("A fresh start").utf8).write(to: URL(fileURLWithPath: newSession))
+        store.watch(tabID: fixture.tab, transcriptPath: newSession)
+
+        #expect(store.watchedPath(forTab: fixture.tab) == newSession)
+        #expect(store.transcript(forTab: fixture.tab) == nil)
+        #expect(store.subagents(forTab: fixture.tab).isEmpty)
+        #expect(!tracker.hasSettled(subagent, tabID: fixture.tab))
     }
 
     enum SubagentMove: String, CaseIterable, CustomTestStringConvertible {
