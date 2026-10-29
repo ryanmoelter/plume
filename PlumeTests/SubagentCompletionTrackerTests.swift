@@ -244,6 +244,32 @@ struct SubagentCompletionTrackerTests {
     }
 }
 
+/// A transcript move re-reads the tab with its subagents briefly missing. A
+/// subagent that had finished before the move must stay settled when it
+/// reappears, not start a linger as if it had just finished.
+@MainActor
+struct SubagentCompletionAcrossAMoveTests {
+    private let tab = UUID()
+
+    private func subagent(_ id: String, _ status: TaskStatus) -> SubagentTranscript {
+        SubagentTranscript(id: id, transcript: Transcript(), modifiedAt: nil, descriptor: nil, status: status)
+    }
+
+    @Test func aPreCompletedSubagentMissingFromOneReadStaysSettled() {
+        let tracker = SubagentCompletionTracker(linger: .seconds(30))
+        let done = subagent("a1", .done)
+
+        tracker.observe([done], tabID: tab)
+        #expect(tracker.hasSettled(done, tabID: tab))
+
+        tracker.observe([], tabID: tab)
+        tracker.observe([done], tabID: tab)
+
+        #expect(tracker.hasSettled(done, tabID: tab))
+        #expect(tracker.completionInstant(forSubagentID: "a1", tabID: tab) == nil)
+    }
+}
+
 /// The sidebar shows a task's live subagents using the same tracker the chat
 /// does. Neither view observes — `TranscriptStore` does — so a subagent folds
 /// away in both places at the same moment, whether or not either is mounted.

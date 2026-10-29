@@ -44,8 +44,15 @@ final class TranscriptStore {
     private var subagentWatchers: [UUID: [String: FileWatcher]] = [:]
     private var paths: [UUID: String] = [:]
     private var pending: [UUID: Task<Void, Never>] = [:]
-    /// Tabs with a parse in flight, so a burst of writes cannot stack reads.
-    private var inFlight: Set<UUID> = []
+    /// The token of each tab's parse in flight, so a burst of writes cannot
+    /// stack reads. A read that finishes after its tab's watch was torn down
+    /// finds a different token, or none, and leaves the newer read's alone.
+    private var inFlight: [UUID: UUID] = [:]
+    /// Tabs that asked for a read while one was in flight. That parse may have
+    /// taken its bytes before the change that asked, so it reads again once it
+    /// lands — otherwise a write, or a move, could go unseen until the next one.
+    private var rereadRequested: Set<UUID> = []
+    private let projectsDirectory: URL
 
     // This drives visible chat content rather than a sidebar label, so it
     // needs to feel live — much shorter than AgentTitleMonitor's 1s.
@@ -83,6 +90,7 @@ final class TranscriptStore {
         linkedPullRequests: LinkedPullRequestStore? = nil,
         completionTracker: SubagentCompletionTracker = .shared,
         statusOverrides: SubagentStatusOverrides = .shared,
+        projectsDirectory: URL = SessionJSONLReader.projectsDirectory,
         isTabLive: @escaping (UUID) -> Bool = TranscriptStore.hasLiveSession
     ) {
         self.debounce = debounce
@@ -92,6 +100,7 @@ final class TranscriptStore {
         self.linkedPullRequests = linkedPullRequests ?? .shared
         self.completionTracker = completionTracker
         self.statusOverrides = statusOverrides
+        self.projectsDirectory = projectsDirectory
         self.isTabLive = isTabLive
     }
 
@@ -113,7 +122,10 @@ final class TranscriptStore {
         stopWatching(tabID: tabID)
         paths[tabID] = transcriptPath
         read(tabID: tabID)
+        startWatcher(tabID: tabID, transcriptPath: transcriptPath)
+    }
 
+    private func startWatcher(tabID: UUID, transcriptPath: String) {
         let watcher = FileWatcher(url: URL(fileURLWithPath: transcriptPath), createsFile: false) { [weak self] in
             self?.scheduleRead(tabID: tabID)
         }
@@ -125,7 +137,8 @@ final class TranscriptStore {
         watchers.removeValue(forKey: tabID)?.stop()
         stopSubagentWatchers(tabID: tabID)
         pending.removeValue(forKey: tabID)?.cancel()
-        inFlight.remove(tabID)
+        inFlight.removeValue(forKey: tabID)
+        rereadRequested.remove(tabID)
         paths.removeValue(forKey: tabID)
         transcripts.removeValue(forKey: tabID)
         subagentTranscripts.removeValue(forKey: tabID)
@@ -153,6 +166,7 @@ final class TranscriptStore {
         subagentWatchers.removeAll()
         pending.removeAll()
         inFlight.removeAll()
+        rereadRequested.removeAll()
         paths.removeAll()
         transcripts.removeAll()
         for tabID in subagentTranscripts.keys {
@@ -180,12 +194,21 @@ final class TranscriptStore {
     ///
     /// A session that has genuinely written nothing yet finds nothing and
     /// keeps its current path, so it still reads as waiting rather than lost.
+    ///
+    /// It is the same session, so everything published for the tab stays up
+    /// until the new file's read replaces it. Tearing it down would blank the
+    /// chat, and briefly drop subagents whose directory has not moved yet.
     private func repointIfRelocated(tabID: UUID, from path: String) {
         let sessionID = (path as NSString).lastPathComponent.replacingOccurrences(of: ".jsonl", with: "")
-        guard let relocated = SessionJSONLReader.locateTranscript(sessionID: sessionID),
-              relocated != path
-        else { return }
-        watch(tabID: tabID, transcriptPath: relocated)
+        let found = SessionJSONLReader.locateTranscript(sessionID: sessionID, inProjectsDirectory: projectsDirectory)
+        guard let relocated = found, relocated != path else { return }
+
+        watchers.removeValue(forKey: tabID)?.stop()
+        stopSubagentWatchers(tabID: tabID)
+        pending.removeValue(forKey: tabID)?.cancel()
+        paths[tabID] = relocated
+        startWatcher(tabID: tabID, transcriptPath: relocated)
+        read(tabID: tabID)
     }
 
     /// Subagents spawned by a tab's transcript.
@@ -213,9 +236,11 @@ final class TranscriptStore {
         // only happens when a sidecar is actually missing.
         var scanned: [String: SubagentDescriptor]?
 
-        return paths.map { subagentPath in
+        return paths.compactMap { subagentPath in
+            // Listed but gone by now, which is what a move of `subagents/` looks
+            // like mid-read. Parsing nothing would show it as not started.
+            guard let data = FileManager.default.contents(atPath: subagentPath) else { return nil }
             let id = Self.subagentID(forPath: subagentPath)
-            let data = FileManager.default.contents(atPath: subagentPath) ?? Data()
             let transcript = TranscriptParser.parse(data, includeSidechain: true)
 
             var descriptor = SubagentMetadataReader.read(forSubagentPath: subagentPath)
@@ -276,8 +301,13 @@ final class TranscriptStore {
     /// window. One read per tab at a time: the parse can outlast the debounce,
     /// and queuing them would spend the whole gain re-parsing stale bytes.
     private func read(tabID: UUID) {
-        guard let path = paths[tabID], !inFlight.contains(tabID) else { return }
-        inFlight.insert(tabID)
+        guard let path = paths[tabID] else { return }
+        guard inFlight[tabID] == nil else {
+            rereadRequested.insert(tabID)
+            return
+        }
+        let token = UUID()
+        inFlight[tabID] = token
         let referenceCache = referenceCaches[tabID] ?? ConversationReferenceScanner.Cache()
         Task.detached(priority: .utility) {
             let parsed = FileManager.default.contents(atPath: path).map { data in
@@ -297,10 +327,11 @@ final class TranscriptStore {
             await MainActor.run { [weak self] in
                 guard let self else { return }
                 defer { self.didRead?(tabID) }
-                self.inFlight.remove(tabID)
-                // The tab may have been dropped, or re-pointed at a different
-                // session file, while this parse was in flight.
-                guard self.paths[tabID] == path else { return }
+                guard self.inFlight[tabID] == token else { return }
+                self.inFlight.removeValue(forKey: tabID)
+                let reread = self.rereadRequested.remove(tabID) != nil
+                // A re-point below may already have started the next read.
+                defer { if reread, self.inFlight[tabID] == nil { self.read(tabID: tabID) } }
                 guard let parsed else {
                     self.repointIfRelocated(tabID: tabID, from: path)
                     return
