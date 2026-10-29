@@ -188,6 +188,11 @@ public final class ScrcpyServerLaunch: @unchecked Sendable {
         lock.withLock { outputTail.text }
     }
 
+    /// Turns the device's auto-rotate setting off, as locking rotation from its quick settings does.
+    public func lockAutoRotate() async throws {
+        _ = try await adb(["shell", "settings", "put", "system", "accelerometer_rotation", "0"], timeout: forwardTimeout)
+    }
+
     /// Returns once the recorded forward is gone, including one an earlier `terminate()` is still
     /// removing. A forward that `start()` is still creating is removed by `start()` itself. The
     /// server's shell gets SIGKILL on a background queue if it outlives SIGTERM.

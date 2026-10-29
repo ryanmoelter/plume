@@ -41,6 +41,7 @@ public actor ScrcpyConnection {
     private var controlSocket: LocalSocket?
     private var tasks: [Task<Void, Never>] = []
     private var closed = false
+    private var hasLockedAutoRotate = false
 
     public init(adbURL: URL, serial: String, jarURL: URL, version: String, videoLimits: ScrcpyVideoLimits = .none) {
         launch = ScrcpyServerLaunch(adbURL: adbURL, serial: serial, jarURL: jarURL, version: version, videoLimits: videoLimits)
@@ -94,6 +95,16 @@ public actor ScrcpyConnection {
             send(.resetVideo)
         }
         return stream
+    }
+
+    /// Toggles the device between portrait and landscape. scrcpy-server's `rotateDevice` turns
+    /// auto-rotate back on right after the turn if it was on, and the sensor then undoes the turn,
+    /// so auto-rotate is locked first. A failed lock still sends the rotate.
+    public func rotate() async {
+        if !hasLockedAutoRotate {
+            hasLockedAutoRotate = (try? await launch.lockAutoRotate()) != nil
+        }
+        send(.rotateDevice)
     }
 
     public nonisolated func send(_ message: ScrcpyControlMessage) {

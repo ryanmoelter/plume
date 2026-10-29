@@ -101,7 +101,7 @@ nonisolated final class PhysicalDeviceConnection: DeviceConnecting {
 
     /// scrcpy can only toggle between portrait and landscape, so every request flips the device.
     func rotate(to rotation: DeviceRotation) async throws {
-        connection?.send(.rotateDevice)
+        await connection?.rotate()
     }
 
     /// A physical device is never powered off from Plume.
