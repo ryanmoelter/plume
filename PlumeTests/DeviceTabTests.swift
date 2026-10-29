@@ -101,6 +101,33 @@ struct DeviceTabTests {
         #expect(!TaskTab(kind: .device, orderIndex: 0).isEmulatorTab)
     }
 
+    @Test func choosingARemoteDevicePersistsItsReservationAndDetails() {
+        let tab = TaskTab(kind: .device, orderIndex: 0)
+        let expiry = Date(timeIntervalSince1970: 1_800_000_000)
+        tab.setDevice(.remote(reservationID: "3f3jpxdv5lw6y"), displayName: "Pixel 6")
+        tab.setRemoteDetails(RemoteDeviceDetails(projectID: "notability-2475c", model: "oriole/31", expiresAt: expiry))
+
+        #expect(tab.devicePlatformRaw == "androidRemote")
+        #expect(tab.deviceIdentifier == "3f3jpxdv5lw6y")
+        #expect(tab.deviceTarget == .remote(reservationID: "3f3jpxdv5lw6y"))
+        #expect(tab.remoteDetails == RemoteDeviceDetails(projectID: "notability-2475c", model: "oriole/31", expiresAt: expiry))
+        #expect(tab.isRemoteDeviceTab)
+        #expect(!tab.isEmulatorTab)
+        #expect(tab.deviceTarget?.isPhysical == true)
+    }
+
+    @Test func choosingAnotherKindOfDeviceForgetsRemoteDetails() {
+        let tab = TaskTab(kind: .device, orderIndex: 0)
+        tab.setDevice(.remote(reservationID: "r1"), displayName: "Pixel 6")
+        tab.setRemoteDetails(RemoteDeviceDetails(projectID: "p", model: "oriole/31"))
+
+        tab.setDevice(.physical(serial: "S1"), displayName: "Pixel")
+
+        #expect(tab.remoteDetails == nil)
+        #expect(tab.remoteDeviceModel == nil)
+        #expect(!tab.isRemoteDeviceTab)
+    }
+
     @Test func existingEmulatorTabsKeepTheirTarget() {
         let tab = TaskTab(kind: .device, orderIndex: 0)
         tab.devicePlatformRaw = "androidEmulator"
