@@ -45,7 +45,11 @@ struct InlineChips {
     var pad: CGFloat
     var fill: Color
     var references: ReferenceChipDrawing?
-    var verticalPad: CGFloat = 1.5
+    /// How far a chip reaches past its glyphs' ascent and descent. It
+    /// stops short of the line above and below, leaving `lineGap` between
+    /// chips on adjacent lines, so the padding only spends the line spacing.
+    var verticalPad: CGFloat = 2
+    var lineGap: CGFloat = 1
     var radius: CGFloat = 4
 
     enum Chip: Equatable {
@@ -71,7 +75,9 @@ struct InlineChips {
 
     func placements(in layout: Text.Layout) -> [Placement] {
         var placements: [Placement] = []
-        for (lineIndex, line) in layout.enumerated() {
+        let lines = Array(layout)
+        for (lineIndex, line) in lines.enumerated() {
+            let reach = verticalReach(of: lineIndex, in: lines)
             var index = line.startIndex
             while index < line.endIndex {
                 guard let chip = chip(of: line[index]) else {
@@ -82,7 +88,7 @@ struct InlineChips {
                 while next < line.endIndex, self.chip(of: line[next]) == chip {
                     next += 1
                 }
-                let rect = rect(from: line[index], through: line[next - 1], opensLine: index == line.startIndex, in: line)
+                let rect = rect(of: line[index..<next], opensLine: index == line.startIndex, in: line, reach: reach)
                 var icons: ReferenceChipMetrics.IconRects?
                 if case .reference(_, let url) = chip, let references,
                    let placeholder = (index..<next).first(where: { line[$0][ReferenceChipAttribute.self]?.isPlaceholder == true }) {
@@ -154,19 +160,34 @@ struct InlineChips {
         return CGRect(x: square.midX - size.width / 2, y: square.midY - size.height / 2, width: size.width, height: size.height)
     }
 
+    /// The lowest top and highest bottom a chip on line `index` may reach.
+    /// A line with no neighbor on a side takes the whole `verticalPad`,
+    /// which `InlineChipRenderer.displayPadding` makes room for.
+    private func verticalReach(of index: Int, in lines: [Text.Layout.Line]) -> (top: CGFloat, bottom: CGFloat) {
+        func top(_ line: Text.Layout.Line) -> CGFloat { line.typographicBounds.origin.y - line.typographicBounds.ascent }
+        func bottom(_ line: Text.Layout.Line) -> CGFloat { line.typographicBounds.origin.y + line.typographicBounds.descent }
+        let line = lines[index]
+        let above = index > 0 ? max(0, (top(line) - bottom(lines[index - 1]) - lineGap) / 2) : verticalPad
+        let below = index + 1 < lines.count ? max(0, (top(lines[index + 1]) - bottom(line) - lineGap) / 2) : verticalPad
+        return (top(line) - above, bottom(line) + below)
+    }
+
+    /// Spans every run of the chip on this line, so a chip whose placeholder
+    /// falls back to another font is as tall as its title.
     private func rect(
-        from first: Text.Layout.Run,
-        through last: Text.Layout.Run,
+        of runs: Text.Layout.Line.SubSequence,
         opensLine: Bool,
-        in line: Text.Layout.Line
+        in line: Text.Layout.Line,
+        reach: (top: CGFloat, bottom: CGFloat)
     ) -> CGRect {
-        let firstBounds = first.typographicBounds
-        let lastBounds = last.typographicBounds
-        let lineBounds = line.typographicBounds
+        let firstBounds = runs[runs.startIndex].typographicBounds
+        let lastBounds = runs[runs.index(before: runs.endIndex)].typographicBounds
         let leading = firstBounds.origin.x - (opensLine ? 0 : pad)
         let trailing = lastBounds.origin.x + lastBounds.width
-        let top = max(firstBounds.origin.y - firstBounds.ascent - verticalPad, lineBounds.origin.y - lineBounds.ascent)
-        let bottom = min(firstBounds.origin.y + firstBounds.descent + verticalPad, lineBounds.origin.y + lineBounds.descent)
+        let ascent = runs.map { $0.typographicBounds.origin.y - $0.typographicBounds.ascent }.min() ?? firstBounds.origin.y
+        let descent = runs.map { $0.typographicBounds.origin.y + $0.typographicBounds.descent }.max() ?? firstBounds.origin.y
+        let top = max(ascent - verticalPad, reach.top)
+        let bottom = min(descent + verticalPad, reach.bottom)
         return CGRect(x: leading, y: top, width: trailing - leading, height: bottom - top)
     }
 }
@@ -177,6 +198,10 @@ struct InlineChips {
 struct InlineChipRenderer: TextRenderer {
     var chips: InlineChips
     var reveal: WordReveal?
+
+    var displayPadding: EdgeInsets {
+        EdgeInsets(top: chips.verticalPad, leading: 0, bottom: chips.verticalPad, trailing: 0)
+    }
 
     func draw(layout: Text.Layout, in context: inout GraphicsContext) {
         chips.draw(layout: layout, reveal: reveal, in: &context)

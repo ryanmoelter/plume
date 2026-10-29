@@ -75,6 +75,31 @@ struct ReferenceChipIconPlacementTests {
         #expect(abs(blue.midY - placement.rect.midY) < 1)
     }
 
+    /// The prose face lacks the placeholder's narrow space, so its fallback
+    /// run is shorter than the title's. The chip has to cover the title.
+    @Test(arguments: [false, true])
+    func aChatChipPadsItsTitleWithoutTouchingTheNextLines(_ isProse: Bool) throws {
+        let fontSize: CGFloat = 13
+        let url = "https://github.com/o/r/pull/7"
+        let styled = MarkdownCache.chippedInline(Array(repeating: "[\u{202F}Fix it](\(url))", count: 12).joined(separator: " "), fontSize: fontSize)
+        let chips = InlineChips(pad: styled.pad, fill: .clear)
+        let recorder = PlacementRecorder(chips: chips)
+        let font: Font = isProse ? .chatProse(size: fontSize, relativeTo: .body) : .system(size: fontSize)
+        let renderer = ImageRenderer(content: styled.text().font(font).lineSpacing(fontSize * 0.22).textRenderer(recorder).frame(width: 160))
+        _ = renderer.cgImage
+        let placements = recorder.box.placements
+        let glyphs = recorder.box.glyphBounds
+        #expect(Set(placements.map(\.line)).count > 2)
+        for placement in placements {
+            let ink = try #require(glyphs[placement.line])
+            #expect(placement.rect.minY <= ink.top - 1)
+            #expect(placement.rect.maxY >= ink.bottom + 1)
+        }
+        for (upper, lower) in zip(placements, placements.dropFirst()) where lower.line == upper.line + 1 {
+            #expect(upper.rect.maxY + chips.lineGap <= lower.rect.minY + 0.01)
+        }
+    }
+
     @Test func aChatFileChipHasNoLogo() throws {
         let url = URL(fileURLWithPath: "/tmp/notes.md")
         let styled = MarkdownCache.chippedInline("See [\u{202F}notes.md](\(url.absoluteString)) now", fontSize: 13)
@@ -179,6 +204,8 @@ struct ReferenceChipIconPlacementTests {
 
 private final class PlacementBox {
     var placements: [InlineChips.Placement] = []
+    /// Per line, the highest ascent and lowest descent of the chips' runs.
+    var glyphBounds: [Int: (top: CGFloat, bottom: CGFloat)] = [:]
 }
 
 /// Keeps the last draw's placements: SwiftUI draws once to size the `Text`
@@ -189,6 +216,14 @@ private struct PlacementRecorder: TextRenderer {
 
     func draw(layout: Text.Layout, in ctx: inout GraphicsContext) {
         box.placements = chips.placements(in: layout)
+        box.glyphBounds = [:]
+        for (index, line) in layout.enumerated() {
+            for run in line where run[ReferenceChipAttribute.self] != nil {
+                let bounds = run.typographicBounds
+                let current = box.glyphBounds[index] ?? (.infinity, -.infinity)
+                box.glyphBounds[index] = (min(current.top, bounds.origin.y - bounds.ascent), max(current.bottom, bounds.origin.y + bounds.descent))
+            }
+        }
         InlineChipRenderer(chips: chips).draw(layout: layout, in: &ctx)
     }
 }
