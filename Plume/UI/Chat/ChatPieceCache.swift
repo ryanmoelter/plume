@@ -109,7 +109,7 @@ final class ChatPieceCache {
                 next[markdown] = blocks
                 guard markdown.contains("](") else { return blocks }
 
-                let targets = nextTargets[markdown] ?? linkTargets[markdown] ?? Self.targets(in: markdown, base: linkBase)
+                let targets = nextTargets[markdown] ?? linkTargets[markdown] ?? Self.targets(in: blocks, base: linkBase)
                 nextTargets[markdown] = targets
                 foundTargets.formUnion(targets.compactMap { $0 })
                 let titles = targets.map { $0.flatMap(referenceTitle) }
@@ -144,11 +144,16 @@ final class ChatPieceCache {
         return pieces
     }
 
-    private static func targets(in markdown: String, base: URL?) -> [ReferenceTarget?] {
-        let ns = markdown as NSString
-        return MarkdownHighlighter.linkRanges(in: markdown).filter { !$0.isImage }.map { link in
-            ReferenceChipText.url(forDestination: ns.substring(with: link.destination))
-                .flatMap { ReferenceTarget.classify($0, base: base) }
+    /// Scanned per block, so a fence's backtick can't pair with an inline
+    /// one after it and hide the links between them as code.
+    private static func targets(in blocks: [MarkdownBlock.Parsed], base: URL?) -> [ReferenceTarget?] {
+        blocks.flatMap { entry -> [ReferenceTarget?] in
+            if case .codeBlock = entry.block { return [] }
+            let ns = entry.source as NSString
+            return MarkdownHighlighter.linkRanges(in: entry.source).filter { !$0.isImage }.map { link in
+                ReferenceChipText.url(forDestination: ns.substring(with: link.destination))
+                    .flatMap { ReferenceTarget.classify($0, base: base) }
+            }
         }
     }
 }

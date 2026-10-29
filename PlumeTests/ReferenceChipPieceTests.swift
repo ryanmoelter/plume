@@ -50,6 +50,17 @@ struct ReferenceChipPieceTests {
         #expect(cache.referenceTargets == [.linear(identifier: "PLUME-1")])
     }
 
+    @Test func aLinkAfterAFencedBlockIsNotReadAsInlineCode() {
+        let cache = ChatPieceCache()
+        let pieces = build(
+            cache,
+            "```\nlet x = 1\n```\n\nSee [PLUME-1](\(issueURL)) and `x`.",
+            titles: [.linear(identifier: "PLUME-1"): "Add chips"]
+        )
+        #expect(cache.referenceTargets == [.linear(identifier: "PLUME-1")])
+        #expect(paragraphText(pieces) == "See [\(chip)Add chips](\(issueURL)) and `x`.")
+    }
+
     @Test func aResolvedReferenceIsRewrittenAndCopiesAsWritten() throws {
         let text = "See [PLUME-1](\(issueURL))."
         let pieces = build(ChatPieceCache(), text, titles: [.linear(identifier: "PLUME-1"): "Add chips"])
