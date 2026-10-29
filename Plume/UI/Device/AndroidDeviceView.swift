@@ -285,9 +285,12 @@ struct AndroidDeviceView: View, ThemedView {
             }
             HStack {
                 Spacer()
-                Button(session.state == .reserving ? "Cancel" : "Change Device…") { session.changeDevice() }
-                    .buttonStyle(.bordered)
-                    .plumeID(AccessibilityID.deviceChangeDeviceButton)
+                // A live reservation is ended only through End Reservation, which confirms first.
+                if session.state == .reserving || !session.hasLiveReservation {
+                    Button(session.state == .reserving ? "Cancel" : "Change Device…") { session.changeDevice() }
+                        .buttonStyle(.bordered)
+                        .plumeID(AccessibilityID.deviceChangeDeviceButton)
+                }
                 actions()
                     .buttonStyle(.borderedProminent)
             }
