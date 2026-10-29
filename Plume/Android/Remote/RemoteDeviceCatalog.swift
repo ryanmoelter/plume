@@ -16,6 +16,8 @@ final class RemoteDeviceCatalog {
         case signedOut
         case signedIn(account: String)
         case failed(String)
+        /// Signed in, but the project list couldn't be read.
+        case projectsFailed(account: String, message: String)
     }
 
     private(set) var availability: Availability = .loading
@@ -33,6 +35,9 @@ final class RemoteDeviceCatalog {
     /// can't overwrite the current one.
     @ObservationIgnored private var modelsLoad = 0
     @ObservationIgnored private var hasLoaded = false
+    /// Only the latest `load` may publish, so a slow check can't overwrite a newer one.
+    @ObservationIgnored private var loadGeneration = 0
+    @ObservationIgnored private var isLoading = false
 
     init(cli: AndroidCLI = .shared) {
         self.cli = cli
@@ -71,9 +76,15 @@ final class RemoteDeviceCatalog {
     }
 
     func load(refresh: Bool) async {
+        guard refresh || !isLoading else { return }
         hasLoaded = true
+        loadGeneration += 1
+        let generation = loadGeneration
+        isLoading = true
         availability = .loading
-        guard let path = await locate(refresh) else {
+        defer { if generation == loadGeneration { isLoading = false } }
+        guard let path = await locate(refresh), generation == loadGeneration else {
+            guard generation == loadGeneration else { return }
             cliPath = nil
             availability = .cliMissing
             return
@@ -81,25 +92,25 @@ final class RemoteDeviceCatalog {
         cliPath = path.path
         do {
             let status = try await cli.run(["auth", "status"])
+            guard generation == loadGeneration else { return }
             guard let account = RemoteDeviceParsers.signedInAccount(status.output) else {
-                guard status.succeeded else {
-                    availability = .failed(status.failureMessage)
-                    projects = []
-                    return
-                }
-                availability = .signedOut
+                availability = status.succeeded ? .signedOut : .failed(status.failureMessage)
                 projects = []
                 return
             }
             let listing = try await cli.run(["device", "remote", "projects"])
+            guard generation == loadGeneration else { return }
             guard listing.succeeded else {
-                availability = .failed(listing.failureMessage)
+                availability = .projectsFailed(account: account, message: listing.failureMessage)
+                projects = []
                 return
             }
             projects = RemoteDeviceParsers.projects(listing.stdout)
             availability = .signedIn(account: account)
         } catch {
+            guard generation == loadGeneration else { return }
             availability = .failed(error.localizedDescription)
+            projects = []
         }
     }
 

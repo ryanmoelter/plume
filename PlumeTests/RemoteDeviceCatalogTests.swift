@@ -55,6 +55,17 @@ struct RemoteDeviceCatalogTests {
         #expect(catalog.models.isEmpty)
     }
 
+    @Test func aFailedProjectListKeepsTheAccountAndClearsProjects() async {
+        let catalog = await signedInCatalog()
+        #expect(catalog.projects == ["p", "q"])
+
+        cli.projectsFail.value = true
+        await catalog.load(refresh: true)
+
+        #expect(catalog.availability == .projectsFailed(account: "Ryan <r@example.com>", message: "Error: HTTP connect timed out"))
+        #expect(catalog.projects.isEmpty)
+    }
+
     @Test func aMissingToolIsLookedForAgain() async {
         let found = LockedValue<URL?>(nil)
         let lookups = LockedValue(0)
@@ -83,6 +94,7 @@ private func waitUntilSoon(_ condition: () -> Bool) async {
 /// then answers with one model whose codename is the project.
 nonisolated final class GatedModelsCLI: AndroidCLIRunning, @unchecked Sendable {
     let signedIn = LockedValue(true)
+    let projectsFail = LockedValue(false)
     private let opened = LockedValue<Set<String>>([])
     private let startedProjects = LockedValue<[String]>([])
 
@@ -97,6 +109,7 @@ nonisolated final class GatedModelsCLI: AndroidCLIRunning, @unchecked Sendable {
         case ["auth", "status"]:
             return AndroidCLIResult(status: 0, stdout: signedIn.value ? "Logged in as Ryan <r@example.com>\n" : "You are not logged in.\n", stderr: "")
         case ["device", "remote", "projects"]:
+            if projectsFail.value { return AndroidCLIResult(status: 1, stdout: "", stderr: "Error: HTTP connect timed out\n") }
             return AndroidCLIResult(status: 0, stdout: "Projects ready for streaming:\n  p\n  q\n", stderr: "")
         case ["device", "remote", "models"]:
             let project = String(arguments.last?.dropFirst("--project=".count) ?? "")

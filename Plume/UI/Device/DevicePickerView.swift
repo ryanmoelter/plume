@@ -35,6 +35,9 @@ struct DevicePickerView: View {
             discovery.release()
             physicalDiscovery.release()
         }
+        .onChange(of: remoteCatalog.selectedProject) {
+            Task { await remoteCatalog.loadModels() }
+        }
         .task { await load(refresh: false) }
         .task {
             await remoteCatalog.loadIfNeeded()
@@ -108,9 +111,10 @@ struct DevicePickerView: View {
                 remotePlaceholder("Reserve a device from Google's lab with the android command-line tool. Install it, then sign in from Settings ▸ Integrations.")
             case .signedOut:
                 remotePlaceholder("Sign in to the android command-line tool in Settings ▸ Integrations to reserve a remote device.")
-            case .failed(let message):
+            case .failed(let message), .projectsFailed(_, let message):
                 remotePlaceholder(message)
                 Button("Try Again") { Task { await remoteCatalog.load(refresh: true) } }
+                    .plumeID(AccessibilityID.devicePickerRemoteRetryButton)
                     .padding(.horizontal, 10)
             case .signedIn:
                 remoteModels
@@ -125,10 +129,7 @@ struct DevicePickerView: View {
                 if remoteCatalog.projects.count > 1 {
                     Picker("Project", selection: Binding(
                         get: { project },
-                        set: { newValue in
-                            remoteCatalog.selectedProject = newValue
-                            Task { await remoteCatalog.loadModels() }
-                        }
+                        set: { remoteCatalog.selectedProject = $0 }
                     )) {
                         ForEach(remoteCatalog.projects, id: \.self) { Text($0).tag($0) }
                     }

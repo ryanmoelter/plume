@@ -181,6 +181,8 @@ enum AccessibilityID {
     static let remoteDevicesSignInButton = "remote-devices-sign-in-button"
     static let remoteDevicesSignOutButton = "remote-devices-sign-out-button"
     static let remoteDevicesRefreshButton = "remote-devices-refresh-button"
+    static let remoteDevicesProjectsRefreshButton = "remote-devices-projects-refresh-button"
+    static let devicePickerRemoteRetryButton = "device-picker-remote-retry-button"
     static let remoteDevicesProjectPicker = "remote-devices-project-picker"
 
     // MARK: Composer

@@ -42,15 +42,17 @@ struct RemoteDevicesSettingsSection: View {
                     Text("Account")
                     Text(message).foregroundStyle(.secondary)
                 }
-            case .signedIn(let account):
+            case .projectsFailed(let account, let message):
+                accountRow(account)
                 LabeledContent {
-                    Button("Sign Out", action: signOut)
-                        .plumeID(AccessibilityID.remoteDevicesSignOutButton, invoke: signOut)
-                        .disabled(isSigningOut)
+                    Button("Refresh", action: refresh)
+                        .plumeID(AccessibilityID.remoteDevicesProjectsRefreshButton, invoke: refresh)
                 } label: {
-                    Text("Account")
-                    Text(account).foregroundStyle(.secondary)
+                    Text("Project")
+                    Text(message).foregroundStyle(.secondary)
                 }
+            case .signedIn(let account):
+                accountRow(account)
                 projectRow
             }
             if let path = catalog.cliPath {
@@ -58,18 +60,33 @@ struct RemoteDevicesSettingsSection: View {
                     .font(.caption)
             }
         } header: {
-            HStack {
-                Text("Android Device Streaming")
-                Spacer()
-                Button(action: refresh) {
-                    Image(systemName: "arrow.clockwise")
-                }
-                .buttonStyle(.borderless)
-                .help("Check again")
-                .plumeID(AccessibilityID.remoteDevicesRefreshButton, invoke: refresh)
-            }
+            headerRow
         }
         .task { await catalog.loadIfNeeded() }
+    }
+
+    private func accountRow(_ account: String) -> some View {
+        LabeledContent {
+            Button("Sign Out", action: signOut)
+                .plumeID(AccessibilityID.remoteDevicesSignOutButton, invoke: signOut)
+                .disabled(isSigningOut)
+        } label: {
+            Text("Account")
+            Text(account).foregroundStyle(.secondary)
+        }
+    }
+
+    private var headerRow: some View {
+        HStack {
+            Text("Android Device Streaming")
+            Spacer()
+            Button(action: refresh) {
+                Image(systemName: "arrow.clockwise")
+            }
+            .buttonStyle(.borderless)
+            .help("Check again")
+            .plumeID(AccessibilityID.remoteDevicesRefreshButton, invoke: refresh)
+        }
     }
 
     @ViewBuilder
