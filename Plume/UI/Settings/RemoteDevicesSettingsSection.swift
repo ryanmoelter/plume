@@ -31,7 +31,7 @@ struct RemoteDevicesSettingsSection: View {
                         .plumeID(AccessibilityID.remoteDevicesSignInButton, invoke: signIn)
                 } label: {
                     Text("Account")
-                    Text("Not signed in. Signing in opens Terminal, then return here and refresh.")
+                    Text("Not signed in. Signing in opens a terminal task in Plume.")
                         .foregroundStyle(.secondary)
                 }
             case .failed(let message):
@@ -108,7 +108,7 @@ struct RemoteDevicesSettingsSection: View {
     }
 
     private func signIn() {
-        catalog.signInInTerminal()
+        catalog.signIn()
     }
 
     private func signOut() {

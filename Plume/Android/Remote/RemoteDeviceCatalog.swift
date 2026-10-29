@@ -161,14 +161,32 @@ final class RemoteDeviceCatalog {
         loadingModelsProject = nil
     }
 
-    /// `auth login` may open a browser and wait on the terminal, so it runs in Terminal.app.
-    func signInInTerminal() {
+    /// `auth login` may open a browser and wait on the terminal, so it runs in a terminal task.
+    /// The account is checked again once it exits.
+    func signIn() {
         guard let cliPath else { return }
-        TerminalCommandScript.open(
-            prefix: "plume-android-login",
-            command: "\(TerminalCommandScript.shellQuoted(cliPath)) auth login"
-        ) { message in
-            Log.app.error("Couldn't open Terminal: \(message, privacy: .public)")
+        guard let session = CLICommandHandler.shared.openCommandTask(
+            title: "Sign in to Device Streaming",
+            command: "\(shellQuoted(cliPath)) auth login"
+        ) else {
+            Log.app.error("Couldn't sign in to Device Streaming: no Plume window is open")
+            return
+        }
+        reloadWhenExited(session)
+    }
+
+    private func reloadWhenExited(_ session: TerminalSession) {
+        withObservationTracking {
+            _ = session.hasExited
+        } onChange: { [weak self] in
+            Task { @MainActor [weak self] in
+                guard let self else { return }
+                if session.hasExited {
+                    await load(refresh: true)
+                } else {
+                    reloadWhenExited(session)
+                }
+            }
         }
     }
 }
