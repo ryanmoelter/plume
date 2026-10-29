@@ -51,8 +51,20 @@ final class TranscriptStore {
     /// Tabs that asked for a read while one was in flight. That parse may have
     /// taken its bytes before the change that asked, so it reads again once it
     /// lands — otherwise a write, or a move, could go unseen until the next one.
-    private var rereadRequested: Set<UUID> = []
+    private(set) var rereadRequested: Set<UUID> = []
+    /// Tabs re-pointed at a file whose `subagents/` has not followed yet, each
+    /// with a watch for its arrival. Claude Code moves that directory
+    /// separately from the transcript, and until it lands the tab keeps the
+    /// subagents it last published rather than dropping them.
+    private var awaitingSubagents: [UUID: FileWatcher] = [:]
+    /// The part of each tab's Linear evidence that came from its subagents,
+    /// kept so carried subagents keep contributing.
+    private var subagentLinearEvidence: [UUID: [LinearEvidence]] = [:]
     private let projectsDirectory: URL
+
+    /// Awaited by every read between loading a file and parsing it, with the
+    /// path it loaded, so a test can hold a read in flight.
+    var afterLoadingTranscript: (@Sendable (String) async -> Void)?
 
     // This drives visible chat content rather than a sidebar label, so it
     // needs to feel live — much shorter than AgentTitleMonitor's 1s.
@@ -139,9 +151,14 @@ final class TranscriptStore {
         pending.removeValue(forKey: tabID)?.cancel()
         inFlight.removeValue(forKey: tabID)
         rereadRequested.remove(tabID)
+        awaitingSubagents.removeValue(forKey: tabID)?.stop()
+        subagentLinearEvidence.removeValue(forKey: tabID)
         paths.removeValue(forKey: tabID)
         transcripts.removeValue(forKey: tabID)
         subagentTranscripts.removeValue(forKey: tabID)
+        // A new session file, or a closed tab, so no finish recorded for the
+        // old one should decide whether a subagent of the new one lingers.
+        completionTracker.forget(tabID: tabID)
         // Nothing watches this tab now, so a subagent that was working when
         // the watch stopped would otherwise pin the task at working forever.
         statusEngine.setSubagentActivity(tabID: tabID, working: false)
@@ -167,6 +184,9 @@ final class TranscriptStore {
         pending.removeAll()
         inFlight.removeAll()
         rereadRequested.removeAll()
+        for watcher in awaitingSubagents.values { watcher.stop() }
+        awaitingSubagents.removeAll()
+        subagentLinearEvidence.removeAll()
         paths.removeAll()
         transcripts.removeAll()
         for tabID in subagentTranscripts.keys {
@@ -208,7 +228,19 @@ final class TranscriptStore {
         pending.removeValue(forKey: tabID)?.cancel()
         paths[tabID] = relocated
         startWatcher(tabID: tabID, transcriptPath: relocated)
+        awaitSubagents(tabID: tabID, transcriptPath: relocated)
         read(tabID: tabID)
+    }
+
+    private func awaitSubagents(tabID: UUID, transcriptPath: String) {
+        awaitingSubagents.removeValue(forKey: tabID)?.stop()
+        guard !(subagentTranscripts[tabID] ?? []).isEmpty else { return }
+        let directory = SessionJSONLReader.subagentsDirectory(forTranscriptPath: transcriptPath)
+        let watcher = FileWatcher(url: URL(fileURLWithPath: directory), createsFile: false) { [weak self] in
+            self?.scheduleRead(tabID: tabID)
+        }
+        watcher.start()
+        awaitingSubagents[tabID] = watcher
     }
 
     /// Subagents spawned by a tab's transcript.
@@ -266,16 +298,24 @@ final class TranscriptStore {
         }
     }
 
-    private nonisolated static func linearEvidence(
-        transcript: Transcript,
-        subagents: [SubagentTranscript]
-    ) -> [LinearEvidence] {
-        LinearActivityScanner.scan(transcript.messages, subagent: nil) + subagents.flatMap { sub in
+    private nonisolated static func linearEvidence(subagents: [SubagentTranscript]) -> [LinearEvidence] {
+        subagents.flatMap { sub in
             LinearActivityScanner.scan(
                 sub.transcript.messages,
                 subagent: LinearSubagentRef(id: sub.id, label: sub.title)
             )
         }
+    }
+
+    private nonisolated struct ParsedRead {
+        let transcript: Transcript
+        let subagents: [SubagentTranscript]
+        let hasSubagentsDirectory: Bool
+        let backgroundTasks: [BackgroundTaskTracker.Entry]
+        let transcriptEvidence: [LinearEvidence]
+        let subagentEvidence: [LinearEvidence]
+        let references: ConversationReferences
+        let referenceCache: ConversationReferenceScanner.Cache
     }
 
     private nonisolated static func subagentID(forPath path: String) -> String {
@@ -309,19 +349,26 @@ final class TranscriptStore {
         let token = UUID()
         inFlight[tabID] = token
         let referenceCache = referenceCaches[tabID] ?? ConversationReferenceScanner.Cache()
+        let afterLoading = afterLoadingTranscript
         Task.detached(priority: .utility) {
-            let parsed = FileManager.default.contents(atPath: path).map { data in
+            let data = FileManager.default.contents(atPath: path)
+            await afterLoading?(path)
+            let parsed = data.map { data in
                 let transcript = TranscriptParser.parse(data)
                 let subagents = Self.readSubagents(transcriptPath: path, parentData: data)
                 var referenceCache = referenceCache
                 let references = ConversationReferenceScanner.scan(transcript.messages, cache: &referenceCache)
-                return (
-                    transcript,
-                    subagents,
-                    BackgroundTaskScanner.inFlight(parentData: data),
-                    Self.linearEvidence(transcript: transcript, subagents: subagents),
-                    references,
-                    referenceCache
+                return ParsedRead(
+                    transcript: transcript,
+                    subagents: subagents,
+                    hasSubagentsDirectory: FileManager.default.fileExists(
+                        atPath: SessionJSONLReader.subagentsDirectory(forTranscriptPath: path)
+                    ),
+                    backgroundTasks: BackgroundTaskScanner.inFlight(parentData: data),
+                    transcriptEvidence: LinearActivityScanner.scan(transcript.messages, subagent: nil),
+                    subagentEvidence: Self.linearEvidence(subagents: subagents),
+                    references: references,
+                    referenceCache: referenceCache
                 )
             }
             await MainActor.run { [weak self] in
@@ -337,24 +384,31 @@ final class TranscriptStore {
                     return
                 }
                 let previousDirectory = self.transcripts[tabID]?.cwd
-                self.transcripts[tabID] = parsed.0
-                if let cwd = parsed.0.cwd, cwd != previousDirectory {
+                self.transcripts[tabID] = parsed.transcript
+                if let cwd = parsed.transcript.cwd, cwd != previousDirectory {
                     self.onWorkingDirectoryChanged?(tabID, cwd)
                 }
-                self.subagentTranscripts[tabID] = self.settled(parsed.1, tabID: tabID)
+                if parsed.hasSubagentsDirectory || self.awaitingSubagents[tabID] == nil {
+                    self.awaitingSubagents.removeValue(forKey: tabID)?.stop()
+                    self.subagentTranscripts[tabID] = self.settled(parsed.subagents, tabID: tabID)
+                    self.subagentLinearEvidence[tabID] = parsed.subagentEvidence
+                }
                 self.publishSubagentActivity(tabID: tabID, subagents: self.subagentTranscripts[tabID] ?? [])
                 // A tab with nothing behind it has a transcript that is a
                 // record, not a running process, so its tasks stopped with it.
                 self.backgroundTasks.replace(
                     tabID: tabID,
-                    entries: self.isTabLive(tabID) ? parsed.2 : []
+                    entries: self.isTabLive(tabID) ? parsed.backgroundTasks : []
                 )
-                self.linearActivity.replaceActivity(tabID: tabID, evidence: parsed.3)
-                self.linearActivity.replaceMentions(tabID: tabID, identifiers: parsed.4.linearIdentifiers)
-                self.linkedPullRequests.replace(tabID: tabID, references: parsed.4.pullRequests)
-                self.referenceCaches[tabID] = parsed.5
+                self.linearActivity.replaceActivity(
+                    tabID: tabID,
+                    evidence: parsed.transcriptEvidence + (self.subagentLinearEvidence[tabID] ?? [])
+                )
+                self.linearActivity.replaceMentions(tabID: tabID, identifiers: parsed.references.linearIdentifiers)
+                self.linkedPullRequests.replace(tabID: tabID, references: parsed.references.pullRequests)
+                self.referenceCaches[tabID] = parsed.referenceCache
                 self.syncSubagentWatchers(tabID: tabID, transcriptPath: path)
-                if parsed.0.messages.isEmpty {
+                if parsed.transcript.messages.isEmpty {
                     self.repointIfRelocated(tabID: tabID, from: path)
                 }
             }
