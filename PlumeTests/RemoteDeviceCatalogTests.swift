@@ -43,6 +43,19 @@ struct RemoteDeviceCatalogTests {
         #expect(catalog.selectedProject == "q")
     }
 
+    @Test func overlappingLoadsForOneProjectRunModelsOnce() async {
+        let catalog = await signedInCatalog()
+        let first = Task { await catalog.loadModels() }
+        await waitUntilSoon { cli.started.contains("p") }
+
+        await catalog.loadModels()
+        cli.open("p")
+        await first.value
+
+        #expect(cli.started == ["p"])
+        #expect(catalog.models.map(\.id) == ["p/31"])
+    }
+
     @Test func signingOutClearsTheModels() async {
         cli.open("p")
         let catalog = await signedInCatalog()

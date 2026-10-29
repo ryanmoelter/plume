@@ -31,6 +31,8 @@ final class RemoteDeviceCatalog {
     @ObservationIgnored private let settings: AppSettings
     @ObservationIgnored private let locate: (_ refresh: Bool) async -> URL?
     @ObservationIgnored private var modelsProject: String?
+    /// The picker asks both when it appears and when the project resolves, which is one load.
+    @ObservationIgnored private var loadingModelsProject: String?
     /// Only the latest `loadModels` may publish, so a slow load for a project no longer chosen
     /// can't overwrite the current one.
     @ObservationIgnored private var modelsLoad = 0
@@ -117,9 +119,11 @@ final class RemoteDeviceCatalog {
     func loadModels(refresh: Bool = false) async {
         guard let project = selectedProject else { return }
         guard refresh || modelsProject != project || models.isEmpty else { return }
+        guard refresh || loadingModelsProject != project else { return }
         modelsLoad += 1
         let load = modelsLoad
         isLoadingModels = true
+        loadingModelsProject = project
         let outcome: Result<AndroidCLIResult, Error>
         do {
             outcome = .success(try await cli.run(["device", "remote", "models", "--project=\(project)"]))
@@ -128,6 +132,7 @@ final class RemoteDeviceCatalog {
         }
         guard load == modelsLoad else { return }
         isLoadingModels = false
+        loadingModelsProject = nil
         guard project == selectedProject else { return }
         switch outcome {
         case .success(let result) where result.succeeded:
@@ -153,6 +158,7 @@ final class RemoteDeviceCatalog {
         modelsProject = nil
         modelsError = nil
         isLoadingModels = false
+        loadingModelsProject = nil
     }
 
     /// `auth login` may open a browser and wait on the terminal, so it runs in Terminal.app.
