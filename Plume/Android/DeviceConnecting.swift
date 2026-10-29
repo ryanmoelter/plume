@@ -2,17 +2,21 @@ import CoreGraphics
 import CoreVideo
 import Foundation
 import IOSurface
+import ScrcpyControl
 
 /// The device a tab shows, as persisted on the tab.
 nonisolated enum DeviceTarget: Hashable, Sendable {
     case emulator(avdID: String)
     case physical(serial: String)
+    /// The adb serial is only known once connected, so it is never persisted.
+    case remote(reservationID: String)
 
     /// Tabs from before physical devices carry an AVD id and may lack a platform.
     init?(platform: DevicePlatform?, identifier: String?) {
         guard let identifier, !identifier.isEmpty else { return nil }
         switch platform {
         case .androidPhysical: self = .physical(serial: identifier)
+        case .androidRemote: self = .remote(reservationID: identifier)
         case .androidEmulator, nil: self = .emulator(avdID: identifier)
         }
     }
@@ -21,6 +25,7 @@ nonisolated enum DeviceTarget: Hashable, Sendable {
         switch self {
         case .emulator: .androidEmulator
         case .physical: .androidPhysical
+        case .remote: .androidRemote
         }
     }
 
@@ -28,16 +33,26 @@ nonisolated enum DeviceTarget: Hashable, Sendable {
         switch self {
         case .emulator(let avdID): avdID
         case .physical(let serial): serial
+        case .remote(let reservationID): reservationID
         }
     }
 
-    var isPhysical: Bool { platform == .androidPhysical }
+    /// A remote device is a physical phone too, mirrored the same way.
+    var isPhysical: Bool { platform != .androidEmulator }
+}
+
+/// What a remote tab persists beside its reservation id.
+nonisolated struct RemoteDeviceDetails: Hashable, Sendable {
+    var projectID: String
+    /// `codename/api`.
+    var model: String?
+    var expiresAt: Date?
 }
 
 /// What a session connects to once its target has been found.
 nonisolated enum ResolvedDevice: Sendable {
     case emulator(RunningEmulator)
-    case physical(serial: String, adbURL: URL)
+    case physical(serial: String, adbURL: URL, videoLimits: ScrcpyVideoLimits = .none)
 }
 
 nonisolated struct DeviceFrame: @unchecked Sendable {
@@ -107,6 +122,9 @@ nonisolated protocol DeviceConnecting: AnyObject, Sendable {
     func send(_ input: DeviceInput)
     func press(_ button: DeviceButton, phase: DeviceKeyPhase)
     func rotate(to rotation: DeviceRotation) async throws
+    /// Nil when the device has no such setting or it can't be read.
+    func autoRotate() async -> Bool?
+    func setAutoRotate(_ enabled: Bool) async -> Bool
     func shutDown() async throws
     func close() async
     /// Starts releasing anything that would outlive the app, without waiting, so a quit right after

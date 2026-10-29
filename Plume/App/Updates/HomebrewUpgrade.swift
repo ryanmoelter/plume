@@ -6,8 +6,6 @@ import os
 /// kill a child process, and its `launchctl` step for the sleep helper can
 /// ask for a sudo password that only a visible terminal can answer.
 enum HomebrewUpgrade {
-    private static let terminalBundleID = "com.apple.Terminal"
-
     /// Set when the user agrees to stop working agents for the upgrade, so
     /// brew's quit skips the second confirmation, which could sit unseen
     /// behind Terminal while brew waits. Expires in case the upgrade fails
@@ -21,27 +19,19 @@ enum HomebrewUpgrade {
         return Date().timeIntervalSince(quitConfirmedAt) < quitConfirmationLifetime
     }
 
-    /// The `.command` script: update brew's taps, upgrade, then reopen Plume,
+    /// The upgrade command: update brew's taps, upgrade, then reopen Plume,
     /// since brew quits it and nothing else relaunches it. The explicit
     /// `brew update` matters because brew skips its own auto-update when one
     /// ran recently, which can leave the tap behind the appcast.
-    static func script(brewPath: String, bundleID: String) -> String {
-        """
-        #!/bin/sh
-        rm -f "$0"
-        \(shellQuoted(brewPath)) update && \(shellQuoted(brewPath)) upgrade --cask ryanmoelter/tap/plume && open -b \(shellQuoted(bundleID))
-
-        """
+    static func command(brewPath: String, bundleID: String) -> String {
+        let brew = TerminalCommandScript.shellQuoted(brewPath)
+        return "\(brew) update && \(brew) upgrade --cask ryanmoelter/tap/plume && open -b \(TerminalCommandScript.shellQuoted(bundleID))"
     }
 
     /// Falls back to a bare `brew`, found on the login shell's PATH, when the
     /// install source was overridden on a machine with no detected Caskroom.
     static func brewPath(homebrewPrefix: URL?) -> String {
         homebrewPrefix?.appendingPathComponent("bin/brew").path ?? "brew"
-    }
-
-    static func shellQuoted(_ value: String) -> String {
-        "'" + value.replacingOccurrences(of: "'", with: "'\\''") + "'"
     }
 
     @MainActor
@@ -51,27 +41,11 @@ enum HomebrewUpgrade {
             guard confirmStoppingAgents(count: interrupted) else { return }
             quitConfirmedAt = Date()
         }
-        do {
-            let scriptURL = FileManager.default.temporaryDirectory
-                .appendingPathComponent("plume-upgrade-\(UUID().uuidString).command")
-            let contents = script(
-                brewPath: brewPath(homebrewPrefix: homebrewPrefix),
-                bundleID: Bundle.main.bundleIdentifier ?? "com.ryanmoelter.Plume"
-            )
-            try contents.write(to: scriptURL, atomically: true, encoding: .utf8)
-            try FileManager.default.setAttributes([.posixPermissions: 0o755], ofItemAtPath: scriptURL.path)
-
-            guard let terminalURL = NSWorkspace.shared.urlForApplication(withBundleIdentifier: terminalBundleID) else {
-                presentFailure("Terminal.app wasn't found.")
-                return
-            }
-            NSWorkspace.shared.open([scriptURL], withApplicationAt: terminalURL, configuration: NSWorkspace.OpenConfiguration()) { @Sendable _, error in
-                guard let error else { return }
-                Task { @MainActor in presentFailure(error.localizedDescription) }
-            }
-        } catch {
-            presentFailure(error.localizedDescription)
-        }
+        let upgrade = command(
+            brewPath: brewPath(homebrewPrefix: homebrewPrefix),
+            bundleID: Bundle.main.bundleIdentifier ?? "com.ryanmoelter.Plume"
+        )
+        TerminalCommandScript.open(prefix: "plume-upgrade", command: upgrade, onFailure: presentFailure)
     }
 
     @MainActor

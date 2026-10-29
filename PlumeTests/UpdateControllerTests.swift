@@ -98,7 +98,9 @@ struct UpdateControllerTests {
     }
 
     @Test func homebrewUpgradeScriptUpdatesUpgradesThenReopensPlume() {
-        let script = HomebrewUpgrade.script(brewPath: "/opt/homebrew/bin/brew", bundleID: "com.ryanmoelter.Plume")
+        let script = TerminalCommandScript.script(
+            command: HomebrewUpgrade.command(brewPath: "/opt/homebrew/bin/brew", bundleID: "com.ryanmoelter.Plume")
+        )
         #expect(script.hasPrefix("#!/bin/sh\n"))
         #expect(script.contains("'/opt/homebrew/bin/brew' update && '/opt/homebrew/bin/brew' upgrade --cask ryanmoelter/tap/plume && open -b 'com.ryanmoelter.Plume'"))
     }
@@ -109,6 +111,6 @@ struct UpdateControllerTests {
     }
 
     @Test func shellQuotingEscapesSingleQuotes() {
-        #expect(HomebrewUpgrade.shellQuoted("it's") == "'it'\\''s'")
+        #expect(TerminalCommandScript.shellQuoted("it's") == "'it'\\''s'")
     }
 }

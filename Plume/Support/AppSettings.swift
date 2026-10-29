@@ -22,6 +22,7 @@ final class AppSettings {
         static let composerSendKeyRaw = "composerSendKeyRaw"
         static let escapeInterruptsTurn = "escapeInterruptsTurn"
         static let keepsPlumeShortcutsOnMac = "keepsPlumeShortcutsOnMac"
+        static let recentRemoteDeviceModels = "recentRemoteDeviceModels"
         static let queuedMessageDeliveryRaw = "queuedMessageDeliveryRaw"
         static let defaultAgentTransportRaw = "defaultAgentTransportRaw"
         static let defaultPermissionModeRaw = "defaultPermissionModeRaw"
@@ -67,6 +68,8 @@ final class AppSettings {
         static let hasPromptedForFullDiskAccess = "hasPromptedForFullDiskAccess"
         static let updateInstallSourceOverrideRaw = "updateInstallSourceOverrideRaw"
         static let automaticallyChecksForUpdates = "automaticallyChecksForUpdates"
+        static let remoteDeviceProjectID = "remoteDeviceProjectID"
+        static let remoteDeviceSignInTaskID = "remoteDeviceSignInTaskID"
     }
 
     /// Effort a tab starts at when it has never chosen one. The CLI reports
@@ -136,6 +139,7 @@ final class AppSettings {
         self.keepsPlumeShortcutsOnMac = defaults.object(forKey: Key.keepsPlumeShortcutsOnMac) == nil
             ? true
             : defaults.bool(forKey: Key.keepsPlumeShortcutsOnMac)
+        self.recentRemoteDeviceModels = defaults.stringArray(forKey: Key.recentRemoteDeviceModels) ?? []
         self.queuedMessageDelivery = defaults.string(forKey: Key.queuedMessageDeliveryRaw)
             .flatMap(QueuedMessageDelivery.init(rawValue:)) ?? .endOfTurn
 
@@ -173,6 +177,8 @@ final class AppSettings {
             defaults.set(initial ?? Self.systemAccentSentinel, forKey: Key.accentPaletteSlot)
         }
 
+        self.remoteDeviceProjectID = defaults.string(forKey: Key.remoteDeviceProjectID)
+        self.remoteDeviceSignInTaskID = defaults.string(forKey: Key.remoteDeviceSignInTaskID).flatMap(UUID.init(uuidString:))
         // Unset must read as true: the feature is opt-out, not opt-in.
         self.showsPullRequestStatus = defaults.object(forKey: Key.showsPullRequestStatus) == nil
             ? true
@@ -393,6 +399,25 @@ final class AppSettings {
         }
     }
 
+    /// `codename/api` of the remote models this user reserved, newest first.
+    private(set) var recentRemoteDeviceModels: [String] {
+        didSet {
+            defaults.set(recentRemoteDeviceModels, forKey: Key.recentRemoteDeviceModels)
+        }
+    }
+
+    static let recentRemoteDeviceModelLimit = 5
+
+    func recordRemoteDeviceReservation(_ modelID: String) {
+        var recents = recentRemoteDeviceModels.filter { $0 != modelID }
+        recents.insert(modelID, at: 0)
+        recentRemoteDeviceModels = Array(recents.prefix(Self.recentRemoteDeviceModelLimit))
+    }
+
+    func removeRecentRemoteDeviceModel(_ modelID: String) {
+        recentRemoteDeviceModels.removeAll { $0 == modelID }
+    }
+
     /// When a message sent during a Claude Code chat tab's running turn
     /// reaches the agent. Codex and terminal tabs ignore it.
     var queuedMessageDelivery: QueuedMessageDelivery {
@@ -503,6 +528,20 @@ final class AppSettings {
     var accentPaletteSlot: Int? {
         didSet {
             defaults.set(accentPaletteSlot ?? Self.systemAccentSentinel, forKey: Key.accentPaletteSlot)
+        }
+    }
+
+    /// The Google Cloud project remote devices are reserved in, when more than one is ready.
+    var remoteDeviceProjectID: String? {
+        didSet {
+            defaults.set(remoteDeviceProjectID, forKey: Key.remoteDeviceProjectID)
+        }
+    }
+
+    /// The task Settings opened for `android auth login`, so the next Sign In replaces it.
+    var remoteDeviceSignInTaskID: UUID? {
+        didSet {
+            defaults.set(remoteDeviceSignInTaskID?.uuidString, forKey: Key.remoteDeviceSignInTaskID)
         }
     }
 

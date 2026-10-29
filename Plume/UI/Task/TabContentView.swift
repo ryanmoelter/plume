@@ -346,7 +346,8 @@ private struct TerminalTabHost: View {
             guard session == nil else { return }
             // Options are read once at creation, so this places a new tab and
             // never moves a live one.
-            session = SurfaceManager.shared.session(
+            // A tab opened to run a command already has its surface.
+            session = SurfaceManager.shared.existingSession(for: tab.id) ?? SurfaceManager.shared.session(
                 for: tab.id,
                 options: TerminalSurfaceOptions(
                     workingDirectory: TabDirectoryStore.shared.startingDirectory(for: tab, in: task),

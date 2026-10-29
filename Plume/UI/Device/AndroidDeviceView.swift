@@ -2,16 +2,20 @@ import SwiftUI
 
 /// A live Android device with its controls. Depends only on the session, so any
 /// container can host it.
-struct AndroidDeviceView: View {
+struct AndroidDeviceView: View, ThemedView {
+    @Environment(\.theme) var theme
+    @Environment(\.colorScheme) private var colorScheme
     let session: DeviceSession
     @State private var confirmingShutDown = false
+    @State private var confirmingEndReservation = false
 
     var body: some View {
         VStack(spacing: 0) {
             toolbar
             Divider()
             ZStack {
-                DeviceSurface(session: session)
+                (ThemeChrome.background(for: colorScheme) ?? Color(nsColor: .windowBackgroundColor))
+                DeviceSurface(session: session, background: ThemeChrome.background(for: colorScheme))
                     .plumeID(AccessibilityID.deviceSurface, value: stateDescription)
                 overlay
             }
@@ -24,6 +28,22 @@ struct AndroidDeviceView: View {
         } message: {
             Text("Anything else using it, such as an agent's adb connection, loses it too.")
         }
+        .confirmationDialog(
+            "End the reservation for \(session.displayName ?? "this device")?",
+            isPresented: $confirmingEndReservation
+        ) {
+            Button("End Reservation", role: .destructive) { session.endReservation() }
+        } message: {
+            Text("The device will be disconnected and stop costing money per minute.")
+        }
+        .alert(
+            "Couldn't extend the reservation",
+            isPresented: Binding(get: { session.extendError != nil }, set: { if !$0 { session.extendError = nil } })
+        ) {
+            Button("OK", role: .cancel) {}
+        } message: {
+            Text(session.extendError ?? "")
+        }
     }
 
     private var deviceName: String {
@@ -31,19 +51,51 @@ struct AndroidDeviceView: View {
     }
 
     private var toolbar: some View {
+        ViewThatFits(in: .horizontal) {
+            HStack(spacing: 2) {
+                identity
+                Spacer(minLength: 8)
+                controls
+            }
+            VStack(spacing: 2) {
+                HStack(spacing: 2) {
+                    identity
+                    Spacer(minLength: 8)
+                }
+                HStack(spacing: 2) {
+                    Spacer(minLength: 8)
+                    controls
+                }
+            }
+        }
+        .padding(.vertical, 4)
+    }
+
+    private var identity: some View {
         HStack(spacing: 2) {
             Text(deviceName)
                 .font(.callout.weight(.medium))
                 .lineLimit(1)
                 .padding(.leading, 8)
-            Spacer(minLength: 8)
+            if session.hasLiveReservation {
+                reservationControls
+            }
+        }
+    }
+
+    private var controls: some View {
+        HStack(spacing: 2) {
             Group {
                 button("arrow.uturn.backward", "Back", AccessibilityID.deviceBackButton) { session.press(.back) }
                 button("circle", "Home", AccessibilityID.deviceHomeButton) { session.press(.home) }
                 button("square.on.square", "Overview", AccessibilityID.deviceOverviewButton) { session.press(.overview) }
                 Divider().frame(height: 14).padding(.horizontal, 4)
-                // A phone's orientation follows its own sensor and auto-rotate setting.
-                if !session.isPhysical {
+                // A phone's orientation follows its own sensor and auto-rotate setting, but nobody
+                // can turn a lab device. scrcpy's rotate only toggles, so it has no direction.
+                if session.isRemote {
+                    button("rotate.right", "Rotate", AccessibilityID.deviceRotateButton) { session.rotate(clockwise: true) }
+                    Divider().frame(height: 14).padding(.horizontal, 4)
+                } else if !session.isPhysical {
                     button("rotate.left", "Rotate Left", AccessibilityID.deviceRotateLeftButton) { session.rotate(clockwise: false) }
                     button("rotate.right", "Rotate Right", AccessibilityID.deviceRotateRightButton) { session.rotate(clockwise: true) }
                     Divider().frame(height: 14).padding(.horizontal, 4)
@@ -54,8 +106,34 @@ struct AndroidDeviceView: View {
             }
             .disabled(!session.isConnected)
             Menu {
-                Button("Change Device…") { session.changeDevice() }
-                    .plumeID(AccessibilityID.deviceChangeDeviceMenuItem)
+                if !(session.isRemote && session.canEndReservation) {
+                    Button("Change Device…") { session.changeDevice() }
+                        .plumeID(AccessibilityID.deviceChangeDeviceMenuItem)
+                }
+                if session.isRemote {
+                    let autoRotate = session.autoRotate ?? false
+                    Button {
+                        session.setAutoRotate(!autoRotate)
+                    } label: {
+                        Label("Auto-rotate", systemImage: autoRotate ? "checkmark" : "xmark")
+                    }
+                    .disabled(session.autoRotate == nil || !session.isConnected)
+                    .plumeID(AccessibilityID.deviceAutoRotateMenuItem, value: autoRotate ? "on" : "off")
+                }
+                if session.isPhysical {
+                    if session.state == .streamingPaused {
+                        Button("Turn On Streaming") { session.resumeStreaming() }
+                            .plumeID(AccessibilityID.deviceStreamingMenuItem, value: "off")
+                    } else {
+                        Button("Turn Off Streaming") { session.pauseStreaming() }
+                            .disabled(!session.canPauseStreaming)
+                            .plumeID(AccessibilityID.deviceStreamingMenuItem, value: "on")
+                    }
+                }
+                if session.canEndReservation {
+                    Button("End Reservation…") { confirmingEndReservation = true }
+                        .plumeID(AccessibilityID.deviceEndReservationMenuItem)
+                }
                 if !session.isPhysical {
                     Button("Shut Down Emulator…") { confirmingShutDown = true }
                         .plumeID(AccessibilityID.emulatorShutDownMenuItem)
@@ -70,7 +148,45 @@ struct AndroidDeviceView: View {
             .padding(.horizontal, 6)
             .plumeID(AccessibilityID.deviceMoreMenu)
         }
-        .padding(.vertical, 4)
+    }
+
+    private var reservationControls: some View {
+        HStack(spacing: 4) {
+            TimelineView(.periodic(from: .now, by: 15)) { context in
+                let minutes = session.reservation?.expiresAt.map { Self.minutesLeft(until: $0, now: context.date) }
+                Text(minutes.map { "\($0) min left" } ?? "Reserved")
+                    .font(.caption.monospacedDigit())
+                    .foregroundStyle((minutes ?? Int.max) < 3 ? AnyShapeStyle(.orange) : AnyShapeStyle(.secondary))
+                    .plumeID(AccessibilityID.deviceTimeLeft, value: minutes.map(String.init))
+            }
+            Button(action: extend) {
+                if session.isExtending {
+                    ProgressView().controlSize(.mini)
+                } else {
+                    Text("+\(DeviceSession.extendMinutes) min")
+                }
+            }
+            .controlSize(.small)
+            .help("Extend the reservation by \(DeviceSession.extendMinutes) minutes")
+            .plumeID(AccessibilityID.deviceExtendButton, invoke: extend)
+            .disabled(session.isExtending)
+            if session.canEndReservation {
+                Button("End Reservation…") { confirmingEndReservation = true }
+                    .controlSize(.small)
+                    .tint(.red)
+                    .plumeID(AccessibilityID.deviceEndReservationButton) { confirmingEndReservation = true }
+            }
+        }
+        .padding(.leading, 6)
+    }
+
+    private func extend() {
+        session.extendReservation()
+    }
+
+    /// Rounded up, so "1 min left" shows until the reservation actually ends.
+    static func minutesLeft(until expiry: Date, now: Date) -> Int {
+        max(0, Int((expiry.timeIntervalSince(now) / 60).rounded(.up)))
     }
 
     private func button(_ symbol: String, _ help: String, _ id: String, action: @escaping () -> Void) -> some View {
@@ -91,6 +207,11 @@ struct AndroidDeviceView: View {
         case .locating, .connecting, .suspended:
             ProgressView()
                 .controlSize(.small)
+        case .streamingPaused:
+            status("Streaming turned off", detail: "To save bandwidth.") {
+                Button("Re-enable streaming") { session.resumeStreaming() }
+                    .plumeID(AccessibilityID.deviceResumeStreamingButton)
+            }
         case .booting:
             status("Booting \(session.displayName ?? "the emulator")…", showsProgress: true)
         case .notRunning where session.isPhysical:
@@ -116,6 +237,33 @@ struct AndroidDeviceView: View {
                 Button("Try Again") { session.bootChosenDevice() }
                     .plumeID(AccessibilityID.emulatorBootButton)
             }
+        case .reserving:
+            status(
+                "Reserving \(session.displayName ?? "a remote device")…",
+                detail: "This may take a minute or two",
+                showsProgress: true
+            )
+        case .reservationEnded:
+            status("The reservation for \(session.displayName ?? "this device") ended.") {
+                reserveAgainButton
+            }
+        case .reservationFailed(let reason):
+            status("Device Streaming didn't respond as expected.", detail: reason) {
+                if session.hasLiveReservation {
+                    Button("Try Again") { session.locate() }
+                        .plumeID(AccessibilityID.deviceRetryButton)
+                } else {
+                    reserveAgainButton
+                }
+            }
+        }
+    }
+
+    @ViewBuilder
+    private var reserveAgainButton: some View {
+        if session.remoteDetails?.model != nil {
+            Button("Reserve Again") { session.reserveAgain() }
+                .plumeID(AccessibilityID.deviceReserveAgainButton)
         }
     }
 
@@ -125,24 +273,37 @@ struct AndroidDeviceView: View {
         showsProgress: Bool = false,
         @ViewBuilder actions: () -> some View = { EmptyView() }
     ) -> some View {
-        VStack(spacing: 10) {
+        VStack(alignment: .leading, spacing: 10) {
             if showsProgress { ProgressView().controlSize(.small) }
             Text(title).font(.headline)
             if let detail {
                 Text(detail)
-                    .font(.caption.monospaced())
+                    .font(.caption)
                     .foregroundStyle(.secondary)
-                    .multilineTextAlignment(.center)
+                    .multilineTextAlignment(.leading)
                     .textSelection(.enabled)
-                    .frame(maxWidth: 420)
             }
-            HStack { actions() }
-            Button("Change Device…") { session.changeDevice() }
-                .buttonStyle(.link)
-                .plumeID(AccessibilityID.deviceChangeDeviceButton)
+            HStack {
+                Spacer()
+                // A live reservation is ended only through End Reservation, which confirms first.
+                if session.state == .reserving || !session.hasLiveReservation {
+                    Button(session.state == .reserving ? "Cancel" : "Change Device…") { session.changeDevice() }
+                        .buttonStyle(.bordered)
+                        .plumeID(AccessibilityID.deviceChangeDeviceButton)
+                }
+                actions()
+                    .buttonStyle(.borderedProminent)
+            }
+            .padding(.top, 4)
         }
+        .frame(maxWidth: 420, alignment: .leading)
         .padding(20)
-        .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 10))
+        .glassEffect(statusGlass, in: .rect(cornerRadius: 10))
+        .padding(.horizontal, 24)
+    }
+
+    private var statusGlass: Glass {
+        ThemeChrome.background(for: colorScheme).map { Glass.regular.tint($0.opacity(0.5)) } ?? .regular
     }
 
     private var stateDescription: String {
@@ -154,8 +315,12 @@ struct AndroidDeviceView: View {
         case .connecting: "connecting"
         case .connected: session.isStreaming ? "streaming" : "connected"
         case .suspended: "suspended"
+        case .streamingPaused: "streamingPaused"
         case .disconnected: "disconnected"
         case .failed: "failed"
+        case .reserving: "reserving"
+        case .reservationEnded: "reservationEnded"
+        case .reservationFailed: "reservationFailed"
         }
     }
 }

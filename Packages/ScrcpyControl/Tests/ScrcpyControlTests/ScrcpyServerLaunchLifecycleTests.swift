@@ -30,6 +30,9 @@ struct ScrcpyServerLaunchLifecycleTests {
               *" push "*) wait_for push-release ;;
               *"forward tcp:0"*) wait_for forward-release; echo 27183 ;;
               *" shell rm -f "*) echo "$*" >> "\(dir)/jar-removals" ;;
+              *" shell settings get "*) cat "\(dir)/auto-rotate" 2>/dev/null || echo 1 ;;
+              *" shell settings put "*) echo "${@: -1}" > "\(dir)/auto-rotate" ;;
+              *" shell settings "*) ;;
               *" shell "*) echo $$ > "\(dir)/shell-pid"; exec sleep 30 ;;
             esac
             exit 0
@@ -265,6 +268,39 @@ struct ScrcpyServerLaunchLifecycleTests {
         private var count = 0
         var value: Int { lock.withLock { count } }
         func increment() { lock.withLock { count += 1 } }
+    }
+
+    @Test func rotatingLocksAutoRotateOnce() async throws {
+        let adb = try FakeADB()
+        defer { adb.remove() }
+        let connection = ScrcpyConnection(adbURL: adb.adbURL, serial: "S1", jarURL: adb.jarURL, version: "5.0.1")
+        await connection.rotate()
+        await connection.rotate()
+
+        #expect(adb.log == ["-s S1 shell settings put system accelerometer_rotation 0"])
+    }
+
+    @Test func autoRotateReadsAndWritesTheSetting() async throws {
+        let adb = try FakeADB()
+        defer { adb.remove() }
+        let connection = ScrcpyConnection(adbURL: adb.adbURL, serial: "S1", jarURL: adb.jarURL, version: "5.0.1")
+        #expect(await connection.autoRotate() == true)
+        #expect(await connection.setAutoRotate(false))
+        #expect(await connection.autoRotate() == false)
+        #expect(await connection.setAutoRotate(true))
+        #expect(await connection.autoRotate() == true)
+    }
+
+    @Test func turningAutoRotateBackOnRearmsTheLock() async throws {
+        let adb = try FakeADB()
+        defer { adb.remove() }
+        let connection = ScrcpyConnection(adbURL: adb.adbURL, serial: "S1", jarURL: adb.jarURL, version: "5.0.1")
+        await connection.rotate()
+        _ = await connection.setAutoRotate(true)
+        await connection.rotate()
+
+        let puts = adb.log.filter { $0.contains("settings put") }.map { String($0.last!) }
+        #expect(puts == ["0", "1", "0"])
     }
 
     @Test func eachLaunchPushesToItsOwnPath() {

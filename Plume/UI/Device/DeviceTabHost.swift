@@ -10,7 +10,12 @@ struct DeviceTabHost: View {
         Group {
             if isVisible, let session {
                 if session.state == .needsDevice {
-                    DevicePickerView(onConnect: session.attach, onAttach: session.attach, onBoot: session.boot)
+                    DevicePickerView(
+                        onConnect: session.attach,
+                        onAttach: session.attach,
+                        onBoot: session.boot,
+                        onReserve: session.reserve
+                    )
                 } else {
                     AndroidDeviceView(session: session)
                 }
@@ -27,10 +32,14 @@ struct DeviceTabHost: View {
         let session = DeviceSessionManager.shared.session(
             for: tab.id,
             target: target,
-            displayName: target == nil ? nil : tab.title
+            displayName: target == nil ? nil : tab.title,
+            remoteDetails: tab.remoteDetails
         )
         session.onDeviceChange = { [tab] target, displayName in
             tab.setDevice(target, displayName: displayName)
+        }
+        session.onRemoteDetailsChange = { [tab] details in
+            tab.setRemoteDetails(details)
         }
         session.start()
         self.session = session

@@ -50,7 +50,7 @@ Undo/Cut/Copy/Paste/Select All (⌘Z/X/C/V/A) are the same kind of automatic ite
 
 ## Physical device tabs
 
-A focused physical Android device tab keeps the same chords `TerminalShortcutMonitor` claims and sends every other ⌘ chord to the device as Meta plus the key. Settings ▸ Devices ▸ "Keep Plume shortcuts on the Mac" turned off sends it every ⌘ chord, Plume's own included: the surface answers `MenuShortcutYielding.keepsChordFromMenu`, so the monitor leaves the chord alone, and takes it in `performKeyEquivalent` before the menu. Before the monitor hands the menu a chord, it calls `menuWillPerformShortcut`, which releases every key the device holds. `docs/android-physical-device.md` has the details.
+A focused physical Android device tab keeps the same chords `TerminalShortcutMonitor` claims and sends every other ⌘ chord to the device as Meta plus the key. Settings ▸ Shortcuts ▸ Devices ▸ "Intercept Plume keyboard shortcuts" turned off sends it every ⌘ chord, Plume's own included: the surface answers `MenuShortcutYielding.keepsChordFromMenu`, so the monitor leaves the chord alone, and takes it in `performKeyEquivalent` before the menu. Before the monitor hands the menu a chord, it calls `menuWillPerformShortcut`, which releases every key the device holds. `docs/android-physical-device.md` has the details.
 
 ## Tests must not read the live bindings
 

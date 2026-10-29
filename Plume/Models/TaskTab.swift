@@ -66,8 +66,14 @@ final class TaskTab {
 
     var devicePlatformRaw: String? = nil
 
-    /// The AVD id of an emulator, or the adb serial of a physical device.
+    /// The AVD id of an emulator, the adb serial of a physical device, or a remote device's reservation id.
     var deviceIdentifier: String? = nil
+
+    /// The Google Cloud project a remote device was reserved in.
+    var remoteProjectID: String? = nil
+    /// `codename/api`, kept so an ended reservation can be reserved again.
+    var remoteDeviceModel: String? = nil
+    var remoteExpiresAt: Date? = nil
 
     /// Reserved for extra launch args and statusline preferences.
     var launchArgumentsData: Data?
@@ -99,10 +105,27 @@ final class TaskTab {
         kind == .device && deviceTarget?.isPhysical == false
     }
 
+    var isRemoteDeviceTab: Bool {
+        guard kind == .device, case .remote = deviceTarget else { return false }
+        return true
+    }
+
+    var remoteDetails: RemoteDeviceDetails? {
+        guard let remoteProjectID else { return nil }
+        return RemoteDeviceDetails(projectID: remoteProjectID, model: remoteDeviceModel, expiresAt: remoteExpiresAt)
+    }
+
     func setDevice(_ target: DeviceTarget?, displayName: String?) {
         devicePlatform = target?.platform
         deviceIdentifier = target?.identifier
         title = displayName
+        if target?.platform != .androidRemote { setRemoteDetails(nil) }
+    }
+
+    func setRemoteDetails(_ details: RemoteDeviceDetails?) {
+        remoteProjectID = details?.projectID
+        remoteDeviceModel = details?.model
+        remoteExpiresAt = details?.expiresAt
     }
 
     var titleSource: TitleSource? {

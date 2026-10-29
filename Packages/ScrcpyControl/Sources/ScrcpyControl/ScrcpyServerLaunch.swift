@@ -35,6 +35,30 @@ public enum ScrcpyLaunchError: Error, Equatable, CustomStringConvertible {
     }
 }
 
+/// Caps on what the server encodes. A nil field leaves the server's default.
+public struct ScrcpyVideoLimits: Sendable, Equatable {
+    /// The longer side, in pixels.
+    public var maxSize: Int?
+    public var videoBitRate: Int?
+    public var maxFps: Int?
+
+    public init(maxSize: Int? = nil, videoBitRate: Int? = nil, maxFps: Int? = nil) {
+        self.maxSize = maxSize
+        self.videoBitRate = videoBitRate
+        self.maxFps = maxFps
+    }
+
+    public static let none = ScrcpyVideoLimits()
+
+    var serverArguments: [String] {
+        [
+            maxSize.map { "max_size=\($0)" },
+            videoBitRate.map { "video_bit_rate=\($0)" },
+            maxFps.map { "max_fps=\($0)" },
+        ].compactMap { $0 }
+    }
+}
+
 /// Pushes scrcpy-server to a device, forwards a local port to it, and runs it.
 ///
 /// `stop()` may run before, during or after `start()`: whatever `start()` has created by then is
@@ -51,6 +75,7 @@ public final class ScrcpyServerLaunch: @unchecked Sendable {
     public let scid: String
     /// Per launch, so two tabs on one device never overwrite each other's jar; `cleanup=true` deletes it.
     public let remoteJarPath: String
+    public let videoLimits: ScrcpyVideoLimits
     private let pushTimeout: Duration
     private let forwardTimeout: Duration
 
@@ -66,6 +91,7 @@ public final class ScrcpyServerLaunch: @unchecked Sendable {
         serial: String,
         jarURL: URL,
         version: String,
+        videoLimits: ScrcpyVideoLimits = .none,
         pushTimeout: Duration = .seconds(30),
         forwardTimeout: Duration = .seconds(5)
     ) {
@@ -73,6 +99,7 @@ public final class ScrcpyServerLaunch: @unchecked Sendable {
         self.serial = serial
         self.jarURL = jarURL
         self.version = version
+        self.videoLimits = videoLimits
         self.pushTimeout = pushTimeout
         self.forwardTimeout = forwardTimeout
         scid = String(format: "%08x", UInt32.random(in: 0..<0x8000_0000))
@@ -96,7 +123,7 @@ public final class ScrcpyServerLaunch: @unchecked Sendable {
             "send_dummy_byte=true",
             "send_stream_meta=true",
             "send_frame_meta=true",
-        ]
+        ] + videoLimits.serverArguments
     }
 
     /// Returns the local TCP port forwarded to the server's socket.
@@ -159,6 +186,20 @@ public final class ScrcpyServerLaunch: @unchecked Sendable {
 
     public var recentOutput: String {
         lock.withLock { outputTail.text }
+    }
+
+    /// Turns the device's auto-rotate setting off, as locking rotation from its quick settings does.
+    public func lockAutoRotate() async throws {
+        try await setAutoRotate(false)
+    }
+
+    public func setAutoRotate(_ enabled: Bool) async throws {
+        _ = try await adb(["shell", "settings", "put", "system", "accelerometer_rotation", enabled ? "1" : "0"], timeout: forwardTimeout)
+    }
+
+    public func autoRotate() async throws -> Bool {
+        let output = try await adb(["shell", "settings", "get", "system", "accelerometer_rotation"], timeout: forwardTimeout)
+        return output.trimmingCharacters(in: .whitespacesAndNewlines) == "1"
     }
 
     /// Returns once the recorded forward is gone, including one an earlier `terminate()` is still

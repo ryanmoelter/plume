@@ -9,9 +9,14 @@ import VideoToolbox
 nonisolated final class PhysicalDeviceConnection: DeviceConnecting {
     private let connection: ScrcpyConnection?
 
-    init(serial: String, adbURL: URL, jarURL: URL? = Bundle.main.url(forResource: "scrcpy-server", withExtension: nil)) {
+    init(
+        serial: String,
+        adbURL: URL,
+        videoLimits: ScrcpyVideoLimits = .none,
+        jarURL: URL? = Bundle.main.url(forResource: "scrcpy-server", withExtension: nil)
+    ) {
         connection = jarURL.map {
-            ScrcpyConnection(adbURL: adbURL, serial: serial, jarURL: $0, version: ScrcpyServerVersion.pinned)
+            ScrcpyConnection(adbURL: adbURL, serial: serial, jarURL: $0, version: ScrcpyServerVersion.pinned, videoLimits: videoLimits)
         }
     }
 
@@ -96,7 +101,15 @@ nonisolated final class PhysicalDeviceConnection: DeviceConnecting {
 
     /// scrcpy can only toggle between portrait and landscape, so every request flips the device.
     func rotate(to rotation: DeviceRotation) async throws {
-        connection?.send(.rotateDevice)
+        await connection?.rotate()
+    }
+
+    func autoRotate() async -> Bool? {
+        await connection?.autoRotate()
+    }
+
+    func setAutoRotate(_ enabled: Bool) async -> Bool {
+        await connection?.setAutoRotate(enabled) ?? false
     }
 
     /// A physical device is never powered off from Plume.

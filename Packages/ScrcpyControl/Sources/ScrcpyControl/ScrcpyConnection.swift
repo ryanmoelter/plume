@@ -41,9 +41,10 @@ public actor ScrcpyConnection {
     private var controlSocket: LocalSocket?
     private var tasks: [Task<Void, Never>] = []
     private var closed = false
+    private var hasLockedAutoRotate = false
 
-    public init(adbURL: URL, serial: String, jarURL: URL, version: String) {
-        launch = ScrcpyServerLaunch(adbURL: adbURL, serial: serial, jarURL: jarURL, version: version)
+    public init(adbURL: URL, serial: String, jarURL: URL, version: String, videoLimits: ScrcpyVideoLimits = .none) {
+        launch = ScrcpyServerLaunch(adbURL: adbURL, serial: serial, jarURL: jarURL, version: version, videoLimits: videoLimits)
         (controlStream, controlContinuation) = AsyncStream.makeStream(of: Data.self, bufferingPolicy: .bufferingNewest(512))
     }
 
@@ -94,6 +95,27 @@ public actor ScrcpyConnection {
             send(.resetVideo)
         }
         return stream
+    }
+
+    /// Toggles the device between portrait and landscape. scrcpy-server's `rotateDevice` turns
+    /// auto-rotate back on right after the turn if it was on, and the sensor then undoes the turn,
+    /// so auto-rotate is locked first. A failed lock still sends the rotate.
+    public func rotate() async {
+        if !hasLockedAutoRotate {
+            hasLockedAutoRotate = (try? await launch.lockAutoRotate()) != nil
+        }
+        send(.rotateDevice)
+    }
+
+    public func autoRotate() async -> Bool? {
+        try? await launch.autoRotate()
+    }
+
+    /// Returns whether the setting was written. Turning it on re-arms the lock for the next `rotate()`.
+    public func setAutoRotate(_ enabled: Bool) async -> Bool {
+        guard (try? await launch.setAutoRotate(enabled)) != nil else { return false }
+        hasLockedAutoRotate = !enabled
+        return true
     }
 
     public nonisolated func send(_ message: ScrcpyControlMessage) {

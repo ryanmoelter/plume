@@ -55,6 +55,25 @@ enum TaskStore {
         return task
     }
 
+    /// An ungrouped task whose only tab is a terminal, for a command the user should watch run.
+    @discardableResult
+    static func createTerminalTask(
+        in context: ModelContext,
+        title: String,
+        directory: String,
+        siblings: [WorkTask]
+    ) -> (task: WorkTask, tab: TaskTab) {
+        let task = WorkTask(title: title, orderIndex: nextIndex(after: siblings), group: nil)
+        task.workingDirectoryPath = directory
+        task.workspaceKind = .directory
+        let tab = TaskTab(kind: .terminal, orderIndex: 0, task: task)
+        context.insert(task)
+        context.insert(tab)
+        task.tabs = [tab]
+        selectTab(tab, in: task)
+        return (task, tab)
+    }
+
     @discardableResult
     static func createGroup(
         in context: ModelContext,

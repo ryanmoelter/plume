@@ -131,6 +131,8 @@ enum TabKind: String, CaseIterable, Sendable {
 enum DevicePlatform: String, Sendable {
     case androidEmulator
     case androidPhysical
+    /// A device reserved through Google's Device Streaming; the identifier is the reservation id.
+    case androidRemote
 }
 
 /// Which coding-agent CLI an agent tab runs. Orthogonal to `AgentTransport`,

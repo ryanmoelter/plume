@@ -35,7 +35,7 @@ final class DeviceSurfaceView: NSView, DeviceFrameSink {
         wantsLayer = true
         layerContentsRedrawPolicy = .never
         layer?.contentsGravity = .resizeAspect
-        layer?.backgroundColor = NSColor.black.cgColor
+        layer?.backgroundColor = NSColor.windowBackgroundColor.cgColor
     }
 
     @available(*, unavailable)
@@ -44,6 +44,13 @@ final class DeviceSurfaceView: NSView, DeviceFrameSink {
     override var isFlipped: Bool { true }
     override var acceptsFirstResponder: Bool { true }
     override func acceptsFirstMouse(for event: NSEvent?) -> Bool { true }
+
+    func setBackground(_ color: Color?) {
+        let resolved = color.map(NSColor.init) ?? .windowBackgroundColor
+        effectiveAppearance.performAsCurrentDrawingAppearance {
+            layer?.backgroundColor = resolved.cgColor
+        }
+    }
 
     var requestedPixelSize: CGSize {
         let scale = window?.backingScaleFactor ?? 2
@@ -303,15 +310,18 @@ extension DeviceSurfaceView: MenuShortcutYielding {
 
 struct DeviceSurface: NSViewRepresentable {
     let session: DeviceSession
+    var background: Color?
 
     func makeNSView(context: Context) -> DeviceSurfaceView {
         let view = DeviceSurfaceView(frame: .zero)
         view.session = session
+        view.setBackground(background)
         return view
     }
 
     func updateNSView(_ view: DeviceSurfaceView, context: Context) {
         view.session = session
+        view.setBackground(background)
     }
 
     static func dismantleNSView(_ view: DeviceSurfaceView, coordinator: ()) {
