@@ -97,6 +97,7 @@ final class DeviceSession {
     @ObservationIgnored private let ledger: RemoteReservationLedger
     @ObservationIgnored private let reservationSleep: (Duration) async -> Void
     @ObservationIgnored private let now: () -> Date
+    @ObservationIgnored private let recordReservation: @MainActor (_ modelID: String) -> Void
     @ObservationIgnored private var reservationMonitor: Task<Void, Never>?
 
     init(
@@ -111,7 +112,8 @@ final class DeviceSession {
         remoteCLI: AndroidCLIRunning = AndroidCLI.shared,
         ledger: RemoteReservationLedger = .shared,
         reservationSleep: @escaping (Duration) async -> Void = { try? await Task.sleep(for: $0) },
-        now: @escaping () -> Date = Date.init
+        now: @escaping () -> Date = Date.init,
+        recordReservation: @escaping @MainActor (_ modelID: String) -> Void = { AppSettings.shared.recordRemoteDeviceReservation($0) }
     ) {
         self.tabID = tabID
         self.target = target
@@ -124,6 +126,7 @@ final class DeviceSession {
         self.ledger = ledger
         self.reservationSleep = reservationSleep
         self.now = now
+        self.recordReservation = recordReservation
         state = target == nil ? .needsDevice : .locating
         // A quit ends every reservation, so a remote tab from an earlier run only offers Reserve Again.
         if case .remote = target {
@@ -251,7 +254,6 @@ final class DeviceSession {
         runWork { [weak self] in
             do {
                 try await reservation.create()
-                if let model = details.model { AppSettings.shared.recordRemoteDeviceReservation(model) }
             } catch {
                 guard let self, self.reservation === reservation, !(error is CancellationError) else { return }
                 EmulatorLog.error("\(logPrefix) reserving failed: \(error.localizedDescription)")
@@ -263,6 +265,7 @@ final class DeviceSession {
             guard let self, self.reservation === reservation, !Task.isCancelled, !reservation.isReleased,
                   let id = reservation.reservationID
             else { return }
+            if let model = details.model { recordReservation(model) }
             choose(.remote(reservationID: id), displayName: displayName)
             // Cleared so the tab persists the details even when they match what was requested.
             remoteDetails = nil

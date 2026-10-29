@@ -344,6 +344,7 @@ struct RemoteDeviceSessionTests {
     private let reservationSleeper = ManualSleeper()
     private let reservationSleeps = LockedValue<[Duration]>([])
     private let resolved = LockedValue<[String]>([])
+    private let recents = LockedValue<[String]>([])
 
     private func makeSession(target: DeviceTarget? = nil, details: RemoteDeviceDetails? = nil) -> DeviceSession {
         let adb = ListingBox(ADBListing(adbURL: URL(fileURLWithPath: "/sdk/platform-tools/adb"), devices: []))
@@ -366,7 +367,8 @@ struct RemoteDeviceSessionTests {
                 reservationSleeps.value.append(duration)
                 await reservationSleeper.sleep(duration)
             },
-            now: { now }
+            now: { now },
+            recordReservation: { [recents] in recents.value.append($0) }
         )
     }
 
@@ -402,6 +404,7 @@ struct RemoteDeviceSessionTests {
         #expect(details.last == RemoteDeviceDetails(projectID: "p", model: "oriole/31", expiresAt: at(22, 51)))
         #expect(session.remoteSerial == "localhost:59095")
         #expect(ledger.entries.map(\.reservationID) == ["r1"])
+        #expect(recents.value == ["oriole/31"])
     }
 
     @Test func aFailedReservationOffersToReserveAgain() async {
@@ -414,6 +417,7 @@ struct RemoteDeviceSessionTests {
         #expect(session.state == .reservationFailed("Error: Failed to obtain auth token: HTTP connect timed out"))
         #expect(session.remoteDetails?.model == "oriole/31")
         #expect(!session.hasLiveReservation)
+        #expect(recents.value.isEmpty)
     }
 
     @Test func aTabFromAnEarlierRunOffersToReserveAgainWithoutAskingTheService() async {
@@ -564,5 +568,6 @@ struct RemoteDeviceSessionTests {
         #expect(session.state == .needsDevice)
         #expect(cli.verbs == ["create", "disconnect", "remove"])
         #expect(ledger.entries.isEmpty)
+        #expect(recents.value.isEmpty)
     }
 }
