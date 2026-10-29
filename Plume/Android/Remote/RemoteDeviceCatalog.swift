@@ -124,12 +124,11 @@ final class RemoteDeviceCatalog {
         let load = modelsLoad
         isLoadingModels = true
         loadingModelsProject = project
-        let outcome: Result<AndroidCLIResult, Error>
-        do {
-            outcome = .success(try await cli.run(["device", "remote", "models", "--project=\(project)"]))
-        } catch {
-            outcome = .failure(error)
-        }
+        // Unstructured so the picker disappearing can't cancel it: a later call for this project
+        // is turned away while it runs, and would otherwise be left with nothing to show.
+        let outcome = await Task { [cli] in
+            try await cli.run(["device", "remote", "models", "--project=\(project)"])
+        }.result
         guard load == modelsLoad else { return }
         isLoadingModels = false
         loadingModelsProject = nil

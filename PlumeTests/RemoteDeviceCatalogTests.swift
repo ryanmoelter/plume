@@ -56,6 +56,21 @@ struct RemoteDeviceCatalogTests {
         #expect(catalog.models.map(\.id) == ["p/31"])
     }
 
+    @Test func aLoadWhoseCallerIsCancelledStillPublishesItsModels() async {
+        let catalog = await signedInCatalog()
+        let abandoned = Task { await catalog.loadModels() }
+        await waitUntilSoon { cli.started.contains("p") }
+
+        abandoned.cancel()
+        await catalog.loadModels()
+        cli.open("p")
+        await abandoned.value
+
+        #expect(catalog.modelsError == nil)
+        #expect(catalog.models.map(\.id) == ["p/31"])
+        #expect(!catalog.isLoadingModels)
+    }
+
     @Test func signingOutClearsTheModels() async {
         cli.open("p")
         let catalog = await signedInCatalog()
