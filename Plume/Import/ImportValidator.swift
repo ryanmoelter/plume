@@ -66,7 +66,7 @@ nonisolated enum ImportValidator {
         }
         return ImportWorkspacePlan(
             kind: isWorktree ? .worktree : .directory,
-            repoPath: facts.projectRoot,
+            repoPath: ProjectRoot.repositoryDirectory(forRoot: facts.projectRoot),
             branchName: resolvedBranch,
             isValidated: true
         )

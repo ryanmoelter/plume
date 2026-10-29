@@ -12,6 +12,9 @@ final class TerminalAlerts {
     /// The task owning a tab. `MainWindow` installs it, keeping SwiftData out
     /// of here; nil means the tab is gone and the alert is dropped.
     var taskID: (UUID) -> UUID? = { _ in nil }
+    /// A tab's stored title, for a notification that names none. `MainWindow`
+    /// installs it alongside `taskID`.
+    var tabDisplayTitle: (UUID) -> String? = { _ in nil }
 
     private let notifier: Notifier
     private let bells: BellStore
@@ -61,14 +64,27 @@ final class TerminalAlerts {
     /// The program named its own title and body, so this skips the bell's
     /// marks — but it is still redundant when the user is watching.
     func desktopNotificationArrived(_ notification: TerminalSession.DesktopNotification, in session: TerminalSession) {
-        let tabID = session.id
-        guard let taskID = taskID(tabID) else { return }
+        notify(
+            tabID: session.id,
+            title: notification.title.isEmpty ? session.displayTitle : notification.title,
+            body: notification.body
+        )
+    }
+
+    /// The path both OSC 777 and `plume notify` take. False when no task owns
+    /// the tab, so the caller can report it.
+    @discardableResult
+    func notify(tabID: UUID, title: String, body: String) -> Bool {
+        guard let taskID = taskID(tabID) else { return false }
         notifier.notifyIfUnseen(.init(
             taskID: taskID,
             tabID: tabID,
-            title: notification.title.isEmpty ? session.displayTitle : notification.title,
-            body: notification.body,
+            title: title.isEmpty
+                ? TitleStore.shared.title(forTab: tabID) ?? tabDisplayTitle(tabID) ?? AppIdentity.displayName
+                : title,
+            body: body,
             dedupeKey: Notifier.dedupeKey(.osc, tabID: tabID)
         ))
+        return true
     }
 }

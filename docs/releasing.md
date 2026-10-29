@@ -138,13 +138,15 @@ git log --format='%G? %h %s' <last-tag>..main | grep -v '^G'
 
 That must print nothing.
 
-## The command-line helper
+## The command-line tool
 
-`plume-notify` ships inside the bundle at `Contents/Resources/plume-notify`, as a plain shell script. The file-system synchronized group puts it there automatically because it lives under `Plume/Resources/`, and both the copy and the signing preserve its executable bit — so nothing in the release path needs a step for it.
+`plume` is its own target, `PlumeCLI`, built as a plain tool and embedded at `Contents/Helpers/plume` by the app target's "Embed Command Line Tool" copy phase, which signs it on copy. Not `Contents/MacOS`: on a case-insensitive volume `plume` there is the same file as the app's `Plume` executable, and the copy overwrites the app. `docs/cli.md` covers what it does.
 
-It reaches the user's PATH as a symlink at `~/.local/bin/plume-notify`, created from **Settings → Command Line**. A symlink rather than a copy, so the helper follows whatever Plume is installed instead of going stale after an upgrade.
+`sign-bundle.sh` re-signs it with Developer ID beside the sleep helper, before the outer bundle, and fails if it is missing. `install-release.sh` also fails if it links anything outside `/usr/lib` and `/System/Library` — it never needs Sparkle or Ghostty.
 
-Replacing the bundle does not break the link. `install-release.sh` deletes and recreates `/Applications/Plume.app`, but the link stores a *path*, so it re-resolves to the new bundle. The script prints the link's state after installing; a `BROKEN` line there means the helper stopped shipping, not that the symlink needs recreating.
+It reaches the user's PATH as two symlinks in `~/.local/bin`, `plume` and `plume-notify`, both to `Contents/Helpers/plume` and created by the **Command line tool** switch in **Settings → Command line**. `plume-notify` is the name the tool had when it was a shell script; invoked under that name, the tool runs `plume notify`. Symlinks rather than copies, so the tool follows whatever Plume is installed instead of going stale after an upgrade.
+
+Replacing the bundle does not break the links. `install-release.sh` deletes and recreates `/Applications/Plume.app`, but a link stores a *path*, so it re-resolves to the new bundle. The script prints each link's state after installing. A `plume-notify` link from before the tool still points at the deleted `Contents/Resources/plume-notify` script and reads `BROKEN` there; the new build repoints it, and adds `plume`, when it launches.
 
 ## The sleep helper
 
@@ -333,7 +335,7 @@ The appcast goes live when the draft is published, same as the DMG — a draft o
 
 ### Signing
 
-`scripts/lib/sign-bundle.sh` signs a bundle inside out: Sparkle's `Installer.xpc`, `Downloader.xpc` (with entitlements preserved), `Autoupdate`, `Updater.app`, and `Sparkle.framework`, then `PlumeSleepHelper`, then the app — still no `--deep`. Both `install-release.sh` and `package-release.sh` call it. `install-release.sh` fails unless the only non-system dylib left in the signed binary is `@rpath/Sparkle.framework`.
+`scripts/lib/sign-bundle.sh` signs a bundle inside out: Sparkle's `Installer.xpc`, `Downloader.xpc` (with entitlements preserved), `Autoupdate`, `Updater.app`, and `Sparkle.framework`, then `PlumeSleepHelper` and the `plume` tool, then the app — still no `--deep`. Both `install-release.sh` and `package-release.sh` call it. `install-release.sh` fails unless the only non-system dylib left in the signed binary is `@rpath/Sparkle.framework`.
 
 Xcode embeds and signs `Sparkle.framework` into `Contents/Frameworks` on its own. Don't add a manual "Embed Frameworks" build phase for it — a hand-written one breaks the build with "Sparkle-product couldn't be opened".
 

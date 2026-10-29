@@ -5,6 +5,7 @@ import SwiftData
 struct MainWindow: View {
     @Environment(\.modelContext) private var context
     @Environment(\.colorScheme) private var colorScheme
+    @Environment(\.openSettings) private var openSettings
     @State private var selection: UUID?
     @State private var statusPersistence: StatusPersistence?
     @State private var statusNotifier: StatusNotifier?
@@ -12,6 +13,7 @@ struct MainWindow: View {
     @State private var importSource: ImportSource?
     @State private var importRequest = ImportRequest.shared
     @State private var hostWindow: NSWindow?
+    @State private var cliRegistrationID = UUID()
     @State private var fullDiskAccessShown = false
     @State private var tabPendingStartFresh: TaskTab?
     @State private var columnVisibility: NavigationSplitViewVisibility = .automatic
@@ -183,6 +185,9 @@ struct MainWindow: View {
             await SmokeHarness.runIfRequested(context: context, selection: $selection)
             #endif
         }
+        .onDisappear {
+            CLICommandHandler.shared.unregisterWindow(cliRegistrationID)
+        }
     }
 
     /// These closures read live view state, so they are installed here rather
@@ -201,15 +206,27 @@ struct MainWindow: View {
                 focusedTabID: selectedTask?.selectedTabID
             )
         }
+        let tabDisplayTitle: (UUID) -> String? = { tabID in
+            tasks.lazy.flatMap(\.tabs).first { $0.id == tabID }?.displayTitle
+        }
         statusNotifier = StatusNotifier { tabID in
             TitleStore.shared.title(forTab: tabID)
-                ?? tasks.lazy.flatMap(\.tabs).first { $0.id == tabID }?.displayTitle
+                ?? tabDisplayTitle(tabID)
                 ?? AppIdentity.displayName
         }
         UnreadStore.shared.observe(StatusEngine.shared) { Notifier.shared.audience() }
         TerminalAlerts.shared.taskID = { tabID in
             tasks.first { $0.tabs.contains { $0.id == tabID } }?.id
         }
+        TerminalAlerts.shared.tabDisplayTitle = tabDisplayTitle
+        CLICommandHandler.shared.registerWindow(cliRegistrationID, .init(
+            window: { hostWindow },
+            task: { taskID in tasks.first { $0.id == taskID } },
+            taskIDForTab: { tabID in tasks.first { $0.tabs.contains { $0.id == tabID } }?.id },
+            context: context,
+            reveal: { taskID in selection = taskID },
+            openSettings: { openSettings() }
+        ))
     }
 
     /// A notification click selects its task, then its tab within that task.

@@ -121,6 +121,11 @@ enum AppPaths {
         return "/tmp/plume-control-\(pid).sock"
     }
 
+    /// The `plume` tool's socket. `CLISocket.path` owns the long-path rule.
+    static var cliSocketPath: String {
+        CLISocket.path(applicationSupport: applicationSupport.path(percentEncoded: false))
+    }
+
     static func createDirectories() throws {
         for directory in [applicationSupport, hooksDirectory, eventsDirectory] {
             try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)

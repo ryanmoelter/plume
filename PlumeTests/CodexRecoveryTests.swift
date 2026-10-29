@@ -141,6 +141,34 @@ struct CodexRecoveryTests {
         #expect(h.interrupts.first?["params"]?["turnId"] == .string("new-turn"))
     }
 
+    @Test(arguments: [nil, "thread"])
+    func theThreadRequestCarriesTheTabsEnvironment(resumeThreadID: String?) async throws {
+        let h = Harness()
+        let session = CodexSession(tabID: UUID(), taskID: UUID(), client: h.client)
+        defer { session.stop() }
+        session.start(
+            workingDirectory: nil, resumeThreadID: resumeThreadID, model: nil,
+            environment: [:], threadEnvironment: ["PLUME_TAB_ID": "tab", "PLUME_TASK_ID": "task"]
+        )
+        let method = resumeThreadID == nil ? "thread/start" : "thread/resume"
+        try await waitFor { h.requests.contains { $0["method"] == .string(method) } }
+        let request = try #require(h.requests.first { $0["method"] == .string(method) })
+        #expect(request["params"]?["config"] == .object([
+            "shell_environment_policy.set.PLUME_TAB_ID": .string("tab"),
+            "shell_environment_policy.set.PLUME_TASK_ID": .string("task"),
+        ]))
+    }
+
+    @Test func noThreadEnvironmentSendsNoConfig() async throws {
+        let h = Harness()
+        let session = CodexSession(tabID: UUID(), taskID: UUID(), client: h.client)
+        defer { session.stop() }
+        session.start(workingDirectory: nil, resumeThreadID: nil, model: nil, environment: [:])
+        try await waitFor { h.requests.contains { $0["method"] == .string("thread/start") } }
+        let request = try #require(h.requests.first { $0["method"] == .string("thread/start") })
+        #expect(request["params"]?["config"] == nil)
+    }
+
     @Test func failedResumeBecomesRetryableWithoutStartingANewThread() async throws {
         let h = Harness()
         h.failResume = true

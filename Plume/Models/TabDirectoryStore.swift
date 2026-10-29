@@ -49,14 +49,31 @@ final class TabDirectoryStore {
         directories[tab.id] ?? tab.workingDirectoryPath ?? tab.task?.workingDirectoryPath
     }
 
+    /// Where a tab's terminal starts: a directory already set for it, as by
+    /// `plume tab new --cwd`, else the folder it saved before a relaunch,
+    /// else where a new tab in its task starts. A saved folder that has since
+    /// been deleted is skipped, since a shell can't start there.
+    func startingDirectory(for tab: TaskTab, in task: WorkTask) -> String? {
+        directories[tab.id] ?? existingFolder(tab.workingDirectoryPath) ?? startingDirectory(for: task, excluding: tab.id)
+    }
+
+    private func existingFolder(_ path: String?) -> String? {
+        guard let path else { return nil }
+        var isDirectory: ObjCBool = false
+        guard FileManager.default.fileExists(atPath: path, isDirectory: &isDirectory), isDirectory.boolValue else {
+            return nil
+        }
+        return path
+    }
+
     /// Where a *new* tab in this task should start: wherever the task's work
     /// has moved to, else the task's own folder.
     ///
     /// The preference order matches `TitleStore.representativeTab(of:)`, so a
     /// new terminal opens beside whatever the sidebar is describing.
-    func startingDirectory(for task: WorkTask) -> String? {
+    func startingDirectory(for task: WorkTask, excluding excludedTabID: UUID? = nil) -> String? {
         let preferred = [task.lastFocusedAgentTabID, task.selectedTabID].compactMap { $0 }
-        let order = preferred + task.orderedTabs.map(\.id)
+        let order = (preferred + task.orderedTabs.map(\.id)).filter { $0 != excludedTabID }
         let byID = Dictionary(task.tabs.map { ($0.id, $0) }, uniquingKeysWith: { first, _ in first })
         let reported = order.lazy.compactMap { id in
             self.directories[id] ?? byID[id]?.workingDirectoryPath

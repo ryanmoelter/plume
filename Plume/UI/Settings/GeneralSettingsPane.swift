@@ -3,15 +3,12 @@ import SwiftUI
 
 struct GeneralSettingsPane: View {
     @State private var settings = AppSettings.shared
-    @State private var helperState = CommandLineHelper.state()
-    @State private var helperError: String?
     @State private var fullDiskAccessGranted = FullDiskAccess.isGranted
 
     var body: some View {
         Form {
             Section {
                 fullDiskAccessRow
-                commandLineHelperRow
                 KeepAwakeHelperRow()
             } header: {
                 Text("Permissions + helpers")
@@ -64,7 +61,6 @@ struct GeneralSettingsPane: View {
         }
         .formStyle(.grouped)
         .onAppear {
-            helperState = CommandLineHelper.state()
             fullDiskAccessGranted = FullDiskAccess.isGranted
         }
         .onReceive(NotificationCenter.default.publisher(for: NSApplication.didBecomeActiveNotification)) { _ in
@@ -85,53 +81,8 @@ struct GeneralSettingsPane: View {
         }
     }
 
-    private var commandLineHelperRow: some View {
-        LabeledContent {
-            VStack(alignment: .trailing) {
-                Text(helperStatusText)
-                    .foregroundStyle(.secondary)
-                Button(helperButtonTitle, action: toggleHelperInstall)
-                if let helperError {
-                    Text(helperError)
-                        .foregroundStyle(.red)
-                }
-            }
-        } label: {
-            Text("Command line helper")
-            Text("Currently just `plume-notify`, links into `~/.local/bin`")
-                .foregroundStyle(.secondary)
-        }
-    }
-
     private func requestImport(_ source: ImportSource) {
         if !ImportRequest.shared.request(source) { NSSound.beep() }
-    }
-
-    private var helperStatusText: String {
-        switch helperState {
-        case .installed: "Installed"
-        case .notInstalled: "Not installed"
-        case .occupiedByOther: "Another file owns that name"
-        case .brokenLink: "Installed, but pointing at a bundle that is gone"
-        }
-    }
-
-    private var helperButtonTitle: String {
-        if case .installed = helperState { "Remove" } else { "Install" }
-    }
-
-    private func toggleHelperInstall() {
-        helperError = nil
-        do {
-            if case .installed = helperState {
-                try CommandLineHelper.uninstall()
-            } else {
-                try CommandLineHelper.install()
-            }
-        } catch {
-            helperError = error.localizedDescription
-        }
-        helperState = CommandLineHelper.state()
     }
 
     private var worktreeBasePathBinding: Binding<String> {

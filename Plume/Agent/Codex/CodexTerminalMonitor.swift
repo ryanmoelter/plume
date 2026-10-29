@@ -98,7 +98,7 @@ final class CodexTerminalMonitor {
             })
             self.process = process
             do {
-                try process.start(arguments: ["codex", "app-server", "--listen", "unix://" + socketPath], workingDirectory: workingDirectory, environment: LoginShellCommand.plumeEnvironment)
+                try process.start(arguments: ["codex", "app-server", "--listen", "unix://" + socketPath], workingDirectory: workingDirectory, environment: LoginShellCommand.plumeEnvironment(taskID: taskID, tabID: tabID))
             } catch {
                 try? FileManager.default.removeItem(at: directory)
                 throw error

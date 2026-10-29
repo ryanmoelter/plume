@@ -90,12 +90,14 @@ struct NewWorktreeSheet: View {
             bodySize: CGFloat(AppSettings.defaultChatFontSize),
             setsAmbientFont: false
         )
-        .onAppear {
-            branchName = WorkspaceProvisioner.suggestedBranchName(
-                for: task.title,
-                prefix: WorkspaceProvisioner.configuredBranchPrefix(in: task.repoPath)
-                    ?? WorkspaceProvisioner.defaultBranchPrefix
-            )
+        .task {
+            let prefix = await GitService.shared.configuredBranchPrefix(
+                in: task.repoPath,
+                configuration: AppSettings.shared.projectsConfiguration
+            ) ?? WorkspaceProvisioner.defaultBranchPrefix
+            // The user may have started typing while git answered.
+            guard branchName.isEmpty else { return }
+            branchName = WorkspaceProvisioner.suggestedBranchName(for: task.title, prefix: prefix)
         }
     }
 

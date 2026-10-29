@@ -69,6 +69,16 @@ struct BranchNamingTests {
         ) == "/code/wt/repo/plume-x-0001")
     }
 
+    @Test func aBareLayoutPlacesWorktreesBesideBare() {
+        #expect(WorkspaceProvisioner.worktreePath(repository: "/proj/.bare", branch: "plume/x-0001") == "/proj/plume-x-0001")
+        #expect(WorkspaceProvisioner.worktreePath(
+            repository: "/proj/.bare", branch: "plume/x-0001", basePath: ".wt"
+        ) == "/proj/.wt/plume-x-0001")
+        #expect(WorkspaceProvisioner.worktreePath(
+            repository: "/proj/.bare", branch: "plume/x-0001", basePath: "/elsewhere"
+        ) == "/elsewhere/proj/plume-x-0001")
+    }
+
     @Test func emptyBasePathFallsBackToTheDefaultLocation() {
         let path = WorkspaceProvisioner.worktreePath(
             repository: "/repo", branch: "plume/x-0001", basePath: ""
@@ -401,23 +411,40 @@ struct WorktreeProvisioningTests {
             == URL(fileURLWithPath: repository).resolvingSymlinksInPath().path)
     }
 
-    @Test func theConfiguredPrefixComesFromWtBranchprefix() throws {
+    @Test func theProjectsPrefixOverridesTheDefaultsRow() throws {
         let repository = try makeRepository()
         defer { try? FileManager.default.removeItem(atPath: repository) }
-        try GitRunner.run(["config", "wt.branchprefix", "ryanm/"], in: repository)
+        let root = try #require(ProjectRoot.containing(repository))
+        let configuration = ProjectsConfiguration(
+            defaults: ProjectSettings(branchPrefix: "team/"),
+            repositories: [root: ProjectSettings(branchPrefix: "ryanm/")]
+        )
 
-        #expect(WorkspaceProvisioner.configuredBranchPrefix(in: repository) == "ryanm/")
+        #expect(WorkspaceProvisioner.configuredBranchPrefix(in: repository, configuration: configuration) == "ryanm/")
     }
 
-    /// A prefix is a path segment, so a config that omits the slash still
-    /// yields one. Set on `wt.branchprefix` because a developer's own global
-    /// config may define it, which would outrank a local `stack.branchprefix`.
-    @Test func aPrefixWithoutASlashGainsOne() throws {
+    @Test func theDefaultsRowAppliesToAProjectWithNoPrefix() throws {
         let repository = try makeRepository()
         defer { try? FileManager.default.removeItem(atPath: repository) }
-        try GitRunner.run(["config", "wt.branchprefix", "alice"], in: repository)
+        let configuration = ProjectsConfiguration(defaults: ProjectSettings(branchPrefix: "team/"))
 
-        #expect(WorkspaceProvisioner.configuredBranchPrefix(in: repository) == "alice/")
+        #expect(WorkspaceProvisioner.configuredBranchPrefix(in: repository, configuration: configuration) == "team/")
+    }
+
+    /// `makeRepository` sets `user.email` to `test@example.com`.
+    @Test func anUnsetPrefixFallsBackToTheEmailsLocalPart() throws {
+        let repository = try makeRepository()
+        defer { try? FileManager.default.removeItem(atPath: repository) }
+
+        #expect(WorkspaceProvisioner.configuredBranchPrefix(in: repository, configuration: ProjectsConfiguration()) == "test/")
+    }
+
+    @Test func anEmptyPrefixMeansNoPrefix() throws {
+        let repository = try makeRepository()
+        defer { try? FileManager.default.removeItem(atPath: repository) }
+        let configuration = ProjectsConfiguration(defaults: ProjectSettings(branchPrefix: ""))
+
+        #expect(WorkspaceProvisioner.configuredBranchPrefix(in: repository, configuration: configuration) == "")
     }
 
     @Test func createsAWorktreeAtAnExplicitSiblingLocation() throws {

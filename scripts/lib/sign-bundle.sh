@@ -1,5 +1,5 @@
 # Re-signs a built Plume.app with Developer ID: Sparkle's nested code, the
-# sleep helper, then the outer bundle. Sourced by install-release.sh and
+# sleep helper and the plume tool, then the outer bundle. Sourced by install-release.sh and
 # package-release.sh, which each already run under `set -uo pipefail` and
 # define fail() — sign_bundle calls it on any failure.
 #
@@ -13,6 +13,7 @@ sign_bundle() {
   local sparkle="$app/Contents/Frameworks/Sparkle.framework"
   local versions="$sparkle/Versions/B"
   local helper="$app/Contents/MacOS/PlumeSleepHelper"
+  local tool="$app/Contents/Helpers/plume"
 
   [ -d "$sparkle" ] || fail "Sparkle.framework missing from $app/Contents/Frameworks"
 
@@ -36,6 +37,10 @@ sign_bundle() {
   [ -x "$helper" ] || fail "sleep helper missing at $helper"
   codesign --force --sign "$identity" --options runtime --timestamp "$helper" \
     || fail "codesign of the helper failed"
+
+  [ -x "$tool" ] || fail "plume tool missing at $tool"
+  codesign --force --sign "$identity" --options runtime --timestamp "$tool" \
+    || fail "codesign of the plume tool failed"
 
   codesign --force --sign "$identity" --options runtime --timestamp "$app" \
     || fail "codesign of the app failed"

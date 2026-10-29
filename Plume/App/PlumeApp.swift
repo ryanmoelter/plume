@@ -2,13 +2,13 @@ import os
 import SwiftUI
 import SwiftData
 
-@main
 struct PlumeApp: App {
     @NSApplicationDelegateAdaptor(AppDelegate.self) private var appDelegate
 
     let modelContainer: ModelContainer = makeModelContainer()
 
     init() {
+        LoginShellCommand.dropInheritedInstanceKeys()
         #if DEBUG
         do {
             try SeededProviderRecovery.recover(in: modelContainer.mainContext)
@@ -25,15 +25,17 @@ struct PlumeApp: App {
 
         GhosttyRuntime.shared.start()
         PullRequestStore.shared.resolveIgnoredPendingChecks = { repository in
-            let setting = await MainActor.run { AppSettings.shared.ignoredPendingChecks }
-            return await GitService.shared.ignoredPendingChecks(
-                in: repository,
-                plumeSetting: setting
-            )
+            let configuration = await MainActor.run { AppSettings.shared.projectsConfiguration }
+            return await GitService.shared.ignoredPendingChecks(in: repository, configuration: configuration)
         }
-        // A test host must never reach the real Keychain or Linear.
+        // A test host must never reach the real Keychain or Linear, nor take
+        // the CLI socket from a debug app launched while tests run.
         if NSClassFromString("XCTestCase") == nil {
             LinearStore.shared.start()
+            // Before any view exists: a tab's environment names this socket
+            // when it is built, and keeps that environment for life.
+            CLIServer.shared.startIfEnabled()
+            GitConfigSettingsImport.runOnce(modelContext: modelContainer.mainContext)
         }
     }
 

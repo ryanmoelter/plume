@@ -55,6 +55,14 @@ nonisolated enum ReviewDecision: Sendable, Equatable {
     }
 }
 
+/// A pull request's place in a GitHub native stack.
+nonisolated struct GitHubStackMembership: Sendable, Equatable {
+    let number: Int
+    let size: Int?
+    /// 1 at the bottom of the stack.
+    let position: Int
+}
+
 /// A pull request in one shape, whichever forge it came from.
 nonisolated struct PullRequest: Sendable, Equatable {
     let number: Int
@@ -66,6 +74,8 @@ nonisolated struct PullRequest: Sendable, Equatable {
     let headRefOid: String?
     let reviewDecision: ReviewDecision
     let checkContexts: [CheckContext]
+    /// Nil off GitHub, outside a stack, or when the query didn't ask.
+    let githubStack: GitHubStackMembership?
 
     init(
         number: Int,
@@ -76,7 +86,8 @@ nonisolated struct PullRequest: Sendable, Equatable {
         baseRefName: String? = nil,
         headRefOid: String? = nil,
         reviewDecision: ReviewDecision = .none,
-        checkContexts: [CheckContext] = []
+        checkContexts: [CheckContext] = [],
+        githubStack: GitHubStackMembership? = nil
     ) {
         self.number = number
         self.state = state
@@ -87,5 +98,6 @@ nonisolated struct PullRequest: Sendable, Equatable {
         self.headRefOid = headRefOid
         self.reviewDecision = reviewDecision
         self.checkContexts = checkContexts
+        self.githubStack = githubStack
     }
 }

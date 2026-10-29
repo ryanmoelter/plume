@@ -49,22 +49,18 @@ nonisolated enum WorkspaceProvisioner {
         return slug.isEmpty ? "worktree" : slug
     }
 
-    /// The branch prefix the user's own tooling already uses, from
-    /// `wt.branchprefix` or `stack.branchprefix` — the keys `wt` and `stack`
-    /// read. Nil when neither is set, which is when Plume falls back to its
-    /// own `plume/`.
+    /// The branch prefix `plume wt` would use in `repository`: its Settings ▸
+    /// Projects value over the defaults row, else the local part of
+    /// `user.email` plus `/`. An empty string means no prefix. Nil when
+    /// nothing is set and there is no usable email, which is when Plume falls
+    /// back to its own `plume/`.
     ///
-    /// Read from git rather than mirrored into a setting so one answer serves
-    /// every tool, and normalized to end in `/` because a prefix is a path
-    /// segment whether or not the config spells the slash.
-    static func configuredBranchPrefix(in repository: String? = nil) -> String? {
-        for key in ["wt.branchprefix", "stack.branchprefix"] {
-            guard let value = try? GitRunner.run(["config", "--get", key], in: repository) else { continue }
-            let trimmed = value.trimmingCharacters(in: .whitespacesAndNewlines)
-            guard !trimmed.isEmpty else { continue }
-            return trimmed.hasSuffix("/") ? trimmed : trimmed + "/"
-        }
-        return nil
+    /// Blocks on `git`, so call it off the main actor.
+    static func configuredBranchPrefix(in repository: String?, configuration: ProjectsConfiguration) -> String? {
+        let root = repository.flatMap(ProjectRoot.containing)
+        let settings = root.map(configuration.settings(forRepository:)) ?? configuration.defaults
+        let email = try? GitRunner.run(["config", "--get", "user.email"], in: repository)
+        return WTSettings.branchPrefix(configured: settings.branchPrefix, userEmail: email)
     }
 
     static func randomSuffix() -> String {
@@ -93,15 +89,20 @@ nonisolated enum WorkspaceProvisioner {
             if !trimmed.isEmpty { return (trimmed as NSString).expandingTildeInPath }
         }
         let directoryName = worktreeDirectoryName(for: branch, strippingPrefix: strippingPrefix)
+        let project = placementFolder(for: repository)
         guard let basePath, !basePath.isEmpty else {
-            return URL(fileURLWithPath: repository)
+            // `plume wt` puts a bare layout's worktrees directly in its folder.
+            if ProjectRoot.isBareLayoutRepository(repository) {
+                return URL(fileURLWithPath: project).appending(path: directoryName).path
+            }
+            return URL(fileURLWithPath: project)
                 .appending(path: plumeDirectoryName)
                 .appending(path: "worktrees")
                 .appending(path: directoryName)
                 .path
         }
         let expanded = (basePath as NSString).expandingTildeInPath
-        let repositoryURL = URL(fileURLWithPath: repository).standardizedFileURL
+        let repositoryURL = URL(fileURLWithPath: project).standardizedFileURL
         let base = expanded.hasPrefix("/")
             ? URL(fileURLWithPath: expanded).standardizedFileURL
             : repositoryURL.appending(path: expanded).standardizedFileURL
@@ -112,6 +113,12 @@ nonisolated enum WorkspaceProvisioner {
             .appending(path: repositoryURL.lastPathComponent)
             .appending(path: directoryName)
             .path
+    }
+
+    /// The folder worktree locations resolve against: the project folder
+    /// holding a bare layout's `.bare`, else the repository itself.
+    private static func placementFolder(for repository: String) -> String {
+        ProjectRoot.isBareLayoutRepository(repository) ? (repository as NSString).deletingLastPathComponent : repository
     }
 
     private static func isInside(_ path: String, _ directory: String) -> Bool {
@@ -184,8 +191,9 @@ nonisolated enum WorkspaceProvisioner {
             strippingPrefix: strippingPrefix,
             explicitPath: explicitPath
         )
-        if isInsidePlumeDirectory(path: path, repository: repository) {
-            try ensurePlumeDirectoryIgnored(in: repository)
+        let project = placementFolder(for: repository)
+        if isInsidePlumeDirectory(path: path, repository: project) {
+            try ensurePlumeDirectoryIgnored(in: project)
         } else {
             try FileManager.default.createDirectory(
                 at: URL(fileURLWithPath: path).deletingLastPathComponent(),
@@ -216,9 +224,10 @@ nonisolated enum WorkspaceProvisioner {
     /// anything `uncommittedChanges(in:)` reports, since nothing here can be
     /// recovered afterwards.
     static func removeWorktree(repository: String, path: String, branch: String?, deleteBranch: Bool) throws {
-        try GitRunner.run(["worktree", "remove", "--force", path], in: repository)
+        let gitDirectory = ProjectRoot.repositoryDirectory(forRoot: repository)
+        try GitRunner.run(["worktree", "remove", "--force", path], in: gitDirectory)
         if deleteBranch, let branch {
-            try GitRunner.run(["branch", "-D", branch], in: repository)
+            try GitRunner.run(["branch", "-D", branch], in: gitDirectory)
         }
     }
 }

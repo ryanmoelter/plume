@@ -125,6 +125,42 @@ enum ThemeChrome {
         return accent
     }
 
+    /// The colors a terminal surface draws with.
+    struct TerminalColors {
+        var background: Color
+        var foreground: Color
+        /// Indexed by ANSI slot, 0–15.
+        var palette: [Color]
+    }
+
+    /// The resolved theme's colors in `colorScheme`, with ghostty's own
+    /// defaults wherever the theme sets nothing, as the surfaces draw them.
+    static func terminalColors(for colorScheme: ColorScheme) -> TerminalColors {
+        terminalColors(for: colorScheme, in: GhosttyRuntime.shared.resolvedThemeDefinitions)
+    }
+
+    static func terminalColors(
+        for colorScheme: ColorScheme,
+        in definitions: GhosttyThemeResolver.ResolvedDefinitions?
+    ) -> TerminalColors {
+        let theme = definition(for: colorScheme, in: definitions)
+        func color(_ hex: String?, default fallback: String) -> Color {
+            hex.flatMap(Color.init(hex:)) ?? Color(hex: fallback) ?? .clear
+        }
+        return TerminalColors(
+            background: color(theme?.background, default: ghosttyDefaultBackground),
+            foreground: color(theme?.foreground, default: ghosttyDefaultForeground),
+            palette: paletteSlots.map { color(theme?.palette[$0], default: ghosttyDefaultPalette[$0]) }
+        )
+    }
+
+    private static let ghosttyDefaultBackground = "282c34"
+    private static let ghosttyDefaultForeground = "ffffff"
+    private static let ghosttyDefaultPalette = [
+        "1d1f21", "cc6666", "b5bd68", "f0c674", "81a2be", "b294bb", "8abeb7", "c5c8c6",
+        "666666", "d54e53", "b9ca4a", "e7c547", "7aa6da", "c397d8", "70c0b1", "eaeaea",
+    ]
+
     static let paletteSlots = 0..<16
 
     /// Names for the 16 ANSI slots, in slot order.

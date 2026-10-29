@@ -72,6 +72,7 @@ nonisolated enum CommandModeRunner {
     static func run(
         _ command: String,
         in directory: String?,
+        environment: [String: String] = LoginShellCommand.plumeEnvironment,
         timeout: Duration = timeout,
         onProgress: (@Sendable (String) -> Void)? = nil
     ) async -> CommandModeResult {
@@ -83,6 +84,7 @@ nonisolated enum CommandModeRunner {
                         returning: runSynchronously(
                             command,
                             in: directory,
+                            environment: environment,
                             timeout: timeout,
                             handle: handle,
                             onProgress: onProgress
@@ -98,6 +100,7 @@ nonisolated enum CommandModeRunner {
     private static func runSynchronously(
         _ command: String,
         in directory: String?,
+        environment: [String: String],
         timeout: Duration,
         handle: ProcessGroupHandle,
         onProgress: (@Sendable (String) -> Void)?
@@ -108,7 +111,7 @@ nonisolated enum CommandModeRunner {
         stderr.onProgress = onProgress
         let pid: pid_t
         do {
-            pid = try spawn(command, in: directory, stdout: stdout, stderr: stderr)
+            pid = try spawn(command, in: directory, environment: environment, stdout: stdout, stderr: stderr)
         } catch {
             return CommandModeResult(command: command, stdout: "", stderr: error.localizedDescription, exitCode: -1)
         }
@@ -160,6 +163,7 @@ nonisolated enum CommandModeRunner {
     private static func spawn(
         _ command: String,
         in directory: String?,
+        environment: [String: String],
         stdout: OutputBuffer,
         stderr: OutputBuffer
     ) throws -> pid_t {
@@ -201,8 +205,7 @@ nonisolated enum CommandModeRunner {
         // login shell. Non-interactive, unlike a terminal tab's: `.zshrc`
         // warnings would otherwise be captured as part of every result.
         let arguments = ["/bin/sh", "-c", LoginShellCommand.wrapNonInteractive(command)]
-        let environment = ProcessInfo.processInfo.environment
-            .merging(LoginShellCommand.plumeEnvironment) { _, override in override }
+        let environment = LoginShellCommand.childEnvironment(overrides: environment)
             .map { "\($0.key)=\($0.value)" }
 
         var pid: pid_t = 0

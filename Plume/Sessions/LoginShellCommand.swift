@@ -17,6 +17,70 @@ enum LoginShellCommand {
     /// command string and have no environment to carry it in.
     static let plumeEnvironment: [String: String] = ["PLUME": "1"]
 
+    /// `plumeEnvironment` plus the socket the `plume` tool reaches this app
+    /// through, when this app serves one, this app's bundle ID, whose
+    /// defaults domain holds the settings the tool reads. For a process serving many tabs,
+    /// which has no one tab to name.
+    static func sharedPlumeEnvironment() -> [String: String] {
+        sharedPlumeEnvironment(
+            socketPath: CLIServer.shared.socketPath,
+            bundleID: Bundle.main.bundleIdentifier
+        )
+    }
+
+    static func sharedPlumeEnvironment(socketPath: String?, bundleID: String?) -> [String: String] {
+        var environment = plumeEnvironment
+        environment[CLISocket.pathEnvironmentKey] = socketPath
+        environment[UserDefaultsProjectSettingsSource.bundleIDEnvironmentKey] = bundleID
+        return environment
+    }
+
+    /// Everything `plume` needs inside one tab: the shared environment, and
+    /// which tab and task it runs in.
+    static func plumeEnvironment(taskID: UUID?, tabID: UUID) -> [String: String] {
+        plumeEnvironment(
+            taskID: taskID,
+            tabID: tabID,
+            socketPath: CLIServer.shared.socketPath,
+            bundleID: Bundle.main.bundleIdentifier
+        )
+    }
+
+    static func plumeEnvironment(
+        taskID: UUID?,
+        tabID: UUID,
+        socketPath: String?,
+        bundleID: String?
+    ) -> [String: String] {
+        var environment = sharedPlumeEnvironment(socketPath: socketPath, bundleID: bundleID)
+        environment[CLISocket.tabIDEnvironmentKey] = tabID.uuidString
+        environment[CLISocket.taskIDEnvironmentKey] = taskID?.uuidString
+        return environment
+    }
+
+    /// Keys that name a Plume instance, tab or task. A Plume launched from
+    /// another Plume's tab inherits that one's values, which would route a
+    /// child's `plume` calls and hook events to the wrong app.
+    nonisolated static let instanceKeys = [
+        CLISocket.pathEnvironmentKey,
+        CLISocket.tabIDEnvironmentKey,
+        CLISocket.taskIDEnvironmentKey,
+        UserDefaultsProjectSettingsSource.bundleIDEnvironmentKey,
+        "PLUME_EVENTS_DIR",
+    ]
+
+    /// This process's environment plus `overrides`. It carries no inherited
+    /// `instanceKeys`, since `dropInheritedInstanceKeys` cleared them at launch.
+    nonisolated static func childEnvironment(overrides: [String: String]) -> [String: String] {
+        ProcessInfo.processInfo.environment.merging(overrides) { $1 }
+    }
+
+    /// Clears `instanceKeys` from this process at launch, so no child
+    /// inherits them, however its environment is built.
+    static func dropInheritedInstanceKeys() {
+        for key in instanceKeys { unsetenv(key) }
+    }
+
     /// Builds `<shell> -lic '<command>'`, quoting `command` as a single
     /// argument so its own quoting is unaffected.
     ///

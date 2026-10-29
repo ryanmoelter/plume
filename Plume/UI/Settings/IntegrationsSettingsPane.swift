@@ -2,7 +2,6 @@ import SwiftUI
 
 struct IntegrationsSettingsPane: View {
     @State private var settings = AppSettings.shared
-    @State private var newIgnoredCheckName = ""
     @State private var ghInstalled: Bool?
 
     var body: some View {
@@ -34,36 +33,6 @@ struct IntegrationsSettingsPane: View {
             }
 
             LinearSettingsSection()
-
-            Section {
-                ForEach(settings.ignoredPendingChecks, id: \.self) { name in
-                    HStack {
-                        Text(name)
-                        Spacer()
-                        Button {
-                            settings.ignoredPendingChecks.removeAll { $0 == name }
-                        } label: {
-                            Image(systemName: "minus.circle")
-                        }
-                        .buttonStyle(.borderless)
-                    }
-                }
-
-                HStack {
-                    TextField("Ignored pending check name(s)", text: $newIgnoredCheckName)
-                        .textFieldStyle(.roundedBorder)
-                        .onSubmit(addIgnoredCheck)
-                    Button("Add", action: addIgnoredCheck)
-                        .disabled(newIgnoredCheckName.trimmingCharacters(in: .whitespaces).isEmpty)
-                }
-
-                GitConfigIgnoredChecksRow()
-            } header: {
-                Text("Ignored pending checks")
-            } footer: {
-                Text("These checks don't count towards a pending state, e.g. if they're waiting for approval to run. They only count if they're a pass or fail.")
-                    .foregroundStyle(.secondary)
-            }
         }
         .formStyle(.grouped)
         .task {
@@ -71,14 +40,5 @@ struct IntegrationsSettingsPane: View {
                 ClaudeCLILocator.isAvailable(commandName: "gh", refresh: true)
             }.value
         }
-    }
-
-    private func addIgnoredCheck() {
-        let names = newIgnoredCheckName
-            .split(separator: ",")
-            .map { $0.trimmingCharacters(in: .whitespaces) }
-            .filter { !$0.isEmpty && !settings.ignoredPendingChecks.contains($0) }
-        settings.ignoredPendingChecks.append(contentsOf: names)
-        newIgnoredCheckName = ""
     }
 }

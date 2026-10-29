@@ -2,7 +2,7 @@ import SwiftUI
 
 /// The app's `Settings` scene (⌘,): a sidebar of panes, each its own view.
 struct SettingsView: View {
-    @AppStorage("settingsSelectedPane") private var selectedPaneRaw = SettingsPane.general.rawValue
+    @AppStorage(SettingsPane.selectionKey) private var selectedPaneRaw = SettingsPane.general.rawValue
     @State private var cliRefresh = 0
     /// Only ever set true. Setting a `FocusState` false resigns whatever is
     /// first responder at that moment.
@@ -78,6 +78,8 @@ struct SettingsView: View {
         switch selectedPane {
         case .general: GeneralSettingsPane()
         case .agents: AgentsSettingsPane()
+        case .projects: ProjectsSettingsPane()
+        case .commandLine: CommandLineSettingsPane()
         case .visuals: VisualsSettingsPane()
         case .keepAwake: KeepAwakeSettingsPane()
         case .shortcuts: ShortcutsSettingsPane()
@@ -95,6 +97,8 @@ struct SettingsView: View {
 enum SettingsPane: String, CaseIterable, Identifiable {
     case general
     case agents
+    case projects
+    case commandLine
     case visuals
     case keepAwake
     case shortcuts
@@ -106,12 +110,18 @@ enum SettingsPane: String, CaseIterable, Identifiable {
     case debug
     #endif
 
+    /// The `UserDefaults` key holding the selected pane, which
+    /// `settings.open` writes too.
+    static let selectionKey = "settingsSelectedPane"
+
     var id: String { rawValue }
 
     var title: String {
         switch self {
         case .general: "General"
         case .agents: "Agents"
+        case .projects: "Projects"
+        case .commandLine: "Command line"
         case .visuals: "Visuals"
         case .keepAwake: "Keep awake"
         case .shortcuts: "Shortcuts"
@@ -129,6 +139,8 @@ enum SettingsPane: String, CaseIterable, Identifiable {
         switch self {
         case .general: "gearshape"
         case .agents: "person.2"
+        case .projects: "folder"
+        case .commandLine: "terminal"
         case .visuals: "paintpalette"
         case .keepAwake: "cup.and.saucer"
         case .shortcuts: "keyboard"

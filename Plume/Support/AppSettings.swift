@@ -48,7 +48,8 @@ final class AppSettings {
         static let infoPaneLinearExpanded = "infoPaneLinearExpanded"
         static let infoPaneBackgroundTasksExpanded = "infoPaneBackgroundTasksExpanded"
         static let infoPaneArtifactsExpanded = "infoPaneArtifactsExpanded"
-        static let ignoredPendingChecks = "ignoredPendingChecks"
+        /// The retired Settings ▸ Integrations list, read only to migrate it.
+        static let legacyIgnoredPendingChecks = "ignoredPendingChecks"
         static let notifiesOnTurnEnd = "notifiesOnTurnEnd"
         static let notifiesWhenNeeded = "notifiesWhenNeeded"
         static let keepAwakeModeRaw = "keepAwakeModeRaw"
@@ -181,7 +182,6 @@ final class AppSettings {
         self.showsLinearIssues = defaults.object(forKey: Key.showsLinearIssues) == nil
             ? true
             : defaults.bool(forKey: Key.showsLinearIssues)
-        self.ignoredPendingChecks = defaults.stringArray(forKey: Key.ignoredPendingChecks) ?? []
 
         self.sidebarShowsTaskColorBar = defaults.object(forKey: Key.sidebarShowsTaskColorBar) == nil
             ? true
@@ -264,6 +264,18 @@ final class AppSettings {
             ?? ShortcutBindings()
 
         self.hasPromptedForFullDiskAccess = defaults.bool(forKey: Key.hasPromptedForFullDiskAccess)
+
+        let projectsConfiguration = defaults.data(forKey: ProjectsConfiguration.userDefaultsKey)
+            .flatMap { try? JSONDecoder().decode(ProjectsConfiguration.self, from: $0) }
+            ?? ProjectsConfiguration()
+        self.projectsConfiguration = projectsConfiguration
+
+        let storedNerdFontMode = defaults.string(forKey: NerdFontMode.userDefaultsKey)
+        let legacyNerdFontMode = projectsConfiguration.defaults.nerdFont
+        self.nerdFontMode = NerdFontMode.global(stored: storedNerdFontMode, legacyDefault: legacyNerdFontMode)
+        if storedNerdFontMode == nil, let legacyNerdFontMode {
+            defaults.set(legacyNerdFontMode.rawValue, forKey: NerdFontMode.userDefaultsKey)
+        }
 
         self.updateInstallSourceOverride = defaults.string(forKey: Key.updateInstallSourceOverrideRaw)
             .flatMap(UpdateInstallSource.init(rawValue:))
@@ -601,22 +613,6 @@ final class AppSettings {
         }
     }
 
-    /// Plume-level half of `IgnoredChecksResolver`'s union: check names whose
-    /// perpetual PENDING is ignored, across every repo. Matched by exact
-    /// string equality against the check's name/context.
-    var ignoredPendingChecks: [String] {
-        didSet {
-            let trimmed = ignoredPendingChecks
-                .map { $0.trimmingCharacters(in: .whitespaces) }
-                .filter { !$0.isEmpty }
-            if trimmed != ignoredPendingChecks {
-                ignoredPendingChecks = trimmed
-                return
-            }
-            defaults.set(ignoredPendingChecks, forKey: Key.ignoredPendingChecks)
-        }
-    }
-
     /// How much say Plume has over system sleep. `auto` holds the Mac awake
     /// only while `KeepAwakeCoordinator` finds a reason.
     var keepAwakeMode: KeepAwakeMode {
@@ -718,6 +714,58 @@ final class AppSettings {
     }
 
     private var shortcutBindingsContinuation: AsyncStream<ShortcutBindings>.Continuation?
+
+    /// Settings ▸ Projects. The `plume wt` tool reads the same key from this
+    /// app's domain (`UserDefaultsProjectSettingsSource`), so it is stored in
+    /// the tool's own JSON shape.
+    var projectsConfiguration: ProjectsConfiguration {
+        didSet {
+            defaults.set(try? JSONEncoder().encode(projectsConfiguration), forKey: ProjectsConfiguration.userDefaultsKey)
+        }
+    }
+
+    /// Settings ▸ Command line. `plume wt` reads the same key from this app's
+    /// domain (`UserDefaultsProjectSettingsSource`).
+    var nerdFontMode: NerdFontMode {
+        didSet { defaults.set(nerdFontMode.rawValue, forKey: NerdFontMode.userDefaultsKey) }
+    }
+
+    /// False until the mode is chosen, imported from git config, or migrated.
+    var hasStoredNerdFontMode: Bool {
+        defaults.object(forKey: NerdFontMode.userDefaultsKey) != nil
+    }
+
+    /// Moves the retired Settings ▸ Integrations ignored-checks list into
+    /// Projects, then deletes it, so this runs once.
+    func migrateLegacyIgnoredPendingChecks() {
+        guard let legacy = defaults.stringArray(forKey: Key.legacyIgnoredPendingChecks) else { return }
+        projectsConfiguration = Self.addingLegacyIgnoredPendingChecks(legacy, to: projectsConfiguration)
+        defaults.removeObject(forKey: Key.legacyIgnoredPendingChecks)
+    }
+
+    /// `names` appended to the defaults row's list and to every project
+    /// row that sets its own, skipping blanks and names already there. The
+    /// legacy list applied everywhere, and a project's list replaces the
+    /// inherited one rather than adding to it.
+    nonisolated static func addingLegacyIgnoredPendingChecks(
+        _ names: [String],
+        to configuration: ProjectsConfiguration
+    ) -> ProjectsConfiguration {
+        let additions = names.map { $0.trimmingCharacters(in: .whitespaces) }.filter { !$0.isEmpty }
+        guard !additions.isEmpty else { return configuration }
+        func appending(to list: [String]) -> [String] {
+            var list = list
+            for name in additions where !list.contains(name) { list.append(name) }
+            return list
+        }
+        var updated = configuration
+        updated.defaults.ignoredPendingChecks = appending(to: configuration.defaults.ignoredPendingChecks ?? [])
+        for (root, settings) in configuration.repositories {
+            guard let own = settings.ignoredPendingChecks else { continue }
+            updated.repositories[root]?.ignoredPendingChecks = appending(to: own)
+        }
+        return updated
+    }
 
     /// The bindings now, then every later set. `AppDelegate` writes each onto
     /// the menu; observation alone cannot, because the menu is built from a
