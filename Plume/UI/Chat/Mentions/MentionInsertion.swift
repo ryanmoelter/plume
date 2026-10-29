@@ -8,8 +8,9 @@ nonisolated enum MentionInsertion {
     /// Replaces the trigger through the caret, plus the rest of the word the
     /// caret sits in, with the candidate's reference, and puts the caret
     /// after it. Punctuation closing the word, and a sentence's final `.`,
-    /// stay. A space follows the reference unless the text already goes on
-    /// with one or with that punctuation, or the candidate drills in.
+    /// stay, but a quoted path is replaced through its closing quote. A space
+    /// follows the reference unless the text already goes on with one or with
+    /// that punctuation, or the candidate drills in.
     static func accepting(
         _ candidate: MentionCandidate,
         query: MentionQuery,
@@ -17,8 +18,12 @@ nonisolated enum MentionInsertion {
     ) -> SlashCommandMatcher.AcceptedCommand {
         let ns = text as NSString
         var end = query.caretLocation
-        while end < ns.length, !isWhitespace(ns.character(at: end)), !closesWord(ns.character(at: end)) { end += 1 }
-        while end > query.caretLocation, ns.character(at: end - 1) == period { end -= 1 }
+        if query.isQuoted, let closingQuote = closingQuote(in: ns, from: query.caretLocation) {
+            end = closingQuote + 1
+        } else {
+            while end < ns.length, !isWhitespace(ns.character(at: end)), !closesWord(ns.character(at: end)) { end += 1 }
+            while end > query.caretLocation, ns.character(at: end - 1) == period { end -= 1 }
+        }
 
         let inserted = insertedText(for: candidate)
         let replaced = NSRange(location: query.triggerLocation, length: end - query.triggerLocation)
@@ -86,7 +91,24 @@ nonisolated enum MentionInsertion {
     private static let period = ".".utf16.first!
     private static let wordClosers = Set(")]},;:!?\"'".utf16)
 
+    private static let quote = "\"".utf16.first!
+    private static let backslash = "\\".utf16.first!
+    private static let newline = "\n".utf16.first!
+
     private static func closesWord(_ character: unichar) -> Bool { wordClosers.contains(character) }
+
+    /// The unescaped `"` ending a quoted path the caret is inside, on the
+    /// caret's line.
+    private static func closingQuote(in ns: NSString, from location: Int) -> Int? {
+        var index = location
+        while index < ns.length {
+            let character = ns.character(at: index)
+            if character == newline { return nil }
+            if character == quote { return index }
+            index += character == backslash ? 2 : 1
+        }
+        return nil
+    }
 
     private static func isWhitespace(_ character: unichar) -> Bool {
         guard let scalar = UnicodeScalar(character) else { return false }

@@ -139,6 +139,18 @@ struct MentionInsertionTests {
         #expect(try accept(file("Plume.swift"), in: "see @Plum.", caret: 9).text == "see @Plume.swift.")
     }
 
+    @Test(arguments: [4, 7])
+    func aQuotedPathIsReplacedThroughItsClosingQuote(caret: Int) throws {
+        let notes = file("My Notes.md")
+        #expect(try accept(notes, in: #"@"My Notes.md""#, caret: caret).text == #"@"My Notes.md" "#)
+        #expect(try accept(notes, in: #"@"My No" later"#, caret: caret).text == #"@"My Notes.md" later"#)
+    }
+
+    @Test func anEscapedQuoteDoesNotCloseAQuotedPath() throws {
+        let result = try accept(file(#"a"b c.txt"#), in: #"@"a\"b c" x"#, caret: 3)
+        #expect(result.text == #"@"a\"b c.txt" x"#)
+    }
+
     @Test func caretOffsetsAreUTF16() throws {
         let result = try accept(pull, in: "🎉 #1")
         #expect(result.text == "🎉 #123 ")
