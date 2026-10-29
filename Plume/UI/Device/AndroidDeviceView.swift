@@ -299,6 +299,7 @@ struct AndroidDeviceView: View, ThemedView {
         .frame(maxWidth: 420, alignment: .leading)
         .padding(20)
         .glassEffect(statusGlass, in: .rect(cornerRadius: 10))
+        .padding(.horizontal, 24)
     }
 
     private var statusGlass: Glass {
