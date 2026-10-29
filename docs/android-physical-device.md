@@ -54,6 +54,8 @@ On quit, `DeviceSessionManager.terminateAll()` starts each stop without waiting,
 
 A physical tab stays connected for `DeviceSession.physicalIdleStopDelay` (5 seconds) after its last sink leaves, or after a connect that finishes with no sink, as a picker's connect can. A sink returning within that time cancels the stop and keeps the same connection and stream. Once the delay expires the session closes the connection, which stops the server and removes the forward, so a hidden tab never keeps the phone encoding. The session's state is then `.suspended`, which is not an error and offers no button. The next sink to attach reconnects to the same device, which takes about a second. Emulators stop streaming at once and keep their connection.
 
+**Turn Off Streaming** in the ellipsis menu does the same at once, with no delay, for a physical or remote tab. The state is `.streamingPaused`, in memory only. A returning sink does not reconnect from it; **Turn On Streaming** or the card's **Re-enable streaming** does. Changing device clears it.
+
 Reconnecting costs about a second and a visible stall, which a quick tab switch shouldn't pay. The delay is injected (`idleSleep`), so tests fire it by hand rather than waiting on a clock.
 
 ## Input

@@ -120,6 +120,16 @@ struct AndroidDeviceView: View, ThemedView {
                     .disabled(session.autoRotate == nil || !session.isConnected)
                     .plumeID(AccessibilityID.deviceAutoRotateMenuItem, value: autoRotate ? "on" : "off")
                 }
+                if session.isPhysical {
+                    if session.state == .streamingPaused {
+                        Button("Turn On Streaming") { session.resumeStreaming() }
+                            .plumeID(AccessibilityID.deviceStreamingMenuItem, value: "off")
+                    } else {
+                        Button("Turn Off Streaming") { session.pauseStreaming() }
+                            .disabled(!session.canPauseStreaming)
+                            .plumeID(AccessibilityID.deviceStreamingMenuItem, value: "on")
+                    }
+                }
                 if session.canEndReservation {
                     Button("End Reservation…") { confirmingEndReservation = true }
                         .plumeID(AccessibilityID.deviceEndReservationMenuItem)
@@ -197,6 +207,11 @@ struct AndroidDeviceView: View, ThemedView {
         case .locating, .connecting, .suspended:
             ProgressView()
                 .controlSize(.small)
+        case .streamingPaused:
+            status("Streaming turned off", detail: "To save bandwidth.") {
+                Button("Re-enable streaming") { session.resumeStreaming() }
+                    .plumeID(AccessibilityID.deviceResumeStreamingButton)
+            }
         case .booting:
             status("Booting \(session.displayName ?? "the emulator")…", showsProgress: true)
         case .notRunning where session.isPhysical:
@@ -296,6 +311,7 @@ struct AndroidDeviceView: View, ThemedView {
         case .connecting: "connecting"
         case .connected: session.isStreaming ? "streaming" : "connected"
         case .suspended: "suspended"
+        case .streamingPaused: "streamingPaused"
         case .disconnected: "disconnected"
         case .failed: "failed"
         case .reserving: "reserving"

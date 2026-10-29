@@ -21,6 +21,8 @@ enum DeviceSessionState: Equatable {
     case connected
     /// A physical device that is ready but unconnected because no sink watches it. The next sink connects.
     case suspended
+    /// The user turned streaming off to save bandwidth. Only `resumeStreaming()` reconnects.
+    case streamingPaused
     case disconnected(String)
     case failed(String)
     /// Waiting for Device Streaming to reserve a remote device and activate it.
@@ -144,6 +146,7 @@ final class DeviceSession {
         if case .remote = target { return true }
         return state == .reserving || remoteDetails != nil
     }
+    var canPauseStreaming: Bool { isPhysical && (isConnected || state == .suspended || state == .connecting) }
     var canShutDownEmulator: Bool { isConnected && !isPhysical }
     /// Whether the reservation is still billed and can be extended or ended.
     var hasLiveReservation: Bool { reservation.map { !$0.isReleased && $0.reservationID != nil } ?? false }
@@ -676,6 +679,25 @@ final class DeviceSession {
         EmulatorLog.info("\(logPrefix) suspending until a sink returns")
         disconnect()
         state = .suspended
+    }
+
+    func pauseStreaming() {
+        guard canPauseStreaming else { return }
+        EmulatorLog.info("\(logPrefix) streaming turned off")
+        workTask?.cancel()
+        workTask = nil
+        disconnect()
+        state = .streamingPaused
+    }
+
+    func resumeStreaming() {
+        guard state == .streamingPaused, let connectedDevice else { return }
+        EmulatorLog.info("\(logPrefix) streaming turned on")
+        if hasSinks {
+            connect(to: connectedDevice)
+        } else {
+            state = .suspended
+        }
     }
 
     private func cancelIdleStop() {

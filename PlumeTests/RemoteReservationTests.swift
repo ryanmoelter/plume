@@ -490,6 +490,18 @@ struct RemoteDeviceSessionTests {
         #expect(session.reservation?.isReleased == false)
     }
 
+    @Test func pausingStreamingKeepsTheReservation() async {
+        let session = await reservedSession()
+        let sink = FakeSink(size: CGSize(width: 100, height: 200))
+        session.addSink(sink)
+        await waitUntil { session.isStreaming }
+
+        session.pauseStreaming()
+        #expect(session.state == .streamingPaused)
+        #expect(session.reservation?.isReleased == false)
+        #expect(session.hasLiveReservation)
+    }
+
     @Test func endingTheReservationReleasesItAndKeepsTheDevice() async {
         let session = await reservedSession()
 
