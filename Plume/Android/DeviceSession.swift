@@ -252,7 +252,9 @@ final class DeviceSession {
                 state = .reservationFailed(error.localizedDescription)
                 return
             }
-            guard let self, self.reservation === reservation, let id = reservation.reservationID else { return }
+            guard let self, self.reservation === reservation, !Task.isCancelled, !reservation.isReleased,
+                  let id = reservation.reservationID
+            else { return }
             choose(.remote(reservationID: id), displayName: displayName)
             // Cleared so the tab persists the details even when they match what was requested.
             remoteDetails = nil
