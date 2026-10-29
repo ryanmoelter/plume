@@ -9,7 +9,7 @@ nonisolated enum RemoteReservationStatus: Equatable, Sendable {
 }
 
 /// One Device Streaming reservation, from `create` to `remove`. Reservations are billed, so
-/// `release()` always runs `disconnect` then `remove`, and nothing outlives the tab or the app.
+/// `release()` always runs `disconnect` and `remove`, and nothing outlives the tab or the app.
 @MainActor
 @Observable
 final class RemoteReservation {
@@ -123,9 +123,14 @@ final class RemoteReservation {
             return .unknown(error.localizedDescription)
         }
         guard result.succeeded else { return .unknown(result.failureMessage) }
-        guard let row = RemoteDeviceParsers.reservations(result.stdout, now: now()).first(where: { $0.id == reservationID }),
-              row.isActive
-        else { return .ended }
+        guard let row = RemoteDeviceParsers.reservations(result.stdout, now: now()).first(where: { $0.id == reservationID }) else {
+            guard RemoteDeviceParsers.isReservationListing(result.stdout) else {
+                EmulatorLog.error("listing \(reservationID) printed something unrecognized: \(result.output)")
+                return .unknown("Device Streaming's reply wasn't recognized.")
+            }
+            return .ended
+        }
+        guard row.isActive else { return .ended }
         if let expires = row.expiresAt { expiresAt = expires }
         return .active
     }
@@ -141,10 +146,14 @@ final class RemoteReservation {
             ?? (expiresAt ?? now()).addingTimeInterval(TimeInterval(minutes * 60))
     }
 
+    /// The id as soon as `create` printed it, which a release ends even before `create` returns.
+    nonisolated var knownReservationID: String? { createdID.value }
+
     /// Ends the reservation. Safe to call any number of times; only the first does anything. A
     /// create still running is stopped first, and its id released if it printed one.
+    /// `concurrently` is for app termination; see `release(reservationID:…)`.
     @discardableResult
-    func release() -> Task<Void, Never> {
+    func release(concurrently: Bool = false) -> Task<Void, Never> {
         if let releaseTask { return releaseTask }
         isReleased = true
         serial = nil
@@ -156,12 +165,21 @@ final class RemoteReservation {
         let task = Task.detached {
             _ = await createRun?.result
             if let id = createdID.value {
-                await Self.release(reservationID: id, projectID: projectID, cli: cli, ledger: ledger)
+                await Self.release(reservationID: id, projectID: projectID, cli: cli, ledger: ledger, concurrently: concurrently)
             }
             group.leave()
         }
         releaseTask = task
         return task
+    }
+
+    /// Releases a reservation no session holds, counted in `awaitTerminations()`.
+    nonisolated static func releaseForTermination(reservationID: String, projectID: String, cli: AndroidCLIRunning, ledger: RemoteReservationLedger) {
+        terminations.enter()
+        Task.detached {
+            await release(reservationID: reservationID, projectID: projectID, cli: cli, ledger: ledger, concurrently: true)
+            terminations.leave()
+        }
     }
 
     /// Blocks until every release in flight finishes, or gives up. Only for app termination.
@@ -170,21 +188,33 @@ final class RemoteReservation {
     }
 
     /// Disconnects, then removes. "Not connected" and "already ended" count as done. Returns
-    /// whether the reservation is gone, which is when the ledger forgets it.
+    /// whether the reservation is gone, which is when the ledger forgets it. `concurrently` runs
+    /// both at once, so a quit's bounded wait always reaches `remove`, the call that stops billing.
     @discardableResult
     nonisolated static func release(
         reservationID: String,
         projectID: String,
         cli: AndroidCLIRunning,
-        ledger: RemoteReservationLedger
+        ledger: RemoteReservationLedger,
+        concurrently: Bool = false
     ) async -> Bool {
         let project = "--project=\(projectID)"
+        let disconnectArguments = ["device", "remote", "disconnect", reservationID, project]
+        let removeArguments = ["device", "remote", "remove", reservationID, project]
         do {
-            let disconnect = try await cli.run(["device", "remote", "disconnect", reservationID, project], timeout: commandTimeout)
+            let disconnect: AndroidCLIResult
+            let remove: AndroidCLIResult
+            if concurrently {
+                async let disconnecting = cli.run(disconnectArguments, timeout: commandTimeout)
+                async let removing = cli.run(removeArguments, timeout: commandTimeout)
+                (disconnect, remove) = try await (disconnecting, removing)
+            } else {
+                disconnect = try await cli.run(disconnectArguments, timeout: commandTimeout)
+                remove = try await cli.run(removeArguments, timeout: commandTimeout)
+            }
             if !disconnect.succeeded, !RemoteDeviceParsers.saysNotConnected(disconnect.output) {
                 EmulatorLog.error("disconnecting \(reservationID) failed: \(disconnect.failureMessage)")
             }
-            let remove = try await cli.run(["device", "remote", "remove", reservationID, project], timeout: commandTimeout)
             guard remove.succeeded || RemoteDeviceParsers.saysAlreadyEnded(remove.output) else {
                 EmulatorLog.error("removing \(reservationID) failed: \(remove.failureMessage)")
                 return false

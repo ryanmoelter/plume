@@ -48,6 +48,8 @@ final class DeviceSession {
     /// How often a remote tab asks whether its reservation is still active, which catches an end
     /// from inactivity.
     static let reservationPollInterval: TimeInterval = 60
+    /// Past the local expiry the service may not have ended the reservation yet, so the monitor keeps asking, no faster than this.
+    static let reservationMinimumPoll: TimeInterval = 15
     static let extendMinutes = 15
 
     let tabID: UUID
@@ -119,12 +121,10 @@ final class DeviceSession {
         self.reservationSleep = reservationSleep
         self.now = now
         state = target == nil ? .needsDevice : .locating
-        if case .remote(let reservationID) = target, let remoteDetails {
+        // A quit ends every reservation, so a remote tab from an earlier run only offers Reserve Again.
+        if case .remote = target {
             self.remoteDetails = remoteDetails
-            reservation = RemoteReservation(
-                projectID: remoteDetails.projectID, model: remoteDetails.model, reservationID: reservationID,
-                expiresAt: remoteDetails.expiresAt, cli: remoteCLI, ledger: ledger, now: now
-            )
+            state = .reservationEnded
         }
     }
 
@@ -145,6 +145,8 @@ final class DeviceSession {
     var canShutDownEmulator: Bool { isConnected && !isPhysical }
     /// Whether the reservation is still billed and can be extended or ended.
     var hasLiveReservation: Bool { reservation.map { !$0.isReleased && $0.reservationID != nil } ?? false }
+    /// Also true while `create` runs, which ending cancels.
+    var canEndReservation: Bool { hasLiveReservation || state == .reserving }
     /// The adb serial a live reservation attached, which the picker leaves out of its device list.
     var remoteSerial: String? { reservation?.serial }
 
@@ -333,7 +335,7 @@ final class DeviceSession {
         reservationMonitor = Task { [weak self, reservationSleep, now] in
             while !Task.isCancelled {
                 let untilExpiry = reservation.expiresAt.map { $0.timeIntervalSince(now()) } ?? Self.reservationPollInterval
-                await reservationSleep(.seconds(min(Self.reservationPollInterval, max(1, untilExpiry))))
+                await reservationSleep(.seconds(min(Self.reservationPollInterval, max(Self.reservationMinimumPoll, untilExpiry))))
                 guard !Task.isCancelled, !reservation.isReleased else { return }
                 let status = await reservation.status()
                 guard !Task.isCancelled, let self, self.reservation === reservation else { return }
@@ -469,7 +471,7 @@ final class DeviceSession {
         stopStreaming()
         connection?.terminate()
         connection = nil
-        reservation?.release()
+        reservation?.release(concurrently: true)
     }
 
     // MARK: Sinks

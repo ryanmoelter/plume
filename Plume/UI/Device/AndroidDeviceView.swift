@@ -80,7 +80,7 @@ struct AndroidDeviceView: View {
             Menu {
                 Button("Change Device…") { session.changeDevice() }
                     .plumeID(AccessibilityID.deviceChangeDeviceMenuItem)
-                if session.hasLiveReservation {
+                if session.canEndReservation {
                     Button("End Reservation…") { confirmingEndReservation = true }
                         .plumeID(AccessibilityID.deviceEndReservationMenuItem)
                 }

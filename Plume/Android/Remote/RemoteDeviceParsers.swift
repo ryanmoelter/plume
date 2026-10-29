@@ -89,6 +89,13 @@ nonisolated enum RemoteDeviceParsers {
         }
     }
 
+    /// Whether `list` printed its table, even an empty one, or said nothing is reserved. Only
+    /// then does a missing row mean the reservation ended.
+    static func isReservationListing(_ output: String) -> Bool {
+        output.contains("There are no active reservations")
+            || lines(output).contains { columns($0).starts(with: ["Reservation", "State"]) }
+    }
+
     /// `New reservation created with id 3f3jpxdv5lw6y. Reservation ends at 10:51 PM`
     static func createdReservation(_ output: String, now: Date = Date(), calendar: Calendar = .current) -> (id: String, endsAt: Date?)? {
         for line in lines(output) {

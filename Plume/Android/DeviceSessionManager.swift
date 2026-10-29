@@ -32,9 +32,14 @@ final class DeviceSessionManager {
     }
 
     /// Starts tearing every session down for app termination; `awaitTerminations()` waits for it.
-    func terminateAll() {
+    /// Ends every reservation in the ledger too, including those of tabs never shown this run.
+    func terminateAll(ledger: RemoteReservationLedger = .shared, cli: AndroidCLIRunning = AndroidCLI.shared) {
+        let held = Set(sessions.values.compactMap { $0.reservation?.knownReservationID })
         for session in sessions.values { session.terminate() }
         sessions.removeAll()
+        for entry in ledger.entries where !held.contains(entry.reservationID) {
+            RemoteReservation.releaseForTermination(reservationID: entry.reservationID, projectID: entry.projectID, cli: cli, ledger: ledger)
+        }
     }
 
     /// Blocks until physical devices' servers are stopped, their forwards removed and remote
@@ -57,8 +62,8 @@ final class DeviceSessionManager {
         sessions[tabID]?.endReservation()
     }
 
-    func hasLiveReservation(for tabID: UUID) -> Bool {
-        sessions[tabID]?.hasLiveReservation ?? false
+    func canEndReservation(for tabID: UUID) -> Bool {
+        sessions[tabID]?.canEndReservation ?? false
     }
 
     func shutDownEmulator(for tabID: UUID) {

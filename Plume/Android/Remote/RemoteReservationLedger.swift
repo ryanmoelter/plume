@@ -1,9 +1,7 @@
 import Foundation
-import SwiftData
 
 /// Every reservation Plume created and hasn't yet removed, on disk. Reservations are billed, so
-/// a crash or force-quit must not leak one past the next launch: `sweep` removes whatever no
-/// live tab owns.
+/// a crash or force-quit must not leak one past the next launch: `sweep` removes them all.
 nonisolated final class RemoteReservationLedger: @unchecked Sendable {
     struct Entry: Codable, Hashable, Sendable {
         var reservationID: String
@@ -40,10 +38,9 @@ nonisolated final class RemoteReservationLedger: @unchecked Sendable {
         }
     }
 
-    /// Releases every entry whose reservation id isn't in `keeping`. An entry stays when its
-    /// release fails, so the next launch tries again.
-    func sweep(keeping: Set<String>, cli: AndroidCLIRunning) async {
-        for entry in entries where !keeping.contains(entry.reservationID) {
+    /// Releases every entry. An entry stays when its release fails, so the next launch tries again.
+    func sweep(cli: AndroidCLIRunning) async {
+        for entry in entries {
             EmulatorLog.info("releasing leftover reservation \(entry.reservationID)")
             await RemoteReservation.release(reservationID: entry.reservationID, projectID: entry.projectID, cli: cli, ledger: self)
         }
@@ -65,15 +62,12 @@ nonisolated final class RemoteReservationLedger: @unchecked Sendable {
 }
 
 extension RemoteReservationLedger {
-    /// Keeps the reservations of tabs that still exist, which reconnect when shown, and releases
-    /// the rest off the main thread.
-    @MainActor
-    static func sweepAtLaunch(in context: ModelContext) {
-        let tabs = (try? context.fetch(FetchDescriptor<TaskTab>())) ?? []
-        let owned = Set(tabs.filter { $0.isRemoteDeviceTab && $0.task?.isArchived == false }.compactMap(\.deviceIdentifier))
+    /// A quit ends every reservation, so whatever is left at launch was leaked by a crash or a
+    /// release that failed. A remote tab never reconnects; it offers Reserve Again.
+    static func sweepAtLaunch() {
         let ledger = shared
         Task.detached(priority: .utility) {
-            await ledger.sweep(keeping: owned, cli: AndroidCLI.shared)
+            await ledger.sweep(cli: AndroidCLI.shared)
         }
     }
 }
