@@ -5,9 +5,11 @@ import Foundation
 ///
 /// Each repository's open pull requests are cached for `cacheLifetime`,
 /// along with the viewer's own, any lookups by number and title searches.
-/// Only answers are cached. A failed `gh` call (no `gh`, not logged in, no
-/// network, a timeout) caches nothing and holds off that repository's
-/// requests for `failureBackoff`, so the next lookup after it tries again.
+/// Only answers are cached, a number the repository has no pull request for
+/// among them. A failed `gh` call (no `gh`, not logged in, no network, a
+/// timeout) caches nothing and holds off that repository's requests for
+/// `failureBackoff`, so the next lookup after it tries again. A cancelled
+/// call is not a failure.
 actor PullRequestMentionSource {
     static let shared = PullRequestMentionSource()
 
@@ -101,7 +103,7 @@ actor PullRequestMentionSource {
             if found == nil, includingLookups, canRequest(root) {
                 guard !Task.isCancelled else { return [] }
                 let request = GitHubMentionQuery.titleSearch(term, nameWithOwner: nameWithOwner)
-                found = await fetch(request, in: root) { try GitHubMentionQuery.decodeSearch($0) }
+                found = await fetch(request, in: root) { try GitHubMentionQuery.decodeSearch($0) }.value
                 guard !Task.isCancelled else { return [] }
                 if let found { update(root, listedAt: repository.fetchedAt) { $0.searches[key] = found } }
             }
@@ -128,10 +130,15 @@ actor PullRequestMentionSource {
     /// pull request.
     private func lookUp(_ number: Int, in root: String, listedAt fetchedAt: Date) async -> Entry?? {
         guard canRequest(root), !Task.isCancelled else { return nil }
-        let pull = await fetch(GitHubMentionQuery.pullRequest(number: number), in: root) {
+        let answer = await fetch(GitHubMentionQuery.pullRequest(number: number), in: root) {
             try GitHubMentionQuery.decodePullRequest($0)
         }
-        guard let pull, !Task.isCancelled else { return nil }
+        let pull: Entry?
+        switch answer {
+        case .answered(let found): pull = found
+        case .missing: pull = nil
+        case .unanswered: return nil
+        }
         update(root, listedAt: fetchedAt) { $0.byNumber[number] = .some(pull) }
         return .some(pull)
     }
@@ -141,21 +148,42 @@ actor PullRequestMentionSource {
         guard includingLookups, canRequest(root), let nameWithOwner = repository.nameWithOwner else { return nil }
         let related = await fetch(GitHubMentionQuery.relatedPullRequests(nameWithOwner: nameWithOwner), in: root) {
             try GitHubMentionQuery.decodeRelatedPullRequests($0)
-        }
+        }.value
         if let related { update(root, listedAt: repository.fetchedAt) { $0.related = related } }
         return related
     }
 
-    /// Nil when `gh` failed or its answer didn't decode, which also starts
-    /// the repository's backoff.
-    private func fetch<Result>(
+    private enum Answer<Value> {
+        case answered(Value)
+        /// GitHub has no pull request with the number asked for.
+        case missing
+        case unanswered
+
+        var value: Value? {
+            if case .answered(let value) = self { value } else { nil }
+        }
+    }
+
+    /// Unanswered when the call was cancelled, or when `gh` failed or its
+    /// answer didn't decode, which also starts the repository's backoff.
+    private func fetch<Value>(
         _ request: GitHubMentionQuery.Request,
         in root: String,
-        decode: (Data) throws -> Result
-    ) async -> Result? {
-        if let data = try? await run(request.arguments, root), let result = try? decode(data) { return result }
+        decode: (Data) throws -> Value
+    ) async -> Answer<Value> {
+        do {
+            let data = try await run(request.arguments, root)
+            // Not `try?`, which would flatten a decoded nil into a failure.
+            do { return .answered(try decode(data)) } catch {}
+        } catch is CancellationError {
+            return .unanswered
+        } catch {
+            let message = (error as? ForgeError)?.message ?? ""
+            if !PullRequestLinkSource.missingNumbers(in: message).isEmpty { return .missing }
+        }
+        guard !Task.isCancelled else { return .unanswered }
         retryAfter[root] = now().addingTimeInterval(Self.failureBackoff)
-        return nil
+        return .unanswered
     }
 
     private func canRequest(_ root: String) -> Bool {

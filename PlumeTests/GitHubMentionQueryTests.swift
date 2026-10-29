@@ -116,6 +116,8 @@ struct PullRequestMentionSourceTests {
                 json = "{\"data\":{\"related0\":{\"nodes\":[\(pull(5, "Mine"))]},\"related1\":{\"nodes\":[]},\"related2\":null}}"
             } else if query.contains("search(") {
                 json = "{\"data\":{\"search\":{\"nodes\":[\(pull(3, "Old layout fix"))]}}}"
+            } else if query.contains("pullRequest(number: 404)") {
+                throw ForgeError(message: "GraphQL: Could not resolve to a PullRequest with the number of 404. (repository.pullRequest)")
             } else if query.contains("pullRequest(number: 7)") {
                 json = "{\"data\":{\"repository\":{\"pullRequest\":\(pull(7, "Closed long ago"))}}}"
             } else if query.contains("pullRequest(number:") {
@@ -195,6 +197,16 @@ struct PullRequestMentionSourceTests {
         #expect(script.count == 3)
     }
 
+    @Test func aNumberGitHubCannotResolveIsCachedWithoutBackingOff() async throws {
+        let script = Script()
+        let source = source(script)
+
+        #expect(await source.matches(for: try query("#404"), in: "/repo").isEmpty)
+        #expect(await source.matches(for: try query("#404"), in: "/repo").isEmpty)
+        #expect(numbers(await source.matches(for: try query("#7"), in: "/repo")) == [7])
+        #expect(script.count == 3)
+    }
+
     @Test func aSignedNumberIsNotLookedUp() async throws {
         let script = Script()
         let source = source(script)
@@ -266,6 +278,30 @@ struct PullRequestMentionSourceTests {
         _ = await source.matches(for: seven, in: "/repo")
         _ = await source.matches(for: eight, in: "/repo")
         #expect(script.count == calls)
+    }
+
+    @Test func aCancelledLookupDoesNotBackOff() async throws {
+        let script = Script()
+        let gate = Gate()
+        let source = PullRequestMentionSource(
+            run: { arguments, _ in
+                if arguments.joined().contains("number: 9)") {
+                    await gate.wait()
+                    try Task.checkCancellation()
+                }
+                return try script.respond(arguments)
+            },
+            resolve: { _ in ("/repo", RepositoryFacts(originURL: "git@github.com:o/r.git", defaultBranch: "main")) }
+        )
+        let nine = try query("#9")
+
+        let cancelled = Task { await source.matches(for: nine, in: "/repo") }
+        await gate.firstWaiter()
+        cancelled.cancel()
+        await gate.open()
+        #expect(await cancelled.value.isEmpty)
+
+        #expect(numbers(await source.matches(for: try query("#7"), in: "/repo")) == [7])
     }
 
     @Test func aFailingGHIsRetriedAfterItsBackoff() async throws {
