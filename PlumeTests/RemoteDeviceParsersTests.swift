@@ -71,10 +71,14 @@ struct RemoteDeviceParsersTests {
             id: "3f3jpxdv5lw6y", state: "ACTIVE", expiresAt: Self.date(28, 22, 52),
             manufacturer: "Google", model: "Pixel 6", codename: "oriole", api: 31
         ))
-        #expect(rows[0].isActive)
+        #expect(rows[0].phase == .active)
         #expect(rows[1].model == "Pixel Tablet")
         #expect(rows[1].expiresAt == Self.date(28, 17, 49))
-        #expect(!rows[1].isActive)
+        #expect(rows[1].phase == .ended)
+        for state in ["CANCELLED", "EXPIRED", "ENDED"] {
+            #expect(RemoteReservationRow(id: "x", state: state, expiresAt: nil, manufacturer: nil, model: nil, codename: nil, api: nil).phase == .ended)
+        }
+        #expect(RemoteReservationRow(id: "x", state: "PAUSED", expiresAt: nil, manufacturer: nil, model: nil, codename: nil, api: nil).phase == .unknown)
     }
 
     @Test func readsNoRowsFromAnEmptyListOrAnError() {

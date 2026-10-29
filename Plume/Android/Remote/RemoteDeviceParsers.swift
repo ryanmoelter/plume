@@ -22,7 +22,16 @@ nonisolated struct RemoteReservationRow: Hashable, Sendable {
     let codename: String?
     let api: Int?
 
-    var isActive: Bool { state == "ACTIVE" }
+    enum Phase: Equatable, Sendable { case active, ended, unknown }
+
+    /// Only a state known to end a reservation reads as ended; anything new keeps the tab.
+    var phase: Phase {
+        switch state {
+        case "ACTIVE": .active
+        case "FINISHED", "CANCELLED", "EXPIRED", "ENDED": .ended
+        default: .unknown
+        }
+    }
 }
 
 nonisolated enum RemoteConnectOutcome: Equatable, Sendable {

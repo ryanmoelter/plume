@@ -260,6 +260,14 @@ struct RemoteReservationTests {
         #expect(await reservation.status() == .unknown("Device Streaming's reply wasn't recognized."))
     }
 
+    @Test func statusKeepsTheTabForAnUnrecognizedState() async {
+        let cli = FakeAndroidCLI()
+        cli.answer("list", ok("Reservation  State   Expires  Manufacturer  Model    Codename  API Level\nr1           PAUSED  10:52\u{202F}PM  Google        Pixel 6  oriole    31\n"))
+        let reservation = RemoteReservation(projectID: "p", model: nil, reservationID: "r1", cli: cli, ledger: makeLedger(), now: { now })
+
+        #expect(await reservation.status() == .unknown("Device Streaming reports the reservation as PAUSED."))
+    }
+
     @Test func statusIsUnknownWhenTheServiceCantBeReached() async {
         let cli = FakeAndroidCLI()
         cli.answer("list", failure("Error: Failed to obtain auth token: HTTP connect timed out\n"))

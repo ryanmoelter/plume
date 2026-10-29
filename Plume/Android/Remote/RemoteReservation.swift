@@ -130,9 +130,16 @@ final class RemoteReservation {
             }
             return .ended
         }
-        guard row.isActive else { return .ended }
-        if let expires = row.expiresAt { expiresAt = expires }
-        return .active
+        switch row.phase {
+        case .ended:
+            return .ended
+        case .unknown:
+            EmulatorLog.error("reservation \(reservationID) is in an unrecognized state: \(result.output)")
+            return .unknown("Device Streaming reports the reservation as \(row.state).")
+        case .active:
+            if let expires = row.expiresAt { expiresAt = expires }
+            return .active
+        }
     }
 
     func extend(minutes: Int) async throws {

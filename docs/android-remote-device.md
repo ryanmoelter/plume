@@ -25,7 +25,7 @@ Every command takes `--project=<id>`, a Google Cloud project ready for streaming
 | `device remote models` | a `├─`/`└─` tree of manufacturers, each model row with one `codename/api` column per API level | one model per API level |
 | `device remote create <codename>/<api>` | `New reservation created with id <id>. Reservation ends at 10:51 PM`, then `Waiting for reservation to activate...` and `Reservation is ACTIVE` | the id, as soon as it prints, and the end time |
 | `device remote connect <id>` | `Device connected on port 59095` | the port; the adb serial is `localhost:<port>` |
-| `device remote list <id>` | a table: `Reservation State Expires Manufacturer Model Codename API Level` | the row's state (`ACTIVE`, `FINISHED`) and expiry |
+| `device remote list <id>` | a table: `Reservation State Expires Manufacturer Model Codename API Level` | the row's state and expiry. `ACTIVE` is active; `FINISHED` (observed), `CANCELLED`, `EXPIRED` and `ENDED` are ended; any other state is unknown, which keeps the tab and logs the output |
 | `device remote extend --duration=<minutes> <id>` | `Reservation extended. New expire time: 10:57 PM` | the new expiry; it adds to the current one |
 | `device remote disconnect <id>` | `Disconnected.` | nothing |
 | `device remote remove <id>` | `Reservation cancelled successfully.` | nothing |
