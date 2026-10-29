@@ -30,7 +30,7 @@ nonisolated struct AndroidCLIError: LocalizedError, Equatable {
 
 /// Runs the `android` command-line tool. Behind a protocol so tests never reach Google.
 nonisolated protocol AndroidCLIRunning: Sendable {
-    /// Throws only when the tool can't be found or spawned. `onOutput` gets stdout as it arrives.
+    /// Throws only when the tool can't be found or spawned. `onOutput` gets each new piece of stdout as it arrives.
     func run(
         _ arguments: [String],
         timeout: Duration,
@@ -116,6 +116,10 @@ nonisolated final class AndroidCLI: AndroidCLIRunning, @unchecked Sendable {
 /// Spawns a short-lived command and captures both streams. It waits for the child to exit, not for
 /// its pipes to close, because `android device remote connect` leaves a daemon behind that may
 /// inherit them.
+///
+/// The child leads its own process group, since `android` is a wrapper whose `android-cli` child
+/// would outlive a signal to the wrapper alone. Only a cancel or a timeout signals the group, so
+/// the daemon a finished `connect` leaves behind survives.
 nonisolated enum ChildProcess {
     static func run(
         executable: String,
@@ -168,7 +172,8 @@ nonisolated enum ChildProcess {
         var attributes: posix_spawnattr_t?
         posix_spawnattr_init(&attributes)
         defer { posix_spawnattr_destroy(&attributes) }
-        posix_spawnattr_setflags(&attributes, Int16(POSIX_SPAWN_CLOEXEC_DEFAULT))
+        posix_spawnattr_setflags(&attributes, Int16(POSIX_SPAWN_CLOEXEC_DEFAULT | POSIX_SPAWN_SETPGROUP))
+        posix_spawnattr_setpgroup(&attributes, 0)
 
         let argv = ([executable] + arguments).map { strdup($0) } + [nil]
         defer { argv.forEach { free($0) } }
@@ -188,6 +193,7 @@ nonisolated enum ChildProcess {
 
         var stdout = Data()
         var stderr = Data()
+        var undelivered = Data()
         var open = [true, true]
         func drain(_ index: Int) {
             var chunk = [UInt8](repeating: 0, count: 16_384)
@@ -197,7 +203,14 @@ nonisolated enum ChildProcess {
                     let data = Data(chunk.prefix(count))
                     if index == 0 {
                         stdout.append(data)
-                        onOutput?(String(decoding: stdout, as: UTF8.self))
+                        if let onOutput {
+                            undelivered.append(data)
+                            let complete = UTF8Prefix.completeLength(of: undelivered)
+                            if complete > 0 {
+                                onOutput(String(decoding: undelivered.prefix(complete), as: UTF8.self))
+                                undelivered.removeFirst(complete)
+                            }
+                        }
                     } else {
                         stderr.append(data)
                     }
@@ -224,10 +237,11 @@ nonisolated enum ChildProcess {
             if waited == pid { exited = true; break }
             if cancellation.isCancelled || Date() >= deadline {
                 timedOut = !cancellation.isCancelled
-                kill(pid, SIGTERM)
+                kill(-pid, SIGTERM)
                 let grace = Date().addingTimeInterval(1)
                 while waitpid(pid, &exitStatus, WNOHANG) == 0, Date() < grace { usleep(20_000) }
-                if kill(pid, 0) == 0 { kill(pid, SIGKILL) }
+                // The group outlives a reaped leader while any member lives, and its id isn't reused until then.
+                kill(-pid, SIGKILL)
                 while waitpid(pid, &exitStatus, 0) == -1, errno == EINTR {}
                 exited = true
             }
@@ -243,6 +257,22 @@ nonisolated enum ChildProcess {
             stderr: String(decoding: stderr, as: UTF8.self),
             timedOut: timedOut
         )
+    }
+}
+
+nonisolated enum UTF8Prefix {
+    /// The length of `data` up to any multi-byte character its end cuts off.
+    static func completeLength(of data: Data) -> Int {
+        let bytes = [UInt8](data.suffix(3))
+        guard !bytes.isEmpty else { return 0 }
+        for back in 1...bytes.count {
+            let byte = bytes[bytes.count - back]
+            guard byte & 0xC0 == 0x80 else {
+                let needed = byte >= 0xF0 ? 4 : byte >= 0xE0 ? 3 : byte >= 0xC0 ? 2 : 1
+                return needed > back ? data.count - back : data.count
+            }
+        }
+        return data.count
     }
 }
 

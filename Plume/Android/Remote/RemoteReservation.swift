@@ -66,9 +66,12 @@ final class RemoteReservation {
         guard !isReleased else { throw CancellationError() }
         let (cli, ledger, projectID, createdID) = (cli, ledger, projectID, createdID)
         let arguments = ["device", "remote", "create", model, projectArgument]
+        let lines = LineBuffer()
         let run = Task.detached {
-            try await cli.run(arguments, timeout: Self.createTimeout) { output in
-                guard createdID.value == nil, let created = RemoteDeviceParsers.createdReservation(output) else { return }
+            try await cli.run(arguments, timeout: Self.createTimeout) { text in
+                guard createdID.value == nil,
+                      let created = lines.completeLines(appending: text).lazy.compactMap({ RemoteDeviceParsers.createdReservation($0) }).first
+                else { return }
                 createdID.value = created.id
                 ledger.add(reservationID: created.id, projectID: projectID)
             }
@@ -192,6 +195,22 @@ final class RemoteReservation {
         } catch {
             EmulatorLog.error("releasing \(reservationID) failed: \(error.localizedDescription)")
             return false
+        }
+    }
+}
+
+/// Collects streamed text and hands back only the lines it completed, so a scan never sees half an id.
+nonisolated final class LineBuffer: @unchecked Sendable {
+    private let lock = NSLock()
+    private var partial = ""
+
+    func completeLines(appending text: String) -> [String] {
+        lock.withLock {
+            partial += text
+            guard let lastBreak = partial.lastIndex(where: \.isNewline) else { return [] }
+            let complete = partial[..<lastBreak]
+            partial = String(partial[partial.index(after: lastBreak)...])
+            return complete.split(whereSeparator: \.isNewline).map(String.init)
         }
     }
 }
