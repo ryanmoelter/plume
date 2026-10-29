@@ -144,7 +144,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         Log.app.info("Terminating, closing \(AgentSessionManager.shared.activeSessionCount, privacy: .public) agent session(s)")
         CodexTerminalMonitor.shared.stopAll()
         AgentSessionManager.shared.closeAll()
-        DeviceSessionManager.shared.terminateAll()
+        // The test host shares the installed app's ledger.
+        DeviceSessionManager.shared.terminateAll(sweepsLedger: NSClassFromString("XCTestCase") == nil)
         AgentProcess.awaitTerminations()
         DeviceSessionManager.awaitTerminations()
 
