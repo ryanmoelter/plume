@@ -4,6 +4,9 @@ import Foundation
 nonisolated struct ReferenceChipIcon: Hashable, Sendable {
     enum Tint: Hashable, Sendable {
         case neutral
+        /// The chip's own text color, for an icon that names a kind rather
+        /// than a state.
+        case link
         case success
         case danger
         case merged
@@ -34,7 +37,7 @@ nonisolated struct ReferenceChipIcon: Hashable, Sendable {
     }
 
     static func file(isDirectory: Bool) -> ReferenceChipIcon {
-        ReferenceChipIcon(symbol: isDirectory ? "folder" : "doc", tint: .neutral)
+        ReferenceChipIcon(symbol: isDirectory ? "folder" : "doc", tint: .link)
     }
 
     /// Before anything has vouched for the target.

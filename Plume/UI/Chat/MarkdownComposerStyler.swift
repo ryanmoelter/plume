@@ -105,17 +105,29 @@ enum MarkdownComposerStyler {
     /// A reference chip's trigger is hidden, and kerned wide enough to hold
     /// the icons `ComposerDecorations` draws over it. The token is padded like
     /// a code chip, and a quoted path's quotes are dimmed rather than hidden.
+    ///
+    /// A titled chip hides the whole token and widens the trigger's kern to
+    /// hold the title too. Its last character keeps its font, so a line
+    /// holding nothing but the chip keeps its height.
     private static func styleReferences(_ references: [ComposerReferenceChip], in storage: NSTextStorage, text ns: NSString, metrics: ComposerMarkdownMetrics, accent: NSColor) {
         let chip = ReferenceChipMetrics(fontSize: metrics.fontSize)
         for reference in references where reference.range.length > 1 && NSMaxRange(reference.range) <= ns.length {
             let range = reference.range
+            let last = NSMaxRange(range) - 1
+            let trigger = NSRange(location: range.location, length: 1)
             storage.addAttribute(.foregroundColor, value: accent, range: range)
+            var kern = chip.triggerKern(brand: reference.brand)
+            if let title = reference.title {
+                storage.addAttribute(.foregroundColor, value: NSColor.clear, range: range)
+                storage.addAttribute(.font, value: hiddenMarkerFont, range: NSRange(location: range.location, length: range.length - 1))
+                let titleWidth = titleWidth(title, font: storage.attribute(.font, at: last, effectiveRange: nil) as? NSFont ?? metrics.body)
+                kern = max(0, kern + titleWidth - typographicWidth(of: range, in: storage))
+            }
             storage.addAttributes([
                 .foregroundColor: NSColor.clear,
                 .font: hiddenMarkerFont,
-                .kern: chip.triggerKern(brand: reference.brand),
-            ], range: NSRange(location: range.location, length: 1))
-            let last = NSMaxRange(range) - 1
+                .kern: kern,
+            ], range: trigger)
             if range.length > 3, ns.character(at: range.location + 1) == quote, ns.character(at: last) == quote {
                 for location in [range.location + 1, last] {
                     storage.addAttribute(.foregroundColor, value: NSColor.secondaryLabelColor, range: NSRange(location: location, length: 1))
@@ -251,6 +263,10 @@ enum MarkdownComposerStyler {
     }
 
     private static let hiddenMarkerFont = NSFont.systemFont(ofSize: 1)
+
+    static func titleWidth(_ title: String, font: NSFont) -> CGFloat {
+        ceil((title as NSString).size(withAttributes: [.font: font]).width)
+    }
 
     /// The advance of `range` as CoreText sets it, trailing spaces included.
     private static func typographicWidth(of range: NSRange, in storage: NSTextStorage) -> CGFloat {

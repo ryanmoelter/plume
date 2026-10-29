@@ -94,7 +94,7 @@ struct ReferenceChipIconPlacementTests {
             tint: NSColor(srgbRed: 1, green: 0, blue: 0, alpha: 1),
             wash: .clear,
             brand: .github,
-            brandTint: NSColor(srgbRed: 0, green: 0, blue: 1, alpha: 1)
+            textTint: NSColor(srgbRed: 0, green: 0, blue: 1, alpha: 1)
         )
         let view = ComposerNSTextView()
         view.frame = NSRect(x: 0, y: 0, width: 400, height: 120)

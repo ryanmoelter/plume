@@ -48,7 +48,7 @@ nonisolated struct ReferenceChipMetrics {
 }
 
 /// The service a reference chip names, shown as its logo before the status
-/// icon.
+/// icon, in the chip's text color.
 nonisolated enum ReferenceChipBrand: Hashable, Sendable {
     case github
     case linear
@@ -117,6 +117,7 @@ struct ReferenceChipPalette: Equatable {
     func color(for tint: ReferenceChipIcon.Tint) -> Color {
         switch tint {
         case .neutral: neutral
+        case .link: accent
         case .success: success
         case .danger: danger
         case .merged: merged

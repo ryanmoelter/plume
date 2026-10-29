@@ -286,12 +286,12 @@ struct InlineMarkdownText: View, ThemedView {
         for url in urls {
             let target = ReferenceTarget.classify(url, base: linkDirectory)
             let icon = target.map { ReferenceChipStore.shared.icon(for: $0) ?? .placeholder(for: $0) }
-                ?? ReferenceChipIcon(symbol: "link", tint: .neutral)
+                ?? ReferenceChipIcon(symbol: "link", tint: .link)
             icons[url] = ReferenceChipDrawing.Icon(symbol: icon.symbol, color: palette.color(for: icon.tint), brand: target?.brand)
         }
         return ReferenceChipDrawing(
             wash: palette.accentWash,
-            brandColor: palette.neutral,
+            brandColor: palette.color(for: .link),
             icons: icons,
             metrics: ReferenceChipMetrics(fontSize: fontSize)
         )

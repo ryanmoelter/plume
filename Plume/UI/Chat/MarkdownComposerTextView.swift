@@ -267,7 +267,13 @@ struct MarkdownComposerTextView: NSViewRepresentable {
 
         private func referenceChips(in text: String, caret: NSRange) -> [ComposerReferenceChip] {
             guard !isCommandMode, let referenceResolver, let referencePalette else { return [] }
-            let found = ComposerReferenceChip.chips(in: text, caret: caret, palette: referencePalette, resolution: referenceResolver.cached)
+            let found = ComposerReferenceChip.chips(
+                in: text,
+                caret: caret,
+                palette: referencePalette,
+                textTint: ThemeChrome.accentNSColor(isActive: isActive),
+                resolution: referenceResolver.cached
+            )
             lookUp(found.misses.filter { !attemptedReferences.contains($0) }, with: referenceResolver)
             return found.chips
         }
@@ -628,10 +634,11 @@ final class ComposerNSTextView: NSTextView {
             super.setSelectedRanges(ranges, affinity: affinity, stillSelecting: stillSelectingFlag)
             return
         }
-        let snapped = ComposerMarkdownEditing.snappedSelection(
-            proposed,
-            previous: selectedRanges.first?.rangeValue,
-            in: MarkdownLineStructure.lines(in: string)
+        let previous = selectedRanges.first?.rangeValue
+        let snapped = ComposerReferenceChip.snappedSelection(
+            ComposerMarkdownEditing.snappedSelection(proposed, previous: previous, in: MarkdownLineStructure.lines(in: string)),
+            previous: previous,
+            titledChips: referenceChips.filter { $0.title != nil }.map(\.range)
         )
         super.setSelectedRanges([NSValue(range: snapped)], affinity: affinity, stillSelecting: stillSelectingFlag)
     }

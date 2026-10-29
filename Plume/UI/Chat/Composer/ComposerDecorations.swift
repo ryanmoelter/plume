@@ -34,7 +34,15 @@ enum ComposerDecorations {
         var wash: NSColor
         var brandRect: NSRect?
         var brand: ReferenceChipBrand?
-        var brandTint: NSColor = .secondaryLabelColor
+        var textTint: NSColor = .linkColor
+        var title: Title?
+    }
+
+    /// A chip's title, drawn from the left end of its baseline.
+    struct Title: Equatable {
+        var text: String
+        var baselineOrigin: NSPoint
+        var font: NSFont
     }
 
     struct Decorations: Equatable {
@@ -99,7 +107,14 @@ enum ComposerDecorations {
         if let brand = chip.brand, let brandRect = chip.brandRect, brandRect.intersects(dirtyRect),
            let logo = NSImage(named: brand.imageName) {
             let inset = brandRect.width * (1 - ReferenceChipMetrics.brandScale) / 2
-            drawTemplate(logo, tint: chip.brandTint, fittedIn: brandRect.insetBy(dx: inset, dy: inset))
+            drawTemplate(logo, tint: chip.textTint, fittedIn: brandRect.insetBy(dx: inset, dy: inset))
+        }
+        if let title = chip.title, chip.rects.first?.intersects(dirtyRect) == true {
+            (title.text as NSString).draw(
+                with: NSRect(origin: title.baselineOrigin, size: .zero),
+                options: [],
+                attributes: [.font: title.font, .foregroundColor: chip.textTint]
+            )
         }
         guard chip.iconRect.intersects(dirtyRect),
               let image = NSImage(systemSymbolName: chip.symbol, accessibilityDescription: nil)?
@@ -298,6 +313,24 @@ enum ComposerDecorations {
             return rect
         }
 
+        /// The y of the baseline of the line `location` lays out on, in view
+        /// coordinates.
+        func baseline(at location: Int) -> CGFloat? {
+            guard let textLocation = contentStorage.location(contentStorage.documentRange.location, offsetBy: location),
+                  let fragment = layoutManager.textLayoutFragment(for: textLocation)
+            else { return nil }
+            let offset = contentStorage.offset(from: fragment.rangeInElement.location, to: textLocation)
+            guard let line = fragment.textLineFragments.first(where: { NSLocationInRange(offset, $0.characterRange) })
+                ?? fragment.textLineFragments.first
+            else { return nil }
+            return fragment.layoutFragmentFrame.minY + origin.y + line.typographicBounds.minY + line.glyphOrigin.y
+        }
+
+        func font(at location: Int) -> NSFont? {
+            guard location >= 0, location < length else { return nil }
+            return textView.textStorage?.attribute(.font, at: location, effectiveRange: nil) as? NSFont
+        }
+
         func kern(at location: Int) -> CGFloat {
             guard location >= 0, location < length else { return 0 }
             return textView.textStorage?.attribute(.kern, at: location, effectiveRange: nil) as? CGFloat ?? 0
@@ -345,8 +378,8 @@ enum ComposerDecorations {
         return merged(rects)
     }
 
-    /// A code chip's rects around the token, and the icon squares at its
-    /// hidden trigger's glyph.
+    /// A code chip's rects around the token, the icon squares at its hidden
+    /// trigger's glyph, and any title after them.
     private static func referenceChipRects(_ chips: [ComposerReferenceChip], _ context: Context) -> [ReferenceChip] {
         let padding = context.metrics.chipPadding
         let chipMetrics = ReferenceChipMetrics(fontSize: context.metrics.fontSize)
@@ -365,11 +398,17 @@ enum ComposerDecorations {
                 return NSRect(x: minX, y: frame.minY, width: frame.maxX - minX, height: frame.height)
             })
             guard let firstLine = rects.first else { return nil }
-            let icons = chipMetrics.iconRects(
-                leadingX: max(context.columnStart, iconX),
-                chipMidY: firstLine.midY,
-                brand: chip.brand
-            )
+            let leadingX = max(context.columnStart, iconX)
+            let icons = chipMetrics.iconRects(leadingX: leadingX, chipMidY: firstLine.midY, brand: chip.brand)
+            let title = chip.title.flatMap { text in
+                context.baseline(at: chip.range.location).map { baseline in
+                    Title(
+                        text: text,
+                        baselineOrigin: NSPoint(x: leadingX + chipMetrics.triggerKern(brand: chip.brand), y: baseline),
+                        font: context.font(at: NSMaxRange(chip.range) - 1) ?? context.metrics.body
+                    )
+                }
+            }
             return ReferenceChip(
                 rects: rects,
                 iconRect: icons.status,
@@ -378,7 +417,8 @@ enum ComposerDecorations {
                 wash: chip.wash,
                 brandRect: icons.brand,
                 brand: chip.brand,
-                brandTint: chip.brandTint
+                textTint: chip.textTint,
+                title: title
             )
         }
     }

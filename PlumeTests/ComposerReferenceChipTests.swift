@@ -113,6 +113,141 @@ struct ComposerReferenceChipTests {
         #expect(view.textLayoutManager != nil)
     }
 
+    // MARK: - Titles
+
+    private let tint = NSColor(srgbRed: 0, green: 0.5, blue: 1, alpha: 1)
+
+    private func found(_ text: String, _ resolved: [MentionReference.Kind: ResolvedMention]) -> [ComposerReferenceChip] {
+        ComposerReferenceChip.chips(
+            in: text,
+            caret: NSRange(location: 0, length: 0),
+            palette: palette,
+            textTint: tint,
+            resolution: { resolved[$0] }
+        ).chips
+    }
+
+    @Test func anIssueAndAPullRequestShowTheirTitlesAndAFileItsName() {
+        let found = found("@PLUME-1 #7 @notes.md", [
+            issue: resolution,
+            .pullRequest(number: 7): ResolvedMention(target: "https://github.com/o/r/pull/7", title: "Fix layout", state: .pullRequest(.open, isDraft: false)),
+            .file(path: "notes.md", isDirectory: false): ResolvedMention(target: "notes.md", title: "notes.md", state: .file(isDirectory: false)),
+        ])
+        #expect(found.map(\.title) == ["Add chips", "Fix layout", nil])
+    }
+
+    @Test func anUntitledReferenceShowsItsIdentifier() {
+        let untitled = ResolvedMention(target: "https://linear.app/p/issue/PLUME-1", title: nil, state: .linear(.started, colorHex: "#f2c94c"))
+        #expect(found("@PLUME-1", [issue: untitled]).first?.title == nil)
+        let text = "See @PLUME-1 now"
+        let view = styledView(text, chips: found(text, [issue: untitled]))
+        #expect(view.textStorage?.attribute(.foregroundColor, at: 5, effectiveRange: nil) as? NSColor != .clear)
+    }
+
+    @Test func aLongTitleIsCutLikeTheChats() {
+        let long = ResolvedMention(target: "x", title: String(repeating: "word ", count: 20), state: .linear(.started, colorHex: "#000000"))
+        let title = found("@PLUME-1", [issue: long]).first?.title
+        #expect(title == ReferenceChipText.truncatedTitle(String(repeating: "word ", count: 20)))
+        #expect(title?.hasSuffix("…") == true)
+    }
+
+    @Test func iconsThatNameAKindTakeTheTextColor() {
+        let file = MentionReference.Kind.file(path: "notes.md", isDirectory: false)
+        let found = found("@PLUME-1 @notes.md", [
+            issue: resolution,
+            file: ResolvedMention(target: "notes.md", title: "notes.md", state: .file(isDirectory: false)),
+        ])
+        #expect(found.allSatisfy { $0.textTint == tint })
+        #expect(found.last?.tint == tint)
+        #expect(found.first?.tint != tint)
+    }
+
+    @Test func aTitledChipHidesItsWholeTokenAndLeavesTheTextAlone() {
+        let text = "See @PLUME-1 now"
+        let view = styledView(text, chips: found(text, [issue: resolution]))
+        for location in 4..<12 {
+            #expect(view.textStorage?.attribute(.foregroundColor, at: location, effectiveRange: nil) as? NSColor == .clear)
+        }
+        #expect(view.string == text)
+    }
+
+    @Test func aTitledChipHoldsItsTitleAfterItsIcons() throws {
+        let text = "See @PLUME-1 now"
+        let view = styledView(text, chips: found(text, [issue: resolution]))
+        let chip = try #require(ComposerDecorations.rects(in: view, metrics: metrics).referenceChips.first)
+        let rect = try #require(chip.rects.first)
+        let title = try #require(chip.title)
+        let width = MarkdownComposerStyler.titleWidth("Add chips", font: title.font)
+        #expect(chip.rects.count == 1)
+        #expect(title.text == "Add chips")
+        #expect(title.baselineOrigin.x >= chip.iconRect.maxX)
+        #expect(title.baselineOrigin.x + width <= rect.maxX)
+        #expect(rect.maxX - (title.baselineOrigin.x + width) < metrics.chipPadding + 1)
+        #expect(title.baselineOrigin.y > rect.midY && title.baselineOrigin.y < rect.maxY)
+    }
+
+    @Test func aTitledChipIsWiderThanItsIdentifier() throws {
+        let text = "See @PLUME-1 now"
+        func width(_ chips: [ComposerReferenceChip]) throws -> CGFloat {
+            let view = styledView(text, chips: chips)
+            return try #require(ComposerDecorations.rects(in: view, metrics: metrics, references: chips).referenceChips.first?.rects.first).width
+        }
+        let long = ResolvedMention(target: "x", title: "A much longer title than the identifier", state: .linear(.started, colorHex: "#000000"))
+        #expect(try width(found(text, [issue: long])) > width(chips(text)) + 50)
+    }
+
+    @Test func aTitledChipAloneOnALineKeepsItsHeight() {
+        func height(_ text: String, references: [ComposerReferenceChip]) -> CGFloat {
+            let host = ScrollableComposerTextView()
+            host.composerTextView.string = text
+            host.composerTextView.bodyFont = metrics.body
+            MarkdownComposerStyler.style(host.composerTextView.textStorage!, text: text, fontSize: metrics.fontSize, references: references)
+            return host.contentHeight(forWidth: 400)
+        }
+        let text = "First line\n@PLUME-1\nlast"
+        #expect(abs(height(text, references: found(text, [issue: resolution])) - height(text, references: [])) < 0.5)
+    }
+
+    // MARK: - Selection over a titled chip
+
+    private let titled = [NSRange(location: 4, length: 8)]
+
+    @Test func extendingASelectionIntoATitledChipTakesItWhole() {
+        let forward = ComposerReferenceChip.snappedSelection(
+            NSRange(location: 4, length: 1), previous: NSRange(location: 4, length: 0), titledChips: titled)
+        #expect(forward == NSRange(location: 4, length: 8))
+        let backward = ComposerReferenceChip.snappedSelection(
+            NSRange(location: 11, length: 1), previous: NSRange(location: 12, length: 0), titledChips: titled)
+        #expect(backward == NSRange(location: 4, length: 8))
+    }
+
+    @Test func shrinkingASelectionOutOfATitledChipLeavesItWhole() {
+        let shrunk = ComposerReferenceChip.snappedSelection(
+            NSRange(location: 4, length: 7), previous: NSRange(location: 4, length: 8), titledChips: titled)
+        #expect(shrunk == NSRange(location: 4, length: 0))
+        let fromLeft = ComposerReferenceChip.snappedSelection(
+            NSRange(location: 5, length: 7), previous: NSRange(location: 4, length: 8), titledChips: titled)
+        #expect(fromLeft == NSRange(location: 12, length: 0))
+    }
+
+    @Test func aSelectionOutsideATitledChipAndACaretAreLeftAlone() {
+        let outside = NSRange(location: 0, length: 3)
+        #expect(ComposerReferenceChip.snappedSelection(outside, previous: nil, titledChips: titled) == outside)
+        let caret = NSRange(location: 6, length: 0)
+        #expect(ComposerReferenceChip.snappedSelection(caret, previous: nil, titledChips: titled) == caret)
+        let inside = NSRange(location: 6, length: 2)
+        #expect(ComposerReferenceChip.snappedSelection(inside, previous: nil, titledChips: titled) == titled[0])
+    }
+
+    @Test func theTextViewSnapsASelectionOverATitledChip() {
+        let text = "See @PLUME-1 now"
+        let view = styledView(text, chips: found(text, [issue: resolution]))
+        view.markdownMetrics = metrics
+        view.setSelectedRange(NSRange(location: 4, length: 0))
+        view.setSelectedRange(NSRange(location: 4, length: 1))
+        #expect(view.selectedRange() == NSRange(location: 4, length: 8))
+    }
+
     @Test func theCoordinatorChipsWhatTheResolverKnows() {
         let tabID = UUID()
         let resolver = MentionResolver(dependencies: .init(
