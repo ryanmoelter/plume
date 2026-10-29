@@ -110,36 +110,9 @@ final class RemoteDeviceCatalog {
         guard let cliPath else { return }
         TerminalCommandScript.open(
             prefix: "plume-android-login",
-            command: "\(HomebrewUpgrade.shellQuoted(cliPath)) auth login"
-        )
-    }
-}
-
-/// Runs a command in Terminal.app through a temporary `.command` script that deletes itself.
-enum TerminalCommandScript {
-    private static let terminalBundleID = "com.apple.Terminal"
-
-    static func script(command: String) -> String {
-        """
-        #!/bin/sh
-        rm -f "$0"
-        \(command)
-
-        """
-    }
-
-    static func open(prefix: String, command: String) {
-        do {
-            let scriptURL = FileManager.default.temporaryDirectory.appendingPathComponent("\(prefix)-\(UUID().uuidString).command")
-            try script(command: command).write(to: scriptURL, atomically: true, encoding: .utf8)
-            try FileManager.default.setAttributes([.posixPermissions: 0o755], ofItemAtPath: scriptURL.path)
-            guard let terminalURL = NSWorkspace.shared.urlForApplication(withBundleIdentifier: terminalBundleID) else {
-                Log.app.error("Terminal.app wasn't found")
-                return
-            }
-            NSWorkspace.shared.open([scriptURL], withApplicationAt: terminalURL, configuration: NSWorkspace.OpenConfiguration())
-        } catch {
-            Log.app.error("Couldn't open Terminal: \(error.localizedDescription, privacy: .public)")
+            command: "\(TerminalCommandScript.shellQuoted(cliPath)) auth login"
+        ) { message in
+            Log.app.error("Couldn't open Terminal: \(message, privacy: .public)")
         }
     }
 }
