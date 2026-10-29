@@ -62,7 +62,6 @@ struct CommandLineSettingsPane: View {
 
             Section {
                 nerdFontPicker
-                nerdFontStatus
                 NerdFontPreview()
             } header: {
                 Text("Customization")
@@ -231,18 +230,18 @@ struct CommandLineSettingsPane: View {
             }
         } label: {
             Text("Nerd Font icons")
+            nerdFontStatus
         }
         .plumeID(AccessibilityID.settingsNerdFontPicker, value: settings.nerdFontMode.rawValue)
     }
 
     private var nerdFontStatus: some View {
         let availability = settings.nerdFontMode.iconAvailability
-        return VStack(alignment: .trailing, spacing: 2) {
+        return HStack(spacing: 12) {
             statusLine("Plume and Ghostty", isOn: availability.plumeAndGhostty)
             statusLine("Other terminals", isOn: availability.otherTerminals)
         }
         .foregroundStyle(.secondary)
-        .frame(maxWidth: .infinity, alignment: .trailing)
     }
 
     private func statusLine(_ title: String, isOn: Bool) -> some View {
