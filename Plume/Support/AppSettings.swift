@@ -412,6 +412,10 @@ final class AppSettings {
         recentRemoteDeviceModels = Array(recents.prefix(Self.recentRemoteDeviceModelLimit))
     }
 
+    func removeRecentRemoteDeviceModel(_ modelID: String) {
+        recentRemoteDeviceModels.removeAll { $0 == modelID }
+    }
+
     /// When a message sent during a Claude Code chat tab's running turn
     /// reaches the agent. Codex and terminal tabs ignore it.
     var queuedMessageDelivery: QueuedMessageDelivery {

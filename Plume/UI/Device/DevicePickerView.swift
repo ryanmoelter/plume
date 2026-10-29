@@ -139,7 +139,7 @@ struct DevicePickerView: View {
                 LazyVStack(alignment: .leading, spacing: 0) {
                     if !isSearching, !recentModels.isEmpty {
                         subheading("Recently used")
-                        ForEach(recentModels, id: \.recentRowID) { modelRow($0, project: project, labelPrefix: "recent:") }
+                        ForEach(recentModels, id: \.recentRowID) { modelRow($0, project: project, isRecent: true) }
                     }
                     ForEach(RemoteDeviceModel.FormFactor.allCases, id: \.self) { factor in
                         let models = filteredModels.filter { $0.formFactor == factor }
@@ -171,15 +171,33 @@ struct DevicePickerView: View {
             .padding(.bottom, 2)
     }
 
-    private func modelRow(_ model: RemoteDeviceModel, project: String, labelPrefix: String = "") -> some View {
+    private func modelRow(_ model: RemoteDeviceModel, project: String, isRecent: Bool = false) -> some View {
         row(
             title: model.name,
             symbol: model.formFactor.symbol,
             detail: "\(model.manufacturer) · API \(model.api) · \(model.formFactor.title)",
             action: "Reserve",
             id: AccessibilityID.devicePickerRemoteRow,
-            label: labelPrefix + model.id
+            label: (isRecent ? "recent:" : "") + model.id,
+            menu: isRecent ? { recentMenu(for: model) } : nil
         ) { onReserve(model, project) }
+    }
+
+    private func recentMenu(for model: RemoteDeviceModel) -> some View {
+        Menu {
+            Button("Remove from recents") {
+                AppSettings.shared.removeRecentRemoteDeviceModel(model.id)
+            }
+            .plumeID(AccessibilityID.devicePickerRecentRemoveItem, label: model.id) {
+                AppSettings.shared.removeRecentRemoteDeviceModel(model.id)
+            }
+        } label: {
+            Image(systemName: "ellipsis")
+        }
+        .menuStyle(.borderlessButton)
+        .menuIndicator(.hidden)
+        .fixedSize()
+        .plumeID(AccessibilityID.devicePickerRecentMenu, label: model.id)
     }
 
     private var filteredModels: [RemoteDeviceModel] {
@@ -291,6 +309,7 @@ struct DevicePickerView: View {
         action: String,
         id: String,
         label: String,
+        menu: (() -> some View)? = nil as (() -> EmptyView)?,
         perform: @escaping () -> Void
     ) -> some View {
         HStack {
@@ -307,6 +326,7 @@ struct DevicePickerView: View {
             Spacer()
             Button(action, action: perform)
                 .plumeID(id, label: label, invoke: perform)
+            if let menu { menu() }
         }
         .padding(10)
     }

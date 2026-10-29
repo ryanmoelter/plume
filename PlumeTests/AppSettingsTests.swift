@@ -278,4 +278,13 @@ struct RecentRemoteDeviceModelsTests {
         #expect(settings.recentRemoteDeviceModels == ["f/1", "e/1", "d/1", "a/1", "c/1"])
         #expect(AppSettings(defaults: defaults).recentRemoteDeviceModels == settings.recentRemoteDeviceModels)
     }
+
+    @Test func removalDropsOnlyThatModelAndPersists() {
+        let defaults = UserDefaults(suiteName: "RecentRemoteDeviceModelsTests-\(UUID().uuidString)")!
+        let settings = AppSettings(defaults: defaults)
+        for id in ["a/1", "b/1", "c/1"] { settings.recordRemoteDeviceReservation(id) }
+        settings.removeRecentRemoteDeviceModel("b/1")
+        #expect(settings.recentRemoteDeviceModels == ["c/1", "a/1"])
+        #expect(AppSettings(defaults: defaults).recentRemoteDeviceModels == ["c/1", "a/1"])
+    }
 }

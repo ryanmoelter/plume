@@ -176,6 +176,8 @@ enum AccessibilityID {
     static let deviceAutoRotateMenuItem = "device-auto-rotate-menu-item"
     static let endReservationMenuItem = "end-reservation-menu-item"
     static let devicePickerRemoteRow = "device-picker-remote-row"
+    static let devicePickerRecentMenu = "device-picker-recent-menu"
+    static let devicePickerRecentRemoveItem = "device-picker-recent-remove-item"
     static let devicePickerRemoteSearch = "device-picker-remote-search"
     static let devicePickerRemoteProjectPicker = "device-picker-remote-project-picker"
     static let devicePickerRemoteSettingsButton = "device-picker-remote-settings-button"
