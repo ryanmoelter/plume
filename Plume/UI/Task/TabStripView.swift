@@ -59,7 +59,7 @@ struct TabStripView: View {
                 Button {
                     TaskStore.addTab(to: task, kind: .device, pane: pane, in: context)
                 } label: {
-                    Label("Android Device Tab", systemImage: "smartphone")
+                    Label("Android Device Tab", systemImage: "ipad.landscape.and.iphone")
                 }
                 .plumeID(AccessibilityID.newAndroidDeviceTabMenuItem)
             } label: {
@@ -182,7 +182,7 @@ private struct TabChip: View {
                     .font(.caption)
                     .accessibilityHidden(true)
             case .device:
-                Image(systemName: tab.isEmulatorTab ? "macbook.and.iphone" : "smartphone")
+                Image(systemName: "ipad.landscape.and.iphone")
                     .font(.caption)
                     .accessibilityHidden(true)
             }

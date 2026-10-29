@@ -19,7 +19,7 @@ struct DevicePickerView: View {
     var body: some View {
         ScrollView {
             VStack(alignment: .leading, spacing: 20) {
-                Label("Android Device", systemImage: "smartphone")
+                Label("Android Device", systemImage: "ipad.landscape.and.iphone")
                     .font(.title2.weight(.semibold))
                 content
             }
@@ -103,7 +103,7 @@ struct DevicePickerView: View {
     }
 
     private var remoteSection: some View {
-        section("Remote Devices") {
+        section("Remote Devices", accessory: { remoteProjectLine }) {
             switch remoteCatalog.availability {
             case .loading:
                 ProgressView().controlSize(.small).padding(10)
@@ -125,23 +125,10 @@ struct DevicePickerView: View {
     @ViewBuilder
     private var remoteModels: some View {
         if let project = remoteCatalog.selectedProject {
-            VStack(alignment: .leading, spacing: 8) {
-                if remoteCatalog.projects.count > 1 {
-                    Picker("Project", selection: Binding(
-                        get: { project },
-                        set: { remoteCatalog.selectedProject = $0 }
-                    )) {
-                        ForEach(remoteCatalog.projects, id: \.self) { Text($0).tag($0) }
-                    }
-                    .plumeID(AccessibilityID.devicePickerRemoteProjectPicker, value: project)
-                } else {
-                    Text("Project: \(project)").font(.caption).foregroundStyle(.secondary)
-                }
-                TextField("Search models", text: $remoteSearch)
-                    .textFieldStyle(.roundedBorder)
-                    .plumeID(AccessibilityID.devicePickerRemoteSearch, value: remoteSearch)
-            }
-            .padding(10)
+            TextField("Search models", text: $remoteSearch)
+                .textFieldStyle(.roundedBorder)
+                .plumeID(AccessibilityID.devicePickerRemoteSearch, value: remoteSearch)
+                .padding(10)
             if remoteCatalog.isLoadingModels {
                 ProgressView().controlSize(.small).padding(10)
             } else if let error = remoteCatalog.modelsError {
@@ -154,11 +141,10 @@ struct DevicePickerView: View {
                         subheading("Recently used")
                         ForEach(recentModels) { modelRow($0, project: project) }
                     }
-                    subheading("All available")
                     ForEach(RemoteDeviceModel.FormFactor.allCases, id: \.self) { factor in
                         let models = filteredModels.filter { $0.formFactor == factor }
                         if !models.isEmpty {
-                            subheading(factor.groupTitle, isGroup: true)
+                            subheading(factor.groupTitle)
                             ForEach(models) { modelRow($0, project: project) }
                         }
                     }
@@ -176,10 +162,10 @@ struct DevicePickerView: View {
         return AppSettings.shared.recentRemoteDeviceModels.compactMap { byID[$0] }
     }
 
-    private func subheading(_ title: String, isGroup: Bool = false) -> some View {
+    private func subheading(_ title: String) -> some View {
         Text(title)
-            .font(isGroup ? .caption.weight(.semibold) : .subheadline.weight(.semibold))
-            .foregroundStyle(isGroup ? .tertiary : .secondary)
+            .font(.subheadline.weight(.semibold))
+            .foregroundStyle(.secondary)
             .padding(.horizontal, 10)
             .padding(.top, 10)
             .padding(.bottom, 2)
@@ -260,9 +246,32 @@ struct DevicePickerView: View {
         }
     }
 
-    private func section(_ title: String, @ViewBuilder rows: () -> some View) -> some View {
+    @ViewBuilder
+    private var remoteProjectLine: some View {
+        if case .signedIn = remoteCatalog.availability, let project = remoteCatalog.selectedProject {
+            if remoteCatalog.projects.count > 1 {
+                Picker("Google Cloud Project", selection: Binding(
+                    get: { project },
+                    set: { remoteCatalog.selectedProject = $0 }
+                )) {
+                    ForEach(remoteCatalog.projects, id: \.self) { Text($0).tag($0) }
+                }
+                .font(.caption)
+                .plumeID(AccessibilityID.devicePickerRemoteProjectPicker, value: project)
+            } else {
+                Text("Google Cloud Project: \(project)").font(.caption).foregroundStyle(.secondary)
+            }
+        }
+    }
+
+    private func section(
+        _ title: String,
+        @ViewBuilder accessory: () -> some View = { EmptyView() },
+        @ViewBuilder rows: () -> some View
+    ) -> some View {
         VStack(alignment: .leading, spacing: 6) {
             Text(title).font(.headline)
+            accessory()
             VStack(spacing: 0) { rows() }
                 .background(.quaternary.opacity(0.5), in: RoundedRectangle(cornerRadius: 8))
         }
