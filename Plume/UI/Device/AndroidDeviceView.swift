@@ -14,7 +14,8 @@ struct AndroidDeviceView: View, ThemedView {
             toolbar
             Divider()
             ZStack {
-                DeviceSurface(session: session)
+                (ThemeChrome.background(for: colorScheme) ?? Color(nsColor: .windowBackgroundColor))
+                DeviceSurface(session: session, background: ThemeChrome.background(for: colorScheme))
                     .plumeID(AccessibilityID.deviceSurface, value: stateDescription)
                 overlay
             }
@@ -110,12 +111,14 @@ struct AndroidDeviceView: View, ThemedView {
                         .plumeID(AccessibilityID.deviceChangeDeviceMenuItem)
                 }
                 if session.isRemote {
-                    Toggle("Auto-rotate", isOn: Binding(
-                        get: { session.autoRotate ?? false },
-                        set: { session.setAutoRotate($0) }
-                    ))
+                    let autoRotate = session.autoRotate ?? false
+                    Button {
+                        session.setAutoRotate(!autoRotate)
+                    } label: {
+                        Label("Auto-rotate", systemImage: autoRotate ? "checkmark" : "xmark")
+                    }
                     .disabled(session.autoRotate == nil || !session.isConnected)
-                    .plumeID(AccessibilityID.deviceAutoRotateMenuItem)
+                    .plumeID(AccessibilityID.deviceAutoRotateMenuItem, value: autoRotate ? "on" : "off")
                 }
                 if session.canEndReservation {
                     Button("End Reservation…") { confirmingEndReservation = true }
