@@ -427,6 +427,22 @@ struct RemoteDeviceSessionTests {
         #expect(cli.verbs.dropFirst(2).sorted() == ["disconnect", "remove"])
     }
 
+    @Test func quittingRetriesAReleaseThatFailed() async {
+        let session = await reservedSession()
+        cli.answer("remove", failure("Error: timed out\n"), ok(""))
+        session.endReservation()
+        await session.reservation?.release().value
+
+        #expect(ledger.entries.map(\.reservationID) == ["r1"])
+        let manager = DeviceSessionManager()
+        manager.register(session)
+        manager.terminateAll(ledger: ledger, cli: cli)
+        await waitUntilSoon { ledger.entries.isEmpty }
+
+        #expect(cli.verbs.filter { $0 == "remove" }.count == 2)
+        #expect(ledger.entries.isEmpty)
+    }
+
     @Test func theMonitorEndsTheTabWhenTheServiceSaysTheReservationEnded() async {
         cli.answer("list", finishedRow)
         let session = await reservedSession()
