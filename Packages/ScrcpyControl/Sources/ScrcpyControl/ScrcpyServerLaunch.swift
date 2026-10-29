@@ -190,7 +190,16 @@ public final class ScrcpyServerLaunch: @unchecked Sendable {
 
     /// Turns the device's auto-rotate setting off, as locking rotation from its quick settings does.
     public func lockAutoRotate() async throws {
-        _ = try await adb(["shell", "settings", "put", "system", "accelerometer_rotation", "0"], timeout: forwardTimeout)
+        try await setAutoRotate(false)
+    }
+
+    public func setAutoRotate(_ enabled: Bool) async throws {
+        _ = try await adb(["shell", "settings", "put", "system", "accelerometer_rotation", enabled ? "1" : "0"], timeout: forwardTimeout)
+    }
+
+    public func autoRotate() async throws -> Bool {
+        let output = try await adb(["shell", "settings", "get", "system", "accelerometer_rotation"], timeout: forwardTimeout)
+        return output.trimmingCharacters(in: .whitespacesAndNewlines) == "1"
     }
 
     /// Returns once the recorded forward is gone, including one an earlier `terminate()` is still

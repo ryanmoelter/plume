@@ -47,6 +47,9 @@ nonisolated final class EmulatorDeviceConnection: DeviceConnecting {
         try await connection.rotate(to: rotation.emulatorRotation)
     }
 
+    func autoRotate() async -> Bool? { nil }
+    func setAutoRotate(_ enabled: Bool) async -> Bool { false }
+
     func shutDown() async throws {
         try await connection.shutDown()
     }

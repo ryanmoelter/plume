@@ -67,6 +67,8 @@ final class DeviceSession {
     private(set) var isStreaming = false
     /// The remote device's reservation, kept after it ends so the view can still read it.
     private(set) var reservation: RemoteReservation?
+    /// Nil while unknown.
+    private(set) var autoRotate: Bool?
     private(set) var remoteDetails: RemoteDeviceDetails?
     private(set) var isExtending = false
     var extendError: String?
@@ -436,6 +438,7 @@ final class DeviceSession {
         disconnect()
         reservation?.release()
         reservation = nil
+        autoRotate = nil
         remoteDetails = nil
         choose(nil, displayName: nil)
         state = .needsDevice
@@ -511,9 +514,26 @@ final class DeviceSession {
     func rotate(clockwise: Bool) {
         guard isConnected, let connection else { return }
         let next = rotation.rotated(clockwise: clockwise)
-        runWork {
+        runWork { [weak self] in
             try? await connection.rotate(to: next)
+            guard let self, self.connection === connection, self.isRemote else { return }
+            await self.refreshAutoRotate(from: connection)
         }
+    }
+
+    func setAutoRotate(_ enabled: Bool) {
+        guard isConnected, let connection else { return }
+        runWork { [weak self] in
+            _ = await connection.setAutoRotate(enabled)
+            guard let self, self.connection === connection else { return }
+            await self.refreshAutoRotate(from: connection)
+        }
+    }
+
+    private func refreshAutoRotate(from connection: DeviceConnecting) async {
+        let value = await connection.autoRotate()
+        guard self.connection === connection else { return }
+        autoRotate = value
     }
 
     // MARK: Private
@@ -547,6 +567,7 @@ final class DeviceSession {
                 EmulatorLog.info("\(logPrefix) connected, display \(String(describing: info.deviceSize))")
                 state = .connected
                 updateStreaming()
+                if self.isRemote { await self.refreshAutoRotate(from: connection) }
             } catch {
                 guard let self, self.connection === connection else { return }
                 lose(connection, reason: error.localizedDescription)

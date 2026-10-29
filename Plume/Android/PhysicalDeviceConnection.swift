@@ -104,6 +104,14 @@ nonisolated final class PhysicalDeviceConnection: DeviceConnecting {
         await connection?.rotate()
     }
 
+    func autoRotate() async -> Bool? {
+        await connection?.autoRotate()
+    }
+
+    func setAutoRotate(_ enabled: Bool) async -> Bool {
+        await connection?.setAutoRotate(enabled) ?? false
+    }
+
     /// A physical device is never powered off from Plume.
     func shutDown() async throws {}
 

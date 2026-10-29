@@ -109,6 +109,14 @@ struct AndroidDeviceView: View, ThemedView {
                     Button("Change Device…") { session.changeDevice() }
                         .plumeID(AccessibilityID.deviceChangeDeviceMenuItem)
                 }
+                if session.isRemote {
+                    Toggle("Auto-rotate", isOn: Binding(
+                        get: { session.autoRotate ?? false },
+                        set: { session.setAutoRotate($0) }
+                    ))
+                    .disabled(session.autoRotate == nil || !session.isConnected)
+                    .plumeID(AccessibilityID.deviceAutoRotateMenuItem)
+                }
                 if session.canEndReservation {
                     Button("End Reservation…") { confirmingEndReservation = true }
                         .plumeID(AccessibilityID.deviceEndReservationMenuItem)

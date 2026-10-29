@@ -12,6 +12,7 @@ nonisolated final class FakeConnection: DeviceConnecting, @unchecked Sendable {
     private var _presses: [(DeviceButton, DeviceKeyPhase)] = []
     private var _rotations: [DeviceRotation] = []
     private var _shutDownCount = 0
+    private var _autoRotate: Bool? = true
     private var _closeCount = 0
     private var _connectCount = 0
     private var _terminateCount = 0
@@ -51,6 +52,11 @@ nonisolated final class FakeConnection: DeviceConnecting, @unchecked Sendable {
     func send(_ input: DeviceInput) { lock.withLock { _inputs.append(input) } }
     func press(_ button: DeviceButton, phase: DeviceKeyPhase) { lock.withLock { _presses.append((button, phase)) } }
     func rotate(to rotation: DeviceRotation) async throws { lock.withLock { _rotations.append(rotation) } }
+    func autoRotate() async -> Bool? { lock.withLock { _autoRotate } }
+    func setAutoRotate(_ enabled: Bool) async -> Bool {
+        lock.withLock { _autoRotate = enabled }
+        return true
+    }
     func shutDown() async throws { lock.withLock { _shutDownCount += 1 } }
     func close() async { lock.withLock { _closeCount += 1 } }
     func terminate() { lock.withLock { _terminateCount += 1 } }

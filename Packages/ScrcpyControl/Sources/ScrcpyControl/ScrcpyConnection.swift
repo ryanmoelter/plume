@@ -107,6 +107,17 @@ public actor ScrcpyConnection {
         send(.rotateDevice)
     }
 
+    public func autoRotate() async -> Bool? {
+        try? await launch.autoRotate()
+    }
+
+    /// Returns whether the setting was written. Turning it on re-arms the lock for the next `rotate()`.
+    public func setAutoRotate(_ enabled: Bool) async -> Bool {
+        guard (try? await launch.setAutoRotate(enabled)) != nil else { return false }
+        hasLockedAutoRotate = !enabled
+        return true
+    }
+
     public nonisolated func send(_ message: ScrcpyControlMessage) {
         controlContinuation.yield(message.encoded())
     }

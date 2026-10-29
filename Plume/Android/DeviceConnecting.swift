@@ -122,6 +122,9 @@ nonisolated protocol DeviceConnecting: AnyObject, Sendable {
     func send(_ input: DeviceInput)
     func press(_ button: DeviceButton, phase: DeviceKeyPhase)
     func rotate(to rotation: DeviceRotation) async throws
+    /// Nil when the device has no such setting or it can't be read.
+    func autoRotate() async -> Bool?
+    func setAutoRotate(_ enabled: Bool) async -> Bool
     func shutDown() async throws
     func close() async
     /// Starts releasing anything that would outlive the app, without waiting, so a quit right after
