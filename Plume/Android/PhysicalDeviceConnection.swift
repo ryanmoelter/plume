@@ -9,9 +9,14 @@ import VideoToolbox
 nonisolated final class PhysicalDeviceConnection: DeviceConnecting {
     private let connection: ScrcpyConnection?
 
-    init(serial: String, adbURL: URL, jarURL: URL? = Bundle.main.url(forResource: "scrcpy-server", withExtension: nil)) {
+    init(
+        serial: String,
+        adbURL: URL,
+        videoLimits: ScrcpyVideoLimits = .none,
+        jarURL: URL? = Bundle.main.url(forResource: "scrcpy-server", withExtension: nil)
+    ) {
         connection = jarURL.map {
-            ScrcpyConnection(adbURL: adbURL, serial: serial, jarURL: $0, version: ScrcpyServerVersion.pinned)
+            ScrcpyConnection(adbURL: adbURL, serial: serial, jarURL: $0, version: ScrcpyServerVersion.pinned, videoLimits: videoLimits)
         }
     }
 

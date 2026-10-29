@@ -36,6 +36,7 @@ struct PlumeApp: App {
             // when it is built, and keeps that environment for life.
             CLIServer.shared.startIfEnabled()
             GitConfigSettingsImport.runOnce(modelContext: modelContainer.mainContext)
+            RemoteReservationLedger.sweepAtLaunch(in: modelContainer.mainContext)
         }
     }
 

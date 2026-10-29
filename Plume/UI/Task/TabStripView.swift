@@ -146,6 +146,7 @@ private struct TabChip: View {
     @State private var isConfirmingStartFresh = false
     @State private var isConfirmingTransportSwitch = false
     @State private var isConfirmingEmulatorShutDown = false
+    @State private var isConfirmingEndReservation = false
 
     /// The live title wins over the snapshot on the tab, which is only there
     /// to label the chip before anything reconnects.
@@ -233,6 +234,12 @@ private struct TabChip: View {
                     .disabled(!DeviceSessionManager.shared.canShutDownEmulator(for: tab.id))
                 Divider()
             }
+            if tab.isRemoteDeviceTab {
+                Button("End Reservation…") { isConfirmingEndReservation = true }
+                    .plumeID(AccessibilityID.endReservationMenuItem)
+                    .disabled(!DeviceSessionManager.shared.hasLiveReservation(for: tab.id))
+                Divider()
+            }
             if paneCount > 1 {
                 Button("Move to Other Pane") {
                     TaskStore.moveTab(tab, toPane: (pane + 1) % paneCount, in: task)
@@ -267,6 +274,17 @@ private struct TabChip: View {
             Button("Cancel", role: .cancel) {}
         } message: {
             Text("This powers off the emulator and ends anything running on it. Closing the tab alone leaves it running.")
+        }
+        .confirmationDialog(
+            "End the reservation?",
+            isPresented: $isConfirmingEndReservation
+        ) {
+            Button("End Reservation", role: .destructive) {
+                DeviceSessionManager.shared.endReservation(for: tab.id)
+            }
+            Button("Cancel", role: .cancel) {}
+        } message: {
+            Text("The device goes back to Google's lab. Closing the tab ends the reservation too.")
         }
         .confirmationDialog(
             "Start a fresh conversation?",

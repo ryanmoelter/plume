@@ -11,9 +11,14 @@ final class DeviceSessionManager {
 
     private var sessions: [UUID: DeviceSession] = [:]
 
-    func session(for tabID: UUID, target: DeviceTarget?, displayName: String?) -> DeviceSession {
+    func session(
+        for tabID: UUID,
+        target: DeviceTarget?,
+        displayName: String?,
+        remoteDetails: RemoteDeviceDetails? = nil
+    ) -> DeviceSession {
         if let existing = sessions[tabID] { return existing }
-        let session = DeviceSession(tabID: tabID, target: target, displayName: displayName)
+        let session = DeviceSession(tabID: tabID, target: target, displayName: displayName, remoteDetails: remoteDetails)
         sessions[tabID] = session
         return session
     }
@@ -32,10 +37,28 @@ final class DeviceSessionManager {
         sessions.removeAll()
     }
 
-    /// Blocks until physical devices' servers are stopped and their forwards removed, or gives up.
-    /// Only for app termination.
+    /// Blocks until physical devices' servers are stopped, their forwards removed and remote
+    /// reservations released, or gives up. Only for app termination.
     nonisolated static func awaitTerminations() {
+        let reservations = DispatchGroup()
+        DispatchQueue.global(qos: .userInitiated).async(group: reservations) {
+            RemoteReservation.awaitTerminations()
+        }
         ScrcpyServerLaunch.awaitTerminations()
+        reservations.wait()
+    }
+
+    /// Serials of remote devices this app's reservations attached to adb.
+    var remoteSerials: Set<String> {
+        Set(sessions.values.compactMap(\.remoteSerial))
+    }
+
+    func endReservation(for tabID: UUID) {
+        sessions[tabID]?.endReservation()
+    }
+
+    func hasLiveReservation(for tabID: UUID) -> Bool {
+        sessions[tabID]?.hasLiveReservation ?? false
     }
 
     func shutDownEmulator(for tabID: UUID) {

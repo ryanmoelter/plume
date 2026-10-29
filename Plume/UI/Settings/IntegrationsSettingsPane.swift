@@ -33,6 +33,8 @@ struct IntegrationsSettingsPane: View {
             }
 
             LinearSettingsSection()
+
+            RemoteDevicesSettingsSection()
         }
         .formStyle(.grouped)
         .task {

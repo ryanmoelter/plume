@@ -1,16 +1,20 @@
 import SwiftUI
 
-/// Lists physical devices and running emulators to show, and AVDs to boot.
-/// Discovery runs only while this view is on screen.
+/// Lists physical devices and running emulators to show, AVDs to boot, and remote devices to
+/// reserve. Discovery runs only while this view is on screen.
 struct DevicePickerView: View {
     let onConnect: (PhysicalDevice) -> Void
     let onAttach: (RunningEmulator) -> Void
     let onBoot: (AVD) -> Void
+    let onReserve: (RemoteDeviceModel, String) -> Void
 
     @State private var lookup: AndroidSDKLookup?
     @State private var avds: [AVD] = []
+    @State private var remoteSearch = ""
+    @Environment(\.openSettings) private var openSettings
     private var discovery: EmulatorDiscovery { .shared }
     private var physicalDiscovery: PhysicalDeviceDiscovery { .shared }
+    private var remoteCatalog: RemoteDeviceCatalog { .shared }
 
     var body: some View {
         ScrollView {
@@ -32,6 +36,10 @@ struct DevicePickerView: View {
             physicalDiscovery.release()
         }
         .task { await load(refresh: false) }
+        .task {
+            await remoteCatalog.loadIfNeeded()
+            await remoteCatalog.loadModels()
+        }
     }
 
     @ViewBuilder
@@ -51,18 +59,25 @@ struct DevicePickerView: View {
             }
         case .found(let sdk):
             physicalSection(hasADB: sdk.adbURL != nil)
+            remoteSection
             emulatorSections(hasEmulator: sdk.emulatorURL != nil)
         }
+    }
+
+    /// Remote devices this app reserved are adb devices too; they show as their own tabs instead.
+    private var usbDevices: [PhysicalDevice] {
+        let remoteSerials = DeviceSessionManager.shared.remoteSerials
+        return physicalDiscovery.devices.filter { !remoteSerials.contains($0.serial) }
     }
 
     private func physicalSection(hasADB: Bool) -> some View {
         section("Devices") {
             if !hasADB {
                 placeholder("adb wasn't found. Install Android SDK Platform-Tools with Android Studio's SDK Manager.")
-            } else if physicalDiscovery.devices.isEmpty {
+            } else if usbDevices.isEmpty {
                 placeholder("No devices are connected. Connect one over USB with USB debugging on.")
             }
-            ForEach(physicalDiscovery.devices) { device in
+            ForEach(usbDevices) { device in
                 row(
                     title: device.displayName,
                     detail: detail(for: device),
@@ -82,6 +97,98 @@ struct DevicePickerView: View {
         case .offline: "The device is offline. Reconnect it."
         case .other(let state): "adb reports it as \(state)."
         }
+    }
+
+    private var remoteSection: some View {
+        section("Remote Devices") {
+            switch remoteCatalog.availability {
+            case .loading:
+                ProgressView().controlSize(.small).padding(10)
+            case .cliMissing:
+                remotePlaceholder("Reserve a device from Google's lab with the android command-line tool. Install it, then sign in from Settings ▸ Integrations.")
+            case .signedOut:
+                remotePlaceholder("Sign in to the android command-line tool in Settings ▸ Integrations to reserve a remote device.")
+            case .failed(let message):
+                remotePlaceholder(message)
+            case .signedIn:
+                remoteModels
+            }
+        }
+    }
+
+    @ViewBuilder
+    private var remoteModels: some View {
+        if let project = remoteCatalog.selectedProject {
+            VStack(alignment: .leading, spacing: 8) {
+                if remoteCatalog.projects.count > 1 {
+                    Picker("Project", selection: Binding(
+                        get: { project },
+                        set: { newValue in
+                            remoteCatalog.selectedProject = newValue
+                            Task { await remoteCatalog.loadModels() }
+                        }
+                    )) {
+                        ForEach(remoteCatalog.projects, id: \.self) { Text($0).tag($0) }
+                    }
+                    .plumeID(AccessibilityID.devicePickerRemoteProjectPicker, value: project)
+                } else {
+                    Text("Project: \(project)").font(.caption).foregroundStyle(.secondary)
+                }
+                TextField("Search models", text: $remoteSearch)
+                    .textFieldStyle(.roundedBorder)
+                    .plumeID(AccessibilityID.devicePickerRemoteSearch, value: remoteSearch)
+                Text("Reservations are billed and last 15 minutes unless extended. Closing the tab or quitting Plume ends one.")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+            }
+            .padding(10)
+            if remoteCatalog.isLoadingModels {
+                ProgressView().controlSize(.small).padding(10)
+            } else if let error = remoteCatalog.modelsError {
+                placeholder(error)
+            } else if filteredModels.isEmpty {
+                placeholder(remoteCatalog.models.isEmpty ? "No models are available." : "No models match.")
+            }
+            LazyVStack(spacing: 0) {
+                ForEach(filteredModels) { model in
+                    row(
+                        title: model.displayName,
+                        detail: "\(model.manufacturer) · \(model.id)",
+                        action: "Reserve",
+                        id: AccessibilityID.devicePickerRemoteRow,
+                        label: model.id
+                    ) { onReserve(model, project) }
+                }
+            }
+        } else {
+            remotePlaceholder("No Google Cloud project is ready for device streaming.")
+        }
+    }
+
+    private var filteredModels: [RemoteDeviceModel] {
+        let query = remoteSearch.trimmingCharacters(in: .whitespaces)
+        guard !query.isEmpty else { return remoteCatalog.models }
+        return remoteCatalog.models.filter {
+            $0.name.localizedCaseInsensitiveContains(query)
+                || $0.manufacturer.localizedCaseInsensitiveContains(query)
+                || $0.id.localizedCaseInsensitiveContains(query)
+        }
+    }
+
+    private func remotePlaceholder(_ text: String) -> some View {
+        HStack(alignment: .firstTextBaseline) {
+            Text(text)
+                .foregroundStyle(.secondary)
+                .frame(maxWidth: .infinity, alignment: .leading)
+            Button("Open Settings", action: openIntegrationsSettings)
+                .plumeID(AccessibilityID.devicePickerRemoteSettingsButton, invoke: openIntegrationsSettings)
+        }
+        .padding(10)
+    }
+
+    private func openIntegrationsSettings() {
+        UserDefaults.standard.set(SettingsPane.integrations.rawValue, forKey: SettingsPane.selectionKey)
+        openSettings()
     }
 
     @ViewBuilder

@@ -67,6 +67,7 @@ final class AppSettings {
         static let hasPromptedForFullDiskAccess = "hasPromptedForFullDiskAccess"
         static let updateInstallSourceOverrideRaw = "updateInstallSourceOverrideRaw"
         static let automaticallyChecksForUpdates = "automaticallyChecksForUpdates"
+        static let remoteDeviceProjectID = "remoteDeviceProjectID"
     }
 
     /// Effort a tab starts at when it has never chosen one. The CLI reports
@@ -174,6 +175,7 @@ final class AppSettings {
         }
 
         // Unset must read as true: the feature is opt-out, not opt-in.
+        self.remoteDeviceProjectID = defaults.string(forKey: Key.remoteDeviceProjectID)
         self.showsPullRequestStatus = defaults.object(forKey: Key.showsPullRequestStatus) == nil
             ? true
             : defaults.bool(forKey: Key.showsPullRequestStatus)
@@ -508,6 +510,13 @@ final class AppSettings {
 
     /// Master toggle for GitHub PR status in the sidebar. The feature makes
     /// network calls, so it must be opt-outable; on by default.
+    /// The Google Cloud project remote devices are reserved in, when more than one is ready.
+    var remoteDeviceProjectID: String? {
+        didSet {
+            defaults.set(remoteDeviceProjectID, forKey: Key.remoteDeviceProjectID)
+        }
+    }
+
     var showsPullRequestStatus: Bool {
         didSet {
             defaults.set(showsPullRequestStatus, forKey: Key.showsPullRequestStatus)

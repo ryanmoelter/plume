@@ -167,6 +167,21 @@ enum AccessibilityID {
     static let devicePickerRunningRow = "device-picker-running-row"
     static let devicePickerAvailableRow = "device-picker-available-row"
     static let devicePickerRetryButton = "device-picker-retry-button"
+    static let deviceRotateButton = "device-rotate-button"
+    static let deviceTimeLeft = "device-time-left"
+    static let deviceExtendButton = "device-extend-button"
+    static let deviceEndReservationMenuItem = "device-end-reservation-menu-item"
+    static let deviceReserveAgainButton = "device-reserve-again-button"
+    static let endReservationMenuItem = "end-reservation-menu-item"
+    static let devicePickerRemoteRow = "device-picker-remote-row"
+    static let devicePickerRemoteSearch = "device-picker-remote-search"
+    static let devicePickerRemoteProjectPicker = "device-picker-remote-project-picker"
+    static let devicePickerRemoteSettingsButton = "device-picker-remote-settings-button"
+    static let remoteDevicesInstallLink = "remote-devices-install-link"
+    static let remoteDevicesSignInButton = "remote-devices-sign-in-button"
+    static let remoteDevicesSignOutButton = "remote-devices-sign-out-button"
+    static let remoteDevicesRefreshButton = "remote-devices-refresh-button"
+    static let remoteDevicesProjectPicker = "remote-devices-project-picker"
 
     // MARK: Composer
 
