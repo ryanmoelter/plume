@@ -438,8 +438,9 @@ struct RemoteDeviceSessionTests {
     @Test func quittingRetriesAReleaseThatFailed() async {
         let session = await reservedSession()
         cli.answer("remove", failure("Error: timed out\n"), ok(""))
+        let reservation = session.reservation
         session.endReservation()
-        await session.reservation?.release().value
+        await reservation?.release().value
 
         #expect(ledger.entries.map(\.reservationID) == ["r1"])
         let manager = DeviceSessionManager()
@@ -492,11 +493,16 @@ struct RemoteDeviceSessionTests {
     @Test func endingTheReservationReleasesItAndKeepsTheDevice() async {
         let session = await reservedSession()
 
+        let reservation = session.reservation
+        var reported: [DeviceTarget?] = []
+        session.onDeviceChange = { target, _ in reported.append(target) }
         session.endReservation()
-        await session.reservation?.release().value
+        await reservation?.release().value
 
-        #expect(session.state == .reservationEnded)
-        #expect(session.target == .remote(reservationID: "r1"))
+        #expect(session.state == .needsDevice)
+        #expect(session.target == nil)
+        #expect(session.reservation == nil)
+        #expect(reported.count == 1 && reported[0] == nil)
         #expect(cli.verbs == ["create", "connect", "disconnect", "remove"])
     }
 
@@ -508,10 +514,11 @@ struct RemoteDeviceSessionTests {
         await waitUntilSoon { !ledger.entries.isEmpty }
         #expect(session.canEndReservation)
 
+        let reservation = session.reservation
         session.endReservation()
-        await session.reservation?.release().value
+        await reservation?.release().value
 
-        #expect(session.state == .reservationEnded)
+        #expect(session.state == .needsDevice)
         #expect(cli.verbs == ["create", "disconnect", "remove"])
         #expect(ledger.entries.isEmpty)
     }

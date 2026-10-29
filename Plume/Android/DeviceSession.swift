@@ -310,13 +310,11 @@ final class DeviceSession {
         }
     }
 
-    /// Ends the reservation now. The tab keeps its device, so it can reserve the same model again.
+    /// Ends the reservation now and returns to the picker.
     func endReservation() {
-        guard let reservation else { return }
+        guard reservation != nil else { return }
         EmulatorLog.info("\(logPrefix) ending the reservation")
-        workTask?.cancel()
-        workTask = nil
-        reservationDidEnd(reservation)
+        changeDevice()
     }
 
     private func reservationDidEnd(_ ended: RemoteReservation) {

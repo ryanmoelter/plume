@@ -105,8 +105,10 @@ struct AndroidDeviceView: View, ThemedView {
             }
             .disabled(!session.isConnected)
             Menu {
-                Button("Change Device…") { session.changeDevice() }
-                    .plumeID(AccessibilityID.deviceChangeDeviceMenuItem)
+                if !(session.isRemote && session.canEndReservation) {
+                    Button("Change Device…") { session.changeDevice() }
+                        .plumeID(AccessibilityID.deviceChangeDeviceMenuItem)
+                }
                 if session.canEndReservation {
                     Button("End Reservation…") { confirmingEndReservation = true }
                         .plumeID(AccessibilityID.deviceEndReservationMenuItem)
