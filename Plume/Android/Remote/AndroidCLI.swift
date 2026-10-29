@@ -54,13 +54,19 @@ nonisolated final class AndroidCLI: AndroidCLIRunning, @unchecked Sendable {
     private static let endMarker = "__PLUME_ANDROID_CLI_END__"
 
     private let lock = NSLock()
-    private var cachedLocation: URL??
+    private var cachedLocation: URL?
+    private let discover: @Sendable () -> URL?
 
-    /// A GUI launch has no shell PATH, so this asks the login shell, then tries the usual install paths.
+    init(discover: @escaping @Sendable () -> URL? = AndroidCLI.discover) {
+        self.discover = discover
+    }
+
+    /// A GUI launch has no shell PATH, so this asks the login shell, then tries the usual install
+    /// paths. Only a found tool is cached, so installing one shows up on the next check.
     func locate(refresh: Bool = false) async -> URL? {
         if !refresh, let cached = lock.withLock({ cachedLocation }) { return cached }
-        let found = await Task.detached(priority: .userInitiated) { Self.discover() }.value
-        lock.withLock { cachedLocation = .some(found) }
+        let found = await Task.detached(priority: .userInitiated) { [discover] in discover() }.value
+        lock.withLock { cachedLocation = found }
         return found
     }
 
@@ -101,7 +107,7 @@ nonisolated final class AndroidCLI: AndroidCLIRunning, @unchecked Sendable {
         return path.hasPrefix("/") ? path : nil
     }
 
-    private static func discover() -> URL? {
+    static func discover() -> URL? {
         let script = "echo \(beginMarker); command -v android; echo \(endMarker)"
         let shell = ProcessInfo.processInfo.environment["SHELL"].flatMap { $0.isEmpty ? nil : $0 } ?? "/bin/zsh"
         let shellPath = AndroidSDKLocator.runCapturingOutput(

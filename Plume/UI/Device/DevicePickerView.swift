@@ -148,16 +148,17 @@ struct DevicePickerView: View {
                 placeholder(error)
             } else if filteredModels.isEmpty {
                 placeholder(remoteCatalog.models.isEmpty ? "No models are available." : "No models match.")
-            }
-            LazyVStack(spacing: 0) {
-                ForEach(filteredModels) { model in
-                    row(
-                        title: model.displayName,
-                        detail: "\(model.manufacturer) · \(model.id)",
-                        action: "Reserve",
-                        id: AccessibilityID.devicePickerRemoteRow,
-                        label: model.id
-                    ) { onReserve(model, project) }
+            } else {
+                LazyVStack(spacing: 0) {
+                    ForEach(filteredModels) { model in
+                        row(
+                            title: model.displayName,
+                            detail: "\(model.manufacturer) · \(model.id)",
+                            action: "Reserve",
+                            id: AccessibilityID.devicePickerRemoteRow,
+                            label: model.id
+                        ) { onReserve(model, project) }
+                    }
                 }
             }
         } else {

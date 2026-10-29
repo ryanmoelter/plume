@@ -25,12 +25,25 @@ final class RemoteDeviceCatalog {
     private(set) var isLoadingModels = false
     private(set) var modelsError: String?
 
-    @ObservationIgnored private let cli: AndroidCLI
+    @ObservationIgnored private let cli: AndroidCLIRunning
+    @ObservationIgnored private let settings: AppSettings
+    @ObservationIgnored private let locate: (_ refresh: Bool) async -> URL?
     @ObservationIgnored private var modelsProject: String?
+    /// Only the latest `loadModels` may publish, so a slow load for a project no longer chosen
+    /// can't overwrite the current one.
+    @ObservationIgnored private var modelsLoad = 0
     @ObservationIgnored private var hasLoaded = false
 
     init(cli: AndroidCLI = .shared) {
         self.cli = cli
+        settings = .shared
+        locate = { await cli.locate(refresh: $0) }
+    }
+
+    init(cli: AndroidCLIRunning, settings: AppSettings, locate: @escaping (_ refresh: Bool) async -> URL?) {
+        self.cli = cli
+        self.settings = settings
+        self.locate = locate
     }
 
     var isSignedIn: Bool {
@@ -41,10 +54,14 @@ final class RemoteDeviceCatalog {
     /// The remembered project when it is still ready, else the first one.
     var selectedProject: String? {
         get {
-            let remembered = AppSettings.shared.remoteDeviceProjectID
+            let remembered = settings.remoteDeviceProjectID
             return projects.contains { $0 == remembered } ? remembered : projects.first
         }
-        set { AppSettings.shared.remoteDeviceProjectID = newValue }
+        set {
+            guard newValue != selectedProject else { return }
+            settings.remoteDeviceProjectID = newValue
+            clearModels()
+        }
     }
 
     /// Loads once while signed in; otherwise checks again, since the user may have signed in since.
@@ -56,7 +73,7 @@ final class RemoteDeviceCatalog {
     func load(refresh: Bool) async {
         hasLoaded = true
         availability = .loading
-        guard let path = await cli.locate(refresh: refresh) else {
+        guard let path = await locate(refresh) else {
             cliPath = nil
             availability = .cliMissing
             return
@@ -84,25 +101,41 @@ final class RemoteDeviceCatalog {
     func loadModels(refresh: Bool = false) async {
         guard let project = selectedProject else { return }
         guard refresh || modelsProject != project || models.isEmpty else { return }
+        modelsLoad += 1
+        let load = modelsLoad
         isLoadingModels = true
-        defer { isLoadingModels = false }
+        let outcome: Result<AndroidCLIResult, Error>
         do {
-            let result = try await cli.run(["device", "remote", "models", "--project=\(project)"])
-            guard result.succeeded else {
-                modelsError = result.failureMessage
-                return
-            }
+            outcome = .success(try await cli.run(["device", "remote", "models", "--project=\(project)"]))
+        } catch {
+            outcome = .failure(error)
+        }
+        guard load == modelsLoad, project == selectedProject else { return }
+        isLoadingModels = false
+        switch outcome {
+        case .success(let result) where result.succeeded:
             modelsError = nil
             models = RemoteDeviceParsers.models(result.stdout)
             modelsProject = project
-        } catch {
+        case .success(let result):
+            modelsError = result.failureMessage
+        case .failure(let error):
             modelsError = error.localizedDescription
         }
     }
 
     func signOut() async {
         _ = try? await cli.run(["auth", "logout"])
+        clearModels()
         await load(refresh: false)
+    }
+
+    private func clearModels() {
+        modelsLoad += 1
+        models = []
+        modelsProject = nil
+        modelsError = nil
+        isLoadingModels = false
     }
 
     /// `auth login` may open a browser and wait on the terminal, so it runs in Terminal.app.
