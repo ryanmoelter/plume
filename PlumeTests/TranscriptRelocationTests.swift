@@ -1,6 +1,5 @@
 import Testing
 import Foundation
-import Observation
 @testable import Plume
 
 /// Claude Code moves a live transcript between project directories on
@@ -21,6 +20,8 @@ struct TranscriptRelocationTests {
         /// A parse of A is still running when the file moves, so the read the
         /// rename schedules finds the tab in flight.
         case renameDuringInFlightRead
+        /// A → B leaves an empty file at A, then B → C and the send.
+        case renameLeavingAnEmptyStub
 
         var testDescription: String { rawValue }
     }
@@ -66,8 +67,14 @@ struct TranscriptRelocationTests {
             try fixture.renameBToC()
             try fixture.moveSubagents(from: fixture.dirA, to: fixture.dirC)
             fixture.appendSend(to: fixture.pathC)
-            #expect(await waitForChange(timeout: .seconds(10)) { store.rereadRequested.contains(fixture.tab) })
+            #expect(await recorder.wait { recorder.deferredReads > 0 })
             recorder.releaseHeld()
+        case .renameLeavingAnEmptyStub:
+            try fixture.renameAToB()
+            FileManager.default.createFile(atPath: fixture.pathA, contents: nil)
+            try fixture.renameBToC()
+            try fixture.moveSubagents(from: fixture.dirA, to: fixture.dirC)
+            fixture.appendSend(to: fixture.pathC)
         }
 
         let expected = TranscriptParser.parse(try Data(contentsOf: URL(fileURLWithPath: fixture.pathC)))
@@ -85,7 +92,7 @@ struct TranscriptRelocationTests {
         )
     }
 
-    @Test(arguments: [Sequence.renameTwiceThenAppend, .readBetweenRenames])
+    @Test(arguments: [Sequence.renameTwiceThenAppend, .readBetweenRenames, .renameLeavingAnEmptyStub])
     func aMoveNeverEmptiesOrShrinksTheTranscript(_ sequence: Sequence) async throws {
         let fixture = try Fixture()
         defer { fixture.remove() }
@@ -101,6 +108,10 @@ struct TranscriptRelocationTests {
         if sequence == .readBetweenRenames {
             #expect(await recorder.wait { recorder.hasRead(fixture.pathB) })
         }
+        if sequence == .renameLeavingAnEmptyStub {
+            FileManager.default.createFile(atPath: fixture.pathA, contents: nil)
+            #expect(await recorder.wait { recorder.hasRead(fixture.pathA, after: firstRead + 1) })
+        }
         try fixture.renameBToC()
         try fixture.moveSubagents(from: fixture.dirA, to: fixture.dirC)
         fixture.appendSend(to: fixture.pathC)
@@ -113,12 +124,75 @@ struct TranscriptRelocationTests {
         #expect(!shrank, "message counts across the move: \(counts)")
     }
 
+    /// A remount, a relaunch or an unarchive re-watches the path the tab
+    /// persisted, which can be the one the session moved away from.
+    @Test func reWatchingTheOldPathKeepsTheRelocatedWatch() async throws {
+        let fixture = try Fixture()
+        defer { fixture.remove() }
+        let tracker = SubagentCompletionTracker()
+        let store = TranscriptStore(
+            debounce: .milliseconds(10), completionTracker: tracker, projectsDirectory: fixture.root
+        )
+        defer { store.stopAll() }
+        let recorder = ReadRecorder(store: store, tab: fixture.tab)
+
+        store.watch(tabID: fixture.tab, transcriptPath: fixture.pathA)
+        #expect(await recorder.wait { store.subagents(forTab: fixture.tab).first?.status == .done })
+        try fixture.renameAToB()
+        try fixture.renameBToC()
+        try fixture.moveSubagents(from: fixture.dirA, to: fixture.dirC)
+        #expect(await recorder.wait { recorder.hasRead(fixture.pathC) })
+        let transcript = store.transcript(forTab: fixture.tab)
+        let subagents = store.subagents(forTab: fixture.tab)
+        let readsBefore = recorder.reads.count
+
+        store.watch(tabID: fixture.tab, transcriptPath: fixture.pathA)
+
+        #expect(store.watchedPath(forTab: fixture.tab) == fixture.pathC)
+        #expect(store.transcript(forTab: fixture.tab) == transcript)
+        #expect(store.subagents(forTab: fixture.tab) == subagents)
+        let subagent = try #require(subagents.first)
+        #expect(tracker.hasSettled(subagent, tabID: fixture.tab))
+
+        fixture.appendSend(to: fixture.pathC)
+        #expect(await recorder.wait {
+            store.transcript(forTab: fixture.tab)?.messages.count == fixture.expectedMessageCount
+        })
+        let later = recorder.reads[readsBefore...]
+        #expect(later.allSatisfy { ($0.messageCount ?? 0) >= (transcript?.messages.count ?? 0) })
+        #expect(later.allSatisfy { !$0.subagents.isEmpty })
+    }
+
     enum SubagentMove: String, CaseIterable, CustomTestStringConvertible {
         case immediatelyAfterTheFile
         /// A read at C runs before `subagents/` arrives.
         case afterAReadAtTheNewPath
+        /// `subagents/` moves to C, a read at A runs, then the file follows.
+        case subagentsFirst
 
         var testDescription: String { rawValue }
+    }
+
+    private func move(_ move: SubagentMove, _ fixture: Fixture, _ recorder: ReadRecorder) async throws {
+        switch move {
+        case .immediatelyAfterTheFile:
+            try fixture.renameAToB()
+            try fixture.renameBToC()
+            try fixture.moveSubagents(from: fixture.dirA, to: fixture.dirC)
+        case .afterAReadAtTheNewPath:
+            try fixture.renameAToB()
+            try fixture.renameBToC()
+            #expect(await recorder.wait { recorder.hasRead(fixture.pathC) })
+            try fixture.moveSubagents(from: fixture.dirA, to: fixture.dirC)
+        case .subagentsFirst:
+            try fixture.moveSubagents(from: fixture.dirA, to: fixture.dirC)
+            let readsBefore = recorder.reads.count
+            fixture.append(Fixture.userLine("Written mid-move"), to: fixture.pathA)
+            #expect(await recorder.wait { recorder.hasRead(fixture.pathA, after: readsBefore) })
+            try fixture.renameAToB()
+            try fixture.renameBToC()
+        }
+        fixture.appendSend(to: fixture.pathC)
     }
 
     @Test(arguments: SubagentMove.allCases)
@@ -131,22 +205,18 @@ struct TranscriptRelocationTests {
 
         store.watch(tabID: fixture.tab, transcriptPath: fixture.pathA)
         #expect(await recorder.wait { store.subagents(forTab: fixture.tab).first?.status == .done })
+        let firstRead = recorder.reads.count - 1
 
-        try fixture.renameAToB()
-        try fixture.renameBToC()
-        if move == .afterAReadAtTheNewPath {
-            #expect(await recorder.wait { recorder.hasRead(fixture.pathC) })
-        }
-        try fixture.moveSubagents(from: fixture.dirA, to: fixture.dirC)
-        fixture.appendSend(to: fixture.pathC)
+        try await self.move(move, fixture, recorder)
         #expect(await recorder.wait(timeout: .seconds(5)) {
             store.subagents(forTab: fixture.tab).first?.status == .done
                 && store.transcript(forTab: fixture.tab)?.messages.count == fixture.expectedMessageCount
         })
 
         #expect(store.subagents(forTab: fixture.tab).map(\.id) == [Fixture.subagentID])
-        let statuses = recorder.reads.map { $0.subagents.first { $0.id == Fixture.subagentID }?.status }
+        let statuses = recorder.reads[firstRead...].map { $0.subagents.first { $0.id == Fixture.subagentID }?.status }
         #expect(!statuses.contains(.notStarted), "subagent status per read: \(statuses)")
+        #expect(!statuses.contains(nil), "subagent status per read: \(statuses)")
     }
 
     /// The reported symptom: a subagent that had already finished before the
@@ -167,13 +237,7 @@ struct TranscriptRelocationTests {
         let before = try #require(store.subagents(forTab: fixture.tab).first)
         #expect(tracker.hasSettled(before, tabID: fixture.tab))
 
-        try fixture.renameAToB()
-        try fixture.renameBToC()
-        if move == .afterAReadAtTheNewPath {
-            #expect(await recorder.wait { recorder.hasRead(fixture.pathC) })
-        }
-        try fixture.moveSubagents(from: fixture.dirA, to: fixture.dirC)
-        fixture.appendSend(to: fixture.pathC)
+        try await self.move(move, fixture, recorder)
         #expect(await recorder.wait(timeout: .seconds(5)) {
             store.subagents(forTab: fixture.tab).first?.status == .done
                 && store.transcript(forTab: fixture.tab)?.messages.count == fixture.expectedMessageCount
@@ -203,9 +267,7 @@ struct TranscriptRelocationTests {
         #expect(await recorder.wait { recorder.hasRead(fixture.pathC) })
         let readsBeforeArrival = recorder.reads.count
         try fixture.moveSubagents(from: fixture.dirA, to: fixture.dirC)
-        #expect(await recorder.wait {
-            recorder.reads[readsBeforeArrival...].contains { $0.loadedPath == fixture.pathC }
-        })
+        #expect(await recorder.wait { recorder.hasRead(fixture.pathC, after: readsBeforeArrival) })
 
         let counts = recorder.reads[firstRead...].map(\.subagents.count)
         #expect(!counts.contains(0), "subagent count per read: \(counts)")
@@ -213,28 +275,40 @@ struct TranscriptRelocationTests {
         #expect(store.subagents(forTab: fixture.tab).first?.status == .done)
     }
 
-    /// Resumes on the store's own observation rather than a clock; the
-    /// timeout only bounds a failure.
-    private func waitForChange(timeout: Duration, _ condition: @escaping () -> Bool) async -> Bool {
-        let deadline = ContinuousClock.now + timeout
-        while !condition() {
-            guard ContinuousClock.now < deadline else { return false }
-            await withCheckedContinuation { (continuation: CheckedContinuation<Void, Never>) in
-                var resumed = false
-                let resume = {
-                    guard !resumed else { return }
-                    resumed = true
-                    continuation.resume()
-                }
-                withObservationTracking { _ = condition() } onChange: { Task { @MainActor in resume() } }
-                Task { @MainActor in
-                    try? await Task.sleep(until: deadline)
-                    resume()
-                }
-            }
-        }
-        return true
+    /// Carried rows are still corrected for liveness, so a subagent left
+    /// working when its process died cannot pin the task at working.
+    @Test func aCarriedWorkingSubagentSettlesWhenItsProcessDies() async throws {
+        let fixture = try Fixture(parentReportsCompletion: false)
+        defer { fixture.remove() }
+        let liveness = Liveness()
+        let store = TranscriptStore(
+            debounce: .milliseconds(10),
+            projectsDirectory: fixture.root,
+            isTabLive: { _ in liveness.isLive }
+        )
+        defer { store.stopAll() }
+        let recorder = ReadRecorder(store: store, tab: fixture.tab)
+
+        store.watch(tabID: fixture.tab, transcriptPath: fixture.pathA)
+        #expect(await recorder.wait { store.subagents(forTab: fixture.tab).first?.status == .working })
+        try fixture.renameAToB()
+        try fixture.renameBToC()
+        #expect(await recorder.wait { recorder.hasRead(fixture.pathC) })
+        #expect(store.subagents(forTab: fixture.tab).first?.status == .working)
+
+        liveness.isLive = false
+        let readsBefore = recorder.reads.count
+        fixture.appendSend(to: fixture.pathC)
+        #expect(await recorder.wait { recorder.hasRead(fixture.pathC, after: readsBefore) })
+
+        #expect(store.subagents(forTab: fixture.tab).map(\.id) == [Fixture.subagentID])
+        #expect(store.subagents(forTab: fixture.tab).first?.status == .interrupted)
     }
+}
+
+@MainActor
+private final class Liveness {
+    var isLive = true
 }
 
 /// Records what the store published after every read of one tab, and lets a
@@ -251,6 +325,7 @@ private final class ReadRecorder {
     }
 
     private(set) var reads: [Read] = []
+    private(set) var deferredReads = 0
     private var waiter: (condition: () -> Bool, resume: (Bool) -> Void)?
     /// One read per tab at a time, so the latest load belongs to the read
     /// that publishes next.
@@ -261,6 +336,11 @@ private final class ReadRecorder {
 
     init(store: TranscriptStore, tab: UUID) {
         store.afterLoadingTranscript = { [weak self] path in await self?.loaded(path) }
+        store.didDeferRead = { [weak self] tabID in
+            guard let self, tabID == tab else { return }
+            deferredReads += 1
+            if let waiter, waiter.condition() { waiter.resume(true) }
+        }
         store.didRead = { [weak self, weak store] tabID in
             guard let self, let store, tabID == tab else { return }
             reads.append(Read(
@@ -273,8 +353,10 @@ private final class ReadRecorder {
         }
     }
 
-    func hasRead(_ path: String) -> Bool {
-        reads.contains { $0.loadedPath == path && $0.messageCount != nil }
+    /// Whether a read that loaded `path` has published, counting only reads
+    /// from index `after` on.
+    func hasRead(_ path: String, after index: Int = 0) -> Bool {
+        reads[min(index, reads.count)...].contains { $0.loadedPath == path && $0.messageCount != nil }
     }
 
     /// Suspends the next read of `path` after it has loaded its bytes, until
@@ -343,7 +425,7 @@ private struct Fixture {
         try? TranscriptParser.parse(Data(contentsOf: URL(fileURLWithPath: pathC))).messages.count
     }
 
-    init() throws {
+    init(parentReportsCompletion: Bool = true) throws {
         dirA = root.appending(path: "-Users-me-Repo")
         dirB = root.appending(path: "-Users-me-Repo--claude-worktrees-x")
         dirC = root.appending(path: "-Users-me-Repo--claude-worktrees-y")
@@ -352,7 +434,9 @@ private struct Fixture {
         }
 
         var parent = Self.userLine("Start") + Self.assistantLine("On it")
-        parent += #"{"type":"user","uuid":"\#(UUID().uuidString)","isSidechain":false,"toolUseResult":{"status":"completed","agentId":"\#(Self.subagentID)","content":"the report"},"message":{"role":"user","content":[{"type":"tool_result","tool_use_id":"toolu_1","content":"the report"}]}}"# + "\n"
+        if parentReportsCompletion {
+            parent += #"{"type":"user","uuid":"\#(UUID().uuidString)","isSidechain":false,"toolUseResult":{"status":"completed","agentId":"\#(Self.subagentID)","content":"the report"},"message":{"role":"user","content":[{"type":"tool_result","tool_use_id":"toolu_1","content":"the report"}]}}"# + "\n"
+        }
         parent += Self.assistantLine("The subagent reported back")
         try Data(parent.utf8).write(to: URL(fileURLWithPath: pathA))
 

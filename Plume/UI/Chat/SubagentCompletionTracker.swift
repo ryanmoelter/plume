@@ -77,8 +77,9 @@ final class SubagentCompletionTracker {
         }
 
         // A subagent that went back to work earns a fresh linger if it
-        // finishes again. One missing from this read keeps its state: a
-        // transcript move re-reads the tab before `subagents/` has followed.
+        // finishes again. One absent from a read keeps its state: while a
+        // session moves between project directories, a read can find its
+        // `subagents/` not there yet.
         let unfinished = Set(subagents.map { Key(tabID: tabID, subagentID: $0.id) }).subtracting(finished)
         for key in unfinished {
             completedAt.removeValue(forKey: key)
