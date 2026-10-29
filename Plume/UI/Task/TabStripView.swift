@@ -234,7 +234,7 @@ private struct TabChip: View {
                     .disabled(!DeviceSessionManager.shared.canShutDownEmulator(for: tab.id))
                 Divider()
             }
-            if tab.isRemoteDeviceTab {
+            if tab.isRemoteDeviceTab || DeviceSessionManager.shared.existingSession(for: tab.id)?.isRemote == true {
                 Button("End Reservation…") { isConfirmingEndReservation = true }
                     .plumeID(AccessibilityID.endReservationMenuItem)
                     .disabled(!DeviceSessionManager.shared.canEndReservation(for: tab.id))
