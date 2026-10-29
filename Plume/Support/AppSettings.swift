@@ -174,8 +174,8 @@ final class AppSettings {
             defaults.set(initial ?? Self.systemAccentSentinel, forKey: Key.accentPaletteSlot)
         }
 
-        // Unset must read as true: the feature is opt-out, not opt-in.
         self.remoteDeviceProjectID = defaults.string(forKey: Key.remoteDeviceProjectID)
+        // Unset must read as true: the feature is opt-out, not opt-in.
         self.showsPullRequestStatus = defaults.object(forKey: Key.showsPullRequestStatus) == nil
             ? true
             : defaults.bool(forKey: Key.showsPullRequestStatus)
@@ -508,8 +508,6 @@ final class AppSettings {
         }
     }
 
-    /// Master toggle for GitHub PR status in the sidebar. The feature makes
-    /// network calls, so it must be opt-outable; on by default.
     /// The Google Cloud project remote devices are reserved in, when more than one is ready.
     var remoteDeviceProjectID: String? {
         didSet {
@@ -517,6 +515,8 @@ final class AppSettings {
         }
     }
 
+    /// Master toggle for GitHub PR status in the sidebar. The feature makes
+    /// network calls, so it must be opt-outable; on by default.
     var showsPullRequestStatus: Bool {
         didSet {
             defaults.set(showsPullRequestStatus, forKey: Key.showsPullRequestStatus)
