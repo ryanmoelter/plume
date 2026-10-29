@@ -45,8 +45,8 @@ struct RemoteDevicesSettingsSection: View {
             case .signedIn(let account):
                 LabeledContent {
                     Button("Sign Out", action: signOut)
-                        .disabled(isSigningOut)
                         .plumeID(AccessibilityID.remoteDevicesSignOutButton, invoke: signOut)
+                        .disabled(isSigningOut)
                 } label: {
                     Text("Account")
                     Text(account).foregroundStyle(.secondary)
@@ -85,8 +85,8 @@ struct RemoteDevicesSettingsSection: View {
             )) {
                 ForEach(catalog.projects, id: \.self) { Text($0).tag($0) }
             }
-            .disabled(catalog.projects.count < 2)
             .plumeID(AccessibilityID.remoteDevicesProjectPicker, value: catalog.selectedProject)
+            .disabled(catalog.projects.count < 2)
         }
     }
 

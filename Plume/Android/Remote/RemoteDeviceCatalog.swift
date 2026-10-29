@@ -47,8 +47,9 @@ final class RemoteDeviceCatalog {
         set { AppSettings.shared.remoteDeviceProjectID = newValue }
     }
 
+    /// Loads once while signed in; otherwise checks again, since the user may have signed in since.
     func loadIfNeeded() async {
-        guard !hasLoaded else { return }
+        guard !hasLoaded || !isSignedIn else { return }
         await load(refresh: false)
     }
 

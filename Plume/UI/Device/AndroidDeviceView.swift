@@ -119,8 +119,8 @@ struct AndroidDeviceView: View {
             }
             .controlSize(.small)
             .help("Extend the reservation by \(DeviceSession.extendMinutes) minutes")
-            .disabled(session.isExtending)
             .plumeID(AccessibilityID.deviceExtendButton, invoke: extend)
+            .disabled(session.isExtending)
         }
         .padding(.leading, 6)
     }
