@@ -74,6 +74,9 @@ struct MarkdownComposerTextView: NSViewRepresentable {
     /// Where references in the draft are looked up. Nil draws no chips.
     var referenceResolver: ComposerReferenceResolver?
     var referencePalette: ReferenceChipPalette?
+    /// The mention token being searched, drawn in the accent color. Nil
+    /// while no mention menu is open.
+    var activeMention: NSRange?
 
     static let minLines: CGFloat = 1
     static let maxLines: CGFloat = 8
@@ -94,6 +97,7 @@ struct MarkdownComposerTextView: NSViewRepresentable {
         context.coordinator.isActive = context.environment.appearsActive
         context.coordinator.referenceResolver = referenceResolver
         context.coordinator.referencePalette = referencePalette
+        context.coordinator.activeMention = activeMention
         context.coordinator.apply(text: text, fontSize: fontSize, to: textView)
         view.setVerticalInset(verticalInset)
         return view
@@ -127,11 +131,13 @@ struct MarkdownComposerTextView: NSViewRepresentable {
             || context.coordinator.referencePalette != referencePalette
         context.coordinator.referenceResolver = referenceResolver
         context.coordinator.referencePalette = referencePalette
+        let mentionChanged = context.coordinator.activeMention != activeMention
+        context.coordinator.activeMention = activeMention
 
         // Only re-style and re-measure when something actually changed.
         // SwiftUI runs this on every update pass, and both the styling and
         // the height measurement are full passes over the text.
-        if textView.string != text || context.coordinator.fontSize != fontSize || commandsChanged || modeChanged || accentChanged || referencesChanged {
+        if textView.string != text || context.coordinator.fontSize != fontSize || commandsChanged || modeChanged || accentChanged || referencesChanged || mentionChanged {
             context.coordinator.apply(text: text, fontSize: fontSize, to: textView)
             view.invalidateContentHeight()
         }
@@ -189,6 +195,7 @@ struct MarkdownComposerTextView: NSViewRepresentable {
         var isActive = true
         var referenceResolver: ComposerReferenceResolver?
         var referencePalette: ReferenceChipPalette?
+        var activeMention: NSRange?
         var referenceLookupDelay: Duration = .milliseconds(150)
         private var attemptedReferences: Set<MentionReference.Kind> = []
         /// What the running lookup was started for.
@@ -264,7 +271,8 @@ struct MarkdownComposerTextView: NSViewRepresentable {
                 recognizedSlashCommandNames: recognizedSlashCommandNames,
                 isCommandMode: isCommandMode,
                 accent: accent,
-                references: chips
+                references: chips,
+                activeMention: activeMention
             )
             (textView as? ComposerNSTextView)?.referenceChips = chips
         }

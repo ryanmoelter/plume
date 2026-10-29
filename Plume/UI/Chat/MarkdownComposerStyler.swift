@@ -19,7 +19,8 @@ enum MarkdownComposerStyler {
         recognizedSlashCommandNames: Set<String> = [],
         isCommandMode: Bool = false,
         accent: NSColor = ThemeChrome.accentNSColor(),
-        references: [ComposerReferenceChip] = []
+        references: [ComposerReferenceChip] = [],
+        activeMention: NSRange? = nil
     ) {
         let metrics = ComposerMarkdownMetrics(fontSize: fontSize)
         let bodyFont = isCommandMode ? metrics.mono : metrics.body
@@ -64,6 +65,10 @@ enum MarkdownComposerStyler {
 
         if let commandRange = SlashCommandMatcher.recognizedCommandRange(text: text, commandNames: recognizedSlashCommandNames) {
             storage.addAttribute(.foregroundColor, value: accent, range: commandRange)
+        }
+
+        if let activeMention, activeMention.length > 0, NSMaxRange(activeMention) <= ns.length {
+            storage.addAttribute(.foregroundColor, value: accent, range: activeMention)
         }
 
         storage.endEditing()
