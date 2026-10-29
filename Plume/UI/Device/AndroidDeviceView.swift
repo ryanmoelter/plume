@@ -213,22 +213,27 @@ struct AndroidDeviceView: View {
         showsProgress: Bool = false,
         @ViewBuilder actions: () -> some View = { EmptyView() }
     ) -> some View {
-        VStack(spacing: 10) {
+        VStack(alignment: .leading, spacing: 10) {
             if showsProgress { ProgressView().controlSize(.small) }
             Text(title).font(.headline)
             if let detail {
                 Text(detail)
-                    .font(.caption.monospaced())
+                    .font(.caption)
                     .foregroundStyle(.secondary)
-                    .multilineTextAlignment(.center)
+                    .multilineTextAlignment(.leading)
                     .textSelection(.enabled)
-                    .frame(maxWidth: 420)
             }
-            HStack { actions() }
-            Button("Change Device…") { session.changeDevice() }
-                .buttonStyle(.link)
-                .plumeID(AccessibilityID.deviceChangeDeviceButton)
+            HStack {
+                Spacer()
+                Button("Change Device…") { session.changeDevice() }
+                    .buttonStyle(.bordered)
+                    .plumeID(AccessibilityID.deviceChangeDeviceButton)
+                actions()
+                    .buttonStyle(.borderedProminent)
+            }
+            .padding(.top, 4)
         }
+        .frame(maxWidth: 420, alignment: .leading)
         .padding(20)
         .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 10))
     }
