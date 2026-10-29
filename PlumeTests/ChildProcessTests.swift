@@ -6,10 +6,10 @@ import Testing
 /// `android device remote connect` exits leaving a daemon that may hold its pipes open, so a run
 /// ends when the child exits, not when its pipes close.
 struct ChildProcessTests {
-    private func sh(_ script: String, timeout: Duration = .seconds(10)) async throws -> AndroidCLIResult {
+    private func sh(_ script: String, timeout: Duration = .seconds(10), capturesToFile: Bool = false) async throws -> AndroidCLIResult {
         try await ChildProcess.run(
             executable: "/bin/sh", arguments: ["-c", script], environment: ProcessInfo.processInfo.environment,
-            timeout: timeout, onOutput: nil
+            timeout: timeout, capturesToFile: capturesToFile, onOutput: nil
         )
     }
 
@@ -27,6 +27,21 @@ struct ChildProcessTests {
         #expect(result.stdout == "started\n")
         #expect(result.succeeded)
         #expect(ContinuousClock.now - start < .seconds(4))
+    }
+
+    @Test func aGrandchildKeepsWritingAfterAFileCapturedParentExits() async throws {
+        let marker = NSTemporaryDirectory() + "plume-grandchild-\(UUID().uuidString)"
+        defer { unlink(marker) }
+        let script = "(while :; do echo tick; sleep 0.05; done) & echo $! > \(marker); echo port 59095"
+        let result = try await sh(script, capturesToFile: true)
+        #expect(result.stdout.contains("port 59095"))
+        #expect(result.succeeded)
+
+        let text = try String(contentsOfFile: marker, encoding: .utf8)
+        let grandchild = try #require(pid_t(text.trimmingCharacters(in: .whitespacesAndNewlines)))
+        defer { kill(grandchild, SIGKILL) }
+        try await Task.sleep(for: .milliseconds(300))
+        #expect(kill(grandchild, 0) == 0)
     }
 
     @Test func killsAChildThatOverrunsItsTimeout() async throws {

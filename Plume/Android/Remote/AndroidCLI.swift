@@ -88,8 +88,14 @@ nonisolated final class AndroidCLI: AndroidCLIRunning, @unchecked Sendable {
             arguments: arguments,
             environment: environment,
             timeout: timeout,
+            capturesToFile: Self.leavesDaemon(arguments),
             onOutput: onOutput
         )
+    }
+
+    /// `connect` starts a daemon that outlives the command, so its output can't go through pipes.
+    private static func leavesDaemon(_ arguments: [String]) -> Bool {
+        arguments.starts(with: ["device", "remote", "connect"])
     }
 
     static func candidatePaths(shellPath: String?, home: String = NSHomeDirectory()) -> [String] {
@@ -123,6 +129,10 @@ nonisolated final class AndroidCLI: AndroidCLIRunning, @unchecked Sendable {
 /// its pipes to close, because `android device remote connect` leaves a daemon behind that may
 /// inherit them.
 ///
+/// With `capturesToFile`, the child's stdout and stderr go to one temporary file instead of pipes,
+/// so a daemon that inherits them has no pipe to break. Both land in `stdout`, and `onOutput`
+/// isn't called.
+///
 /// The child leads its own process group, since `android` is a wrapper whose `android-cli` child
 /// would outlive a signal to the wrapper alone. Only a cancel or a timeout signals the group, so
 /// the daemon a finished `connect` leaves behind survives.
@@ -132,6 +142,7 @@ nonisolated enum ChildProcess {
         arguments: [String],
         environment: [String: String],
         timeout: Duration,
+        capturesToFile: Bool = false,
         onOutput: (@Sendable (String) -> Void)?
     ) async throws -> AndroidCLIResult {
         let cancellation = CancellationFlag()
@@ -141,7 +152,7 @@ nonisolated enum ChildProcess {
                     continuation.resume(with: Result {
                         try runBlocking(
                             executable: executable, arguments: arguments, environment: environment,
-                            timeout: timeout, cancellation: cancellation, onOutput: onOutput
+                            timeout: timeout, cancellation: cancellation, capturesToFile: capturesToFile, onOutput: onOutput
                         )
                     })
                 }
@@ -157,16 +168,34 @@ nonisolated enum ChildProcess {
         environment: [String: String],
         timeout: Duration,
         cancellation: CancellationFlag,
+        capturesToFile: Bool,
         onOutput: (@Sendable (String) -> Void)?
     ) throws -> AndroidCLIResult {
         var outPipe: [Int32] = [0, 0]
         var errPipe: [Int32] = [0, 0]
-        guard pipe(&outPipe) == 0 else { throw AndroidCLIError(message: "Couldn't create a pipe.") }
-        guard pipe(&errPipe) == 0 else {
-            outPipe.forEach { close($0) }
-            throw AndroidCLIError(message: "Couldn't create a pipe.")
+        var captureFile: (path: String, descriptor: Int32)?
+        if capturesToFile {
+            var template = Array((NSTemporaryDirectory() + "plume-android-XXXXXX").utf8CString)
+            let descriptor = mkstemp(&template)
+            guard descriptor >= 0 else { throw AndroidCLIError(message: "Couldn't create a temporary file.") }
+            _ = fcntl(descriptor, F_SETFD, FD_CLOEXEC)
+            captureFile = (String(cString: template), descriptor)
+            outPipe = [-1, descriptor]
+            errPipe = [-1, descriptor]
+        } else {
+            guard pipe(&outPipe) == 0 else { throw AndroidCLIError(message: "Couldn't create a pipe.") }
+            guard pipe(&errPipe) == 0 else {
+                outPipe.forEach { close($0) }
+                throw AndroidCLIError(message: "Couldn't create a pipe.")
+            }
+            for descriptor in outPipe + errPipe { _ = fcntl(descriptor, F_SETFD, FD_CLOEXEC) }
         }
-        for descriptor in outPipe + errPipe { _ = fcntl(descriptor, F_SETFD, FD_CLOEXEC) }
+        defer {
+            if let captureFile {
+                close(captureFile.descriptor)
+                unlink(captureFile.path)
+            }
+        }
 
         var actions: posix_spawn_file_actions_t?
         posix_spawn_file_actions_init(&actions)
@@ -188,9 +217,14 @@ nonisolated enum ChildProcess {
 
         var pid: pid_t = 0
         let spawnStatus = posix_spawn(&pid, executable, &actions, &attributes, argv, envp)
-        close(outPipe[1])
-        close(errPipe[1])
-        let readEnds = [outPipe[0], errPipe[0]]
+        let readEnds: [Int32]
+        if captureFile == nil {
+            close(outPipe[1])
+            close(errPipe[1])
+            readEnds = [outPipe[0], errPipe[0]]
+        } else {
+            readEnds = []
+        }
         defer { readEnds.forEach { close($0) } }
         guard spawnStatus == 0 else {
             throw AndroidCLIError(message: "Couldn't run \(executable): \(String(cString: strerror(spawnStatus)))")
@@ -200,7 +234,7 @@ nonisolated enum ChildProcess {
         var stdout = Data()
         var stderr = Data()
         var undelivered = Data()
-        var open = [true, true]
+        var open = [!readEnds.isEmpty, !readEnds.isEmpty]
         func drain(_ index: Int) {
             var chunk = [UInt8](repeating: 0, count: 16_384)
             while open[index] {
@@ -236,7 +270,7 @@ nonisolated enum ChildProcess {
             var pollers = readEnds.enumerated().map { index, descriptor in
                 pollfd(fd: open[index] ? descriptor : -1, events: Int16(POLLIN), revents: 0)
             }
-            _ = poll(&pollers, 2, 100)
+            _ = poll(&pollers, nfds_t(pollers.count), 100)
             drain(0)
             drain(1)
             let waited = waitpid(pid, &exitStatus, WNOHANG)
@@ -245,8 +279,13 @@ nonisolated enum ChildProcess {
                 timedOut = !cancellation.isCancelled
                 kill(-pid, SIGTERM)
                 let grace = Date().addingTimeInterval(1)
-                while waitpid(pid, &exitStatus, WNOHANG) == 0, Date() < grace { usleep(20_000) }
-                // The group outlives a reaped leader while any member lives, and its id isn't reused until then.
+                var info = siginfo_t()
+                while Date() < grace {
+                    info.si_pid = 0
+                    if waitid(P_PID, id_t(pid), &info, WEXITED | WNOHANG | WNOWAIT) == 0, info.si_pid != 0 { break }
+                    usleep(20_000)
+                }
+                // The leader is still unreaped here, so its pid can't be reused for another group yet.
                 kill(-pid, SIGKILL)
                 while waitpid(pid, &exitStatus, 0) == -1, errno == EINTR {}
                 exited = true
@@ -255,6 +294,9 @@ nonisolated enum ChildProcess {
         // Whatever the child wrote before exiting is already in the pipe.
         drain(0)
         drain(1)
+        if let captureFile {
+            stdout = (try? Data(contentsOf: URL(fileURLWithPath: captureFile.path))) ?? Data()
+        }
         if cancellation.isCancelled { throw CancellationError() }
         let status: Int32 = (exitStatus & 0x7f) == 0 ? (exitStatus >> 8) & 0xff : -1
         return AndroidCLIResult(
