@@ -139,7 +139,7 @@ struct DevicePickerView: View {
                 LazyVStack(alignment: .leading, spacing: 0) {
                     if !isSearching, !recentModels.isEmpty {
                         subheading("Recently used")
-                        ForEach(recentModels) { modelRow($0, project: project) }
+                        ForEach(recentModels, id: \.recentRowID) { modelRow($0, project: project, labelPrefix: "recent:") }
                     }
                     ForEach(RemoteDeviceModel.FormFactor.allCases, id: \.self) { factor in
                         let models = filteredModels.filter { $0.formFactor == factor }
@@ -171,14 +171,14 @@ struct DevicePickerView: View {
             .padding(.bottom, 2)
     }
 
-    private func modelRow(_ model: RemoteDeviceModel, project: String) -> some View {
+    private func modelRow(_ model: RemoteDeviceModel, project: String, labelPrefix: String = "") -> some View {
         row(
             title: model.name,
             symbol: model.formFactor.symbol,
             detail: "\(model.manufacturer) · API \(model.api) · \(model.formFactor.title)",
             action: "Reserve",
             id: AccessibilityID.devicePickerRemoteRow,
-            label: model.id
+            label: labelPrefix + model.id
         ) { onReserve(model, project) }
     }
 
@@ -319,4 +319,8 @@ struct DevicePickerView: View {
             avds = await AVDCatalog.list(sdk: sdk)
         }
     }
+}
+
+private extension RemoteDeviceModel {
+    var recentRowID: String { "recent:" + id }
 }
