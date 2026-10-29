@@ -50,10 +50,29 @@ extension ComposerReferenceChip {
         textTint: NSColor = ThemeChrome.accentNSColor(),
         resolution: (MentionReference.Kind) -> ResolvedMention?
     ) -> (chips: [ComposerReferenceChip], misses: [MentionReference.Kind]) {
+        chips(
+            for: MentionReference.references(in: text),
+            caret: caret,
+            palette: palette,
+            textTint: textTint,
+            resolution: resolution
+        )
+    }
+
+    /// `references` as `MentionReference.references(in:)` finds them in the
+    /// draft.
+    @MainActor
+    static func chips(
+        for references: [MentionReference],
+        caret: NSRange,
+        palette: ReferenceChipPalette,
+        textTint: NSColor = ThemeChrome.accentNSColor(),
+        resolution: (MentionReference.Kind) -> ResolvedMention?
+    ) -> (chips: [ComposerReferenceChip], misses: [MentionReference.Kind]) {
         var chips: [ComposerReferenceChip] = []
         var misses: [MentionReference.Kind] = []
         let wash = NSColor(palette.accentWash)
-        for reference in MentionReference.references(in: text) {
+        for reference in references {
             let range = reference.range
             if caret.length == 0, caret.location > range.location, caret.location <= NSMaxRange(range) { continue }
             guard let resolved = resolution(reference.kind) else {

@@ -273,4 +273,67 @@ struct ComposerReferenceChipTests {
         #expect(view.referenceChips.map(\.range) == [NSRange(location: 4, length: 8)])
         #expect(view.string == "See @PLUME-1 now")
     }
+
+    /// Parks every lookup until opened, and lets a test wait for the first.
+    private actor Gate {
+        private var isOpen = false
+        private var hasWaiter = false
+        private var waiters: [CheckedContinuation<Void, Never>] = []
+        private var watchers: [CheckedContinuation<Void, Never>] = []
+
+        func wait() async {
+            guard !isOpen else { return }
+            hasWaiter = true
+            for watcher in watchers { watcher.resume() }
+            watchers = []
+            await withCheckedContinuation { waiters.append($0) }
+        }
+
+        func firstWaiter() async {
+            guard !hasWaiter else { return }
+            await withCheckedContinuation { watchers.append($0) }
+        }
+
+        func open() {
+            isOpen = true
+            for waiter in waiters { waiter.resume() }
+            waiters = []
+        }
+    }
+
+    @Test func aReferenceWhoseLookupWasCancelledIsLookedUpAgain() async {
+        let gate = Gate()
+        let resolver = MentionResolver(dependencies: .init(
+            linearIssue: { _ in nil },
+            lookUpLinear: { _ in },
+            pullRequest: { number, _ in
+                await gate.wait()
+                guard !Task.isCancelled else { return nil }
+                return .init(number: number, title: "Pull \(number)", url: "https://github.com/o/r/pull/\(number)", state: .open, isDraft: false, updatedAt: nil)
+            },
+            fileIsDirectory: { _ in nil },
+            homeDirectory: "/home"
+        ))
+        let coordinator = MarkdownComposerTextView.Coordinator(
+            text: .constant(""),
+            isFocused: .constant(false),
+            onSend: {},
+            placeholder: "",
+            onTextChange: { _ in }
+        )
+        coordinator.referenceResolver = ComposerReferenceResolver(tabID: UUID(), directory: "/repo", resolver: resolver)
+        coordinator.referencePalette = palette
+        coordinator.referenceLookupDelay = .zero
+        let view = ComposerNSTextView()
+        view.frame = NSRect(x: 0, y: 0, width: 400, height: 300)
+        coordinator.textView = view
+
+        coordinator.apply(text: "See #12 now", fontSize: 13, to: view)
+        await gate.firstWaiter()
+        coordinator.apply(text: "See #12 and #13 now", fontSize: 13, to: view)
+        await gate.open()
+        await coordinator.referenceLookupsSettled()
+
+        #expect(view.referenceChips.map(\.range) == [NSRange(location: 4, length: 3), NSRange(location: 12, length: 3)])
+    }
 }

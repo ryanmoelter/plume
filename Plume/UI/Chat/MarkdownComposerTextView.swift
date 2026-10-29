@@ -189,7 +189,11 @@ struct MarkdownComposerTextView: NSViewRepresentable {
         var isActive = true
         var referenceResolver: ComposerReferenceResolver?
         var referencePalette: ReferenceChipPalette?
+        var referenceLookupDelay: Duration = .milliseconds(150)
         private var attemptedReferences: Set<MentionReference.Kind> = []
+        /// What the running lookup was started for.
+        private var pendingReferences: [MentionReference.Kind] = []
+        private var parsedReferences: (text: String, references: [MentionReference])?
         private var referenceLookup: Task<Void, Never>?
         /// True inside `makeNSView`/`updateNSView`. Selection and focus
         /// changes made there reach the caller on the next main-queue turn,
@@ -268,7 +272,7 @@ struct MarkdownComposerTextView: NSViewRepresentable {
         private func referenceChips(in text: String, caret: NSRange) -> [ComposerReferenceChip] {
             guard !isCommandMode, let referenceResolver, let referencePalette else { return [] }
             let found = ComposerReferenceChip.chips(
-                in: text,
+                for: references(in: text),
                 caret: caret,
                 palette: referencePalette,
                 textTint: ThemeChrome.accentNSColor(isActive: isActive),
@@ -278,20 +282,45 @@ struct MarkdownComposerTextView: NSViewRepresentable {
             return found.chips
         }
 
+        /// Parsed once per text, since every caret move asks again.
+        private func references(in text: String) -> [MentionReference] {
+            if let parsedReferences, parsedReferences.text == text { return parsedReferences.references }
+            let references = MentionReference.references(in: text)
+            parsedReferences = (text, references)
+            return references
+        }
+
         /// Each reference is looked up once per composer, after typing
-        /// pauses, so a half-typed identifier never reaches the network.
+        /// pauses, so a half-typed identifier never reaches the network. The
+        /// same misses asked for again leave the running lookup alone.
         private func lookUp(_ kinds: [MentionReference.Kind], with resolver: ComposerReferenceResolver) {
-            guard !kinds.isEmpty else { return }
+            guard !kinds.isEmpty, kinds != pendingReferences else { return }
             referenceLookup?.cancel()
+            pendingReferences = kinds
+            let delay = referenceLookupDelay
             referenceLookup = Task { [weak self] in
-                try? await Task.sleep(for: .milliseconds(150))
-                guard !Task.isCancelled, let self else { return }
+                try? await Task.sleep(for: delay)
+                guard let self else { return }
                 var found = false
-                for kind in kinds where !self.attemptedReferences.contains(kind) {
-                    self.attemptedReferences.insert(kind)
-                    if await resolver.resolve(kind) != nil { found = true }
+                for kind in kinds where !attemptedReferences.contains(kind) {
+                    guard !Task.isCancelled else { break }
+                    let resolution = await resolver.resolve(kind)
+                    // A cancelled lookup can answer nil for want of an answer,
+                    // so only a live one marks the reference as tried.
+                    guard !Task.isCancelled else { break }
+                    attemptedReferences.insert(kind)
+                    if resolution != nil { found = true }
                 }
-                if found { self.restyle() }
+                if !Task.isCancelled { pendingReferences = [] }
+                if found { restyle() }
+            }
+        }
+
+        /// Returns once the latest reference lookup has finished. For tests.
+        func referenceLookupsSettled() async {
+            while let lookup = referenceLookup {
+                await lookup.value
+                if referenceLookup == lookup { return }
             }
         }
 
