@@ -33,7 +33,7 @@ struct AndroidDeviceView: View, ThemedView {
         ) {
             Button("End Reservation", role: .destructive) { session.endReservation() }
         } message: {
-            Text("The device goes back to Google's lab, and anything using it over adb loses it.")
+            Text("The device will be disconnected and stop costing money per minute.")
         }
         .alert(
             "Couldn't extend the reservation",

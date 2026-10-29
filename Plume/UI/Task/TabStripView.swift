@@ -293,7 +293,7 @@ private struct TabChip: View {
             }
             Button("Cancel", role: .cancel) {}
         } message: {
-            Text("The device goes back to Google's lab. Closing the tab ends the reservation too.")
+            Text("The device will be disconnected and stop costing money per minute.")
         }
         .confirmationDialog(
             "Start a fresh conversation?",
