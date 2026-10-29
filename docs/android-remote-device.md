@@ -1,0 +1,65 @@
+# Remote Android devices
+
+A device tab (`TabKind.device`, platform `androidRemote`) can show a physical device reserved from Google's lab through Device Streaming. The `android` command-line tool reserves the device and attaches it to local adb. From there it is an ordinary adb device, and the tab mirrors it over scrcpy exactly as `docs/android-physical-device.md` describes. This page covers what is different: the reservation, its cost, and the tool.
+
+## Layout
+
+- `Plume/Android/Remote/AndroidCLI.swift` finds the `android` tool and runs it. `ChildProcess` captures stdout and stderr and has a deadline.
+- `RemoteDeviceParsers` parses the tool's plain-text output. No command prints JSON.
+- `RemoteReservation` owns one reservation, from `create` to `remove`.
+- `RemoteReservationLedger` records every reservation Plume created until it is removed.
+- `RemoteDeviceCatalog` holds the tool's sign-in state, projects and models, for the picker and Settings ▸ Integrations.
+
+## Finding the tool
+
+The tool is `android` (version 1.1 measured), usually `/usr/local/bin/android`, which wraps `~/.android/bin/android-cli`. A GUI launch has no shell PATH, so `AndroidCLI.locate()` asks the login shell for `command -v android`, then tries `/usr/local/bin/android`, `/opt/homebrew/bin/android` and `~/.android/bin/android-cli`. It runs with the SDK's `launchEnvironment` and adb's directory first on PATH, so the tool's `connect` finds the same adb Plume uses.
+
+## Commands (measured)
+
+Every command takes `--project=<id>`, a Google Cloud project ready for streaming. Plume passes the one picked in Settings or the picker (`AppSettings.remoteDeviceProjectID`), or the only one there is.
+
+| Command | Output | Plume reads |
+|---|---|---|
+| `auth status` | `Logged in as Name <email>` | the account; anything else is signed out |
+| `device remote projects` | a carriage-return spinner, then `Projects ready for streaming:` and one indented id per line | the ids |
+| `device remote models` | a `├─`/`└─` tree of manufacturers, each model row with one `codename/api` column per API level | one model per API level |
+| `device remote create <codename>/<api>` | `New reservation created with id <id>. Reservation ends at 10:51 PM`, then `Waiting for reservation to activate...` and `Reservation is ACTIVE` | the id, as soon as it prints, and the end time |
+| `device remote connect <id>` | `Device connected on port 59095` | the port; the adb serial is `localhost:<port>` |
+| `device remote list <id>` | a table: `Reservation State Expires Manufacturer Model Codename API Level` | the row's state (`ACTIVE`, `FINISHED`) and expiry |
+| `device remote extend --duration=<minutes> <id>` | `Reservation extended. New expire time: 10:57 PM` | the new expiry; it adds to the current one |
+| `device remote disconnect <id>` | `Disconnected.` | nothing |
+| `device remote remove <id>` | `Reservation cancelled successfully.` | nothing |
+
+- Times are clock times with no date, written with a narrow no-break space (U+202F) before AM/PM. `RemoteDeviceParsers.clockTime` takes the date that puts the time nearest now.
+- Table columns are separated by two or more spaces. A model name can hold a single space (`Pixel Tablet`).
+- Plume runs `create` without `--connect`, then `connect` itself, so it can read the port.
+- `connect` starts a detached daemon (`android-cli device remote daemon-connect <id>`, parent pid 1) and exits. **The daemon is the tunnel**: killing it turns the adb device `offline`. `disconnect` kills it. `ChildProcess` waits for the tool to exit, never for its pipes to close, in case the daemon holds them.
+- `connect` refuses with exit 1 and `Reservation <id> is already connected on port N.` when a connection is still recorded. Plume runs `disconnect` and tries `connect` once more.
+- `disconnect` with nothing connected exits 1 with `No active connection found for reservation <id> in project <p>`, and `remove` of an ended reservation exits 1 with `Reservation <id> has already ended.` Both count as success.
+- Failures print text such as `Error: Failed to obtain auth token: HTTP connect timed out`. The tab shows it as is.
+
+## Lifecycle and cost
+
+A reservation is billed while it lasts, 15 minutes by default, and the service ends it early after a stretch of inactivity. **Nothing Plume reserves outlives the tab or the app.**
+
+- **Reserve.** The picker's "Remote Devices" section lists the models; Reserve runs `create`, which waits until the device is active. The session shows `.reserving`, then persists `.remote(reservationID:)` plus `remoteProjectID`, `remoteDeviceModel` and `remoteExpiresAt` on the tab, runs `connect`, and streams.
+- **Video.** A remote device streams at `ScrcpyVideoLimits.remoteDevice`: 1280 pixels on the long side, 4 Mbit/s, 30 fps. USB devices keep scrcpy's defaults.
+- **Hidden tabs** keep the reservation and the tunnel. Only scrcpy stops, after the same 5-second grace a USB device gets.
+- **Time left.** The toolbar shows minutes left, orange under 3, and **+15 min** runs `extend`. A monitor wakes at the expiry, or every 60 seconds if that's sooner, and runs `list`. When the reservation is no longer active, or the stream drops and `list` says it ended, the tab shows "The reservation ended" with **Reserve Again**, which reserves the same model.
+- **Release.** Closing, archiving or deleting the tab, Change Device, End Reservation and quitting all release the reservation: `disconnect`, then `remove`. `RemoteReservation.release()` is idempotent. A release during `create` stops it first and removes the id if one was printed. On quit, `applicationWillTerminate` waits up to 10 seconds in `DeviceSessionManager.awaitTerminations()`; a `remove` still running after that finishes on its own as an orphan.
+- **Rotate.** Nobody can turn a lab device, so a remote tab shows one Rotate button. scrcpy's `rotateDevice` only toggles between portrait and landscape.
+
+## The ledger
+
+`remote-reservations.json` in the app's Application Support folder lists every reservation id Plume created, with its project. `create` adds the id the moment the tool prints it, before activation. The entry goes only once `remove` succeeds (or reports the reservation already ended).
+
+At launch, `RemoteReservationLedger.sweepAtLaunch` keeps the entries owned by a remote tab in an unarchived task, which reconnect when shown, and releases every other entry off the main thread. So a crash or a force-quit leaks a billed reservation only until the next launch. One gap remains: a `create` killed before it printed its id may have reserved a device Plume never learned about, which then ends on its own.
+
+## The picker and Settings
+
+- The picker's Devices list leaves out the `localhost:` serials Plume's own reservations attached, since those show in their own tabs. A remote device connected some other way, by an agent running `android device remote connect` say, still shows there.
+- With the tool missing or signed out, the section points to Settings ▸ Integrations ▸ Android Device Streaming. That section shows the tool, the account, Sign In… (which runs `android auth login` in Terminal.app through a temporary `.command` script, since login may be interactive) and Sign Out (`auth logout`), and the project picker the device picker shares.
+
+## Logging
+
+Remote sessions log through `EmulatorLog`, under the `emulator` category.
