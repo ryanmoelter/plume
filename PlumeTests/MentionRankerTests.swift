@@ -128,6 +128,29 @@ struct MentionRankerTests {
         #expect(sectioned.filter(\.isSectionHeader).count == 3)
     }
 
+    @Test func aSuggestedFilterLeadsInPlaceOfItsHeader() {
+        let merged = MentionRanker.merge([.linear: [linear("DROID-1", .loose)], .files: [file("a", .exact)]], isBare: false)
+        let list = MentionRanker.sectioned(merged, suggested: [.linear])
+        #expect(list.map(\.id) == ["filter:linear", "linear:DROID-1", "filter:file", "file:a"])
+        #expect(MentionRanker.selectionIndex(keeping: nil, in: list, suggested: [.linear]) == 0)
+    }
+
+    @Test func aSuggestedFilterLeadsEvenWithNoResults() {
+        let list = MentionRanker.sectioned([], suggested: [.linear])
+        #expect(list.map(\.id) == ["filter:linear"])
+    }
+
+    @Test func filterNamesSuggestedByAPrefix() {
+        func suggested(_ text: String, _ trigger: MentionQuery.Trigger = .at) -> [MentionQuery.Filter] {
+            MentionRanker.suggestedFilters(for: MentionQuery(trigger: trigger, text: text, triggerLocation: 0, caretLocation: text.count + 1))
+        }
+        #expect(suggested("LI") == [.linear])
+        #expect(suggested("p") == [.pr])
+        #expect(suggested("") == [])
+        #expect(suggested("x") == [])
+        #expect(suggested("li", .hash) == [])
+    }
+
     // MARK: - Selection
 
     @Test func theSelectionStartsOnTheFirstResultNotItsHeader() {

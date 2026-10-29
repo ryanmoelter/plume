@@ -55,21 +55,40 @@ nonisolated enum MentionRanker {
         return Array(merged.prefix(isFiltered ? filteredLimit : totalLimit))
     }
 
+    /// The filters a partly typed name could be starting, `@li` for
+    /// `@linear:`, in source order.
+    static func suggestedFilters(for query: MentionQuery) -> [MentionQuery.Filter] {
+        guard query.trigger == .at, query.filter == nil, !query.isQuoted, !query.text.isEmpty else { return [] }
+        let typed = query.text.lowercased()
+        return sourceOrder.map(MentionQuery.Filter.init(source:)).filter { $0.rawValue.hasPrefix(typed) }
+    }
+
     /// `merged` with each source's rows led by the filter row that narrows
-    /// the menu to that source. A source with no rows gets no header.
-    static func sectioned(_ merged: [MentionCandidate]) -> [MentionCandidate] {
-        sourceOrder.flatMap { source -> [MentionCandidate] in
+    /// the menu to that source. A source with no rows gets no header, and a
+    /// `suggested` filter leads the whole list in place of its header.
+    static func sectioned(_ merged: [MentionCandidate], suggested: [MentionQuery.Filter] = []) -> [MentionCandidate] {
+        let sections = sourceOrder.flatMap { source -> [MentionCandidate] in
             let rows = merged.filter { $0.source == source }
-            return rows.isEmpty ? [] : [.filter(MentionQuery.Filter(source: source))] + rows
+            if rows.isEmpty || suggested.contains(MentionQuery.Filter(source: source)) { return rows }
+            return [.filter(MentionQuery.Filter(source: source))] + rows
         }
+        return suggested.map { .filter($0) } + sections
     }
 
     /// Where the selection belongs after the list changes: on the same
     /// candidate if it is still there, otherwise the top result, so Return
-    /// takes a result rather than a section header.
-    static func selectionIndex(keeping selectedID: String?, in candidates: [MentionCandidate]) -> Int {
+    /// takes a result rather than a section header. A `suggested` filter is a
+    /// result.
+    static func selectionIndex(
+        keeping selectedID: String?,
+        in candidates: [MentionCandidate],
+        suggested: [MentionQuery.Filter] = []
+    ) -> Int {
         if let selectedID, let index = candidates.firstIndex(where: { $0.id == selectedID }) { return index }
-        return candidates.firstIndex { !$0.isSectionHeader } ?? 0
+        return candidates.firstIndex { candidate in
+            if case .filter(let filter) = candidate { return suggested.contains(filter) }
+            return true
+        } ?? 0
     }
 }
 

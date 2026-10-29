@@ -276,7 +276,7 @@ struct MentionAutocompleteControllerTests {
         sources.fileAnswer = { _ in [MentionFixtures.ranked(.file(MentionFixtures.file("lib.swift")))] }
         let controller = makeController()
 
-        type("@li", into: controller)
+        type("@lib", into: controller)
         await controller.settled()
 
         #expect(controller.candidates.map(\.id) == ["filter:linear", "linear:DROID-1", "filter:file", "file:lib.swift"])
@@ -304,7 +304,7 @@ struct MentionAutocompleteControllerTests {
         var accepted: SlashCommandMatcher.AcceptedCommand?
         controller.onAccept = { accepted = $0 }
 
-        type("@li", into: controller)
+        type("@lib", into: controller)
         await controller.settled()
         controller.moveSelection(by: -1)
 
@@ -316,5 +316,51 @@ struct MentionAutocompleteControllerTests {
         await controller.settled()
         #expect(sources.fileQueries.count == askedFiles)
         #expect(sources.pullRequestQueries.count == askedPullRequests)
+    }
+
+    @Test func aPartlyTypedFilterNameLeadsTheListAndIsSelected() async {
+        sources.fileAnswer = { _ in [MentionFixtures.ranked(.file(MentionFixtures.file("lib.swift")))] }
+        let controller = makeController()
+
+        type("@li", into: controller)
+        await controller.settled()
+
+        #expect(controller.candidates.map(\.id) == ["filter:linear", "filter:file", "file:lib.swift"])
+        #expect(controller.selectedIndex == 0)
+    }
+
+    @Test func aSuggestedFilterIsNotRepeatedAsAHeader() async {
+        sources.linearAnswer = { _ in [MentionFixtures.ranked(.linear(MentionFixtures.issue("DROID-1", "Lib")))] }
+        let controller = makeController()
+
+        type("@li", into: controller)
+        await controller.settled()
+
+        #expect(controller.candidates.map(\.id) == ["filter:linear", "linear:DROID-1"])
+        #expect(controller.selectedIndex == 0)
+    }
+
+    @Test func aBareAtSuggestsNoFilter() async {
+        sources.fileAnswer = { _ in [MentionFixtures.ranked(.file(MentionFixtures.file("lib.swift")))] }
+        let controller = makeController()
+
+        type("@", into: controller)
+        await controller.settled()
+
+        #expect(controller.candidates.map(\.id) == ["filter:file", "file:lib.swift"])
+        #expect(controller.selectedIndex == 1)
+    }
+
+    @Test func acceptingASuggestedFilterDrillsIn() async {
+        let controller = makeController()
+        var accepted: SlashCommandMatcher.AcceptedCommand?
+        controller.onAccept = { accepted = $0 }
+
+        type("@li", into: controller)
+        await controller.settled()
+        controller.acceptSelection()
+
+        #expect(accepted?.text == "@linear:")
+        #expect(controller.query?.filter == .linear)
     }
 }

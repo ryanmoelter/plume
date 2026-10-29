@@ -274,9 +274,10 @@ final class MentionAutocompleteController: ComposerAutocompleteHandler {
     private func publish() {
         guard let query else { return }
         let rows = MentionRanker.merge(results, isBare: query.isBare, isFiltered: query.filter != nil)
-        let merged = query.sources.count > 1 ? MentionRanker.sectioned(rows) : rows
+        let suggested = query.sources.count > 1 ? MentionRanker.suggestedFilters(for: query) : []
+        let merged = query.sources.count > 1 ? MentionRanker.sectioned(rows, suggested: suggested) : rows
         if merged != candidates { candidates = merged }
-        let index = MentionRanker.selectionIndex(keeping: selectedID, in: merged)
+        let index = MentionRanker.selectionIndex(keeping: selectedID, in: merged, suggested: suggested)
         if index != selectedIndex { selectedIndex = index }
         let loading = !pending.isEmpty
         if loading != isLoading { isLoading = loading }
