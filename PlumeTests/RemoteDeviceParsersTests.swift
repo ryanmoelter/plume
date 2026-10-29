@@ -138,3 +138,26 @@ struct RemoteDeviceParsersTests {
         #expect(RemoteDeviceParsers.clockTime("soon", now: Self.now, calendar: Self.calendar) == nil)
     }
 }
+
+struct RemoteDeviceFormFactorTests {
+    private func factor(_ name: String) -> RemoteDeviceModel.FormFactor {
+        RemoteDeviceModel(manufacturer: "Test", name: name, codename: "x", api: 35).formFactor
+    }
+
+    @Test(arguments: [
+        ("Galaxy Tab S9", RemoteDeviceModel.FormFactor.tablet),
+        ("Lenovo Tab M11", .tablet),
+        ("Pixel Tablet", .tablet),
+        ("Galaxy Z Flip6", .foldable),
+        ("Pixel 9 Pro Fold", .foldable),
+        ("motorola razr plus 2024", .foldable),
+        ("Honor Magic V5", .foldable),
+        ("Galaxy Z TriFold", .foldable),
+        ("Pixel Watch", .watch),
+        ("Pixel 9", .phone),
+        ("Galaxy S25 Edge", .phone),
+    ])
+    func classifiesByName(name: String, expected: RemoteDeviceModel.FormFactor) {
+        #expect(factor(name) == expected)
+    }
+}

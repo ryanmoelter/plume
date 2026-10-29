@@ -246,6 +246,7 @@ final class DeviceSession {
         runWork { [weak self] in
             do {
                 try await reservation.create()
+                if let model = details.model { AppSettings.shared.recordRemoteDeviceReservation(model) }
             } catch {
                 guard let self, self.reservation === reservation, !(error is CancellationError) else { return }
                 EmulatorLog.error("\(logPrefix) reserving failed: \(error.localizedDescription)")

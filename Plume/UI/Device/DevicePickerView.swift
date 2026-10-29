@@ -62,8 +62,8 @@ struct DevicePickerView: View {
             }
         case .found(let sdk):
             physicalSection(hasADB: sdk.adbURL != nil)
-            remoteSection
             emulatorSections(hasEmulator: sdk.emulatorURL != nil)
+            remoteSection
         }
     }
 
@@ -140,9 +140,6 @@ struct DevicePickerView: View {
                 TextField("Search models", text: $remoteSearch)
                     .textFieldStyle(.roundedBorder)
                     .plumeID(AccessibilityID.devicePickerRemoteSearch, value: remoteSearch)
-                Text("Reservations are billed and last 15 minutes unless extended. Closing the tab or quitting Plume ends one.")
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
             }
             .padding(10)
             if remoteCatalog.isLoadingModels {
@@ -152,21 +149,51 @@ struct DevicePickerView: View {
             } else if filteredModels.isEmpty {
                 placeholder(remoteCatalog.models.isEmpty ? "No models are available." : "No models match.")
             } else {
-                LazyVStack(spacing: 0) {
-                    ForEach(filteredModels) { model in
-                        row(
-                            title: model.displayName,
-                            detail: "\(model.manufacturer) · \(model.id)",
-                            action: "Reserve",
-                            id: AccessibilityID.devicePickerRemoteRow,
-                            label: model.id
-                        ) { onReserve(model, project) }
+                LazyVStack(alignment: .leading, spacing: 0) {
+                    if !isSearching, !recentModels.isEmpty {
+                        subheading("Recently used")
+                        ForEach(recentModels) { modelRow($0, project: project) }
+                    }
+                    subheading("All available")
+                    ForEach(RemoteDeviceModel.FormFactor.allCases, id: \.self) { factor in
+                        let models = filteredModels.filter { $0.formFactor == factor }
+                        if !models.isEmpty {
+                            subheading(factor.groupTitle, isGroup: true)
+                            ForEach(models) { modelRow($0, project: project) }
+                        }
                     }
                 }
             }
         } else {
             remotePlaceholder("No Google Cloud project is ready for device streaming.")
         }
+    }
+
+    private var isSearching: Bool { !remoteSearch.trimmingCharacters(in: .whitespaces).isEmpty }
+
+    private var recentModels: [RemoteDeviceModel] {
+        let byID = Dictionary(remoteCatalog.models.map { ($0.id, $0) }, uniquingKeysWith: { first, _ in first })
+        return AppSettings.shared.recentRemoteDeviceModels.compactMap { byID[$0] }
+    }
+
+    private func subheading(_ title: String, isGroup: Bool = false) -> some View {
+        Text(title)
+            .font(isGroup ? .caption.weight(.semibold) : .subheadline.weight(.semibold))
+            .foregroundStyle(isGroup ? .tertiary : .secondary)
+            .padding(.horizontal, 10)
+            .padding(.top, 10)
+            .padding(.bottom, 2)
+    }
+
+    private func modelRow(_ model: RemoteDeviceModel, project: String) -> some View {
+        row(
+            title: model.name,
+            symbol: model.formFactor.symbol,
+            detail: "\(model.manufacturer) · API \(model.api) · \(model.formFactor.title)",
+            action: "Reserve",
+            id: AccessibilityID.devicePickerRemoteRow,
+            label: model.id
+        ) { onReserve(model, project) }
     }
 
     private var filteredModels: [RemoteDeviceModel] {
@@ -250,6 +277,7 @@ struct DevicePickerView: View {
 
     private func row(
         title: String,
+        symbol: String? = nil,
         detail: String?,
         action: String,
         id: String,
@@ -258,7 +286,11 @@ struct DevicePickerView: View {
     ) -> some View {
         HStack {
             VStack(alignment: .leading, spacing: 2) {
-                Text(title)
+                if let symbol {
+                    Label(title, systemImage: symbol)
+                } else {
+                    Text(title)
+                }
                 if let detail {
                     Text(detail).font(.caption).foregroundStyle(.secondary)
                 }

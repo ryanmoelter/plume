@@ -22,6 +22,7 @@ final class AppSettings {
         static let composerSendKeyRaw = "composerSendKeyRaw"
         static let escapeInterruptsTurn = "escapeInterruptsTurn"
         static let keepsPlumeShortcutsOnMac = "keepsPlumeShortcutsOnMac"
+        static let recentRemoteDeviceModels = "recentRemoteDeviceModels"
         static let queuedMessageDeliveryRaw = "queuedMessageDeliveryRaw"
         static let defaultAgentTransportRaw = "defaultAgentTransportRaw"
         static let defaultPermissionModeRaw = "defaultPermissionModeRaw"
@@ -137,6 +138,7 @@ final class AppSettings {
         self.keepsPlumeShortcutsOnMac = defaults.object(forKey: Key.keepsPlumeShortcutsOnMac) == nil
             ? true
             : defaults.bool(forKey: Key.keepsPlumeShortcutsOnMac)
+        self.recentRemoteDeviceModels = defaults.stringArray(forKey: Key.recentRemoteDeviceModels) ?? []
         self.queuedMessageDelivery = defaults.string(forKey: Key.queuedMessageDeliveryRaw)
             .flatMap(QueuedMessageDelivery.init(rawValue:)) ?? .endOfTurn
 
@@ -393,6 +395,21 @@ final class AppSettings {
         didSet {
             defaults.set(keepsPlumeShortcutsOnMac, forKey: Key.keepsPlumeShortcutsOnMac)
         }
+    }
+
+    /// `codename/api` of the remote models this user reserved, newest first.
+    private(set) var recentRemoteDeviceModels: [String] {
+        didSet {
+            defaults.set(recentRemoteDeviceModels, forKey: Key.recentRemoteDeviceModels)
+        }
+    }
+
+    static let recentRemoteDeviceModelLimit = 5
+
+    func recordRemoteDeviceReservation(_ modelID: String) {
+        var recents = recentRemoteDeviceModels.filter { $0 != modelID }
+        recents.insert(modelID, at: 0)
+        recentRemoteDeviceModels = Array(recents.prefix(Self.recentRemoteDeviceModelLimit))
     }
 
     /// When a message sent during a Claude Code chat tab's running turn

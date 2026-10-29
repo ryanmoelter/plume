@@ -10,6 +10,40 @@ nonisolated struct RemoteDeviceModel: Hashable, Sendable, Identifiable {
     /// `codename/api`, the form `create` takes.
     var id: String { "\(codename)/\(api)" }
     var displayName: String { "\(name) (API \(api))" }
+
+    enum FormFactor: Int, CaseIterable, Sendable {
+        case tablet, foldable, phone, watch
+
+        var title: String {
+            switch self {
+            case .tablet: "Tablet"
+            case .foldable: "Foldable"
+            case .phone: "Phone"
+            case .watch: "Watch"
+            }
+        }
+
+        var groupTitle: String { title + "s" }
+
+        var symbol: String {
+            switch self {
+            case .tablet: "ipad.landscape"
+            case .foldable, .phone: "iphone"
+            case .watch: "applewatch"
+            }
+        }
+    }
+
+    /// Guessed from the model name, since the service reports no form factor.
+    var formFactor: FormFactor {
+        if name.range(of: #"\b(Tab|Tablet|Pad)\b"#, options: [.regularExpression, .caseInsensitive]) != nil {
+            return .tablet
+        }
+        let foldableMarkers = ["Fold", "Flip", "razr", "Magic V"]
+        if foldableMarkers.contains(where: { name.localizedCaseInsensitiveContains($0) }) { return .foldable }
+        if name.localizedCaseInsensitiveContains("Watch") { return .watch }
+        return .phone
+    }
 }
 
 nonisolated struct RemoteReservationRow: Hashable, Sendable {
