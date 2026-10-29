@@ -920,6 +920,25 @@ struct LinearStoreTests {
         #expect(await queued.value == ["DROID-7"])
     }
 
+    @Test func aRepeatOfASearchInFlightReturnsOnceItsHitsAreIn() async throws {
+        let a = FakeLinearWorkspace(orgID: "A", teamKeys: ["DROID"])
+        await a.set(issues: ["DROID-7": LinearTestFixtures.issue("DROID-7", title: "Fix the text layout")])
+        let harness = try await makeHarness([a])
+        await a.holdIssueFetches()
+
+        let first = Task { await harness.store.searchIssues("layout") }
+        for _ in 0..<1_000 where await a.searchCalls.isEmpty { await Task.yield() }
+        let repeated = Task {
+            await harness.store.searchIssues("layout")
+            return await mentionIdentifiers(harness.store, "layout")
+        }
+        await a.releaseIssueFetches()
+        await first.value
+
+        #expect(await repeated.value == ["DROID-7"])
+        #expect(await a.searchCalls.count == 1)
+    }
+
     @Test func aRateLimitedSearchPausesSearchesButNotTheWorkspace() async throws {
         let a = FakeLinearWorkspace(orgID: "A", teamKeys: ["DROID"])
         let clock = TestClock()

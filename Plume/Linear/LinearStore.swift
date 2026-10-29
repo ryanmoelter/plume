@@ -880,11 +880,16 @@ final class LinearStore: LinearActivitySink {
     @ObservationIgnored private var searchHits: [String: [String: LinearIssueSnapshot]] = [:]
     @ObservationIgnored private var searchedAt: [SearchKey: Date] = [:]
     @ObservationIgnored private var searchPausedUntil: [String: Date] = [:]
-    @ObservationIgnored private var runningSearches: [String: Task<Void, Never>] = [:]
+    @ObservationIgnored private var runningSearches: [String: RunningSearch] = [:]
     /// The latest search that arrived while one was running, per workspace,
     /// and the task that sends it once the running one finishes.
     @ObservationIgnored private var queuedSearches: [String: QueuedSearch] = [:]
     @ObservationIgnored private var nextQueuedSearchID = 0
+
+    private struct RunningSearch {
+        let search: LinearMentionSearch
+        let task: Task<Void, Never>
+    }
 
     private struct QueuedSearch {
         var search: LinearMentionSearch
@@ -999,8 +1004,9 @@ final class LinearStore: LinearActivitySink {
             searchPausedUntil.removeValue(forKey: orgID)
         }
         let key = SearchKey(orgID: orgID, search: search)
+        if let running = runningSearches[orgID], running.search == search { return running.task }
         if let at = searchedAt[key], now().timeIntervalSince(at) < Self.searchMemory { return nil }
-        if let running = runningSearches[orgID] { return queue(search, behind: running, orgID: orgID) }
+        if let running = runningSearches[orgID] { return queue(search, behind: running.task, orgID: orgID) }
         searchedAt[key] = now()
         let generation = generation(orgID: orgID)
         let client = client(for: orgID)
@@ -1036,7 +1042,7 @@ final class LinearStore: LinearActivitySink {
                 recordSearchFailure(error, orgID: orgID)
             }
         }
-        runningSearches[orgID] = task
+        runningSearches[orgID] = RunningSearch(search: search, task: task)
         return task
     }
 
