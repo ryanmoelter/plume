@@ -19,7 +19,7 @@ nonisolated extension ForgeKind {
 nonisolated extension ForgeKind {
     /// Sniffs the forge from an origin URL's host, handling both ssh
     /// (`git@host:path.git`) and https forms.
-    static func sniffing(originURL: String?) -> ForgeKind {
+    nonisolated static func sniffing(originURL: String?) -> ForgeKind {
         var host = originURL ?? ""
         if let range = host.range(of: "://") { host = String(host[range.upperBound...]) }
         if let range = host.range(of: "@") { host = String(host[range.upperBound...]) }

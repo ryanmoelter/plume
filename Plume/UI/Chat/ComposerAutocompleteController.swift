@@ -17,8 +17,18 @@ final class ComposerAutocompleteController: ComposerAutocompleteHandler {
 
     var isShowing: Bool { !matches.isEmpty }
 
+    /// Esc closed the list, which stays closed until the caret leaves the
+    /// command token.
+    @ObservationIgnored private var isDismissed = false
+
     func update(text: String, caretLocation: Int, commands: [SlashCommand], prefix: String = "/") {
-        guard !commands.isEmpty, let query = SlashCommandMatcher.query(text: text, caretLocation: caretLocation, prefix: prefix) else {
+        guard let query = SlashCommandMatcher.query(text: text, caretLocation: caretLocation, prefix: prefix) else {
+            isDismissed = false
+            matches = []
+            selectedIndex = 0
+            return
+        }
+        guard !commands.isEmpty, !isDismissed else {
             matches = []
             selectedIndex = 0
             return
@@ -47,6 +57,7 @@ final class ComposerAutocompleteController: ComposerAutocompleteHandler {
     }
 
     func dismiss() {
+        isDismissed = true
         matches = []
         selectedIndex = 0
     }

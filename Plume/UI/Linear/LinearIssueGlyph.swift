@@ -51,7 +51,7 @@ struct LinearIssueGlyph: View, ThemedView {
         }
     }
 
-    static func symbolName(for stateType: LinearStateType) -> String {
+    nonisolated static func symbolName(for stateType: LinearStateType) -> String {
         switch stateType {
         case .backlog: "circle.dashed"
         case .unstarted: "circle"

@@ -615,7 +615,8 @@ final class LinearStore: LinearActivitySink {
             catalogInFlight.remove(orgID)
             switch result {
             case .success(let fetched):
-                let catalog = LinearCatalog(orgID: orgID, teams: fetched.teams, fetchedAt: fetchedAt)
+                let catalog = LinearCatalog(
+                    orgID: orgID, teams: fetched.teams, fetchedAt: fetchedAt, viewerID: fetched.viewerID)
                 setStatus(.connected, orgID: orgID)
                 install(catalog)
                 save(catalog)
@@ -628,7 +629,8 @@ final class LinearStore: LinearActivitySink {
     private func install(_ catalog: LinearCatalog) {
         catalogFetchedAt[catalog.orgID] = catalog.fetchedAt
         caches[catalog.orgID]?.install(catalog)
-        guard catalogs[catalog.orgID]?.teams != catalog.teams else { return }
+        let installed = catalogs[catalog.orgID]
+        guard installed?.teams != catalog.teams || installed?.viewerID != catalog.viewerID else { return }
         catalogs[catalog.orgID] = catalog
         refreshTeamKeys()
         catalogsDidChange()
@@ -839,6 +841,11 @@ final class LinearStore: LinearActivitySink {
         lastCatalogDemand.removeValue(forKey: orgID)
         lastSyncedAt.removeValue(forKey: orgID)
         answeredAt.removeAll()
+        runningSearches.removeValue(forKey: orgID)
+        queuedSearches.removeValue(forKey: orgID)
+        searchedAt = searchedAt.filter { $0.key.orgID != orgID }
+        searchPausedUntil.removeValue(forKey: orgID)
+        searchHits.removeValue(forKey: orgID)
     }
 
     private func generation(orgID: String) -> Int {
@@ -854,6 +861,249 @@ final class LinearStore: LinearActivitySink {
     private func setStatus(_ status: LinearAccountStatus, orgID: String) {
         guard accountStatus(orgID: orgID) != status else { return }
         accountStatuses[orgID] = status
+    }
+
+    // MARK: - Mentions
+
+    /// How long a search's answer stands before the same search is sent again.
+    static let searchMemory: TimeInterval = 60
+    static let maxSearchHits = 500
+
+    private struct SearchKey: Hashable {
+        let orgID: String
+        let search: LinearMentionSearch
+    }
+
+    /// What searches found this session, per workspace by identifier. Kept
+    /// apart from the cache because a save prunes any hit older than the
+    /// cache's retention, which is most of what a search finds.
+    @ObservationIgnored private var searchHits: [String: [String: LinearIssueSnapshot]] = [:]
+    @ObservationIgnored private var searchedAt: [SearchKey: Date] = [:]
+    @ObservationIgnored private var searchPausedUntil: [String: Date] = [:]
+    @ObservationIgnored private var runningSearches: [String: RunningSearch] = [:]
+    /// The latest search that arrived while one was running, per workspace,
+    /// and the task that sends it once the running one finishes.
+    @ObservationIgnored private var queuedSearches: [String: QueuedSearch] = [:]
+    @ObservationIgnored private var nextQueuedSearchID = 0
+
+    private struct RunningSearch {
+        let search: LinearMentionSearch
+        let task: Task<Void, Never>
+    }
+
+    private struct QueuedSearch {
+        var search: LinearMentionSearch
+        let id: Int
+        let run: Task<Void, Never>
+    }
+
+    /// Every cached issue and search hit, ranked against a mention query off
+    /// the main actor. Starts reading any workspace's disk cache not yet
+    /// loaded, so a later call sees it.
+    func mentionCandidates(
+        matching query: String,
+        limit: Int = LinearMentionMatcher.defaultLimit
+    ) async -> [RankedMention] {
+        var sources: [MentionSource] = []
+        for account in accounts.accounts {
+            let orgID = account.orgID
+            if disk != nil, cacheLoads[orgID] == nil {
+                track { [self] in await ensureLoaded(orgID: orgID) }
+            }
+            sources.append(MentionSource(
+                cache: caches[orgID],
+                hits: searchHits[orgID] ?? [:],
+                viewerID: catalogs[orgID]?.viewerID
+            ))
+        }
+        let isBare = query.trimmingCharacters(in: .whitespaces).isEmpty
+        return await Task.detached(priority: .userInitiated) {
+            LinearMentionMatcher.matches(query, in: Self.mentionIssues(sources, assignedToViewer: isBare), limit: limit)
+        }.value
+    }
+
+    /// The cached issue or search hit `identifier` names, with no request.
+    func mentionIssue(identifier: String) -> MentionCandidate.LinearIssue? {
+        let identifier = identifier.uppercased()
+        if let (orgID, _) = cachedIssue(identifier), let cache = caches[orgID],
+           let id = cache.issueID(identifier: identifier), let issue = cache.issues[id] {
+            return MentionCandidate.LinearIssue(issue, state: cache.states[issue.stateID])
+        }
+        for account in accounts.accounts {
+            if let hit = searchHits[account.orgID]?[identifier] { return MentionCandidate.LinearIssue(hit) }
+        }
+        return nil
+    }
+
+    private nonisolated struct MentionSource: Sendable {
+        let cache: LinearSyncCache?
+        let hits: [String: LinearIssueSnapshot]
+        let viewerID: String?
+    }
+
+    /// With `assignedToViewer`, only the open issues assigned to the API
+    /// key's user, which is nothing until the catalog knows who that is.
+    private nonisolated static func mentionIssues(
+        _ sources: [MentionSource],
+        assignedToViewer: Bool
+    ) -> [MentionCandidate.LinearIssue] {
+        var seen = Set<String>()
+        var issues: [MentionCandidate.LinearIssue] = []
+        for source in sources {
+            if assignedToViewer, source.viewerID == nil { continue }
+            if let cache = source.cache {
+                for issue in cache.issues.values where seen.insert(issue.identifier).inserted {
+                    if assignedToViewer, issue.assigneeID != source.viewerID { continue }
+                    issues.append(MentionCandidate.LinearIssue(issue, state: cache.states[issue.stateID]))
+                }
+            }
+            for (identifier, snapshot) in source.hits where seen.insert(identifier).inserted {
+                if assignedToViewer, snapshot.assignee?.id != source.viewerID { continue }
+                issues.append(MentionCandidate.LinearIssue(snapshot))
+            }
+        }
+        return assignedToViewer ? issues.filter(\.isOpen) : issues
+    }
+
+    /// Asks Linear for what the cache may lack: a title search, or a lookup
+    /// of an exact identifier no cache holds. Returns once the requests that
+    /// carry this query have finished, including one that waits behind a
+    /// search already running; a later query that replaces it in that queue
+    /// is the one it waits for.
+    func searchIssues(_ query: String) async {
+        guard let search = LinearMentionSearch.parse(query, teamKeys: teamKeys) else { return }
+        var started: [Task<Void, Never>] = []
+        switch search {
+        case .identifier(let identifier):
+            guard cachedIssue(identifier) == nil,
+                  !searchHits.values.contains(where: { $0[identifier] != nil })
+            else { return }
+            for orgID in targets(for: identifier) {
+                if let task = startSearch(search, orgID: orgID) { started.append(task) }
+            }
+        case .text(let term, let keys):
+            let wholeQuery = query.trimmingCharacters(in: .whitespaces)
+            for account in accounts.accounts {
+                let orgID = account.orgID
+                let owned = keys.filter((catalogs[orgID]?.teamKeys ?? []).contains)
+                // A workspace without the team reads the first word as part
+                // of the title.
+                let search: LinearMentionSearch = keys.isEmpty || !owned.isEmpty
+                    ? .text(term: term, teamKeys: owned)
+                    : .text(term: wholeQuery, teamKeys: [])
+                if let task = startSearch(search, orgID: orgID) { started.append(task) }
+            }
+        }
+        for task in started { await task.value }
+    }
+
+    private func startSearch(_ search: LinearMentionSearch, orgID: String) -> Task<Void, Never>? {
+        guard blocker(orgID: orgID) == nil, !isLowOnBudget(orgID: orgID) else { return nil }
+        if let until = searchPausedUntil[orgID] {
+            guard until <= now() else { return nil }
+            searchPausedUntil.removeValue(forKey: orgID)
+        }
+        let key = SearchKey(orgID: orgID, search: search)
+        if let running = runningSearches[orgID], running.search == search { return running.task }
+        if let at = searchedAt[key], now().timeIntervalSince(at) < Self.searchMemory { return nil }
+        if let running = runningSearches[orgID] { return queue(search, behind: running.task, orgID: orgID) }
+        searchedAt[key] = now()
+        let generation = generation(orgID: orgID)
+        let client = client(for: orgID)
+        let task = track { [self] in
+            let result: Result<[LinearIssueSnapshot], Error>
+            do {
+                switch search {
+                case .text(let term, let teamKeys):
+                    result = .success(try await client.searchIssues(
+                        term: term, teamKeys: teamKeys, first: LinearQuery.searchPageSize))
+                case .identifier(let identifier):
+                    let lookups = try await client.fetchIssues([identifier])
+                    if case .found(let snapshot)? = lookups[identifier] {
+                        result = .success([snapshot])
+                    } else {
+                        result = .success([])
+                    }
+                }
+            } catch {
+                result = .failure(error)
+            }
+            // Hits merged into a cache not yet read from disk would be saved
+            // over it.
+            await ensureLoaded(orgID: orgID)
+            guard isCurrent(generation, orgID: orgID) else { return }
+            runningSearches.removeValue(forKey: orgID)
+            switch result {
+            case .success(let snapshots):
+                setStatus(.connected, orgID: orgID)
+                mergeSearchHits(snapshots, orgID: orgID)
+            case .failure(let error):
+                searchedAt.removeValue(forKey: key)
+                recordSearchFailure(error, orgID: orgID)
+            }
+        }
+        runningSearches[orgID] = RunningSearch(search: search, task: task)
+        return task
+    }
+
+    /// Search has its own rate limit, so a rate-limited search pauses only
+    /// searches, and any other failure is dropped: a mention is optional, and
+    /// neither should stop the workspace's sync or mark it failed.
+    private func recordSearchFailure(_ error: any Error, orgID: String) {
+        switch error as? LinearError {
+        case .unauthorized:
+            record(error, orgID: orgID)
+        case .rateLimited(let until):
+            searchPausedUntil[orgID] = until
+        case .failed, nil:
+            break
+        }
+    }
+
+    private func queue(
+        _ search: LinearMentionSearch,
+        behind running: Task<Void, Never>,
+        orgID: String
+    ) -> Task<Void, Never> {
+        if let queued = queuedSearches[orgID] {
+            queuedSearches[orgID]?.search = search
+            return queued.run
+        }
+        nextQueuedSearchID += 1
+        let id = nextQueuedSearchID
+        let run = track { [self] in
+            await running.value
+            guard let queued = queuedSearches[orgID], queued.id == id else { return }
+            queuedSearches.removeValue(forKey: orgID)
+            await startSearch(queued.search, orgID: orgID)?.value
+        }
+        queuedSearches[orgID] = QueuedSearch(search: search, id: id, run: run)
+        return run
+    }
+
+    /// Search hits go through `upsert` like any lookup: each is current as
+    /// of now, so the cursor rule holds, and a newer snapshot already held
+    /// wins.
+    private func mergeSearchHits(_ snapshots: [LinearIssueSnapshot], orgID: String) {
+        guard !snapshots.isEmpty else { return }
+        var hits = searchHits[orgID] ?? [:]
+        let wanted = Set(wantCounts.keys)
+        var before = caches[orgID] ?? LinearSyncCache(orgID: orgID)
+        before.prune(keeping: wanted, now: now())
+        var merged = before
+        for snapshot in snapshots {
+            merged.upsert(snapshot)
+            hits[snapshot.issue.identifier.uppercased()] = snapshot
+        }
+        merged.prune(keeping: wanted, now: now())
+        caches[orgID] = merged
+        if hits.count > Self.maxSearchHits {
+            let newest = hits.sorted { $0.value.updatedAt > $1.value.updatedAt }.prefix(Self.maxSearchHits)
+            hits = Dictionary(uniqueKeysWithValues: newest.map { ($0.key, $0.value) })
+        }
+        searchHits[orgID] = hits
+        if merged.issues != before.issues || merged.aliases != before.aliases { saveIssues(orgID: orgID) }
+        republishWanted(orgID: orgID)
     }
 
     // MARK: - Agent activity
@@ -908,13 +1158,16 @@ final class LinearStore: LinearActivitySink {
         stateBox(for: identifier).value = state
     }
 
-    private func track(_ operation: @escaping @MainActor () async -> Void) {
+    @discardableResult
+    private func track(_ operation: @escaping @MainActor () async -> Void) -> Task<Void, Never> {
         let id = nextWorkID
         nextWorkID += 1
-        work[id] = Task { [weak self] in
+        let task = Task { [weak self] in
             await operation()
             self?.work.removeValue(forKey: id)
         }
+        work[id] = task
+        return task
     }
 
     /// Awaits every fetch in flight, including any they start. For tests.
@@ -964,6 +1217,11 @@ final class LinearStore: LinearActivitySink {
         rateLimits.removeAll()
         seenWrites.removeAll()
         reportedStarted.removeAll()
+        searchHits.removeAll()
+        searchedAt.removeAll()
+        searchPausedUntil.removeAll()
+        runningSearches.removeAll()
+        queuedSearches.removeAll()
 #if DEBUG
         fixtureIdentifiers.removeAll()
         fixtureTeamKeys.removeAll()

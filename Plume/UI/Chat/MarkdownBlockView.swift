@@ -251,6 +251,8 @@ struct MarkdownBlockView: View, ThemedView {
 struct InlineMarkdownText: View, ThemedView {
     @Environment(\.theme) var theme
     @Environment(\.chatSelectionSpan) private var span
+    @Environment(\.chatLinkDirectory) private var linkDirectory
+    @Environment(\.colorScheme) private var colorScheme
 
     let source: String
     var fontSize: CGFloat?
@@ -266,12 +268,33 @@ struct InlineMarkdownText: View, ThemedView {
         if span != nil {
             let styled = chipped(MarkdownCache.chippedInline(source, fontSize: size))
             styled.text()
-                .revealFade(styled, chipFill: colors.surfaceTint)
+                .revealFade(styled, chipFill: colors.surfaceTint, references: references(in: styled, fontSize: size))
         } else {
             let attributed = flat(MarkdownCache.styledInline(source, fontSize: size, tint: colors.surfaceTint))
             Text(attributed)
                 .revealFade(attributed)
         }
+    }
+
+    /// Reads each chip's icon from its own box in the store, so a state
+    /// change redraws only this text.
+    private func references(in styled: StyledInline, fontSize: CGFloat) -> ReferenceChipDrawing? {
+        let urls = styled.referenceURLs
+        guard !urls.isEmpty else { return nil }
+        let palette = ReferenceChipPalette(colors: colors, colorScheme: colorScheme)
+        var icons: [URL: ReferenceChipDrawing.Icon] = [:]
+        for url in urls {
+            let target = ReferenceTarget.classify(url, base: linkDirectory)
+            let icon = target.map { ReferenceChipStore.shared.icon(for: $0) ?? .placeholder(for: $0) }
+                ?? ReferenceChipIcon(symbol: "link", tint: .link)
+            icons[url] = ReferenceChipDrawing.Icon(symbol: icon.symbol, color: palette.color(for: icon.tint), brand: target?.brand)
+        }
+        return ReferenceChipDrawing(
+            wash: palette.accentWash,
+            brandColor: palette.color(for: .link),
+            icons: icons,
+            metrics: ReferenceChipMetrics(fontSize: fontSize)
+        )
     }
 
     private func chipped(_ styled: StyledInline) -> StyledInline {

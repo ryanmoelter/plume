@@ -5,7 +5,7 @@ import Foundation
 /// The subprocess plumbing, exercised against harmless commands rather than
 /// `gh` — these must pass with no network and no GitHub auth.
 struct GitHubForgeClientProcessTests {
-    /// The shape `runGH` launches.
+    /// The shape `GHCommand.run` launches.
     private func launch(_ command: String) -> (process: Process, stdout: Pipe) {
         let process = Process()
         process.executableURL = URL(fileURLWithPath: "/bin/sh")
@@ -62,6 +62,19 @@ struct GitHubForgeClientProcessTests {
         let elapsed = Date().timeIntervalSince(started)
         #expect(elapsed < 30, "read blocked for \(elapsed)s — the kill did not reach the command")
         #expect(process.terminationReason == .uncaughtSignal)
+    }
+
+    @Test func cancellingTheTaskKillsTheCommand() async throws {
+        let started = Date()
+        let task = Task {
+            try await GHCommand.run(command: ["sleep", "30"], in: NSTemporaryDirectory(), timeout: .seconds(60))
+        }
+        try await Task.sleep(for: .milliseconds(300))
+        task.cancel()
+
+        await #expect(throws: CancellationError.self) { try await task.value }
+        let elapsed = Date().timeIntervalSince(started)
+        #expect(elapsed < 30, "cancel took \(elapsed)s — the kill did not reach the command")
     }
 
     @Test func aHungCommandLeavesNoSurvivor() throws {

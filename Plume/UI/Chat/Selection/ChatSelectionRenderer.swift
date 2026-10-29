@@ -13,7 +13,9 @@ struct ChatSelectionRenderer: TextRenderer {
     var selected: Range<Int>?
     var highlight: Color
     var text: String
-    var chips: CodeChips?
+    var chips: InlineChips?
+
+    var displayPadding: EdgeInsets { chips?.displayPadding ?? EdgeInsets() }
 
     func draw(layout: Text.Layout, in ctx: inout GraphicsContext) {
         if let selected, !selected.isEmpty { fillSelection(selected, layout: layout, in: &ctx) }

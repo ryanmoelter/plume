@@ -8,6 +8,9 @@ nonisolated protocol LinearClient: Sendable {
     /// One page of the issues updated at or after `since`, archived ones
     /// included, newest first.
     func fetchIssuesUpdated(since: Date, cursor: String?) async throws -> LinearIssuePage
+    /// Issues whose text matches `term`, archived ones excluded, limited to
+    /// the teams in `teamKeys` unless it is empty.
+    func searchIssues(term: String, teamKeys: [String], first: Int) async throws -> [LinearIssueSnapshot]
 }
 
 /// One workspace's answer for one identifier in a batch.
@@ -30,7 +33,7 @@ nonisolated enum LinearQuery {
     // (limit about 10,000). Teams with nested states cost 100 x 100, so both
     // connections are fetched flat, one page per request, and joined by team id.
     static let teamsQuery = """
-        query($cursor: String) { organization { id } \
+        query($cursor: String) { organization { id } viewer { id } \
         teams(first: 50, after: $cursor) { nodes { id key name } \
         pageInfo { hasNextPage endCursor } } }
         """
@@ -54,6 +57,17 @@ nonisolated enum LinearQuery {
         return "query($cursor: String) { issues(first: \(deltaPageSize), after: $cursor, "
             + "orderBy: updatedAt, includeArchived: true, filter: { updatedAt: { gte: \(bound) } }) { "
             + "nodes { \(issueFields) } pageInfo { hasNextPage endCursor } } }"
+    }
+
+    static let searchPageSize = 20
+
+    static func buildSearchIssues(term: String, teamKeys: [String], first: Int = searchPageSize) -> String {
+        var arguments = "term: \(jsonString(term)), first: \(first), includeArchived: false"
+        if !teamKeys.isEmpty {
+            let keys = teamKeys.map(jsonString).joined(separator: ", ")
+            arguments += ", filter: { team: { key: { in: [\(keys)] } } }"
+        }
+        return "query { searchIssues(\(arguments)) { nodes { \(issueFields) } } }"
     }
 
     static func formatDate(_ date: Date) -> String {
@@ -165,6 +179,7 @@ nonisolated enum LinearQuery {
         let orgID: String
         let teams: [TeamNode]
         let nextCursor: String?
+        var viewerID: String?
     }
 
     struct StatesPage: Equatable {
@@ -174,8 +189,10 @@ nonisolated enum LinearQuery {
 
     private struct TeamsPayload: Decodable {
         struct Organization: Decodable { let id: String }
+        struct Viewer: Decodable { let id: String }
         struct Teams: Decodable { let nodes: [TeamNode]; let pageInfo: PageInfo }
         let organization: Organization
+        let viewer: Viewer?
         let teams: Teams
     }
 
@@ -226,6 +243,11 @@ nonisolated enum LinearQuery {
     private struct IssuesUpdatedPayload: Decodable {
         struct Issues: Decodable { let nodes: [IssueNode]; let pageInfo: PageInfo }
         let issues: Issues
+    }
+
+    private struct SearchIssuesPayload: Decodable {
+        struct Issues: Decodable { let nodes: [IssueNode] }
+        let searchIssues: Issues
     }
 
     private struct DynamicKey: CodingKey {
@@ -324,7 +346,11 @@ nonisolated enum LinearQuery {
         try check(envelope.errors, now: now)
         guard let payload = envelope.data else { throw LinearError.failed("Linear returned no data.") }
         return TeamsPage(
-            orgID: payload.organization.id, teams: payload.teams.nodes, nextCursor: payload.teams.pageInfo.next)
+            orgID: payload.organization.id,
+            teams: payload.teams.nodes,
+            nextCursor: payload.teams.pageInfo.next,
+            viewerID: payload.viewer?.id
+        )
     }
 
     static func decodeStatesPage(_ data: Data, now: Date = Date()) throws -> StatesPage {
@@ -339,6 +365,7 @@ nonisolated enum LinearQuery {
         orgID: String,
         teams: [TeamNode],
         states: [StateNode],
+        viewerID: String? = nil,
         now: Date = Date()
     ) -> LinearCatalog {
         let statesByTeam = Dictionary(grouping: states) { $0.team?.id ?? "" }
@@ -352,7 +379,7 @@ nonisolated enum LinearQuery {
                 }
             )
         }
-        return LinearCatalog(orgID: orgID, teams: linearTeams, fetchedAt: now)
+        return LinearCatalog(orgID: orgID, teams: linearTeams, fetchedAt: now, viewerID: viewerID)
     }
 
     /// Keyed by the requested identifier, not the one Linear returns, so a
@@ -387,6 +414,14 @@ nonisolated enum LinearQuery {
         guard let payload = envelope.data else { throw LinearError.failed("Linear returned no data.") }
         return LinearIssuePage(issues: payload.issues.nodes.map(\.snapshot), nextCursor: payload.issues.pageInfo.next)
     }
+
+    /// Trashed issues are dropped: a mention should never offer one.
+    static func decodeSearchIssues(_ data: Data, now: Date = Date()) throws -> [LinearIssueSnapshot] {
+        let envelope = try decodeEnvelope(SearchIssuesPayload.self, from: data)
+        try check(envelope.errors, now: now)
+        guard let payload = envelope.data else { throw LinearError.failed("Linear returned no data.") }
+        return payload.searchIssues.nodes.map(\.snapshot).filter { !$0.isTrashed }
+    }
 }
 
 /// Talks to Linear's GraphQL API. The key is read per request from
@@ -415,11 +450,13 @@ nonisolated struct LinearGraphQLClient: LinearClient {
 
     func fetchCatalog() async throws -> LinearCatalog {
         var orgID: String?
+        var viewerID: String?
         var teams: [LinearQuery.TeamNode] = []
         var cursor: String?
         for _ in 0..<LinearQuery.maxCatalogPages {
             let page = try await send(LinearQuery.teamsQuery, cursor: cursor) { try LinearQuery.decodeTeamsPage($0) }
             orgID = orgID ?? page.orgID
+            viewerID = viewerID ?? page.viewerID
             teams += page.teams
             cursor = page.nextCursor
             if cursor == nil { break }
@@ -433,7 +470,7 @@ nonisolated struct LinearGraphQLClient: LinearClient {
             if cursor == nil { break }
         }
         guard let orgID else { throw LinearError.failed("Linear returned no data.") }
-        return LinearQuery.assembleCatalog(orgID: orgID, teams: teams, states: states)
+        return LinearQuery.assembleCatalog(orgID: orgID, teams: teams, states: states, viewerID: viewerID)
     }
 
     func fetchIssues(_ identifiers: [String]) async throws -> [String: LinearIssueLookup] {
@@ -454,6 +491,12 @@ nonisolated struct LinearGraphQLClient: LinearClient {
     func fetchIssuesUpdated(since: Date, cursor: String?) async throws -> LinearIssuePage {
         try await send(LinearQuery.buildIssuesUpdated(since: since), cursor: cursor) {
             try LinearQuery.decodeIssuesUpdated($0)
+        }
+    }
+
+    func searchIssues(term: String, teamKeys: [String], first: Int) async throws -> [LinearIssueSnapshot] {
+        try await send(LinearQuery.buildSearchIssues(term: term, teamKeys: teamKeys, first: first)) {
+            try LinearQuery.decodeSearchIssues($0)
         }
     }
 

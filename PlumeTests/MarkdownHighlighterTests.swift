@@ -115,6 +115,27 @@ struct MarkdownHighlighterTests {
         )))
     }
 
+    @Test func linkWithAnAngleBracketTarget() throws {
+        let link = "[My Notes (draft).md](<Docs/My Notes (draft).md>)"
+        let text = "see \(link) now"
+        let spans = MarkdownHighlighter.spans(in: text)
+        #expect(spans.contains(MarkdownHighlighter.Span(range: text.range(of: link), style: .link)))
+        #expect(spans.contains(MarkdownHighlighter.Span(
+            range: text.range(of: "](<Docs/My Notes (draft).md>)"),
+            style: .delimiter
+        )))
+
+        let parsed = try AttributedString(markdown: text)
+        let linked = parsed.runs.filter { $0.link != nil }.map { String(parsed[$0.range].characters) }
+        #expect(linked == ["My Notes (draft).md"])
+    }
+
+    @Test func linkWithAnEscapedBracketInItsLabel() {
+        let text = #"[a\[1\].txt](a.txt)"#
+        let spans = MarkdownHighlighter.spans(in: text)
+        #expect(spans.contains(MarkdownHighlighter.Span(range: NSRange(location: 0, length: (text as NSString).length), style: .link)))
+    }
+
     // MARK: - Edge cases
 
     @Test func unterminatedBoldStylesNothing() {

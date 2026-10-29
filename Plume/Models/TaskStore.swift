@@ -434,6 +434,8 @@ enum TaskStore {
         InheritedForkHistory.shared.forget(tabID: tabID)
         TranscriptStore.shared.stopWatching(tabID: tabID)
         ChatPieceCache.forget(tabID: tabID)
+        MentionResolver.shared.forgetTab(tabID)
+        ReferenceChipStore.shared.forget(owner: tabID)
         CodexSubagentStore.shared.forget(tabID: tabID)
         CodexItemStore.shared.forget(tabID: tabID)
         CodexCatalogStore.shared.forget(tabID: tabID)

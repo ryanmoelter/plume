@@ -132,8 +132,45 @@ enum ChatSelectionSerializer {
             let fragment = fragments[index]
             let lower = max(slice.range.lowerBound, fragment.start) - fragment.start
             let upper = min(slice.range.upperBound, fragment.end) - fragment.start
-            return Selected(fragment: fragment, local: lower..<max(lower, upper))
+            return Selected(fragment: fragment, local: widenedToChips(lower..<max(lower, upper), in: fragment.source))
         }
+    }
+
+    /// A reference chip copies whole or not at all: half a title names
+    /// nothing.
+    private static func widenedToChips(_ range: Range<Int>, in source: AttributedString) -> Range<Int> {
+        guard !range.isEmpty else { return range }
+        var lower = range.lowerBound
+        var upper = range.upperBound
+        for chip in chipRanges(in: source) {
+            let start = String(source[source.startIndex..<chip.lowerBound].characters).utf16.count
+            let end = start + String(source[chip].characters).utf16.count
+            if start < range.upperBound, end > range.lowerBound {
+                lower = min(lower, start)
+                upper = max(upper, end)
+            }
+        }
+        return lower..<upper
+    }
+
+    /// Each reference chip's whole label: a link run opening with the
+    /// placeholder, and any runs after it on the same link.
+    private static func chipRanges(in text: AttributedString) -> [Range<AttributedString.Index>] {
+        var ranges: [Range<AttributedString.Index>] = []
+        var current: (range: Range<AttributedString.Index>, link: URL)?
+        for run in text.runs {
+            if let open = current, run.link == open.link, text[run.range].characters.first != ReferenceChipText.placeholder {
+                current = (open.range.lowerBound..<run.range.upperBound, open.link)
+                continue
+            }
+            if let open = current { ranges.append(open.range) }
+            current = nil
+            if let link = run.link, text[run.range].characters.first == ReferenceChipText.placeholder {
+                current = (run.range, link)
+            }
+        }
+        if let open = current { ranges.append(open.range) }
+        return ranges
     }
 
     // MARK: - Markdown
@@ -201,8 +238,19 @@ enum ChatSelectionSerializer {
     /// whitespace at a run's edges stays outside them.
     static func inlineMarkdown(_ text: AttributedString) -> String {
         var atLineStart = true
+        var chipLink: URL?
         return text.runs.map { run -> String in
             let content = String(text[run.range].characters)
+            // A chip writes back as the reference it stands for, under its
+            // canonical label, rather than as the title it shows.
+            if let link = run.link, content.first == ReferenceChipText.placeholder {
+                chipLink = link
+                atLineStart = false
+                let label = ReferenceChipText.canonicalLabel(for: link) ?? String(content.dropFirst())
+                return "[\(ReferenceChipText.escaped(label))](\(destination(link)))"
+            }
+            if let chipLink, run.link == chipLink { return "" }
+            chipLink = nil
             let intent = run.inlinePresentationIntent ?? []
             let core = content.trimmingCharacters(in: .whitespacesAndNewlines)
             guard !core.isEmpty else {
@@ -312,6 +360,9 @@ enum ChatSelectionSerializer {
     /// Heading levels 5 and 6 draw uppercased but copy in the source's case.
     private static func renderedText(of part: Selected) -> AttributedString {
         var text = part.source
+        for chip in chipRanges(in: text).reversed() {
+            text.removeSubrange(chip.lowerBound..<text.characters.index(after: chip.lowerBound))
+        }
         switch part.fragment.kind {
         case .heading:
             text.isHeading = true

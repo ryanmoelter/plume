@@ -11,4 +11,13 @@ enum ComposerPanelMetrics {
     static func concentricRadius(outer: CGFloat, inset: CGFloat) -> CGFloat {
         max(outer - inset, 0)
     }
+
+    /// How far a suggestion panel's rows sit inside its box.
+    static let suggestionRowInset: CGFloat = 4
+
+    /// What a suggestion row's text pays inside the box before it starts,
+    /// which is also how far the box steps out past the composer's content.
+    static func suggestionTextInset(contentInset: CGFloat) -> CGFloat {
+        suggestionRowInset + contentInset
+    }
 }

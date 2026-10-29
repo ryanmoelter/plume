@@ -1,12 +1,15 @@
 import Foundation
+import Synchronization
 
 nonisolated struct GitError: LocalizedError {
     let command: String
     let status: Int32
     let stderr: String
+    var timedOut = false
 
     var errorDescription: String? {
-        stderr.isEmpty ? "\(command) failed (exit \(status))" : stderr
+        if timedOut { return "\(command) timed out" }
+        return stderr.isEmpty ? "\(command) failed (exit \(status))" : stderr
     }
 }
 
@@ -15,10 +18,18 @@ nonisolated struct GitError: LocalizedError {
 /// Every call blocks its thread until `git` exits. Reach it through
 /// `GitService`, never directly — the actor is what keeps that wait off the
 /// main thread. Tests call it synchronously, which is fine; they have no
-/// window to freeze.
+/// window to freeze. `FileMentionIndex` calls it from a detached task, so a
+/// file listing never queues behind the serial `GitService`.
 nonisolated enum GitRunner {
     @discardableResult
-    static func run(_ arguments: [String], in directory: String? = nil) throws -> String {
+    /// A `timeout` SIGKILLs `git` itself, so it bounds only commands that
+    /// spawn no children holding its pipes.
+    static func run(
+        _ arguments: [String],
+        in directory: String? = nil,
+        timeout: Duration? = nil,
+        trimsOutput: Bool = true
+    ) throws -> String {
         let process = Process()
         process.executableURL = URL(fileURLWithPath: "/usr/bin/env")
         process.arguments = ["git"] + arguments
@@ -36,13 +47,37 @@ nonisolated enum GitRunner {
         process.standardError = error
 
         try process.run()
+
+        let timedOut = Mutex(false)
+        let deadline = DispatchWorkItem { [processIdentifier = process.processIdentifier] in
+            timedOut.withLock { $0 = true }
+            kill(processIdentifier, SIGKILL)
+        }
+        if let timeout {
+            let (seconds, attoseconds) = timeout.components
+            DispatchQueue.global().asyncAfter(
+                deadline: .now() + Double(seconds) + Double(attoseconds) / 1e18,
+                execute: deadline
+            )
+        }
+        defer { deadline.cancel() }
+
         // Read before waiting: a pipe that fills up would deadlock the child.
         let outputData = output.fileHandleForReading.readDataToEndOfFile()
         let errorData = error.fileHandleForReading.readDataToEndOfFile()
         process.waitUntilExit()
 
-        let stdout = String(decoding: outputData, as: UTF8.self)
-            .trimmingCharacters(in: .whitespacesAndNewlines)
+        if timedOut.withLock({ $0 }) {
+            throw GitError(
+                command: "git " + arguments.joined(separator: " "),
+                status: process.terminationStatus,
+                stderr: "",
+                timedOut: true
+            )
+        }
+
+        let rawOutput = String(decoding: outputData, as: UTF8.self)
+        let stdout = trimsOutput ? rawOutput.trimmingCharacters(in: .whitespacesAndNewlines) : rawOutput
 
         guard process.terminationStatus == 0 else {
             throw GitError(

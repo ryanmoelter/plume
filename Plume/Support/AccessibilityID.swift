@@ -174,6 +174,10 @@ enum AccessibilityID {
     static let composerSendButton = "composer-send-button"
     static let composerStopButton = "composer-stop-button"
     static let composerSteerButton = "composer-steer-button"
+    static let composerMentionButton = "composer-mention-button"
+    static let composerMentionMenu = "composer-mention-menu"
+    /// One per row; `label` is the issue identifier, `#123`, or the path.
+    static let composerMentionRow = "composer-mention-row"
     static let composerModelControl = "composer-model-control"
     static let composerEffortControl = "composer-effort-control"
     static let composerPermissionModeControl = "composer-permission-mode-control"

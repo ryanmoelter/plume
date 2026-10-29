@@ -18,7 +18,7 @@ struct ChatListReadingPositionTests {
         // One pass: the one it asks for from inside layout may never come.
         controller.layoutPass()
 
-        let lastRow = try #require(controller.documentView.subviews.filter { !$0.isHidden }.map(\.frame.maxY).max())
+        let lastRow = try #require(controller.documentView.subviews.filter { !$0.isHidden }.map { $0.frame.maxY - ChatListItemState.overhang }.max())
         #expect(lastRow <= offset(of: controller) + controller.scrollView.contentView.bounds.height)
         #expect(offset(of: controller) == bottom(of: controller))
     }

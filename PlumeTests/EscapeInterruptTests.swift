@@ -53,6 +53,21 @@ struct EscapeInterruptTests {
         #expect(escapes == 1)
     }
 
+    @Test func aListThatClaimsEscapeWithoutRowsTakesIt() {
+        let textView = ComposerNSTextView()
+        let autocomplete = StubAutocomplete()
+        autocomplete.isShowing = false
+        autocomplete.claimsEscape = true
+        var escapes = 0
+        textView.autocompleteHandler = autocomplete
+        textView.onEscape = { _ in escapes += 1; return true }
+
+        textView.keyDown(with: escapeEvent())
+
+        #expect(autocomplete.dismissals == 1)
+        #expect(escapes == 0)
+    }
+
     @Test func settingDefaultsToOnWhenUnset() {
         let defaults = UserDefaults(suiteName: "EscapeInterruptTests-\(UUID().uuidString)")!
         #expect(AppSettings(defaults: defaults).escapeInterruptsTurn)
@@ -82,6 +97,11 @@ struct EscapeInterruptTests {
 
 private final class StubAutocomplete: ComposerAutocompleteHandler {
     var isShowing = true
+    var claimsEscape: Bool {
+        get { claimsEscapeOverride ?? isShowing }
+        set { claimsEscapeOverride = newValue }
+    }
+    private var claimsEscapeOverride: Bool?
     var dismissals = 0
     func moveSelection(by delta: Int) {}
     func acceptSelection() {}

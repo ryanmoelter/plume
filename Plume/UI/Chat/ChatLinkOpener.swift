@@ -36,32 +36,40 @@ enum ChatLinkOpener {
     /// `base` is nil when the conversation has no directory of its own, which
     /// is why a relative path can end up `unopenable`.
     static func target(for url: URL, relativeTo base: URL?) -> Target {
-        if let scheme = url.scheme?.lowercased() {
-            if scheme == "file" { return fileTarget(url) }
+        if let scheme = url.scheme?.lowercased(), scheme != "file" {
             guard allowedSchemes.contains(scheme) else { return .unopenable }
             return .web(url)
+        }
+        guard let resolved = resolvedFileURL(for: url, relativeTo: base) else { return .unopenable }
+        return fileTarget(resolved)
+    }
+
+    /// The file a `file:` or scheme-less link names, without checking that it
+    /// exists. Nil for any other scheme, or a relative path with no base.
+    nonisolated static func resolvedFileURL(for url: URL, relativeTo base: URL?) -> URL? {
+        if let scheme = url.scheme?.lowercased() {
+            return scheme == "file" ? url.standardizedFileURL : nil
         }
 
         // Scheme-less. Either a path the agent wrote, or a bare host like
         // `example.com` that only a path check can tell apart.
-        return pathTarget(url.absoluteString, relativeTo: base)
-    }
-
-    private static func pathTarget(_ raw: String, relativeTo base: URL?) -> Target {
+        // A `<…>` target with a space arrives percent-encoded.
+        let raw = url.absoluteString
+        let decoded = raw.removingPercentEncoding ?? raw
         // A fragment is how a file citation carries a line number
         // (`Foo.swift#L42`). Nothing on disk is named that, so it is dropped
         // before the path is resolved.
-        let path = String(raw.split(separator: "#", maxSplits: 1).first ?? "")
-        guard !path.isEmpty else { return .unopenable }
+        let path = String(decoded.split(separator: "#", maxSplits: 1).first ?? "")
+        guard !path.isEmpty else { return nil }
 
         if path.hasPrefix("/") {
-            return fileTarget(URL(fileURLWithPath: path))
+            return URL(fileURLWithPath: path).standardizedFileURL
         }
         if path.hasPrefix("~") {
-            return fileTarget(URL(fileURLWithPath: (path as NSString).expandingTildeInPath))
+            return URL(fileURLWithPath: (path as NSString).expandingTildeInPath).standardizedFileURL
         }
-        guard let base else { return .unopenable }
-        return fileTarget(base.appendingPathComponent(path))
+        guard let base else { return nil }
+        return base.appendingPathComponent(path).standardizedFileURL
     }
 
     /// A file link resolves only if something is actually there. An agent
@@ -69,9 +77,8 @@ enum ChatLinkOpener {
     /// opening those would land the user in a Finder error rather than a
     /// no-op.
     private static func fileTarget(_ url: URL) -> Target {
-        let resolved = url.standardizedFileURL
-        guard FileManager.default.fileExists(atPath: resolved.path) else { return .unopenable }
-        return .file(resolved)
+        guard FileManager.default.fileExists(atPath: url.path) else { return .unopenable }
+        return .file(url)
     }
 
     /// Hands the target to the system off the main thread — `NSWorkspace`
@@ -79,9 +86,13 @@ enum ChatLinkOpener {
     @MainActor
     static func open(_ target: Target) {
         switch target {
-        case .web(let url), .file(let url):
+        case .web(let url):
             Task.detached(priority: .userInitiated) {
                 NSWorkspace.shared.open(url)
+            }
+        case .file(let url):
+            Task.detached(priority: .userInitiated) {
+                NSWorkspace.shared.activateFileViewerSelecting([url])
             }
         case .unopenable:
             break

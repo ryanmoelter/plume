@@ -62,7 +62,7 @@ final class PullRequestStore {
         self.resolve = resolve
     }
 
-    static let resolveWithGit: @Sendable (String) async -> (repository: String, facts: RepositoryFacts)? = { directory in
+    nonisolated static let resolveWithGit: @Sendable (String) async -> (repository: String, facts: RepositoryFacts)? = { directory in
         guard let root = await GitService.shared.repositoryRoot(containing: directory) else { return nil }
         return (root, await GitService.shared.repositoryFacts(in: root))
     }

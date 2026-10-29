@@ -97,11 +97,13 @@ enum MarkdownCache {
         return attributed
     }
 
-    /// `inline(_:)` split at its code spans, each one a segment with a
-    /// `chipID` that `CodeChips` paints a rounded chip behind. For text that
-    /// draws through a `TextRenderer`; selectable text ignores its renderer,
-    /// so it takes `styledInline`'s flat background instead.
+    /// `inline(_:)` split at its code spans and reference chips, each one a
+    /// segment with a `chip` that `InlineChips` paints a rounded chip behind.
+    /// For text that draws through a `TextRenderer`; selectable text ignores
+    /// its renderer, so it takes `styledInline`'s flat background instead.
     ///
+    /// A reference chip is a link whose label opens with
+    /// `ReferenceChipText.placeholder`, kerned wide enough to hold its icon.
     /// The chip's padding is `kern` on the character before the span and on
     /// the span's own last character, never a padding character, which would
     /// ride along into the copied text.
@@ -121,16 +123,25 @@ enum MarkdownCache {
             if run.inlinePresentationIntent?.contains(.code) == true {
                 var code = piece
                 code.font = codeFont
-                segments.append(StyledInline.Segment(text: code, chipID: nextChipID))
+                segments.append(StyledInline.Segment(text: code, chip: .code(id: nextChipID)))
                 nextChipID += 1
-            } else if let last = segments.indices.last, segments[last].chipID == nil {
+            } else if let link = run.link, piece.characters.first == ReferenceChipText.placeholder {
+                var reference = piece
+                reference[reference.startIndex..<reference.characters.index(after: reference.startIndex)].kern =
+                    ReferenceChipMetrics(fontSize: fontSize).placeholderKern(brand: ReferenceTarget.classify(link, base: nil)?.brand)
+                segments.append(StyledInline.Segment(text: reference, chip: .reference(id: nextChipID, url: link)))
+                nextChipID += 1
+            } else if let link = run.link, let last = segments.indices.last,
+                      case .reference(_, link) = segments[last].chip {
+                segments[last].text.append(piece)
+            } else if let last = segments.indices.last, segments[last].chip == nil {
                 segments[last].text.append(piece)
             } else {
-                segments.append(StyledInline.Segment(text: piece, chipID: nil))
+                segments.append(StyledInline.Segment(text: piece, chip: nil))
             }
         }
-        for index in segments.indices where segments[index].chipID != nil {
-            if index > 0, segments[index - 1].chipID == nil {
+        for index in segments.indices where segments[index].chip != nil {
+            if index > 0, segments[index - 1].chip == nil {
                 segments[index - 1].text.kernLastCharacter(pad)
             }
             segments[index].text.kernLastCharacter(pad)
@@ -151,21 +162,36 @@ enum MarkdownCache {
     }
 }
 
-/// Inline-parsed text split at its code spans, so each one carries a
-/// `CodeChipAttribute` rather than a flat `backgroundColor`.
+/// Inline-parsed text split at its code spans and reference chips, so each
+/// one carries a chip attribute rather than a flat `backgroundColor`.
 ///
-/// Consecutive non-code runs fold into one segment with no `chipID`, keeping
-/// their own runs, so bold and plain prose between two chips stay intact.
+/// Consecutive runs outside a chip fold into one segment with no `chip`,
+/// keeping their own runs, so bold and plain prose between two chips stay
+/// intact.
 struct StyledInline: Equatable {
     struct Segment: Equatable {
+        enum Chip: Equatable {
+            case code(id: Int)
+            case reference(id: Int, url: URL)
+        }
+
         var text: AttributedString
-        var chipID: Int?
+        var chip: Chip?
+
+        var chipID: Int? {
+            if case .code(let id) = chip { id } else { nil }
+        }
     }
 
     var segments: [Segment]
     var pad: CGFloat
 
     var hasCode: Bool { segments.contains { $0.chipID != nil } }
+    var hasChips: Bool { segments.contains { $0.chip != nil } }
+
+    var referenceURLs: [URL] {
+        segments.compactMap { if case .reference(_, let url) = $0.chip { url } else { nil } }
+    }
 
     /// The characters `text()` draws, which the reveal and the selection
     /// count in.
@@ -175,9 +201,22 @@ struct StyledInline: Equatable {
 
     func text() -> Text {
         segments.reduce(Text(verbatim: "")) { joined, segment in
-            let piece = Text(segment.text)
-            guard let chipID = segment.chipID else { return joined + piece }
-            return joined + piece.customAttribute(CodeChipAttribute(id: chipID))
+            switch segment.chip {
+            case nil:
+                return joined + Text(segment.text)
+            case .code(let id):
+                return joined + Text(segment.text).customAttribute(CodeChipAttribute(id: id))
+            case let .reference(id, url):
+                // The placeholder is a run of its own, so the renderer can
+                // find where the icon goes.
+                let text = segment.text
+                let split = text.characters.index(after: text.startIndex)
+                let placeholder = Text(AttributedString(text[text.startIndex..<split]))
+                    .customAttribute(ReferenceChipAttribute(id: id, url: url, isPlaceholder: true))
+                let title = Text(AttributedString(text[split..<text.endIndex]))
+                    .customAttribute(ReferenceChipAttribute(id: id, url: url, isPlaceholder: false))
+                return joined + placeholder + title
+            }
         }
     }
 
@@ -185,7 +224,7 @@ struct StyledInline: Equatable {
     /// each segment's chip.
     func uppercased() -> StyledInline {
         StyledInline(
-            segments: segments.map { Segment(text: $0.text.uppercasedPreservingRuns(), chipID: $0.chipID) },
+            segments: segments.map { Segment(text: $0.text.uppercasedPreservingRuns(), chip: $0.chip) },
             pad: pad
         )
     }

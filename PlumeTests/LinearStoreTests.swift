@@ -749,6 +749,289 @@ struct LinearStoreTests {
         #expect(!FileManager.default.fileExists(atPath: directory.appending(path: "issues-A.json").path))
         #expect(!FileManager.default.fileExists(atPath: directory.appending(path: "catalog-A.json").path))
     }
+
+    // MARK: - Mentions
+
+    private func mentionIdentifiers(_ store: LinearStore, _ query: String) async -> [String] {
+        await store.mentionCandidates(matching: query).compactMap {
+            if case .linear(let issue) = $0.candidate { issue.identifier } else { nil }
+        }
+    }
+
+    @Test func aSearchHitBecomesAMentionCandidate() async throws {
+        let a = FakeLinearWorkspace(orgID: "A", teamKeys: ["DROID"])
+        await a.set(issues: ["DROID-7": LinearTestFixtures.issue("DROID-7", title: "Fix the text layout")])
+        let harness = try await makeHarness([a])
+        #expect(await mentionIdentifiers(harness.store, "layout").isEmpty)
+
+        await harness.store.searchIssues("layout")
+
+        #expect(await mentionIdentifiers(harness.store, "layout") == ["DROID-7"])
+        #expect(await a.searchCalls.map(\.term) == ["layout"])
+    }
+
+    @Test func aBareMentionListsTheViewersOpenIssuesNewestFirst() async throws {
+        func issue(_ identifier: String, assignee: String?, done: Bool = false) -> LinearIssue {
+            LinearIssue(
+                identifier: identifier,
+                title: "Work on it",
+                url: "https://linear.app/x/issue/\(identifier)",
+                stateName: done ? "Done" : "Todo",
+                stateType: done ? .completed : .unstarted,
+                stateColor: "#e2e2e2",
+                assigneeName: assignee,
+                teamKey: "DROID"
+            )
+        }
+        let a = FakeLinearWorkspace(orgID: "A", teamKeys: ["DROID"])
+        await a.set(viewerID: "user-Ryan")
+        await a.set(issues: ["DROID-1": issue("DROID-1", assignee: "Ryan")])
+        await a.set(issues: [
+            "DROID-1": issue("DROID-1", assignee: "Ryan"),
+            "DROID-2": issue("DROID-2", assignee: "Ryan"),
+            "DROID-3": issue("DROID-3", assignee: "Sam"),
+            "DROID-4": issue("DROID-4", assignee: nil),
+            "DROID-5": issue("DROID-5", assignee: "Ryan", done: true),
+        ])
+        let harness = try await makeHarness([a])
+        await harness.store.searchIssues("work")
+
+        #expect(await mentionIdentifiers(harness.store, "") == ["DROID-2", "DROID-1"])
+        #expect(await mentionIdentifiers(harness.store, "work").count == 5)
+    }
+
+    @Test func aBareMentionListsNothingBeforeTheViewerIsKnown() async throws {
+        let a = FakeLinearWorkspace(orgID: "A", teamKeys: ["DROID"])
+        await a.set(issues: ["DROID-1": LinearTestFixtures.issue("DROID-1", title: "Work")])
+        let harness = try await makeHarness([a])
+        await harness.store.searchIssues("work")
+
+        #expect(await mentionIdentifiers(harness.store, "").isEmpty)
+    }
+
+    @Test func aTeamPrefixFiltersTheWorkspacesOwningThatTeamAndIsTitleTextElsewhere() async throws {
+        let a = FakeLinearWorkspace(orgID: "A", teamKeys: ["DROID"])
+        let b = FakeLinearWorkspace(orgID: "B", teamKeys: ["IOS"])
+        let harness = try await makeHarness([a, b])
+
+        await harness.store.searchIssues("dro layout")
+
+        #expect(await a.searchCalls.map(\.teamKeys) == [["DROID"]])
+        #expect(await a.searchCalls.map(\.term) == ["layout"])
+        #expect(await b.searchCalls.map(\.teamKeys) == [[]])
+        #expect(await b.searchCalls.map(\.term) == ["dro layout"])
+    }
+
+    @Test func aBlockedOrLowBudgetWorkspaceIsNotSearched() async throws {
+        let blocked = FakeLinearWorkspace(orgID: "A", teamKeys: ["PLUME"])
+        let low = FakeLinearWorkspace(orgID: "B", teamKeys: ["DROID"])
+        let healthy = FakeLinearWorkspace(orgID: "C", teamKeys: ["IOS"])
+        await blocked.set(issueError: LinearError.unauthorized)
+        await low.set(rateLimit: LinearRateLimit(limit: 1_500, remaining: 100, resetAt: Date().addingTimeInterval(600)))
+        let harness = try await makeHarness([blocked, low, healthy])
+        harness.store.setWanted(["PLUME-1", "DROID-1"], owner: UUID())
+        await harness.store.settle()
+
+        await harness.store.searchIssues("layout")
+
+        #expect(await blocked.searchCalls.isEmpty)
+        #expect(await low.searchCalls.isEmpty)
+        #expect(await healthy.searchCalls.count == 1)
+    }
+
+    @Test func anExactIdentifierMissingFromTheCacheIsLookedUp() async throws {
+        let a = FakeLinearWorkspace(orgID: "A", teamKeys: ["DROID"])
+        let b = FakeLinearWorkspace(orgID: "B", teamKeys: ["IOS"])
+        await a.set(issues: ["DROID-40": LinearTestFixtures.issue("DROID-40", title: "Old work")])
+        let harness = try await makeHarness([a, b])
+
+        await harness.store.searchIssues("droid-40")
+        await harness.store.searchIssues("DROID-40")
+
+        #expect(await a.issueCalls == [["DROID-40"]])
+        #expect(await a.searchCalls.isEmpty)
+        #expect(await b.issueCalls.isEmpty)
+        #expect(await mentionIdentifiers(harness.store, "DROID-40") == ["DROID-40"])
+    }
+
+    @Test func aKeyChangeDropsASearchInFlight() async throws {
+        let a = FakeLinearWorkspace(orgID: "A", teamKeys: ["DROID"])
+        await a.set(issues: ["DROID-7": LinearTestFixtures.issue("DROID-7", title: "Fix the text layout")])
+        let harness = try await makeHarness([a])
+        await a.holdIssueFetches()
+
+        let search = Task { await harness.store.searchIssues("layout") }
+        for _ in 0..<1_000 where await a.searchCalls.isEmpty { await Task.yield() }
+        try await harness.accounts.add(apiKey: "key-A")
+        await a.releaseIssueFetches()
+        await search.value
+        await harness.store.settle()
+
+        #expect(await a.searchCalls.count == 1)
+        #expect(await mentionIdentifiers(harness.store, "layout").isEmpty)
+    }
+
+    @Test func aRememberedSearchIsNotSentAgainUntilItExpires() async throws {
+        let a = FakeLinearWorkspace(orgID: "A", teamKeys: ["DROID"])
+        let clock = TestClock()
+        let harness = try await makeHarness([a], now: clock.now)
+
+        await harness.store.searchIssues("layout")
+        await harness.store.searchIssues("layout ")
+        #expect(await a.searchCalls.count == 1)
+
+        clock.advance(LinearStore.searchMemory + 1)
+        await harness.store.searchIssues("layout")
+        #expect(await a.searchCalls.count == 2)
+    }
+
+    @Test func aSearchArrivingWhileOneIsInFlightRunsAfterIt() async throws {
+        let a = FakeLinearWorkspace(orgID: "A", teamKeys: ["DROID"])
+        let harness = try await makeHarness([a])
+        await a.holdIssueFetches()
+
+        let first = Task { await harness.store.searchIssues("lay") }
+        for _ in 0..<1_000 where await a.searchCalls.isEmpty { await Task.yield() }
+        let superseded = Task { await harness.store.searchIssues("layo") }
+        let latest = Task { await harness.store.searchIssues("layout") }
+        await a.releaseIssueFetches()
+        await first.value
+        await superseded.value
+        await latest.value
+
+        #expect(await a.searchCalls.map(\.term) == ["lay", "layout"])
+    }
+
+    @Test func aQueuedSearchReturnsOnlyOnceItsOwnHitsAreIn() async throws {
+        let a = FakeLinearWorkspace(orgID: "A", teamKeys: ["DROID"])
+        await a.set(issues: ["DROID-7": LinearTestFixtures.issue("DROID-7", title: "Fix the text layout")])
+        let harness = try await makeHarness([a])
+        await a.holdIssueFetches()
+
+        let first = Task { await harness.store.searchIssues("zzz") }
+        for _ in 0..<1_000 where await a.searchCalls.isEmpty { await Task.yield() }
+        let queued = Task {
+            await harness.store.searchIssues("layout")
+            return await mentionIdentifiers(harness.store, "layout")
+        }
+        await a.releaseIssueFetches()
+        await first.value
+
+        #expect(await queued.value == ["DROID-7"])
+    }
+
+    @Test func aRepeatOfASearchInFlightReturnsOnceItsHitsAreIn() async throws {
+        let a = FakeLinearWorkspace(orgID: "A", teamKeys: ["DROID"])
+        await a.set(issues: ["DROID-7": LinearTestFixtures.issue("DROID-7", title: "Fix the text layout")])
+        let harness = try await makeHarness([a])
+        await a.holdIssueFetches()
+
+        let first = Task { await harness.store.searchIssues("layout") }
+        for _ in 0..<1_000 where await a.searchCalls.isEmpty { await Task.yield() }
+        let repeated = Task {
+            await harness.store.searchIssues("layout")
+            return await mentionIdentifiers(harness.store, "layout")
+        }
+        await a.releaseIssueFetches()
+        await first.value
+
+        #expect(await repeated.value == ["DROID-7"])
+        #expect(await a.searchCalls.count == 1)
+    }
+
+    @Test func aRateLimitedSearchPausesSearchesButNotTheWorkspace() async throws {
+        let a = FakeLinearWorkspace(orgID: "A", teamKeys: ["DROID"])
+        let clock = TestClock()
+        let until = clock.now().addingTimeInterval(120)
+        await a.set(searchError: LinearError.rateLimited(until: until))
+        let harness = try await makeHarness([a], now: clock.now)
+
+        await harness.store.searchIssues("layout")
+        #expect(harness.store.accountStatus(orgID: "A") == .connected)
+
+        harness.store.setWanted(["DROID-1"], owner: UUID())
+        await harness.store.settle()
+        #expect(await a.issueCalls == [["DROID-1"]])
+
+        await a.set(searchError: nil)
+        await harness.store.searchIssues("text")
+        #expect(await a.searchCalls.count == 1)
+
+        clock.advance(121)
+        await harness.store.searchIssues("text")
+        #expect(await a.searchCalls.count == 2)
+    }
+
+    @Test func anyOtherSearchFailureLeavesTheWorkspaceConnected() async throws {
+        let a = FakeLinearWorkspace(orgID: "A", teamKeys: ["DROID"])
+        await a.set(searchError: LinearError.failed("bad query"))
+        let harness = try await makeHarness([a])
+
+        await harness.store.searchIssues("layout")
+        await harness.store.searchIssues("text")
+
+        #expect(harness.store.accountStatus(orgID: "A") == .connected)
+        #expect(await a.searchCalls.count == 2)
+    }
+
+    @Test func aSearchThatChangesNothingDoesNotSave() async throws {
+        let directory = FileManager.default.temporaryDirectory.appending(path: "LinearStoreTests-\(UUID().uuidString)")
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let a = FakeLinearWorkspace(orgID: "A", teamKeys: ["DROID"])
+        await a.set(issues: ["DROID-7": LinearTestFixtures.issue("DROID-7", title: "Fix the text layout")])
+        let harness = try await makeHarness([a], cacheDirectory: directory)
+        let file = directory.appending(path: "issues-A.json")
+
+        await harness.store.searchIssues("layout")
+        await harness.store.settle()
+        #expect(FileManager.default.fileExists(atPath: file.path))
+        try FileManager.default.removeItem(at: file)
+
+        await harness.store.searchIssues("text")
+        await harness.store.settle()
+
+        #expect(await a.searchCalls.count == 2)
+        #expect(!FileManager.default.fileExists(atPath: file.path))
+    }
+
+    @Test func aSearchReturningOnlyUnwantedOldIssuesDoesNotSave() async throws {
+        let directory = FileManager.default.temporaryDirectory.appending(path: "LinearStoreTests-\(UUID().uuidString)")
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let a = FakeLinearWorkspace(orgID: "A", teamKeys: ["DROID"])
+        await a.set(issues: ["DROID-7": LinearTestFixtures.issue("DROID-7", title: "Fix the text layout")])
+        let later = Date().addingTimeInterval(LinearSyncCache.retention + 86_400)
+        let harness = try await makeHarness([a], cacheDirectory: directory, now: { later })
+        let file = directory.appending(path: "issues-A.json")
+        try? FileManager.default.removeItem(at: file)
+
+        await harness.store.searchIssues("layout")
+        await harness.store.settle()
+
+        #expect(await a.searchCalls.count == 1)
+        #expect(!FileManager.default.fileExists(atPath: file.path))
+    }
+
+    @Test func aSearchAnsweringBeforeTheDiskCacheLoadsKeepsTheCachedIssues() async throws {
+        let directory = FileManager.default.temporaryDirectory.appending(path: "LinearStoreTests-\(UUID().uuidString)")
+        defer { try? FileManager.default.removeItem(at: directory) }
+        var cached = LinearSyncCache(orgID: "A")
+        let old = LinearTestFixtures.snapshot(LinearTestFixtures.issue("DROID-1", title: "Cached work"), updatedAt: Date())
+        cached.applyDelta([old], complete: true, queriedFrom: Date().addingTimeInterval(-60))
+        let disk = LinearCacheDisk(directory: directory)
+        await disk.save(cached, sequence: 0)
+
+        let a = FakeLinearWorkspace(orgID: "A", teamKeys: ["DROID"])
+        await a.set(issues: ["DROID-7": LinearTestFixtures.issue("DROID-7", title: "Fix the text layout")])
+        let harness = try await makeHarness([a], cacheDirectory: directory)
+
+        await harness.store.searchIssues("layout")
+        await harness.store.settle()
+
+        let saved = try #require(await LinearCacheDisk(directory: directory).loadIssues(orgID: "A"))
+        #expect(saved.cursor == cached.cursor)
+        #expect(saved.issue(identifier: "DROID-1") != nil)
+        #expect(saved.issue(identifier: "DROID-7") != nil)
+    }
 }
 
 /// A settable clock for `LinearStore`'s `now`.

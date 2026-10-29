@@ -195,6 +195,16 @@ struct LinearQueryTests {
         #expect(page.orgID == "org-1")
         #expect(page.teams.map(\.id) == ["t1", "t2"])
         #expect(page.nextCursor == "c1")
+        #expect(page.viewerID == nil)
+    }
+
+    @Test func theTeamsPageNamesTheViewerForTheCatalog() throws {
+        let json = #"{"data":{"organization":{"id":"org-1"},"viewer":{"id":"u1"},"teams":{"nodes":[],"pageInfo":{"hasNextPage":false}}}}"#
+        let page = try LinearQuery.decodeTeamsPage(data(json))
+        #expect(page.viewerID == "u1")
+        #expect(LinearQuery.teamsQuery.contains("viewer { id }"))
+        let catalog = LinearQuery.assembleCatalog(orgID: "org-1", teams: [], states: [], viewerID: page.viewerID)
+        #expect(catalog.viewerID == "u1")
     }
 
     @Test func decodesStatesPageAndStopsWithoutNextPage() throws {
@@ -232,5 +242,32 @@ struct LinearQueryTests {
         let object = try #require(try JSONSerialization.jsonObject(with: body) as? [String: Any])
         #expect(object["query"] as? String == "query { x }")
         #expect((object["variables"] as? [String: String]) == ["cursor": "a\"b"])
+    }
+
+    @Test func buildsASearchWithNoTeamFilter() {
+        let query = LinearQuery.buildSearchIssues(term: "text \"layout\"", teamKeys: [])
+        #expect(query.hasPrefix(#"query { searchIssues(term: "text \"layout\"", first: 20, includeArchived: false) { nodes { "#))
+        #expect(query.contains("trashed"))
+        #expect(!query.contains("filter"))
+    }
+
+    @Test func buildsASearchScopedToTeamKeys() {
+        let query = LinearQuery.buildSearchIssues(term: "layout", teamKeys: ["DROID", "DRONE"], first: 5)
+        #expect(query.contains(#"first: 5, includeArchived: false, filter: { team: { key: { in: ["DROID", "DRONE"] } } }"#))
+    }
+
+    @Test func decodesSearchResultsDroppingTrashedOnes() throws {
+        let trashed = issueJSON
+            .replacingOccurrences(of: "uuid-102", with: "uuid-103")
+            .replacingOccurrences(of: "\"trashed\":false", with: "\"trashed\":true")
+        let json = "{\"data\":{\"searchIssues\":{\"nodes\":[\(issueJSON),\(trashed)]}}}"
+        let snapshots = try LinearQuery.decodeSearchIssues(data(json))
+        #expect(snapshots.map(\.id) == ["uuid-102"])
+        #expect(snapshots.first?.issue.identifier == "PLUME-102")
+    }
+
+    @Test func aSearchErrorThrows() {
+        let json = #"{"errors":[{"message":"nope","extensions":{"code":"RATELIMITED"}}]}"#
+        #expect(throws: LinearError.self) { try LinearQuery.decodeSearchIssues(data(json)) }
     }
 }
