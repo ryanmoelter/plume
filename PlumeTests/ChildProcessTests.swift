@@ -44,6 +44,22 @@ struct ChildProcessTests {
         #expect(kill(grandchild, 0) == 0)
     }
 
+    @Test func aFileCapturedRunTruncatesTheFileItsGrandchildKeeps() async throws {
+        let marker = NSTemporaryDirectory() + "plume-capture-size-\(UUID().uuidString)"
+        defer { unlink(marker) }
+        let reportSize = #"perl -e 'open(my $m, ">", $ARGV[0]); print $m ((stat(STDOUT))[7])'"#
+        let script = "head -c 100000 /dev/zero | tr '\\0' x; echo; (sleep 0.5; echo tick; \(reportSize) \(marker)) & echo port 59095"
+        let result = try await sh(script, capturesToFile: true)
+        #expect(result.stdout.contains("port 59095"))
+        #expect(result.stdout.count > 100_000)
+
+        for _ in 0..<300 where !FileManager.default.fileExists(atPath: marker) { try await Task.sleep(for: .milliseconds(10)) }
+        try await Task.sleep(for: .milliseconds(50))
+        let size = try String(contentsOfFile: marker, encoding: .utf8).trimmingCharacters(in: .whitespacesAndNewlines)
+        // Only the grandchild's "tick\n" is left.
+        #expect(size == "5")
+    }
+
     @Test func killsAChildThatOverrunsItsTimeout() async throws {
         let result = try await sh("echo partial; exec sleep 30", timeout: .milliseconds(300))
         #expect(result.timedOut)

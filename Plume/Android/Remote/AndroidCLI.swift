@@ -179,6 +179,8 @@ nonisolated enum ChildProcess {
             let descriptor = mkstemp(&template)
             guard descriptor >= 0 else { throw AndroidCLIError(message: "Couldn't create a temporary file.") }
             _ = fcntl(descriptor, F_SETFD, FD_CLOEXEC)
+            // Appending lets the truncate below rewind the daemon's writes too, since it shares this file offset.
+            _ = fcntl(descriptor, F_SETFL, fcntl(descriptor, F_GETFL) | O_APPEND)
             captureFile = (String(cString: template), descriptor)
             outPipe = [-1, descriptor]
             errPipe = [-1, descriptor]
@@ -192,6 +194,8 @@ nonisolated enum ChildProcess {
         }
         defer {
             if let captureFile {
+                // The daemon keeps the unlinked file open, so its space comes back only by truncating.
+                _ = ftruncate(captureFile.descriptor, 0)
                 close(captureFile.descriptor)
                 unlink(captureFile.path)
             }
