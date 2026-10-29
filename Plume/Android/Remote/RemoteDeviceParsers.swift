@@ -34,15 +34,24 @@ nonisolated struct RemoteDeviceModel: Hashable, Sendable, Identifiable {
         }
     }
 
+    var formFactor: FormFactor { FormFactor(modelName: name) }
+}
+
+extension RemoteDeviceModel.FormFactor {
     /// Guessed from the model name, since the service reports no form factor.
-    var formFactor: FormFactor {
+    init(modelName name: String) {
         if name.range(of: #"\b(Tab|Tablet|Pad)\b"#, options: [.regularExpression, .caseInsensitive]) != nil {
-            return .tablet
+            self = .tablet
+            return
         }
         let foldableMarkers = ["Fold", "Flip", "razr", "Magic V"]
-        if foldableMarkers.contains(where: { name.localizedCaseInsensitiveContains($0) }) { return .foldable }
-        if name.localizedCaseInsensitiveContains("Watch") { return .watch }
-        return .phone
+        if foldableMarkers.contains(where: { name.localizedCaseInsensitiveContains($0) }) {
+            self = .foldable
+        } else if name.localizedCaseInsensitiveContains("Watch") {
+            self = .watch
+        } else {
+            self = .phone
+        }
     }
 }
 

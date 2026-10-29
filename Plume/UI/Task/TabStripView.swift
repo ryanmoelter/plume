@@ -133,6 +133,15 @@ private struct TabChip: View {
     /// both strips can hold chips of the same title.
     let paneLabel: String?
     let isSelected: Bool
+
+    private var deviceSymbol: String {
+        switch tab.deviceTarget {
+        case nil: "ipad.landscape.and.iphone"
+        case .emulator: "macbook.and.iphone"
+        case .physical: "smartphone"
+        case .remote: RemoteDeviceModel.FormFactor(modelName: tab.title ?? "").symbol
+        }
+    }
     /// Showing in its pane, focused or not.
     let isShown: Bool
     /// The theme's resolved foreground, when a theme is tinting the strip.
@@ -182,7 +191,7 @@ private struct TabChip: View {
                     .font(.caption)
                     .accessibilityHidden(true)
             case .device:
-                Image(systemName: "ipad.landscape.and.iphone")
+                Image(systemName: deviceSymbol)
                     .font(.caption)
                     .accessibilityHidden(true)
             }
