@@ -16,6 +16,14 @@ nonisolated struct MentionQuery: Equatable, Sendable {
         case pr
         case file
 
+        init(source: MentionCandidate.Source) {
+            switch source {
+            case .linear: self = .linear
+            case .pullRequests: self = .pr
+            case .files: self = .file
+            }
+        }
+
         var source: MentionCandidate.Source {
             switch self {
             case .linear: .linear
@@ -90,14 +98,6 @@ nonisolated struct MentionQuery: Equatable, Sendable {
     /// The controller closes a multi-word query that settles with no
     /// results, since by then the user is most likely writing prose.
     var containsSpace: Bool { text.contains(" ") }
-
-    /// The filter prefixes what is typed so far could be starting, `@li` for
-    /// `@linear:`.
-    var suggestedFilters: [Filter] {
-        guard trigger == .at, filter == nil, !isQuoted, text.count >= 2 else { return [] }
-        let typed = text.lowercased()
-        return Filter.allCases.filter { $0.rawValue.hasPrefix(typed) }
-    }
 
     static let maximumWords = 5
 

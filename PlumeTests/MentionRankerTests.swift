@@ -99,7 +99,43 @@ struct MentionRankerTests {
         #expect(merged.map(\.id) == ["file:b", "file:a"])
     }
 
+    // MARK: - Sections
+
+    @Test func eachSourceWithRowsIsLedByItsFilter() {
+        let merged = MentionRanker.merge(
+            [
+                .files: [file("a", .exact)],
+                .linear: [linear("DROID-1", .loose), linear("DROID-2", .loose)],
+            ],
+            isBare: false
+        )
+        #expect(MentionRanker.sectioned(merged).map(\.id) == [
+            "filter:linear", "linear:DROID-1", "linear:DROID-2", "filter:file", "file:a",
+        ])
+    }
+
+    @Test func headersAreNotCountedAgainstTheLimits() {
+        let merged = MentionRanker.merge(
+            [
+                .files: (0..<15).map { file("f\($0)", .prefix) },
+                .linear: (0..<8).map { linear("DROID-\($0)", .prefix) },
+                .pullRequests: (0..<8).map { pull($0, .prefix) },
+            ],
+            isBare: false
+        )
+        let sectioned = MentionRanker.sectioned(merged)
+        #expect(sectioned.filter { !$0.isSectionHeader }.count == MentionRanker.totalLimit)
+        #expect(sectioned.filter(\.isSectionHeader).count == 3)
+    }
+
     // MARK: - Selection
+
+    @Test func theSelectionStartsOnTheFirstResultNotItsHeader() {
+        let list = MentionRanker.sectioned(MentionRanker.merge([.files: [file("a", .prefix)]], isBare: false))
+        #expect(MentionRanker.selectionIndex(keeping: nil, in: list) == 1)
+        #expect(MentionRanker.selectionIndex(keeping: "file:gone", in: list) == 1)
+        #expect(MentionRanker.selectionIndex(keeping: "filter:file", in: list) == 0)
+    }
 
     @Test func theSelectionFollowsItsCandidateWhenResultsArrive() {
         let before = MentionRanker.merge([.files: [file("a", .prefix)]], isBare: false)

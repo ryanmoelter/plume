@@ -16,7 +16,8 @@ nonisolated struct RankedMention: Hashable, Sendable {
 }
 
 /// Merges each source's ranked matches into the one list the menu shows:
-/// Linear issues, then pull requests, then files, each capped.
+/// Linear issues, then pull requests, then files, each capped and, when the
+/// query spans more than one source, led by its filter row.
 nonisolated enum MentionRanker {
     static let sourceOrder: [MentionCandidate.Source] = [.linear, .pullRequests, .files]
     static let perSourceLimit = 5
@@ -54,11 +55,21 @@ nonisolated enum MentionRanker {
         return Array(merged.prefix(isFiltered ? filteredLimit : totalLimit))
     }
 
+    /// `merged` with each source's rows led by the filter row that narrows
+    /// the menu to that source. A source with no rows gets no header.
+    static func sectioned(_ merged: [MentionCandidate]) -> [MentionCandidate] {
+        sourceOrder.flatMap { source -> [MentionCandidate] in
+            let rows = merged.filter { $0.source == source }
+            return rows.isEmpty ? [] : [.filter(MentionQuery.Filter(source: source))] + rows
+        }
+    }
+
     /// Where the selection belongs after the list changes: on the same
-    /// candidate if it is still there, otherwise the top row.
+    /// candidate if it is still there, otherwise the top result, so Return
+    /// takes a result rather than a section header.
     static func selectionIndex(keeping selectedID: String?, in candidates: [MentionCandidate]) -> Int {
-        guard let selectedID else { return 0 }
-        return candidates.firstIndex { $0.id == selectedID } ?? 0
+        if let selectedID, let index = candidates.firstIndex(where: { $0.id == selectedID }) { return index }
+        return candidates.firstIndex { !$0.isSectionHeader } ?? 0
     }
 }
 

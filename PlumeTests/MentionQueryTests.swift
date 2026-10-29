@@ -171,15 +171,10 @@ struct MentionQueryTests {
         #expect(query("@")?.isBare == true)
     }
 
-    @Test func twoLettersStartingAFilterSuggestIt() {
-        #expect(query("@li")?.suggestedFilters == [.linear])
-        #expect(query("@pr")?.suggestedFilters == [.pr])
-        #expect(query("@FI")?.suggestedFilters == [.file])
-        #expect(query("@linear")?.suggestedFilters == [.linear])
-        #expect(query("@l")?.suggestedFilters == [])
-        #expect(query("@lix")?.suggestedFilters == [])
-        #expect(query("@linear:x")?.suggestedFilters == [])
-        #expect(query("#pr")?.suggestedFilters == [])
+    @Test func everySourceHasTheFilterThatNarrowsToIt() {
+        for filter in MentionQuery.Filter.allCases {
+            #expect(MentionQuery.Filter(source: filter.source) == filter)
+        }
     }
 
     // MARK: - Markup

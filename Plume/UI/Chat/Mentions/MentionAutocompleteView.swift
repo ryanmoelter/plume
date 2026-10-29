@@ -28,12 +28,13 @@ struct MentionAutocompleteView: View, ThemedView {
         HStack(spacing: 8) {
             switch candidate {
             case .filter(let filter):
-                Image(systemName: "line.3.horizontal.decrease")
-                    .imageScale(.small)
-                    .emphasis(.secondary)
-                Text(filter.rawValue + ":")
+                Text(filter.token)
                     .font(typography.caption.monoMedium)
-                title(filter.summary)
+                    .emphasis(.secondary)
+                Text(filter.summary)
+                    .font(typography.caption.font)
+                    .emphasis(.subtle)
+                    .lineLimit(1)
             case .linear(let issue):
                 LinearIssueGlyph(stateType: issue.stateType, colorHex: issue.stateColor)
                     .imageScale(.small)

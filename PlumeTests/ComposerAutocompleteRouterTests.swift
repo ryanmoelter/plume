@@ -31,9 +31,10 @@ struct ComposerAutocompleteRouterTests {
         textView.autocompleteHandler = router
         await showMentions(router)
 
+        #expect(router.mention.selectedIndex == 1)
         textView.keyDown(with: Self.key(125))
 
-        #expect(router.mention.selectedIndex == 1)
+        #expect(router.mention.selectedIndex == 2)
     }
 
     @Test func escapeClosesTheMentionsBeforeTheInterrupt() async {
@@ -63,7 +64,7 @@ struct ComposerAutocompleteRouterTests {
         router.moveSelection(by: 1)
 
         #expect(router.slash.selectedIndex == 1)
-        #expect(router.mention.selectedIndex == 0)
+        #expect(router.mention.selectedIndex == 1)
     }
 
     @Test func escapeClosesALoadingMentionMenuWithoutInterrupting() async {

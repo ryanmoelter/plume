@@ -59,7 +59,7 @@ struct MentionAutocompleteControllerTests {
         type("@x", into: controller)
         await controller.settled()
         #expect(sources.linearLimits.last == FileMentionMatcher.defaultLimit)
-        #expect(controller.candidates.count == MentionRanker.perSourceLimit + MentionRanker.fileLimit)
+        #expect(controller.candidates.filter { !$0.isSectionHeader }.count == MentionRanker.perSourceLimit + MentionRanker.fileLimit)
     }
 
     @Test func escapeKeepsTheTokenClosedUntilTheCaretLeavesIt() async {
@@ -134,15 +134,16 @@ struct MentionAutocompleteControllerTests {
         type("@dro", into: controller)
         await sources.waitForHeldPullRequests(2)
         for _ in 0..<1_000 where controller.candidates.count < 2 { await Task.yield() }
+        #expect(controller.candidates[controller.selectedIndex] == .file(MentionFixtures.file("dro.txt")))
         controller.moveSelection(by: 1)
-        #expect(controller.selectedIndex == 1)
+        #expect(controller.candidates[controller.selectedIndex] == .file(second))
 
         let pull = MentionFixtures.ranked(.pullRequest(MentionFixtures.pull(3, "Drop it")))
         for call in sources.heldPullRequests { call.release([pull]) }
         await controller.settled()
 
-        #expect(controller.candidates.first == pull.candidate)
-        #expect(controller.selectedIndex == 2)
+        #expect(controller.candidates.prefix(2) == [.filter(.pr), pull.candidate])
+        #expect(controller.selectedIndex == 4)
         #expect(controller.candidates[controller.selectedIndex] == .file(second))
     }
 
@@ -270,7 +271,34 @@ struct MentionAutocompleteControllerTests {
         #expect(controller.candidates.map(\.id) == ["file:Plume/UI/Chat.swift"])
     }
 
-    @Test func twoLettersOfAFilterOfferItFirst() async {
+    @Test func eachSectionOpensWithItsFilterAndTheFirstResultIsSelected() async {
+        sources.linearAnswer = { _ in [MentionFixtures.ranked(.linear(MentionFixtures.issue("DROID-1", "Lib")))] }
+        sources.fileAnswer = { _ in [MentionFixtures.ranked(.file(MentionFixtures.file("lib.swift")))] }
+        let controller = makeController()
+
+        type("@li", into: controller)
+        await controller.settled()
+
+        #expect(controller.candidates.map(\.id) == ["filter:linear", "linear:DROID-1", "filter:file", "file:lib.swift"])
+        #expect(controller.selectedIndex == 1)
+    }
+
+    @Test func aQueryScopedToOneSourceHasNoHeader() async {
+        sources.linearAnswer = { _ in [MentionFixtures.ranked(.linear(MentionFixtures.issue("DROID-1", "Lib")))] }
+        sources.fileAnswer = { _ in [MentionFixtures.ranked(.file(MentionFixtures.file("src/lib.swift")))] }
+        let controller = makeController()
+
+        type("@linear:li", into: controller)
+        await controller.settled()
+        #expect(controller.candidates.map(\.id) == ["linear:DROID-1"])
+
+        type("@src/", into: controller)
+        await controller.settled()
+        #expect(controller.candidates.map(\.id) == ["file:src/lib.swift"])
+    }
+
+    @Test func acceptingALinearHeaderAsksOnlyLinear() async {
+        sources.linearAnswer = { _ in [MentionFixtures.ranked(.linear(MentionFixtures.issue("DROID-1", "Lib")))] }
         sources.fileAnswer = { _ in [MentionFixtures.ranked(.file(MentionFixtures.file("lib.swift")))] }
         let controller = makeController()
         var accepted: SlashCommandMatcher.AcceptedCommand?
@@ -278,7 +306,7 @@ struct MentionAutocompleteControllerTests {
 
         type("@li", into: controller)
         await controller.settled()
-        #expect(controller.candidates.map(\.id) == ["filter:linear", "file:lib.swift"])
+        controller.moveSelection(by: -1)
 
         let askedFiles = sources.fileQueries.count
         let askedPullRequests = sources.pullRequestQueries.count

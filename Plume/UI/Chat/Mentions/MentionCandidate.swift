@@ -5,7 +5,8 @@ nonisolated enum MentionCandidate: Identifiable, Hashable, Sendable {
     case file(FileEntry)
     case linear(LinearIssue)
     case pullRequest(PullRequestEntry)
-    /// A row that types a filter prefix, `@linear:`.
+    /// The header of a source's section, which types that source's filter
+    /// prefix, `@linear:`.
     case filter(MentionQuery.Filter)
 
     enum Source: Hashable, Sendable {
@@ -77,6 +78,10 @@ nonisolated enum MentionCandidate: Identifiable, Hashable, Sendable {
         case .pullRequest: .pullRequests
         case .filter: nil
         }
+    }
+
+    var isSectionHeader: Bool {
+        if case .filter = self { true } else { false }
     }
 
     /// Accepting it types a prefix and keeps the menu open on what follows:
