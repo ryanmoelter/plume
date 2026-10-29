@@ -174,16 +174,19 @@ final class RemoteDeviceCatalog {
         reloadWhenExited(session)
     }
 
+    /// Also reloads when the tab closes before `auth login` exits, which never marks it exited.
     private func reloadWhenExited(_ session: TerminalSession) {
+        let tabID = session.id
         withObservationTracking {
             _ = session.hasExited
-        } onChange: { [weak self] in
-            Task { @MainActor [weak self] in
+            _ = SurfaceManager.shared.existingSession(for: tabID)
+        } onChange: { [weak self, weak session] in
+            Task { @MainActor [weak self, weak session] in
                 guard let self else { return }
-                if session.hasExited {
-                    await load(refresh: true)
-                } else {
+                if let session, !session.hasExited, SurfaceManager.shared.existingSession(for: tabID) === session {
                     reloadWhenExited(session)
+                } else {
+                    await load(refresh: true)
                 }
             }
         }
