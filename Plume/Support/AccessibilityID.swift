@@ -170,6 +170,7 @@ enum AccessibilityID {
     static let deviceRotateButton = "device-rotate-button"
     static let deviceTimeLeft = "device-time-left"
     static let deviceExtendButton = "device-extend-button"
+    static let deviceEndReservationButton = "device-end-reservation-button"
     static let deviceEndReservationMenuItem = "device-end-reservation-menu-item"
     static let deviceReserveAgainButton = "device-reserve-again-button"
     static let endReservationMenuItem = "end-reservation-menu-item"

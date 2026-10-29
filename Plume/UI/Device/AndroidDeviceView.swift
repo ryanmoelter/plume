@@ -2,7 +2,9 @@ import SwiftUI
 
 /// A live Android device with its controls. Depends only on the session, so any
 /// container can host it.
-struct AndroidDeviceView: View {
+struct AndroidDeviceView: View, ThemedView {
+    @Environment(\.theme) var theme
+    @Environment(\.colorScheme) private var colorScheme
     let session: DeviceSession
     @State private var confirmingShutDown = false
     @State private var confirmingEndReservation = false
@@ -48,6 +50,27 @@ struct AndroidDeviceView: View {
     }
 
     private var toolbar: some View {
+        ViewThatFits(in: .horizontal) {
+            HStack(spacing: 2) {
+                identity
+                Spacer(minLength: 8)
+                controls
+            }
+            VStack(spacing: 2) {
+                HStack(spacing: 2) {
+                    identity
+                    Spacer(minLength: 8)
+                }
+                HStack(spacing: 2) {
+                    Spacer(minLength: 8)
+                    controls
+                }
+            }
+        }
+        .padding(.vertical, 4)
+    }
+
+    private var identity: some View {
         HStack(spacing: 2) {
             Text(deviceName)
                 .font(.callout.weight(.medium))
@@ -56,7 +79,11 @@ struct AndroidDeviceView: View {
             if session.hasLiveReservation {
                 reservationControls
             }
-            Spacer(minLength: 8)
+        }
+    }
+
+    private var controls: some View {
+        HStack(spacing: 2) {
             Group {
                 button("arrow.uturn.backward", "Back", AccessibilityID.deviceBackButton) { session.press(.back) }
                 button("circle", "Home", AccessibilityID.deviceHomeButton) { session.press(.home) }
@@ -98,7 +125,6 @@ struct AndroidDeviceView: View {
             .padding(.horizontal, 6)
             .plumeID(AccessibilityID.deviceMoreMenu)
         }
-        .padding(.vertical, 4)
     }
 
     private var reservationControls: some View {
@@ -121,6 +147,12 @@ struct AndroidDeviceView: View {
             .help("Extend the reservation by \(DeviceSession.extendMinutes) minutes")
             .plumeID(AccessibilityID.deviceExtendButton, invoke: extend)
             .disabled(session.isExtending)
+            if session.canEndReservation {
+                Button("End Reservation…") { confirmingEndReservation = true }
+                    .controlSize(.small)
+                    .tint(.red)
+                    .plumeID(AccessibilityID.deviceEndReservationButton) { confirmingEndReservation = true }
+            }
         }
         .padding(.leading, 6)
     }
@@ -180,7 +212,7 @@ struct AndroidDeviceView: View {
         case .reserving:
             status(
                 "Reserving \(session.displayName ?? "a remote device")…",
-                detail: "Google's lab can take a minute or two to hand over a device.",
+                detail: "This may take a minute or two",
                 showsProgress: true
             )
         case .reservationEnded:
@@ -225,7 +257,7 @@ struct AndroidDeviceView: View {
             }
             HStack {
                 Spacer()
-                Button("Change Device…") { session.changeDevice() }
+                Button(session.state == .reserving ? "Cancel" : "Change Device…") { session.changeDevice() }
                     .buttonStyle(.bordered)
                     .plumeID(AccessibilityID.deviceChangeDeviceButton)
                 actions()
@@ -235,7 +267,11 @@ struct AndroidDeviceView: View {
         }
         .frame(maxWidth: 420, alignment: .leading)
         .padding(20)
-        .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 10))
+        .glassEffect(statusGlass, in: .rect(cornerRadius: 10))
+    }
+
+    private var statusGlass: Glass {
+        ThemeChrome.background(for: colorScheme).map { Glass.regular.tint($0.opacity(0.5)) } ?? .regular
     }
 
     private var stateDescription: String {
