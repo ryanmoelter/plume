@@ -82,6 +82,11 @@ final class RemoteDeviceCatalog {
         do {
             let status = try await cli.run(["auth", "status"])
             guard let account = RemoteDeviceParsers.signedInAccount(status.output) else {
+                guard status.succeeded else {
+                    availability = .failed(status.failureMessage)
+                    projects = []
+                    return
+                }
                 availability = .signedOut
                 projects = []
                 return
@@ -110,8 +115,9 @@ final class RemoteDeviceCatalog {
         } catch {
             outcome = .failure(error)
         }
-        guard load == modelsLoad, project == selectedProject else { return }
+        guard load == modelsLoad else { return }
         isLoadingModels = false
+        guard project == selectedProject else { return }
         switch outcome {
         case .success(let result) where result.succeeded:
             modelsError = nil

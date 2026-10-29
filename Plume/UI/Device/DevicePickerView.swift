@@ -110,6 +110,8 @@ struct DevicePickerView: View {
                 remotePlaceholder("Sign in to the android command-line tool in Settings ▸ Integrations to reserve a remote device.")
             case .failed(let message):
                 remotePlaceholder(message)
+                Button("Try Again") { Task { await remoteCatalog.load(refresh: true) } }
+                    .padding(.horizontal, 10)
             case .signedIn:
                 remoteModels
             }
