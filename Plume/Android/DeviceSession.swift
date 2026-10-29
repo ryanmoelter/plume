@@ -169,6 +169,10 @@ final class DeviceSession {
             state = .needsDevice
             return
         }
+        if case .remote = target, reservation == nil || reservation?.isReleased == true {
+            state = .reservationEnded
+            return
+        }
         state = .locating
         runWork { [weak self] in
             guard let self else { return }
@@ -198,16 +202,14 @@ final class DeviceSession {
                     state = .notRunning
                 }
             case .remote:
-                guard let reservation, !reservation.isReleased else {
-                    state = .reservationEnded
-                    return
-                }
+                guard let reservation, !reservation.isReleased else { return }
                 switch await reservation.status() {
                 case .ended:
                     reservationDidEnd(reservation)
                 case .unknown(let message):
                     guard self.reservation === reservation else { return }
                     state = .reservationFailed(message)
+                    startReservationMonitor(reservation)
                 case .active:
                     await attachReservation(reservation, waitingForSink: waitingForSink)
                 }
@@ -266,6 +268,7 @@ final class DeviceSession {
     /// Connects an active reservation to adb, then streams it like a USB device.
     private func attachReservation(_ reservation: RemoteReservation, waitingForSink: Bool) async {
         updateRemoteDetails(from: reservation)
+        startReservationMonitor(reservation)
         let serial: String
         do {
             serial = try await reservation.connect()
@@ -280,7 +283,6 @@ final class DeviceSession {
             state = .reservationFailed("adb wasn't found.")
             return
         }
-        startReservationMonitor(reservation)
         let device = ResolvedDevice.physical(serial: serial, adbURL: adbURL, videoLimits: .remoteDevice)
         if hasSinks || !waitingForSink {
             connect(to: device)
