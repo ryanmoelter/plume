@@ -359,6 +359,7 @@ final class DeviceSession {
                 // A failure can be a passing network or auth error while the reservation still bills.
                 if status == .active, case .reservationFailed = state {
                     EmulatorLog.info("\(logPrefix) the reservation is active, reconnecting")
+                    state = .locating
                     runWork { [weak self] in await self?.attachReservation(reservation, waitingForSink: true) }
                     return
                 }

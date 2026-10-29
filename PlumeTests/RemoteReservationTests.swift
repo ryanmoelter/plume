@@ -521,6 +521,21 @@ struct RemoteDeviceSessionTests {
         #expect(cli.verbs.filter { $0 == "connect" }.count == 2)
     }
 
+    @Test func theMonitorShowsItIsReconnecting() async {
+        let session = await reservedSession()
+        cli.answer("list", failure("Error: HTTP connect timed out\n"), activeRow)
+        session.locate()
+        await waitUntil { if case .reservationFailed = session.state { true } else { false } }
+        await waitUntil { reservationSleeper.pending == 1 }
+        cli.hold("connect")
+
+        reservationSleeper.fire()
+        await waitUntil { session.state == .locating }
+
+        #expect(session.state == .locating)
+        session.close()
+    }
+
     @Test func theMonitorPollsNoFasterThanItsFloorPastTheExpiry() async {
         // Expired six minutes before `now`, so the time until expiry is negative.
         let expired = ok("New reservation created with id r1. Reservation ends at 10:30\u{202F}PM\n")
