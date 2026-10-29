@@ -58,12 +58,13 @@ final class ReferenceChipStore {
     @ObservationIgnored private var boxes: [ReferenceTarget: Box] = [:]
     @ObservationIgnored private var revisions: [UUID: Revision] = [:]
     @ObservationIgnored private var wants: [UUID: Set<ReferenceTarget>] = [:]
+    /// The mount that last set each owner's wants.
+    @ObservationIgnored private var mounts: [UUID: UUID] = [:]
     @ObservationIgnored private var linearOwners: [UUID: UUID] = [:]
     /// When each target looked up is next worth asking about.
     @ObservationIgnored private var nextLookups: [ReferenceTarget: Date] = [:]
     @ObservationIgnored private var inFlight: Set<ReferenceTarget> = []
     @ObservationIgnored private var pendingPullRequests: Set<ReferenceTarget> = []
-    @ObservationIgnored private var pendingOwners: Set<UUID> = []
     @ObservationIgnored private var titles: [ReferenceTarget: String] = [:]
     @ObservationIgnored private var pendingTitles: Set<ReferenceTarget> = []
     @ObservationIgnored private var tasks: [UUID: Task<Void, Never>] = [:]
@@ -96,7 +97,10 @@ final class ReferenceChipStore {
     // MARK: - Wants
 
     /// Replaces the targets `owner` shows. An empty set releases them.
-    func want(_ targets: Set<ReferenceTarget>, owner: UUID) {
+    /// `mount` names the view instance asking, so a view that has gone away
+    /// can't release what its replacement wants.
+    func want(_ targets: Set<ReferenceTarget>, owner: UUID, mount: UUID? = nil) {
+        if let mount { mounts[owner] = mount }
         let previous = wants[owner] ?? []
         if targets.isEmpty { wants[owner] = nil } else { wants[owner] = targets }
 
@@ -108,10 +112,7 @@ final class ReferenceChipStore {
             dependencies.wantLinear(identifiers, linearOwner)
             refreshLinear()
         }
-        if targets.isEmpty {
-            revisions[owner] = nil
-            return
-        }
+        if targets.isEmpty { return }
 
         let now = dependencies.now()
         var files: [String] = []
@@ -127,8 +128,17 @@ final class ReferenceChipStore {
         if !pendingPullRequests.isEmpty, pullRequestTask == nil { schedulePullRequests() }
     }
 
-    func release(owner: UUID) {
+    /// Keeps the owner's revision, so a list mounted again reads on from it.
+    /// Ignored when a mount other than `mount` set the wants last.
+    func release(owner: UUID, mount: UUID? = nil) {
+        if let mount, let current = mounts[owner], current != mount { return }
+        mounts[owner] = nil
         want([], owner: owner)
+    }
+
+    func forget(owner: UUID) {
+        release(owner: owner)
+        revisions[owner] = nil
     }
 
     /// Returns once every lookup started so far has finished and its
@@ -239,7 +249,6 @@ final class ReferenceChipStore {
         box.resolution = resolution
         guard titleChanged else { return }
         pendingTitles.insert(target)
-        for (owner, targets) in wants where targets.contains(target) { pendingOwners.insert(owner) }
         if flushTask == nil { scheduleFlush() }
     }
 
@@ -248,11 +257,14 @@ final class ReferenceChipStore {
         flushTask = Task { [weak self] in
             await sleep(Self.coalescing)
             guard let self else { return }
-            for target in pendingTitles { titles[target] = box(for: target).resolution?.title }
+            let changed = pendingTitles
             pendingTitles = []
-            let owners = pendingOwners
-            pendingOwners = []
-            for owner in owners where wants[owner] != nil { revisionBox(for: owner).value += 1 }
+            for target in changed { titles[target] = box(for: target).resolution?.title }
+            // Owners are read at the flush, not at publish: one that rebuilt
+            // in between read no title, and needs this bump to read it.
+            for (owner, targets) in wants where !targets.isDisjoint(with: changed) {
+                revisionBox(for: owner).value += 1
+            }
             flushTask = nil
         }
     }

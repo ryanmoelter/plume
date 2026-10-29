@@ -58,6 +58,8 @@ struct ChatMessageList<SidePane: View>: View, ThemedView {
     @State private var untabbedCache = ChatPieceCache()
     /// The reference revision the pieces were last built at.
     @State private var builtReferenceRevision = 0
+    /// This view instance, to `ReferenceChipStore`.
+    @State private var chipMount = UUID()
     /// The agent messages the reader has opened past their preview. View
     /// state only: every message starts collapsed again in a new view.
     @State private var expandedAgentMessages: Set<String> = []
@@ -180,7 +182,7 @@ struct ChatMessageList<SidePane: View>: View, ThemedView {
         .onChange(of: referenceRevision) { rebuildPieces() }
         .onChange(of: linkDirectory) { rebuildPieces() }
         .onDisappear {
-            if let tabID { ReferenceChipStore.shared.release(owner: tabID) }
+            if let tabID { ReferenceChipStore.shared.release(owner: tabID, mount: chipMount) }
         }
         #if DEBUG
         .task(id: pieces.count) {
@@ -254,7 +256,7 @@ struct ChatMessageList<SidePane: View>: View, ThemedView {
             )
         }
         var rebuilt = split(status)
-        if let tabID { store.want(cache.referenceTargets, owner: tabID) }
+        if let tabID { store.want(cache.referenceTargets, owner: tabID, mount: chipMount) }
         // A title arriving grows a finished message without anything new
         // being written, so it shows at once rather than revealing again.
         let settling = revision == builtReferenceRevision ? [] : Set(merged.lazy.filter { !$0.isLive }.map(\.id))

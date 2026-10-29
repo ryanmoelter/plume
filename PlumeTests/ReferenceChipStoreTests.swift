@@ -111,6 +111,40 @@ struct ReferenceChipStoreTests {
         #expect(store.revision(for: ownerA) == 1)
     }
 
+    @Test func anOwnerWantingATargetBeforeItsFlushBumps() async {
+        let gate = Gate()
+        let store = makeStore(files: ["/repo/Notes.md": false], flushGate: gate)
+        store.want([.file(path: "/repo/Notes.md")], owner: ownerA)
+        await store.lookupsSettled()
+        store.want([.file(path: "/repo/Notes.md")], owner: ownerB)
+        gate.open()
+        await store.settled()
+        #expect(store.revision(for: ownerA) == 1)
+        #expect(store.revision(for: ownerB) == 1)
+    }
+
+    @Test func releasingKeepsTheRevision() async {
+        let store = makeStore(files: ["/repo/Notes.md": false])
+        store.want([.file(path: "/repo/Notes.md")], owner: ownerA)
+        await store.settled()
+        store.release(owner: ownerA)
+        #expect(store.revision(for: ownerA) == 1)
+    }
+
+    @Test func aStaleMountCannotReleaseItsReplacementsWants() async throws {
+        let store = makeStore()
+        let oldMount = UUID()
+        let newMount = UUID()
+        store.want([.linear(identifier: "A-1")], owner: ownerA, mount: oldMount)
+        store.want([.linear(identifier: "A-1")], owner: ownerA, mount: newMount)
+        store.release(owner: ownerA, mount: oldMount)
+        let wanted = try #require(linear.wanted.first)
+        #expect(wanted.value == ["A-1"])
+
+        store.release(owner: ownerA, mount: newMount)
+        #expect(linear.wanted[wanted.key] == [])
+    }
+
     @Test func aLinearIssueWantedUnderItsOwnOwnerArrivesAndBumps() async throws {
         let store = makeStore()
         let target = ReferenceTarget.linear(identifier: "A-1")
