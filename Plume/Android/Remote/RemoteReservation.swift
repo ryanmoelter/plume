@@ -67,13 +67,22 @@ final class RemoteReservation {
         let (cli, ledger, projectID, createdID) = (cli, ledger, projectID, createdID)
         let arguments = ["device", "remote", "create", model, projectArgument]
         let lines = LineBuffer()
+        @Sendable func record(_ lines: [String]) {
+            guard createdID.value == nil,
+                  let created = lines.lazy.compactMap({ RemoteDeviceParsers.createdReservation($0) }).first
+            else { return }
+            createdID.value = created.id
+            ledger.add(reservationID: created.id, projectID: projectID)
+        }
         let run = Task.detached {
-            try await cli.run(arguments, timeout: Self.createTimeout) { text in
-                guard createdID.value == nil,
-                      let created = lines.completeLines(appending: text).lazy.compactMap({ RemoteDeviceParsers.createdReservation($0) }).first
-                else { return }
-                createdID.value = created.id
-                ledger.add(reservationID: created.id, projectID: projectID)
+            do {
+                return try await cli.run(arguments, timeout: Self.createTimeout) { text in
+                    record(lines.completeLines(appending: text))
+                }
+            } catch {
+                // A cancel kills the tool, so an unterminated last line is all it will ever print.
+                record([lines.remainder])
+                throw error
             }
         }
         createRun = run
@@ -250,6 +259,9 @@ nonisolated final class LineBuffer: @unchecked Sendable {
             return complete.split(whereSeparator: \.isNewline).map(String.init)
         }
     }
+
+    /// The unterminated text after the last complete line.
+    var remainder: String { lock.withLock { partial } }
 }
 
 nonisolated final class LockedValue<Value: Sendable>: @unchecked Sendable {

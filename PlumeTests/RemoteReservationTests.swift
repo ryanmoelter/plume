@@ -143,6 +143,22 @@ struct RemoteReservationTests {
         #expect(ledger.entries.map(\.reservationID) == ["r1"])
     }
 
+    @Test func releasingDuringCreateRemovesAnIDPrintedWithoutANewline() async {
+        let cli = FakeAndroidCLI()
+        cli.answer("create", ok("New reservation created with id r1. Reservation ends at 10:51\u{202F}PM"))
+        cli.hold("create")
+        let ledger = makeLedger()
+        let reservation = RemoteReservation(projectID: "p", model: "oriole/31", cli: cli, ledger: ledger, now: { now })
+        let creating = Task { try await reservation.create() }
+        await waitUntilSoon { !cli.calls.isEmpty }
+
+        await reservation.release().value
+        _ = await creating.result
+
+        #expect(cli.calls.last == ["device", "remote", "remove", "r1", "--project=p"])
+        #expect(ledger.entries.isEmpty)
+    }
+
     @Test func releaseDisconnectsThenRemovesAndForgetsTheLedgerEntry() async throws {
         let cli = FakeAndroidCLI()
         cli.answer("create", created)
