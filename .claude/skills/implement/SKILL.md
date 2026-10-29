@@ -81,6 +81,7 @@ Only after the user approves. Check signatures first — `git log --format='%G? 
 - `ExitWorktree` with `action: keep`, then `wt delete <name>`.
 - Delete the branch once its content has landed: `git diff <branch>..<target> --stat` must be empty. A re-signed cherry-pick reads as unmerged to `git branch --merged`.
 - Remove the worktree's debug data, `~/Library/Application Support/Plume.debug-<worktreeName>/`.
+- Remove the worktree's DerivedData. Quit its debug app first (only the PID from `pgrep -f "^<app>/Contents/MacOS/Plume"`). The folder is the `~/Library/Developer/Xcode/DerivedData/Plume-*` whose `info.plist` has `WorkspacePath` equal to `<worktree>/Plume.xcodeproj`; read it with `/usr/libexec/PlistBuddy -c 'Print :WorkspacePath' <dir>/info.plist`. Delete only an exact match, never the primary checkout's.
 - Report what landed and where. For anything deferred, ask before creating an issue, and take its fields from the user.
 
 ## Gotchas

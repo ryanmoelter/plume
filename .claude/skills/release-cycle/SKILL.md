@@ -89,6 +89,8 @@ git branch -D <prefix>/<slug> worktree-agent-<id>
 
 **`git branch --merged` is the check, but it answers about commits, not content.** A branch whose work reached the release branch by cherry-pick or by a re-signing rebase reads as *unmerged*, because its original SHAs are not ancestors. Confirm with `git diff <branch>..HEAD --stat` instead — an empty diff means the content landed and the branch is safe to delete.
 
+**Remove each removed worktree's DerivedData and debug data too.** Quit its debug app first (only the PID from `pgrep -f "^<app>/Contents/MacOS/Plume"`). Its DerivedData is the `~/Library/Developer/Xcode/DerivedData/Plume-*` whose `info.plist` has `WorkspacePath` equal to `<worktree>/Plume.xcodeproj`; read it with `/usr/libexec/PlistBuddy -c 'Print :WorkspacePath' <dir>/info.plist`. Delete only an exact match, never the primary checkout's. Its debug data is `~/Library/Application Support/Plume.debug-<worktreeName>/`.
+
 **Keep the worktree of any package whose work is not finished**, even if some of it merged. A package that was partly cherry-picked still holds the dropped commits, and they are the starting point for the follow-up agent.
 
 ## 4. Debug build for manual evaluation
@@ -120,7 +122,7 @@ Only after the user approves. Follow `docs/releasing.md`; do not duplicate it he
 - Publish through Sparkle and Homebrew, per `docs/releasing.md` → *Sharing a build*: `scripts/package-release.sh` (DMG, appcast, draft GitHub release), then the user publishes the draft, then `scripts/update-tap.sh <version>`. Ask before publishing and before bumping the tap; both are outward-facing.
 - Once the release is published, finish the `Release <version>` placeholder from step 1. Put the GitHub release link in its description, and check that `relatedTo` names every issue that shipped plus the previous release's issue, so the releases form a chain. Then mark it Done.
 - **Do not install.** Every install updates through Sparkle or Homebrew, so never run `scripts/install-release.sh` as part of a release.
-- Clean up anything step 3 left: `git worktree list` and `git branch --list '<prefix>/*'` should hold nothing from this cycle.
+- Clean up anything step 3 left: `git worktree list` and `git branch --list '<prefix>/*'` should hold nothing from this cycle, and no `Plume-*` DerivedData folder should point at a removed worktree.
 
 ## Gotchas
 
