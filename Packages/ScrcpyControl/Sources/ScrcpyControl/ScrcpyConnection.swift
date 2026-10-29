@@ -42,8 +42,8 @@ public actor ScrcpyConnection {
     private var tasks: [Task<Void, Never>] = []
     private var closed = false
 
-    public init(adbURL: URL, serial: String, jarURL: URL, version: String) {
-        launch = ScrcpyServerLaunch(adbURL: adbURL, serial: serial, jarURL: jarURL, version: version)
+    public init(adbURL: URL, serial: String, jarURL: URL, version: String, videoLimits: ScrcpyVideoLimits = .none) {
+        launch = ScrcpyServerLaunch(adbURL: adbURL, serial: serial, jarURL: jarURL, version: version, videoLimits: videoLimits)
         (controlStream, controlContinuation) = AsyncStream.makeStream(of: Data.self, bufferingPolicy: .bufferingNewest(512))
     }
 

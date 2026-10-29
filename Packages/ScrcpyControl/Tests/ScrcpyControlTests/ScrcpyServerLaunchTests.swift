@@ -55,6 +55,21 @@ struct ScrcpyServerLaunchTests {
         #expect(launch.serverArguments.contains("clipboard_autosync=false"))
     }
 
+    @Test func passesVideoLimitsOnlyWhenSet() {
+        let launch = ScrcpyServerLaunch(
+            adbURL: URL(fileURLWithPath: "/usr/bin/false"), serial: "x", jarURL: URL(fileURLWithPath: "/x"), version: "5.0.1",
+            videoLimits: ScrcpyVideoLimits(maxSize: 1280, videoBitRate: 4_000_000, maxFps: 30)
+        )
+        #expect(launch.serverArguments.suffix(3) == ["max_size=1280", "video_bit_rate=4000000", "max_fps=30"])
+
+        let partial = ScrcpyServerLaunch(
+            adbURL: URL(fileURLWithPath: "/usr/bin/false"), serial: "x", jarURL: URL(fileURLWithPath: "/x"), version: "5.0.1",
+            videoLimits: ScrcpyVideoLimits(maxFps: 30)
+        )
+        #expect(partial.serverArguments.contains("max_fps=30"))
+        #expect(!partial.serverArguments.contains { $0.hasPrefix("max_size") || $0.hasPrefix("video_bit_rate") })
+    }
+
     @Test func picksThisLaunchsForwardsOutOfTheList() {
         let listing = """
         S1 tcp:27183 localabstract:scrcpy_0000abcd
