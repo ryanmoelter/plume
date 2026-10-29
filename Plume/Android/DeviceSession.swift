@@ -244,7 +244,8 @@ final class DeviceSession {
         disconnect()
         reservation?.release()
         let reservation = RemoteReservation(
-            projectID: details.projectID, model: details.model, cli: remoteCLI, ledger: ledger, now: now
+            projectID: details.projectID, model: details.model, cli: remoteCLI, ledger: ledger, now: now,
+            listADB: physicalDiscovery.list
         )
         self.reservation = reservation
         remoteDetails = details

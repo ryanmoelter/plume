@@ -30,6 +30,7 @@ final class RemoteReservation {
     @ObservationIgnored private let cli: AndroidCLIRunning
     @ObservationIgnored private let ledger: RemoteReservationLedger
     @ObservationIgnored private let now: () -> Date
+    @ObservationIgnored private let listADB: @Sendable () async -> ADBListing
     /// Written from the create command's output as it arrives, so a release can find an id the
     /// main actor hasn't seen yet.
     @ObservationIgnored private let createdID = LockedValue<String?>(nil)
@@ -45,7 +46,8 @@ final class RemoteReservation {
         expiresAt: Date? = nil,
         cli: AndroidCLIRunning = AndroidCLI.shared,
         ledger: RemoteReservationLedger = .shared,
-        now: @escaping () -> Date = Date.init
+        now: @escaping () -> Date = Date.init,
+        listADB: @escaping @Sendable () async -> ADBListing = PhysicalDeviceDiscovery.liveList
     ) {
         self.projectID = projectID
         self.model = model
@@ -54,6 +56,7 @@ final class RemoteReservation {
         self.cli = cli
         self.ledger = ledger
         self.now = now
+        self.listADB = listADB
         createdID.value = reservationID
     }
 
@@ -104,7 +107,8 @@ final class RemoteReservation {
     }
 
     /// Attaches the device to adb and returns its serial. A connection left from an earlier
-    /// `connect` makes the tool refuse, so that one is dropped and the connect tried once more.
+    /// `connect` makes the tool refuse. Its tunnel is reused while adb still sees the device;
+    /// otherwise it is dropped and the connect tried once more.
     func connect() async throws -> String {
         guard let reservationID else { throw AndroidCLIError(message: "The reservation has no id.") }
         for attempt in 0..<2 {
@@ -114,7 +118,12 @@ final class RemoteReservation {
                 let serial = "localhost:\(port)"
                 self.serial = serial
                 return serial
-            case .alreadyConnected where attempt == 0:
+            case .alreadyConnected(let port) where attempt == 0:
+                let serial = "localhost:\(port)"
+                if await listADB().devices.contains(where: { $0.serial == serial && $0.isReady }) {
+                    self.serial = serial
+                    return serial
+                }
                 _ = try await cli.run(["device", "remote", "disconnect", reservationID, projectArgument], timeout: Self.commandTimeout)
             case .alreadyConnected, .failed:
                 throw AndroidCLIError(message: result.failureMessage)

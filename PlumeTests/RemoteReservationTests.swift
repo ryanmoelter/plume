@@ -92,6 +92,11 @@ r1           FINISHED  10:39\u{202F}PM  Google        Pixel 6  oriole    31
 
 """)
 
+/// The old tunnel's device is offline, so a refused connect has to start over.
+private let offlineADB: @Sendable () async -> ADBListing = {
+    ADBListing(adbURL: nil, devices: [PhysicalDevice(serial: "localhost:59050", state: .offline, model: nil)])
+}
+
 private func makeLedger() -> RemoteReservationLedger {
     RemoteReservationLedger(fileURL: FileManager.default.temporaryDirectory
         .appendingPathComponent("remote-reservations-\(UUID().uuidString).json"))
@@ -220,10 +225,25 @@ struct RemoteReservationTests {
         #expect(reservation.serial == "localhost:59095")
     }
 
+    @Test func aConnectionAdbStillSeesIsReused() async throws {
+        let cli = FakeAndroidCLI()
+        cli.answer("connect", failure("Reservation r1 is already connected on port 59050.\n"))
+        let listing = ADBListing(adbURL: nil, devices: [PhysicalDevice(serial: "localhost:59050", state: .ready, model: "Pixel_6")])
+        let reservation = RemoteReservation(
+            projectID: "p", model: nil, reservationID: "r1", cli: cli, ledger: makeLedger(), listADB: { listing }
+        )
+
+        #expect(try await reservation.connect() == "localhost:59050")
+        #expect(reservation.serial == "localhost:59050")
+        #expect(cli.verbs == ["connect"])
+    }
+
     @Test func aStaleConnectionIsDroppedAndTheConnectRetriedOnce() async throws {
         let cli = FakeAndroidCLI()
         cli.answer("connect", failure("Reservation r1 is already connected on port 59050.\n"), connected)
-        let reservation = RemoteReservation(projectID: "p", model: nil, reservationID: "r1", cli: cli, ledger: makeLedger())
+        let reservation = RemoteReservation(
+            projectID: "p", model: nil, reservationID: "r1", cli: cli, ledger: makeLedger(), listADB: offlineADB
+        )
 
         #expect(try await reservation.connect() == "localhost:59095")
         #expect(cli.verbs == ["connect", "disconnect", "connect"])
@@ -232,7 +252,9 @@ struct RemoteReservationTests {
     @Test func aConnectThatStaysStaleFails() async {
         let cli = FakeAndroidCLI()
         cli.answer("connect", failure("Reservation r1 is already connected on port 59050.\n"))
-        let reservation = RemoteReservation(projectID: "p", model: nil, reservationID: "r1", cli: cli, ledger: makeLedger())
+        let reservation = RemoteReservation(
+            projectID: "p", model: nil, reservationID: "r1", cli: cli, ledger: makeLedger(), listADB: offlineADB
+        )
 
         await #expect(throws: AndroidCLIError.self) { try await reservation.connect() }
         #expect(cli.verbs == ["connect", "disconnect", "connect"])

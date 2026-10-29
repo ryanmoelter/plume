@@ -57,7 +57,7 @@ final class PhysicalDeviceDiscovery {
 
     @ObservationIgnored private var retainCount = 0
     @ObservationIgnored private var pollTask: Task<Void, Never>?
-    @ObservationIgnored private let list: @Sendable () async -> ADBListing
+    @ObservationIgnored let list: @Sendable () async -> ADBListing
 
     init(list: @escaping @Sendable () async -> ADBListing = PhysicalDeviceDiscovery.liveList) {
         self.list = list

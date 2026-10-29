@@ -36,7 +36,7 @@ Every command takes `--project=<id>`, a Google Cloud project ready for streaming
 - `connect` starts a detached daemon (`android-cli device remote daemon-connect <id>`, parent pid 1) and exits. **The daemon is the tunnel**: killing it turns the adb device `offline`. `disconnect` kills it. `ChildProcess` waits for the tool to exit, never for its pipes to close, in case the daemon holds them.
 - `/usr/local/bin/android` is a wrapper that runs `android-cli` as its child. `ChildProcess` starts each command as the leader of its own process group and, on a cancel or a timeout, signals the whole group, so `android-cli` dies with the wrapper. A command that finishes is never signalled, so the daemon a `connect` leaves behind survives even if it stayed in the group.
 - `list <id>` with no row for the id counts as ended only when the output is the table or says `There are no active reservations.` Anything else is logged and read as unknown, which keeps the tab.
-- `connect` refuses with exit 1 and `Reservation <id> is already connected on port N.` when a connection is still recorded. Plume runs `disconnect` and tries `connect` once more.
+- `connect` refuses with exit 1 and `Reservation <id> is already connected on port N.` when a connection is still recorded. If adb lists `localhost:N` as `device`, Plume reuses that tunnel. Otherwise it runs `disconnect` and tries `connect` once more.
 - `disconnect` with nothing connected exits 1 with `No active connection found for reservation <id> in project <p>`, and `remove` of an ended reservation exits 1 with `Reservation <id> has already ended.` Both count as success.
 - Failures print text such as `Error: Failed to obtain auth token: HTTP connect timed out`. The tab shows it as is.
 
