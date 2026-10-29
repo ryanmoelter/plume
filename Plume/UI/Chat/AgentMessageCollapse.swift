@@ -75,8 +75,13 @@ private struct CollapsedTailFade: ViewModifier, ThemedView {
                     Color.black.opacity(tail == nil ? 1 : 0)
                 }
                 .animation(.easeOut(duration: 0.2), value: tail == nil)
+                // Chat chips draw past the first and last lines' frames.
+                .padding(.top, -overhang)
+                .padding(.bottom, tail == nil ? -overhang : 0)
             }
     }
+
+    private var overhang: CGFloat { InlineChips.defaultVerticalPad }
 
     private var maxHeight: CGFloat? {
         guard let limit = tail?.lineLimit else { return nil }
@@ -97,14 +102,16 @@ private struct CollapsedTailFade: ViewModifier, ThemedView {
     }
 }
 
-/// The view's bounds when clipping, otherwise those bounds grown far enough
-/// that nothing is cut — a shape rather than a conditional `.clipped()`, so
-/// toggling never restructures the chain.
+/// Cuts at the view's bottom edge when clipping, and nowhere else — a shape
+/// rather than a conditional `.clipped()`, so toggling never restructures
+/// the chain.
 private struct TailClip: Shape {
     let clips: Bool
 
     func path(in rect: CGRect) -> Path {
-        Path(clips ? rect : rect.insetBy(dx: -100_000, dy: -100_000))
+        var clip = rect.insetBy(dx: -100_000, dy: -100_000)
+        if clips { clip.size.height = rect.maxY - clip.minY }
+        return Path(clip)
     }
 }
 

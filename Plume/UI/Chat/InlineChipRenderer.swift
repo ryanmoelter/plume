@@ -48,9 +48,11 @@ struct InlineChips {
     /// How far a chip reaches past its glyphs' ascent and descent. It
     /// stops short of the line above and below, leaving `lineGap` between
     /// chips on adjacent lines, so the padding only spends the line spacing.
-    var verticalPad: CGFloat = 2
+    var verticalPad: CGFloat = Self.defaultVerticalPad
     var lineGap: CGFloat = 1
     var radius: CGFloat = 4
+
+    static let defaultVerticalPad: CGFloat = 2
 
     enum Chip: Equatable {
         case code(Int)
@@ -160,9 +162,15 @@ struct InlineChips {
         return CGRect(x: square.midX - size.width / 2, y: square.midY - size.height / 2, width: size.width, height: size.height)
     }
 
+    /// The room a chip on a `Text`'s first or last line reaches past it. A
+    /// renderer drawing chips must return this as its `displayPadding`, or
+    /// those chips are cut off at the line's edge.
+    var displayPadding: EdgeInsets {
+        EdgeInsets(top: verticalPad, leading: 0, bottom: verticalPad, trailing: 0)
+    }
+
     /// The lowest top and highest bottom a chip on line `index` may reach.
-    /// A line with no neighbor on a side takes the whole `verticalPad`,
-    /// which `InlineChipRenderer.displayPadding` makes room for.
+    /// A line with no neighbor on a side takes the whole `verticalPad`.
     private func verticalReach(of index: Int, in lines: [Text.Layout.Line]) -> (top: CGFloat, bottom: CGFloat) {
         func top(_ line: Text.Layout.Line) -> CGFloat { line.typographicBounds.origin.y - line.typographicBounds.ascent }
         func bottom(_ line: Text.Layout.Line) -> CGFloat { line.typographicBounds.origin.y + line.typographicBounds.descent }
@@ -199,9 +207,7 @@ struct InlineChipRenderer: TextRenderer {
     var chips: InlineChips
     var reveal: WordReveal?
 
-    var displayPadding: EdgeInsets {
-        EdgeInsets(top: chips.verticalPad, leading: 0, bottom: chips.verticalPad, trailing: 0)
-    }
+    var displayPadding: EdgeInsets { chips.displayPadding }
 
     func draw(layout: Text.Layout, in context: inout GraphicsContext) {
         chips.draw(layout: layout, reveal: reveal, in: &context)

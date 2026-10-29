@@ -739,7 +739,8 @@ final class ChatListController: NSObject {
 
         for (id, host) in hosts {
             guard let frame = model.frame(of: id) else { continue }
-            host.view.frame = NSRect(x: 0, y: frame.minY, width: width, height: frame.height)
+            let overhang = ChatListItemState.overhang
+            host.view.frame = NSRect(x: 0, y: frame.minY - overhang, width: width, height: frame.height + 2 * overhang)
         }
         publishVisibleIDs(offset: offset)
         logPass(offset: offset, viewport: viewport)
@@ -920,7 +921,7 @@ final class ChatListController: NSObject {
     private func naturalHeight(of view: NSHostingView<AnyView>) -> CGFloat {
         view.sizingOptions = .intrinsicContentSize
         defer { view.sizingOptions = [] }
-        return view.fittingSize.height
+        return view.fittingSize.height - 2 * ChatListItemState.overhang
     }
 
     /// A washed piece stays clipped even while live, because its wash follows
@@ -1128,8 +1129,12 @@ extension ChatListController {
             return isPiece(item)
         }
         return pieces.min { lhs, rhs in
-            verticalDistance(point.y, lhs.value.view.frame) < verticalDistance(point.y, rhs.value.view.frame)
+            verticalDistance(point.y, rowFrame(of: lhs.value)) < verticalDistance(point.y, rowFrame(of: rhs.value))
         }.map { ($0.key, $0.value) }
+    }
+
+    private func rowFrame(of host: Host) -> CGRect {
+        host.view.frame.insetBy(dx: 0, dy: ChatListItemState.overhang)
     }
 
     private func verticalDistance(_ y: CGFloat, _ frame: CGRect) -> CGFloat {
@@ -1372,6 +1377,7 @@ struct ChatListItemRoot<Content: View>: View {
     var body: some View {
         content(state)
             .frame(width: width, alignment: .top)
+            .padding(.vertical, ChatListItemState.overhang)
             .environment(\.chatFontSize, environment.chatFontSize)
             .environment(\.chatRevealModel, environment.revealModel)
             .environment(\.paneFocus, environment.paneFocus)
