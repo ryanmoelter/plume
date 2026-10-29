@@ -86,9 +86,13 @@ enum ChatLinkOpener {
     @MainActor
     static func open(_ target: Target) {
         switch target {
-        case .web(let url), .file(let url):
+        case .web(let url):
             Task.detached(priority: .userInitiated) {
                 NSWorkspace.shared.open(url)
+            }
+        case .file(let url):
+            Task.detached(priority: .userInitiated) {
+                NSWorkspace.shared.activateFileViewerSelecting([url])
             }
         case .unopenable:
             break
