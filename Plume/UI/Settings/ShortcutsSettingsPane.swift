@@ -64,6 +64,7 @@ struct ShortcutsSettingsPane: View {
 
             Section {
                 Toggle("Intercept Plume keyboard shortcuts", isOn: $settings.keepsPlumeShortcutsOnMac)
+                    .help("When on, Plume's own ⌘ shortcuts stay with Plume while a device tab has focus. Other ⌘ chords go to the device.")
                     .plumeID(
                         AccessibilityID.devicesKeepShortcutsToggle,
                         value: String(settings.keepsPlumeShortcutsOnMac),
