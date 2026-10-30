@@ -249,6 +249,8 @@ private struct ProjectSettingsFields: View {
         }
         .plumeID(AccessibilityID.settingsProjectForgePicker, value: settings.forge?.rawValue ?? "auto")
 
+        LinearWorkspacesField(settings: settings, inherited: inherited, isDefaults: isDefaults, update: update)
+
         NameListEditor(
             title: "Protected worktrees",
             caption: "Worktree folders that wt refuses to delete, rename or foreground.",
@@ -305,6 +307,51 @@ private struct ProjectSettingsFields: View {
         case .gitlab: "GitLab"
         case .none: "None"
         }
+    }
+}
+
+/// Which connected Linear workspaces a project's tasks see, all by default.
+private struct LinearWorkspacesField: View {
+    let settings: ProjectSettings
+    let inherited: ProjectSettings
+    let isDefaults: Bool
+    let update: ((inout ProjectSettings) -> Void) -> Void
+
+    private var accounts: [LinearAccount] { LinearStore.shared.accounts.accounts }
+
+    var body: some View {
+        if accounts.count > 1 {
+            LabeledContent("Linear workspaces") {
+                VStack(alignment: .leading) {
+                    ForEach(accounts) { account in
+                        Toggle(account.orgName, isOn: binding(for: account.orgID))
+                    }
+                    Text(caption)
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                }
+            }
+        }
+    }
+
+    private var caption: String {
+        let inheriting = settings.linearOrgIDs == nil && !isDefaults && inherited.linearOrgIDs != nil
+        return inheriting
+            ? "Shared with the defaults row until changed."
+            : "Tasks here see only the workspaces switched on."
+    }
+
+    private func binding(for orgID: String) -> Binding<Bool> {
+        let effective = settings.linearOrgIDs ?? inherited.linearOrgIDs
+        return Binding(
+            get: { effective?.contains(orgID) ?? true },
+            set: { isOn in
+                let selection = LinearAccountScope.toggling(
+                    orgID, on: isOn, selection: effective, connected: accounts.map(\.orgID)
+                )
+                update { $0.linearOrgIDs = selection }
+            }
+        )
     }
 }
 

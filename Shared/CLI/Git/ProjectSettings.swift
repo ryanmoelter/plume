@@ -23,6 +23,8 @@ nonisolated struct ProjectSettings: Codable, Equatable, Sendable {
     /// CI checks whose perpetual pending shouldn't mask the rollup. Default:
     /// none.
     var ignoredPendingChecks: [String]?
+    /// Linear workspaces (`orgID`s) tasks in this project see. Default: all.
+    var linearOrgIDs: [String]?
 
     init(
         baseBranch: String? = nil,
@@ -30,7 +32,8 @@ nonisolated struct ProjectSettings: Codable, Equatable, Sendable {
         forge: ForgeKind? = nil,
         nerdFont: NerdFontMode? = nil,
         protectedWorktrees: [String]? = nil,
-        ignoredPendingChecks: [String]? = nil
+        ignoredPendingChecks: [String]? = nil,
+        linearOrgIDs: [String]? = nil
     ) {
         self.baseBranch = baseBranch
         self.branchPrefix = branchPrefix
@@ -38,6 +41,7 @@ nonisolated struct ProjectSettings: Codable, Equatable, Sendable {
         self.nerdFont = nerdFont
         self.protectedWorktrees = protectedWorktrees
         self.ignoredPendingChecks = ignoredPendingChecks
+        self.linearOrgIDs = linearOrgIDs
     }
 
     /// These settings over `fallback`: each non-nil field here wins, and a
@@ -49,7 +53,8 @@ nonisolated struct ProjectSettings: Codable, Equatable, Sendable {
             forge: forge ?? fallback.forge,
             nerdFont: nerdFont ?? fallback.nerdFont,
             protectedWorktrees: protectedWorktrees ?? fallback.protectedWorktrees,
-            ignoredPendingChecks: ignoredPendingChecks ?? fallback.ignoredPendingChecks
+            ignoredPendingChecks: ignoredPendingChecks ?? fallback.ignoredPendingChecks,
+            linearOrgIDs: linearOrgIDs ?? fallback.linearOrgIDs
         )
     }
 }

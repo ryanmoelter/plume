@@ -21,6 +21,11 @@ nonisolated enum ProjectRoot {
         return FileManager.default.fileExists(atPath: bare) ? bare : root
     }
 
+    /// The inverse of `repositoryDirectory(forRoot:)`, with no git call.
+    static func root(forRepositoryDirectory repository: String) -> String {
+        isBareLayoutRepository(repository) ? (repository as NSString).deletingLastPathComponent : repository
+    }
+
     /// Whether `repository` is the bare layout's `.bare`, whose worktrees
     /// belong beside it in the project folder, never inside it.
     static func isBareLayoutRepository(_ repository: String) -> Bool {

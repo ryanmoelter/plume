@@ -182,6 +182,22 @@ final class LinearStore: LinearActivitySink {
     /// Every issue the task links, classified. A view may call it from
     /// `body`: it writes only unobserved caches.
     func links(for task: WorkTask, branches: [String]) -> [LinkedLinearIssue] {
+        let scope = LinearAccountScope.allowedOrgIDs(
+            repository: task.repoPath,
+            configuration: AppSettings.shared.projectsConfiguration
+        )
+        return scoped(unscopedLinks(for: task, branches: branches), to: scope)
+    }
+
+    private func scoped(_ links: [LinkedLinearIssue], to scope: [String]?) -> [LinkedLinearIssue] {
+        guard let scope else { return links }
+        let catalogs = orderedCatalogs.filter { scope.contains($0.orgID) }
+        return links.filter {
+            !LinearAccounts.owners(ofTeamKey: LinearIdentifier.teamKey(of: $0.identifier), catalogs: catalogs).isEmpty
+        }
+    }
+
+    private func unscopedLinks(for task: WorkTask, branches: [String]) -> [LinkedLinearIssue] {
         let evidence = task.orderedTabs
             .filter { $0.kind == .agent }
             .flatMap { activityBox(for: $0.id).evidence }
@@ -902,10 +918,11 @@ final class LinearStore: LinearActivitySink {
     /// loaded, so a later call sees it.
     func mentionCandidates(
         matching query: String,
-        limit: Int = LinearMentionMatcher.defaultLimit
+        limit: Int = LinearMentionMatcher.defaultLimit,
+        allowing orgIDs: [String]? = nil
     ) async -> [RankedMention] {
         var sources: [MentionSource] = []
-        for account in accounts.accounts {
+        for account in LinearAccountScope.filter(accounts.accounts, allowing: orgIDs) {
             let orgID = account.orgID
             if disk != nil, cacheLoads[orgID] == nil {
                 track { [self] in await ensureLoaded(orgID: orgID) }
@@ -970,7 +987,7 @@ final class LinearStore: LinearActivitySink {
     /// carry this query have finished, including one that waits behind a
     /// search already running; a later query that replaces it in that queue
     /// is the one it waits for.
-    func searchIssues(_ query: String) async {
+    func searchIssues(_ query: String, allowing orgIDs: [String]? = nil) async {
         guard let search = LinearMentionSearch.parse(query, teamKeys: teamKeys) else { return }
         var started: [Task<Void, Never>] = []
         switch search {
@@ -978,12 +995,12 @@ final class LinearStore: LinearActivitySink {
             guard cachedIssue(identifier) == nil,
                   !searchHits.values.contains(where: { $0[identifier] != nil })
             else { return }
-            for orgID in targets(for: identifier) {
+            for orgID in targets(for: identifier) where orgIDs?.contains(orgID) ?? true {
                 if let task = startSearch(search, orgID: orgID) { started.append(task) }
             }
         case .text(let term, let keys):
             let wholeQuery = query.trimmingCharacters(in: .whitespaces)
-            for account in accounts.accounts {
+            for account in LinearAccountScope.filter(accounts.accounts, allowing: orgIDs) {
                 let orgID = account.orgID
                 let owned = keys.filter((catalogs[orgID]?.teamKeys ?? []).contains)
                 // A workspace without the team reads the first word as part
