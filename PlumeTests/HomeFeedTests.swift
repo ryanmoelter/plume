@@ -53,12 +53,12 @@ struct HomeFeedTests {
         #expect(feed.needsYou.isEmpty && feed.running.isEmpty && feed.notStarted.isEmpty)
     }
 
-    @Test func anErroredTabNeedsYouAfterTheAttentionStates() {
+    @Test func anErroredTabNeedsYouBeforeTheAttentionStates() {
         let feed = HomeFeed(entries: [
             entry(.awaitingReply, isUnread: true), entry(.error), entry(.questionAsked),
         ])
-        #expect(feed.needsYou.map(\.status) == [.questionAsked, .error, .awaitingReply])
-        #expect(feed.needsYou[1].reason == "Stopped with an error")
+        #expect(feed.needsYou.map(\.status) == [.error, .questionAsked, .awaitingReply])
+        #expect(feed.needsYou[0].reason == "Stopped with an error")
     }
 
     @Test func aNeverStartedTabIsNotStarted() {
@@ -97,7 +97,7 @@ struct HomeFeedTests {
 
     // MARK: Ordering
 
-    @Test func needsYouOrderIsPermissionTerminalQuestionPlanErrorUnread() {
+    @Test func needsYouOrderIsErrorPermissionTerminalQuestionPlanUnread() {
         let feed = HomeFeed(entries: [
             entry(title: "unread", .awaitingReply, isUnread: true),
             entry(title: "error", .error),
@@ -106,7 +106,7 @@ struct HomeFeedTests {
             entry(title: "question", .questionAsked),
             entry(title: "plan", .planApproval),
         ])
-        #expect(feed.needsYou.map(\.taskTitle) == ["permission", "terminal", "question", "plan", "error", "unread"])
+        #expect(feed.needsYou.map(\.taskTitle) == ["error", "permission", "terminal", "question", "plan", "unread"])
     }
 
     @Test func appearanceCarriesThroughToTheItem() {

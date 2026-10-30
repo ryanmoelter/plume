@@ -104,11 +104,11 @@ struct HomeFeed: Equatable {
     /// which the sidebar uses.
     private static func rank(_ item: Item) -> Int {
         switch item.status {
-        case .permissionNeeded: 5
-        case .needsTerminalInput: 4
-        case .questionAsked: 3
-        case .planApproval: 2
-        case .error: 1
+        case .error: 5
+        case .permissionNeeded: 4
+        case .needsTerminalInput: 3
+        case .questionAsked: 2
+        case .planApproval: 1
         default: 0
         }
     }
