@@ -10,6 +10,10 @@ struct Dimensions: Equatable {
     /// advance for a proportional font.
     let contentWidth: CGFloat
 
+    /// Roughly 45 characters: the narrowest prose column that still reads
+    /// comfortably, which a pinned info pane may squeeze the chat down to.
+    let comfortableContentWidth: CGFloat
+
     /// Room for what doesn't fit prose measure — code blocks, tables, the
     /// plan panel.
     let bleedWidth: CGFloat
@@ -96,6 +100,7 @@ struct Dimensions: Equatable {
     init(bodySize: CGFloat) {
         self.bodySize = bodySize
         contentWidth = bodySize * 40
+        comfortableContentWidth = bodySize * 22.5
         bleedWidth = bodySize * 50
         listBottomPadding = bodySize * 4.5
         blockSpacing = bodySize * 1.15

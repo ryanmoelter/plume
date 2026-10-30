@@ -45,6 +45,7 @@ final class AppSettings {
         static let sidebarTwoToneIcons = "sidebarTwoToneIcons"
         static let recentSidebarIcons = "recentSidebarIcons"
         static let infoPaneStateRaw = "infoPaneStateRaw"
+        static let infoPaneWidth = "infoPaneWidth"
         static let infoPaneSubagentsExpanded = "infoPaneSubagentsExpanded"
         static let infoPaneLinearExpanded = "infoPaneLinearExpanded"
         static let infoPaneBackgroundTasksExpanded = "infoPaneBackgroundTasksExpanded"
@@ -203,6 +204,8 @@ final class AppSettings {
 
         self.infoPaneState = defaults.string(forKey: Key.infoPaneStateRaw)
             .flatMap(InfoPaneState.init(rawValue:)) ?? .expanded
+        self.infoPaneWidth = (defaults.object(forKey: Key.infoPaneWidth) as? Double)
+            .map { CGFloat($0) } ?? InfoPaneLayout.defaultPaneWidth
         self.infoPaneSubagentsExpanded = defaults.object(forKey: Key.infoPaneSubagentsExpanded) == nil
             ? true
             : defaults.bool(forKey: Key.infoPaneSubagentsExpanded)
@@ -615,12 +618,20 @@ final class AppSettings {
         }
     }
 
-    /// The side pane's state applies only while the pane fits beside the
-    /// chat. A narrower window opens it on demand instead, which this never
-    /// records.
+    /// Expanded pins the side pane beside the chat while the window has room
+    /// for it (`InfoPaneLayout.showsBeside`). A narrower window opens it on
+    /// demand instead, which this never records.
     var infoPaneState: InfoPaneState {
         didSet {
             defaults.set(infoPaneState.rawValue, forKey: Key.infoPaneStateRaw)
+        }
+    }
+
+    /// One width for every chat's side pane, set by dragging its leading
+    /// edge.
+    var infoPaneWidth: CGFloat {
+        didSet {
+            defaults.set(Double(infoPaneWidth), forKey: Key.infoPaneWidth)
         }
     }
 

@@ -63,6 +63,10 @@ struct ChatTabView: View, ThemedView {
     @State private var conversationWidth = Self.lastConversationWidth
     @State private var collapsedInfoPaneHeight = Self.lastCollapsedInfoPaneHeight
     @State private var openInfoPaneHeight: CGFloat = 0
+    /// What `InfoPaneLayout.showsBeside` last answered. Seeded across mounts,
+    /// so switching tasks inside the dead band keeps the pane as it was.
+    @State private var showsInfoPaneBeside = Self.lastShowsInfoPaneBeside
+    private static var lastShowsInfoPaneBeside = true
     private static var lastConversationWidth: CGFloat = 0
     private static var lastCollapsedInfoPaneHeight: CGFloat = 0
     /// The dock bar and the expanded overlay are separate view trees, so the
@@ -1039,6 +1043,22 @@ struct ChatTabView: View, ThemedView {
             conversationWidth = width
             Self.lastConversationWidth = width
         }
+        .onChange(of: geometry.isPinned) { _, isPinned in
+            guard conversationWidth > 0, settings.infoPaneState == .expanded else { return }
+            setShowsInfoPaneBeside(isPinned)
+        }
+    }
+
+    private func setShowsInfoPaneBeside(_ shows: Bool) {
+        showsInfoPaneBeside = shows
+        Self.lastShowsInfoPaneBeside = shows
+    }
+
+    /// Pinning shows the pane beside the chat wherever it fits there, even
+    /// inside the dead band where a narrowed window had closed it.
+    private func pinInfoPane() {
+        setShowsInfoPaneBeside(true)
+        settings.infoPaneState = .expanded
     }
 
     private var sideInfoPaneGeometry: InfoPaneLayout.SideGeometry {
@@ -1046,13 +1066,22 @@ struct ChatTabView: View, ThemedView {
             width: conversationWidth,
             railFootprint: ChatMinimap.railFootprint(forViewport: conversationWidth, dimensions: dimensions),
             gap: dimensions.panelInset,
-            // Prose sits inside a bleed row, so it pays both rows' edge
-            // padding before it reaches its full measure.
-            chatColumnWidth: dimensions.contentWidth
-                + (dimensions.horizontalEdgePadding + dimensions.horizontalBleedPadding) * 2,
+            chatColumnWidth: dimensions.contentWidth + chatEdgePadding,
+            comfortableChatWidth: max(
+                dimensions.comfortableContentWidth + chatEdgePadding,
+                WindowMetrics.paneMinimumWidth
+            ),
+            paneWidth: settings.infoPaneWidth,
             state: settings.infoPaneState,
+            wasShownBeside: showsInfoPaneBeside,
             collapsedHeight: collapsedInfoPaneHeight
         )
+    }
+
+    /// Prose sits inside a bleed row, so it pays both rows' edge padding
+    /// before it reaches its full measure.
+    private var chatEdgePadding: CGFloat {
+        (dimensions.horizontalEdgePadding + dimensions.horizontalBleedPadding) * 2
     }
 
     private func sideInfoPane(geometry: InfoPaneLayout.SideGeometry, linearLinks: [LinkedLinearIssue]) -> some View {
@@ -1066,6 +1095,7 @@ struct ChatTabView: View, ThemedView {
                 Self.lastCollapsedInfoPaneHeight = height
             },
             onOpenHeight: { openInfoPaneHeight = $0 },
+            onPin: pinInfoPane,
             onOpenSubagent: { openSubagentID = $0.id },
             onOpenPlan: openPlan,
             onOpenSideChat: { isSideChatShown = true },
