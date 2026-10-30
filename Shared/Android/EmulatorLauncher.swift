@@ -1,7 +1,7 @@
 import Darwin
 import Foundation
 
-struct EmulatorLaunchError: LocalizedError {
+nonisolated struct EmulatorLaunchError: LocalizedError {
     let message: String
     var errorDescription: String? { message }
 }
@@ -45,21 +45,31 @@ nonisolated final class EmulatorLaunch: @unchecked Sendable {
     }
 }
 
-@MainActor enum EmulatorLauncher {
-    static func logURL(avdID: String) -> URL {
-        AppPaths.applicationSupport.appending(path: "Emulators/\(avdID).log")
+nonisolated enum EmulatorLauncher {
+    static func logURL(avdID: String, logDirectory: URL) -> URL {
+        logDirectory.appending(path: "\(avdID).log")
     }
 
     static func arguments(avdID: String) -> [String] {
         ["-avd", avdID, "-no-window", "-grpc-use-token", "-no-boot-anim"]
     }
 
+    /// A tab's identity would make the emulator's own children look like they belong to that tab.
+    static func childEnvironment(_ base: [String: String], sdk: AndroidSDK) -> [String: String] {
+        base.filter { !$0.key.hasPrefix("PLUME_") }.merging(sdk.launchEnvironment) { _, new in new }
+    }
+
     /// Spawns in its own session so closing a tab or quitting Plume leaves the emulator running.
-    static func boot(avdID: String, sdk: AndroidSDK) throws -> EmulatorLaunch {
+    static func boot(
+        avdID: String,
+        sdk: AndroidSDK,
+        logDirectory: URL,
+        onExit: @escaping @Sendable (Int32) -> Void = { _ in }
+    ) throws -> EmulatorLaunch {
         guard let emulatorURL = sdk.emulatorURL else {
             throw EmulatorLaunchError(message: "The Android emulator isn't installed in \(sdk.root.path).")
         }
-        let logURL = logURL(avdID: avdID)
+        let logURL = logURL(avdID: avdID, logDirectory: logDirectory)
         try FileManager.default.createDirectory(at: logURL.deletingLastPathComponent(), withIntermediateDirectories: true)
         let logFD = open(logURL.path, O_WRONLY | O_CREAT | O_TRUNC, 0o644)
         guard logFD >= 0 else { throw EmulatorLaunchError(message: "Could not open \(logURL.path): \(String(cString: strerror(errno)))") }
@@ -92,8 +102,7 @@ nonisolated final class EmulatorLaunch: @unchecked Sendable {
         posix_spawnattr_setsigmask(&attributes, &noSignals)
 
         let argv = [emulatorURL.path] + arguments(avdID: avdID)
-        let environment = ProcessInfo.processInfo.environment
-            .merging(sdk.launchEnvironment) { _, new in new }
+        let environment = childEnvironment(ProcessInfo.processInfo.environment, sdk: sdk)
             .map { "\($0.key)=\($0.value)" }
 
         let cArgv = argv.map { strdup($0) } + [nil]
@@ -114,7 +123,7 @@ nonisolated final class EmulatorLaunch: @unchecked Sendable {
         let source = DispatchSource.makeProcessSource(identifier: pid, eventMask: .exit, queue: .global(qos: .utility))
         source.setEventHandler {
             _ = launch.reap(blocking: true)
-            EmulatorLog.info("emulator launcher pid \(pid) for \(avdID) exited")
+            onExit(pid)
             source.cancel()
         }
         source.resume()

@@ -47,7 +47,7 @@ final class RemoteReservation {
         cli: AndroidCLIRunning = AndroidCLI.shared,
         ledger: RemoteReservationLedger = .shared,
         now: @escaping () -> Date = Date.init,
-        listADB: @escaping @Sendable () async -> ADBListing = PhysicalDeviceDiscovery.liveList
+        listADB: @escaping @Sendable () async -> ADBListing = ADBListing.live
     ) {
         self.projectID = projectID
         self.model = model

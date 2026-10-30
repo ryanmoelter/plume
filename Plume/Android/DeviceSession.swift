@@ -404,7 +404,12 @@ final class DeviceSession {
             }
             let launch: EmulatorLaunch
             do {
-                launch = try EmulatorLauncher.boot(avdID: avdID, sdk: sdk)
+                launch = try EmulatorLauncher.boot(
+                    avdID: avdID,
+                    sdk: sdk,
+                    logDirectory: AppPaths.applicationSupport.appending(path: "Emulators"),
+                    onExit: { pid in EmulatorLog.info("emulator launcher pid \(pid) for \(avdID) exited") }
+                )
                 EmulatorLog.info("\(logPrefix) booting, launcher pid \(launch.pid), log \(launch.logURL.path)")
             } catch {
                 EmulatorLog.error("\(logPrefix) boot failed: \(error.localizedDescription)")
