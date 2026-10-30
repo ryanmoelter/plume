@@ -32,9 +32,9 @@ enum HomeGreeting: Equatable {
     var symbolName: String {
         switch self {
         case .morning: "sun.horizon.fill"
-        case .day: "sun.max"
+        case .day: "sun.max.fill"
         case .evening: "sun.horizon.fill"
-        case .night: "moon.stars"
+        case .night: "moon.stars.fill"
         }
     }
 }

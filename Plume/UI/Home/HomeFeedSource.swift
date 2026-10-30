@@ -58,6 +58,7 @@ extension HomeFeed {
     init(tasks: [WorkTask], source: HomeFeedSource) {
         let entries = Self.liveAgentTabs(of: tasks).map { task, tab in
             let isUnread = source.isUnread(tab.id)
+            let appearance = SidebarTaskAppearance(task: task, settings: .shared)
             return Entry(
                 taskID: task.id,
                 tabID: tab.id,
@@ -68,7 +69,10 @@ extension HomeFeed {
                 hasSession: tab.hasAgentSession,
                 permissionToolName: source.permissionToolName(tab.id),
                 workStartedAt: source.workStarted(tab.id),
-                preview: isUnread ? source.preview(tab) : nil
+                preview: isUnread ? source.preview(tab) : nil,
+                iconName: task.iconName,
+                iconTint: appearance.iconTint,
+                barTint: appearance.barTint
             )
         }
         self.init(entries: entries)

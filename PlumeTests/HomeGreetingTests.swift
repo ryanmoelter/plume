@@ -27,4 +27,9 @@ struct HomeGreetingTests {
         let date = try #require(calendar.date(from: DateComponents(year: 2026, month: 3, day: 1, hour: 17, minute: 30)))
         #expect(HomeGreeting(date: date, calendar: calendar) == .evening)
     }
+
+    @Test func symbolsAreFilled() {
+        #expect([HomeGreeting.morning, .day, .evening, .night].map(\.symbolName)
+            == ["sun.horizon.fill", "sun.max.fill", "sun.horizon.fill", "moon.stars.fill"])
+    }
 }

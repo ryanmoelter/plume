@@ -22,6 +22,7 @@ private struct HomeContent: View, ThemedView {
     let feed: HomeFeed
     let open: (UUID, UUID) -> Void
     @Environment(\.theme) var theme
+    @State private var hangsMarkers = false
 
     var body: some View {
         ScrollView {
@@ -40,6 +41,10 @@ private struct HomeContent: View, ThemedView {
             .padding(.vertical, 40)
             .frame(maxWidth: .infinity)
         }
+        .onGeometryChange(for: Bool.self) { proxy in
+            (proxy.size.width - dimensions.contentWidth) / 2
+                >= HomeRow.markerGutterWidth + dimensions.horizontalEdgePadding
+        } action: { hangsMarkers = $0 }
         .plumeID(AccessibilityID.homeView)
     }
 
@@ -53,7 +58,7 @@ private struct HomeContent: View, ThemedView {
                     .plumeID(AccessibilityID.homeEmptyState)
             } else {
                 ForEach(feed.needsYou) { item in
-                    HomeRow(item: item, isProminent: true) { open(item.taskID, item.tabID) }
+                    HomeRow(item: item, isProminent: true, hangsMarkers: hangsMarkers) { open(item.taskID, item.tabID) }
                 }
             }
         }
@@ -65,7 +70,7 @@ private struct HomeContent: View, ThemedView {
                 .emphasis(.secondary)
             VStack(alignment: .leading, spacing: 0) {
                 ForEach(items) { item in
-                    HomeRow(item: item, isProminent: false) { open(item.taskID, item.tabID) }
+                    HomeRow(item: item, isProminent: false, hangsMarkers: hangsMarkers) { open(item.taskID, item.tabID) }
                 }
             }
         }
@@ -87,9 +92,8 @@ private struct HomeGreetingHeader: View, ThemedView {
     var body: some View {
         TimelineView(.everyMinute) { context in
             let greeting = HomeGreeting(date: context.date)
-            Label {
+            HStack(spacing: 6) {
                 Text(greeting.title)
-            } icon: {
                 Image(systemName: greeting.symbolName)
                     .symbolRenderingMode(.multicolor)
             }
@@ -103,9 +107,18 @@ private struct HomeGreetingHeader: View, ThemedView {
 
 private struct HomeRow: View, ThemedView {
     static let horizontalPadding: CGFloat = 10
+    private static let markerWidth: CGFloat = 18
+    private static let markerSpacing: CGFloat = 8
+    private static let barWidth: CGFloat = 3
+    private static let barTextGap: CGFloat = 8
+    /// What sits before the text column: the status marker and the color bar.
+    static let markerGutterWidth = markerWidth + markerSpacing + barWidth + barTextGap
 
     let item: HomeFeed.Item
     let isProminent: Bool
+    /// On a wide page the markers sit left of the text column, in the gutter,
+    /// so every section's text shares one leading edge.
+    let hangsMarkers: Bool
     let action: () -> Void
     @Environment(\.theme) var theme
     @Environment(\.colorScheme) private var colorScheme
@@ -125,6 +138,8 @@ private struct HomeRow: View, ThemedView {
                             .truncationMode(.tail)
                     }
                 }
+                .padding(.leading, Self.barWidth + Self.barTextGap)
+                .overlay(alignment: .leading) { colorBar }
                 Spacer(minLength: 8)
                 if item.status.isActive, let workStartedAt = item.workStartedAt {
                     ElapsedLabel(since: workStartedAt)
@@ -134,6 +149,7 @@ private struct HomeRow: View, ThemedView {
             }
             .padding(.horizontal, Self.horizontalPadding)
             .padding(.vertical, isProminent ? 8 : 4)
+            .padding(.leading, hangsMarkers ? -Self.markerGutterWidth : 0)
             .frame(maxWidth: .infinity, alignment: .leading)
             .background {
                 RoundedRectangle(cornerRadius: SidebarMetrics.selectionCornerRadius)
@@ -144,6 +160,17 @@ private struct HomeRow: View, ThemedView {
         .buttonStyle(.plain)
         .plumeHover { isHovered = $0 }
         .plumeID(AccessibilityID.homeRow, label: label, value: item.reason, invoke: action)
+    }
+
+    @ViewBuilder
+    private var colorBar: some View {
+        if let color = item.barTint.flatMap(theme.colors.color(for:)) {
+            Capsule()
+                .fill(color)
+                .frame(width: Self.barWidth)
+                .padding(.vertical, -3)
+                .accessibilityHidden(true)
+        }
     }
 
     private var leadingMarker: some View {
@@ -157,7 +184,7 @@ private struct HomeRow: View, ThemedView {
                     .font(isProminent ? typography.body.font : typography.caption.font)
             }
         }
-        .frame(width: 18)
+        .frame(width: Self.markerWidth)
     }
 
     private var label: String {
@@ -167,6 +194,9 @@ private struct HomeRow: View, ThemedView {
     @ViewBuilder
     private var titleLine: some View {
         HStack(alignment: .firstTextBaseline, spacing: 6) {
+            if let iconName = item.iconName {
+                taskIcon(iconName)
+            }
             Text(item.taskTitle)
                 .font(isProminent ? typography.body.semibold : typography.caption.font)
                 .emphasis(isProminent ? .primary : .secondary)
@@ -178,6 +208,18 @@ private struct HomeRow: View, ThemedView {
         }
         .lineLimit(1)
         .truncationMode(.tail)
+    }
+
+    @ViewBuilder
+    private func taskIcon(_ name: String) -> some View {
+        let icon = Image(systemName: name)
+            .symbolRenderingMode(SidebarIcons.renderingMode(twoTone: AppSettings.shared.sidebarTwoToneIcons))
+            .font(isProminent ? typography.body.font : typography.caption.font)
+        if let color = item.iconTint.flatMap(theme.colors.color(for:)) {
+            icon.foregroundStyle(color)
+        } else {
+            icon.emphasis(isProminent ? .primary : .secondary)
+        }
     }
 
     /// Only the unread preview is prose; a status reason shows as written.

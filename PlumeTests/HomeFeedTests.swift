@@ -97,15 +97,25 @@ struct HomeFeedTests {
 
     // MARK: Ordering
 
-    @Test func namedRequestsOutrankUnreadByPriority() {
+    @Test func needsYouOrderIsPermissionTerminalQuestionPlanErrorUnread() {
         let feed = HomeFeed(entries: [
             entry(title: "unread", .awaitingReply, isUnread: true),
+            entry(title: "error", .error),
             entry(title: "terminal", .needsTerminalInput),
             entry(title: "permission", .permissionNeeded),
             entry(title: "question", .questionAsked),
             entry(title: "plan", .planApproval),
         ])
-        #expect(feed.needsYou.map(\.taskTitle) == ["plan", "question", "permission", "terminal", "unread"])
+        #expect(feed.needsYou.map(\.taskTitle) == ["permission", "terminal", "question", "plan", "error", "unread"])
+    }
+
+    @Test func appearanceCarriesThroughToTheItem() {
+        var tinted = entry(.questionAsked)
+        tinted.iconName = "star"
+        tinted.iconTint = .text
+        tinted.barTint = .text
+        let item = HomeFeed(entries: [tinted]).needsYou[0]
+        #expect(item.iconName == "star" && item.iconTint == .text && item.barTint == .text)
     }
 
     @Test func tiesKeepSidebarOrder() {
@@ -158,7 +168,7 @@ struct HomeFeedTests {
             entry(task: shared, title: "two", tab: "second", .working),
             entry(title: "one", tab: "only", .planApproval),
         ])
-        #expect(feed.needsYou.map(\.tabTitle) == [nil, "first"])
+        #expect(feed.needsYou.map(\.tabTitle) == ["first", nil])
         #expect(feed.running.map(\.tabTitle) == ["second"])
     }
 

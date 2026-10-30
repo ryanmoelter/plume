@@ -21,6 +21,9 @@ struct HomeFeed: Equatable {
         var workStartedAt: Date?
         /// The last assistant prose, consulted only for an unread tab.
         var preview: String?
+        var iconName: String?
+        var iconTint: SidebarTint?
+        var barTint: SidebarTint?
     }
 
     struct Item: Identifiable, Equatable {
@@ -34,6 +37,9 @@ struct HomeFeed: Equatable {
         let isUnread: Bool
         let reason: String?
         let workStartedAt: Date?
+        let iconName: String?
+        let iconTint: SidebarTint?
+        let barTint: SidebarTint?
 
         var id: UUID { tabID }
 
@@ -62,7 +68,10 @@ struct HomeFeed: Equatable {
                 status: entry.status,
                 isUnread: entry.isUnread,
                 reason: Self.reason(for: entry),
-                workStartedAt: entry.status.isActive ? entry.workStartedAt : nil
+                workStartedAt: entry.status.isActive ? entry.workStartedAt : nil,
+                iconName: entry.iconName,
+                iconTint: entry.iconTint,
+                barTint: entry.barTint
             )
             if entry.status.isActive {
                 running.append(item)
@@ -91,10 +100,17 @@ struct HomeFeed: Equatable {
         entry.status == .interrupted || !entry.hasSession
     }
 
-    /// Named requests first, then errors, then unread turns.
+    /// Higher sorts first. Home's own order, apart from `TaskStatus.priority`,
+    /// which the sidebar uses.
     private static func rank(_ item: Item) -> Int {
-        if item.status.wantsAttention { return item.status.priority }
-        return item.status == .error ? 0 : -1
+        switch item.status {
+        case .permissionNeeded: 5
+        case .needsTerminalInput: 4
+        case .questionAsked: 3
+        case .planApproval: 2
+        case .error: 1
+        default: 0
+        }
     }
 
     static func reason(for entry: Entry) -> String? {
