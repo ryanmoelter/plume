@@ -4,7 +4,7 @@ import SwiftData
 
 struct SidebarView: View {
     @Environment(\.modelContext) private var context
-    @Binding var selection: UUID?
+    @Binding var selection: SidebarSelection?
 
     @Query(filter: #Predicate<WorkTask> { !$0.isArchived }, sort: \WorkTask.orderIndex)
     private var tasks: [WorkTask]
@@ -35,9 +35,14 @@ struct SidebarView: View {
             ScrollViewReader { proxy in
                 ScrollView {
                     LazyVStack(alignment: .leading, spacing: 0) {
+                        SidebarHomeRow(tasks: tasks, isSelected: selection == .home, onSelect: selectHome)
+                            .sidebarRow(isSelected: selection == .home)
+                            .onTapGesture(perform: selectHome)
+                            .id(SidebarSelection.home)
+
                         ForEach(groups) { group in
                             groupHeader(group)
-                                .padding(.top, group.id == groups.first?.id ? 0 : SidebarMetrics.headerTopSpacing)
+                                .padding(.top, SidebarMetrics.headerTopSpacing)
                             if group.isExpanded {
                                 taskRows(in: tasksFor(group))
                             }
@@ -45,14 +50,18 @@ struct SidebarView: View {
 
                         Text("Ungrouped")
                             .sidebarSectionHeader()
-                            .padding(.top, groups.isEmpty ? 0 : SidebarMetrics.headerTopSpacing)
+                            .padding(.top, SidebarMetrics.headerTopSpacing)
                         taskRows(in: ungroupedTasks)
                     }
                     .padding(.horizontal, SidebarMetrics.listHorizontalInset)
                     .padding(.bottom, SidebarMetrics.rowVerticalPadding)
                 }
-                .onChange(of: selection) { _, id in
-                    guard let task = tasks.first(where: { $0.id == id }) else { return }
+                .onChange(of: selection) { _, selection in
+                    if selection == .home {
+                        withAnimation { proxy.scrollTo(SidebarSelection.home) }
+                        return
+                    }
+                    guard let task = tasks.first(where: { $0.id == selection?.taskID }) else { return }
                     withAnimation { proxy.scrollTo(task.sidebarRowID) }
                 }
             }
@@ -71,7 +80,7 @@ struct SidebarView: View {
                 }
             }
             .onDeleteCommand {
-                guard let task = tasks.first(where: { $0.id == selection }) else { return }
+                guard let task = tasks.first(where: { $0.id == selection?.taskID }) else { return }
                 switch KeyboardRemoval.verbForDeleteKey(hasNeverStarted: task.hasNeverStarted) {
                 case .archive: requestArchive(task)
                 case .delete: requestDelete(task)
@@ -158,10 +167,10 @@ struct SidebarView: View {
         ForEach(sectionTasks, id: \.sidebarRowID) { task in
             TaskRowView(
                 task: task,
-                isSelected: selection == task.id,
+                isSelected: selection == .task(task.id),
                 onSelect: { select(task) }
             )
-                .sidebarRow(isSelected: selection == task.id, tintBar: tintBar(for: task), washTint: washTint(for: task))
+                .sidebarRow(isSelected: selection == .task(task.id), tintBar: tintBar(for: task), washTint: washTint(for: task))
                 // Simultaneous, not exclusive: a plain `.onTapGesture` claims
                 // the mouse-down, and the row's drag never starts.
                 .simultaneousGesture(TapGesture().onEnded { select(task) })
@@ -232,7 +241,12 @@ struct SidebarView: View {
     }
 
     private func select(_ task: WorkTask) {
-        selection = task.id
+        selection = .task(task.id)
+        isListFocused = true
+    }
+
+    private func selectHome() {
+        selection = .home
         isListFocused = true
     }
 
@@ -306,7 +320,7 @@ struct SidebarView: View {
     }
 
     /// Every task in the order the sidebar shows them, which is what the
-    /// arrow keys walk.
+    /// arrow keys walk after Home.
     private var navigableTasks: [WorkTask] {
         groups.flatMap(tasksFor) + ungroupedTasks
     }
@@ -314,7 +328,7 @@ struct SidebarView: View {
     private func moveSelection(by offset: Int) {
         let destination = SidebarKeyboardNavigation.destination(
             from: selection,
-            in: navigableTasks.map(\.id),
+            in: SidebarKeyboardNavigation.entries(taskIDs: navigableTasks.map(\.id)),
             offset: offset
         )
         if let destination { selection = destination }
@@ -333,7 +347,7 @@ struct SidebarView: View {
         let task = TaskStore.createTask(
             in: context, group: group, siblings: siblings, defaultsToRecentFolder: true
         )
-        selection = task.id
+        selection = .task(task.id)
     }
 }
 
