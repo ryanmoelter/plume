@@ -16,6 +16,7 @@ enum AccessibilityID {
     static let sidebarArchiveButton = "sidebar-archive-button"
     static let taskArchiveButton = "task-archive-button"
     static let taskRemoteControlToggle = "task-remote-control-toggle"
+    static let taskDeviceLeaseBadge = "task-device-lease-badge"
     static let taskDescription = "task-description"
     static let taskEditButton = "task-edit-button"
     static let groupEditButton = "group-edit-button"

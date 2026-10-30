@@ -36,10 +36,13 @@ struct DeviceLeaseReapTests {
         #expect(same == kept)
     }
 
-    @Test func remoteLeasesIgnoreAdbAndGoOnlyOnExpiry() {
-        var registry = DeviceRegistry(devices: ["remote:a": lease(.remote), "remote:b": lease(.remote, expiresIn: -1)])
+    /// The grace leaves the owning app time to end the reservation before anyone drops its lease.
+    @Test func remoteLeasesIgnoreAdbAndGoOnlyAfterTheGracePastExpiry() {
+        var registry = DeviceRegistry(devices: [
+            "remote:a": lease(.remote), "remote:b": lease(.remote, expiresIn: -1), "remote:c": lease(.remote, expiresIn: -301),
+        ])
         registry.reap(liveSerials: [], emulatorAVDs: [:], now: now)
-        #expect(Set(registry.devices.keys) == ["remote:a"])
+        #expect(Set(registry.devices.keys) == ["remote:a", "remote:b"])
     }
 
     @Test func dropsPendingEntriesByTTL() {

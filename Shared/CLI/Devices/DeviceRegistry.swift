@@ -43,6 +43,15 @@ nonisolated enum DeviceLeaseOwner: Hashable, Sendable, Codable, CustomStringConv
         case .label(let label): label
         }
     }
+
+    var tabID: UUID? {
+        if case .tab(let id, _) = self { id } else { nil }
+    }
+
+    /// The socket of the app whose tab owns the lease.
+    var app: String? {
+        if case .tab(_, let app) = self { app } else { nil }
+    }
 }
 
 nonisolated struct DeviceLease: Codable, Equatable, Sendable {
@@ -143,12 +152,17 @@ nonisolated struct PendingDevice: Codable, Equatable, Sendable {
 nonisolated struct DeviceRegistry: Codable, Equatable, Sendable {
     static let currentVersion = 1
     static let pendingAVDPrefix = "avd:"
+    static let pendingClaimPrefix = "claim:"
+    /// A remote lease outlives its expiry this long, so the app that holds the reservation
+    /// reaps it first and ends the reservation with it.
+    static let remoteReapGrace: TimeInterval = 300
 
     var version = currentVersion
     var devices: [String: DeviceLease] = [:]
     var pending: [String: PendingDevice] = [:]
 
     static func pendingKey(avd: String) -> String { pendingAVDPrefix + avd }
+    static func pendingKey(claim: UUID) -> String { pendingClaimPrefix + claim.uuidString }
 
     /// AVDs with a boot in flight.
     var pendingAVDs: Set<String> {
@@ -158,16 +172,17 @@ nonisolated struct DeviceRegistry: Codable, Equatable, Sendable {
     /// Drops what no longer holds a device, and returns a line for each. A local lease goes when
     /// it expires, when its serial leaves `adb devices` (offline and unauthorized still count as
     /// present), or when its emulator serial now belongs to another AVD. A remote lease goes only
-    /// on expiry: its adb port changes on every reconnect.
+    /// on expiry, after `remoteReapGrace`: its adb port changes on every reconnect.
     @discardableResult
     mutating func reap(liveSerials: Set<String>, emulatorAVDs: [String: String], now: Date) -> [String] {
         var messages: [String] = []
         for key in devices.keys.sorted() {
             guard let lease = devices[key] else { continue }
-            if lease.expiresAt < now {
+            if lease.kind == .remote {
+                guard lease.expiresAt.addingTimeInterval(Self.remoteReapGrace) < now else { continue }
                 messages.append("reaped expired lease on \(key) (\(lease.owner))")
-            } else if lease.kind == .remote {
-                continue
+            } else if lease.expiresAt < now {
+                messages.append("reaped expired lease on \(key) (\(lease.owner))")
             } else if !liveSerials.contains(key) {
                 messages.append("reaped lease on vanished device \(key) (\(lease.owner))")
             } else if lease.kind == .emulator, let leased = lease.avd, let running = emulatorAVDs[key], running != leased {

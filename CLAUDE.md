@@ -44,7 +44,7 @@ Plume/
   Status/     StatusEngine, StatusPersistence
   Workspace/  WorkspaceProvisioner, GitRunner, ProjectRoot (the key Settings ▸ Projects shares with `plume wt`)
   Linear/     LinearStore, LinearSyncCache (delta-synced disk cache; docs/linear-sync.md), LinearClient, LinearAccounts
-  Android/    Observable emulator and adb discovery, DeviceSession(Manager), connection adapters, input mappers, Remote/
+  Android/    Observable emulator and adb discovery, DeviceSession(Manager), DeviceLeases, connection adapters, input mappers, Remote/
   Support/    Log, AppPaths, AppSettings, FileWatcher, HexColor, CommandLineHelper, SmokeHarness (DEBUG)
   CLI/        CLIServer (the socket the `plume` tool talks to), CLICommandHandler
   Control/    The debug control server: PlumeID, ControlRegistry, ControlServer, InProcessControlBackend (DEBUG)
@@ -137,6 +137,7 @@ A device tab (`TabKind.device`) shows a live Android emulator over its gRPC cont
 - **All gRPC and protobuf code lives in `Packages/EmulatorControl`**, because the app target's default MainActor isolation breaks generated protobuf code. Never edit its `Generated/` folder; run `scripts/android/generate-emulator-grpc.sh`.
 - **A remote device's reservation is billed, so nothing Plume reserves outlives its tab or the app.** Closing the tab, Change Device and End Reservation run `disconnect` then `remove`. Quitting ends every reservation in `RemoteReservationLedger`, shown or not, and the next launch releases any entry a crash left behind, so a remote tab never reconnects after a relaunch. Never run `android device remote create` while testing without removing the reservation afterwards.
 - `DeviceSessionManager.shared` owns one `DeviceSession` per tab ID. `TaskStore.forgetTab` closes it, which stops streaming and **never stops the emulator** — an agent may still be using it over adb. Only the tab's "Shut Down Emulator" does that; a physical device is never powered off.
+- **Device leases are owned by tabs, in one registry every build shares.** `plume devices` writes `~/Library/Application Support/Plume/devices/registry.json` whichever build runs it, and a tab owner names its app's socket. The app only ever sweeps, reaps or releases leases whose `owner.app` is its own socket, so a debug build never touches the installed app's leases. `docs/device-leases.md` is the reference.
 - **`scrcpy-server` ships without a `.jar` extension and lives in Git LFS.** Xcode drops a `.jar` from Resources, and a checkout without LFS has a pointer file there.
 - **Frames never pass through `@Observable` state.** `DeviceSurfaceView` sets its layer's contents directly, and the session streams only while a surface in a visible window is attached. A hidden tab unmounts its surface, so it costs nothing — except that a physical device stays connected for 5 seconds, so a quick tab switch doesn't pay a reconnect, and then closes its connection until the tab is shown again.
 

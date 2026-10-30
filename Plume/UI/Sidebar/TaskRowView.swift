@@ -101,6 +101,10 @@ struct TaskRowView: View {
         agentTabIDs.contains { AgentSessionManager.shared.existingSession(for: $0)?.isRemotelyControlled == true }
     }
 
+    private var heldDevices: [DeviceLease] {
+        DeviceLeaseStore.shared.leases(ownedBy: task.orderedLiveTabs.map(\.id))
+    }
+
     var body: some View {
         let working = workingLinearIssues
         let pinned = pinnedPullRequests
@@ -266,6 +270,15 @@ struct TaskRowView: View {
                         .imageScale(.small)
                         .foregroundStyle(ChatRole.attention(for: colorScheme))
                         .help("Remote control is on")
+                }
+                if index == firstProjectIndex, case let held = heldDevices, !held.isEmpty {
+                    let summary = DeviceLeaseStore.summary(held)
+                    Image(systemName: "iphone")
+                        .font(.caption)
+                        .imageScale(.small)
+                        .emphasis(.secondary)
+                        .help("Holds \(summary)")
+                        .plumeID(AccessibilityID.taskDeviceLeaseBadge, label: TitleStore.shared.displayTitle(for: task), value: summary)
                 }
             }
         case .branch(let branch, let isWorktree, let companion):

@@ -232,6 +232,17 @@ final class CLICommandHandler {
         }
     }
 
+    /// Closes a tab through `TaskStore`, as its close button would. A no-op when no open window's
+    /// store has it.
+    func closeTab(_ id: UUID) {
+        for registration in frontmostFirst {
+            let tabs = (try? registration.context.fetch(FetchDescriptor<TaskTab>(predicate: #Predicate { $0.id == id }))) ?? []
+            guard let tab = tabs.first else { continue }
+            TaskStore.closeTab(tab, in: registration.context)
+            return
+        }
+    }
+
     /// Git answers with symlinks resolved, so `/var/…` must match
     /// `/private/var/…`.
     private static func resolvedPath(_ path: String) -> String {
