@@ -59,8 +59,8 @@ nonisolated struct DeviceListingRow: Encodable, Equatable {
     var avd: String?
     var form: DeviceForm?
     /// adb's word for the device (`device`, `offline`, `unauthorized`), `booting` for a pending
-    /// boot, `reserving` for a pending remote claim, or `remote` for a remote lease adb doesn't
-    /// list.
+    /// boot, `reserving` for a pending remote claim, `remote` for a remote lease adb doesn't list,
+    /// or `absent` for a local lease adb doesn't list.
     var state: String
     var lease: DeviceLease?
     var pending: PendingDevice?
@@ -115,8 +115,8 @@ nonisolated final class DevicePool {
     /// Reaps, then runs `body` under the lock. adb is read first, so the lock is held only for
     /// file I/O. When adb fails, reaping goes by expiry alone, so a missing or hung adb never
     /// stops a release.
-    private func withReaped<T>(warnReaped: Bool = true, _ body: (inout Snapshot) throws -> T) throws -> T {
-        let live = readLive()
+    private func withReaped<T>(live: Live? = nil, warnReaped: Bool = true, _ body: (inout Snapshot) throws -> T) throws -> T {
+        let live = live ?? readLive()
         return try store.withLock {
             var registry = try store.load()
             let serials = (try? live.devices.get()).map { Set($0.map(\.serial)) } ?? []
@@ -157,13 +157,15 @@ nonisolated final class DevicePool {
 
     /// The forms of the devices a `--form` claim might lease, read before the lock is taken: a
     /// physical device's costs `adb shell` round trips, which must not hold every other claimant up.
-    private func formsOutsideLock(of serials: (PhysicalDevice) -> Bool) -> [String: DeviceForm] {
-        guard let devices = try? environment.adbDevices() else { return [:] }
+    /// A device another owner holds is skipped, since the claim can't take it.
+    private func formsOutsideLock(live: Live, claimant: DeviceClaimant, of serials: (PhysicalDevice) -> Bool) -> [String: DeviceForm] {
+        guard let devices = try? live.devices.get() else { return [:] }
         let leased = (try? store.load())?.devices ?? [:]
-        let avds = environment.emulatorAVDs()
         var forms: [String: DeviceForm] = [:]
         for device in devices where device.isReady && !Self.isRemoteSerial(device.serial) && serials(device) {
-            if let form = leased[device.serial]?.form ?? environment.form(of: device, avd: avds[device.serial]) {
+            let held = leased[device.serial]
+            if let held, held.owner != claimant.owner { continue }
+            if let form = held?.form ?? environment.form(of: device, avd: live.emulatorAVDs[device.serial]) {
                 forms[device.serial] = form
             }
         }
@@ -220,8 +222,11 @@ nonisolated final class DevicePool {
         kind: DeviceKindFilter,
         form: DeviceForm?
     ) throws -> (serial: String, lease: DeviceLease, reused: Bool) {
-        let forms = form == nil ? [:] : formsOutsideLock { kind.admits(isEmulator: Self.isEmulator($0.serial)) }
-        let plan: AcquirePlan = try withReaped { snapshot in
+        let live = readLive()
+        let forms = form == nil ? [:] : formsOutsideLock(live: live, claimant: claimant) { kind.admits(isEmulator: Self.isEmulator($0.serial)) }
+        // `emulator -list-avds` can be slow, so it runs before the lock too.
+        let avdList = kind == .physical ? nil : Result { try environment.avds() }
+        let plan: AcquirePlan = try withReaped(live: live) { snapshot in
             let now = environment.now()
             let runningAVDs = Set(snapshot.emulatorAVDs.values)
             let pendingAVDs = snapshot.registry.pendingAVDs
@@ -248,11 +253,11 @@ nonisolated final class DevicePool {
                 return .leased(serial: device.serial, lease: lease, reused: held != nil)
             }
 
-            guard kind != .physical else {
+            guard let avdList else {
                 try saveIfReaped(snapshot)
                 throw DevicePoolError.exhausted(leaseLines: Self.leaseLines(snapshot.registry, now: now))
             }
-            let avds = try environment.avds()
+            let avds = try avdList.get()
             guard !avds.isEmpty else {
                 try saveIfReaped(snapshot)
                 throw CLIFailure("no AVDs to boot; create one in Android Studio's Device Manager first")
@@ -360,36 +365,19 @@ nonisolated final class DevicePool {
         try store.load().leaseKey(for: serial) ?? serial
     }
 
-    enum RemoteClaimState: Equatable {
-        /// Not yet renewed: the reservation behind it has to be extended first.
-        case held(key: String, lease: DeviceLease)
-        /// A device is still being reserved for this owner.
-        case waiting(claimID: UUID)
-        case none
-    }
-
-    /// What a remote claim finds already in place for `owner`. A pending claim that failed is
-    /// dropped, so the next one starts afresh.
-    func remoteClaimState(owner: DeviceLeaseOwner) throws -> RemoteClaimState {
+    /// The remote lease `owner` holds, not yet renewed, since the reservation behind it has to be
+    /// extended first. A pending claim of `owner`'s that failed is dropped, so the next one starts
+    /// afresh.
+    func heldRemoteLease(owner: DeviceLeaseOwner) throws -> (key: String, lease: DeviceLease)? {
         try withReaped { snapshot in
-            if let (key, held) = snapshot.registry.devices.sorted(by: { $0.key < $1.key })
-                .first(where: { $0.value.owner == owner && $0.value.kind == .remote }) {
-                try saveIfReaped(snapshot)
-                return .held(key: key, lease: held)
+            let failed = snapshot.registry.pending.filter { key, entry in
+                entry.owner == owner && key.hasPrefix(DeviceRegistry.pendingClaimPrefix) && entry.error != nil
             }
-            var state = RemoteClaimState.none
-            var changed = !snapshot.reaped.isEmpty
-            for (key, entry) in snapshot.registry.pending.sorted(by: { $0.key < $1.key })
-            where entry.owner == owner && key.hasPrefix(DeviceRegistry.pendingClaimPrefix) {
-                if entry.error != nil {
-                    snapshot.registry.pending[key] = nil
-                    changed = true
-                } else if state == .none, let claimID = UUID(uuidString: String(key.dropFirst(DeviceRegistry.pendingClaimPrefix.count))) {
-                    state = .waiting(claimID: claimID)
-                }
-            }
-            if changed { try store.save(snapshot.registry) }
-            return state
+            for key in failed.keys { snapshot.registry.pending[key] = nil }
+            if failed.isEmpty { try saveIfReaped(snapshot) } else { try store.save(snapshot.registry) }
+            return snapshot.registry.devices.sorted(by: { $0.key < $1.key })
+                .first(where: { $0.value.owner == owner && $0.value.kind == .remote })
+                .map { (key: $0.key, lease: $0.value) }
         }
     }
 
@@ -464,7 +452,8 @@ nonisolated final class DevicePool {
         }
         let live = Set(connected.map(\.serial))
         for (key, lease) in registry.devices.sorted(by: { $0.key < $1.key }) where !live.contains(lease.serial ?? key) {
-            rows.append(DeviceListingRow(serial: lease.serial ?? key, kind: lease.kind, avd: lease.avd, form: lease.form, state: "remote", lease: lease))
+            let state = lease.kind == .remote ? "remote" : "absent"
+            rows.append(DeviceListingRow(serial: lease.serial ?? key, kind: lease.kind, avd: lease.avd, form: lease.form, state: state, lease: lease))
         }
         for (_, pending) in registry.pending.sorted(by: { $0.key < $1.key }) {
             let state = pending.kind == .remote ? "reserving" : "booting"

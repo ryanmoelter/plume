@@ -74,19 +74,36 @@ nonisolated enum AVDCatalog {
         return makeAVD(id: id, rootINI: rootINI, configINI: configINI, avdHome: avdHome)
     }
 
+    static let listTimeout: TimeInterval = 20
+
+    private final class Output: @unchecked Sendable {
+        var data = Data()
+    }
+
+    /// Empty on failure or after `listTimeout`.
     private static func runListAVDs(sdk: AndroidSDK) -> String {
         guard let emulatorURL = sdk.emulatorURL else { return "" }
         let process = Process()
         process.executableURL = emulatorURL
         process.arguments = ["-list-avds"]
         process.environment = ProcessInfo.processInfo.environment.merging(sdk.launchEnvironment) { _, new in new }
-        let output = Pipe()
-        process.standardOutput = output
+        let pipe = Pipe()
+        process.standardOutput = pipe
         process.standardError = FileHandle.nullDevice
         process.standardInput = FileHandle.nullDevice
         do { try process.run() } catch { return "" }
-        let data = output.fileHandleForReading.readDataToEndOfFile()
+        let output = Output()
+        let read = DispatchSemaphore(value: 0)
+        let reader = pipe.fileHandleForReading
+        DispatchQueue.global().async {
+            output.data = reader.readDataToEndOfFile()
+            read.signal()
+        }
+        guard read.wait(timeout: .now() + listTimeout) == .success else {
+            kill(process.processIdentifier, SIGKILL)
+            return ""
+        }
         process.waitUntilExit()
-        return String(decoding: data, as: UTF8.self)
+        return String(decoding: output.data, as: UTF8.self)
     }
 }

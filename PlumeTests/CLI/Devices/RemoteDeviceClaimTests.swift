@@ -138,7 +138,9 @@ struct RemoteDeviceClaimTests {
         #expect(try run.store.load().pending[DeviceRegistry.pendingKey(claim: claimID)] != nil)
     }
 
-    @Test func claimingAgainWaitsOnTheSameReservation() throws {
+    /// The app joins the claim already reserving and records it again, so the CLI asks it every
+    /// time rather than polling an entry that could expire under a slow reservation.
+    @Test func claimingAgainAsksTheAppWhichJoinsTheSameReservation() throws {
         let run = try Run()
         let claimID = UUID()
         let (store, owner) = (run.store, owner)
@@ -147,6 +149,7 @@ struct RemoteDeviceClaimTests {
                 owner: owner, kind: .remote, startedAt: run.env.clock, expiresAt: run.env.clock.addingTimeInterval(900)
             )
         }
+        _ = reserving(run, claimID: claimID)
         run.env.duringSleep = {
             update(store) { $0.devices["remote:r1"] = remoteLease(owner: owner, claimID: claimID, at: run.env.clock) }
         }
@@ -155,7 +158,21 @@ struct RemoteDeviceClaimTests {
 
         #expect(code == 0)
         #expect(console.stdout == "localhost:40001\n")
-        #expect(!run.app.sent.contains { if case .reserveDevice = $0.request { true } else { false } })
+        #expect(run.app.sent.contains { if case .reserveDevice = $0.request { true } else { false } })
+    }
+
+    @Test func claimingAnotherModelWhileHoldingOneFails() throws {
+        let run = try Run()
+        let (store, owner) = (run.store, owner)
+        let lease = remoteLease(owner: owner, at: run.env.clock)
+        update(store) { $0.devices["remote:r1"] = lease }
+
+        let (code, console) = run(["claim", "--kind=remote", "--model=husky/35"], environment: inTab)
+
+        #expect(code == 1)
+        #expect(console.stderr.contains("already holds localhost:40001 (akita/34); release it before reserving husky/35"))
+        #expect(!run.app.sent.contains { if case .ping = $0.request { false } else { true } })
+        #expect(try store.load().devices["remote:r1"] == lease)
     }
 
     @Test func aHeldRemoteDeviceIsRenewedRatherThanReservedAgain() throws {
@@ -216,11 +233,14 @@ struct RemoteDeviceClaimTests {
             return response
         }
 
-        let (code, console) = run(["claim", "localhost:40001"], environment: inTab)
+        let (code, console) = run(["claim", "localhost:40001", "--ttl=7200"], environment: inTab)
 
         #expect(code == 0)
         #expect(console.stdout == "localhost:40001\n")
+        let requests = run.app.sent.map(\.request)
+        #expect(requests.first == .extendDevice(.init(key: "remote:r1", ttl: 7200)))
         let devices = try store.load().devices
+        #expect(devices["remote:r1"]?.expiresAt == run.env.clock.addingTimeInterval(7200))
         #expect(devices["remote:r1"]?.deviceTabID == deviceTab)
         #expect(devices["localhost:40001"] == nil)
     }

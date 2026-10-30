@@ -22,6 +22,7 @@ struct DeviceLeaseCoordinatorTests {
         var returnedToPicker: [UUID] = []
         var abandoned: [(tab: UUID, reason: String)] = []
         var extended: [(tab: UUID, until: Date)] = []
+        var live: Set<UUID> = []
     }
 
     init() throws {
@@ -36,7 +37,8 @@ struct DeviceLeaseCoordinatorTests {
                 closeTab: { recorder.closed.append($0) },
                 endTabReservation: { recorder.returnedToPicker.append($0) },
                 abandonTabReservation: { recorder.abandoned.append(($0, $1)) },
-                extendTabReservation: { recorder.extended.append(($0, $1)) }
+                extendTabReservation: { recorder.extended.append(($0, $1)) },
+                isTabLive: { recorder.live.contains($0) }
             ),
             appSocket: me,
             now: { now }
@@ -115,6 +117,55 @@ struct DeviceLeaseCoordinatorTests {
         #expect(after.pending.isEmpty)
         #expect(recorder.ended.isEmpty)
         #expect(recorder.closed.isEmpty)
+    }
+
+    @Test func forgettingAnOwnerKeepsTheAVDItIsBooting() async throws {
+        let mine = DeviceLeaseOwner.tab(id: ownerTab, app: me)
+        let booting = PendingDevice(owner: mine, kind: .emulator, avd: "Pixel_8", startedAt: now, expiresAt: now.addingTimeInterval(900))
+        try save(DeviceRegistry(pending: ["avd:Pixel_8": booting, "claim:x": pending(owner: mine)]))
+
+        coordinator.tabForgotten(ownerTab)
+        await coordinator.settle()
+
+        #expect(try registry().pending == ["avd:Pixel_8": booting])
+    }
+
+    /// A `plume` that finishes booting after its tab closed writes a lease for that tab anyway.
+    @Test func aLeaseThatAppearsForAForgottenTabIsDropped() async throws {
+        let restored = UUID()
+        coordinator.tabForgotten(ownerTab)
+        coordinator.tabForgotten(restored)
+        recorder.live = [restored]
+        await coordinator.settle()
+        try save(DeviceRegistry(devices: [
+            "emulator-5554": lease(.emulator, owner: .tab(id: ownerTab, app: me), serial: "emulator-5554"),
+            "emulator-5556": lease(.emulator, owner: .tab(id: restored, app: me), serial: "emulator-5556"),
+            "R5": lease(.physical, owner: .tab(id: ownerTab, app: otherApp), serial: "R5"),
+        ]))
+
+        coordinator.refresh()
+        await coordinator.settle()
+        await coordinator.settle()
+
+        #expect(Set(try registry().devices.keys) == ["emulator-5556", "R5"])
+    }
+
+    /// Archiving a task forgets the claimant and its device tab together. Closing the device
+    /// tab's session already ended the reservation, and the archived tab must survive a restore.
+    @Test func archivingAClaimantAndItsDeviceTabEndsNothingTwice() async throws {
+        try await coordinator.beginClaim(claim(created: true))
+        coordinator.reservationEvent(.attached(reservationID: "r1", serial: "localhost:40001"), deviceTab: deviceTab)
+        await coordinator.settle()
+
+        coordinator.tabForgotten(ownerTab)
+        coordinator.tabForgotten(deviceTab)
+        await coordinator.settle()
+        await coordinator.settle()
+
+        #expect(try registry().devices.isEmpty)
+        #expect(recorder.ended.isEmpty)
+        #expect(recorder.closed.isEmpty)
+        #expect(recorder.returnedToPicker.isEmpty)
     }
 
     @Test func theLaunchSweepLeavesOtherAppsLeasesAlone() async throws {

@@ -308,6 +308,10 @@ nonisolated enum Devices {
             let claimant = try claimant(ownerFlag: owner, environment: environment, devices: devices)
             let claimed: (key: String, serial: String, lease: DeviceLease, reused: Bool)
             if let serial {
+                let key = try pool.leaseKey(for: serial)
+                if let held = try? pool.lease(key, owner: claimant.owner, force: false), held.kind == .remote {
+                    try extendRemote(key: key, lease: held, ttl: ttl, app: app)
+                }
                 let result = try pool.claimSerial(serial, claimant: claimant, ttl: ttl)
                 claimed = (result.key, serial, result.lease, result.reused)
             } else {
@@ -417,25 +421,26 @@ nonisolated enum Devices {
             throw CLIFailure("\(remoteNeedsATab), and the Plume that owns this tab isn't answering: \(describe(error))")
         }
         let waiter = RemoteClaimWaiter(store: pool.store, app: app, socket: socket, now: devices.now, sleep: devices.sleep, log: pool.log)
-        switch try pool.remoteClaimState(owner: claimant.owner) {
-        case .held(let key, let lease):
+        if let (key, lease) = try pool.heldRemoteLease(owner: claimant.owner) {
+            if let model, lease.model != model {
+                throw CLIFailure(
+                    "this tab already holds \(lease.serial ?? key) (\(lease.model ?? "another model")); release it before reserving \(model)"
+                )
+            }
             try extendRemote(key: key, lease: lease, ttl: ttl, app: app)
             return (key, try pool.renew(key, owner: claimant.owner, ttl: ttl), true)
-        case .waiting(let claimID):
-            pool.log("still reserving a remote device for this tab; waiting for it")
-            let leased = try waiter.wait(for: claimID)
-            return (leased.key, leased.lease, false)
-        case .none:
-            let response = try app.send(.reserveDevice(.init(
-                tabID: tabID, model: model, ttl: ttl, worktree: claimant.worktree, branch: claimant.branch
-            )), to: socket)
-            guard response.ok, let claimID = response.claimID else {
-                throw CLIFailure("couldn't reserve a remote device: \(response.error ?? "Plume started no reservation")")
-            }
-            pool.log("reserving \(model ?? "the model last reserved") in a device tab; Device Streaming can take a few minutes")
-            let leased = try waiter.wait(for: claimID)
-            return (leased.key, leased.lease, false)
         }
+        // A claim still reserving for this tab is joined by the app, which writes its pending
+        // entry again, so a wait that outlasts the entry's expiry never fails falsely.
+        let response = try app.send(.reserveDevice(.init(
+            tabID: tabID, model: model, ttl: ttl, worktree: claimant.worktree, branch: claimant.branch
+        )), to: socket)
+        guard response.ok, let claimID = response.claimID else {
+            throw CLIFailure("couldn't reserve a remote device: \(response.error ?? "Plume started no reservation")")
+        }
+        pool.log("reserving \(model ?? "the model last reserved") in a device tab; Device Streaming can take a few minutes")
+        let leased = try waiter.wait(for: claimID)
+        return (leased.key, leased.lease, false)
     }
 
     /// A remote lease is only as long as the reservation behind it, so the app holding that

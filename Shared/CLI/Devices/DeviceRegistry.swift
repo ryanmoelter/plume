@@ -292,10 +292,10 @@ nonisolated final class DeviceRegistryStore: Sendable {
 
     var registryFile: String { "\(directory)/\(Self.fileName)" }
 
-    /// A missing file is an empty registry. An unreadable one throws rather than read as empty,
-    /// since the next save would replace every lease in it.
+    /// A missing or empty file is an empty registry. An unreadable one throws rather than read as
+    /// empty, since the next save would replace every lease in it.
     func load() throws -> DeviceRegistry {
-        guard let data = FileManager.default.contents(atPath: registryFile) else { return DeviceRegistry() }
+        guard let data = FileManager.default.contents(atPath: registryFile), !data.isEmpty else { return DeviceRegistry() }
         do {
             return try DeviceRegistryCodec.decode(data)
         } catch DeviceRegistryCodec.DecodeError.tooNew(let version) {

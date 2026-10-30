@@ -402,4 +402,23 @@ struct DevicePoolTests {
         #expect(rows[0].lease?.owner == me.owner)
         #expect(rows[2].pending?.avd == "Tablet")
     }
+
+    /// With nothing connected at all, adb's empty list reaps nothing, so the leases stay listed.
+    @Test func aLeaseAdbDoesntListIsAbsentUnlessItIsRemote() throws {
+        env.connect("R5")
+        _ = try pool.claimSerial("R5", claimant: me, ttl: hour)
+        try store.withLock {
+            var registry = try store.load()
+            registry.devices["remote:r1"] = DeviceLease(
+                kind: .remote, serial: "localhost:40001", owner: other.owner, claimedAt: env.clock,
+                expiresAt: env.clock.addingTimeInterval(hour), remote: .init(reservationID: "r1", projectID: "p")
+            )
+            try store.save(registry)
+        }
+        env.devices = []
+
+        let states = Dictionary(uniqueKeysWithValues: try pool.listing().map { ($0.serial, $0.state) })
+
+        #expect(states == ["R5": "absent", "localhost:40001": "remote"])
+    }
 }

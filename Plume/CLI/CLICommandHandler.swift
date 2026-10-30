@@ -368,13 +368,19 @@ final class CLICommandHandler {
 
     /// Closes a tab through `TaskStore`, as its close button would. A no-op when no open window's
     /// store has it.
+    /// Leaves an archived task's tabs alone, since restoring the task brings them back.
     func closeTab(_ id: UUID) {
         for registration in frontmostFirst {
             let tabs = (try? registration.context.fetch(FetchDescriptor<TaskTab>(predicate: #Predicate { $0.id == id }))) ?? []
             guard let tab = tabs.first else { continue }
-            TaskStore.closeTab(tab, in: registration.context)
+            if tab.task?.isArchived != true { TaskStore.closeTab(tab, in: registration.context) }
             return
         }
+    }
+
+    func hasLiveTab(_ id: UUID) -> Bool {
+        guard let (task, _) = currentTask(ofTab: id) else { return false }
+        return !task.isArchived
     }
 
     /// Git answers with symlinks resolved, so `/var/…` must match

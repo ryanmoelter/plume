@@ -57,6 +57,9 @@ final class DeviceLeaseCoordinator {
             }
             try await session.extendReservation(until: until)
         }
+        /// Whether a tab is open in a task that isn't archived. An archived task's tabs come back
+        /// with the same IDs when it is restored.
+        var isTabLive: @MainActor (UUID) -> Bool = { CLICommandHandler.shared.hasLiveTab($0) }
     }
 
     let store: DeviceRegistryStore
@@ -71,6 +74,9 @@ final class DeviceLeaseCoordinator {
     /// Claims whose device hasn't connected yet, by device tab. In memory only: a quit ends
     /// their reservations, and the launch sweep drops their pending entries.
     private var claims: [UUID: RemoteClaim] = [:]
+    /// Tabs forgotten this run. Effects never touch one, and a lease that appears for one later,
+    /// from a `plume` that was booting an emulator when its tab closed, is dropped.
+    private var forgottenTabs: Set<UUID> = []
 
     init(
         store: DeviceRegistryStore = DeviceRegistryStore(),
@@ -91,7 +97,8 @@ final class DeviceLeaseCoordinator {
         guard self.appSocket == nil else { return }
         self.appSocket = appSocket
         sweepAtLaunch(liveTabIDs: liveTabIDs)
-        let watcher = FileWatcher(url: URL(fileURLWithPath: store.registryFile), createsFile: false) { [weak self] in
+        // An empty file reads as an empty registry, and owning it avoids polling for it.
+        let watcher = FileWatcher(url: URL(fileURLWithPath: store.registryFile), createsFile: true) { [weak self] in
             self?.refresh()
         }
         watcher.start()
@@ -115,17 +122,30 @@ final class DeviceLeaseCoordinator {
                 EmulatorLog.error("device leases: \(error)")
                 return
             }
-            self.onMain { coordinator in coordinator.leases.publish(registry, app: app) }
+            self.onMain { coordinator in
+                coordinator.leases.publish(registry, app: app)
+                coordinator.dropLeasesOfForgottenTabs(in: registry, app: app)
+            }
         }
+    }
+
+    private func dropLeasesOfForgottenTabs(in registry: DeviceRegistry, app: String) {
+        let owners = Set(registry.devices.values.compactMap { $0.owner.app == app ? $0.owner.tabID : nil })
+        let stray = owners.filter { forgottenTabs.contains($0) && !effects.isTabLive($0) }
+        guard !stray.isEmpty else { return }
+        mutate { registry, app, _ in stray.flatMap { registry.forget(tabID: $0, app: app) } }
     }
 
     /// The tab's own leases go, and a remote one ends its reservation. A lease whose device tab
     /// this was keeps going without it, unless it is remote: the reservation closed with the tab.
     func tabForgotten(_ tabID: UUID) {
+        forgottenTabs.insert(tabID)
         claims[tabID] = nil
         for claim in claims.values where claim.owner.tabID == tabID {
             claims[claim.deviceTabID] = nil
             onMain { coordinator in
+                // Archiving forgets the device tab too, and closing its session ended the reservation.
+                guard !coordinator.forgottenTabs.contains(claim.deviceTabID) else { return }
                 if claim.deviceTabCreated {
                     coordinator.effects.closeTab(claim.deviceTabID)
                 } else {
@@ -137,9 +157,8 @@ final class DeviceLeaseCoordinator {
     }
 
     /// Records a pending claim before its reservation starts, so the claimant has something to
-    /// wait on.
-    /// The claim is held from before the write, so a concurrent request sees it at once, and a
-    /// claimant tab forgotten during the write cancels it rather than leaking a reservation.
+    /// wait on. The claim is held from before the write, so a concurrent request sees it at once,
+    /// and a claimant tab forgotten during the write cancels it rather than leaking a reservation.
     func beginClaim(_ claim: RemoteClaim) async throws {
         guard claims[claim.deviceTabID] == nil else {
             throw CLIFailure("device tab \(claim.deviceTabID.uuidString) is already reserving")
@@ -330,6 +349,8 @@ final class DeviceLeaseCoordinator {
     }
 
     private func release(_ lease: DeviceLease) {
+        // A forgotten device tab's session ended the reservation when it closed.
+        if let tabID = lease.deviceTabID, forgottenTabs.contains(tabID) { return }
         EmulatorLog.info("device leases: ending \(lease.remote?.reservationID ?? "?") with its lease")
         effects.endReservation(lease)
         if lease.deviceTabCreatedByClaim, let tabID = lease.deviceTabID { effects.closeTab(tabID) }
@@ -397,7 +418,10 @@ nonisolated extension DeviceRegistry {
                 }
             }
         }
-        for (key, entry) in pending where isMine(entry.owner, app) && (entry.owner == owner || entry.deviceTabID == tabID) {
+        // An `avd:` entry stays until it expires: its `plume` may still be booting, and dropping it
+        // would let a second claimant boot the same AVD.
+        for (key, entry) in pending where isMine(entry.owner, app) && !key.hasPrefix(Self.pendingAVDPrefix)
+            && (entry.owner == owner || entry.deviceTabID == tabID) {
             pending[key] = nil
         }
         return ended
