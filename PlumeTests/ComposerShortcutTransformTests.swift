@@ -76,6 +76,58 @@ struct ComposerShortcutTransformTests {
         #expect(format(.code, "```\nco[de]\n```") != nil)
     }
 
+    // MARK: - Caret toggles
+
+    /// Caret cases use `^` so link brackets stay literal.
+    private func caretFormat(_ style: ComposerInlineFormatting.Style, _ marked: String) -> String? {
+        let ns = marked as NSString
+        let caret = ns.range(of: "^")
+        let text = ns.replacingCharacters(in: caret, with: "")
+        return ComposerInlineFormatting.apply(style, in: text, selection: NSRange(location: caret.location, length: 0)).map {
+            ($0.text as NSString).replacingCharacters(in: $0.selection, with: "^")
+        }
+    }
+
+    @Test func caretInsideOrTouchingCodeSpanRemovesIt() {
+        #expect(caretFormat(.code, "a `code^` b") == "a code^ b")
+        #expect(caretFormat(.code, "a `^code` b") == "a ^code b")
+        #expect(caretFormat(.code, "a `co^de` b") == "a co^de b")
+        #expect(caretFormat(.code, "a `code`^ b") == "a code^ b")
+        #expect(caretFormat(.code, "a ^`code` b") == "a ^code b")
+    }
+
+    @Test func caretInsideOrTouchingBoldSpanRemovesIt() {
+        #expect(caretFormat(.bold, "a **bo^ld** b") == "a bo^ld b")
+        #expect(caretFormat(.bold, "a **bold**^ b") == "a bold^ b")
+        #expect(caretFormat(.bold, "a ^**bold** b") == "a ^bold b")
+        #expect(caretFormat(.bold, "a **bold^** b") == "a bold^ b")
+    }
+
+    @Test func caretInsideOrTouchingItalicSpanRemovesIt() {
+        #expect(caretFormat(.italic, "a *it^al* b") == "a it^al b")
+        #expect(caretFormat(.italic, "a *ital*^ b") == "a ital^ b")
+        #expect(caretFormat(.italic, "a ^*ital* b") == "a ^ital b")
+    }
+
+    @Test func caretToggleDisambiguatesBoldAndItalic() {
+        #expect(caretFormat(.italic, "**bo^ld**") == "***bold*^**")
+        #expect(caretFormat(.bold, "*it^al*") == "***ital**^*")
+        #expect(caretFormat(.bold, "a *x* **bo^ld**") == "a *x* bo^ld")
+        #expect(caretFormat(.italic, "a **b** *it^al*") == "a **b** it^al")
+    }
+
+    @Test func boldAndItalicDoNothingInsideInlineCode() {
+        #expect(caretFormat(.bold, "`co^de`") == nil)
+        #expect(caretFormat(.italic, "`**co^de**`") == nil)
+    }
+
+    @Test func linkCaretUnwrapsToItsLabel() {
+        #expect(caretFormat(.link, "a [te^xt](http://x.y) b") == "a te^xt b")
+        #expect(caretFormat(.link, "a [text](http://x.y)^ b") == "a text^ b")
+        #expect(caretFormat(.link, "a ^[text](http://x.y) b") == "a ^text b")
+        #expect(caretFormat(.link, "a [text](http://^x.y) b") == "a text^ b")
+    }
+
     @Test func linkWrapsTheWordWithCaretInTheTarget() {
         #expect(format(.link, "see docs| now") == "see [docs](|) now")
         #expect(format(.link, "see [the docs] now") == "see [the docs](|) now")

@@ -6,6 +6,7 @@ import Foundation
 /// | Selection | Result |
 /// | --- | --- |
 /// | text | wrapped; text already wrapped, or including its markers, is unwrapped |
+/// | caret inside or touching a span of the same style | the span's markers are removed |
 /// | caret inside or at the end of a word | the word is wrapped |
 /// | caret elsewhere, or at a word's leading edge | an empty pair, caret between |
 /// | caret inside an empty pair | the pair is removed |
@@ -39,6 +40,7 @@ nonisolated enum ComposerInlineFormatting {
         let ns = text as NSString
         guard NSMaxRange(selection) <= ns.length else { return nil }
         if style != .code, touchesCode(selection, in: text) { return nil }
+        if style == .bold || style == .italic, selection.length == 0, caretIsInsideInlineCode(selection.location, in: ns) { return nil }
         return style == .link ? link(in: ns, selection: selection) : toggle(style.marker, in: ns, selection: selection)
     }
 
@@ -48,6 +50,9 @@ nonisolated enum ComposerInlineFormatting {
         let width = (marker as NSString).length
         if selection.length == 0 {
             if let removed = unwrapEmptyPair(marker, in: ns, caret: selection.location) { return removed }
+            if let span = span(marker, touching: selection.location, in: ns) {
+                return unwrapped(span, caret: selection.location, in: ns)
+            }
             guard let word = wordRange(containing: selection.location, in: ns) else {
                 let text = ns.replacingCharacters(in: selection, with: marker + marker)
                 return .init(text: text, selection: NSRange(location: selection.location + width, length: 0))
@@ -64,6 +69,59 @@ nonisolated enum ComposerInlineFormatting {
             text: wrapped(marker, around: selection, in: ns),
             selection: NSRange(location: selection.location + width, length: selection.length)
         )
+    }
+
+    private struct Span {
+        let outer: NSRange
+        let inner: NSRange
+    }
+
+    private static func unwrapped(_ span: Span, caret: Int, in ns: NSString) -> ComposerMarkdownEditing.Result {
+        let text = ns.replacingCharacters(in: span.outer, with: ns.substring(with: span.inner))
+        let location = min(max(caret - span.inner.location, 0), span.inner.length)
+        return .init(text: text, selection: NSRange(location: span.outer.location + location, length: 0))
+    }
+
+    private static let codePattern = try! NSRegularExpression(pattern: "`[^`\\n]+`")
+    private static let boldPattern = try! NSRegularExpression(pattern: "(?<!\\*)\\*\\*(?!\\*)(.+?)(?<!\\*)\\*\\*(?!\\*)")
+    private static let italicPattern = try! NSRegularExpression(pattern: "(?<!\\*)\\*(?!\\*)([^*\\n]+?)(?<!\\*)\\*(?!\\*)")
+    private static let linkPattern = try! NSRegularExpression(pattern: "\\[([^\\]\\n]*)\\]\\(([^)\\n]*)\\)")
+
+    /// The caret's line with inline code spans blanked, so their contents never
+    /// read as emphasis or links, and the line's start in `ns`.
+    private static func maskedLine(at caret: Int, in ns: NSString) -> (line: NSString, start: Int, codeSpans: [NSRange]) {
+        let range = ns.lineRange(for: NSRange(location: caret, length: 0))
+        var line = ns.substring(with: range) as NSString
+        if line.hasSuffix("\n") { line = line.substring(to: line.length - 1) as NSString }
+        let spans = codePattern.matches(in: line as String, range: NSRange(location: 0, length: line.length)).map(\.range)
+        var masked = line as String
+        for span in spans {
+            masked = (masked as NSString).replacingCharacters(in: span, with: String(repeating: "_", count: span.length))
+        }
+        return (masked as NSString, range.location, spans)
+    }
+
+    private static func caretIsInsideInlineCode(_ caret: Int, in ns: NSString) -> Bool {
+        let (_, start, spans) = maskedLine(at: caret, in: ns)
+        return spans.contains { $0.location + start < caret && caret < NSMaxRange($0) + start }
+    }
+
+    private static func span(_ marker: String, touching caret: Int, in ns: NSString) -> Span? {
+        let (line, start, _) = maskedLine(at: caret, in: ns)
+        let pattern: NSRegularExpression
+        switch marker {
+        case "`": pattern = codePattern
+        case "**": pattern = boldPattern
+        default: pattern = italicPattern
+        }
+        let width = (marker as NSString).length
+        let source = marker == "`" ? ns.substring(with: NSRange(location: start, length: line.length)) as NSString : line
+        for match in pattern.matches(in: source as String, range: NSRange(location: 0, length: source.length)) {
+            let outer = NSRange(location: match.range.location + start, length: match.range.length)
+            guard caret >= outer.location, caret <= NSMaxRange(outer) else { continue }
+            return Span(outer: outer, inner: NSRange(location: outer.location + width, length: outer.length - 2 * width))
+        }
+        return nil
     }
 
     private static func wrapped(_ marker: String, around range: NSRange, in ns: NSString) -> String {
@@ -114,6 +172,7 @@ nonisolated enum ComposerInlineFormatting {
     /// A URL selection becomes the link's target with the caret in the label;
     /// anything else becomes the label with the caret in the target.
     private static func link(in ns: NSString, selection: NSRange) -> ComposerMarkdownEditing.Result {
+        if selection.length == 0, let unlinked = unlink(caret: selection.location, in: ns) { return unlinked }
         let target = selection.length > 0 ? selection : (wordRange(containing: selection.location, in: ns) ?? selection)
         guard target.length > 0 else {
             return .init(
@@ -132,6 +191,20 @@ nonisolated enum ComposerInlineFormatting {
             text: ns.replacingCharacters(in: target, with: "[\(label)]()"),
             selection: NSRange(location: target.location + (label as NSString).length + 3, length: 0)
         )
+    }
+
+    /// Unwrapping keeps the label and drops the target.
+    private static func unlink(caret: Int, in ns: NSString) -> ComposerMarkdownEditing.Result? {
+        let (line, start, _) = maskedLine(at: caret, in: ns)
+        for match in linkPattern.matches(in: line as String, range: NSRange(location: 0, length: line.length)) {
+            let outer = NSRange(location: match.range.location + start, length: match.range.length)
+            guard caret >= outer.location, caret <= NSMaxRange(outer) else { continue }
+            let label = NSRange(location: match.range(at: 1).location + start, length: match.range(at: 1).length)
+            let text = ns.replacingCharacters(in: outer, with: ns.substring(with: label))
+            let offset = min(max(caret - label.location, 0), label.length)
+            return .init(text: text, selection: NSRange(location: outer.location + offset, length: 0))
+        }
+        return nil
     }
 
     // MARK: - Words and code
