@@ -39,6 +39,9 @@ final class DeviceSessionManager {
         session.onRemoteDetailsChange = { [tab] details in
             tab.setRemoteDetails(details)
         }
+        session.onReservationEvent = { [tabID = tab.id] event in
+            DeviceLeaseCoordinator.shared.reservationEvent(event, deviceTab: tabID)
+        }
         session.start()
         return session
     }

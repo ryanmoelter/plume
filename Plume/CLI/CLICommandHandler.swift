@@ -34,6 +34,25 @@ final class CLICommandHandler {
     var orderedWindows: () -> [NSWindow] = { NSApp.orderedWindows }
     var directories: TabDirectoryStore = .shared
     var deviceSessions: DeviceSessionManager = .shared
+    var deviceLeases: DeviceLeaseCoordinator = .shared
+    var remoteDevices = RemoteDeviceDefaults()
+
+    /// What `devices.reserve` falls back on, and how it starts a reservation, so tests reserve
+    /// nothing.
+    struct RemoteDeviceDefaults {
+        var project: @MainActor () async -> String? = {
+            await RemoteDeviceCatalog.shared.loadIfNeeded()
+            return RemoteDeviceCatalog.shared.selectedProject
+        }
+        var recentModel: @MainActor () -> String? = { AppSettings.shared.recentRemoteDeviceModels.first }
+        var models: @MainActor () async -> [RemoteDeviceModel] = {
+            await RemoteDeviceCatalog.shared.loadModels()
+            return RemoteDeviceCatalog.shared.models
+        }
+        var reserve: @MainActor (_ tab: TaskTab, _ modelID: String, _ displayName: String, _ projectID: String) -> Void = {
+            DeviceSessionManager.shared.prepareSession(for: $0).reserve(modelID: $1, displayName: $2, projectID: $3)
+        }
+    }
 
     func registerWindow(_ id: UUID, _ registration: WindowRegistration) {
         unregisterWindow(id)
@@ -89,6 +108,10 @@ final class CLICommandHandler {
             return openSettings(params)
         case .showDevice(let params):
             return showDevice(params)
+        case .reserveDevice(let params):
+            return await reserveDevice(params)
+        case .releaseDevice(let params):
+            return await releaseDevice(params)
         }
     }
 
@@ -115,13 +138,10 @@ final class CLICommandHandler {
             tab = showing
         } else if case .remote(let reservationID) = target {
             return .failure("no device tab holds reservation \(reservationID)")
-        } else if let empty = deviceTabs.first(where: { $0.deviceTarget == nil && !deviceSessions.canEndReservation(for: $0.id) }) {
-            tab = empty
         } else {
-            let previous = task.selectedTabID.flatMap { id in task.tabs.first { $0.id == id } }
-            tab = TaskStore.addTab(to: task, kind: .device, in: context)
-            if let previous { TaskStore.selectTab(previous, in: task) }
-            created = true
+            let empty = emptyDeviceTab(in: task, context: context)
+            tab = empty.tab
+            created = empty.created
         }
         let displayName = params.displayName ?? Self.defaultDisplayName(target)
         if tab.deviceTarget == nil { tab.setDevice(target, displayName: displayName) }
@@ -130,6 +150,87 @@ final class CLICommandHandler {
         response.tabID = tab.id
         response.created = created
         return response
+    }
+
+    /// A device tab with no device and no reservation starting, else a new one behind the selection.
+    private func emptyDeviceTab(in task: WorkTask, context: ModelContext) -> (tab: TaskTab, created: Bool) {
+        let empty = task.orderedTabs.first { tab in
+            tab.kind == .device && tab.deviceTarget == nil && !deviceSessions.canEndReservation(for: tab.id)
+        }
+        if let empty { return (empty, false) }
+        let previous = task.selectedTabID.flatMap { id in task.tabs.first { $0.id == id } }
+        let tab = TaskStore.addTab(to: task, kind: .device, in: context)
+        if let previous { TaskStore.selectTab(previous, in: task) }
+        return (tab, true)
+    }
+
+    /// Answers once the claim is recorded; `plume devices` waits on the registry for the device.
+    private func reserveDevice(_ params: CLIRequest.ReserveDevice) async -> CLIResponse {
+        guard currentTask(ofTab: params.tabID) != nil else {
+            return .failure("no Plume tab \(params.tabID.uuidString)")
+        }
+        guard let socket = deviceLeases.appSocket else {
+            return .failure("this Plume isn't tracking device leases")
+        }
+        let projectID: String
+        if let given = params.projectID {
+            projectID = given
+        } else if let remembered = await remoteDevices.project() {
+            projectID = remembered
+        } else {
+            return .failure("no Device Streaming project: sign in and pick one in a device tab's Remote section")
+        }
+        let modelID: String
+        if let given = params.model ?? remoteDevices.recentModel() {
+            modelID = given
+        } else {
+            let offered = await remoteDevices.models().map(\.id)
+            let options = offered.isEmpty ? "" : ", one of: " + offered.joined(separator: ", ")
+            return .failure("no device model given and none reserved before; pass --model=<codename/api>\(options)")
+        }
+        // The awaits above can outlast the caller or move it to another task.
+        guard let (task, context) = currentTask(ofTab: params.tabID) else {
+            return .failure("no Plume tab \(params.tabID.uuidString)")
+        }
+        let (tab, created) = emptyDeviceTab(in: task, context: context)
+        let claim = RemoteClaim(
+            owner: .tab(id: params.tabID, app: socket),
+            deviceTabID: tab.id,
+            deviceTabCreated: created,
+            model: modelID,
+            projectID: projectID,
+            ttl: params.ttl ?? DevicePool.defaultTTL,
+            worktree: params.worktree,
+            branch: params.branch
+        )
+        do {
+            try await deviceLeases.beginClaim(claim)
+        } catch {
+            if created { closeTab(tab.id) }
+            return .failure("couldn't record the claim: \(Self.describe(error))")
+        }
+        let displayName = RemoteDeviceCatalog.shared.models.first { $0.id == modelID }?.name ?? modelID
+        remoteDevices.reserve(tab, modelID, displayName, projectID)
+        var response = CLIResponse.success
+        response.tabID = tab.id
+        response.created = created
+        response.claimID = claim.id
+        return response
+    }
+
+    private func releaseDevice(_ params: CLIRequest.ReleaseDevice) async -> CLIResponse {
+        do {
+            guard try await deviceLeases.releaseLease(params.key) != nil else {
+                return .failure("this Plume holds no lease on \(params.key)")
+            }
+            return .success
+        } catch {
+            return .failure(Self.describe(error))
+        }
+    }
+
+    private static func describe(_ error: any Error) -> String {
+        (error as? CLIFailure)?.message ?? error.localizedDescription
     }
 
     private static func deviceTarget(_ params: CLIRequest.ShowDevice) -> DeviceTarget? {

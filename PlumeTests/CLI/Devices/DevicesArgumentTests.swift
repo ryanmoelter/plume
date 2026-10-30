@@ -11,7 +11,7 @@ struct DevicesArgumentTests {
 
     @Test func rejectsBadClaims() {
         for arguments in [
-            ["claim", "--kind=remote"], ["claim", "--kind=tv"], ["claim", "--form=watch"], ["claim", "--ttl=0"],
+            ["claim", "--kind=tv"], ["claim", "--form=watch"], ["claim", "--ttl=0"],
             ["claim", "--ttl=1h"], ["claim", "--owner="], ["claim", "--owner"], ["claim", "a", "b"], ["claim", "--bogus"],
         ] {
             #expect(throws: Devices.UsageError.self, "\(arguments)") { try Devices.parse(arguments) }

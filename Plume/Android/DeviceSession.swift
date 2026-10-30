@@ -78,6 +78,16 @@ final class DeviceSession {
     /// Called when the user picks a device, so the tab can persist it.
     @ObservationIgnored var onDeviceChange: ((_ target: DeviceTarget?, _ displayName: String?) -> Void)?
     @ObservationIgnored var onRemoteDetailsChange: ((RemoteDeviceDetails?) -> Void)?
+    /// What device leases follow: a reservation reaching adb, failing to start, or ending.
+    @ObservationIgnored var onReservationEvent: ((ReservationEvent) -> Void)?
+
+    enum ReservationEvent: Equatable {
+        /// Also sent on every reconnect, whose adb port is new.
+        case attached(reservationID: String, serial: String)
+        case failed(String)
+        /// The id is nil when the reservation ended before `create` named it.
+        case ended(reservationID: String?)
+    }
 
     @ObservationIgnored private let discovery: EmulatorDiscovery
     @ObservationIgnored private let physicalDiscovery: PhysicalDeviceDiscovery
@@ -246,6 +256,11 @@ final class DeviceSession {
         reserve(details: RemoteDeviceDetails(projectID: projectID, model: model.id), displayName: model.name)
     }
 
+    /// For `plume devices`, which names the model by its `codename/api` id.
+    func reserve(modelID: String, displayName: String, projectID: String) {
+        reserve(details: RemoteDeviceDetails(projectID: projectID, model: modelID), displayName: displayName)
+    }
+
     /// Reserves the same model again after a reservation ended or failed.
     func reserveAgain() {
         guard let remoteDetails, remoteDetails.model != nil else { return }
@@ -257,7 +272,7 @@ final class DeviceSession {
         workTask = nil
         stopReservationMonitor()
         disconnect()
-        reservation?.release()
+        releaseReservation()
         let reservation = RemoteReservation(
             projectID: details.projectID, model: details.model, cli: remoteCLI, ledger: ledger, now: now,
             listADB: physicalDiscovery.list
@@ -276,6 +291,7 @@ final class DeviceSession {
                 // A create that printed an id before failing still holds a billed reservation.
                 reservation.release()
                 state = .reservationFailed(error.localizedDescription)
+                onReservationEvent?(.failed(error.localizedDescription))
                 return
             }
             guard let self, self.reservation === reservation, !Task.isCancelled, !reservation.isReleased,
@@ -302,6 +318,7 @@ final class DeviceSession {
             state = .reservationFailed(error.localizedDescription)
             return
         }
+        if let id = reservation.reservationID { onReservationEvent?(.attached(reservationID: id, serial: serial)) }
         await physicalDiscovery.refresh()
         guard self.reservation === reservation, !Task.isCancelled else { return }
         guard let adbURL = physicalDiscovery.adbURL else {
@@ -345,7 +362,7 @@ final class DeviceSession {
         guard reservation === ended else { return }
         stopReservationMonitor()
         disconnect()
-        ended.release()
+        releaseReservation()
         state = .reservationEnded
     }
 
@@ -470,7 +487,7 @@ final class DeviceSession {
         workTask = nil
         stopReservationMonitor()
         disconnect()
-        reservation?.release()
+        releaseReservation()
         reservation = nil
         autoRotate = nil
         remoteDetails = nil
@@ -499,7 +516,14 @@ final class DeviceSession {
         sinks.removeAll()
         stopReservationMonitor()
         disconnect()
-        reservation?.release()
+        releaseReservation()
+    }
+
+    /// Termination skips this: the lease registry drops every remote lease at quit.
+    private func releaseReservation() {
+        guard let reservation, !reservation.isReleased else { return }
+        reservation.release()
+        onReservationEvent?(.ended(reservationID: reservation.reservationID ?? reservation.knownReservationID))
     }
 
     /// Like `close()`, but never waits on the connection, for app termination.

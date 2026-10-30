@@ -26,6 +26,15 @@ final class FakeDeviceEnvironment: DeviceEnvironment {
     func avdForm(_ avd: String) -> DeviceForm? { avdForms[avd] }
     func ownerInfo() -> DeviceOwnerInfo? { owner }
 
+    /// Advances the clock, then runs `duringSleep`, which plays whatever happens meanwhile.
+    var duringSleep: () -> Void = {}
+    private(set) var slept: TimeInterval = 0
+    func sleep(_ seconds: TimeInterval) {
+        slept += seconds
+        clock = clock.addingTimeInterval(seconds)
+        duringSleep()
+    }
+
     func boot(avd: String, log: (String) -> Void) throws -> String {
         booted.append(avd)
         duringBoot()

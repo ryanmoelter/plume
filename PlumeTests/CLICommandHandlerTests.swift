@@ -254,4 +254,102 @@ struct CLICommandHandlerTests {
         #expect(await !handler.handle(.showDevice(.init(tabID: caller.id, kind: .remote, reservationID: "r"))).ok)
         #expect(task.tabs.count == 1)
     }
+
+    // MARK: devices.reserve and devices.release
+
+    private final class Reservations {
+        var started: [(tab: UUID, model: String, displayName: String, project: String)] = []
+    }
+
+    private func makeReservingHandler(
+        task: WorkTask,
+        store: DeviceRegistryStore,
+        project: String? = "p",
+        recentModel: String? = "akita/34",
+        reservations: Reservations
+    ) -> CLICommandHandler {
+        let handler = makeHandler(task: task)
+        handler.deviceLeases = DeviceLeaseCoordinator(store: store, leases: DeviceLeaseStore(), appSocket: "/me.sock")
+        handler.remoteDevices = .init(
+            project: { project },
+            recentModel: { recentModel },
+            models: { [RemoteDeviceModel(manufacturer: "Google", name: "Pixel 8", codename: "shiba", api: 34)] },
+            reserve: { tab, model, displayName, project in reservations.started.append((tab.id, model, displayName, project)) }
+        )
+        return handler
+    }
+
+    @Test func reservingRecordsAClaimAndStartsTheReservationInANewDeviceTab() async throws {
+        let task = TaskStore.createTask(in: context, siblings: [])
+        let caller = try #require(task.tabs.first)
+        let selected = task.selectedTabID
+        let store = try makeDeviceStore()
+        let reservations = Reservations()
+        let handler = makeReservingHandler(task: task, store: store, reservations: reservations)
+
+        let response = await handler.handle(.reserveDevice(.init(tabID: caller.id, ttl: 600, worktree: "/w", branch: "b")))
+
+        #expect(response.ok)
+        #expect(response.created == true)
+        let claimID = try #require(response.claimID)
+        let tab = try #require(task.tabs.first { $0.id == response.tabID })
+        #expect(tab.kind == .device)
+        #expect(task.selectedTabID == selected)
+        let pending = try #require(try store.load { _ in }.pending[DeviceRegistry.pendingKey(claim: claimID)])
+        #expect(pending.owner == .tab(id: caller.id, app: "/me.sock"))
+        #expect(pending.deviceTabID == tab.id)
+        #expect(pending.model == "akita/34")
+        #expect(reservations.started.map(\.tab) == [tab.id])
+        #expect(reservations.started.first?.model == "akita/34")
+        #expect(reservations.started.first?.project == "p")
+    }
+
+    @Test func reservingUsesAnEmptyDeviceTabFirst() async throws {
+        let task = TaskStore.createTask(in: context, siblings: [])
+        let caller = try #require(task.tabs.first)
+        let empty = TaskStore.addTab(to: task, kind: .device, in: context)
+        let reservations = Reservations()
+        let handler = makeReservingHandler(task: task, store: try makeDeviceStore(), reservations: reservations)
+
+        let response = await handler.handle(.reserveDevice(.init(tabID: caller.id, model: "shiba/34", projectID: "q")))
+
+        #expect(response.tabID == empty.id)
+        #expect(response.created == false)
+        #expect(reservations.started.first?.model == "shiba/34")
+        #expect(reservations.started.first?.project == "q")
+    }
+
+    @Test func reservingRefusesWithoutACallerAProjectOrAModel() async throws {
+        let task = TaskStore.createTask(in: context, siblings: [])
+        let caller = try #require(task.tabs.first)
+        let reservations = Reservations()
+        let store = try makeDeviceStore()
+
+        let unknown = await makeReservingHandler(task: task, store: store, reservations: reservations)
+            .handle(.reserveDevice(.init(tabID: UUID())))
+        let noProject = await makeReservingHandler(task: task, store: store, project: nil, reservations: reservations)
+            .handle(.reserveDevice(.init(tabID: caller.id)))
+        let noModel = await makeReservingHandler(task: task, store: store, recentModel: nil, reservations: reservations)
+            .handle(.reserveDevice(.init(tabID: caller.id)))
+        let untracked = makeHandler(task: task)
+        untracked.deviceLeases = DeviceLeaseCoordinator(store: store, leases: DeviceLeaseStore())
+        let notTracking = await untracked.handle(.reserveDevice(.init(tabID: caller.id, model: "a/1", projectID: "p")))
+
+        #expect(unknown.error?.contains("no Plume tab") == true)
+        #expect(noProject.error?.contains("no Device Streaming project") == true)
+        #expect(noModel.error?.contains("one of: shiba/34") == true)
+        #expect(notTracking.error == "this Plume isn't tracking device leases")
+        #expect(reservations.started.isEmpty)
+        #expect(task.tabs.count == 1)
+        #expect(try store.load { _ in }.pending.isEmpty)
+    }
+
+    @Test func releasingNeedsALeaseThisAppHolds() async throws {
+        let task = TaskStore.createTask(in: context, siblings: [])
+        let handler = makeReservingHandler(task: task, store: try makeDeviceStore(), reservations: Reservations())
+
+        let response = await handler.handle(.releaseDevice(.init(key: "remote:r1")))
+
+        #expect(response.error == "this Plume holds no lease on remote:r1")
+    }
 }

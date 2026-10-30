@@ -19,6 +19,7 @@ struct DeviceLeaseCoordinatorTests {
     @MainActor private final class Recorder {
         var ended: [String] = []
         var closed: [UUID] = []
+        var returnedToPicker: [UUID] = []
     }
 
     init() throws {
@@ -30,7 +31,8 @@ struct DeviceLeaseCoordinatorTests {
             leases: DeviceLeaseStore(),
             effects: .init(
                 endReservation: { recorder.ended.append($0.remote?.reservationID ?? "?") },
-                closeTab: { recorder.closed.append($0) }
+                closeTab: { recorder.closed.append($0) },
+                endTabReservation: { recorder.returnedToPicker.append($0) }
             ),
             appSocket: me,
             now: { now }
@@ -192,6 +194,103 @@ struct DeviceLeaseCoordinatorTests {
         let held = coordinator.leases.leases(ownedBy: [ownerTab, UUID()])
         #expect(held.map(\.serial) == ["emulator-5554"])
         #expect(DeviceLeaseStore.summary(held) == "emulator-5554 (Pixel_8)")
+    }
+
+    // MARK: Remote claims
+
+    func claim(created: Bool = true) -> RemoteClaim {
+        RemoteClaim(
+            owner: .tab(id: ownerTab, app: me), deviceTabID: deviceTab, deviceTabCreated: created,
+            model: "akita/34", projectID: "p", ttl: 600, worktree: "/w", branch: "b"
+        )
+    }
+
+    @Test func aClaimIsPendingUntilItsDeviceConnectsAndThenLeased() async throws {
+        let claim = claim()
+        try await coordinator.beginClaim(claim)
+        let pending = try #require(try registry().pending[DeviceRegistry.pendingKey(claim: claim.id)])
+        #expect(pending.owner == claim.owner)
+        #expect(pending.deviceTabID == deviceTab)
+
+        coordinator.reservationEvent(.attached(reservationID: "r1", serial: "localhost:40001"), deviceTab: deviceTab)
+        await coordinator.settle()
+
+        let after = try registry()
+        #expect(after.pending.isEmpty)
+        #expect(after.devices["remote:r1"] == DeviceLease(
+            kind: .remote, serial: "localhost:40001", model: "akita/34", owner: claim.owner, worktree: "/w", branch: "b",
+            claimedAt: now, expiresAt: now.addingTimeInterval(600), deviceTabID: deviceTab, deviceTabCreatedByClaim: true,
+            remote: .init(reservationID: "r1", projectID: "p", claimID: claim.id)
+        ))
+        #expect(coordinator.leases.leases(ownedBy: [ownerTab]).map(\.serial) == ["localhost:40001"])
+    }
+
+    @Test func aReconnectMovesTheLeaseToItsNewPort() async throws {
+        try await coordinator.beginClaim(claim())
+        coordinator.reservationEvent(.attached(reservationID: "r1", serial: "localhost:40001"), deviceTab: deviceTab)
+        coordinator.reservationEvent(.attached(reservationID: "r1", serial: "localhost:40002"), deviceTab: deviceTab)
+        await coordinator.settle()
+
+        #expect(try registry().devices["remote:r1"]?.serial == "localhost:40002")
+    }
+
+    @Test func aFailedReservationMarksItsClaim() async throws {
+        let claim = claim()
+        try await coordinator.beginClaim(claim)
+        coordinator.reservationEvent(.failed("quota exceeded"), deviceTab: deviceTab)
+        await coordinator.settle()
+
+        #expect(try registry().pending[DeviceRegistry.pendingKey(claim: claim.id)]?.error == "quota exceeded")
+        #expect(recorder.closed.isEmpty)
+    }
+
+    @Test func anEndedReservationTakesItsLeaseOrMarksItsClaim() async throws {
+        let first = claim()
+        try await coordinator.beginClaim(first)
+        coordinator.reservationEvent(.attached(reservationID: "r1", serial: "localhost:40001"), deviceTab: deviceTab)
+        coordinator.reservationEvent(.ended(reservationID: "r1"), deviceTab: deviceTab)
+        let second = claim()
+        try await coordinator.beginClaim(second)
+        coordinator.reservationEvent(.ended(reservationID: nil), deviceTab: deviceTab)
+        await coordinator.settle()
+
+        let after = try registry()
+        #expect(after.devices.isEmpty)
+        #expect(after.pending[DeviceRegistry.pendingKey(claim: second.id)]?.error == "the reservation ended before the device connected")
+        #expect(recorder.ended.isEmpty)
+    }
+
+    @Test func releasingALeaseEndsItsReservationAndClosesTheTabItOpened() async throws {
+        try await coordinator.beginClaim(claim())
+        coordinator.reservationEvent(.attached(reservationID: "r1", serial: "localhost:40001"), deviceTab: deviceTab)
+        await coordinator.settle()
+
+        #expect(try await coordinator.releaseLease("remote:r1") != nil)
+        #expect(try await coordinator.releaseLease("remote:r1") == nil)
+
+        #expect(try registry().devices.isEmpty)
+        #expect(recorder.ended == ["r1"])
+        #expect(recorder.closed == [deviceTab])
+    }
+
+    @Test func anotherAppsLeaseIsNotReleased() async throws {
+        try save(DeviceRegistry(devices: ["remote:r1": lease(.remote, owner: .tab(id: ownerTab, app: otherApp), serial: "r1")]))
+
+        #expect(try await coordinator.releaseLease("remote:r1") == nil)
+        #expect(try registry().devices.count == 1)
+    }
+
+    @Test func forgettingTheClaimantStopsAReservationStillStarting() async throws {
+        try await coordinator.beginClaim(claim(created: true))
+        coordinator.tabForgotten(ownerTab)
+        await coordinator.settle()
+        #expect(recorder.closed == [deviceTab])
+        #expect(try registry().pending.isEmpty)
+
+        try await coordinator.beginClaim(claim(created: false))
+        coordinator.tabForgotten(ownerTab)
+        await coordinator.settle()
+        #expect(recorder.returnedToPicker == [deviceTab])
     }
 
     @Test func nothingHappensBeforeStart() async throws {

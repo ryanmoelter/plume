@@ -163,6 +163,22 @@ nonisolated struct DeviceRegistry: Codable, Equatable, Sendable {
 
     static func pendingKey(avd: String) -> String { pendingAVDPrefix + avd }
     static func pendingKey(claim: UUID) -> String { pendingClaimPrefix + claim.uuidString }
+    static func remoteKey(reservationID: String) -> String { "remote:" + reservationID }
+
+    /// `key` itself when it names a lease, else the remote lease whose current adb serial it is.
+    func leaseKey(for serialOrKey: String) -> String? {
+        if devices[serialOrKey] != nil { return serialOrKey }
+        return devices.first { $0.value.kind == .remote && $0.value.serial == serialOrKey }?.key
+    }
+
+    /// Remote leases by their current adb serial, which adb lists like any USB device.
+    var remoteLeasesBySerial: [String: (key: String, lease: DeviceLease)] {
+        var bySerial: [String: (key: String, lease: DeviceLease)] = [:]
+        for (key, lease) in devices where lease.kind == .remote {
+            if let serial = lease.serial { bySerial[serial] = (key, lease) }
+        }
+        return bySerial
+    }
 
     /// AVDs with a boot in flight.
     var pendingAVDs: Set<String> {

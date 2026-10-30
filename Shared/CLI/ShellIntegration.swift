@@ -127,8 +127,9 @@ nonisolated enum ShellIntegration {
           case $subcommand in
             claim)
               _arguments \\
-                '--kind=[Device kind]:kind:(emulator physical any)' \\
+                '--kind=[Device kind]:kind:(emulator physical any remote)' \\
                 '--form=[Form factor]:form:(phone tablet foldable)' \\
+                '--model=[Remote device model]:codename/api:' \\
                 '--owner=[Lease owner]:owner:' \\
                 '--ttl=[Lease length in seconds]:seconds:' \\
                 '--json[Print JSON]' \\

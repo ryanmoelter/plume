@@ -45,17 +45,22 @@ final class DeviceLeaseCoordinator {
     struct Effects {
         var endReservation: @MainActor (DeviceLease) -> Void = DeviceLeaseCoordinator.endReservation
         var closeTab: @MainActor (UUID) -> Void = { CLICommandHandler.shared.closeTab($0) }
+        /// Returns a device tab to the picker, ending whatever it was reserving.
+        var endTabReservation: @MainActor (UUID) -> Void = { DeviceSessionManager.shared.existingSession(for: $0)?.endReservation() }
     }
 
     let store: DeviceRegistryStore
     let leases: DeviceLeaseStore
     var effects: Effects
-    /// The socket this app serves. Nil until `start`, and then every call is a no-op.
+    /// The socket this app serves. Nil until `start`, and until then every call is a no-op.
     private(set) var appSocket: String?
     private let now: @Sendable () -> Date
     private let queue = DispatchQueue(label: "com.ryanmoelter.Plume.device-leases", qos: .utility)
     private var watcher: FileWatcher?
     private var reapTask: Task<Void, Never>?
+    /// Claims whose device hasn't connected yet, by device tab. In memory only: a quit ends
+    /// their reservations, and the launch sweep drops their pending entries.
+    private var claims: [UUID: RemoteClaim] = [:]
 
     init(
         store: DeviceRegistryStore = DeviceRegistryStore(),
@@ -107,7 +112,62 @@ final class DeviceLeaseCoordinator {
     /// The tab's own leases go, and a remote one ends its reservation. A lease whose device tab
     /// this was keeps going without it, unless it is remote: the reservation closed with the tab.
     func tabForgotten(_ tabID: UUID) {
+        claims[tabID] = nil
+        for claim in claims.values where claim.owner.tabID == tabID {
+            claims[claim.deviceTabID] = nil
+            onMain { coordinator in
+                if claim.deviceTabCreated {
+                    coordinator.effects.closeTab(claim.deviceTabID)
+                } else {
+                    coordinator.effects.endTabReservation(claim.deviceTabID)
+                }
+            }
+        }
         mutate { registry, app, _ in registry.forget(tabID: tabID, app: app) }
+    }
+
+    /// Records a pending claim before its reservation starts, so the claimant has something to
+    /// wait on.
+    func beginClaim(_ claim: RemoteClaim) async throws {
+        try await perform { registry, _, now in registry.recordClaim(claim, now: now) }
+        claims[claim.deviceTabID] = claim
+    }
+
+    /// Drops this app's lease at `key`, ending its reservation and closing a device tab the claim
+    /// opened. Nil when this app holds no lease there.
+    func releaseLease(_ key: String) async throws -> DeviceLease? {
+        let lease = try await perform { registry, app, _ in registry.takeLease(key, app: app) }
+        if let lease, lease.kind == .remote { release(lease) }
+        return lease
+    }
+
+    /// A claim's device connecting becomes its lease. A reconnect moves the lease to the new adb
+    /// port, and a reservation that ends takes its lease, or its pending claim, with it.
+    func reservationEvent(_ event: DeviceSession.ReservationEvent, deviceTab: UUID) {
+        let claim = claims.removeValue(forKey: deviceTab)
+        switch event {
+        case .attached(let reservationID, let serial):
+            mutate { registry, app, now in
+                if let claim {
+                    registry.attach(claim, reservationID: reservationID, serial: serial, now: now)
+                } else {
+                    registry.reattach(reservationID: reservationID, serial: serial, app: app)
+                }
+                return []
+            }
+        case .failed(let message):
+            guard let claim else { return }
+            mutate { registry, _, _ in
+                registry.failClaim(claim.id, message: message)
+                return []
+            }
+        case .ended(let reservationID):
+            mutate { registry, app, _ in
+                if let reservationID { registry.dropRemoteLease(reservationID: reservationID, app: app) }
+                if let claim { registry.failClaim(claim.id, message: "the reservation ended before the device connected") }
+                return []
+            }
+        }
     }
 
     /// A previous run's tabs are gone or dormant, and its reservations ended at quit or are
@@ -144,6 +204,29 @@ final class DeviceLeaseCoordinator {
         await withCheckedContinuation { continuation in
             queue.async { DispatchQueue.main.async { continuation.resume() } }
         }
+    }
+
+    /// Like `mutate`, for a caller that needs the outcome. Resumes once the change is saved.
+    private func perform<T: Sendable>(
+        _ change: @escaping @Sendable (inout DeviceRegistry, _ app: String, _ now: Date) -> T
+    ) async throws -> T {
+        guard let app = appSocket else { throw CLIFailure("this Plume isn't tracking device leases") }
+        let (store, now) = (store, now)
+        let outcome: (registry: DeviceRegistry, value: T) = try await withCheckedThrowingContinuation { continuation in
+            queue.async {
+                continuation.resume(with: Result {
+                    try store.withLock {
+                        var registry = try store.load { EmulatorLog.error("device leases: \($0)") }
+                        let before = registry
+                        let value = change(&registry, app, now())
+                        if registry != before { try store.save(registry) }
+                        return (registry, value)
+                    }
+                })
+            }
+        }
+        leases.publish(outcome.registry, app: app)
+        return outcome.value
     }
 
     /// Runs `change` under the registry lock off the main actor, saves when it changed, then
@@ -205,8 +288,22 @@ final class DeviceLeaseCoordinator {
     }
 }
 
+/// A remote device reserved for a tab, from `devices.reserve` until it connects.
+nonisolated struct RemoteClaim: Equatable, Sendable {
+    var id = UUID()
+    var owner: DeviceLeaseOwner
+    var deviceTabID: UUID
+    var deviceTabCreated: Bool
+    /// `codename/api`.
+    var model: String
+    var projectID: String
+    var ttl: TimeInterval
+    var worktree: String?
+    var branch: String?
+}
+
 /// The coordinator's changes to the registry, each limited to leases whose owner names `app`.
-/// Each returns the remote leases whose reservations must end with them.
+/// Those that return leases return the remote ones whose reservations must end with them.
 nonisolated extension DeviceRegistry {
     private func isMine(_ owner: DeviceLeaseOwner, _ app: String) -> Bool { owner.app == app }
 
@@ -257,6 +354,57 @@ nonisolated extension DeviceRegistry {
             pending[key] = nil
         }
         return ended
+    }
+
+    mutating func recordClaim(_ claim: RemoteClaim, now: Date) {
+        pending[Self.pendingKey(claim: claim.id)] = PendingDevice(
+            owner: claim.owner,
+            kind: .remote,
+            model: claim.model,
+            deviceTabID: claim.deviceTabID,
+            startedAt: now,
+            expiresAt: now.addingTimeInterval(DevicePool.pendingBootTTL)
+        )
+    }
+
+    /// Leases the device even when the claim's pending entry was reaped meanwhile: the
+    /// reservation exists either way, and a claimant that gave up finds it on its next claim.
+    mutating func attach(_ claim: RemoteClaim, reservationID: String, serial: String, now: Date) {
+        pending[Self.pendingKey(claim: claim.id)] = nil
+        devices[Self.remoteKey(reservationID: reservationID)] = DeviceLease(
+            kind: .remote,
+            serial: serial,
+            model: claim.model,
+            owner: claim.owner,
+            worktree: claim.worktree,
+            branch: claim.branch,
+            claimedAt: now,
+            expiresAt: now.addingTimeInterval(claim.ttl),
+            deviceTabID: claim.deviceTabID,
+            deviceTabCreatedByClaim: claim.deviceTabCreated,
+            remote: .init(reservationID: reservationID, projectID: claim.projectID, claimID: claim.id)
+        )
+    }
+
+    mutating func reattach(reservationID: String, serial: String, app: String) {
+        let key = Self.remoteKey(reservationID: reservationID)
+        guard let lease = devices[key], isMine(lease.owner, app), lease.serial != serial else { return }
+        devices[key]?.serial = serial
+    }
+
+    mutating func failClaim(_ claimID: UUID, message: String) {
+        pending[Self.pendingKey(claim: claimID)]?.error = message
+    }
+
+    mutating func dropRemoteLease(reservationID: String, app: String) {
+        let key = Self.remoteKey(reservationID: reservationID)
+        if let lease = devices[key], isMine(lease.owner, app) { devices[key] = nil }
+    }
+
+    mutating func takeLease(_ key: String, app: String) -> DeviceLease? {
+        guard let lease = devices[key], isMine(lease.owner, app) else { return nil }
+        devices[key] = nil
+        return lease
     }
 
     /// For quit, which ends every reservation. True when anything went.

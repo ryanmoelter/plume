@@ -15,6 +15,8 @@ nonisolated final class LiveDeviceEnvironment: DeviceEnvironment {
         self.workingDirectory = workingDirectory
     }
 
+    func sleep(_ seconds: TimeInterval) { Thread.sleep(forTimeInterval: seconds) }
+
     func now() -> Date { Date() }
 
     private func adbURL() throws -> URL {

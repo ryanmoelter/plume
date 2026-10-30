@@ -17,6 +17,9 @@ struct CLIProtocolTests {
         .showDevice(.init(tabID: UUID(), kind: .emulator, avdID: "Pixel_8")),
         .showDevice(.init(tabID: UUID(), kind: .physical, serial: "R5", displayName: "Pixel 8")),
         .showDevice(.init(tabID: UUID(), kind: .remote, reservationID: "abc")),
+        .reserveDevice(.init(tabID: UUID(), model: "akita/34", projectID: "p", ttl: 600, worktree: "/w", branch: "b")),
+        .reserveDevice(.init(tabID: UUID())),
+        .releaseDevice(.init(key: "remote:abc")),
     ])
     func requestsRoundTrip(_ request: CLIRequest) throws {
         let line = try CLILineCodec.encode(request)
@@ -38,6 +41,16 @@ struct CLIProtocolTests {
         #expect((json?["params"] as? [String: Any])?["kind"] as? String == "physical")
     }
 
+    @Test func reserveAndReleaseAreDevicesCommands() throws {
+        for (request, name) in [
+            (CLIRequest.reserveDevice(.init(tabID: UUID())), "devices.reserve"),
+            (.releaseDevice(.init(key: "remote:abc")), "devices.release"),
+        ] {
+            let json = try JSONSerialization.jsonObject(with: CLILineCodec.encode(request)) as? [String: Any]
+            #expect(json?["command"] as? String == name)
+        }
+    }
+
     @Test func anUnknownCommandFailsToDecode() {
         #expect(throws: DecodingError.self) {
             try CLILineCodec.decode(CLIRequest.self, from: Data(#"{"command":"launch"}"#.utf8))
@@ -48,6 +61,7 @@ struct CLIProtocolTests {
         var response = CLIResponse.success
         response.tabID = UUID()
         response.created = true
+        response.claimID = UUID()
         let line = try CLILineCodec.encode(response)
         #expect(try CLILineCodec.decode(CLIResponse.self, from: line.dropLast()) == response)
 

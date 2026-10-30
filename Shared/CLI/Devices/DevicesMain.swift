@@ -14,8 +14,13 @@ nonisolated enum Devices {
                 [--owner=<label>] [--ttl=<sec>] [--json]
                   Claim that device, or a free one, booting an AVD when none is free.
                   Prints only the serial on stdout; progress goes to stderr.
+          claim --kind=remote [--model=<codename/api>] [--ttl=<sec>] [--json]
+                  Reserve a Device Streaming device in a device tab, and wait until it connects.
+                  Only from a Plume tab: the reservation is billed, and ends with the lease.
+                  The model defaults to the one last reserved.
           release <serial> | --mine [--owner=<label>] [--force]
-                  Release a lease. Another owner's lease needs --force.
+                  Release a lease. Another owner's lease needs --force. Releasing a remote
+                  device ends its reservation.
           renew <serial> [--owner=<label>] [--ttl=<sec>]
                   Extend a lease you hold.
           installed <serial> [<branch>]
@@ -33,6 +38,7 @@ nonisolated enum Devices {
 
     enum Command: Equatable {
         case claim(serial: String?, kind: DeviceKindFilter, form: DeviceForm?, owner: String?, ttl: TimeInterval, json: Bool)
+        case claimRemote(model: String?, owner: String?, ttl: TimeInterval, json: Bool)
         case release(serial: String?, mine: Bool, owner: String?, force: Bool)
         case renew(serial: String, owner: String?, ttl: TimeInterval)
         case installed(serial: String, branch: String?)
@@ -110,6 +116,8 @@ nonisolated enum Devices {
         switch name {
         case "claim":
             var kind = DeviceKindFilter.emulator
+            var remote = false
+            var model: String?
             var form: DeviceForm?
             var owner: String?
             var ttl = DevicePool.defaultTTL
@@ -119,13 +127,12 @@ nonisolated enum Devices {
                 switch argument {
                 case .flag("--kind", let value):
                     let raw = try flags.require(value, for: "--kind")
-                    if raw == DeviceKind.remote.rawValue {
-                        throw UsageError(message: "--kind=remote isn't supported yet")
+                    remote = raw == DeviceKind.remote.rawValue
+                    guard remote || DeviceKindFilter(rawValue: raw) != nil else {
+                        throw UsageError(message: "--kind must be one of emulator|physical|any|remote, got: \(raw)")
                     }
-                    guard let parsed = DeviceKindFilter(rawValue: raw) else {
-                        throw UsageError(message: "--kind must be one of emulator|physical|any, got: \(raw)")
-                    }
-                    kind = parsed
+                    kind = DeviceKindFilter(rawValue: raw) ?? kind
+                case .flag("--model", let value): model = try flags.require(value, for: "--model")
                 case .flag("--form", let value):
                     let raw = try flags.require(value, for: "--form")
                     guard let parsed = DeviceForm(rawValue: raw) else {
@@ -139,6 +146,13 @@ nonisolated enum Devices {
                 case .flag(let flag, _): throw UsageError(message: "unknown flag for claim: \(flag)")
                 }
             }
+            if remote {
+                guard serial == nil, form == nil else {
+                    throw UsageError(message: "--kind=remote takes no <serial> or --form; pick the device with --model")
+                }
+                return .claimRemote(model: model, owner: owner, ttl: ttl, json: json)
+            }
+            guard model == nil else { throw UsageError(message: "--model needs --kind=remote") }
             return .claim(serial: serial, kind: kind, form: form, owner: owner, ttl: ttl, json: json)
         case "release":
             var serial: String?
@@ -209,7 +223,7 @@ nonisolated enum Devices {
             case positional(String)
         }
 
-        static let valued: Set<String> = ["--kind", "--form", "--owner", "--ttl"]
+        static let valued: Set<String> = ["--kind", "--form", "--owner", "--ttl", "--model"]
 
         private var rest: ArraySlice<String>
         private var onlyPositionals = false
@@ -299,28 +313,24 @@ nonisolated enum Devices {
             if case .tab(let tabID, let socket) = claimant.owner {
                 showDeviceTab(key: claimed.serial, lease: claimed.lease, callerTab: tabID, socket: socket, pool: pool, app: app, console: console)
             }
-            if json {
-                try console.print(jsonLine(ClaimResult(
-                    serial: claimed.serial,
-                    kind: claimed.lease.kind,
-                    avd: claimed.lease.avd,
-                    form: claimed.lease.form,
-                    owner: claimed.lease.owner,
-                    expiresAt: claimed.lease.expiresAt,
-                    reused: claimed.reused
-                )))
-            } else {
-                let verb = claimed.reused ? "renewed lease on" : "claimed"
-                console.printError("==> \(verb) \(claimed.serial)" + (claimed.lease.avd.map { " (\($0))" } ?? ""))
-                console.print(claimed.serial)
-            }
+            try printClaim(serial: claimed.serial, lease: claimed.lease, reused: claimed.reused, json: json, console: console)
+        case .claimRemote(let model, let owner, let ttl, let json):
+            let claimed = try claimRemote(model: model, ownerFlag: owner, ttl: ttl, pool: pool, environment: environment, app: app)
+            try printClaim(serial: claimed.lease.serial ?? claimed.key, lease: claimed.lease, reused: claimed.reused, json: json, console: console)
         case .release(let serial, let mine, let owner, let force):
             let claimant = try claimant(ownerFlag: owner, environment: environment, devices: devices)
             if mine {
-                let released = try pool.releaseMine(owner: claimant.owner)
-                console.print(released.isEmpty ? "no leases held" : "released " + released.map(\.key).joined(separator: ", "))
+                let released = try pool.releaseMine(owner: claimant.owner).map(\.key)
+                let remote = try pool.remoteLeases(ownedBy: claimant.owner)
+                for (key, lease) in remote { try releaseRemote(key: key, lease: lease, pool: pool, app: app, console: console) }
+                let all = released + remote.map(\.key)
+                console.print(all.isEmpty ? "no leases held" : "released " + all.joined(separator: ", "))
             } else if let serial {
-                if try pool.release(serial, owner: claimant.owner, force: force) != nil {
+                let key = try pool.leaseKey(for: serial)
+                if let held = try pool.lease(key, owner: claimant.owner, force: force), held.kind == .remote {
+                    try releaseRemote(key: key, lease: held, pool: pool, app: app, console: console)
+                    console.print("released \(serial)")
+                } else if try pool.release(key, owner: claimant.owner, force: force) != nil {
                     console.print("released \(serial)")
                 } else {
                     console.print("\(serial) was not leased")
@@ -328,14 +338,14 @@ nonisolated enum Devices {
             }
         case .renew(let serial, let owner, let ttl):
             let claimant = try claimant(ownerFlag: owner, environment: environment, devices: devices)
-            _ = try pool.renew(serial, owner: claimant.owner, ttl: ttl)
+            _ = try pool.renew(pool.leaseKey(for: serial), owner: claimant.owner, ttl: ttl)
             console.print("renewed \(serial) for \(Int(ttl))s")
         case .installed(let serial, let branch):
             let info = devices.ownerInfo()
             guard let branch = branch ?? info?.branch else {
                 throw CLIFailure("no <branch> given and none detectable from the current repo")
             }
-            if try pool.noteInstalled(serial, branch: branch, worktree: info?.worktree) {
+            if try pool.noteInstalled(pool.leaseKey(for: serial), branch: branch, worktree: info?.worktree) {
                 console.print("recorded \(branch) on \(serial)")
             } else {
                 console.printError("\(programName): \(serial) has no lease to annotate (claim it first)")
@@ -356,6 +366,91 @@ nonisolated enum Devices {
         case .help:
             console.print(usage)
         }
+    }
+
+    static func printClaim(serial: String, lease: DeviceLease, reused: Bool, json: Bool, console: any CLIConsole) throws {
+        if json {
+            try console.print(jsonLine(ClaimResult(
+                serial: serial,
+                kind: lease.kind,
+                avd: lease.avd,
+                form: lease.form,
+                model: lease.kind == .remote ? lease.model : nil,
+                owner: lease.owner,
+                expiresAt: lease.expiresAt,
+                reused: reused
+            )))
+        } else {
+            let verb = reused ? "renewed lease on" : "claimed"
+            console.printError("==> \(verb) \(serial)" + ((lease.avd ?? (lease.kind == .remote ? lease.model : nil)).map { " (\($0))" } ?? ""))
+            console.print(serial)
+        }
+    }
+
+    static let remoteNeedsATab = "a remote device is billed and must belong to a Plume tab"
+
+    /// Asks the tab's app to reserve a device, then waits for the lease it writes once the device
+    /// connects. A device this tab already holds is renewed, and a reservation still starting is
+    /// waited on again rather than doubled.
+    static func claimRemote(
+        model: String?,
+        ownerFlag: String?,
+        ttl: TimeInterval,
+        pool: DevicePool,
+        environment: [String: String],
+        app: any DeviceAppClient
+    ) throws -> (key: String, lease: DeviceLease, reused: Bool) {
+        let devices = pool.environment
+        let claimant = try claimant(ownerFlag: ownerFlag, environment: environment, devices: devices)
+        guard case .tab(let tabID, let socket) = claimant.owner else { throw CLIFailure(remoteNeedsATab) }
+        do {
+            _ = try app.send(.ping, to: socket)
+        } catch {
+            throw CLIFailure("\(remoteNeedsATab), and the Plume that owns this tab isn't answering: \(describe(error))")
+        }
+        let waiter = RemoteClaimWaiter(
+            store: pool.store, app: app, socket: socket, now: devices.now, sleep: devices.sleep, warn: pool.warn, log: pool.log
+        )
+        switch try pool.remoteClaimState(owner: claimant.owner, ttl: ttl) {
+        case .held(let key, let lease):
+            return (key, lease, true)
+        case .waiting(let claimID):
+            pool.log("still reserving a remote device for this tab; waiting for it")
+            let leased = try waiter.wait(for: claimID)
+            return (leased.key, leased.lease, false)
+        case .none:
+            let response = try app.send(.reserveDevice(.init(
+                tabID: tabID, model: model, ttl: ttl, worktree: claimant.worktree, branch: claimant.branch
+            )), to: socket)
+            guard response.ok, let claimID = response.claimID else {
+                throw CLIFailure("couldn't reserve a remote device: \(response.error ?? "Plume started no reservation")")
+            }
+            pool.log("reserving \(model ?? "the model last reserved") in a device tab; Device Streaming can take a few minutes")
+            let leased = try waiter.wait(for: claimID)
+            return (leased.key, leased.lease, false)
+        }
+    }
+
+    /// The owning app ends the reservation with the lease. An app that can't be reached leaves the
+    /// lease to be dropped here; its reservation ends when that app quits or next launches.
+    static func releaseRemote(key: String, lease: DeviceLease, pool: DevicePool, app: any DeviceAppClient, console: any CLIConsole) throws {
+        if let socket = lease.owner.app {
+            do {
+                let response = try app.send(.releaseDevice(.init(key: key)), to: socket)
+                if response.ok { return }
+                console.printError("\(programName): Plume didn't release \(key): \(response.error ?? "no reason given"); dropping the lease")
+            } catch {
+                console.printError(
+                    "\(programName): couldn't reach the Plume holding \(key) (\(describe(error))); dropping the lease, "
+                        + "and its reservation ends when that Plume quits or next launches"
+                )
+            }
+        }
+        _ = try pool.release(key, owner: lease.owner, force: true)
+    }
+
+    static func describe(_ error: any Error) -> String {
+        (error as? CLIFailure)?.message ?? error.localizedDescription
     }
 
     /// Best effort: the lease stands whether or not a tab opens.
@@ -383,10 +478,8 @@ nonisolated enum Devices {
                 return
             }
             try pool.recordDeviceTab(key, owner: lease.owner, tabID: deviceTab, created: response.created == true)
-        } catch let failure as CLIFailure {
-            console.printError("\(programName): couldn't open a device tab: \(failure.message ?? "unknown error")")
         } catch {
-            console.printError("\(programName): couldn't open a device tab: \(error.localizedDescription)")
+            console.printError("\(programName): couldn't open a device tab: \(describe(error))")
         }
     }
 
@@ -395,6 +488,7 @@ nonisolated enum Devices {
         var kind: DeviceKind
         var avd: String?
         var form: DeviceForm?
+        var model: String?
         var owner: DeviceLeaseOwner
         var expiresAt: Date
         var reused: Bool
@@ -412,12 +506,12 @@ nonisolated enum Devices {
 
     static func listLine(_ row: DeviceListingRow, now: Date, color: Bool) -> String {
         func paint(_ text: String, _ code: String) -> String { color ? "\u{1B}[\(code)m\(text)\u{1B}[0m" : text }
-        let serial = row.serial ?? "(booting)"
-        var what = row.avd ?? row.lease?.model ?? row.kind.rawValue
+        let serial = row.serial ?? "(\(row.state))"
+        var what = row.avd ?? row.lease?.model ?? row.pending?.model ?? row.kind.rawValue
         if let form = row.form { what += " [\(form.rawValue)]" }
         let state: String
         if let pending = row.pending {
-            state = paint("booting for \(pending.owner)", "33")
+            state = paint("\(row.state) for \(pending.owner)", "33")
         } else if let lease = row.lease {
             var held = paint("held by \(DevicePool.holder(lease)), expires in \(DevicePool.relativeTime(lease.expiresAt.timeIntervalSince(now)))", "33")
             if let installed = lease.installed { held += paint(" · installed: \(installed.branch)", "2") }

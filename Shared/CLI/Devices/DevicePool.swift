@@ -21,6 +21,7 @@ nonisolated protocol DeviceEnvironment: AnyObject {
     func boot(avd: String, log: (String) -> Void) throws -> String
     /// The enclosing git worktree, or nil outside one.
     func ownerInfo() -> DeviceOwnerInfo?
+    func sleep(_ seconds: TimeInterval)
 }
 
 nonisolated struct DeviceClaimant: Equatable, Sendable {
@@ -56,7 +57,8 @@ nonisolated struct DeviceListingRow: Encodable, Equatable {
     var avd: String?
     var form: DeviceForm?
     /// adb's word for the device (`device`, `offline`, `unauthorized`), `booting` for a pending
-    /// boot, or `remote`.
+    /// boot, `reserving` for a pending remote claim, or `remote` for a remote lease adb doesn't
+    /// list.
     var state: String
     var lease: DeviceLease?
     var pending: PendingDevice?
@@ -134,10 +136,11 @@ nonisolated final class DevicePool {
                 try saveIfReaped(snapshot)
                 throw CLIFailure("\(serial) is not a connected device (not in `adb devices`)")
             }
-            if var held = snapshot.registry.devices[serial] {
-                guard held.owner == claimant.owner else { throw DevicePoolError.conflict(key: serial, lease: held) }
+            let key = snapshot.registry.leaseKey(for: serial) ?? serial
+            if var held = snapshot.registry.devices[key] {
+                guard held.owner == claimant.owner else { throw DevicePoolError.conflict(key: key, lease: held) }
                 held.expiresAt = now.addingTimeInterval(ttl)
-                snapshot.registry.devices[serial] = held
+                snapshot.registry.devices[key] = held
                 try store.save(snapshot.registry)
                 return (held, true)
             }
@@ -167,7 +170,8 @@ nonisolated final class DevicePool {
             var snapshot = try loadReaped()
             let runningAVDs = Set(snapshot.emulatorAVDs.values)
             let pendingAVDs = snapshot.registry.pendingAVDs
-            for device in snapshot.live where device.isReady {
+            let remoteSerials = Set(snapshot.registry.remoteLeasesBySerial.keys)
+            for device in snapshot.live where device.isReady && !remoteSerials.contains(device.serial) {
                 let isEmulator = Self.isEmulator(device.serial)
                 guard kind.admits(isEmulator: isEmulator) else { continue }
                 let held = snapshot.registry.devices[device.serial]
@@ -269,14 +273,77 @@ nonisolated final class DevicePool {
         }
     }
 
-    /// Releases every lease `owner` holds, and returns them by key.
+    /// Releases every local lease `owner` holds, and returns them by key. A remote lease is left for
+    /// the app holding its reservation to release.
     func releaseMine(owner: DeviceLeaseOwner) throws -> [(key: String, lease: DeviceLease)] {
         try store.withLock {
             var snapshot = try loadReaped()
-            let mine = snapshot.registry.devices.filter { $0.value.owner == owner }.sorted { $0.key < $1.key }
+            let mine = snapshot.registry.devices
+                .filter { $0.value.owner == owner && $0.value.kind != .remote }
+                .sorted { $0.key < $1.key }
             for (key, _) in mine { snapshot.registry.devices[key] = nil }
             if mine.isEmpty { try saveIfReaped(snapshot) } else { try store.save(snapshot.registry) }
             return mine.map { (key: $0.key, lease: $0.value) }
+        }
+    }
+
+    /// The lease at `key`, after reaping. Another owner's lease throws unless `force`.
+    func lease(_ key: String, owner: DeviceLeaseOwner, force: Bool) throws -> DeviceLease? {
+        try store.withLock {
+            let snapshot = try loadReaped()
+            try saveIfReaped(snapshot)
+            guard let held = snapshot.registry.devices[key] else { return nil }
+            guard held.owner == owner || force else { throw DevicePoolError.conflict(key: key, lease: held) }
+            return held
+        }
+    }
+
+    func remoteLeases(ownedBy owner: DeviceLeaseOwner) throws -> [(key: String, lease: DeviceLease)] {
+        try store.load(warn: warn).devices
+            .filter { $0.value.owner == owner && $0.value.kind == .remote }
+            .sorted { $0.key < $1.key }
+            .map { (key: $0.key, lease: $0.value) }
+    }
+
+    /// The registry key a command names: a key itself, or a remote lease's current adb serial.
+    func leaseKey(for serial: String) throws -> String {
+        try store.load(warn: warn).leaseKey(for: serial) ?? serial
+    }
+
+    enum RemoteClaimState: Equatable {
+        /// Renewed for the new TTL.
+        case held(key: String, lease: DeviceLease)
+        /// A device is still being reserved for this owner.
+        case waiting(claimID: UUID)
+        case none
+    }
+
+    /// What a remote claim finds already in place for `owner`. A pending claim that failed is
+    /// dropped, so the next one starts afresh.
+    func remoteClaimState(owner: DeviceLeaseOwner, ttl: TimeInterval) throws -> RemoteClaimState {
+        try store.withLock {
+            var snapshot = try loadReaped()
+            if let (key, held) = snapshot.registry.devices.sorted(by: { $0.key < $1.key })
+                .first(where: { $0.value.owner == owner && $0.value.kind == .remote }) {
+                var lease = held
+                lease.expiresAt = environment.now().addingTimeInterval(ttl)
+                snapshot.registry.devices[key] = lease
+                try store.save(snapshot.registry)
+                return .held(key: key, lease: lease)
+            }
+            var state = RemoteClaimState.none
+            var changed = !snapshot.reaped.isEmpty
+            for (key, entry) in snapshot.registry.pending.sorted(by: { $0.key < $1.key })
+            where entry.owner == owner && key.hasPrefix(DeviceRegistry.pendingClaimPrefix) {
+                if entry.error != nil {
+                    snapshot.registry.pending[key] = nil
+                    changed = true
+                } else if state == .none, let claimID = UUID(uuidString: String(key.dropFirst(DeviceRegistry.pendingClaimPrefix.count))) {
+                    state = .waiting(claimID: claimID)
+                }
+            }
+            if changed { try store.save(snapshot.registry) }
+            return state
         }
     }
 
@@ -338,12 +405,14 @@ nonisolated final class DevicePool {
             return snapshot
         }
         let registry = snapshot.registry
+        let remoteBySerial = registry.remoteLeasesBySerial
         var rows: [DeviceListingRow] = snapshot.live.map { device in
-            let lease = registry.devices[device.serial]
+            let remote = remoteBySerial[device.serial]?.lease
+            let lease = registry.devices[device.serial] ?? remote
             let avd = snapshot.emulatorAVDs[device.serial]
             return DeviceListingRow(
                 serial: device.serial,
-                kind: Self.isEmulator(device.serial) ? .emulator : .physical,
+                kind: remote != nil ? .remote : Self.isEmulator(device.serial) ? .emulator : .physical,
                 avd: avd,
                 form: lease?.form ?? environment.form(of: device, avd: avd),
                 state: Self.adbWord(device.state),
@@ -351,11 +420,12 @@ nonisolated final class DevicePool {
             )
         }
         let live = Set(snapshot.live.map(\.serial))
-        for (key, lease) in registry.devices.sorted(by: { $0.key < $1.key }) where !live.contains(key) {
+        for (key, lease) in registry.devices.sorted(by: { $0.key < $1.key }) where !live.contains(lease.serial ?? key) {
             rows.append(DeviceListingRow(serial: lease.serial ?? key, kind: lease.kind, avd: lease.avd, form: lease.form, state: "remote", lease: lease))
         }
         for (_, pending) in registry.pending.sorted(by: { $0.key < $1.key }) {
-            rows.append(DeviceListingRow(serial: nil, kind: pending.kind, avd: pending.avd, form: nil, state: "booting", pending: pending))
+            let state = pending.kind == .remote ? "reserving" : "booting"
+            rows.append(DeviceListingRow(serial: nil, kind: pending.kind, avd: pending.avd, form: nil, state: state, pending: pending))
         }
         return rows
     }
@@ -376,7 +446,8 @@ nonisolated final class DevicePool {
         }
         for (key, pending) in registry.pending.sorted(by: { $0.key < $1.key }) {
             let what = pending.avd ?? pending.model ?? key
-            lines.append("  (booting)  \(what)  held by \(pending.owner), started \(relativeTime(now.timeIntervalSince(pending.startedAt))) ago")
+            let state = pending.kind == .remote ? "(reserving)" : "(booting)"
+            lines.append("  \(state)  \(what)  held by \(pending.owner), started \(relativeTime(now.timeIntervalSince(pending.startedAt))) ago")
         }
         return lines
     }
