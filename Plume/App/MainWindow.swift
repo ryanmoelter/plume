@@ -10,7 +10,6 @@ struct MainWindow: View {
     @State private var statusPersistence: StatusPersistence?
     @State private var statusNotifier: StatusNotifier?
     @State private var archiveShown = false
-    @State private var skipNextSelectionSave = false
     @State private var importSource: ImportSource?
     @State private var importRequest = ImportRequest.shared
     @State private var hostWindow: NSWindow?
@@ -105,7 +104,7 @@ struct MainWindow: View {
                 in: SidebarKeyboardNavigation.entries(taskIDs: navigableTasks.map(\.id)),
                 offset: offset
             )
-            if let destination { selection = destination }
+            if let destination { choose(destination) }
         }
         .focusedSceneValue(\.newTaskAction) {
             let group = selectedTask?.group
@@ -117,7 +116,7 @@ struct MainWindow: View {
                 defaultsToRecentFolder: true,
                 inheritingFrom: selectedTask
             )
-            selection = .task(task.id)
+            choose(.task(task.id))
         }
         .focusedSceneValue(\.taskCommands, selectedTask.map { task in
             TaskCommands(
@@ -166,12 +165,8 @@ struct MainWindow: View {
         }
         .modifier(worktreeRemovalDialog)
         .modifier(liveAgentRemovalDialog)
-        .onChange(of: selection) { _, id in
-            if skipNextSelectionSave {
-                skipNextSelectionSave = false
-                return
-            }
-            LastOpenTask.save(id)
+        .onChange(of: tasks.map(\.id)) { _, ids in
+            if let id = selection?.taskID, !ids.contains(id) { selection = .home }
         }
         .clearsUnreadOnView(of: selectedTask)
         .onChange(of: Notifier.shared.pendingRoute) { _, route in
@@ -231,7 +226,7 @@ struct MainWindow: View {
             task: { taskID in tasks.first { $0.id == taskID } },
             taskIDForTab: { tabID in tasks.first { $0.tabs.contains { $0.id == tabID } }?.id },
             context: context,
-            reveal: { taskID in selection = .task(taskID) },
+            reveal: { taskID in choose(.task(taskID)) },
             openSettings: { openSettings() }
         ))
     }
@@ -241,7 +236,7 @@ struct MainWindow: View {
     /// the click does nothing.
     private func open(taskID: UUID, tabID: UUID) {
         guard let task = tasks.first(where: { $0.id == taskID }) else { return }
-        selection = .task(task.id)
+        choose(.task(task.id))
         guard let tab = task.orderedTabs.first(where: { $0.id == tabID }) else { return }
         TaskStore.selectTab(tab, in: task)
         BellStore.shared.markSeen(tabID: tab.id)
@@ -264,7 +259,7 @@ struct MainWindow: View {
     /// call inline there defeats the type checker's time budget.
     private var sidebar: some View {
         SidebarView(
-            selection: $selection,
+            selection: Binding(get: { selection }, set: { choose($0) }),
             archiveShown: $archiveShown,
             requestArchive: { requestRemoval(of: $0, verb: .archive) },
             requestDelete: { requestRemoval(of: $0, verb: .delete) }
@@ -305,10 +300,16 @@ struct MainWindow: View {
         if case .task(let id) = LastOpenTask.load(), tasks.contains(where: { $0.id == id }) {
             selection = .task(id)
         } else {
-            // The tasks may not have loaded yet, so the saved ID stays.
-            skipNextSelectionSave = true
+            // The tasks may not have loaded yet, so the saved value stays.
             selection = .home
         }
+    }
+
+    /// A selection the user or a route chose, which the next launch reopens.
+    /// Writing `selection` directly leaves the saved value alone.
+    private func choose(_ newSelection: SidebarSelection?) {
+        selection = newSelection
+        LastOpenTask.save(newSelection)
     }
 
     /// Entry point for both the sidebar's context menu and ⌘⌃A. A task with an
@@ -363,7 +364,6 @@ struct MainWindow: View {
                 pendingWorktreeRemoval = nil
             },
             finish: {
-                if selection == .task(task.id) { selection = .home }
                 switch verb {
                 case .delete: TaskStore.delete(task, in: context)
                 case .archive: TaskStore.archive(task)

@@ -13,7 +13,6 @@ struct HomeFeedTests {
         tab: String = "Tab",
         _ status: TaskStatus,
         isUnread: Bool = false,
-        isDormant: Bool = false,
         hasSession: Bool = false,
         permission: String? = nil,
         started: Date? = nil,
@@ -26,7 +25,6 @@ struct HomeFeedTests {
             tabTitle: tab,
             status: status,
             isUnread: isUnread,
-            isDormant: isDormant,
             hasSession: hasSession,
             permissionToolName: permission,
             workStartedAt: started,
@@ -51,7 +49,7 @@ struct HomeFeedTests {
     }
 
     @Test func aReadFinishedTurnIsNotListed() {
-        let feed = HomeFeed(entries: [entry(.awaitingReply), entry(.done)])
+        let feed = HomeFeed(entries: [entry(.awaitingReply, hasSession: true), entry(.done, hasSession: true)])
         #expect(feed.needsYou.isEmpty && feed.running.isEmpty && feed.notStarted.isEmpty)
     }
 
@@ -68,9 +66,16 @@ struct HomeFeedTests {
         #expect(feed.notStarted.count == 1)
     }
 
-    @Test func aNotStartedTabWithASessionThatIsNotDormantIsNotListed() {
-        let feed = HomeFeed(entries: [entry(.notStarted, hasSession: true)])
+    @Test func anIdleTabWithASessionIsNotListed() {
+        let feed = HomeFeed(entries: [entry(.notStarted, hasSession: true), entry(.awaitingReply, hasSession: true)])
         #expect(feed.notStarted.isEmpty)
+    }
+
+    @Test func aWorkingTabBeatsUnread() {
+        let feed = HomeFeed(entries: [entry(.working, isUnread: true), entry(.waitingOnSubagents, isUnread: true)])
+        #expect(feed.running.count == 2)
+        #expect(feed.needsYou.isEmpty)
+        #expect(HomeFeed.needsYou(status: .working, isUnread: true) == false)
     }
 
     @Test func workingAndWaitingOnSubagentsAreRunning() {
@@ -83,16 +88,6 @@ struct HomeFeedTests {
     @Test func aStaleStartIsDroppedOnceNotActive() {
         let feed = HomeFeed(entries: [entry(.questionAsked, started: Date())])
         #expect(feed.needsYou.first?.workStartedAt == nil)
-    }
-
-    @Test func aResumableDormantTabIsNotStarted() {
-        let feed = HomeFeed(entries: [entry(.notStarted, isDormant: true, hasSession: true)])
-        #expect(feed.notStarted.count == 1)
-    }
-
-    @Test func aDormantTabWithoutASessionIsNotListed() {
-        let feed = HomeFeed(entries: [entry(.notStarted, isDormant: true)])
-        #expect(feed.notStarted.isEmpty)
     }
 
     @Test func anInterruptedTabIsNotStarted() {
@@ -216,6 +211,21 @@ struct HomeFeedTests {
         #expect(HomeFeed.previewText(">=2 tests fail") == ">=2 tests fail")
     }
 
+    @Test func crlfTextSplitsIntoLinesAroundACodeFence() {
+        let markdown = "Intro\r\n```\r\ncode\r\n```\r\nOutro"
+        #expect(HomeFeed.previewText(markdown) == "Intro Outro")
+    }
+
+    @Test func orderedListAndNestedMarkersAreStripped() {
+        #expect(HomeFeed.previewText("1. first\n12) second") == "first second")
+        #expect(HomeFeed.previewText("> - item") == "item")
+        #expect(HomeFeed.previewText("1.5 is a number") == "1.5 is a number")
+    }
+
+    @Test func rulesAndTableSeparatorsAreDropped() {
+        #expect(HomeFeed.previewText("Above\n---\n***\n___\n| a | b |\n|---|:-:|\n| 1 | 2 |\nBelow") == "Above | a | b | | 1 | 2 | Below")
+    }
+
     @Test func onlyCodeHasNoPreview() {
         #expect(HomeFeed.previewText("```\ncode\n```") == nil)
     }
@@ -243,7 +253,6 @@ struct HomeFeedSourceTests {
         HomeFeedSource(
             status: { _ in status },
             isUnread: { unread.contains($0) },
-            isDormant: { _ in false },
             workStarted: { _ in nil },
             permissionToolName: { _ in nil },
             preview: { tab in

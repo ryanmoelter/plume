@@ -5,7 +5,6 @@ import Foundation
 struct HomeFeedSource {
     var status: (UUID) -> TaskStatus
     var isUnread: (UUID) -> Bool
-    var isDormant: (UUID) -> Bool
     var workStarted: (UUID) -> Date?
     var permissionToolName: (UUID) -> String?
     var preview: (TaskTab) -> String?
@@ -16,7 +15,6 @@ struct HomeFeedSource {
         HomeFeedSource(
             status: { StatusEngine.shared.status(forTab: $0) },
             isUnread: { UnreadStore.shared.isUnread(tabID: $0) },
-            isDormant: { StatusEngine.shared.isDormant(tabID: $0) },
             workStarted: { StatusEngine.shared.workStarted(forTab: $0) },
             // `existingSession`, never `session(for:)`, which would create one.
             permissionToolName: { tabID in
@@ -65,7 +63,6 @@ extension HomeFeed {
                     tabTitle: source.tabTitle(tab),
                     status: source.status(tab.id),
                     isUnread: isUnread,
-                    isDormant: source.isDormant(tab.id),
                     hasSession: !(tab.agentSessionID ?? "").isEmpty,
                     permissionToolName: source.permissionToolName(tab.id),
                     workStartedAt: source.workStarted(tab.id),

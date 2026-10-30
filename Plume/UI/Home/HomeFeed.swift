@@ -15,7 +15,6 @@ struct HomeFeed: Equatable {
         let tabTitle: String
         var status: TaskStatus = .notStarted
         var isUnread = false
-        var isDormant = false
         var hasSession = false
         /// What a pending, non-interactive permission request wants to run.
         var permissionToolName: String?
@@ -65,11 +64,11 @@ struct HomeFeed: Equatable {
                 reason: Self.reason(for: entry),
                 workStartedAt: entry.status.isActive ? entry.workStartedAt : nil
             )
-            if Self.needsYou(status: entry.status, isUnread: entry.isUnread) {
-                needsYou.append((index, item))
-            } else if entry.status.isActive {
+            if entry.status.isActive {
                 running.append(item)
-            } else if Self.isResumableOrUnstarted(entry) {
+            } else if Self.needsYou(status: entry.status, isUnread: entry.isUnread) {
+                needsYou.append((index, item))
+            } else if Self.isUnstarted(entry) {
                 notStarted.append(item)
             }
         }
@@ -82,13 +81,14 @@ struct HomeFeed: Equatable {
     }
 
     static func needsYou(status: TaskStatus, isUnread: Bool) -> Bool {
-        status.wantsAttention || status == .error || isUnread
+        guard !status.isActive else { return false }
+        return status.wantsAttention || status == .error || isUnread
     }
 
-    private static func isResumableOrUnstarted(_ entry: Entry) -> Bool {
-        if entry.status == .interrupted { return true }
-        if entry.isDormant { return entry.hasSession }
-        return entry.status == .notStarted && !entry.hasSession
+    /// A conversation never messaged, or one cut off mid-turn. An idle one
+    /// with a session is finished, whether or not it has been restored yet.
+    private static func isUnstarted(_ entry: Entry) -> Bool {
+        entry.status == .interrupted || !entry.hasSession
     }
 
     /// Named requests first, then errors, then unread turns.
@@ -126,19 +126,18 @@ struct HomeFeed: Equatable {
     }
 
     /// Drops code blocks and the line markers that only mean something on
-    /// their own line — headings, quotes, list bullets — then joins the rest.
+    /// their own line — headings, quotes, list markers — then joins the rest.
     static func previewText(_ markdown: String) -> String? {
         var inFence = false
         var lines: [Substring] = []
-        for rawLine in markdown.split(separator: "\n", omittingEmptySubsequences: true) {
+        for rawLine in markdown.split(omittingEmptySubsequences: true, whereSeparator: \.isNewline) {
             let line = rawLine.drop { $0.isWhitespace }
             if line.hasPrefix("```") || line.hasPrefix("~~~") {
                 inFence.toggle()
                 continue
             }
             guard !inFence else { continue }
-            let stripped = strippingLineMarker(line)
-            if !stripped.isEmpty { lines.append(stripped) }
+            if let stripped = strippingLineMarker(line) { lines.append(stripped) }
         }
         let joined = lines.joined(separator: " ")
             .split(whereSeparator: \.isWhitespace)
@@ -151,14 +150,33 @@ struct HomeFeed: Equatable {
         return words.trimmingCharacters(in: .whitespaces) + "…"
     }
 
-    private static func strippingLineMarker(_ line: Substring) -> Substring {
+    private static func strippingLineMarker(_ line: Substring) -> Substring? {
         var line = line
+        while let rest = removingOneMarker(from: line) { line = rest.drop { $0.isWhitespace } }
+        return line.isEmpty || isRuleOrTableSeparator(line) ? nil : line
+    }
+
+    private static func removingOneMarker(from line: Substring) -> Substring? {
         let marker = line.prefix { $0 == "#" || $0 == ">" }
         if !marker.isEmpty, line.dropFirst(marker.count).first == " " {
-            line = line.dropFirst(marker.count)
-        } else if let marker = line.first, "-*+".contains(marker), line.dropFirst().first == " " {
-            line = line.dropFirst()
+            return line.dropFirst(marker.count)
         }
-        return line.drop { $0.isWhitespace }
+        if let bullet = line.first, "-*+".contains(bullet), line.dropFirst().first == " " {
+            return line.dropFirst()
+        }
+        let digits = line.prefix { $0.isASCII && $0.isNumber }
+        let afterDigits = line.dropFirst(digits.count)
+        if !digits.isEmpty, let end = afterDigits.first, ".)".contains(end), afterDigits.dropFirst().first == " " {
+            return afterDigits.dropFirst()
+        }
+        return nil
+    }
+
+    private static func isRuleOrTableSeparator(_ line: Substring) -> Bool {
+        let compact = line.filter { !$0.isWhitespace }
+        if compact.count >= 3, let first = compact.first, "-*_".contains(first), compact.allSatisfy({ $0 == first }) {
+            return true
+        }
+        return compact.contains("|") && compact.allSatisfy { "|-:".contains($0) } && compact.contains("-")
     }
 }
