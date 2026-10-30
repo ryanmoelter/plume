@@ -120,7 +120,7 @@ private struct HomeRow: View, ThemedView {
                 VStack(alignment: .leading, spacing: 2) {
                     titleLine
                     if isProminent, let reason = item.reason {
-                        Text(Self.inlineMarkdown(reason))
+                        Text(reasonText(reason))
                             .font(typography.body.font)
                             .emphasis(.secondary)
                             .lineLimit(2)
@@ -165,10 +165,10 @@ private struct HomeRow: View, ThemedView {
         .truncationMode(.tail)
     }
 
-    /// The preview keeps inline emphasis and code; anything that fails to
-    /// parse shows as typed.
-    private static func inlineMarkdown(_ text: String) -> AttributedString {
-        let options = AttributedString.MarkdownParsingOptions(interpretedSyntax: .inlineOnlyPreservingWhitespace)
-        return (try? AttributedString(markdown: text, options: options)) ?? AttributedString(text)
+    /// Only the unread preview is prose; a status reason shows as written.
+    private func reasonText(_ reason: String) -> AttributedString {
+        item.reasonIsPreview
+            ? MarkdownCache.inline(reason)
+            : AttributedString(reason)
     }
 }

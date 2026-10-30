@@ -9,12 +9,11 @@ struct SidebarHomeRow: View {
     @Environment(\.colorScheme) private var colorScheme
 
     private var needsYouCount: Int {
-        tasks.lazy.flatMap(\.liveTabs).filter { tab in
-            tab.kind == .agent && HomeFeed.needsYou(
-                status: StatusEngine.shared.status(forTab: tab.id),
-                isUnread: UnreadStore.shared.isUnread(tabID: tab.id)
-            )
-        }.count
+        HomeFeed.needsYouCount(
+            tasks: tasks,
+            status: { StatusEngine.shared.status(forTab: $0) },
+            isUnread: { UnreadStore.shared.isUnread(tabID: $0) }
+        )
     }
 
     var body: some View {

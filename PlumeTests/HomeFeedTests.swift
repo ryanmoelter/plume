@@ -51,8 +51,26 @@ struct HomeFeedTests {
     }
 
     @Test func aReadFinishedTurnIsNotListed() {
-        let feed = HomeFeed(entries: [entry(.awaitingReply), entry(.error), entry(.notStarted)])
+        let feed = HomeFeed(entries: [entry(.awaitingReply), entry(.done)])
         #expect(feed.needsYou.isEmpty && feed.running.isEmpty && feed.notStarted.isEmpty)
+    }
+
+    @Test func anErroredTabNeedsYouAfterTheAttentionStates() {
+        let feed = HomeFeed(entries: [
+            entry(.awaitingReply, isUnread: true), entry(.error), entry(.questionAsked),
+        ])
+        #expect(feed.needsYou.map(\.status) == [.questionAsked, .error, .awaitingReply])
+        #expect(feed.needsYou[1].reason == "Stopped with an error")
+    }
+
+    @Test func aNeverStartedTabIsNotStarted() {
+        let feed = HomeFeed(entries: [entry(.notStarted)])
+        #expect(feed.notStarted.count == 1)
+    }
+
+    @Test func aNotStartedTabWithASessionThatIsNotDormantIsNotListed() {
+        let feed = HomeFeed(entries: [entry(.notStarted, hasSession: true)])
+        #expect(feed.notStarted.isEmpty)
     }
 
     @Test func workingAndWaitingOnSubagentsAreRunning() {
@@ -184,10 +202,18 @@ struct HomeFeedTests {
     }
 
     @Test func aLongPreviewIsTruncated() throws {
-        let long = String(repeating: "word ", count: 200)
+        let long = String(repeating: "abcdefghij ", count: 100)
         let preview = try #require(HomeFeed.previewText(long))
         #expect(preview.hasSuffix("…"))
-        #expect(preview.count == HomeFeed.previewCharacterLimit)
+        #expect(preview.count <= HomeFeed.previewCharacterLimit)
+        #expect(preview.dropLast().hasSuffix("abcdefghij"))
+    }
+
+    @Test func aHeadingOrQuoteMarkerIsStrippedOnlyBeforeASpace() {
+        #expect(HomeFeed.previewText("## Title") == "Title")
+        #expect(HomeFeed.previewText("> quoted") == "quoted")
+        #expect(HomeFeed.previewText("#123 is merged") == "#123 is merged")
+        #expect(HomeFeed.previewText(">=2 tests fail") == ">=2 tests fail")
     }
 
     @Test func onlyCodeHasNoPreview() {

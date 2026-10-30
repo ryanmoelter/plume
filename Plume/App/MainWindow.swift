@@ -10,6 +10,7 @@ struct MainWindow: View {
     @State private var statusPersistence: StatusPersistence?
     @State private var statusNotifier: StatusNotifier?
     @State private var archiveShown = false
+    @State private var skipNextSelectionSave = false
     @State private var importSource: ImportSource?
     @State private var importRequest = ImportRequest.shared
     @State private var hostWindow: NSWindow?
@@ -166,6 +167,10 @@ struct MainWindow: View {
         .modifier(worktreeRemovalDialog)
         .modifier(liveAgentRemovalDialog)
         .onChange(of: selection) { _, id in
+            if skipNextSelectionSave {
+                skipNextSelectionSave = false
+                return
+            }
             LastOpenTask.save(id)
         }
         .clearsUnreadOnView(of: selectedTask)
@@ -300,6 +305,8 @@ struct MainWindow: View {
         if case .task(let id) = LastOpenTask.load(), tasks.contains(where: { $0.id == id }) {
             selection = .task(id)
         } else {
+            // The tasks may not have loaded yet, so the saved ID stays.
+            skipNextSelectionSave = true
             selection = .home
         }
     }
@@ -356,7 +363,7 @@ struct MainWindow: View {
                 pendingWorktreeRemoval = nil
             },
             finish: {
-                if selection == .task(task.id) { selection = nil }
+                if selection == .task(task.id) { selection = .home }
                 switch verb {
                 case .delete: TaskStore.delete(task, in: context)
                 case .archive: TaskStore.archive(task)

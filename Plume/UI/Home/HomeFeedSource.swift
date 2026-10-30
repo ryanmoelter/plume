@@ -37,6 +37,22 @@ struct HomeFeedSource {
 }
 
 extension HomeFeed {
+    /// The length of "Needs you", from per-tab status and unread state alone,
+    /// so a caller that only shows the number doesn't depend on transcripts.
+    static func needsYouCount(
+        tasks: [WorkTask],
+        status: (UUID) -> TaskStatus,
+        isUnread: (UUID) -> Bool
+    ) -> Int {
+        var count = 0
+        for task in tasks where !task.isArchived {
+            for tab in task.liveTabs where tab.kind == .agent {
+                if needsYou(status: status(tab.id), isUnread: isUnread(tab.id)) { count += 1 }
+            }
+        }
+        return count
+    }
+
     /// Every live agent tab of `tasks`, which are in sidebar order.
     init(tasks: [WorkTask], source: HomeFeedSource) {
         let entries = tasks.filter { !$0.isArchived }.flatMap { task in
@@ -69,6 +85,7 @@ final class HomePreviewCache {
     private struct Key: Equatable {
         let messageID: String
         let blockCount: Int
+        let textLength: Int
         let isLive: Bool
     }
 
@@ -76,10 +93,21 @@ final class HomePreviewCache {
 
     func preview(forTab tabID: UUID, messages: [ChatMessage]) -> String? {
         guard let last = messages.last else { return nil }
-        let key = Key(messageID: last.id, blockCount: last.blocks.count, isLive: last.isLive)
+        let key = Key(
+            messageID: last.id,
+            blockCount: last.blocks.count,
+            textLength: last.blocks.reduce(0) { total, block in
+                if case .markdown(let text) = block { total + text.utf16.count } else { total }
+            },
+            isLive: last.isLive
+        )
         if let cached = previews[tabID], cached.key == key { return cached.preview }
         let preview = HomeFeed.preview(of: messages)
         previews[tabID] = (key, preview)
         return preview
+    }
+
+    func forget(tabID: UUID) {
+        previews[tabID] = nil
     }
 }

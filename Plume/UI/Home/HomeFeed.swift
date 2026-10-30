@@ -37,6 +37,12 @@ struct HomeFeed: Equatable {
         let workStartedAt: Date?
 
         var id: UUID { tabID }
+
+        /// An unread turn's reason is assistant prose; every other reason is
+        /// a fixed phrase or a tool name.
+        var reasonIsPreview: Bool {
+            isUnread && !status.wantsAttention && status != .error
+        }
     }
 
     private(set) var needsYou: [Item] = []
@@ -63,7 +69,7 @@ struct HomeFeed: Equatable {
                 needsYou.append((index, item))
             } else if entry.status.isActive {
                 running.append(item)
-            } else if (entry.isDormant && entry.hasSession) || entry.status == .interrupted {
+            } else if Self.isResumableOrUnstarted(entry) {
                 notStarted.append(item)
             }
         }
@@ -76,11 +82,19 @@ struct HomeFeed: Equatable {
     }
 
     static func needsYou(status: TaskStatus, isUnread: Bool) -> Bool {
-        status.wantsAttention || isUnread
+        status.wantsAttention || status == .error || isUnread
     }
 
+    private static func isResumableOrUnstarted(_ entry: Entry) -> Bool {
+        if entry.status == .interrupted { return true }
+        if entry.isDormant { return entry.hasSession }
+        return entry.status == .notStarted && !entry.hasSession
+    }
+
+    /// Named requests first, then errors, then unread turns.
     private static func rank(_ item: Item) -> Int {
-        item.status.wantsAttention ? item.status.priority : -1
+        if item.status.wantsAttention { return item.status.priority }
+        return item.status == .error ? 0 : -1
     }
 
     static func reason(for entry: Entry) -> String? {
@@ -90,7 +104,8 @@ struct HomeFeed: Equatable {
         case .permissionNeeded:
             return entry.permissionToolName.map { "Wants to run \($0)" } ?? "Wants permission to continue"
         case .needsTerminalInput: return "Waiting for terminal input"
-        case .notStarted, .working, .waitingOnSubagents, .awaitingReply, .done, .interrupted, .error:
+        case .error: return "Stopped with an error"
+        case .notStarted, .working, .waitingOnSubagents, .awaitingReply, .done, .interrupted:
             guard entry.isUnread else { return nil }
             return entry.preview ?? "Finished a turn you haven't read"
         }
@@ -130,15 +145,17 @@ struct HomeFeed: Equatable {
             .joined(separator: " ")
         guard !joined.isEmpty else { return nil }
         guard joined.count > previewCharacterLimit else { return joined }
-        let cut = joined.prefix(previewCharacterLimit)
-            .trimmingCharacters(in: .whitespaces)
-        return cut + "…"
+        let head = joined.prefix(previewCharacterLimit - 1)
+        let endsOnWordBoundary = joined[head.endIndex].isWhitespace
+        let words = endsOnWordBoundary ? head : head[..<(head.lastIndex(where: \.isWhitespace) ?? head.endIndex)]
+        return words.trimmingCharacters(in: .whitespaces) + "…"
     }
 
     private static func strippingLineMarker(_ line: Substring) -> Substring {
         var line = line
-        if line.hasPrefix("#") || line.hasPrefix(">") {
-            line = line.drop { $0 == "#" || $0 == ">" }
+        let marker = line.prefix { $0 == "#" || $0 == ">" }
+        if !marker.isEmpty, line.dropFirst(marker.count).first == " " {
+            line = line.dropFirst(marker.count)
         } else if let marker = line.first, "-*+".contains(marker), line.dropFirst().first == " " {
             line = line.dropFirst()
         }
