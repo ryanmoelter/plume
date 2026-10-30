@@ -227,6 +227,13 @@ struct InfoPaneFactsTests {
 struct InfoPaneLayoutTests {
     private let chatColumn: CGFloat = 672
     private let comfortable: CGFloat = 400
+
+    @MainActor
+    @Test func theComfortableMinimumIsTwoThirdsOfTheContentWidth() {
+        let dimensions = Dimensions(bodySize: 15)
+        #expect(dimensions.contentWidth == 600)
+        #expect(dimensions.comfortableContentWidth == 400)
+    }
     private let rail: CGFloat = 30
     private let gap: CGFloat = 10
     private let pane = InfoPaneLayout.defaultPaneWidth
