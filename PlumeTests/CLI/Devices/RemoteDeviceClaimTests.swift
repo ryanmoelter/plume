@@ -172,6 +172,28 @@ struct RemoteDeviceClaimTests {
         #expect(run.app.sent.map(\.request) == [.ping])
     }
 
+    @Test func claimingAHeldRemoteDeviceBySerialRecordsItsTabOnTheLease() throws {
+        let run = try Run()
+        let (store, owner) = (run.store, owner)
+        update(store) { $0.devices["remote:r1"] = remoteLease(owner: owner, at: run.env.clock) }
+        run.env.connect("localhost:40001")
+        let deviceTab = UUID()
+        run.app.reply = { request in
+            guard case .showDevice = request else { return .success }
+            var response = CLIResponse.success
+            response.tabID = deviceTab
+            return response
+        }
+
+        let (code, console) = run(["claim", "localhost:40001"], environment: inTab)
+
+        #expect(code == 0)
+        #expect(console.stdout == "localhost:40001\n")
+        let devices = try store.load { _ in }.devices
+        #expect(devices["remote:r1"]?.deviceTabID == deviceTab)
+        #expect(devices["localhost:40001"] == nil)
+    }
+
     // MARK: Releasing
 
     @Test func releasingARemoteDeviceAsksItsAppByKey() throws {

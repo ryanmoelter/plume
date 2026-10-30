@@ -19,8 +19,11 @@ final class FakeDeviceEnvironment: DeviceEnvironment {
     func now() -> Date { clock }
     func adbDevices() throws -> [PhysicalDevice] { devices }
     func emulatorAVDs() -> [String: String] { runningAVDs }
+    /// Runs inside every `form(of:)`, which reads the live device.
+    var duringForm: () -> Void = {}
     func form(of device: PhysicalDevice, avd: String?) -> DeviceForm? {
-        avd.flatMap { avdForms[$0] } ?? forms[device.serial]
+        duringForm()
+        return avd.flatMap { avdForms[$0] } ?? forms[device.serial]
     }
     func avds() throws -> [String] { avdList }
     func avdForm(_ avd: String) -> DeviceForm? { avdForms[avd] }

@@ -55,7 +55,7 @@ struct DevicePoolTests {
     @Test func claimsAFreeDevice() throws {
         env.connect("emulator-5554", avd: "Pixel_8")
         env.avdForms["Pixel_8"] = .phone
-        let (lease, reused) = try pool.claimSerial("emulator-5554", claimant: me, ttl: hour)
+        let (_, lease, reused) = try pool.claimSerial("emulator-5554", claimant: me, ttl: hour)
         #expect(!reused)
         #expect(lease.kind == .emulator)
         #expect(lease.avd == "Pixel_8")
@@ -69,7 +69,7 @@ struct DevicePoolTests {
         env.connect("R5", model: "Pixel_8")
         _ = try pool.claimSerial("R5", claimant: me, ttl: hour)
         env.clock += 600
-        let (lease, reused) = try pool.claimSerial("R5", claimant: me, ttl: 60)
+        let (_, lease, reused) = try pool.claimSerial("R5", claimant: me, ttl: 60)
         #expect(reused)
         #expect(lease.kind == .physical)
         #expect(lease.model == "Pixel_8")
@@ -179,6 +179,84 @@ struct DevicePoolTests {
         }
         env.avdList = ["Booting"]
         #expect(exhausted { _ = try pool.acquire(claimant: me, ttl: hour, kind: .emulator, form: nil) })
+    }
+
+    func pendingBoot(_ avd: String, for claimant: DeviceClaimant) throws {
+        try store.withLock {
+            var registry = try store.load { _ in }
+            registry.pending[DeviceRegistry.pendingKey(avd: avd)] = PendingDevice(
+                owner: claimant.owner, kind: .emulator, avd: avd, startedAt: env.clock, expiresAt: env.clock.addingTimeInterval(900)
+            )
+            try store.save(registry)
+        }
+    }
+
+    @Test func claimingAnEmulatorBootingForSomeoneElseConflicts() throws {
+        env.connect("emulator-5554", avd: "Booting")
+        try pendingBoot("Booting", for: other)
+
+        do {
+            _ = try pool.claimSerial("emulator-5554", claimant: me, ttl: hour)
+            Issue.record("claimed an emulator booting for someone else")
+        } catch DevicePoolError.booting(let key, let pending) {
+            #expect(key == "avd:Booting")
+            #expect(pending.owner == other.owner)
+        }
+        #expect(try registry().devices.isEmpty)
+        #expect(try pool.claimSerial("emulator-5554", claimant: other, ttl: hour).key == "emulator-5554")
+    }
+
+    @Test func aBootNeverOverwritesALeaseTakenMeanwhile() throws {
+        env.avdList = ["Pixel_8"]
+        let pool = pool
+        let (store, other, clock) = (store, other, env.clock)
+        env.duringBoot = {
+            try? store.withLock {
+                var registry = try store.load { _ in }
+                registry.devices["emulator-5554"] = DeviceLease(
+                    kind: .emulator, serial: "emulator-5554", owner: other.owner, claimedAt: clock, expiresAt: clock.addingTimeInterval(3600)
+                )
+                try store.save(registry)
+            }
+        }
+
+        #expect(conflict { _ = try pool.acquire(claimant: me, ttl: hour, kind: .emulator, form: nil) } == "emulator-5554")
+        #expect(try registry().devices["emulator-5554"]?.owner == other.owner)
+        #expect(try registry().pending.isEmpty)
+    }
+
+    @Test func aRemoteSerialIsNeverClaimedAsALocalDevice() throws {
+        env.connect("localhost:40001", model: "Pixel_8")
+
+        #expect(exhausted { _ = try pool.acquire(claimant: me, ttl: hour, kind: .physical, form: nil) })
+        #expect(throws: CLIFailure("localhost:40001 is a remote device; reserve one with --kind=remote")) {
+            _ = try pool.claimSerial("localhost:40001", claimant: me, ttl: hour)
+        }
+        #expect(try pool.listing().first?.kind == .remote)
+        #expect(try registry().devices.isEmpty)
+    }
+
+    /// A physical device's form costs `adb shell` round trips, which must not hold the lock.
+    @Test func formsAreReadWithoutTheLock() throws {
+        env.connect("R5")
+        env.forms["R5"] = .tablet
+        try FileManager.default.createDirectory(atPath: store.directory, withIntermediateDirectories: true)
+        let lockFile = store.directory + "/lock"
+        var lockedDuringForm: [Bool] = []
+        env.duringForm = {
+            let descriptor = open(lockFile, O_WRONLY | O_CREAT | O_CLOEXEC, 0o644)
+            defer { close(descriptor) }
+            let free = flock(descriptor, LOCK_EX | LOCK_NB) == 0
+            if free { flock(descriptor, LOCK_UN) }
+            lockedDuringForm.append(!free)
+        }
+
+        #expect(try pool.acquire(claimant: me, ttl: hour, kind: .physical, form: .tablet).lease.form == .tablet)
+        _ = try pool.release("R5", owner: me.owner, force: false)
+        #expect(try pool.claimSerial("R5", claimant: me, ttl: hour).lease.form == .tablet)
+        let readings = lockedDuringForm
+        #expect(readings.count >= 2)
+        #expect(readings.allSatisfy { !$0 }, "\(readings)")
     }
 
     @Test func acquireIsExhaustedWhenEverythingIsHeld() throws {

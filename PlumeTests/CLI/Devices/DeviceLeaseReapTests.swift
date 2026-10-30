@@ -18,8 +18,15 @@ struct DeviceLeaseReapTests {
 
     @Test func dropsLocalLeasesWhoseSerialVanished() {
         var registry = DeviceRegistry(devices: ["R5": lease(.physical), "emulator-5554": lease(.emulator, avd: "P")])
-        registry.reap(liveSerials: [], emulatorAVDs: [:], now: now)
+        registry.reap(liveSerials: ["R9"], emulatorAVDs: [:], now: now)
         #expect(registry.devices.isEmpty)
+    }
+
+    @Test func anEmptyAdbListVanishesNothing() {
+        let leased = DeviceRegistry(devices: ["R5": lease(.physical), "emulator-5554": lease(.emulator, avd: "P")])
+        var registry = leased
+        #expect(registry.reap(liveSerials: [], emulatorAVDs: [:], now: now).isEmpty)
+        #expect(registry == leased)
     }
 
     @Test func dropsAnEmulatorSerialNowOnAnotherAVD() {

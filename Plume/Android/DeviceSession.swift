@@ -474,11 +474,11 @@ final class DeviceSession {
         }
     }
 
-    /// A file older than the launch belongs to an instance still shutting down.
     private func isBoot(of launch: EmulatorLaunch, avdID: String, _ emulator: RunningEmulator) -> Bool {
-        guard emulator.avdID == avdID, emulator.grpcToken != nil else { return false }
-        guard let written = EmulatorScanner.modificationDate(of: emulator) else { return false }
-        return written >= launch.launchedAt.addingTimeInterval(-1)
+        emulator.grpcToken != nil
+            && EmulatorBootWaiter.isInstance(
+                emulator, avdID: avdID, launchedAt: launch.launchedAt, written: EmulatorScanner.modificationDate(of: emulator)
+            )
     }
 
     /// Forgets the device so the tab shows the picker again.

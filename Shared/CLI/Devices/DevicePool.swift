@@ -47,6 +47,8 @@ nonisolated enum DeviceKindFilter: String, CaseIterable, Sendable {
 nonisolated enum DevicePoolError: Error, Equatable {
     /// `key` is leased by another owner.
     case conflict(key: String, lease: DeviceLease)
+    /// The device's AVD is booting for another claimant, who hasn't leased it yet.
+    case booting(key: String, pending: PendingDevice)
     /// Nothing free matches. `leaseLines` describes what holds the devices.
     case exhausted(leaseLines: [String])
 }
@@ -109,13 +111,15 @@ nonisolated final class DevicePool {
         if !snapshot.reaped.isEmpty { try store.save(snapshot.registry) }
     }
 
-    private func newLease(for device: PhysicalDevice, avd: String?, claimant: DeviceClaimant, ttl: TimeInterval, now: Date) -> DeviceLease {
+    private func newLease(
+        for device: PhysicalDevice, avd: String?, form: DeviceForm?, claimant: DeviceClaimant, ttl: TimeInterval, now: Date
+    ) -> DeviceLease {
         let isEmulator = Self.isEmulator(device.serial)
         return DeviceLease(
             kind: isEmulator ? .emulator : .physical,
             serial: device.serial,
             avd: avd,
-            form: environment.form(of: device, avd: avd),
+            form: form,
             model: device.model,
             owner: claimant.owner,
             worktree: claimant.worktree,
@@ -127,9 +131,30 @@ nonisolated final class DevicePool {
 
     static func isEmulator(_ serial: String) -> Bool { serial.hasPrefix("emulator-") }
 
-    /// Claims one connected device. Claiming your own lease again renews it.
-    func claimSerial(_ serial: String, claimant: DeviceClaimant, ttl: TimeInterval) throws -> (lease: DeviceLease, reused: Bool) {
-        try store.withLock {
+    /// Device Streaming attaches its devices as `localhost:<port>`. Only `--kind=remote` leases
+    /// one, through the app that holds its reservation.
+    static func isRemoteSerial(_ serial: String) -> Bool { serial.hasPrefix("localhost:") }
+
+    /// The forms of the devices a claim might lease, read before the lock is taken: a physical
+    /// device's costs `adb shell` round trips, which must not hold every other claimant up.
+    private func formsOutsideLock(of serials: (PhysicalDevice) -> Bool) -> [String: DeviceForm] {
+        guard let devices = try? environment.adbDevices() else { return [:] }
+        let leased = (try? store.load { _ in })?.devices ?? [:]
+        let avds = environment.emulatorAVDs()
+        var forms: [String: DeviceForm] = [:]
+        for device in devices where device.isReady && !Self.isRemoteSerial(device.serial) && serials(device) {
+            if let form = leased[device.serial]?.form ?? environment.form(of: device, avd: avds[device.serial]) {
+                forms[device.serial] = form
+            }
+        }
+        return forms
+    }
+
+    /// Claims one connected device. Claiming your own lease again renews it. The key is the
+    /// lease's registry key, which for a remote device isn't its serial.
+    func claimSerial(_ serial: String, claimant: DeviceClaimant, ttl: TimeInterval) throws -> (key: String, lease: DeviceLease, reused: Bool) {
+        let forms = formsOutsideLock { $0.serial == serial }
+        return try store.withLock {
             let now = environment.now()
             var snapshot = try loadReaped()
             guard let device = snapshot.live.first(where: { $0.serial == serial }) else {
@@ -142,12 +167,21 @@ nonisolated final class DevicePool {
                 held.expiresAt = now.addingTimeInterval(ttl)
                 snapshot.registry.devices[key] = held
                 try store.save(snapshot.registry)
-                return (held, true)
+                return (key, held, true)
             }
-            let lease = newLease(for: device, avd: snapshot.emulatorAVDs[serial], claimant: claimant, ttl: ttl, now: now)
+            if Self.isRemoteSerial(serial) {
+                try saveIfReaped(snapshot)
+                throw CLIFailure("\(serial) is a remote device; reserve one with --kind=remote")
+            }
+            let avd = snapshot.emulatorAVDs[serial]
+            if let avd, let booting = snapshot.registry.pending[DeviceRegistry.pendingKey(avd: avd)], booting.owner != claimant.owner {
+                try saveIfReaped(snapshot)
+                throw DevicePoolError.booting(key: DeviceRegistry.pendingKey(avd: avd), pending: booting)
+            }
+            let lease = newLease(for: device, avd: avd, form: forms[serial], claimant: claimant, ttl: ttl, now: now)
             snapshot.registry.devices[serial] = lease
             try store.save(snapshot.registry)
-            return (lease, false)
+            return (serial, lease, false)
         }
     }
 
@@ -165,13 +199,13 @@ nonisolated final class DevicePool {
         kind: DeviceKindFilter,
         form: DeviceForm?
     ) throws -> (serial: String, lease: DeviceLease, reused: Bool) {
+        let forms = formsOutsideLock { kind.admits(isEmulator: Self.isEmulator($0.serial)) }
         let plan: AcquirePlan = try store.withLock {
             let now = environment.now()
             var snapshot = try loadReaped()
             let runningAVDs = Set(snapshot.emulatorAVDs.values)
             let pendingAVDs = snapshot.registry.pendingAVDs
-            let remoteSerials = Set(snapshot.registry.remoteLeasesBySerial.keys)
-            for device in snapshot.live where device.isReady && !remoteSerials.contains(device.serial) {
+            for device in snapshot.live where device.isReady && !Self.isRemoteSerial(device.serial) {
                 let isEmulator = Self.isEmulator(device.serial)
                 guard kind.admits(isEmulator: isEmulator) else { continue }
                 let held = snapshot.registry.devices[device.serial]
@@ -179,9 +213,11 @@ nonisolated final class DevicePool {
                 let avd = snapshot.emulatorAVDs[device.serial]
                 // Booted for a claimant who hasn't leased it yet.
                 if let avd, held == nil, pendingAVDs.contains(avd) { continue }
-                if let form, (held?.form ?? environment.form(of: device, avd: avd)) != form { continue }
+                // A device that appeared after the forms were read has none, and fails a --form filter.
+                let deviceForm = held?.form ?? forms[device.serial]
+                if let form, deviceForm != form { continue }
 
-                var lease = held ?? newLease(for: device, avd: avd, claimant: claimant, ttl: ttl, now: now)
+                var lease = held ?? newLease(for: device, avd: avd, form: deviceForm, claimant: claimant, ttl: ttl, now: now)
                 lease.expiresAt = now.addingTimeInterval(ttl)
                 snapshot.registry.devices[device.serial] = lease
                 try store.save(snapshot.registry)
@@ -230,6 +266,10 @@ nonisolated final class DevicePool {
                 let now = environment.now()
                 var snapshot = try loadReaped()
                 snapshot.registry.pending[DeviceRegistry.pendingKey(avd: avd)] = nil
+                if let held = snapshot.registry.devices[serial], held.owner != claimant.owner {
+                    try store.save(snapshot.registry)
+                    throw DevicePoolError.conflict(key: serial, lease: held)
+                }
                 let lease = DeviceLease(
                     kind: .emulator,
                     serial: serial,
@@ -412,7 +452,7 @@ nonisolated final class DevicePool {
             let avd = snapshot.emulatorAVDs[device.serial]
             return DeviceListingRow(
                 serial: device.serial,
-                kind: remote != nil ? .remote : Self.isEmulator(device.serial) ? .emulator : .physical,
+                kind: remote != nil || Self.isRemoteSerial(device.serial) ? .remote : Self.isEmulator(device.serial) ? .emulator : .physical,
                 avd: avd,
                 form: lease?.form ?? environment.form(of: device, avd: avd),
                 state: Self.adbWord(device.state),

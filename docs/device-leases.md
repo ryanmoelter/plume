@@ -26,7 +26,8 @@
 ```
 
 - **Keys.** A local lease is keyed by its adb serial. A remote lease is keyed `remote:<reservationID>`, since its adb port changes on every reconnect; its `serial` holds the current `localhost:<port>`. The commands accept either.
-- **Pending.** `avd:<id>` is an emulator booting for a claimant, which keeps a second claimant from booting the same AVD while the lock is free. `claim:<uuid>` is a remote device being reserved. A pending entry may carry an `error`.
+- **Pending.** `avd:<id>` is an emulator booting for a claimant, which keeps a second claimant from booting the same AVD, or claiming its serial, while the lock is free. A boot that finishes on a serial someone leased meanwhile fails rather than overwrite that lease. `claim:<uuid>` is a remote device being reserved. A pending entry may carry an `error`.
+- **Remote serials.** A `localhost:<port>` serial is always a remote device, leased or not, so the local path never claims one: a device reserved from the picker has no lease to mark it.
 - **Dates** are whole epoch seconds.
 
 ## Owners
@@ -40,7 +41,9 @@
 
 Every lease expires, after an hour by default (`--ttl`, `renew`). Tab leases expire too, and also go when their tab does.
 
-Every command reaps under the lock first: expired local leases, local leases whose serial left `adb devices` (offline and unauthorized still count as present), emulator leases whose serial now runs another AVD, and pending entries past their own expiry (15 minutes). A remote lease ignores adb and goes only five minutes past its expiry (`DeviceRegistry.remoteReapGrace`). That grace leaves the app that holds the reservation time to reap the lease itself and end the reservation with it.
+Every command reaps under the lock first: expired local leases, local leases whose serial left `adb devices` (offline and unauthorized still count as present, and an empty list removes nothing, since `adb kill-server` empties it for every device), emulator leases whose serial now runs another AVD, and pending entries past their own expiry (15 minutes). A remote lease ignores adb and goes only five minutes past its expiry (`DeviceRegistry.remoteReapGrace`). That grace leaves the app that holds the reservation time to reap the lease itself and end the reservation with it.
+
+Reading a physical device's form takes `adb shell` round trips, so `claim` reads forms before it takes the lock and re-validates the device under it.
 
 ## The app
 
@@ -61,7 +64,7 @@ A remote lease always belongs to a Plume tab, because the reservation behind it 
 3. The tool polls `registry.json` every second without the lock, and pings the app every 15 seconds.
 4. When the device reaches adb, the session reports it (`DeviceSession.onReservationEvent`), and the coordinator replaces the pending entry with `devices["remote:<reservationID>"]`. The lease carries the claim ID, the device tab, and whether the claim created that tab. The tool sees the lease and prints its serial.
 
-The claim lives in the coordinator's memory from step 2 until the device connects. If the device connects after the pending entry was reaped or the tool gave up, the lease is still written, and the next claim from that tab finds it.
+The claim lives in the coordinator's memory from step 2 until the device connects. A device tab holds one claim at a time, and a second `devices.reserve` from a tab whose claim is still reserving returns that claim's ID instead of starting another reservation. If the device connects after the pending entry was reaped or the tool gave up, the lease is still written, and the next claim from that tab finds it.
 
 The session reports three events, which keep the lease in step with the reservation:
 

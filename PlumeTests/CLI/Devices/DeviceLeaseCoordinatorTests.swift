@@ -293,6 +293,36 @@ struct DeviceLeaseCoordinatorTests {
         #expect(recorder.returnedToPicker == [deviceTab])
     }
 
+    @Test func aDeviceTabHoldsOneClaimAtATime() async throws {
+        try await coordinator.beginClaim(claim())
+        await #expect(throws: CLIFailure.self) { try await coordinator.beginClaim(claim()) }
+        #expect(try registry().pending.count == 1)
+    }
+
+    @Test func aClaimantForgottenWhileItsClaimIsWrittenStopsTheClaim() async throws {
+        let (locked, unlock) = (DispatchSemaphore(value: 0), DispatchSemaphore(value: 0))
+        let store = store
+        DispatchQueue.global().async {
+            try? store.withLock {
+                locked.signal()
+                unlock.wait()
+            }
+        }
+        locked.wait()
+        let coordinator = coordinator
+        let claim = claim()
+        let beginning = Task { try await coordinator.beginClaim(claim) }
+        while !coordinator.isClaiming(deviceTab: deviceTab) { await Task.yield() }
+
+        coordinator.tabForgotten(ownerTab)
+        unlock.signal()
+
+        await #expect(throws: CLIFailure("the claim's tab closed before the reservation started")) { try await beginning.value }
+        await coordinator.settle()
+        #expect(try registry().pending.isEmpty)
+        #expect(recorder.closed == [deviceTab])
+    }
+
     @Test func nothingHappensBeforeStart() async throws {
         let mine = DeviceLeaseOwner.tab(id: ownerTab, app: me)
         try save(DeviceRegistry(devices: ["emulator-5554": lease(.emulator, owner: mine, serial: "emulator-5554")]))

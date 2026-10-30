@@ -66,11 +66,15 @@ nonisolated struct EmulatorBootWaiter {
         }
     }
 
-    /// A discovery file older than the launch belongs to an instance still shutting down.
     func isBoot(of launch: some EmulatorBootProcess, avdID: String, _ emulator: RunningEmulator) -> Bool {
-        guard emulator.avdID == avdID, emulator.adbSerial != nil,
-              let written = modificationDate(emulator)
-        else { return false }
-        return written >= launch.launchedAt.addingTimeInterval(-1)
+        emulator.adbSerial != nil
+            && Self.isInstance(emulator, avdID: avdID, launchedAt: launch.launchedAt, written: modificationDate(emulator))
+    }
+
+    /// Whether `emulator` is the one launched at `launchedAt`. A discovery file older than the
+    /// launch belongs to an instance still shutting down.
+    static func isInstance(_ emulator: RunningEmulator, avdID: String, launchedAt: Date, written: @autoclosure () -> Date?) -> Bool {
+        guard emulator.avdID == avdID, let written = written() else { return false }
+        return written >= launchedAt.addingTimeInterval(-1)
     }
 }

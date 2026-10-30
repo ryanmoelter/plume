@@ -319,6 +319,42 @@ struct CLICommandHandlerTests {
         #expect(reservations.started.first?.project == "q")
     }
 
+    @Test func concurrentReservationsNeverShareAnEmptyDeviceTab() async throws {
+        let task = TaskStore.createTask(in: context, siblings: [])
+        let first = try #require(task.tabs.first)
+        let second = TaskStore.addTab(to: task, kind: .terminal, in: context)
+        let empty = TaskStore.addTab(to: task, kind: .device, in: context)
+        let reservations = Reservations()
+        let handler = makeReservingHandler(task: task, store: try makeDeviceStore(), reservations: reservations)
+
+        async let one = handler.handle(.reserveDevice(.init(tabID: first.id)))
+        async let two = handler.handle(.reserveDevice(.init(tabID: second.id)))
+        let tabs = await [one.tabID, two.tabID]
+
+        #expect(tabs.contains(empty.id))
+        #expect(Set(tabs.compactMap { $0 }).count == 2)
+        #expect(Set(reservations.started.map(\.tab)).count == 2)
+    }
+
+    @Test func aSecondReservationFromOneTabJoinsTheFirst() async throws {
+        let task = TaskStore.createTask(in: context, siblings: [])
+        let caller = try #require(task.tabs.first)
+        let store = try makeDeviceStore()
+        let reservations = Reservations()
+        let handler = makeReservingHandler(task: task, store: store, reservations: reservations)
+
+        let first = await handler.handle(.reserveDevice(.init(tabID: caller.id)))
+        let again = await handler.handle(.reserveDevice(.init(tabID: caller.id)))
+
+        #expect(again.ok)
+        #expect(again.claimID == first.claimID)
+        #expect(again.tabID == first.tabID)
+        #expect(again.created == false)
+        #expect(reservations.started.count == 1)
+        #expect(try store.load { _ in }.pending.count == 1)
+        #expect(task.tabs.filter { $0.kind == .device }.count == 1)
+    }
+
     @Test func reservingRefusesWithoutACallerAProjectOrAModel() async throws {
         let task = TaskStore.createTask(in: context, siblings: [])
         let caller = try #require(task.tabs.first)

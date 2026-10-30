@@ -156,6 +156,7 @@ final class CLICommandHandler {
     private func emptyDeviceTab(in task: WorkTask, context: ModelContext) -> (tab: TaskTab, created: Bool) {
         let empty = task.orderedTabs.first { tab in
             tab.kind == .device && tab.deviceTarget == nil && !deviceSessions.canEndReservation(for: tab.id)
+                && !deviceLeases.isClaiming(deviceTab: tab.id)
         }
         if let empty { return (empty, false) }
         let previous = task.selectedTabID.flatMap { id in task.tabs.first { $0.id == id } }
@@ -192,9 +193,21 @@ final class CLICommandHandler {
         guard let (task, context) = currentTask(ofTab: params.tabID) else {
             return .failure("no Plume tab \(params.tabID.uuidString)")
         }
+        let owner = DeviceLeaseOwner.tab(id: params.tabID, app: socket)
+        // A second `plume devices claim` from the same tab, racing the first, waits on its claim.
+        if let existing = deviceLeases.claim(ownedBy: owner) {
+            await deviceLeases.settle()
+            var response = CLIResponse.success
+            response.tabID = existing.deviceTabID
+            response.created = false
+            response.claimID = existing.id
+            return response
+        }
+        // From here to `beginClaim` holding the claim there is no suspension, so a concurrent
+        // request can't pick the same tab.
         let (tab, created) = emptyDeviceTab(in: task, context: context)
         let claim = RemoteClaim(
-            owner: .tab(id: params.tabID, app: socket),
+            owner: owner,
             deviceTabID: tab.id,
             deviceTabCreated: created,
             model: modelID,

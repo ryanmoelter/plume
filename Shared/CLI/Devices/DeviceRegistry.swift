@@ -188,7 +188,9 @@ nonisolated struct DeviceRegistry: Codable, Equatable, Sendable {
     /// Drops what no longer holds a device, and returns a line for each. A local lease goes when
     /// it expires, when its serial leaves `adb devices` (offline and unauthorized still count as
     /// present), or when its emulator serial now belongs to another AVD. A remote lease goes only
-    /// on expiry, after `remoteReapGrace`: its adb port changes on every reconnect.
+    /// on expiry, after `remoteReapGrace`: its adb port changes on every reconnect. An empty adb
+    /// list proves nothing, since a restarting adb server briefly lists no devices, so it vanishes
+    /// no lease; those wait for their expiry.
     @discardableResult
     mutating func reap(liveSerials: Set<String>, emulatorAVDs: [String: String], now: Date) -> [String] {
         var messages: [String] = []
@@ -199,7 +201,7 @@ nonisolated struct DeviceRegistry: Codable, Equatable, Sendable {
                 messages.append("reaped expired lease on \(key) (\(lease.owner))")
             } else if lease.expiresAt < now {
                 messages.append("reaped expired lease on \(key) (\(lease.owner))")
-            } else if !liveSerials.contains(key) {
+            } else if !liveSerials.isEmpty, !liveSerials.contains(key) {
                 messages.append("reaped lease on vanished device \(key) (\(lease.owner))")
             } else if lease.kind == .emulator, let leased = lease.avd, let running = emulatorAVDs[key], running != leased {
                 messages.append("reaped lease on \(key) (\(lease.owner)): it now runs \(running), not \(leased)")

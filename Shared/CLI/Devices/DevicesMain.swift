@@ -92,6 +92,9 @@ nonisolated enum Devices {
             }
             console.printError("(release it with 'plume devices release \(key) --force' if it's abandoned)")
             return conflictExitCode
+        } catch DevicePoolError.booting(let key, let pending) {
+            console.printError("\(programName): \(pending.avd ?? key) is booting for another owner, \(pending.owner)")
+            return conflictExitCode
         } catch DevicePoolError.exhausted(let lines) {
             console.printError("\(programName): no free device matches; current leases:")
             for line in lines.isEmpty ? ["  (none — no devices connected and no bootable AVDs)"] : lines {
@@ -303,15 +306,16 @@ nonisolated enum Devices {
         switch command {
         case .claim(let serial, let kind, let form, let owner, let ttl, let json):
             let claimant = try claimant(ownerFlag: owner, environment: environment, devices: devices)
-            let claimed: (serial: String, lease: DeviceLease, reused: Bool)
+            let claimed: (key: String, serial: String, lease: DeviceLease, reused: Bool)
             if let serial {
                 let result = try pool.claimSerial(serial, claimant: claimant, ttl: ttl)
-                claimed = (serial, result.lease, result.reused)
+                claimed = (result.key, serial, result.lease, result.reused)
             } else {
-                claimed = try pool.acquire(claimant: claimant, ttl: ttl, kind: kind, form: form)
+                let result = try pool.acquire(claimant: claimant, ttl: ttl, kind: kind, form: form)
+                claimed = (result.serial, result.serial, result.lease, result.reused)
             }
             if case .tab(let tabID, let socket) = claimant.owner {
-                showDeviceTab(key: claimed.serial, lease: claimed.lease, callerTab: tabID, socket: socket, pool: pool, app: app, console: console)
+                showDeviceTab(key: claimed.key, lease: claimed.lease, callerTab: tabID, socket: socket, pool: pool, app: app, console: console)
             }
             try printClaim(serial: claimed.serial, lease: claimed.lease, reused: claimed.reused, json: json, console: console)
         case .claimRemote(let model, let owner, let ttl, let json):
@@ -516,6 +520,8 @@ nonisolated enum Devices {
             var held = paint("held by \(DevicePool.holder(lease)), expires in \(DevicePool.relativeTime(lease.expiresAt.timeIntervalSince(now)))", "33")
             if let installed = lease.installed { held += paint(" · installed: \(installed.branch)", "2") }
             state = held
+        } else if row.kind == .remote {
+            state = paint("remote, not leased", "2")
         } else if row.state == "device" {
             state = paint("free", "32")
         } else {

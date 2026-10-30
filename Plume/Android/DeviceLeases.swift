@@ -128,9 +128,33 @@ final class DeviceLeaseCoordinator {
 
     /// Records a pending claim before its reservation starts, so the claimant has something to
     /// wait on.
+    /// The claim is held from before the write, so a concurrent request sees it at once, and a
+    /// claimant tab forgotten during the write cancels it rather than leaking a reservation.
     func beginClaim(_ claim: RemoteClaim) async throws {
-        try await perform { registry, _, now in registry.recordClaim(claim, now: now) }
+        guard claims[claim.deviceTabID] == nil else {
+            throw CLIFailure("device tab \(claim.deviceTabID.uuidString) is already reserving")
+        }
         claims[claim.deviceTabID] = claim
+        do {
+            try await perform { registry, _, now in registry.recordClaim(claim, now: now) }
+        } catch {
+            if claims[claim.deviceTabID]?.id == claim.id { claims[claim.deviceTabID] = nil }
+            throw error
+        }
+        guard claims[claim.deviceTabID]?.id == claim.id else {
+            mutate { registry, _, _ in
+                registry.pending[DeviceRegistry.pendingKey(claim: claim.id)] = nil
+                return []
+            }
+            throw CLIFailure("the claim's tab closed before the reservation started")
+        }
+    }
+
+    func isClaiming(deviceTab: UUID) -> Bool { claims[deviceTab] != nil }
+
+    /// A claim still reserving for `owner`, which a second request joins rather than doubling.
+    func claim(ownedBy owner: DeviceLeaseOwner) -> RemoteClaim? {
+        claims.values.first { $0.owner == owner }
     }
 
     /// Drops this app's lease at `key`, ending its reservation and closing a device tab the claim
@@ -212,21 +236,29 @@ final class DeviceLeaseCoordinator {
     ) async throws -> T {
         guard let app = appSocket else { throw CLIFailure("this Plume isn't tracking device leases") }
         let (store, now) = (store, now)
-        let outcome: (registry: DeviceRegistry, value: T) = try await withCheckedThrowingContinuation { continuation in
+        let outcome = try await withCheckedThrowingContinuation { continuation in
             queue.async {
-                continuation.resume(with: Result {
-                    try store.withLock {
-                        var registry = try store.load { EmulatorLog.error("device leases: \($0)") }
-                        let before = registry
-                        let value = change(&registry, app, now())
-                        if registry != before { try store.save(registry) }
-                        return (registry, value)
-                    }
-                })
+                continuation.resume(with: Result { try Self.apply(change, store: store, app: app, now: now()) })
             }
         }
         leases.publish(outcome.registry, app: app)
         return outcome.value
+    }
+
+    /// Loads under the lock, applies `change`, and saves when it changed anything.
+    private nonisolated static func apply<T>(
+        _ change: (inout DeviceRegistry, _ app: String, _ now: Date) -> T,
+        store: DeviceRegistryStore,
+        app: String,
+        now: Date
+    ) throws -> (registry: DeviceRegistry, value: T) {
+        try store.withLock {
+            var registry = try store.load { EmulatorLog.error("device leases: \($0)") }
+            let before = registry
+            let value = change(&registry, app, now)
+            if registry != before { try store.save(registry) }
+            return (registry, value)
+        }
     }
 
     /// Runs `change` under the registry lock off the main actor, saves when it changed, then
@@ -235,22 +267,16 @@ final class DeviceLeaseCoordinator {
         guard let app = appSocket else { return }
         let (store, now) = (store, now)
         queue.async { [self] in
-            let outcome: (registry: DeviceRegistry, ended: [DeviceLease])
+            let outcome: (registry: DeviceRegistry, value: [DeviceLease])
             do {
-                outcome = try store.withLock {
-                    var registry = try store.load { EmulatorLog.error("device leases: \($0)") }
-                    let before = registry
-                    let ended = change(&registry, app, now())
-                    if registry != before { try store.save(registry) }
-                    return (registry, ended)
-                }
+                outcome = try Self.apply(change, store: store, app: app, now: now())
             } catch {
                 EmulatorLog.error("device leases: \(error)")
                 return
             }
             self.onMain { coordinator in
                 coordinator.leases.publish(outcome.registry, app: app)
-                for lease in outcome.ended { coordinator.release(lease) }
+                for lease in outcome.value { coordinator.release(lease) }
             }
         }
     }
