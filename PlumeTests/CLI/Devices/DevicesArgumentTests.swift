@@ -55,12 +55,13 @@ struct DevicesArgumentTests {
 
     struct Run {
         let env = FakeDeviceEnvironment()
+        let app = FakeDeviceAppClient()
         let store: DeviceRegistryStore
         init() throws { store = try makeDeviceStore() }
 
         func callAsFunction(_ arguments: [String], environment: [String: String] = [:]) -> (code: Int32, console: BufferConsole) {
             let console = BufferConsole()
-            let code = Devices.main(arguments, environment: environment, console: console, devices: env, store: store)
+            let code = Devices.main(arguments, environment: environment, console: console, devices: env, store: store, app: app)
             return (code, console)
         }
     }
@@ -72,6 +73,41 @@ struct DevicesArgumentTests {
         #expect(code == 0)
         #expect(console.stdout == "emulator-5554\n")
         #expect(console.stderr == "==> claimed emulator-5554 (Pixel_8)\n")
+    }
+
+    @Test func claimingFromATabShowsTheDeviceThereAndRecordsTheTab() throws {
+        let run = try Run()
+        run.env.connect("emulator-5554", avd: "Pixel_8")
+        let caller = UUID()
+        let deviceTab = UUID()
+        run.app.reply = { _ in CLIResponse(ok: true, tabID: deviceTab, created: true) }
+        let (code, console) = run(["claim"], environment: ["PLUME_TAB_ID": caller.uuidString, "PLUME_SOCKET": "/app/cli.sock"])
+
+        #expect(code == 0)
+        #expect(console.stdout == "emulator-5554\n")
+        #expect(run.app.sent.map(\.socket) == ["/app/cli.sock"])
+        #expect(run.app.sent.first?.request == .showDevice(.init(tabID: caller, kind: .emulator, serial: "emulator-5554", avdID: "Pixel_8")))
+        let lease = try #require(try run.store.load { _ in }.devices["emulator-5554"])
+        #expect(lease.deviceTabID == deviceTab)
+        #expect(lease.deviceTabCreatedByClaim)
+
+        run.app.reply = { _ in CLIResponse(ok: true, tabID: deviceTab, created: false) }
+        #expect(run(["claim"], environment: ["PLUME_TAB_ID": caller.uuidString, "PLUME_SOCKET": "/app/cli.sock"]).code == 0)
+        #expect(try run.store.load { _ in }.devices["emulator-5554"]?.deviceTabCreatedByClaim == true)
+    }
+
+    @Test func aDeviceTabThatFailsToOpenStillClaims() throws {
+        let run = try Run()
+        run.env.connect("R5")
+        run.app.reply = { _ in throw CLISocket.ClientError.unreachable("gone") }
+        let (code, console) = run(["claim", "R5"], environment: ["PLUME_TAB_ID": UUID().uuidString, "PLUME_SOCKET": "/app/cli.sock"])
+
+        #expect(code == 0)
+        #expect(console.stdout == "R5\n")
+        #expect(console.stderr.contains("couldn't open a device tab: Plume isn't running (gone)"))
+        #expect(try run.store.load { _ in }.devices["R5"]?.deviceTabID == nil)
+        #expect(run(["claim", "R5", "--owner=ci"]).code == 2)
+        #expect(run.app.sent.count == 1)
     }
 
     @Test func claimJSON() throws {

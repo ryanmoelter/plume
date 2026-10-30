@@ -28,20 +28,6 @@ struct DeviceTabHost: View {
 
     private func makeSession() {
         guard session == nil else { return }
-        let target = tab.deviceTarget
-        let session = DeviceSessionManager.shared.session(
-            for: tab.id,
-            target: target,
-            displayName: target == nil ? nil : tab.title,
-            remoteDetails: tab.remoteDetails
-        )
-        session.onDeviceChange = { [tab] target, displayName in
-            tab.setDevice(target, displayName: displayName)
-        }
-        session.onRemoteDetailsChange = { [tab] details in
-            tab.setRemoteDetails(details)
-        }
-        session.start()
-        self.session = session
+        session = DeviceSessionManager.shared.prepareSession(for: tab)
     }
 }

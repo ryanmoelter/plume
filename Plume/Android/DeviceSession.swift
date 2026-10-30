@@ -171,6 +171,21 @@ final class DeviceSession {
         locate(waitingForSink: true)
     }
 
+    /// Shows `target` in a session with no device yet, or looks again for one it already names
+    /// that isn't running. A session on another device keeps it.
+    func point(at target: DeviceTarget, displayName: String?) {
+        if self.target == nil {
+            choose(target, displayName: displayName)
+        } else if self.target != target {
+            return
+        }
+        started = true
+        switch state {
+        case .needsDevice, .notRunning, .disconnected, .failed: locate()
+        default: break
+        }
+    }
+
     /// `waitingForSink` false is for the picker, whose own view is no sink but is about to be replaced by one.
     private func locate(waitingForSink: Bool) {
         guard let target else {

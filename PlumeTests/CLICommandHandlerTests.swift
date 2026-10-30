@@ -164,4 +164,94 @@ struct CLICommandHandlerTests {
         #expect(await handler.handle(.notify(.init(tabID: known, title: "t", body: ""))).ok)
         #expect(await !handler.handle(.notify(.init(tabID: UUID(), title: "t", body: ""))).ok)
     }
+
+    // MARK: devices.show
+
+    private func show(_ handler: CLICommandHandler, caller: TaskTab, avd: String = "Pixel_8") async -> CLIResponse {
+        await handler.handle(.showDevice(.init(tabID: caller.id, kind: .emulator, avdID: avd)))
+    }
+
+    @Test func showingADeviceOpensATabBehindTheSelection() async throws {
+        let task = TaskStore.createTask(in: context, siblings: [])
+        let caller = try #require(task.tabs.first)
+        let selected = task.selectedTabID
+        let handler = makeHandler(task: task)
+
+        let response = await show(handler, caller: caller)
+
+        let tab = try #require(task.tabs.first { $0.id == response.tabID })
+        #expect(response.ok)
+        #expect(response.created == true)
+        #expect(tab.kind == .device)
+        #expect(tab.deviceTarget == .emulator(avdID: "Pixel_8"))
+        #expect(tab.title == "Pixel 8")
+        #expect(task.selectedTabID == selected)
+    }
+
+    @Test func aTabAlreadyOnTheDeviceIsReused() async throws {
+        let task = TaskStore.createTask(in: context, siblings: [])
+        let caller = try #require(task.tabs.first)
+        let handler = makeHandler(task: task)
+        let first = await show(handler, caller: caller)
+
+        let again = await show(handler, caller: caller)
+
+        #expect(again.tabID == first.tabID)
+        #expect(again.created == false)
+        #expect(task.tabs.count == 2)
+    }
+
+    @Test func aDeviceTabWithNoDeviceIsUsedBeforeANewOne() async throws {
+        let task = TaskStore.createTask(in: context, siblings: [])
+        let caller = try #require(task.tabs.first)
+        let empty = TaskStore.addTab(to: task, kind: .device, in: context)
+        let handler = makeHandler(task: task)
+
+        let response = await handler.handle(.showDevice(.init(tabID: caller.id, kind: .physical, serial: "R5", displayName: "Pixel 8")))
+
+        #expect(response.tabID == empty.id)
+        #expect(response.created == false)
+        #expect(empty.deviceTarget == .physical(serial: "R5"))
+        #expect(empty.title == "Pixel 8")
+    }
+
+    @Test func aTabOnAnotherDeviceIsNeverRepointed() async throws {
+        let task = TaskStore.createTask(in: context, siblings: [])
+        let caller = try #require(task.tabs.first)
+        let other = TaskStore.addTab(to: task, kind: .device, in: context)
+        other.setDevice(.emulator(avdID: "Tablet"), displayName: "Tablet")
+        let handler = makeHandler(task: task)
+
+        let response = await show(handler, caller: caller)
+
+        #expect(response.created == true)
+        #expect(response.tabID != other.id)
+        #expect(other.deviceTarget == .emulator(avdID: "Tablet"))
+    }
+
+    @Test func aMovedCallerShowsTheDeviceInItsNewTask() async throws {
+        let original = TaskStore.createTask(in: context, siblings: [])
+        let destination = TaskStore.createTask(in: context, siblings: [original])
+        let caller = TaskStore.addTab(to: original, kind: .terminal, in: context)
+        TaskStore.moveTab(caller, to: destination)
+        let handler = CLICommandHandler()
+        handler.orderedWindows = { [] }
+        handler.registerWindow(UUID(), registration(tasks: [original, destination]))
+
+        let response = await show(handler, caller: caller)
+
+        #expect(destination.tabs.contains { $0.id == response.tabID })
+        #expect(!original.tabs.contains { $0.kind == .device })
+    }
+
+    @Test func showingNeedsAKnownCallerAndATarget() async throws {
+        let task = TaskStore.createTask(in: context, siblings: [])
+        let caller = try #require(task.tabs.first)
+        let handler = makeHandler(task: task)
+
+        #expect(await !handler.handle(.showDevice(.init(tabID: UUID(), kind: .emulator, avdID: "A"))).ok)
+        #expect(await !handler.handle(.showDevice(.init(tabID: caller.id, kind: .emulator))).ok)
+        #expect(await !handler.handle(.showDevice(.init(tabID: caller.id, kind: .remote, reservationID: "r"))).ok)
+        #expect(task.tabs.count == 1)
+    }
 }

@@ -23,6 +23,26 @@ final class DeviceSessionManager {
         return session
     }
 
+    /// The tab's session, started and wired to persist what it picks. A tab's view and a CLI
+    /// request may both ask; the first creates it.
+    func prepareSession(for tab: TaskTab) -> DeviceSession {
+        let target = tab.deviceTarget
+        let session = session(
+            for: tab.id,
+            target: target,
+            displayName: target == nil ? nil : tab.title,
+            remoteDetails: tab.remoteDetails
+        )
+        session.onDeviceChange = { [tab] target, displayName in
+            tab.setDevice(target, displayName: displayName)
+        }
+        session.onRemoteDetailsChange = { [tab] details in
+            tab.setRemoteDetails(details)
+        }
+        session.start()
+        return session
+    }
+
     func register(_ session: DeviceSession) {
         sessions[session.tabID] = session
     }

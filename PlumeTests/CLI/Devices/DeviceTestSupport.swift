@@ -46,3 +46,15 @@ final class FakeDeviceEnvironment: DeviceEnvironment {
 func makeDeviceStore() throws -> DeviceRegistryStore {
     DeviceRegistryStore(directory: try makeScratchDirectory() + "/devices")
 }
+
+/// Records each request with its socket and answers through `reply`, which may throw to play an
+/// app that can't be reached.
+final class FakeDeviceAppClient: DeviceAppClient {
+    private(set) var sent: [(request: CLIRequest, socket: String)] = []
+    var reply: (CLIRequest) throws -> CLIResponse = { _ in .success }
+
+    func send(_ request: CLIRequest, to socket: String) throws -> CLIResponse {
+        sent.append((request, socket))
+        return try reply(request)
+    }
+}

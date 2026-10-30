@@ -11,6 +11,7 @@ nonisolated enum CLIRequest: Equatable, Sendable {
     case newTab(NewTab)
     case newTask(NewTask)
     case openSettings(OpenSettings)
+    case showDevice(ShowDevice)
 
     struct Notify: Codable, Equatable, Sendable {
         var tabID: UUID
@@ -41,6 +42,18 @@ nonisolated enum CLIRequest: Equatable, Sendable {
     struct OpenSettings: Codable, Equatable, Sendable {
         var section: String?
     }
+
+    /// Shows a leased device in a device tab of the task holding `tabID`, the
+    /// lease's owner. An emulator is named by `avdID`, a physical device by
+    /// `serial` and a remote one by `reservationID`.
+    struct ShowDevice: Codable, Equatable, Sendable {
+        var tabID: UUID
+        var kind: DeviceKind
+        var serial: String?
+        var avdID: String?
+        var reservationID: String?
+        var displayName: String?
+    }
 }
 
 nonisolated extension CLIRequest: Codable {
@@ -53,6 +66,7 @@ nonisolated extension CLIRequest: Codable {
         case newTab = "tab.new"
         case newTask = "task.new"
         case openSettings = "settings.open"
+        case showDevice = "devices.show"
     }
 
     init(from decoder: any Decoder) throws {
@@ -69,6 +83,7 @@ nonisolated extension CLIRequest: Codable {
         case .newTab: self = .newTab(try container.decode(NewTab.self, forKey: .params))
         case .newTask: self = .newTask(try container.decode(NewTask.self, forKey: .params))
         case .openSettings: self = .openSettings(try container.decode(OpenSettings.self, forKey: .params))
+        case .showDevice: self = .showDevice(try container.decode(ShowDevice.self, forKey: .params))
         }
     }
 
@@ -89,6 +104,9 @@ nonisolated extension CLIRequest: Codable {
         case .openSettings(let params):
             try container.encode(Command.openSettings, forKey: .command)
             try container.encode(params, forKey: .params)
+        case .showDevice(let params):
+            try container.encode(Command.showDevice, forKey: .command)
+            try container.encode(params, forKey: .params)
         }
     }
 }
@@ -101,6 +119,8 @@ nonisolated struct CLIResponse: Codable, Equatable, Sendable {
     var tabID: UUID?
     var taskID: UUID?
     var version: String?
+    /// Whether the request made the tab it names, as `devices.show` reports.
+    var created: Bool?
 
     static let success = CLIResponse(ok: true)
 

@@ -14,6 +14,9 @@ struct CLIProtocolTests {
         .newTask(.init(worktreePath: "/repo/.plume/worktrees/x", tabID: UUID(), select: false)),
         .openSettings(.init(section: "projects")),
         .openSettings(.init(section: nil)),
+        .showDevice(.init(tabID: UUID(), kind: .emulator, avdID: "Pixel_8")),
+        .showDevice(.init(tabID: UUID(), kind: .physical, serial: "R5", displayName: "Pixel 8")),
+        .showDevice(.init(tabID: UUID(), kind: .remote, reservationID: "abc")),
     ])
     func requestsRoundTrip(_ request: CLIRequest) throws {
         let line = try CLILineCodec.encode(request)
@@ -28,6 +31,13 @@ struct CLIProtocolTests {
         #expect(json?["command"] as? String == "tab.new")
     }
 
+    @Test func showDeviceIsADevicesCommandWithItsKind() throws {
+        let line = try CLILineCodec.encode(CLIRequest.showDevice(.init(tabID: UUID(), kind: .physical, serial: "R5")))
+        let json = try JSONSerialization.jsonObject(with: line) as? [String: Any]
+        #expect(json?["command"] as? String == "devices.show")
+        #expect((json?["params"] as? [String: Any])?["kind"] as? String == "physical")
+    }
+
     @Test func anUnknownCommandFailsToDecode() {
         #expect(throws: DecodingError.self) {
             try CLILineCodec.decode(CLIRequest.self, from: Data(#"{"command":"launch"}"#.utf8))
@@ -37,6 +47,7 @@ struct CLIProtocolTests {
     @Test func responsesRoundTripAndOmitUnusedFields() throws {
         var response = CLIResponse.success
         response.tabID = UUID()
+        response.created = true
         let line = try CLILineCodec.encode(response)
         #expect(try CLILineCodec.decode(CLIResponse.self, from: line.dropLast()) == response)
 

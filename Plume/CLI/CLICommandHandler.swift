@@ -33,6 +33,7 @@ final class CLICommandHandler {
 
     var orderedWindows: () -> [NSWindow] = { NSApp.orderedWindows }
     var directories: TabDirectoryStore = .shared
+    var deviceSessions: DeviceSessionManager = .shared
 
     func registerWindow(_ id: UUID, _ registration: WindowRegistration) {
         unregisterWindow(id)
@@ -86,7 +87,62 @@ final class CLICommandHandler {
             return await newTask(params)
         case .openSettings(let params):
             return openSettings(params)
+        case .showDevice(let params):
+            return showDevice(params)
         }
+    }
+
+    /// The task the tab is in now, which a moved tab changes.
+    private func currentTask(ofTab tabID: UUID) -> (task: WorkTask, context: ModelContext)? {
+        let windows = frontmostFirst
+        guard let taskID = windows.lazy.compactMap({ $0.taskIDForTab(tabID) }).first else { return nil }
+        return windows.lazy.compactMap { window in window.task(taskID).map { (task: $0, context: window.context) } }.first
+    }
+
+    /// Prefers a device tab already on the device, then one with no device, then a new tab
+    /// behind the selection. A tab on another device is never repointed.
+    private func showDevice(_ params: CLIRequest.ShowDevice) -> CLIResponse {
+        guard let target = Self.deviceTarget(params) else {
+            return .failure("devices.show needs an avdID for an emulator, a serial for a physical device, or a reservationID for a remote one")
+        }
+        guard let (task, context) = currentTask(ofTab: params.tabID) else {
+            return .failure("no Plume tab \(params.tabID.uuidString)")
+        }
+        let deviceTabs = task.orderedTabs.filter { $0.kind == .device }
+        let tab: TaskTab
+        var created = false
+        if let showing = deviceTabs.first(where: { $0.deviceTarget == target }) {
+            tab = showing
+        } else if case .remote(let reservationID) = target {
+            return .failure("no device tab holds reservation \(reservationID)")
+        } else if let empty = deviceTabs.first(where: { $0.deviceTarget == nil && !deviceSessions.canEndReservation(for: $0.id) }) {
+            tab = empty
+        } else {
+            let previous = task.selectedTabID.flatMap { id in task.tabs.first { $0.id == id } }
+            tab = TaskStore.addTab(to: task, kind: .device, in: context)
+            if let previous { TaskStore.selectTab(previous, in: task) }
+            created = true
+        }
+        let displayName = params.displayName ?? Self.defaultDisplayName(target)
+        if tab.deviceTarget == nil { tab.setDevice(target, displayName: displayName) }
+        deviceSessions.existingSession(for: tab.id)?.point(at: target, displayName: displayName)
+        var response = CLIResponse.success
+        response.tabID = tab.id
+        response.created = created
+        return response
+    }
+
+    private static func deviceTarget(_ params: CLIRequest.ShowDevice) -> DeviceTarget? {
+        switch params.kind {
+        case .emulator: params.avdID.map { .emulator(avdID: $0) }
+        case .physical: params.serial.map { .physical(serial: $0) }
+        case .remote: params.reservationID.map { .remote(reservationID: $0) }
+        }
+    }
+
+    /// What the picker would show when it has nothing better.
+    private static func defaultDisplayName(_ target: DeviceTarget) -> String {
+        target.identifier.replacingOccurrences(of: "_", with: " ")
     }
 
     /// The worktree already exists, since `wt` made it; this only opens a

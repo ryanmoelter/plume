@@ -50,6 +50,7 @@ The code is split three ways:
 - **Expiry.** Every lease expires after an hour unless renewed; `--ttl` sets another length in seconds.
 - **Reaping.** Every command first drops expired leases, local leases whose serial left `adb devices` (offline and unauthorized still count as present), emulator leases whose serial now runs another AVD, and pending boots older than 15 minutes. A remote lease goes only on expiry.
 - **Claiming.** `claim <serial>` leases that device, and renews it if you already hold it. `claim` alone reuses a free booted device first, else boots an AVD that is neither running nor booting for someone else. It records the boot as a pending `avd:<id>` entry and frees the lock while the emulator boots, so two agents never boot the same AVD. `--kind=remote` is refused for now.
+- **Device tabs.** A claim from a Plume tab then asks that tab's app, over its `PLUME_SOCKET`, to show the device (`devices.show`), and records the device tab in the lease. It is best effort: when the app refuses or can't be reached, `claim` warns on stderr and still exits 0.
 - **Output.** `claim` prints only the serial on stdout. Progress lines starting `==>` go to stderr, so `ANDROID_SERIAL=$(plume devices claim)` is safe.
 
 A new subcommand adds its completion to `ShellIntegration.commands`.
@@ -109,11 +110,14 @@ Requests name a `command` and carry its `params`:
 {"command":"tab.new","params":{"tabID":"<uuid>","select":false}}
 {"command":"task.new","params":{"worktreePath":"/abs/worktree","tabID":"<uuid>","select":false}}
 {"command":"settings.open","params":{"section":"projects"}}
+{"command":"devices.show","params":{"tabID":"<uuid>","kind":"emulator","avdID":"Pixel_8"}}
 ```
 
 `tab.new` names its task with `taskID`, or with `tabID`, a tab in that task; `taskID` wins when both are present. `directory` is absolute and optional.
 
 `task.new` opens a task on the existing worktree at `worktreePath`, at the end of the caller's group, with the caller named the same two ways. An unknown caller, or none, puts the task outside any group. The app reads the repository and the branch from the worktree, and names the task after the worktree's folder. The repository is the parent of git's common dir, or in the bare layout the `.bare` repository itself, since its parent is no repository and git fails there (`ProjectRoot.repositoryDirectory(forRoot:)`). A worktree created from such a task still lands beside `.bare` in the project folder, where `plume wt` puts its own. The path must be absolute and the root of a checkout. A linked worktree becomes a worktree task; the main checkout becomes a directory task, so deleting the task never offers to remove it. A worktree that already has a task that isn't archived gets that task back instead of a second one, so a client that timed out and retried never duplicates it. `select` reveals the task in the frontmost main window. It answers `{"ok":true,"taskID":"<uuid>"}`.
+
+`devices.show` shows a leased device in the task that holds `tabID`, the lease's owner, looked up when the request arrives, so a moved tab gets it in its new task. `kind` is `emulator`, `physical` or `remote`, and names the device by `avdID`, `serial` or `reservationID`; `displayName` is optional. The app uses a device tab in that task already on the device, else one with no device yet, else opens a new one behind the current selection. It never repoints a tab showing another device, and a remote device needs a tab that already holds its reservation. If the tab's session is live, it connects at once. It answers `{"ok":true,"tabID":"<uuid>","created":true}`, with `created` false for a tab that was already there.
 
 `settings.open` brings Plume forward and shows the Settings window, on `section` when given. `section` is optional and names a `SettingsPane`, such as `projects`; an unknown one fails. Both commands need an open main window, and `wt` falls back on any refusal as it does for an unreachable app. Responses carry `ok`, plus `error` on failure and whatever the command returns:
 
@@ -121,6 +125,7 @@ Requests name a `command` and carry its `params`:
 {"ok":true,"version":"0.16.1"}
 {"ok":true,"tabID":"<uuid>"}
 {"ok":true,"taskID":"<uuid>"}
+{"ok":true,"tabID":"<uuid>","created":true}
 {"ok":false,"error":"no Plume task <uuid>"}
 ```
 

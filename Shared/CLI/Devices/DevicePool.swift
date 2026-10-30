@@ -309,6 +309,18 @@ nonisolated final class DevicePool {
         }
     }
 
+    /// Notes the tab showing a lease's device. A tab an earlier claim created stays marked so.
+    func recordDeviceTab(_ key: String, owner: DeviceLeaseOwner, tabID: UUID, created: Bool) throws {
+        try store.withLock {
+            var registry = try store.load(warn: warn)
+            guard var lease = registry.devices[key], lease.owner == owner else { return }
+            lease.deviceTabCreatedByClaim = created || (lease.deviceTabID == tabID && lease.deviceTabCreatedByClaim)
+            lease.deviceTabID = tabID
+            registry.devices[key] = lease
+            try store.save(registry)
+        }
+    }
+
     /// Reaps now, and returns what went.
     func prune() throws -> [String] {
         try store.withLock {

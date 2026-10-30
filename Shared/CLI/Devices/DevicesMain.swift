@@ -50,7 +50,8 @@ nonisolated enum Devices {
         environment: [String: String],
         console: any CLIConsole,
         devices: (any DeviceEnvironment)? = nil,
-        store: DeviceRegistryStore = DeviceRegistryStore()
+        store: DeviceRegistryStore = DeviceRegistryStore(),
+        app: any DeviceAppClient = SocketDeviceAppClient()
     ) -> Int32 {
         let command: Command
         do {
@@ -76,7 +77,7 @@ nonisolated enum Devices {
             log: { console.printError("==> \($0)") }
         )
         do {
-            try run(command, pool: pool, environment: environment, console: console)
+            try run(command, pool: pool, environment: environment, console: console, app: app)
             return CLIExitCode.success
         } catch DevicePoolError.conflict(let key, let lease) {
             console.printError("\(programName): \(key) is leased by another owner:")
@@ -277,7 +278,13 @@ nonisolated enum Devices {
 
     // MARK: Commands
 
-    static func run(_ command: Command, pool: DevicePool, environment: [String: String], console: any CLIConsole) throws {
+    static func run(
+        _ command: Command,
+        pool: DevicePool,
+        environment: [String: String],
+        console: any CLIConsole,
+        app: any DeviceAppClient
+    ) throws {
         let devices = pool.environment
         switch command {
         case .claim(let serial, let kind, let form, let owner, let ttl, let json):
@@ -288,6 +295,9 @@ nonisolated enum Devices {
                 claimed = (serial, result.lease, result.reused)
             } else {
                 claimed = try pool.acquire(claimant: claimant, ttl: ttl, kind: kind, form: form)
+            }
+            if case .tab(let tabID, let socket) = claimant.owner {
+                showDeviceTab(key: claimed.serial, lease: claimed.lease, callerTab: tabID, socket: socket, pool: pool, app: app, console: console)
             }
             if json {
                 try console.print(jsonLine(ClaimResult(
@@ -345,6 +355,38 @@ nonisolated enum Devices {
             console.print(messages.isEmpty ? "nothing to reap" : messages.joined(separator: "\n"))
         case .help:
             console.print(usage)
+        }
+    }
+
+    /// Best effort: the lease stands whether or not a tab opens.
+    static func showDeviceTab(
+        key: String,
+        lease: DeviceLease,
+        callerTab: UUID,
+        socket: String,
+        pool: DevicePool,
+        app: any DeviceAppClient,
+        console: any CLIConsole
+    ) {
+        let request = CLIRequest.showDevice(.init(
+            tabID: callerTab,
+            kind: lease.kind,
+            serial: lease.serial,
+            avdID: lease.avd,
+            reservationID: lease.remote?.reservationID,
+            displayName: lease.kind == .physical ? lease.model?.replacingOccurrences(of: "_", with: " ") : nil
+        ))
+        do {
+            let response = try app.send(request, to: socket)
+            guard response.ok, let deviceTab = response.tabID else {
+                console.printError("\(programName): couldn't open a device tab: \(response.error ?? "Plume named no tab")")
+                return
+            }
+            try pool.recordDeviceTab(key, owner: lease.owner, tabID: deviceTab, created: response.created == true)
+        } catch let failure as CLIFailure {
+            console.printError("\(programName): couldn't open a device tab: \(failure.message ?? "unknown error")")
+        } catch {
+            console.printError("\(programName): couldn't open a device tab: \(error.localizedDescription)")
         }
     }
 
