@@ -24,6 +24,7 @@ struct LinearIssuesSection: View, ThemedView {
     let actions: InfoPaneLinearActions
     @Binding var showsMentioned: Bool
 
+    @Environment(\.infoPaneIsOpen) private var isPaneOpen
     @State private var settings = AppSettings.shared
     @State private var showsLinkPopover = false
     @State private var isHoveringAdd = false
@@ -46,6 +47,10 @@ struct LinearIssuesSection: View, ThemedView {
                         mentioned(linear.mentioned)
                     }
                 }
+            }
+            .preference(key: InfoPaneHoldsOpenKey.self, value: showsLinkPopover)
+            .onChange(of: isPaneOpen) { _, isOpen in
+                if !isOpen { showsLinkPopover = false }
             }
         }
     }
