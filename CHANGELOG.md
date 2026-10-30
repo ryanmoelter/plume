@@ -1,5 +1,37 @@
 # Changelog
 
+## 0.17.0 (37)
+
+### New
+
+- Host Android emulators or mirror physical devices in a tab
+  - Start, run, and control an Android emulator
+  - Mirror a physical device over USB or ADB over WiFi (thanks to [`scrcpy`](https://github.com/genymobile/scrcpy))
+  - Rotate, toggle auto-rotate, and send keyboard shortcuts to the device
+  - Set up devices in Settings > Devices
+- Reserve and stream a remote Android device through Google's [Developer Device Platform](https://docs.cloud.google.com/developer-device-platform/overview)
+  - Connect your Google Cloud account through [the official `android` cli](https://developer.android.com/tools/agents/android-cli)
+  - Pick from the list of all available device models
+  - Automatically end the (paid) reservation when the tab closes
+- Mention Linear issues, pull requests, and files in the composer with `@` and `#`
+  - See mentions as chips with titles and status, in the composer and the chat
+  - Narrow an `@` search with `@linear:`, `@pr:` or `@file:`
+- Add the `plume` command-line tool
+  - `plume wt` manages git worktrees, and opens them as Plume tabs (analogous to [my `wt` cli tool](https://github.com/ryanmoelter/cli-tools#wt--worktrees))
+  - `plume stack` manages stacked branches and their PRs (analogous to [my `stack` cli tool](https://github.com/ryanmoelter/cli-tools#stack--stacked-branches))
+  - `plume notify` posts a Plume notification for the tab it runs in (formerly `plume-notify`)
+  - `plume tab new` opens a terminal tab in the current task
+  - Set up shell integration and Nerd Font icons in Settings > Command line
+  - More to come! This will be expanded
+
+### Recently
+
+- Select chat text across messages, and copy it as markdown
+- Connect Linear, in Settings > Integrations
+- See formatting as you type in the composer
+- Import conversations from the Claude desktop app
+- Add colors and icons to groups and tasks
+
 ## 0.16.1 (36)
 
 ### New
