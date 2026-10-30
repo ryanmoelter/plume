@@ -355,6 +355,7 @@ struct ChatComposer: View, ThemedView {
                         session.queuedMessages.isEmpty ? nil : { editQueuedMessage(at: session.queuedMessages.count - 1) }
                     },
                     onEscape: interruptOnEscape,
+                    onCycleMode: cycleModeHandler,
                     recognizedSlashCommandNames: Set(availableSlashCommands.map(\.name)),
                     onAttachImages: attachHandler,
                     isCommandMode: isCommandMode,
@@ -527,6 +528,16 @@ struct ChatComposer: View, ThemedView {
               ) else { return false }
         headlessSession.interrupt()
         return true
+    }
+
+    private var cycleModeHandler: (() -> Void)? {
+        isCommandMode ? nil : { cyclePermissionMode() }
+    }
+
+    private func cyclePermissionMode() {
+        let state = ComposerSettings(session: headlessSession, tab: tab, defaults: .resolved(task: task))
+        guard let next = ComposerShiftTab.next(after: state.permissionPreset, in: state.permissionPresets) else { return }
+        state.setPermissionPreset(next)
     }
 
     /// Says what the composer will do with what is being typed. Its button
