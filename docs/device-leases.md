@@ -4,7 +4,7 @@
 
 ## The registry
 
-`~/Library/Application Support/Plume/devices/registry.json`, with an `flock` on `lock` beside it (`DeviceRegistryStore`). Every build, debug and worktree builds included, and every `plume` outside Plume shares this one directory, so a lease means the same thing to all of them. A write goes to a temporary file and is renamed into place, so a reader that takes no lock still sees a whole file. A file with a newer `version` is never overwritten; an unreadable one reads as empty, with a warning, and the next write replaces it.
+`~/Library/Application Support/Plume/devices/registry.json`, with an `flock` on `lock` beside it (`DeviceRegistryStore`). Every build, debug and worktree builds included, and every `plume` outside Plume shares this one directory, so a lease means the same thing to all of them. A write goes to a temporary file and is renamed into place, so a reader that takes no lock still sees a whole file. A file with a newer `version` is never overwritten, and neither is an unreadable one: every command fails, asking for it to be moved aside, rather than read it as empty and save over every lease in it.
 
 ```json
 {
@@ -41,9 +41,9 @@
 
 Every lease expires, after an hour by default (`--ttl`, `renew`). Tab leases expire too, and also go when their tab does.
 
-Every command reaps under the lock first: expired local leases, local leases whose serial left `adb devices` (offline and unauthorized still count as present, and an empty list removes nothing, since `adb kill-server` empties it for every device), emulator leases whose serial now runs another AVD, and pending entries past their own expiry (15 minutes). A remote lease ignores adb and goes only five minutes past its expiry (`DeviceRegistry.remoteReapGrace`). That grace leaves the app that holds the reservation time to reap the lease itself and end the reservation with it.
+Every command reads `adb devices` before it takes the lock, so the lock is held only for file I/O, then reaps under the lock: expired local leases, local leases whose serial left `adb devices` (offline and unauthorized still count as present, and an empty list removes nothing, since `adb kill-server` empties it for every device), emulator leases whose serial now runs another AVD, and pending entries past their own expiry (15 minutes). A remote lease ignores adb and goes only five minutes past its expiry (`DeviceRegistry.remoteReapGrace`). That grace leaves the app that holds the reservation time to reap the lease itself and end the reservation with it. When adb is missing or fails, reaping goes by expiry alone, so `release`, `renew` and `installed` still work; `claim` and `list` fail with adb's error.
 
-Reading a physical device's form takes `adb shell` round trips, so `claim` reads forms before it takes the lock and re-validates the device under it.
+Reading a physical device's form takes `adb shell` round trips, so only `claim --form` reads live forms, before it takes the lock, and re-validates the device under it. An emulator's form comes from its AVD's `config.ini`. `claim` alone renews a device the claimant already holds before it leases another.
 
 ## The app
 
@@ -59,20 +59,24 @@ Reading a physical device's form takes `adb shell` round trips, so `claim` reads
 
 A remote lease always belongs to a Plume tab, because the reservation behind it is billed and must end with the tab. `claim --kind=remote` runs in this order:
 
-1. The tool checks the registry under the lock. A remote lease the tab already holds is renewed and printed. A pending `claim:` entry the tab already has is waited on again. One with an `error` is dropped, and the claim starts afresh.
+1. The tool checks the registry under the lock. A remote lease the tab already holds is renewed and printed, once its app has extended the reservation (see Renewing). A pending `claim:` entry the tab already has is waited on again. One with an `error` is dropped, and the claim starts afresh.
 2. The tool sends `devices.reserve` to the tab's app. The app resolves the model and project, picks or opens a device tab, writes `pending["claim:<claimID>"]` (owner, model, device tab, 15-minute expiry), and only then answers with the claim ID and starts the reservation in the device tab's session.
 3. The tool polls `registry.json` every second without the lock, and pings the app every 15 seconds.
 4. When the device reaches adb, the session reports it (`DeviceSession.onReservationEvent`), and the coordinator replaces the pending entry with `devices["remote:<reservationID>"]`. The lease carries the claim ID, the device tab, and whether the claim created that tab. The tool sees the lease and prints its serial.
 
-The claim lives in the coordinator's memory from step 2 until the device connects. A device tab holds one claim at a time, and a second `devices.reserve` from a tab whose claim is still reserving returns that claim's ID instead of starting another reservation. If the device connects after the pending entry was reaped or the tool gave up, the lease is still written, and the next claim from that tab finds it.
+The claim lives in the coordinator's memory from step 2 until the device connects. A device tab holds one claim at a time, and a second `devices.reserve` from a tab whose claim is still reserving returns that claim's ID instead of starting another reservation, writing its pending entry again if a long reservation outlasted it. `devices.reserve` gives up without reserving if loading the catalog took 25 seconds, since the tool stops waiting for an answer at 30. If the device connects after the pending entry was reaped or the tool gave up, the lease is still written, and the next claim from that tab finds it.
 
 The session reports three events, which keep the lease in step with the reservation:
 
 - **Attached** writes the claim's lease, or, on a reconnect, moves an existing lease to the new `localhost:<port>`.
-- **Failed** sets the pending entry's `error`, which the tool prints before it drops the entry. The device tab stays, showing the failure.
+- **Failed** sets the pending entry's `error`, which the tool prints before it drops the entry. For a claim, the coordinator then ends the reservation, since a reservation whose device never reached adb still bills; the device tab stays, showing the failure. A failed reconnect for a lease already written leaves the reservation running, and the session retries while Device Streaming reports it active.
 - **Ended** drops the lease, or marks a claim still pending. The session reports it when the reservation ends by expiry, End Reservation, Change Device, a replacement reservation, or the tab closing — never at quit, where the quit sweep drops this app's remote leases instead.
 
 Releasing a remote lease (`devices.release`, expiry, or the owner tab going) ends the reservation through the device tab's session, which returns the tab to the picker, and closes the tab if the claim created it. If the owner tab goes while its claim is still reserving, the coordinator closes the device tab the claim created, or returns an existing one to the picker. A `plume` that can't reach the owning app drops the lease itself; the reservation then ends when that app quits or relaunches.
+
+### Renewing
+
+A remote lease lasts only as long as its reservation, so renewing one, or claiming a remote device the tab already holds, first asks the owning app to extend the reservation (`devices.extend`) to cover the new TTL. The app extends it through the device tab's session and answers once Device Streaming has. If the app can't be reached or the extension fails, the tool exits 1 and leaves the lease as it was. A new claim whose TTL runs past the reservation's own length is extended the same way once its device connects.
 
 ## Device tabs
 

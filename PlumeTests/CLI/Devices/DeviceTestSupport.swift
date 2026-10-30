@@ -16,8 +16,14 @@ final class FakeDeviceEnvironment: DeviceEnvironment {
     /// Runs inside `boot`, while the registry lock is free.
     var duringBoot: () -> Void = {}
 
+    /// Plays adb missing or timing out.
+    var adbFailure: String?
+
     func now() -> Date { clock }
-    func adbDevices() throws -> [PhysicalDevice] { devices }
+    func adbDevices() throws -> [PhysicalDevice] {
+        if let adbFailure { throw CLIFailure(adbFailure) }
+        return devices
+    }
     func emulatorAVDs() -> [String: String] { runningAVDs }
     /// Runs inside every `form(of:)`, which reads the live device.
     var duringForm: () -> Void = {}

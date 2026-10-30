@@ -342,7 +342,11 @@ nonisolated enum Devices {
             }
         case .renew(let serial, let owner, let ttl):
             let claimant = try claimant(ownerFlag: owner, environment: environment, devices: devices)
-            _ = try pool.renew(pool.leaseKey(for: serial), owner: claimant.owner, ttl: ttl)
+            let key = try pool.leaseKey(for: serial)
+            if let held = try pool.lease(key, owner: claimant.owner, force: false), held.kind == .remote {
+                try extendRemote(key: key, lease: held, ttl: ttl, app: app)
+            }
+            _ = try pool.renew(key, owner: claimant.owner, ttl: ttl)
             console.print("renewed \(serial) for \(Int(ttl))s")
         case .installed(let serial, let branch):
             let info = devices.ownerInfo()
@@ -412,12 +416,11 @@ nonisolated enum Devices {
         } catch {
             throw CLIFailure("\(remoteNeedsATab), and the Plume that owns this tab isn't answering: \(describe(error))")
         }
-        let waiter = RemoteClaimWaiter(
-            store: pool.store, app: app, socket: socket, now: devices.now, sleep: devices.sleep, warn: pool.warn, log: pool.log
-        )
-        switch try pool.remoteClaimState(owner: claimant.owner, ttl: ttl) {
+        let waiter = RemoteClaimWaiter(store: pool.store, app: app, socket: socket, now: devices.now, sleep: devices.sleep, log: pool.log)
+        switch try pool.remoteClaimState(owner: claimant.owner) {
         case .held(let key, let lease):
-            return (key, lease, true)
+            try extendRemote(key: key, lease: lease, ttl: ttl, app: app)
+            return (key, try pool.renew(key, owner: claimant.owner, ttl: ttl), true)
         case .waiting(let claimID):
             pool.log("still reserving a remote device for this tab; waiting for it")
             let leased = try waiter.wait(for: claimID)
@@ -432,6 +435,23 @@ nonisolated enum Devices {
             pool.log("reserving \(model ?? "the model last reserved") in a device tab; Device Streaming can take a few minutes")
             let leased = try waiter.wait(for: claimID)
             return (leased.key, leased.lease, false)
+        }
+    }
+
+    /// A remote lease is only as long as the reservation behind it, so the app holding that
+    /// reservation extends it before the lease is renewed.
+    static func extendRemote(key: String, lease: DeviceLease, ttl: TimeInterval, app: any DeviceAppClient) throws {
+        guard let socket = lease.owner.app else {
+            throw CLIFailure("\(key) belongs to no Plume, so its reservation can't be extended")
+        }
+        let response: CLIResponse
+        do {
+            response = try app.send(.extendDevice(.init(key: key, ttl: ttl)), to: socket)
+        } catch {
+            throw CLIFailure("couldn't reach the Plume holding \(key) to extend its reservation: \(describe(error))")
+        }
+        guard response.ok else {
+            throw CLIFailure("couldn't extend the reservation behind \(key): \(response.error ?? "no reason given")")
         }
     }
 

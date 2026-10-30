@@ -16,7 +16,6 @@ nonisolated struct RemoteClaimWaiter {
     let socket: String
     let now: () -> Date
     let sleep: (TimeInterval) -> Void
-    let warn: (String) -> Void
     let log: (String) -> Void
 
     func wait(for claimID: UUID) throws -> (key: String, lease: DeviceLease) {
@@ -25,7 +24,7 @@ nonisolated struct RemoteClaimWaiter {
         var lastPing = started
         var lastProgress = started
         while true {
-            let registry = try store.load(warn: warn)
+            let registry = try store.load()
             if let leased = registry.devices.first(where: { $0.value.remote?.claimID == claimID }) {
                 return (leased.key, leased.value)
             }
@@ -33,7 +32,7 @@ nonisolated struct RemoteClaimWaiter {
                 throw CLIFailure("the reservation stopped before its device connected: its tab closed, or Plume quit")
             }
             if let error = pending.error {
-                dropPending(pendingKey)
+                store.dropPending(pendingKey)
                 throw CLIFailure("Device Streaming couldn't reserve a device: \(error)")
             }
             let elapsed = now().timeIntervalSince(started)
@@ -55,14 +54,6 @@ nonisolated struct RemoteClaimWaiter {
                 log("still reserving (\(DevicePool.relativeTime(elapsed)))")
             }
             sleep(Self.pollInterval)
-        }
-    }
-
-    /// Best effort: an entry left behind expires on its own.
-    private func dropPending(_ key: String) {
-        try? store.withLock {
-            var registry = try store.load(warn: warn)
-            if registry.pending.removeValue(forKey: key) != nil { try store.save(registry) }
         }
     }
 }

@@ -47,6 +47,16 @@ final class DeviceLeaseCoordinator {
         var closeTab: @MainActor (UUID) -> Void = { CLICommandHandler.shared.closeTab($0) }
         /// Returns a device tab to the picker, ending whatever it was reserving.
         var endTabReservation: @MainActor (UUID) -> Void = { DeviceSessionManager.shared.existingSession(for: $0)?.endReservation() }
+        /// Ends a device tab's reservation but leaves the tab showing why.
+        var abandonTabReservation: @MainActor (_ tab: UUID, _ reason: String) -> Void = {
+            DeviceSessionManager.shared.existingSession(for: $0)?.abandonReservation(reason: $1)
+        }
+        var extendTabReservation: @MainActor (_ tab: UUID, _ until: Date) async throws -> Void = { tab, until in
+            guard let session = DeviceSessionManager.shared.existingSession(for: tab) else {
+                throw CLIFailure("the device tab holding the reservation is gone")
+            }
+            try await session.extendReservation(until: until)
+        }
     }
 
     let store: DeviceRegistryStore
@@ -100,7 +110,7 @@ final class DeviceLeaseCoordinator {
         queue.async { [self] in
             let registry: DeviceRegistry
             do {
-                registry = try store.load { EmulatorLog.error("device leases: \($0)") }
+                registry = try store.load()
             } catch {
                 EmulatorLog.error("device leases: \(error)")
                 return
@@ -157,6 +167,27 @@ final class DeviceLeaseCoordinator {
         claims.values.first { $0.owner == owner }
     }
 
+    /// Records `claim`'s pending entry again for a claimant joining it, since a long reservation
+    /// can outlast the entry's expiry. Resumes once it is saved.
+    func rejoin(_ claim: RemoteClaim) async throws {
+        try await perform { registry, _, now in
+            let leased = registry.devices.values.contains { $0.remote?.claimID == claim.id }
+            if !leased, registry.pending[DeviceRegistry.pendingKey(claim: claim.id)] == nil {
+                registry.recordClaim(claim, now: now)
+            }
+        }
+    }
+
+    /// Extends the reservation behind this app's remote lease at `key` to cover `ttl` from now.
+    func extendLease(_ key: String, ttl: TimeInterval) async throws {
+        let lease = try await perform { registry, app, _ in
+            registry.devices[key].flatMap { $0.owner.app == app && $0.kind == .remote ? $0 : nil }
+        }
+        guard let lease else { throw CLIFailure("this Plume holds no remote lease on \(key)") }
+        guard let deviceTab = lease.deviceTabID else { throw CLIFailure("\(key) has no device tab holding its reservation") }
+        try await effects.extendTabReservation(deviceTab, now().addingTimeInterval(ttl))
+    }
+
     /// Drops this app's lease at `key`, ending its reservation and closing a device tab the claim
     /// opened. Nil when this app holds no lease there.
     func releaseLease(_ key: String) async throws -> DeviceLease? {
@@ -179,17 +210,34 @@ final class DeviceLeaseCoordinator {
                 }
                 return []
             }
+            if let claim { extendForClaim(claim) }
         case .failed(let message):
             guard let claim else { return }
             mutate { registry, _, _ in
                 registry.failClaim(claim.id, message: message)
                 return []
             }
+            // A reservation can fail after it started billing, when its device never reaches adb.
+            // The error is written first, so the claimant still reads it.
+            onMain { coordinator in coordinator.effects.abandonTabReservation(deviceTab, message) }
         case .ended(let reservationID):
             mutate { registry, app, _ in
                 if let reservationID { registry.dropRemoteLease(reservationID: reservationID, app: app) }
                 if let claim { registry.failClaim(claim.id, message: "the reservation ended before the device connected") }
                 return []
+            }
+        }
+    }
+
+    /// A claim's TTL can run past the reservation's own length, which would end the lease early.
+    private func extendForClaim(_ claim: RemoteClaim) {
+        let until = now().addingTimeInterval(claim.ttl)
+        let extend = effects.extendTabReservation
+        Task {
+            do {
+                try await extend(claim.deviceTabID, until)
+            } catch {
+                EmulatorLog.error("device leases: couldn't extend the reservation for \(claim.id): \(error.localizedDescription)")
             }
         }
     }
@@ -215,7 +263,7 @@ final class DeviceLeaseCoordinator {
         queue.async {
             defer { done.signal() }
             try? store.withLock {
-                var registry = try store.load { _ in }
+                var registry = try store.load()
                 if registry.dropRemote(app: app) { try store.save(registry) }
             }
         }
@@ -253,7 +301,7 @@ final class DeviceLeaseCoordinator {
         now: Date
     ) throws -> (registry: DeviceRegistry, value: T) {
         try store.withLock {
-            var registry = try store.load { EmulatorLog.error("device leases: \($0)") }
+            var registry = try store.load()
             let before = registry
             let value = change(&registry, app, now)
             if registry != before { try store.save(registry) }

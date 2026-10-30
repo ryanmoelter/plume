@@ -87,13 +87,13 @@ struct DevicesArgumentTests {
         #expect(console.stdout == "emulator-5554\n")
         #expect(run.app.sent.map(\.socket) == ["/app/cli.sock"])
         #expect(run.app.sent.first?.request == .showDevice(.init(tabID: caller, kind: .emulator, serial: "emulator-5554", avdID: "Pixel_8")))
-        let lease = try #require(try run.store.load { _ in }.devices["emulator-5554"])
+        let lease = try #require(try run.store.load().devices["emulator-5554"])
         #expect(lease.deviceTabID == deviceTab)
         #expect(lease.deviceTabCreatedByClaim)
 
         run.app.reply = { _ in CLIResponse(ok: true, tabID: deviceTab, created: false) }
         #expect(run(["claim"], environment: ["PLUME_TAB_ID": caller.uuidString, "PLUME_SOCKET": "/app/cli.sock"]).code == 0)
-        #expect(try run.store.load { _ in }.devices["emulator-5554"]?.deviceTabCreatedByClaim == true)
+        #expect(try run.store.load().devices["emulator-5554"]?.deviceTabCreatedByClaim == true)
     }
 
     @Test func aDeviceTabThatFailsToOpenStillClaims() throws {
@@ -105,7 +105,7 @@ struct DevicesArgumentTests {
         #expect(code == 0)
         #expect(console.stdout == "R5\n")
         #expect(console.stderr.contains("couldn't open a device tab: Plume isn't running (gone)"))
-        #expect(try run.store.load { _ in }.devices["R5"]?.deviceTabID == nil)
+        #expect(try run.store.load().devices["R5"]?.deviceTabID == nil)
         #expect(run(["claim", "R5", "--owner=ci"]).code == 2)
         #expect(run.app.sent.count == 1)
     }

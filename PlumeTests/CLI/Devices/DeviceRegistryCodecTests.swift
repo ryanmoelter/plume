@@ -58,28 +58,39 @@ struct DeviceRegistryCodecTests {
         }
     }
 
-    @Test func storeTreatsAnUnreadableFileAsEmpty() throws {
+    /// A lease of a kind this build doesn't know makes the whole file unreadable.
+    @Test func anUnreadableFileIsNeverSavedOver() throws {
         let store = DeviceRegistryStore(directory: try makeScratchDirectory() + "/devices")
         try FileManager.default.createDirectory(atPath: store.directory, withIntermediateDirectories: true)
-        try "{not json".write(toFile: store.registryFile, atomically: true, encoding: .utf8)
-        var warnings: [String] = []
-        #expect(try store.load { warnings.append($0) } == DeviceRegistry())
-        #expect(warnings.count == 1)
-        #expect(warnings.first?.contains("unreadable") == true)
+        let contents = #"{"version": 1, "devices": {"R5": {"kind": "watch", "owner": {"label": "x"}, "claimedAt": 0, "expiresAt": 9999999999}}, "pending": {}}"#
+        try contents.write(toFile: store.registryFile, atomically: true, encoding: .utf8)
+        let env = FakeDeviceEnvironment()
+        env.connect("R6")
+        let pool = DevicePool(store: store, environment: env, warn: { _ in }, log: { _ in })
+
+        #expect(throws: CLIFailure.self) { try store.load() }
+        #expect((try? pool.claimSerial("R6", claimant: DeviceClaimant(owner: .label("me")), ttl: 60)) == nil)
+        #expect((try? pool.release("R5", owner: .label("me"), force: true)) == nil)
+        do {
+            _ = try store.load()
+        } catch let failure as CLIFailure {
+            #expect(failure.message?.contains("move it aside") == true)
+        }
+        #expect(try String(contentsOfFile: store.registryFile, encoding: .utf8) == contents)
     }
 
     @Test func storeRefusesATooNewFile() throws {
         let store = DeviceRegistryStore(directory: try makeScratchDirectory() + "/devices")
         try FileManager.default.createDirectory(atPath: store.directory, withIntermediateDirectories: true)
         try #"{"version": 9}"#.write(toFile: store.registryFile, atomically: true, encoding: .utf8)
-        #expect(throws: CLIFailure.self) { try store.load { _ in } }
+        #expect(throws: CLIFailure.self) { try store.load() }
     }
 
     @Test func storeSavesUnderTheLock() throws {
         let store = DeviceRegistryStore(directory: try makeScratchDirectory() + "/devices")
-        #expect(try store.load { _ in } == DeviceRegistry())
+        #expect(try store.load() == DeviceRegistry())
         try store.withLock { try store.save(Self.sample()) }
-        #expect(try store.load { _ in } == Self.sample())
+        #expect(try store.load() == Self.sample())
         let leftovers = try FileManager.default.contentsOfDirectory(atPath: store.directory).sorted()
         #expect(leftovers == ["lock", "registry.json"])
     }

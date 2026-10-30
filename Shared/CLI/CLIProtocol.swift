@@ -14,6 +14,7 @@ nonisolated enum CLIRequest: Equatable, Sendable {
     case showDevice(ShowDevice)
     case reserveDevice(ReserveDevice)
     case releaseDevice(ReleaseDevice)
+    case extendDevice(ExtendDevice)
 
     struct Notify: Codable, Equatable, Sendable {
         var tabID: UUID
@@ -73,6 +74,13 @@ nonisolated enum CLIRequest: Equatable, Sendable {
     struct ReleaseDevice: Codable, Equatable, Sendable {
         var key: String
     }
+
+    /// Extends the reservation behind the remote lease keyed `key`, which this app must own, so it
+    /// lasts at least `ttl` seconds from now. The app answers once Device Streaming has.
+    struct ExtendDevice: Codable, Equatable, Sendable {
+        var key: String
+        var ttl: TimeInterval
+    }
 }
 
 nonisolated extension CLIRequest: Codable {
@@ -88,6 +96,7 @@ nonisolated extension CLIRequest: Codable {
         case showDevice = "devices.show"
         case reserveDevice = "devices.reserve"
         case releaseDevice = "devices.release"
+        case extendDevice = "devices.extend"
     }
 
     init(from decoder: any Decoder) throws {
@@ -107,6 +116,7 @@ nonisolated extension CLIRequest: Codable {
         case .showDevice: self = .showDevice(try container.decode(ShowDevice.self, forKey: .params))
         case .reserveDevice: self = .reserveDevice(try container.decode(ReserveDevice.self, forKey: .params))
         case .releaseDevice: self = .releaseDevice(try container.decode(ReleaseDevice.self, forKey: .params))
+        case .extendDevice: self = .extendDevice(try container.decode(ExtendDevice.self, forKey: .params))
         }
     }
 
@@ -135,6 +145,9 @@ nonisolated extension CLIRequest: Codable {
             try container.encode(params, forKey: .params)
         case .releaseDevice(let params):
             try container.encode(Command.releaseDevice, forKey: .command)
+            try container.encode(params, forKey: .params)
+        case .extendDevice(let params):
+            try container.encode(Command.extendDevice, forKey: .command)
             try container.encode(params, forKey: .params)
         }
     }

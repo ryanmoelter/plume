@@ -316,6 +316,7 @@ final class DeviceSession {
         } catch {
             guard self.reservation === reservation, !Task.isCancelled else { return }
             state = .reservationFailed(error.localizedDescription)
+            onReservationEvent?(.failed(error.localizedDescription))
             return
         }
         if let id = reservation.reservationID { onReservationEvent?(.attached(reservationID: id, serial: serial)) }
@@ -339,16 +340,40 @@ final class DeviceSession {
         isExtending = true
         Task { [weak self] in
             do {
-                try await reservation.extend(minutes: minutes)
-                guard let self, self.reservation === reservation else { return }
-                updateRemoteDetails(from: reservation)
-                startReservationMonitor(reservation)
+                try await self?.extend(reservation, minutes: minutes)
             } catch {
                 EmulatorLog.error("extending the reservation failed: \(error.localizedDescription)")
                 self?.extendError = error.localizedDescription
             }
             self?.isExtending = false
         }
+    }
+
+    /// Extends the reservation so it lasts until at least `date`, for a lease renewed past it.
+    func extendReservation(until date: Date) async throws {
+        guard let reservation, hasLiveReservation else { throw CLIFailure("the device tab holds no live reservation") }
+        let short = date.timeIntervalSince(reservation.expiresAt ?? now())
+        guard short > 0 else { return }
+        try await extend(reservation, minutes: Int((short / 60).rounded(.up)))
+    }
+
+    private func extend(_ reservation: RemoteReservation, minutes: Int) async throws {
+        try await reservation.extend(minutes: minutes)
+        guard self.reservation === reservation else { return }
+        updateRemoteDetails(from: reservation)
+        startReservationMonitor(reservation)
+    }
+
+    /// Ends a reservation whose claimant can't use it, keeping the failure on screen.
+    func abandonReservation(reason: String) {
+        guard let reservation, !reservation.isReleased else { return }
+        EmulatorLog.info("\(logPrefix) abandoning the reservation: \(reason)")
+        workTask?.cancel()
+        workTask = nil
+        stopReservationMonitor()
+        disconnect()
+        releaseReservation()
+        state = .reservationFailed(reason)
     }
 
     /// Ends the reservation now and returns to the picker.

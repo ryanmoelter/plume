@@ -292,17 +292,24 @@ nonisolated final class DeviceRegistryStore: Sendable {
 
     var registryFile: String { "\(directory)/\(Self.fileName)" }
 
-    /// A missing file is an empty registry. An unreadable one is too, with a warning, since the
-    /// next save replaces it.
-    func load(warn: (String) -> Void) throws -> DeviceRegistry {
+    /// A missing file is an empty registry. An unreadable one throws rather than read as empty,
+    /// since the next save would replace every lease in it.
+    func load() throws -> DeviceRegistry {
         guard let data = FileManager.default.contents(atPath: registryFile) else { return DeviceRegistry() }
         do {
             return try DeviceRegistryCodec.decode(data)
         } catch DeviceRegistryCodec.DecodeError.tooNew(let version) {
             throw CLIFailure("\(registryFile) has version \(version) — this plume is too old")
         } catch DeviceRegistryCodec.DecodeError.unreadable(let reason) {
-            warn("ignoring unreadable registry \(registryFile): \(reason)")
-            return DeviceRegistry()
+            throw CLIFailure("\(registryFile) is unreadable (\(reason)); move it aside to start a new registry")
+        }
+    }
+
+    /// Best effort: an entry left behind expires on its own.
+    func dropPending(_ key: String) {
+        try? withLock {
+            var registry = try load()
+            if registry.pending.removeValue(forKey: key) != nil { try save(registry) }
         }
     }
 

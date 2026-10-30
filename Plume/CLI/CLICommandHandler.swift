@@ -36,6 +36,7 @@ final class CLICommandHandler {
     var deviceSessions: DeviceSessionManager = .shared
     var deviceLeases: DeviceLeaseCoordinator = .shared
     var remoteDevices = RemoteDeviceDefaults()
+    var clock: () -> Date = Date.init
 
     /// What `devices.reserve` falls back on, and how it starts a reservation, so tests reserve
     /// nothing.
@@ -112,6 +113,8 @@ final class CLICommandHandler {
             return await reserveDevice(params)
         case .releaseDevice(let params):
             return await releaseDevice(params)
+        case .extendDevice(let params):
+            return await extendDevice(params)
         }
     }
 
@@ -165,8 +168,13 @@ final class CLICommandHandler {
         return (tab, true)
     }
 
+    /// How long `reserveDevice` may take before it gives up rather than reserve: past
+    /// `SocketDeviceAppClient.replyTimeout`, the claimant has stopped waiting for the answer.
+    static let reserveDeadline: TimeInterval = 25
+
     /// Answers once the claim is recorded; `plume devices` waits on the registry for the device.
     private func reserveDevice(_ params: CLIRequest.ReserveDevice) async -> CLIResponse {
+        let started = clock()
         guard currentTask(ofTab: params.tabID) != nil else {
             return .failure("no Plume tab \(params.tabID.uuidString)")
         }
@@ -190,13 +198,20 @@ final class CLICommandHandler {
             return .failure("no device model given and none reserved before; pass --model=<codename/api>\(options)")
         }
         // The awaits above can outlast the caller or move it to another task.
+        guard clock().timeIntervalSince(started) < Self.reserveDeadline else {
+            return .failure("loading the Device Streaming catalog took too long; try again")
+        }
         guard let (task, context) = currentTask(ofTab: params.tabID) else {
             return .failure("no Plume tab \(params.tabID.uuidString)")
         }
         let owner = DeviceLeaseOwner.tab(id: params.tabID, app: socket)
         // A second `plume devices claim` from the same tab, racing the first, waits on its claim.
         if let existing = deviceLeases.claim(ownedBy: owner) {
-            await deviceLeases.settle()
+            do {
+                try await deviceLeases.rejoin(existing)
+            } catch {
+                return .failure("couldn't record the claim: \(Devices.describe(error))")
+            }
             var response = CLIResponse.success
             response.tabID = existing.deviceTabID
             response.created = false
@@ -220,7 +235,7 @@ final class CLICommandHandler {
             try await deviceLeases.beginClaim(claim)
         } catch {
             if created { closeTab(tab.id) }
-            return .failure("couldn't record the claim: \(Self.describe(error))")
+            return .failure("couldn't record the claim: \(Devices.describe(error))")
         }
         let displayName = RemoteDeviceCatalog.shared.models.first { $0.id == modelID }?.name ?? modelID
         remoteDevices.reserve(tab, modelID, displayName, projectID)
@@ -238,12 +253,17 @@ final class CLICommandHandler {
             }
             return .success
         } catch {
-            return .failure(Self.describe(error))
+            return .failure(Devices.describe(error))
         }
     }
 
-    private static func describe(_ error: any Error) -> String {
-        (error as? CLIFailure)?.message ?? error.localizedDescription
+    private func extendDevice(_ params: CLIRequest.ExtendDevice) async -> CLIResponse {
+        do {
+            try await deviceLeases.extendLease(params.key, ttl: params.ttl)
+            return .success
+        } catch {
+            return .failure(Devices.describe(error))
+        }
     }
 
     private static func deviceTarget(_ params: CLIRequest.ShowDevice) -> DeviceTarget? {

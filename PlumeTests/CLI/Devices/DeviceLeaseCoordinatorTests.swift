@@ -20,6 +20,8 @@ struct DeviceLeaseCoordinatorTests {
         var ended: [String] = []
         var closed: [UUID] = []
         var returnedToPicker: [UUID] = []
+        var abandoned: [(tab: UUID, reason: String)] = []
+        var extended: [(tab: UUID, until: Date)] = []
     }
 
     init() throws {
@@ -32,7 +34,9 @@ struct DeviceLeaseCoordinatorTests {
             effects: .init(
                 endReservation: { recorder.ended.append($0.remote?.reservationID ?? "?") },
                 closeTab: { recorder.closed.append($0) },
-                endTabReservation: { recorder.returnedToPicker.append($0) }
+                endTabReservation: { recorder.returnedToPicker.append($0) },
+                abandonTabReservation: { recorder.abandoned.append(($0, $1)) },
+                extendTabReservation: { recorder.extended.append(($0, $1)) }
             ),
             appSocket: me,
             now: { now }
@@ -65,7 +69,7 @@ struct DeviceLeaseCoordinatorTests {
     }
 
     func save(_ registry: DeviceRegistry) throws { try store.save(registry) }
-    func registry() throws -> DeviceRegistry { try store.load { _ in } }
+    func registry() throws -> DeviceRegistry { try store.load() }
 
     @Test func forgettingAnOwnerDropsItsLeasesAndEndsItsReservation() async throws {
         let mine = DeviceLeaseOwner.tab(id: ownerTab, app: me)
@@ -242,6 +246,44 @@ struct DeviceLeaseCoordinatorTests {
 
         #expect(try registry().pending[DeviceRegistry.pendingKey(claim: claim.id)]?.error == "quota exceeded")
         #expect(recorder.closed.isEmpty)
+        #expect(recorder.abandoned.map(\.tab) == [deviceTab])
+        #expect(recorder.abandoned.first?.reason == "quota exceeded")
+    }
+
+    @Test func aReconnectThatFailsLeavesTheReservationRunning() async throws {
+        try await coordinator.beginClaim(claim())
+        coordinator.reservationEvent(.attached(reservationID: "r1", serial: "localhost:40001"), deviceTab: deviceTab)
+        coordinator.reservationEvent(.failed("adb connect failed"), deviceTab: deviceTab)
+        await coordinator.settle()
+
+        #expect(recorder.abandoned.isEmpty)
+        #expect(try registry().devices["remote:r1"] != nil)
+    }
+
+    @Test func aClaimsDeviceConnectingExtendsItsReservationToTheTTL() async throws {
+        try await coordinator.beginClaim(claim())
+        coordinator.reservationEvent(.attached(reservationID: "r1", serial: "localhost:40001"), deviceTab: deviceTab)
+        while recorder.extended.isEmpty { await Task.yield() }
+        coordinator.reservationEvent(.attached(reservationID: "r1", serial: "localhost:40002"), deviceTab: deviceTab)
+        await coordinator.settle()
+
+        #expect(recorder.extended.map(\.tab) == [deviceTab])
+        #expect(recorder.extended.first?.until == now.addingTimeInterval(600))
+    }
+
+    @Test func extendingALeaseGoesToItsDeviceTab() async throws {
+        try await coordinator.beginClaim(claim())
+        coordinator.reservationEvent(.attached(reservationID: "r1", serial: "localhost:40001"), deviceTab: deviceTab)
+        await coordinator.settle()
+        while recorder.extended.isEmpty { await Task.yield() }
+
+        try await coordinator.extendLease("remote:r1", ttl: 7200)
+        await #expect(throws: CLIFailure("this Plume holds no remote lease on remote:r2")) {
+            try await coordinator.extendLease("remote:r2", ttl: 7200)
+        }
+
+        #expect(recorder.extended.last?.tab == deviceTab)
+        #expect(recorder.extended.last?.until == now.addingTimeInterval(7200))
     }
 
     @Test func anEndedReservationTakesItsLeaseOrMarksItsClaim() async throws {

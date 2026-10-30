@@ -295,7 +295,7 @@ struct CLICommandHandlerTests {
         let tab = try #require(task.tabs.first { $0.id == response.tabID })
         #expect(tab.kind == .device)
         #expect(task.selectedTabID == selected)
-        let pending = try #require(try store.load { _ in }.pending[DeviceRegistry.pendingKey(claim: claimID)])
+        let pending = try #require(try store.load().pending[DeviceRegistry.pendingKey(claim: claimID)])
         #expect(pending.owner == .tab(id: caller.id, app: "/me.sock"))
         #expect(pending.deviceTabID == tab.id)
         #expect(pending.model == "akita/34")
@@ -351,8 +351,48 @@ struct CLICommandHandlerTests {
         #expect(again.tabID == first.tabID)
         #expect(again.created == false)
         #expect(reservations.started.count == 1)
-        #expect(try store.load { _ in }.pending.count == 1)
+        #expect(try store.load().pending.count == 1)
         #expect(task.tabs.filter { $0.kind == .device }.count == 1)
+    }
+
+    @Test func aReservationThatOutlastsTheCallersWaitIsAbandoned() async throws {
+        let task = TaskStore.createTask(in: context, siblings: [])
+        let caller = try #require(task.tabs.first)
+        let store = try makeDeviceStore()
+        let reservations = Reservations()
+        let handler = makeReservingHandler(task: task, store: store, project: nil, reservations: reservations)
+        var clock = Date(timeIntervalSince1970: 1_000)
+        handler.clock = { clock }
+        handler.remoteDevices.project = {
+            clock += CLICommandHandler.reserveDeadline
+            return "p"
+        }
+
+        let response = await handler.handle(.reserveDevice(.init(tabID: caller.id)))
+
+        #expect(response.error?.contains("took too long") == true)
+        #expect(reservations.started.isEmpty)
+        #expect(task.tabs.count == 1)
+        #expect(try store.load().pending.isEmpty)
+    }
+
+    @Test func joiningAClaimWritesItsPendingEntryAgain() async throws {
+        let task = TaskStore.createTask(in: context, siblings: [])
+        let caller = try #require(task.tabs.first)
+        let store = try makeDeviceStore()
+        let handler = makeReservingHandler(task: task, store: store, reservations: Reservations())
+        let first = await handler.handle(.reserveDevice(.init(tabID: caller.id)))
+        let claimID = try #require(first.claimID)
+        try store.withLock {
+            var registry = try store.load()
+            registry.pending = [:]
+            try store.save(registry)
+        }
+
+        let again = await handler.handle(.reserveDevice(.init(tabID: caller.id)))
+
+        #expect(again.claimID == claimID)
+        #expect(try store.load().pending[DeviceRegistry.pendingKey(claim: claimID)]?.owner == .tab(id: caller.id, app: "/me.sock"))
     }
 
     @Test func reservingRefusesWithoutACallerAProjectOrAModel() async throws {
@@ -377,7 +417,7 @@ struct CLICommandHandlerTests {
         #expect(notTracking.error == "this Plume isn't tracking device leases")
         #expect(reservations.started.isEmpty)
         #expect(task.tabs.count == 1)
-        #expect(try store.load { _ in }.pending.isEmpty)
+        #expect(try store.load().pending.isEmpty)
     }
 
     @Test func releasingNeedsALeaseThisAppHolds() async throws {

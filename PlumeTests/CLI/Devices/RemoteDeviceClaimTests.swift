@@ -22,7 +22,7 @@ struct RemoteDeviceClaimTests {
 
     func update(_ store: DeviceRegistryStore, _ change: (inout DeviceRegistry) -> Void) {
         try? store.withLock {
-            var registry = try store.load { _ in }
+            var registry = try store.load()
             change(&registry)
             try store.save(registry)
         }
@@ -110,7 +110,7 @@ struct RemoteDeviceClaimTests {
 
         #expect(code == 1)
         #expect(console.stderr.contains("couldn't reserve a device: quota exceeded"))
-        #expect(try store.load { _ in }.pending.isEmpty)
+        #expect(try store.load().pending.isEmpty)
     }
 
     @Test func aClaimThatVanishesExitsWithoutALease() throws {
@@ -135,7 +135,7 @@ struct RemoteDeviceClaimTests {
         #expect(console.stderr.contains("still reserving after 11 minutes"))
         #expect(console.stderr.contains("==> still reserving (10m)"))
         #expect(run.env.slept == RemoteClaimWaiter.timeout)
-        #expect(try run.store.load { _ in }.pending[DeviceRegistry.pendingKey(claim: claimID)] != nil)
+        #expect(try run.store.load().pending[DeviceRegistry.pendingKey(claim: claimID)] != nil)
     }
 
     @Test func claimingAgainWaitsOnTheSameReservation() throws {
@@ -168,8 +168,39 @@ struct RemoteDeviceClaimTests {
         #expect(code == 0)
         #expect(console.stdout == "localhost:40001\n")
         #expect(console.stderr.contains("renewed lease on localhost:40001"))
-        #expect(try store.load { _ in }.devices["remote:r1"]?.expiresAt == run.env.clock.addingTimeInterval(7200))
-        #expect(run.app.sent.map(\.request) == [.ping])
+        #expect(try store.load().devices["remote:r1"]?.expiresAt == run.env.clock.addingTimeInterval(7200))
+        #expect(run.app.sent.map(\.request) == [.ping, .extendDevice(.init(key: "remote:r1", ttl: 7200))])
+    }
+
+    @Test func renewingARemoteDeviceExtendsItsReservationFirst() throws {
+        let run = try Run()
+        let (store, owner) = (run.store, owner)
+        update(store) { $0.devices["remote:r1"] = remoteLease(owner: owner, at: run.env.clock) }
+
+        let renewed = run(["renew", "localhost:40001", "--ttl=7200"], environment: inTab)
+
+        #expect(renewed.code == 0)
+        #expect(run.app.sent.map(\.request) == [.extendDevice(.init(key: "remote:r1", ttl: 7200))])
+        #expect(run.app.sent.map(\.socket) == [socket])
+        #expect(try store.load().devices["remote:r1"]?.expiresAt == run.env.clock.addingTimeInterval(7200))
+    }
+
+    @Test func aReservationThatCantBeExtendedLeavesTheLeaseAlone() throws {
+        let run = try Run()
+        let (store, owner) = (run.store, owner)
+        let lease = remoteLease(owner: owner, at: run.env.clock)
+        update(store) { $0.devices["remote:r1"] = lease }
+
+        run.app.reply = { _ in throw CLIFailure("connection refused") }
+        let unreachable = run(["renew", "remote:r1", "--ttl=7200"], environment: inTab)
+        run.app.reply = { _ in .failure("quota exceeded") }
+        let refused = run(["renew", "remote:r1", "--ttl=7200"], environment: inTab)
+
+        #expect(unreachable.code == 1)
+        #expect(unreachable.console.stderr.contains("couldn't reach the Plume holding remote:r1 to extend its reservation: connection refused"))
+        #expect(refused.code == 1)
+        #expect(refused.console.stderr.contains("couldn't extend the reservation behind remote:r1: quota exceeded"))
+        #expect(try store.load().devices["remote:r1"] == lease)
     }
 
     @Test func claimingAHeldRemoteDeviceBySerialRecordsItsTabOnTheLease() throws {
@@ -189,7 +220,7 @@ struct RemoteDeviceClaimTests {
 
         #expect(code == 0)
         #expect(console.stdout == "localhost:40001\n")
-        let devices = try store.load { _ in }.devices
+        let devices = try store.load().devices
         #expect(devices["remote:r1"]?.deviceTabID == deviceTab)
         #expect(devices["localhost:40001"] == nil)
     }
@@ -210,7 +241,7 @@ struct RemoteDeviceClaimTests {
         #expect(code == 0)
         #expect(console.stdout == "released localhost:40001\n")
         #expect(run.app.sent.map(\.request) == [.releaseDevice(.init(key: "remote:r1"))])
-        #expect(try store.load { _ in }.devices.isEmpty)
+        #expect(try store.load().devices.isEmpty)
     }
 
     @Test func anAppThatCantBeReachedLeavesTheLeaseToBeDroppedHere() throws {
@@ -224,7 +255,7 @@ struct RemoteDeviceClaimTests {
         #expect(code == 0)
         #expect(console.stdout == "released remote:r1\n")
         #expect(console.stderr.contains("couldn't reach the Plume holding remote:r1"))
-        #expect(try store.load { _ in }.devices.isEmpty)
+        #expect(try store.load().devices.isEmpty)
     }
 
     @Test func anotherOwnersRemoteDeviceNeedsForce() throws {

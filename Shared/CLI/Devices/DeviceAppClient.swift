@@ -10,8 +10,11 @@ nonisolated protocol DeviceAppClient: AnyObject {
 nonisolated final class SocketDeviceAppClient: DeviceAppClient {
     /// The app answers on its main queue, late when busy.
     static let replyTimeout: TimeInterval = 30
+    /// The app answers an extension only once Device Streaming has, which can take 30 seconds.
+    static let extendReplyTimeout: TimeInterval = 60
 
     func send(_ request: CLIRequest, to socket: String) throws -> CLIResponse {
-        try CLISocket.send(request, to: socket, replyTimeout: Self.replyTimeout)
+        let timeout = if case .extendDevice = request { Self.extendReplyTimeout } else { Self.replyTimeout }
+        return try CLISocket.send(request, to: socket, replyTimeout: timeout)
     }
 }

@@ -20,6 +20,7 @@ struct CLIProtocolTests {
         .reserveDevice(.init(tabID: UUID(), model: "akita/34", projectID: "p", ttl: 600, worktree: "/w", branch: "b")),
         .reserveDevice(.init(tabID: UUID())),
         .releaseDevice(.init(key: "remote:abc")),
+        .extendDevice(.init(key: "remote:abc", ttl: 7200)),
     ])
     func requestsRoundTrip(_ request: CLIRequest) throws {
         let line = try CLILineCodec.encode(request)
@@ -41,10 +42,11 @@ struct CLIProtocolTests {
         #expect((json?["params"] as? [String: Any])?["kind"] as? String == "physical")
     }
 
-    @Test func reserveAndReleaseAreDevicesCommands() throws {
+    @Test func reserveReleaseAndExtendAreDevicesCommands() throws {
         for (request, name) in [
             (CLIRequest.reserveDevice(.init(tabID: UUID())), "devices.reserve"),
             (.releaseDevice(.init(key: "remote:abc")), "devices.release"),
+            (.extendDevice(.init(key: "remote:abc", ttl: 60)), "devices.extend"),
         ] {
             let json = try JSONSerialization.jsonObject(with: CLILineCodec.encode(request)) as? [String: Any]
             #expect(json?["command"] as? String == name)

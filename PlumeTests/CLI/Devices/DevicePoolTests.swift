@@ -26,7 +26,7 @@ struct DevicePoolTests {
         return DevicePool(store: store, environment: env, warn: { box.lines.append($0) }, log: { _ in })
     }
 
-    func registry() throws -> DeviceRegistry { try store.load { _ in } }
+    func registry() throws -> DeviceRegistry { try store.load() }
 
     func conflict(_ body: () throws -> Void) -> String? {
         do {
@@ -125,12 +125,51 @@ struct DevicePoolTests {
         #expect(result.lease.expiresAt == env.clock.addingTimeInterval(hour))
     }
 
+    @Test func acquireRenewsYourOwnDeviceBeforeTakingAnother() throws {
+        env.connect("emulator-5554", avd: "Pixel_8")
+        env.connect("emulator-5556", avd: "Tablet")
+        _ = try pool.claimSerial("emulator-5556", claimant: me, ttl: 60)
+
+        let result = try pool.acquire(claimant: me, ttl: hour, kind: .emulator, form: nil)
+
+        #expect(result.serial == "emulator-5556")
+        #expect(result.reused)
+        #expect(try registry().devices.keys.sorted() == ["emulator-5556"])
+    }
+
+    @Test func aFailingAdbStillReleasesAndReapsByExpiry() throws {
+        env.connect("R5")
+        env.connect("R6")
+        _ = try pool.claimSerial("R5", claimant: me, ttl: hour)
+        _ = try pool.claimSerial("R6", claimant: other, ttl: 60)
+        env.adbFailure = "`adb devices` failed or timed out"
+        env.clock += 120
+
+        #expect(try pool.release("R5", owner: me.owner, force: false)?.serial == "R5")
+        #expect(try registry().devices.isEmpty)
+        #expect(warnings == ["reaped expired lease on R6 (/repo/other)"])
+        #expect(throws: CLIFailure("`adb devices` failed or timed out")) {
+            _ = try pool.claimSerial("R5", claimant: me, ttl: hour)
+        }
+    }
+
+    @Test func acquireReadsNoLiveFormsWithoutAFormFilter() throws {
+        env.connect("R5")
+        var reads = 0
+        env.duringForm = { reads += 1 }
+
+        _ = try pool.acquire(claimant: me, ttl: hour, kind: .physical, form: nil)
+        _ = try pool.claimSerial("R5", claimant: me, ttl: hour)
+
+        #expect(reads == 0)
+    }
+
     @Test func acquireBootsAnAVDHoldingAPendingEntryMeanwhile() throws {
         env.avdList = ["Pixel_8"]
         env.avdForms["Pixel_8"] = .phone
         var pendingDuringBoot: [String: PendingDevice] = [:]
         let store = store
-        env.duringBoot = { pendingDuringBoot = (try? store.load { _ in })?.pending ?? [:] }
+        env.duringBoot = { pendingDuringBoot = (try? store.load())?.pending ?? [:] }
         let result = try pool.acquire(claimant: me, ttl: hour, kind: .emulator, form: nil)
         #expect(env.booted == ["Pixel_8"])
         #expect(result.serial == "emulator-5554")
@@ -155,7 +194,7 @@ struct DevicePoolTests {
         env.connect("emulator-5554", avd: "Running")
         _ = try pool.claimSerial("emulator-5554", claimant: other, ttl: hour)
         try store.withLock {
-            var registry = try store.load { _ in }
+            var registry = try store.load()
             registry.pending["avd:Booting"] = PendingDevice(
                 owner: other.owner, kind: .emulator, avd: "Booting", startedAt: env.clock, expiresAt: env.clock.addingTimeInterval(900)
             )
@@ -171,7 +210,7 @@ struct DevicePoolTests {
     @Test func acquireLeavesAnEmulatorBootingForSomeoneElse() throws {
         env.connect("emulator-5554", avd: "Booting")
         try store.withLock {
-            var registry = try store.load { _ in }
+            var registry = try store.load()
             registry.pending["avd:Booting"] = PendingDevice(
                 owner: other.owner, kind: .emulator, avd: "Booting", startedAt: env.clock, expiresAt: env.clock.addingTimeInterval(900)
             )
@@ -183,7 +222,7 @@ struct DevicePoolTests {
 
     func pendingBoot(_ avd: String, for claimant: DeviceClaimant) throws {
         try store.withLock {
-            var registry = try store.load { _ in }
+            var registry = try store.load()
             registry.pending[DeviceRegistry.pendingKey(avd: avd)] = PendingDevice(
                 owner: claimant.owner, kind: .emulator, avd: avd, startedAt: env.clock, expiresAt: env.clock.addingTimeInterval(900)
             )
@@ -212,7 +251,7 @@ struct DevicePoolTests {
         let (store, other, clock) = (store, other, env.clock)
         env.duringBoot = {
             try? store.withLock {
-                var registry = try store.load { _ in }
+                var registry = try store.load()
                 registry.devices["emulator-5554"] = DeviceLease(
                     kind: .emulator, serial: "emulator-5554", owner: other.owner, claimedAt: clock, expiresAt: clock.addingTimeInterval(3600)
                 )
@@ -253,7 +292,7 @@ struct DevicePoolTests {
 
         #expect(try pool.acquire(claimant: me, ttl: hour, kind: .physical, form: .tablet).lease.form == .tablet)
         _ = try pool.release("R5", owner: me.owner, force: false)
-        #expect(try pool.claimSerial("R5", claimant: me, ttl: hour).lease.form == .tablet)
+        #expect(try pool.listing().first?.form == .tablet)
         let readings = lockedDuringForm
         #expect(readings.count >= 2)
         #expect(readings.allSatisfy { !$0 }, "\(readings)")
@@ -351,7 +390,7 @@ struct DevicePoolTests {
         env.connect("R5", state: .unauthorized)
         _ = try pool.claimSerial("emulator-5554", claimant: me, ttl: hour)
         try store.withLock {
-            var registry = try store.load { _ in }
+            var registry = try store.load()
             registry.pending["avd:Tablet"] = PendingDevice(
                 owner: other.owner, kind: .emulator, avd: "Tablet", startedAt: env.clock, expiresAt: env.clock.addingTimeInterval(900)
             )
