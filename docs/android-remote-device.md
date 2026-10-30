@@ -44,7 +44,7 @@ Every command takes `--project=<id>`, a Google Cloud project ready for streaming
 
 A reservation is billed while it lasts, 15 minutes by default, and the service ends it early after a stretch of inactivity. **Nothing Plume reserves outlives the tab or the app.**
 
-- **Reserve.** The picker's "Remote Devices" section lists the models; Reserve runs `create`, which waits until the device is active. The session shows `.reserving`, then persists `.remote(reservationID:)` plus `remoteProjectID`, `remoteDeviceModel` and `remoteExpiresAt` on the tab, runs `connect`, and streams.
+- **Reserve.** The picker's "Remote devices" section lists the models; Reserve runs `create`, which waits until the device is active. The session shows `.reserving`, then persists `.remote(reservationID:)` plus `remoteProjectID`, `remoteDeviceModel` and `remoteExpiresAt` on the tab, runs `connect`, and streams.
 - **Video.** A remote device streams at `ScrcpyVideoLimits.remoteDevice`: 1280 pixels on the long side, 4 Mbit/s, 30 fps. USB devices keep scrcpy's defaults.
 - **Hidden tabs** keep the reservation and the tunnel. Only scrcpy stops, after the same 5-second grace a USB device gets.
 - **Turn Off Streaming** (device menu) stops scrcpy at once and shows "Streaming turned off" until the user re-enables it. The reservation, its monitor and the time left carry on, so it still bills; see `docs/android-physical-device.md`.

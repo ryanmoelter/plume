@@ -74,7 +74,7 @@ struct DevicePickerView: View {
     }
 
     private func physicalSection(hasADB: Bool) -> some View {
-        section("Devices") {
+        section("Physical devices") {
             if !hasADB {
                 placeholder("adb wasn't found. Install Android SDK Platform-Tools with Android Studio's SDK Manager.")
             } else if usbDevices.isEmpty {
@@ -103,7 +103,7 @@ struct DevicePickerView: View {
     }
 
     private var remoteSection: some View {
-        section("Remote Devices", accessory: { remoteProjectLine }) {
+        section("Remote devices", accessory: { remoteProjectLine }) {
             switch remoteCatalog.availability {
             case .loading:
                 ProgressView().controlSize(.small).padding(10)
@@ -228,7 +228,7 @@ struct DevicePickerView: View {
 
     @ViewBuilder
     private func emulatorSections(hasEmulator: Bool) -> some View {
-        section("Running Emulators") {
+        section("Running emulators") {
             if discovery.running.isEmpty {
                 placeholder("No emulators are running.")
             }
@@ -245,7 +245,7 @@ struct DevicePickerView: View {
                 .disabled(emulator.grpcToken == nil)
             }
         }
-        section("Available Emulators") {
+        section("Available emulators") {
             let available = avds.filter { avd in !discovery.running.contains { $0.avdID == avd.id } }
             if !hasEmulator {
                 placeholder("The Android emulator isn't installed. Install it with Android Studio's SDK Manager.")
