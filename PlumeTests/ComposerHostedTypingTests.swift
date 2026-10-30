@@ -124,7 +124,7 @@ struct ComposerHostedTypingTests {
         (keys: "1. a\r\tb", expected: "1. a\n   1. b"),
         (keys: "- \u{7F}", expected: ""),
         (keys: "> a\rb", expected: "> a\n> b"),
-        (keys: "```\r- a\r", expected: "```\n- a\n"),
+        (keys: "```\r- a\r", expected: "```\n- a\n\n```"),
         (keys: "- a\rx b", expected: "- [ ] a\n- [ ] b"),
         (keys: "1. a\r- b", expected: "- a\n- b"),
         (keys: "[ ] a", expected: "- [ ] a"),

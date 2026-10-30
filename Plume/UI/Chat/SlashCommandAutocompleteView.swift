@@ -33,8 +33,11 @@ struct SlashCommandAutocompleteView: View, ThemedView {
                 .font(typography.caption.monoMedium)
             if command.isPlumeProvided {
                 // Plume runs this one itself; the CLI has never heard of it.
-                Image(systemName: "apple.terminal.fill")
-                    .imageScale(.small)
+                Image("PlumeFeather")
+                    .renderingMode(.template)
+                    .resizable()
+                    .scaledToFit()
+                    .frame(width: 11, height: 11)
                     .emphasis(.secondary)
                     .help("Handled by \(AppIdentity.displayName)")
             }
