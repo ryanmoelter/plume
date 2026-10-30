@@ -93,7 +93,7 @@ private struct HomeGreetingHeader: View, ThemedView {
                 Image(systemName: greeting.symbolName)
                     .symbolRenderingMode(.multicolor)
             }
-            .font(typography.headline.font)
+            .font(proseTypography.headline.font)
             .padding(.horizontal, HomeRow.horizontalPadding)
             .accessibilityAddTraits(.isHeader)
             .plumeID(AccessibilityID.homeGreeting, value: greeting.title)
