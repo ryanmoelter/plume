@@ -12,7 +12,8 @@ struct HomeView: View {
     var body: some View {
         HomeContent(feed: HomeFeed(tasks: tasks, source: .live), open: open)
             .plumeTheme(bodySize: CGFloat(settings.chatFontSize))
-            .themeTint(colorScheme: colorScheme)
+            .foregroundStyle(ThemeChrome.foreground(for: colorScheme) ?? .primary)
+            .background(ThemeChrome.background(for: colorScheme) ?? Color.clear)
             .navigationTitle("Home")
     }
 }
@@ -43,9 +44,7 @@ private struct HomeContent: View, ThemedView {
     }
 
     private var needsYouSection: some View {
-        VStack(alignment: .leading, spacing: 8) {
-            sectionTitle("Needs you")
-                .emphasis(.primary)
+        VStack(alignment: .leading, spacing: 2) {
             if feed.needsYou.isEmpty {
                 Text("Nothing needs you right now.")
                     .font(typography.body.font)
@@ -53,10 +52,8 @@ private struct HomeContent: View, ThemedView {
                     .padding(.horizontal, HomeRow.horizontalPadding)
                     .plumeID(AccessibilityID.homeEmptyState)
             } else {
-                VStack(alignment: .leading, spacing: 2) {
-                    ForEach(feed.needsYou) { item in
-                        HomeRow(item: item, isProminent: true) { open(item.taskID, item.tabID) }
-                    }
+                ForEach(feed.needsYou) { item in
+                    HomeRow(item: item, isProminent: true) { open(item.taskID, item.tabID) }
                 }
             }
         }
@@ -117,6 +114,7 @@ private struct HomeRow: View, ThemedView {
     var body: some View {
         Button(action: action) {
             HStack(alignment: .firstTextBaseline, spacing: 8) {
+                leadingMarker
                 VStack(alignment: .leading, spacing: 2) {
                     titleLine
                     if isProminent, let reason = item.reason {
@@ -128,8 +126,11 @@ private struct HomeRow: View, ThemedView {
                     }
                 }
                 Spacer(minLength: 8)
-                StatusBadge(status: item.status, workStartedAt: item.workStartedAt, isUnread: item.isUnread)
-                    .font(isProminent ? typography.body.font : typography.caption.font)
+                if item.status.isActive, let workStartedAt = item.workStartedAt {
+                    ElapsedLabel(since: workStartedAt)
+                        .font(typography.caption.font)
+                        .emphasis(.secondary)
+                }
             }
             .padding(.horizontal, Self.horizontalPadding)
             .padding(.vertical, isProminent ? 8 : 4)
@@ -143,6 +144,20 @@ private struct HomeRow: View, ThemedView {
         .buttonStyle(.plain)
         .plumeHover { isHovered = $0 }
         .plumeID(AccessibilityID.homeRow, label: label, value: item.reason, invoke: action)
+    }
+
+    private var leadingMarker: some View {
+        Group {
+            if StatusBadge.isBlank(status: item.status, isUnread: item.isUnread) {
+                Circle()
+                    .fill(Color.chatSurface(.subtle, colorScheme: colorScheme))
+                    .frame(width: 8, height: 8)
+            } else {
+                StatusBadge(status: item.status, isUnread: item.isUnread, showsElapsed: false)
+                    .font(isProminent ? typography.body.font : typography.caption.font)
+            }
+        }
+        .frame(width: 18)
     }
 
     private var label: String {

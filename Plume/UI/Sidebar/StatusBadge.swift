@@ -8,11 +8,13 @@ struct StatusBadge: View {
     /// Replaces the status glyph with a dot. The elapsed time stays, since a
     /// task can be reading unread in one tab while still working in another.
     var isUnread = false
+    /// Off when the caller places the elapsed time itself.
+    var showsElapsed = true
     @Environment(\.colorScheme) private var colorScheme
 
     var body: some View {
         Group {
-            if status.isActive, let workStartedAt {
+            if showsElapsed, status.isActive, let workStartedAt {
                 HStack(spacing: 4) {
                     ElapsedLabel(since: workStartedAt)
                         .font(.caption)
@@ -25,6 +27,14 @@ struct StatusBadge: View {
         }
         .animation(.default, value: status)
         .animation(.default, value: isUnread)
+    }
+
+    /// Whether the badge draws nothing, so a caller can put a placeholder there.
+    static func isBlank(status: TaskStatus, isUnread: Bool) -> Bool {
+        switch status {
+        case .notStarted, .awaitingReply: return !isUnread
+        default: return false
+        }
     }
 
     @ViewBuilder
