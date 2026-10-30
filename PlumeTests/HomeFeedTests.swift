@@ -226,6 +226,20 @@ struct HomeFeedTests {
         #expect(HomeFeed.previewText("Above\n---\n***\n___\n| a | b |\n|---|:-:|\n| 1 | 2 |\nBelow") == "Above | a | b | | 1 | 2 | Below")
     }
 
+    @Test func spacedRulesAreDroppedNotReadAsBullets() {
+        #expect(HomeFeed.previewText("Above\n* * *\n- - -\n_ _ _\nBelow") == "Above Below")
+    }
+
+    @Test func aLineOfOnlyHashesIsDropped() {
+        #expect(HomeFeed.previewText("Above\n##\n#\nBelow") == "Above Below")
+    }
+
+    @Test func aFenceClosesOnlyOnTheSameCharacterAtLeastAsLong() {
+        #expect(HomeFeed.previewText("A\n````\n```\nstill code\n~~~~\n````\nB") == "A B")
+        #expect(HomeFeed.previewText("A\n~~~\n```\nstill code\n~~~\nB") == "A B")
+        #expect(HomeFeed.previewText("A\n```\n```js\nstill code\n```\nB") == "A B")
+    }
+
     @Test func onlyCodeHasNoPreview() {
         #expect(HomeFeed.previewText("```\ncode\n```") == nil)
     }

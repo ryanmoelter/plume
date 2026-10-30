@@ -364,6 +364,7 @@ struct MainWindow: View {
                 pendingWorktreeRemoval = nil
             },
             finish: {
+                if selection == .task(task.id) { selection = .home }
                 switch verb {
                 case .delete: TaskStore.delete(task, in: context)
                 case .archive: TaskStore.archive(task)

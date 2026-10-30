@@ -36,6 +36,8 @@ final class TaskTab {
     /// The CLI's own identifier for this conversation, passed back to it to
     /// resume: a Claude Code `session_id`, or a Codex `threadId`.
     var agentSessionID: String?
+    /// An agent tab that has ever held a session; see `WorkTask.hasNeverStarted`.
+    var hasAgentSession: Bool { kind == .agent && agentSessionID != nil }
     var sessionJSONLPath: String?
     /// The model's context window, as reported by the last completed turn.
     /// A resumed headless session has no window until it takes a turn in this

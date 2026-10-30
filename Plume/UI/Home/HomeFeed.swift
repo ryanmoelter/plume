@@ -128,15 +128,18 @@ struct HomeFeed: Equatable {
     /// Drops code blocks and the line markers that only mean something on
     /// their own line — headings, quotes, list markers — then joins the rest.
     static func previewText(_ markdown: String) -> String? {
-        var inFence = false
+        var openFence: (character: Character, length: Int)?
         var lines: [Substring] = []
         for rawLine in markdown.split(omittingEmptySubsequences: true, whereSeparator: \.isNewline) {
             let line = rawLine.drop { $0.isWhitespace }
-            if line.hasPrefix("```") || line.hasPrefix("~~~") {
-                inFence.toggle()
+            if let fence = openFence {
+                if closes(fence, line) { openFence = nil }
                 continue
             }
-            guard !inFence else { continue }
+            if let fence = fenceOpening(line) {
+                openFence = fence
+                continue
+            }
             if let stripped = strippingLineMarker(line) { lines.append(stripped) }
         }
         let joined = lines.joined(separator: " ")
@@ -150,10 +153,22 @@ struct HomeFeed: Equatable {
         return words.trimmingCharacters(in: .whitespaces) + "…"
     }
 
+    private static func fenceOpening(_ line: Substring) -> (character: Character, length: Int)? {
+        guard let character = line.first, character == "`" || character == "~" else { return nil }
+        let length = line.prefix { $0 == character }.count
+        return length >= 3 ? (character, length) : nil
+    }
+
+    private static func closes(_ fence: (character: Character, length: Int), _ line: Substring) -> Bool {
+        let run = line.prefix { $0 == fence.character }
+        return run.count >= fence.length && run.count == line.trimmingCharacters(in: .whitespaces).count
+    }
+
     private static func strippingLineMarker(_ line: Substring) -> Substring? {
         var line = line
+        if isRuleOrTableSeparator(line) { return nil }
         while let rest = removingOneMarker(from: line) { line = rest.drop { $0.isWhitespace } }
-        return line.isEmpty || isRuleOrTableSeparator(line) ? nil : line
+        return line.isEmpty || line.allSatisfy({ $0 == "#" }) ? nil : line
     }
 
     private static func removingOneMarker(from line: Substring) -> Substring? {

@@ -42,33 +42,34 @@ extension HomeFeed {
         status: (UUID) -> TaskStatus,
         isUnread: (UUID) -> Bool
     ) -> Int {
-        var count = 0
-        for task in tasks where !task.isArchived {
-            for tab in task.liveTabs where tab.kind == .agent {
-                if needsYou(status: status(tab.id), isUnread: isUnread(tab.id)) { count += 1 }
-            }
+        liveAgentTabs(of: tasks).reduce(0) { count, pair in
+            needsYou(status: status(pair.tab.id), isUnread: isUnread(pair.tab.id)) ? count + 1 : count
         }
-        return count
+    }
+
+    /// Every live agent tab of the unarchived tasks, in sidebar order.
+    private static func liveAgentTabs(of tasks: [WorkTask]) -> [(task: WorkTask, tab: TaskTab)] {
+        tasks.filter { !$0.isArchived }.flatMap { task in
+            task.orderedLiveTabs.filter { $0.kind == .agent }.map { (task, $0) }
+        }
     }
 
     /// Every live agent tab of `tasks`, which are in sidebar order.
     init(tasks: [WorkTask], source: HomeFeedSource) {
-        let entries = tasks.filter { !$0.isArchived }.flatMap { task in
-            task.orderedLiveTabs.filter { $0.kind == .agent }.map { tab in
-                let isUnread = source.isUnread(tab.id)
-                return Entry(
-                    taskID: task.id,
-                    tabID: tab.id,
-                    taskTitle: source.taskTitle(task),
-                    tabTitle: source.tabTitle(tab),
-                    status: source.status(tab.id),
-                    isUnread: isUnread,
-                    hasSession: !(tab.agentSessionID ?? "").isEmpty,
-                    permissionToolName: source.permissionToolName(tab.id),
-                    workStartedAt: source.workStarted(tab.id),
-                    preview: isUnread ? source.preview(tab) : nil
-                )
-            }
+        let entries = Self.liveAgentTabs(of: tasks).map { task, tab in
+            let isUnread = source.isUnread(tab.id)
+            return Entry(
+                taskID: task.id,
+                tabID: tab.id,
+                taskTitle: source.taskTitle(task),
+                tabTitle: source.tabTitle(tab),
+                status: source.status(tab.id),
+                isUnread: isUnread,
+                hasSession: tab.hasAgentSession,
+                permissionToolName: source.permissionToolName(tab.id),
+                workStartedAt: source.workStarted(tab.id),
+                preview: isUnread ? source.preview(tab) : nil
+            )
         }
         self.init(entries: entries)
     }
