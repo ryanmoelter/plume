@@ -32,6 +32,8 @@ func run(_ invocation: CLIInvocation) -> Int32 {
         return WT.main(arguments, environment: environment, console: StandardConsole(), version: BundleVersion.current())
     case .stack(let arguments):
         return Stack.main(arguments, environment: environment, console: StandardConsole(), version: BundleVersion.current())
+    case .devices(let arguments):
+        return Devices.main(arguments, environment: environment, console: StandardConsole())
     }
     return CLIExitCode.success
 }

@@ -44,7 +44,7 @@ Plume/
   Status/     StatusEngine, StatusPersistence
   Workspace/  WorkspaceProvisioner, GitRunner, ProjectRoot (the key Settings ▸ Projects shares with `plume wt`)
   Linear/     LinearStore, LinearSyncCache (delta-synced disk cache; docs/linear-sync.md), LinearClient, LinearAccounts
-  Android/    SDK, AVD, emulator and adb device discovery, EmulatorLauncher, DeviceSession(Manager), connection adapters, input mappers
+  Android/    Observable emulator and adb discovery, DeviceSession(Manager), connection adapters, input mappers, Remote/
   Support/    Log, AppPaths, AppSettings, FileWatcher, HexColor, CommandLineHelper, SmokeHarness (DEBUG)
   CLI/        CLIServer (the socket the `plume` tool talks to), CLICommandHandler
   Control/    The debug control server: PlumeID, ControlRegistry, ControlServer, InProcessControlBackend (DEBUG)
@@ -52,6 +52,8 @@ Plume/
   UI/         Sidebar/, Task/, Settings/, Device/
 PlumeCLI/     The `plume` tool's entry point and command dispatch (target PlumeCLI)
 Shared/CLI/   Compiled into both the app and PlumeCLI: wire types, socket path, Presence, argument parsing
+  Devices/    `plume devices`: the lease registry, DevicePool, and the command
+Shared/Android/  SDK lookup, AVDCatalog, adb and emulator discovery, EmulatorLauncher, EmulatorBootWaiter, DeviceForm
 Packages/
   EmulatorControl/  The emulator's gRPC client: generated code plus a small public facade
   ScrcpyControl/    A physical device over scrcpy-server: launch, demuxer, H.264 decoder, control messages
@@ -130,7 +132,7 @@ Always walk down from Plume's own PID. A global `pgrep`/`grep` for `claude` matc
 
 ## Android device tabs
 
-A device tab (`TabKind.device`) shows a live Android emulator over its gRPC control service, or a physical device over scrcpy-server, either over USB or reserved from Google's lab through Device Streaming. **`docs/android-emulator.md`, `docs/android-physical-device.md` and `docs/android-remote-device.md` are the references** — discovery, auth, launch flags, the frame pipelines and the measured input quirks. Read them before touching `Plume/Android/`, `Plume/UI/Device/` or the `EmulatorControl` and `ScrcpyControl` packages.
+A device tab (`TabKind.device`) shows a live Android emulator over its gRPC control service, or a physical device over scrcpy-server, either over USB or reserved from Google's lab through Device Streaming. **`docs/android-emulator.md`, `docs/android-physical-device.md` and `docs/android-remote-device.md` are the references** — discovery, auth, launch flags, the frame pipelines and the measured input quirks. Read them before touching `Plume/Android/`, `Shared/Android/`, `Plume/UI/Device/` or the `EmulatorControl` and `ScrcpyControl` packages.
 
 - **All gRPC and protobuf code lives in `Packages/EmulatorControl`**, because the app target's default MainActor isolation breaks generated protobuf code. Never edit its `Generated/` folder; run `scripts/android/generate-emulator-grpc.sh`.
 - **A remote device's reservation is billed, so nothing Plume reserves outlives its tab or the app.** Closing the tab, Change Device and End Reservation run `disconnect` then `remove`. Quitting ends every reservation in `RemoteReservationLedger`, shown or not, and the next launch releases any entry a crash left behind, so a remote tab never reconnects after a relaunch. Never run `android device remote create` while testing without removing the reservation afterwards.

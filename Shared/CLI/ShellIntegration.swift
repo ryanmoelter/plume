@@ -38,6 +38,7 @@ nonisolated enum ShellIntegration {
             """),
         Command(name: "wt", summary: "Manage worktrees", completion: wtCompletion),
         Command(name: "stack", summary: "Manage stacked branches", completion: stackCompletion),
+        Command(name: "devices", summary: "Lease Android devices between agents", completion: devicesCompletion),
         Command(name: "init", summary: "Print shell integration", completion: """
             if (( CURRENT == 2 )); then
               _values 'shell' zsh
@@ -98,6 +99,53 @@ nonisolated enum ShellIntegration {
             open|o|delete|d|rename|r|commit|cm|foreground|fg)
               worktrees=("${(@f)$(command plume wt __complete worktrees)}")
               _describe 'worktree' worktrees
+              ;;
+          esac
+        fi
+        """
+
+    /// The `devices` arm of `_plume`, with `words[1]` = `devices`.
+    private static let devicesCompletion = """
+        if (( CURRENT == 2 )); then
+          local -a devices_commands=(
+            'claim:claim a device, booting an emulator if none is free'
+            'release:release a lease'
+            'renew:extend a lease you hold'
+            'installed:record which branch is installed on a device'
+            'list:show devices and their leases'
+            'ls:show devices and their leases'
+            'prune:drop stale leases now'
+            'help:show usage'
+          )
+          _describe -t commands 'devices command' devices_commands
+        else
+          local -a serials
+          serials=("${(@f)$(command adb devices 2>/dev/null | awk 'NR > 1 && NF >= 2 { print $1 }')}")
+          local subcommand=$words[2]
+          shift words
+          (( CURRENT-- ))
+          case $subcommand in
+            claim)
+              _arguments \\
+                '--kind=[Device kind]:kind:(emulator physical any)' \\
+                '--form=[Form factor]:form:(phone tablet foldable)' \\
+                '--owner=[Lease owner]:owner:' \\
+                '--ttl=[Lease length in seconds]:seconds:' \\
+                '--json[Print JSON]' \\
+                '1:serial:compadd -a serials'
+              ;;
+            release)
+              _arguments '--mine[Release every lease you hold]' '--force[Release a lease another owner holds]' \\
+                '--owner=[Lease owner]:owner:' '1:serial:compadd -a serials'
+              ;;
+            renew)
+              _arguments '--owner=[Lease owner]:owner:' '--ttl=[Lease length in seconds]:seconds:' '1:serial:compadd -a serials'
+              ;;
+            installed)
+              _arguments '1:serial:compadd -a serials' '2:branch:'
+              ;;
+            list|ls)
+              _arguments '--json[Print JSON]'
               ;;
           esac
         fi

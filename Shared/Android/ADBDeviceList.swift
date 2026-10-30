@@ -20,11 +20,15 @@ nonisolated struct PhysicalDevice: Hashable, Sendable, Identifiable {
 nonisolated enum ADBDeviceList {
     /// Parses `adb devices -l`. Emulators are dropped: they reach the picker through their discovery files.
     static func parse(_ output: String) -> [PhysicalDevice] {
+        parseIncludingEmulators(output).filter { !$0.serial.hasPrefix("emulator-") }
+    }
+
+    static func parseIncludingEmulators(_ output: String) -> [PhysicalDevice] {
         output.split(whereSeparator: \.isNewline).compactMap { rawLine in
             let line = rawLine.trimmingCharacters(in: .whitespaces)
             guard !line.isEmpty, !line.hasPrefix("*"), !line.hasPrefix("List of devices") else { return nil }
             let fields = line.split(whereSeparator: \.isWhitespace).map(String.init)
-            guard fields.count >= 2, !fields[0].hasPrefix("emulator-") else { return nil }
+            guard fields.count >= 2 else { return nil }
             let model = fields.dropFirst(2).first { $0.hasPrefix("model:") }.map { String($0.dropFirst("model:".count)) }
             return PhysicalDevice(serial: fields[0], state: state(fields[1]), model: model?.isEmpty == false ? model : nil)
         }

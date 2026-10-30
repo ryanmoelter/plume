@@ -22,6 +22,7 @@ The code is split three ways:
 | `plume wt <command>` | Some | Manages git worktrees; `plume wt help` lists the commands. `docs/wt-port.md` maps it to the Python tool it replaces. |
 | `plume stack <command>` | No | Manages stacked branches and their PRs or MRs; `plume stack help` lists the commands. `docs/stack-port.md` maps it to the Python tool it replaces. |
 | `plume init zsh [--aliases] [--alias NAME]` | No | Prints zsh completions for `plume`; load with `eval "$(plume init zsh)"`. It defines no `plume()` function, so `plume` always runs the tool. `--aliases` also defines a bare `wt()` function and a bare `stack` alias. `--alias NAME` (repeatable; `wt` or `stack`) defines only the named ones, for a machine where another tool already owns one of those names; an unknown name is a usage error, and `--aliases` plus `--alias x` is still both. `wt()` has its own completion, turns `wt switch` and `wt s` into a `cd` to the path `command plume wt path` prints, and passes every other call to `plume wt`. `wt` must be a function because a subprocess cannot cd the shell. `stack` needs nothing of the kind, so it is `alias stack='plume stack'`, and zsh completes it by expanding the alias, as `plume stack`. It has no completion function of its own. `plume stack` completes under `plume` either way. |
+| `plume devices <command>` | No | Leases Android emulators and devices so concurrent agents never drive the same one: `claim`, `release`, `renew`, `installed`, `list`/`ls`, `prune`. `plume devices help` lists their flags. It replaces the `device-pool` script and keeps its semantics; see below. |
 | `plume help`, `plume --version` | No | `--version` reads the enclosing app's `Info.plist`. |
 
 `plume-notify` still works as a link for older scripts: invoked under that name (argv[0]'s basename), the tool runs `notify` with the rest of the arguments. Invoked as `wt`, it runs `plume wt` with all of them, and invoked as `stack`, `plume stack`.
@@ -42,6 +43,15 @@ The code is split three ways:
 
 **`presence` runs in the tool**, from CoreGraphics. The screen reads `locked` while `CGSessionCopyCurrentDictionary` carries `CGSSessionScreenIsLocked`, then `asleep` when every online display reports `CGDisplayIsAsleep` (including no online display at all), and `awake` otherwise. `Presence.classify` is the pure rule. `--json` prints `{"displays":[{"asleep":false,"id":1}],"locked":false,"state":"awake"}`.
 
+**`devices` works without the app.** It reads adb, the running emulators' discovery files and git itself (`LiveDeviceEnvironment`). It boots an AVD with the same flags the app uses, so the app can stream an emulator the tool started. The emulator's output goes to `~/Library/Application Support/Plume/Emulators/<avd>.log`.
+
+- **One registry for everyone.** Leases live in `~/Library/Application Support/Plume/devices/registry.json`, guarded by an `flock` on `lock` beside it (`DeviceRegistryStore.defaultDirectory`). Every build, debug included, and every `plume` outside Plume shares it.
+- **Owners.** `--owner` wins. Otherwise, inside a Plume tab, the tab owns the lease, named by its `PLUME_TAB_ID` together with the owning app's `PLUME_SOCKET`, so the same tab ID in another build is another owner. Elsewhere the git worktree's path owns it.
+- **Expiry.** Every lease expires after an hour unless renewed; `--ttl` sets another length in seconds.
+- **Reaping.** Every command first drops expired leases, local leases whose serial left `adb devices` (offline and unauthorized still count as present), emulator leases whose serial now runs another AVD, and pending boots older than 15 minutes. A remote lease goes only on expiry.
+- **Claiming.** `claim <serial>` leases that device, and renews it if you already hold it. `claim` alone reuses a free booted device first, else boots an AVD that is neither running nor booting for someone else. It records the boot as a pending `avd:<id>` entry and frees the lock while the emulator boots, so two agents never boot the same AVD. `--kind=remote` is refused for now.
+- **Output.** `claim` prints only the serial on stdout. Progress lines starting `==>` go to stderr, so `ANDROID_SERIAL=$(plume devices claim)` is safe.
+
 A new subcommand adds its completion to `ShellIntegration.commands`.
 
 ## Exit codes
@@ -51,6 +61,8 @@ A new subcommand adds its completion to `ShellIntegration.commands`.
 | 0 | Success. `notify` always exits 0 once its arguments parse. |
 | 1 | The command failed: the app is unreachable, the task or directory doesn't exist, or the app refused. |
 | 2 | Bad arguments. The usage goes to stderr. |
+
+**`plume devices` keeps `device-pool`'s codes instead:** 0 success, 1 failure or bad arguments, 2 the device is leased by another owner, 3 nothing free matches the filters.
 
 ## Environment
 

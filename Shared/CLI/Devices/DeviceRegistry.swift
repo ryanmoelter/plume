@@ -197,14 +197,19 @@ nonisolated enum DeviceRegistryCodec {
         var version: Int?
     }
 
-    static func encode(_ registry: DeviceRegistry) throws -> Data {
+    /// Dates are whole epoch seconds.
+    static func makeEncoder() -> JSONEncoder {
         let encoder = JSONEncoder()
         encoder.outputFormatting = [.prettyPrinted, .sortedKeys, .withoutEscapingSlashes]
         encoder.dateEncodingStrategy = .custom { date, encoder in
             var container = encoder.singleValueContainer()
             try container.encode(Int64(date.timeIntervalSince1970.rounded(.down)))
         }
-        return try encoder.encode(registry) + Data("\n".utf8)
+        return encoder
+    }
+
+    static func encode(_ registry: DeviceRegistry) throws -> Data {
+        try makeEncoder().encode(registry) + Data("\n".utf8)
     }
 
     static func decode(_ data: Data) throws -> DeviceRegistry {

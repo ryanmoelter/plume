@@ -9,10 +9,15 @@ nonisolated struct AVD: Sendable, Hashable, Identifiable {
 
 nonisolated enum AVDCatalog {
     static func list(sdk: AndroidSDK, avdHome: URL = defaultAVDHome()) async -> [AVD] {
-        await Task.detached(priority: .userInitiated) {
-            let output = runListAVDs(sdk: sdk)
-            return parseListOutput(output).map { enrich(id: $0, avdHome: avdHome) }
-        }.value
+        await Task.detached(priority: .userInitiated) { listBlocking(sdk: sdk, avdHome: avdHome) }.value
+    }
+
+    static func listBlocking(sdk: AndroidSDK, avdHome: URL = defaultAVDHome()) -> [AVD] {
+        parseListOutput(runListAVDs(sdk: sdk)).map { enrich(id: $0, avdHome: avdHome) }
+    }
+
+    static func configINI(of avd: AVD) -> String? {
+        try? String(contentsOf: avd.directory.appending(path: "config.ini"), encoding: .utf8)
     }
 
     static func defaultAVDHome(environment: [String: String] = ProcessInfo.processInfo.environment) -> URL {
