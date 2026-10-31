@@ -13,11 +13,7 @@ nonisolated struct CLIFailure: Error, Equatable, Sendable {
     }
 }
 
-nonisolated struct CLIProcessResult: Equatable, Sendable {
-    var status: Int32
-    var stdout: String
-    var stderr: String
-}
+typealias CLIProcessResult = ChildProcessResult
 
 /// Runs subprocesses for the git and forge layers.
 nonisolated enum CLIProcess {
@@ -34,61 +30,20 @@ nonisolated enum CLIProcess {
         input: String? = nil,
         workingDirectory: String? = nil
     ) throws -> CLIProcessResult {
-        let process = Process()
-        process.executableURL = URL(fileURLWithPath: "/usr/bin/env")
-        process.arguments = arguments
-        if let workingDirectory {
-            process.currentDirectoryURL = URL(fileURLWithPath: workingDirectory)
-        }
-
-        let stdinPipe = input.map { _ in Pipe() }
-        if let stdinPipe { process.standardInput = stdinPipe }
-        let outputPipe = capture ? Pipe() : nil
-        let errorPipe = capture ? Pipe() : nil
-        if let outputPipe { process.standardOutput = outputPipe }
-        if let errorPipe { process.standardError = errorPipe }
-
-        // `waitUntilExit` polls a run loop and adds tens of milliseconds to
-        // every child, which `wt list`'s many git calls add up.
-        let exited = DispatchSemaphore(value: 0)
-        process.terminationHandler = { _ in exited.signal() }
-
+        let result: CLIProcessResult
         do {
-            try process.run()
+            // In this process's group, so a git that opens an editor can still read the terminal.
+            result = try ChildProcess.run(
+                executable: "/usr/bin/env",
+                arguments: arguments,
+                workingDirectory: workingDirectory,
+                input: input.map { .text($0) } ?? .inherit,
+                output: capture ? .pipes : .inherit,
+                newProcessGroup: false
+            )
         } catch {
             throw CLIFailure("`\(arguments.joined(separator: " "))` failed: \(error.localizedDescription)")
         }
-
-        if let stdinPipe, let input {
-            let handle = stdinPipe.fileHandleForWriting
-            Thread {
-                try? handle.write(contentsOf: Data(input.utf8))
-                try? handle.close()
-            }.start()
-        }
-
-        // Drain stderr concurrently: a child that fills either pipe while
-        // the other is being read would deadlock. On its own thread rather
-        // than a dispatch queue, because the callers block while they wait,
-        // and enough of them in parallel starve the queue of threads.
-        let errorData = DataBox()
-        let errorRead = DispatchGroup()
-        if let errorPipe {
-            errorRead.enter()
-            Thread {
-                errorData.data = errorPipe.fileHandleForReading.readDataToEndOfFile()
-                errorRead.leave()
-            }.start()
-        }
-        let outputData = outputPipe?.fileHandleForReading.readDataToEndOfFile() ?? Data()
-        errorRead.wait()
-        exited.wait()
-
-        let result = CLIProcessResult(
-            status: process.terminationStatus,
-            stdout: String(decoding: outputData, as: UTF8.self),
-            stderr: String(decoding: errorData.data, as: UTF8.self)
-        )
         if check, result.status != 0 {
             let detail = result.stderr.trimmingCharacters(in: .whitespacesAndNewlines)
             throw CLIFailure("`\(arguments.joined(separator: " "))` failed" + (detail.isEmpty ? "" : ": \(detail)"))
@@ -113,9 +68,4 @@ nonisolated enum CLIProcess {
         }
         return nil
     }
-}
-
-/// Written once by the reader thread, read after `DispatchGroup.wait`.
-private nonisolated final class DataBox: @unchecked Sendable {
-    var data = Data()
 }

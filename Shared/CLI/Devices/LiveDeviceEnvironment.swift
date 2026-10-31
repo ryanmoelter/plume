@@ -28,12 +28,12 @@ nonisolated final class LiveDeviceEnvironment: DeviceEnvironment {
 
     private func adb(_ arguments: [String]) -> String? {
         guard let adb = try? adbURL() else { return nil }
-        return AndroidSDKLocator.runCapturingOutput(executable: adb.path, arguments: arguments, timeout: Self.adbTimeout)
+        return ChildProcess.capturedOutput(executable: adb.path, arguments: arguments, timeout: Self.adbTimeout)
     }
 
     func adbDevices() throws -> [PhysicalDevice] {
         let adb = try adbURL()
-        guard let output = AndroidSDKLocator.runCapturingOutput(executable: adb.path, arguments: ["devices", "-l"], timeout: Self.adbTimeout) else {
+        guard let output = ChildProcess.capturedOutput(executable: adb.path, arguments: ["devices", "-l"], timeout: Self.adbTimeout) else {
             throw CLIFailure("`adb devices` failed or timed out")
         }
         return ADBDeviceList.parseIncludingEmulators(output)

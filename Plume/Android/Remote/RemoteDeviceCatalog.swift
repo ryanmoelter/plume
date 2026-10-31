@@ -1,7 +1,9 @@
 import AppKit
 import Foundation
+import GhosttyTerminal
 import Observation
 import os
+import SwiftData
 
 /// What Device Streaming offers this Mac: whether the `android` tool is installed and signed in,
 /// its projects and its models. Shared by the device picker and Settings ▸ Integrations.
@@ -170,7 +172,7 @@ final class RemoteDeviceCatalog {
             commands.deleteTask(earlier)
             settings.remoteDeviceSignInTaskID = nil
         }
-        guard let opened = commands.openCommandTask(
+        guard let opened = openCommandTask(
             title: "Sign in to Device Streaming",
             command: "\(shellQuoted(cliPath)) auth login"
         ) else {
@@ -179,6 +181,29 @@ final class RemoteDeviceCatalog {
         }
         settings.remoteDeviceSignInTaskID = opened.taskID
         reloadWhenExited(opened.session, taskID: opened.taskID)
+    }
+
+    /// Opens a new task in the frontmost window whose terminal runs `command` from the home
+    /// folder, then brings that window forward. Nil when no main window is open.
+    private func openCommandTask(title: String, command: String) -> (taskID: UUID, session: TerminalSession)? {
+        guard let registration = CLICommandHandler.shared.frontmostWindow else { return nil }
+        let context = registration.context
+        let ungrouped = ((try? context.fetch(FetchDescriptor<WorkTask>())) ?? []).filter { !$0.isArchived && $0.group == nil }
+        let home = NSHomeDirectory()
+        let (task, tab) = TaskStore.createTerminalTask(in: context, title: title, directory: home, siblings: ungrouped)
+        // Created before the tab mounts, so the tab hosts this command instead of a bare shell.
+        let session = SurfaceManager.shared.session(
+            for: tab.id,
+            options: TerminalSurfaceOptions(
+                workingDirectory: home,
+                envVars: LoginShellCommand.plumeEnvironment(taskID: task.id, tabID: tab.id),
+                command: LoginShellCommand.wrap(command)
+            )
+        )
+        registration.reveal(task.id)
+        NSApp.activate()
+        registration.window()?.makeKeyAndOrderFront(nil)
+        return (task.id, session)
     }
 
     /// Also reloads when the tab closes before `auth login` exits, which never marks it exited.

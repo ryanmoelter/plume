@@ -1,5 +1,6 @@
 import Foundation
 import Observation
+import Synchronization
 
 nonisolated enum RemoteReservationStatus: Equatable, Sendable {
     case active
@@ -33,7 +34,7 @@ final class RemoteReservation {
     @ObservationIgnored private let listADB: @Sendable () async -> ADBListing
     /// Written from the create command's output as it arrives, so a release can find an id the
     /// main actor hasn't seen yet.
-    @ObservationIgnored private let createdID = LockedValue<String?>(nil)
+    @ObservationIgnored private let createdID = Mutex<String?>(nil)
     @ObservationIgnored private var createRun: Task<AndroidCLIResult, Error>?
     @ObservationIgnored private var releaseTask: Task<Void, Never>?
 
@@ -57,7 +58,7 @@ final class RemoteReservation {
         self.ledger = ledger
         self.now = now
         self.listADB = listADB
-        createdID.value = reservationID
+        createdID.withLock { $0 = reservationID }
     }
 
     private var projectArgument: String { "--project=\(projectID)" }
@@ -67,24 +68,23 @@ final class RemoteReservation {
     func create() async throws {
         guard let model else { throw AndroidCLIError(message: "No device model was chosen.") }
         guard !isReleased else { throw CancellationError() }
-        let (cli, ledger, projectID, createdID) = (cli, ledger, projectID, createdID)
+        let cli = cli
         let arguments = ["device", "remote", "create", model, projectArgument]
-        let lines = LineBuffer()
+        let lines = Mutex(LineSplitter())
         @Sendable func record(_ lines: [String]) {
-            guard createdID.value == nil,
+            guard knownReservationID == nil,
                   let created = lines.lazy.compactMap({ RemoteDeviceParsers.createdReservation($0) }).first
             else { return }
-            createdID.value = created.id
-            ledger.add(reservationID: created.id, projectID: projectID)
+            recordCreated(created.id)
         }
         let run = Task.detached {
             do {
                 return try await cli.run(arguments, timeout: Self.createTimeout) { text in
-                    record(lines.completeLines(appending: text))
+                    record(lines.withLock { $0.completeLines(appending: text) })
                 }
             } catch {
                 // A cancel kills the tool, so an unterminated last line is all it will ever print.
-                record([lines.remainder])
+                record([lines.withLock { $0.remainder }])
                 throw error
             }
         }
@@ -95,11 +95,8 @@ final class RemoteReservation {
             run.cancel()
         }
         let created = RemoteDeviceParsers.createdReservation(result.output, now: now())
-        if let id = created?.id ?? createdID.value {
-            if createdID.value == nil {
-                createdID.value = id
-                ledger.add(reservationID: id, projectID: projectID)
-            }
+        if let id = created?.id ?? knownReservationID {
+            recordCreated(id)
             reservationID = id
         }
         if let endsAt = created?.endsAt { expiresAt = endsAt }
@@ -172,7 +169,17 @@ final class RemoteReservation {
     }
 
     /// The id as soon as `create` printed it, which a release ends even before `create` returns.
-    nonisolated var knownReservationID: String? { createdID.value }
+    nonisolated var knownReservationID: String? { createdID.withLock { $0 } }
+
+    /// Adds the id to the ledger the first time it is seen.
+    private nonisolated func recordCreated(_ id: String) {
+        let isNew = createdID.withLock { stored in
+            guard stored == nil else { return false }
+            stored = id
+            return true
+        }
+        if isNew { ledger.add(reservationID: id, projectID: projectID) }
+    }
 
     /// Ends the reservation. Safe to call any number of times; only the first does anything. A
     /// create still running is stopped first, and its id released if it printed one.
@@ -184,12 +191,12 @@ final class RemoteReservation {
         serial = nil
         let createRun = createRun
         createRun?.cancel()
-        let (cli, ledger, projectID, createdID) = (cli, ledger, projectID, createdID)
+        let (cli, ledger, projectID) = (cli, ledger, projectID)
         let group = Self.terminations
         group.enter()
-        let task = Task.detached {
+        let task = Task.detached { [self] in
             _ = await createRun?.result
-            if let id = createdID.value {
+            if let id = knownReservationID {
                 await Self.release(reservationID: id, projectID: projectID, cli: cli, ledger: ledger, concurrently: concurrently)
             }
             group.leave()
@@ -255,30 +262,15 @@ final class RemoteReservation {
 }
 
 /// Collects streamed text and hands back only the lines it completed, so a scan never sees half an id.
-nonisolated final class LineBuffer: @unchecked Sendable {
-    private let lock = NSLock()
-    private var partial = ""
-
-    func completeLines(appending text: String) -> [String] {
-        lock.withLock {
-            partial += text
-            guard let lastBreak = partial.lastIndex(where: \.isNewline) else { return [] }
-            let complete = partial[..<lastBreak]
-            partial = String(partial[partial.index(after: lastBreak)...])
-            return complete.split(whereSeparator: \.isNewline).map(String.init)
-        }
-    }
-
+nonisolated struct LineSplitter {
     /// The unterminated text after the last complete line.
-    var remainder: String { lock.withLock { partial } }
-}
+    private(set) var remainder = ""
 
-nonisolated final class LockedValue<Value: Sendable>: @unchecked Sendable {
-    private let lock = NSLock()
-    private var stored: Value
-    init(_ value: Value) { stored = value }
-    var value: Value {
-        get { lock.withLock { stored } }
-        set { lock.withLock { stored = newValue } }
+    mutating func completeLines(appending text: String) -> [String] {
+        remainder += text
+        guard let lastBreak = remainder.lastIndex(where: \.isNewline) else { return [] }
+        let complete = remainder[..<lastBreak]
+        remainder = String(remainder[remainder.index(after: lastBreak)...])
+        return complete.split(whereSeparator: \.isNewline).map(String.init)
     }
 }

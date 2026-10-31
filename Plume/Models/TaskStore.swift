@@ -27,7 +27,8 @@ enum TaskStore {
         group: TaskGroup? = nil,
         siblings: [WorkTask],
         defaultsToRecentFolder: Bool = false,
-        inheritingFrom: WorkTask? = nil
+        inheritingFrom: WorkTask? = nil,
+        firstTab kind: TabKind = .agent
     ) -> WorkTask {
         let task = WorkTask(title: title, orderIndex: nextIndex(after: siblings), group: group)
         if let source = inheritingFrom, let folder = source.workingDirectoryPath {
@@ -42,8 +43,8 @@ enum TaskStore {
             // a subprocess, and nothing reads `repoPath` before then.
             Task { task.repoPath = await GitService.shared.repositoryRoot(containing: folder) }
         }
-        let tab = TaskTab(kind: .agent, orderIndex: 0, task: task)
-        applyDefaultLaunchSettings(to: tab)
+        let tab = TaskTab(kind: kind, orderIndex: 0, task: task)
+        if kind == .agent { applyDefaultLaunchSettings(to: tab) }
         context.insert(task)
         context.insert(tab)
         task.tabs = [tab]
@@ -77,15 +78,10 @@ enum TaskStore {
         directory: String,
         siblings: [WorkTask]
     ) -> (task: WorkTask, tab: TaskTab) {
-        let task = WorkTask(title: title, orderIndex: nextIndex(after: siblings), group: nil)
+        let task = createTask(in: context, title: title, siblings: siblings, firstTab: .terminal)
         task.workingDirectoryPath = directory
         task.workspaceKind = .directory
-        let tab = TaskTab(kind: .terminal, orderIndex: 0, task: task)
-        context.insert(task)
-        context.insert(tab)
-        task.tabs = [tab]
-        selectTab(tab, in: task)
-        return (task, tab)
+        return (task, task.tabs[0])
     }
 
     @discardableResult

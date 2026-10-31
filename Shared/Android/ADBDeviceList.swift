@@ -51,7 +51,7 @@ nonisolated struct ADBListing: Sendable, Equatable {
     static func live() async -> ADBListing {
         guard let adb = await AndroidSDKLocator.locate().sdk?.adbURL else { return ADBListing(adbURL: nil, devices: []) }
         let output = await Task.detached(priority: .userInitiated) {
-            AndroidSDKLocator.runCapturingOutput(executable: adb.path, arguments: ["devices", "-l"], timeout: 5)
+            ChildProcess.capturedOutput(executable: adb.path, arguments: ["devices", "-l"], timeout: 5)
         }.value
         return ADBListing(adbURL: adb, devices: output.map(ADBDeviceList.parse) ?? [])
     }
