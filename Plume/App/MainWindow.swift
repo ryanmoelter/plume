@@ -474,7 +474,7 @@ struct MainWindow: View {
                     // hook mechanism to watch at all.
                     break
                 }
-                StatusEngine.shared.restore(tabID: tab.id, taskID: task.id)
+                StatusEngine.shared.restore(tabID: tab.id, taskID: task.id, lastStatus: tab.lastStatus)
                 if let path = tab.sessionJSONLPath, !path.isEmpty {
                     AgentTitleMonitor.shared.watch(tabID: tab.id, transcriptPath: path)
                     TranscriptStore.shared.watch(tabID: tab.id, transcriptPath: path)
