@@ -4,6 +4,7 @@ import Foundation
 nonisolated enum LinearLinkResolver {
     static func resolve(
         evidence: [LinearEvidence],
+        mentions: [String] = [],
         branchIdentifiers: [String],
         links: LinearTaskLinks,
         catalogs: [LinearCatalog]
@@ -49,6 +50,11 @@ nonisolated enum LinearLinkResolver {
                     entry.touchedByMainAgent = true
                 }
             }
+        }
+
+        for identifier in mentions.map({ $0.uppercased() })
+        where teamKeys.contains(LinearIdentifier.teamKey(of: identifier)) {
+            update(identifier) { $0.sources.insert(.conversation) }
         }
 
         let linked: [LinkedLinearIssue] = entries.map { identifier, entry in

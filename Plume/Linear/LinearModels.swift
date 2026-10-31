@@ -234,6 +234,8 @@ nonisolated enum LinearLinkSource: Sendable, Equatable, Hashable, Comparable {
     case promoted
     case agentStarted
     case agent
+    /// Named in the conversation's prose, by URL or by identifier.
+    case conversation
     /// The user unlinked it, which overrides every other source.
     case unlinked
 }

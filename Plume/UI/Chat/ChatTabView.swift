@@ -228,6 +228,13 @@ struct ChatTabView: View, ThemedView {
             folder: checkout?.projectName ?? gitDirectory.map { ($0 as NSString).lastPathComponent },
             branch: branch,
             pullRequest: pullRequest,
+            linkedPullRequests: settings.showsPullRequestStatus
+                ? InfoPaneFacts.linkedPullRequests(
+                    LinkedPullRequestStore.shared.references(for: task),
+                    branchPullRequestURL: pullRequest?.url,
+                    detail: { LinkedPullRequestStore.shared.detail(for: $0) }
+                )
+                : [],
             linear: InfoPaneFacts.linear(
                 isEnabled: settings.showsLinearIssues,
                 isConfigured: LinearStore.shared.isConfigured,

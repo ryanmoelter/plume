@@ -50,6 +50,15 @@ struct InfoPaneFacts: Equatable {
         }
     }
 
+    /// A pull request the conversation links to, other than the branch's own.
+    struct LinkedPullRequestFacts: Equatable, Identifiable {
+        let reference: PullRequestReference
+        /// Nil until GitHub has answered, and when it cannot.
+        var pullRequest: MentionCandidate.PullRequestEntry?
+
+        var id: String { reference.id }
+    }
+
     /// One linked Linear issue, flattened for drawing.
     struct LinearIssueFacts: Equatable, Identifiable {
         let identifier: String
@@ -89,6 +98,7 @@ struct InfoPaneFacts: Equatable {
     var branch: Branch?
     /// Nil when PR status is turned off or the forge cannot answer.
     var pullRequest: PullRequestFacts?
+    var linkedPullRequests: [LinkedPullRequestFacts] = []
     var linear: LinearFacts?
     /// How many `/btw` questions this tab has asked.
     var sideChatCount = 0
@@ -101,6 +111,7 @@ struct InfoPaneFacts: Equatable {
         if !liveSubagents.isEmpty || !completedSubagents.isEmpty { sections.append(.subagents) }
         if !backgroundTasks.isEmpty { sections.append(.backgroundTasks) }
         if pullRequest?.hasPullRequest == true { sections.append(.pullRequest) }
+        if !linkedPullRequests.isEmpty { sections.append(.linkedPullRequests) }
         if linear != nil { sections.append(.linearIssues) }
         if planTitle != nil { sections.append(.plan) }
         if !artifacts.isEmpty { sections.append(.artifacts) }
@@ -120,7 +131,7 @@ struct InfoPaneFacts: Equatable {
             case .branch: branch?.isWorktree == true
             case .linearIssues: (linear?.workingCount ?? 0) > 0
             case .remoteControl: remoteControl == .on
-            case .folder, .sideChat: false
+            case .folder, .sideChat, .linkedPullRequests: false
             case .backgroundTasks, .plan, .pullRequest, .artifacts: true
             }
         }
@@ -165,6 +176,24 @@ extension InfoPaneFacts {
         default:
             return PullRequestFacts(state: state, checkRollup: nil, forge: forge)
         }
+    }
+}
+
+extension InfoPaneFacts {
+    /// Leaves out the branch's own pull request, which has its own row.
+    static func linkedPullRequests(
+        _ references: [PullRequestReference],
+        branchPullRequestURL: URL?,
+        detail: (PullRequestReference) -> LinkedPullRequestStore.Detail?
+    ) -> [LinkedPullRequestFacts] {
+        references
+            .filter { !$0.matches(url: branchPullRequestURL?.absoluteString) }
+            .map { reference in
+                guard case .pullRequest(let pull) = detail(reference) else {
+                    return LinkedPullRequestFacts(reference: reference)
+                }
+                return LinkedPullRequestFacts(reference: reference, pullRequest: pull)
+            }
     }
 }
 
@@ -239,6 +268,7 @@ enum InfoPaneSection: Equatable {
     case folder
     case branch
     case pullRequest
+    case linkedPullRequests
 }
 
 enum InfoPaneLayout {

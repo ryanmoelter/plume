@@ -82,6 +82,28 @@ struct TranscriptStoreTests {
         #expect(sink.evidence[tab] == nil)
     }
 
+    @Test func proseReferencesReachTheirStores() async {
+        let dir = makeTempDirectory()
+        defer { try? FileManager.default.removeItem(at: dir) }
+        let path = dir.appending(path: "session.jsonl")
+        write(userLine("Look at PLUME-318 and https://github.com/ryanmoelter/plume/pull/7"), to: path)
+        let sink = RecordingLinearSink()
+        let pulls = LinkedPullRequestStore(run: { _ in Data() })
+        let store = TranscriptStore(debounce: .milliseconds(10), linearActivity: sink, linkedPullRequests: pulls)
+        let task = WorkTask(title: "T", orderIndex: 0)
+        let taskTab = TaskTab(kind: .agent, orderIndex: 0, task: task)
+        task.tabs = [taskTab]
+        store.watch(tabID: taskTab.id, transcriptPath: path.path)
+
+        await waitUntil(store) { sink.mentions[taskTab.id] != nil }
+        #expect(sink.mentions[taskTab.id] == ["PLUME-318"])
+        #expect(pulls.references(for: task) == [PullRequestReference(owner: "ryanmoelter", repo: "plume", number: 7)])
+
+        store.stopWatching(tabID: taskTab.id)
+        #expect(sink.mentions[taskTab.id] == nil)
+        #expect(pulls.references(for: task).isEmpty)
+    }
+
     @Test func appendingALineUpdatesTheTranscriptAfterTheDebounce() async {
         let dir = makeTempDirectory()
         defer { try? FileManager.default.removeItem(at: dir) }
@@ -512,12 +534,18 @@ struct SubagentLingerIsDrivenByTheStoreTests {
 
 private final class RecordingLinearSink: LinearActivitySink {
     var evidence: [UUID: [LinearEvidence]] = [:]
+    var mentions: [UUID: [String]] = [:]
 
     func replaceActivity(tabID: UUID, evidence: [LinearEvidence]) {
         self.evidence[tabID] = evidence
     }
 
+    func replaceMentions(tabID: UUID, identifiers: [String]) {
+        mentions[tabID] = identifiers
+    }
+
     func forgetActivity(tabID: UUID) {
         evidence.removeValue(forKey: tabID)
+        mentions.removeValue(forKey: tabID)
     }
 }

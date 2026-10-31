@@ -52,6 +52,31 @@ struct LinearLinkResolverTests {
         #expect(resolve([evidence("PLUME-1")]).first?.role == .mentioned)
     }
 
+    @Test func conversationMentionsAreMentionedOnlyForKnownTeamKeys() {
+        let issues = LinearLinkResolver.resolve(
+            evidence: [],
+            mentions: ["PLUME-4", "UTF-8"],
+            branchIdentifiers: [],
+            links: LinearTaskLinks(),
+            catalogs: [catalog]
+        )
+        #expect(issues.map(\.identifier) == ["PLUME-4"])
+        #expect(issues.first?.role == .mentioned)
+        #expect(issues.first?.sources == [.conversation])
+    }
+
+    @Test func unlinkedMentionStaysUnlinked() {
+        let issues = LinearLinkResolver.resolve(
+            evidence: [],
+            mentions: ["PLUME-4"],
+            branchIdentifiers: [],
+            links: LinearTaskLinks(unlinked: ["PLUME-4"]),
+            catalogs: [catalog]
+        )
+        #expect(issues.first?.sources == [.conversation, .unlinked])
+        #expect(issues.first?.role == .mentioned)
+    }
+
     @Test func noCatalogMeansNoIssue() {
         let issues = resolve([evidence("PLUME-1", tool: "save_issue", state: "started")], catalogs: [])
         #expect(issues.isEmpty)
