@@ -60,6 +60,22 @@ struct LinkedPullRequestStoreTests {
         store.forget(tabID: tab)
         #expect(store.detail(for: ref) == nil)
     }
+
+    @Test func aTasksPinnedReferencesSurviveForgettingATab() async {
+        let error = missingRepository
+        let store = LinkedPullRequestStore(run: { _ in throw error })
+        let tab = UUID()
+        let task = UUID()
+        let ref = PullRequestReference(owner: "a", repo: "b", number: 1)
+        store.replace(tabID: tab, references: [ref])
+        store.retain([ref], forTask: task)
+        for _ in 0..<200 where store.detail(for: ref) == nil { try? await Task.sleep(for: .milliseconds(10)) }
+        #expect(store.detail(for: ref) == .unavailable)
+        store.forget(tabID: tab)
+        #expect(store.detail(for: ref) == .unavailable)
+        store.forget(taskID: task)
+        #expect(store.detail(for: ref) == nil)
+    }
 }
 
 private actor Counter {

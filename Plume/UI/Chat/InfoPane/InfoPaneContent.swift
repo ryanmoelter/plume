@@ -16,6 +16,7 @@ struct InfoPaneContent: View, ThemedView {
     let onOpenSideChat: () -> Void
     let remoteControlSession: (any AgentSession)?
     let linearActions: InfoPaneLinearActions
+    var pullRequestActions: InfoPanePullRequestActions = .none
     /// Held by the presentation, which outlives this view as the side pane
     /// opens and closes.
     @Binding var showsCompleted: Bool
@@ -23,7 +24,6 @@ struct InfoPaneContent: View, ThemedView {
 
     @State private var settings = AppSettings.shared
     @Environment(\.openURL) private var openURL
-    @Environment(\.colorScheme) private var colorScheme
 
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
@@ -53,7 +53,8 @@ struct InfoPaneContent: View, ThemedView {
         case .folder: folder
         case .branch: branch
         case .pullRequest: pullRequest
-        case .linkedPullRequests: linkedPullRequests
+        case .linkedPullRequests:
+            LinkedPullRequestsSection(pullRequests: facts.linkedPullRequests, actions: pullRequestActions)
         case .linearIssues:
             LinearIssuesSection(linear: facts.linear, actions: linearActions, showsMentioned: $showsMentionedLinearIssues)
         }
@@ -215,41 +216,27 @@ struct InfoPaneContent: View, ThemedView {
     // MARK: Artifacts
 
     private var artifacts: some View {
-        let isGrouped = facts.artifacts.count > 1
-        return Group {
-            if !isGrouped, let artifact = facts.artifacts.first {
-                artifactRow(artifact, showsIcon: true)
-            } else {
-                artifactSection
-            }
-        }
-        .animation(InfoPaneLayout.sectionAnimation, value: isGrouped)
-        .onChange(of: isGrouped) { _, isGrouped in
-            if isGrouped { settings.infoPaneArtifactsExpanded = true }
-        }
-    }
-
-    private var artifactSection: some View {
         let isExpanded = settings.infoPaneArtifactsExpanded
-        return VStack(alignment: .leading, spacing: 0) {
-            Button {
-                withAnimation(InfoPaneLayout.sectionAnimation) { settings.infoPaneArtifactsExpanded.toggle() }
-            } label: {
-                HStack(spacing: InfoPaneLayout.columnSpacing) {
-                    InfoPaneIcon { Image(systemName: ArtifactSymbol.outline) }
-                    Text("Artifacts")
-                    Text("\(facts.artifacts.count)")
-                        .emphasis(.subtle)
-                    DisclosureChevron(isExpanded: isExpanded)
-                    Spacer(minLength: 0)
+        return InfoPaneGroup(
+            isGrouped: facts.artifacts.count > 1,
+            expand: { settings.infoPaneArtifactsExpanded = true }
+        ) {
+            if let artifact = facts.artifacts.first { artifactRow(artifact, showsIcon: true) }
+        } grouped: {
+            VStack(alignment: .leading, spacing: 0) {
+                InfoPaneGroupHeader(
+                    title: "Artifacts",
+                    count: facts.artifacts.count,
+                    isExpanded: isExpanded,
+                    accessibilityID: AccessibilityID.infoPaneArtifactsToggle
+                ) {
+                    withAnimation(InfoPaneLayout.sectionAnimation) { settings.infoPaneArtifactsExpanded.toggle() }
+                } icon: {
+                    Image(systemName: ArtifactSymbol.outline)
                 }
-                .emphasis(.secondary)
-            }
-            .buttonStyle(InfoPaneRowButtonStyle())
-            .plumeID(AccessibilityID.infoPaneArtifactsToggle, value: isExpanded ? "expanded" : "collapsed")
-
-            if isExpanded {
-                ForEach(facts.artifacts) { artifactRow($0, showsIcon: false) }
+                if isExpanded {
+                    ForEach(facts.artifacts) { artifactRow($0, showsIcon: false) }
+                }
             }
         }
     }
@@ -369,52 +356,6 @@ struct InfoPaneContent: View, ThemedView {
             .disabled(url == nil)
             .help(PullRequestChipContent.accessibilityText(for: pullRequest.state, checkRollup: checkRollup) ?? "")
             .plumeID(AccessibilityID.infoPanePullRequestRow)
-        }
-    }
-}
-
-extension InfoPaneContent {
-    // MARK: Linked pull requests
-
-    var linkedPullRequests: some View {
-        VStack(alignment: .leading, spacing: 0) {
-            ForEach(facts.linkedPullRequests) { linkedPullRequestRow($0) }
-        }
-        .task(id: facts.linkedPullRequests.map(\.reference)) {
-            LinkedPullRequestStore.shared.refresh(facts.linkedPullRequests.map(\.reference))
-        }
-    }
-
-    private func linkedPullRequestRow(_ linked: InfoPaneFacts.LinkedPullRequestFacts) -> some View {
-        let reference = linked.reference
-        let open = {
-            if let url = URL(string: reference.url) { ChatLinkOpener.open(.web(url)) }
-        }
-        return Button(action: open) {
-            HStack(spacing: InfoPaneLayout.columnSpacing) {
-                InfoPaneIcon {
-                    if let pull = linked.pullRequest {
-                        Image(systemName: MentionAutocompleteView.symbol(for: pull))
-                            .foregroundStyle(MentionAutocompleteView.tint(for: pull, colorScheme: colorScheme))
-                    } else {
-                        Image(systemName: "arrow.triangle.pull")
-                            .emphasis(.secondary)
-                    }
-                }
-                Text("#\(reference.number)")
-                    .font(typography.caption.monoMedium)
-                Text(linked.pullRequest?.title ?? "\(reference.owner)/\(reference.repo)")
-                    .emphasis(.secondary)
-                    .lineLimit(1)
-                    .truncationMode(.tail)
-                Spacer(minLength: 4)
-                LinkOpenIcon()
-            }
-        }
-        .buttonStyle(InfoPaneRowButtonStyle())
-        .help(reference.url)
-        .plumeID(AccessibilityID.infoPaneLinkedPullRequestRow, label: "#\(reference.number)", value: reference.url) {
-            open()
         }
     }
 }

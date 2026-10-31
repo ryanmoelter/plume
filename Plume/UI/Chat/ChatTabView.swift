@@ -195,6 +195,15 @@ struct ChatTabView: View, ThemedView {
         )
     }
 
+    private var pullRequestActions: InfoPanePullRequestActions {
+        let task = task
+        return InfoPanePullRequestActions(
+            pin: { TaskStore.pinPullRequest($0, to: task) },
+            unpin: { TaskStore.unpinPullRequest($0, from: task) },
+            pinInput: { TaskStore.pinPullRequest($0, to: task) }
+        )
+    }
+
     private func infoPaneFacts(linearLinks: [LinkedLinearIssue]) -> InfoPaneFacts {
         let split = InfoPaneFacts.splitSubagents(
             subagents,
@@ -230,11 +239,13 @@ struct ChatTabView: View, ThemedView {
             pullRequest: pullRequest,
             linkedPullRequests: settings.showsPullRequestStatus
                 ? InfoPaneFacts.linkedPullRequests(
-                    LinkedPullRequestStore.shared.references(for: task),
+                    pinned: TaskStore.pinnedPullRequests(of: task),
+                    mentioned: LinkedPullRequestStore.shared.references(for: task),
                     branchPullRequestURL: pullRequest?.url,
                     detail: { LinkedPullRequestStore.shared.detail(for: $0) }
                 )
                 : [],
+            canPinPullRequests: settings.showsPullRequestStatus,
             linear: InfoPaneFacts.linear(
                 isEnabled: settings.showsLinearIssues,
                 isConfigured: LinearStore.shared.isConfigured,
@@ -1108,7 +1119,8 @@ struct ChatTabView: View, ThemedView {
             onOpenPlan: openPlan,
             onOpenSideChat: { isSideChatShown = true },
             remoteControlSession: headlessSession,
-            linearActions: linearActions
+            linearActions: linearActions,
+            pullRequestActions: pullRequestActions
         )
     }
 

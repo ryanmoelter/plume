@@ -26,6 +26,7 @@ struct InfoSidePane: View, ThemedView {
     let onOpenSideChat: () -> Void
     let remoteControlSession: (any AgentSession)?
     let linearActions: InfoPaneLinearActions
+    var pullRequestActions: InfoPanePullRequestActions = .none
 
     @State private var settings = AppSettings.shared
     @State private var isHovering = false
@@ -152,6 +153,7 @@ struct InfoSidePane: View, ThemedView {
             },
             remoteControlSession: remoteControlSession,
             linearActions: linearActions,
+            pullRequestActions: pullRequestActions,
             showsCompleted: $showsCompletedSubagents,
             showsMentionedLinearIssues: $showsMentionedLinearIssues
         )

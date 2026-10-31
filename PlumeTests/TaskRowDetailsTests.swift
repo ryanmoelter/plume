@@ -336,3 +336,52 @@ struct TaskRowLinearLinesTests {
         #expect(TaskRowDetails.linearStatusWord(.stale(LinearTestFixtures.issue("PLUME-1"), reason: "x")) == nil)
     }
 }
+
+struct TaskRowPinnedPullRequestLinesTests {
+    private func ref(_ number: Int) -> PullRequestReference {
+        PullRequestReference(owner: "a", repo: "b", number: number)
+    }
+
+    @Test func pinnedPullRequestsCapAtTwoWithAnOverflowCount() {
+        let lines = TaskRowDetails.pinnedPullRequestLines(
+            [ref(1), ref(2), ref(3)],
+            branchPullRequestURLs: [],
+            details: { _ in nil }
+        )
+        #expect(lines == [
+            .pinnedPullRequest(ref(1), detail: nil),
+            .pinnedPullRequest(ref(2), detail: nil),
+            .pinnedPullRequestOverflow(1),
+        ])
+    }
+
+    @Test func theBranchsOwnPullRequestTakesNoSecondLine() {
+        let lines = TaskRowDetails.pinnedPullRequestLines(
+            [ref(1), ref(2)],
+            branchPullRequestURLs: ["https://github.com/A/B/pull/1"],
+            details: { _ in .unavailable }
+        )
+        #expect(lines == [.pinnedPullRequest(ref(2), detail: .unavailable)])
+    }
+
+    @Test func branchPullRequestURLsComeOnlyFromGroupsWithAPullRequest() {
+        let groups = [
+            TaskRowDetails.DirectoryGroup(
+                directory: "/a",
+                pullRequest: .pullRequest(PullRequest(number: 1, state: .open, isDraft: false, url: "https://github.com/a/b/pull/1"))
+            ),
+            TaskRowDetails.DirectoryGroup(directory: "/b", pullRequest: .noPR),
+        ]
+        #expect(TaskRowDetails.branchPullRequestURLs(groups) == ["https://github.com/a/b/pull/1"])
+    }
+
+    @Test func pinnedPullRequestAccessibilityText() {
+        let entry = MentionCandidate.PullRequestEntry(
+            number: 4, title: "Fix it", url: ref(4).url, state: .open, isDraft: false, updatedAt: nil
+        )
+        #expect(TaskRowDetails.accessibilityText(.pinnedPullRequest(ref(4), detail: .pullRequest(entry)))
+            == "Pull request 4, Fix it")
+        #expect(TaskRowDetails.accessibilityText(.pinnedPullRequest(ref(4), detail: nil)) == "Pull request 4")
+        #expect(TaskRowDetails.accessibilityText(.pinnedPullRequestOverflow(2)) == "2 more pull requests")
+    }
+}
