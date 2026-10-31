@@ -182,7 +182,7 @@ extension Importer {
     static func startWatches(for tasks: [WorkTask]) {
         for task in tasks {
             for tab in task.tabs where tab.kind == .agent {
-                StatusEngine.shared.restore(tabID: tab.id, taskID: task.id)
+                StatusEngine.shared.restore(tabID: tab.id, taskID: task.id, lastStatus: tab.lastStatus)
                 guard let path = tab.sessionJSONLPath, !path.isEmpty else { continue }
                 AgentTitleMonitor.shared.watch(tabID: tab.id, transcriptPath: path)
                 TranscriptStore.shared.watch(tabID: tab.id, transcriptPath: path)

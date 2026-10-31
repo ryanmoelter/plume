@@ -344,7 +344,7 @@ enum TaskStore {
         task.isArchived = false
         task.archivedAt = nil
         for tab in task.tabs where tab.kind == .agent {
-            StatusEngine.shared.restore(tabID: tab.id, taskID: task.id)
+            StatusEngine.shared.restore(tabID: tab.id, taskID: task.id, lastStatus: tab.lastStatus)
             // Seeded before any watch below, so a fallback read racing in
             // ahead of a real transcript write finds the source already
             // recorded rather than being free to overwrite a higher-ranked

@@ -81,6 +81,10 @@ final class TaskTab {
     /// when the mark was set. Nil reads as read. `UnreadPersistence` owns it.
     var unreadMessageID: String? = nil
 
+    /// The tab's status as of `StatusPersistence`'s last debounced snapshot.
+    /// Read back at launch through `TaskStatus.afterRelaunch`.
+    var lastStatusRaw: String = TaskStatus.notStarted.rawValue
+
     /// Reserved for extra launch args and statusline preferences.
     var launchArgumentsData: Data?
 
@@ -96,6 +100,11 @@ final class TaskTab {
     var kind: TabKind {
         get { TabKind(rawValue: kindRaw) ?? .agent }
         set { kindRaw = newValue.rawValue }
+    }
+
+    var lastStatus: TaskStatus {
+        get { TaskStatus(migratingRawValue: lastStatusRaw) }
+        set { lastStatusRaw = newValue.rawValue }
     }
 
     var devicePlatform: DevicePlatform? {

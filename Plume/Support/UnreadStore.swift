@@ -46,9 +46,10 @@ final class UnreadStore {
     init() {}
 
     func observe(_ engine: StatusEngine, audience: @escaping () -> NotificationAudience) {
-        engine.setTabStatusObserver("UnreadStore") { [weak self] taskID, tabID, status, _ in
+        engine.setTabStatusObserver("UnreadStore") { [weak self, weak engine] taskID, tabID, status, _ in
             let seen = Self.isSeen(tabID: tabID, taskID: taskID, audience: audience())
-            self?.record(status, tabID: tabID, isSeen: seen)
+            let isRestored = engine?.isDormant(tabID: tabID) ?? false
+            self?.record(status, tabID: tabID, isSeen: seen, isRestored: isRestored)
         }
     }
 
@@ -60,15 +61,16 @@ final class UnreadStore {
         tabIDs.contains { unreadTabs.contains($0) }
     }
 
-    func record(_ status: TaskStatus, tabID: UUID, isSeen: Bool) {
+    func record(_ status: TaskStatus, tabID: UUID, isSeen: Bool, isRestored: Bool = false) {
         if status == .awaitingReply {
             finishCount += 1
             finishOrder[tabID] = finishCount
         } else {
             finishOrder.removeValue(forKey: tabID)
         }
-        // A dormant tab settles to `notStarted` at launch, which says nothing
-        // new about the conversation.
+        // A tab restored at launch takes back the status it last had, which
+        // says nothing new about the conversation.
+        if isRestored { return }
         if status == .notStarted, pendingRestores[tabID] != nil || restoredMarks[tabID] != nil { return }
         setUnread(status == .awaitingReply && !isSeen, tabID: tabID)
     }

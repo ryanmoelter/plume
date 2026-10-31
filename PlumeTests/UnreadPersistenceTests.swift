@@ -387,8 +387,8 @@ struct UnreadPersistenceTests {
         #expect(chat.unreadMessageID == "m2")
     }
 
-    @Test(arguments: [true, false])
-    func theLaunchStatusRestoreNeitherWipesNorCreatesAMark(statusRestoresFirst: Bool) {
+    @Test(arguments: [true, false], [TaskStatus.notStarted, .error, .questionAsked])
+    func theLaunchStatusRestoreNeitherWipesNorCreatesAMark(statusRestoresFirst: Bool, lastStatus: TaskStatus) {
         let engine = StatusEngine(backgroundTasks: BackgroundTaskTracker())
         let store = UnreadStore()
         store.observe(engine) { .inactive }
@@ -400,7 +400,7 @@ struct UnreadPersistenceTests {
         let tabs = [marked.id: marked, other.id: other]
         let persistence = UnreadPersistence(unread: store, transcripts: transcripts, codexItems: CodexItemStore(), codexCache: nil)
         persistence.install { tabs[$0] }
-        let restoreStatuses = { for tab in [marked, other] { engine.restore(tabID: tab.id, taskID: self.task) } }
+        let restoreStatuses = { for tab in [marked, other] { engine.restore(tabID: tab.id, taskID: self.task, lastStatus: lastStatus) } }
 
         if statusRestoresFirst { restoreStatuses() }
         persistence.restore([marked, other])
