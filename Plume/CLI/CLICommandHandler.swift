@@ -207,6 +207,9 @@ final class CLICommandHandler {
         let owner = DeviceLeaseOwner.tab(id: params.tabID, app: socket)
         // A second `plume devices claim` from the same tab, racing the first, waits on its claim.
         if let existing = deviceLeases.claim(ownedBy: owner) {
+            if let model = params.model, model != existing.model {
+                return .failure("this tab is already reserving \(existing.model); release it before reserving \(model)")
+            }
             do {
                 try await deviceLeases.rejoin(existing)
             } catch {

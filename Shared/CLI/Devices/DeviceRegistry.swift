@@ -190,9 +190,10 @@ nonisolated struct DeviceRegistry: Codable, Equatable, Sendable {
     /// present), or when its emulator serial now belongs to another AVD. A remote lease goes only
     /// on expiry, after `remoteReapGrace`: its adb port changes on every reconnect. An empty adb
     /// list proves nothing, since a restarting adb server briefly lists no devices, so it vanishes
-    /// no lease; those wait for their expiry.
+    /// no lease; those wait for their expiry. adb was read at `readAt`, and a lease claimed since
+    /// then is newer than that list, so only expiry reaps it.
     @discardableResult
-    mutating func reap(liveSerials: Set<String>, emulatorAVDs: [String: String], now: Date) -> [String] {
+    mutating func reap(liveSerials: Set<String>, emulatorAVDs: [String: String], readAt: Date = .distantFuture, now: Date) -> [String] {
         var messages: [String] = []
         for key in devices.keys.sorted() {
             guard let lease = devices[key] else { continue }
@@ -201,6 +202,8 @@ nonisolated struct DeviceRegistry: Codable, Equatable, Sendable {
                 messages.append("reaped expired lease on \(key) (\(lease.owner))")
             } else if lease.expiresAt < now {
                 messages.append("reaped expired lease on \(key) (\(lease.owner))")
+            } else if lease.claimedAt >= readAt {
+                continue
             } else if !liveSerials.isEmpty, !liveSerials.contains(key) {
                 messages.append("reaped lease on vanished device \(key) (\(lease.owner))")
             } else if lease.kind == .emulator, let leased = lease.avd, let running = emulatorAVDs[key], running != leased {

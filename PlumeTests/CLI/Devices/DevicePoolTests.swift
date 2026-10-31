@@ -96,11 +96,43 @@ struct DevicePoolTests {
         #expect(try pool.claimSerial("R5", claimant: release, ttl: hour).reused)
     }
 
+    /// adb is read before the forms, so a lease written while they are read is newer than adb's
+    /// list and must not read as vanished.
+    @Test func aLeaseNewerThanTheAdbReadIsNotReaped() throws {
+        env.connect("R5")
+        env.forms["R5"] = .phone
+        let (store, env, other) = (store, env, other)
+        env.duringForm = {
+            env.clock += 1
+            try? store.withLock {
+                var registry = try store.load()
+                registry.devices["emulator-5556"] = DeviceLease(
+                    kind: .emulator, serial: "emulator-5556", avd: "Tablet", owner: other.owner,
+                    claimedAt: env.clock, expiresAt: env.clock.addingTimeInterval(3600)
+                )
+                try store.save(registry)
+            }
+        }
+
+        _ = try pool.acquire(claimant: me, ttl: hour, kind: .any, form: .phone)
+
+        #expect(try registry().devices.keys.sorted() == ["R5", "emulator-5556"])
+        #expect(warnings.isEmpty)
+    }
+
+    @Test func anOfflineOrUnauthorizedDeviceCantBeClaimed() {
+        env.connect("R5", state: .offline)
+        env.connect("R6", state: .unauthorized)
+        #expect(throws: CLIFailure("R5 is offline, not ready to use")) { _ = try pool.claimSerial("R5", claimant: me, ttl: hour) }
+        #expect(throws: CLIFailure("R6 is unauthorized, not ready to use")) { _ = try pool.claimSerial("R6", claimant: me, ttl: hour) }
+    }
+
     @Test func aVanishedDevicesLeaseIsReapedWithAWarning() throws {
         env.connect("R5")
         _ = try pool.claimSerial("R5", claimant: other, ttl: hour)
         env.devices = []
         env.connect("R6")
+        env.clock += 1
         _ = try pool.claimSerial("R6", claimant: me, ttl: hour)
         #expect(try registry().devices.keys.sorted() == ["R6"])
         #expect(warnings == ["reaped lease on vanished device R5 (/repo/other)"])
@@ -179,6 +211,18 @@ struct DevicePoolTests {
         #expect(pendingDuringBoot["avd:Pixel_8"]?.expiresAt == env.clock.addingTimeInterval(900))
         #expect(try registry().pending.isEmpty)
         #expect(try registry().devices["emulator-5554"]?.owner == me.owner)
+    }
+
+    /// A claim interrupted between the boot and the lease leaves the claimant's own pending entry.
+    @Test func acquireLeasesAnEmulatorTheClaimantWasBooting() throws {
+        env.connect("emulator-5554", avd: "Pixel_8")
+        try pendingBoot("Pixel_8", for: me)
+
+        let result = try pool.acquire(claimant: me, ttl: hour, kind: .emulator, form: nil)
+
+        #expect(result.serial == "emulator-5554")
+        #expect(env.booted.isEmpty)
+        #expect(try registry().pending.isEmpty)
     }
 
     @Test func aFailedBootClearsItsPendingEntry() throws {
@@ -291,10 +335,8 @@ struct DevicePoolTests {
         }
 
         #expect(try pool.acquire(claimant: me, ttl: hour, kind: .physical, form: .tablet).lease.form == .tablet)
-        _ = try pool.release("R5", owner: me.owner, force: false)
-        #expect(try pool.listing().first?.form == .tablet)
         let readings = lockedDuringForm
-        #expect(readings.count >= 2)
+        #expect(!readings.isEmpty)
         #expect(readings.allSatisfy { !$0 }, "\(readings)")
     }
 
@@ -383,6 +425,16 @@ struct DevicePoolTests {
         #expect(try pool.prune() == ["reaped expired lease on R5 (/repo/me)"])
         #expect(try pool.prune().isEmpty)
         #expect(warnings.isEmpty)
+    }
+
+    @Test func listingReadsNoLiveForms() throws {
+        env.connect("R5")
+        env.forms["R5"] = .phone
+        var reads = 0
+        env.duringForm = { reads += 1 }
+
+        #expect(try pool.listing().first?.form == nil)
+        #expect(reads == 0)
     }
 
     @Test func listingMergesLiveDevicesLeasesAndPendingBoots() throws {

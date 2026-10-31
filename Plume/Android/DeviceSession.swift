@@ -352,7 +352,13 @@ final class DeviceSession {
     /// Extends the reservation so it lasts until at least `date`, for a lease renewed past it.
     func extendReservation(until date: Date) async throws {
         guard let reservation, hasLiveReservation else { throw CLIFailure("the device tab holds no live reservation") }
-        let short = date.timeIntervalSince(reservation.expiresAt ?? now())
+        if reservation.expiresAt == nil, await reservation.status() == .ended {
+            throw CLIFailure("the reservation has ended")
+        }
+        guard let expiresAt = reservation.expiresAt else {
+            throw CLIFailure("Device Streaming didn't say when the reservation expires, so it wasn't extended; try again")
+        }
+        let short = date.timeIntervalSince(expiresAt)
         guard short > 0 else { return }
         try await extend(reservation, minutes: Int((short / 60).rounded(.up)))
     }

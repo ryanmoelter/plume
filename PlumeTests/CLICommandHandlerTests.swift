@@ -376,6 +376,22 @@ struct CLICommandHandlerTests {
         #expect(try store.load().pending.isEmpty)
     }
 
+    @Test func joiningAClaimForAnotherModelFails() async throws {
+        let task = TaskStore.createTask(in: context, siblings: [])
+        let caller = try #require(task.tabs.first)
+        let store = try makeDeviceStore()
+        let reservations = Reservations()
+        let handler = makeReservingHandler(task: task, store: store, reservations: reservations)
+        _ = await handler.handle(.reserveDevice(.init(tabID: caller.id)))
+
+        let other = await handler.handle(.reserveDevice(.init(tabID: caller.id, model: "shiba/34")))
+        let same = await handler.handle(.reserveDevice(.init(tabID: caller.id, model: "akita/34")))
+
+        #expect(other.error == "this tab is already reserving akita/34; release it before reserving shiba/34")
+        #expect(same.ok)
+        #expect(reservations.started.count == 1)
+    }
+
     @Test func joiningAClaimWritesItsPendingEntryAgain() async throws {
         let task = TaskStore.createTask(in: context, siblings: [])
         let caller = try #require(task.tabs.first)

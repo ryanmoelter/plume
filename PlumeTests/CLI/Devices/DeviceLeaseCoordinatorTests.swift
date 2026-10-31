@@ -168,6 +168,21 @@ struct DeviceLeaseCoordinatorTests {
         #expect(recorder.returnedToPicker.isEmpty)
     }
 
+    /// A restored task brings its device tab back, and a reservation claimed into it later must
+    /// still end with its lease.
+    @Test func aRestoredDeviceTabEndsItsReservationAgain() async throws {
+        coordinator.tabForgotten(deviceTab)
+        await coordinator.settle()
+        recorder.live = [deviceTab]
+        try await coordinator.beginClaim(claim(created: false))
+        coordinator.reservationEvent(.attached(reservationID: "r1", serial: "localhost:40001"), deviceTab: deviceTab)
+        await coordinator.settle()
+
+        #expect(try await coordinator.releaseLease("remote:r1") != nil)
+
+        #expect(recorder.ended == ["r1"])
+    }
+
     @Test func theLaunchSweepLeavesOtherAppsLeasesAlone() async throws {
         let live = DeviceLeaseOwner.tab(id: ownerTab, app: me)
         let gone = DeviceLeaseOwner.tab(id: UUID(), app: me)

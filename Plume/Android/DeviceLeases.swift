@@ -129,9 +129,12 @@ final class DeviceLeaseCoordinator {
         }
     }
 
+    /// A tab forgotten this run that hasn't come back, as an archived task's tabs do on a restore.
+    private func isForgotten(_ tabID: UUID) -> Bool { forgottenTabs.contains(tabID) && !effects.isTabLive(tabID) }
+
     private func dropLeasesOfForgottenTabs(in registry: DeviceRegistry, app: String) {
         let owners = Set(registry.devices.values.compactMap { $0.owner.app == app ? $0.owner.tabID : nil })
-        let stray = owners.filter { forgottenTabs.contains($0) && !effects.isTabLive($0) }
+        let stray = owners.filter(isForgotten)
         guard !stray.isEmpty else { return }
         mutate { registry, app, _ in stray.flatMap { registry.forget(tabID: $0, app: app) } }
     }
@@ -145,7 +148,7 @@ final class DeviceLeaseCoordinator {
             claims[claim.deviceTabID] = nil
             onMain { coordinator in
                 // Archiving forgets the device tab too, and closing its session ended the reservation.
-                guard !coordinator.forgottenTabs.contains(claim.deviceTabID) else { return }
+                guard !coordinator.isForgotten(claim.deviceTabID) else { return }
                 if claim.deviceTabCreated {
                     coordinator.effects.closeTab(claim.deviceTabID)
                 } else {
@@ -350,7 +353,7 @@ final class DeviceLeaseCoordinator {
 
     private func release(_ lease: DeviceLease) {
         // A forgotten device tab's session ended the reservation when it closed.
-        if let tabID = lease.deviceTabID, forgottenTabs.contains(tabID) { return }
+        if let tabID = lease.deviceTabID, isForgotten(tabID) { return }
         EmulatorLog.info("device leases: ending \(lease.remote?.reservationID ?? "?") with its lease")
         effects.endReservation(lease)
         if lease.deviceTabCreatedByClaim, let tabID = lease.deviceTabID { effects.closeTab(tabID) }
