@@ -137,6 +137,37 @@ struct ChildProcessTests {
         #expect(Date().timeIntervalSince(start) < 10)
     }
 
+    @Test func aSignalledChildReportsTheShellsStatus() async throws {
+        let result = try await sh("kill -TERM $$")
+        #expect(result.status == 128 + SIGTERM)
+    }
+
+    @Test func capturedOutputKillsWhatTheChildBackgrounded() async throws {
+        let output = try #require(ChildProcess.capturedOutput(
+            executable: "/bin/sh", arguments: ["-c", "sleep 30 & echo $!"], timeout: 10
+        ))
+        let grandchild = try #require(pid_t(output.trimmingCharacters(in: .whitespacesAndNewlines)))
+        defer { kill(grandchild, SIGKILL) }
+        // Orphaned, the grandchild is reaped by launchd once it dies.
+        for _ in 0..<300 where kill(grandchild, 0) == 0 { try await Task.sleep(for: .milliseconds(10)) }
+        #expect(kill(grandchild, 0) == -1)
+    }
+
+    @Test func aChildJoinsTheCallersProcessGroupOnlyWhenAsked() throws {
+        func groups(newProcessGroup: Bool) throws -> [String] {
+            try ChildProcess.run(
+                executable: "/bin/sh", arguments: ["-c", "echo $$; ps -o pgid= -p $$"], newProcessGroup: newProcessGroup
+            ).stdout.split(whereSeparator: \.isWhitespace).map(String.init)
+        }
+        let shared = try groups(newProcessGroup: false)
+        #expect(shared.count == 2)
+        #expect(shared.last == String(getpgrp()))
+
+        let own = try groups(newProcessGroup: true)
+        #expect(own.count == 2)
+        #expect(own.first == own.last)
+    }
+
     @Test func lineSplitterReturnsOnlyCompletedLines() {
         var buffer = LineSplitter()
         #expect(buffer.completeLines(appending: "New reservation created with id 3f3j").isEmpty)

@@ -22,6 +22,9 @@ nonisolated struct ChildProcessError: LocalizedError, Equatable {
 /// signal to the wrapper alone. Only a cancel or a timeout signals the group, so a daemon a
 /// finished command leaves behind survives. Without it, the child shares the caller's terminal
 /// job, which a command that may open an editor needs.
+///
+/// A child killed by a signal reports 128 plus the signal number, as a shell does, and one that
+/// can't be reaped reports -1.
 nonisolated enum ChildProcess {
     enum Input: Sendable {
         case null
@@ -53,7 +56,8 @@ nonisolated enum ChildProcess {
         try run(
             executable: executable, arguments: arguments, environment: environment,
             workingDirectory: workingDirectory, input: input, output: output,
-            newProcessGroup: newProcessGroup, timeout: timeout, isCancelled: { false }, onOutput: onOutput
+            newProcessGroup: newProcessGroup, timeout: timeout, terminationGrace: .seconds(1),
+            killsGroupOnExit: false, isCancelled: { false }, onOutput: onOutput
         )
     }
 
@@ -77,8 +81,8 @@ nonisolated enum ChildProcess {
                         let result = try run(
                             executable: executable, arguments: arguments, environment: environment,
                             workingDirectory: workingDirectory, input: input, output: output,
-                            newProcessGroup: newProcessGroup, timeout: timeout,
-                            isCancelled: { cancelled.withLock { $0 } }, onOutput: onOutput
+                            newProcessGroup: newProcessGroup, timeout: timeout, terminationGrace: .seconds(1),
+                            killsGroupOnExit: false, isCancelled: { cancelled.withLock { $0 } }, onOutput: onOutput
                         )
                         if cancelled.withLock({ $0 }) { throw CancellationError() }
                         return result
@@ -91,9 +95,15 @@ nonisolated enum ChildProcess {
     }
 
     /// Stdout, or nil when the command can't be spawned or overruns `timeout`. Stderr is dropped.
+    /// The whole process group is killed once the child exits, so nothing a login shell's profile
+    /// backgrounds (`ssh-agent`, `(cmd &)`) outlives the read. A timeout kills at once, since an
+    /// interactive zsh ignores SIGTERM.
     static func capturedOutput(executable: String, arguments: [String], timeout: TimeInterval) -> String? {
-        guard let result = try? run(executable: executable, arguments: arguments, timeout: .seconds(timeout)),
-              !result.timedOut
+        guard let result = try? run(
+            executable: executable, arguments: arguments, environment: nil, workingDirectory: nil,
+            input: .null, output: .pipes, newProcessGroup: true, timeout: .seconds(timeout),
+            terminationGrace: .zero, killsGroupOnExit: true, isCancelled: { false }, onOutput: nil
+        ), !result.timedOut
         else { return nil }
         return result.stdout
     }
@@ -107,6 +117,8 @@ nonisolated enum ChildProcess {
         output: Output,
         newProcessGroup: Bool,
         timeout: Duration?,
+        terminationGrace: Duration,
+        killsGroupOnExit: Bool,
         isCancelled: () -> Bool,
         onOutput: (@Sendable (String) -> Void)?
     ) throws -> ChildProcessResult {
@@ -270,7 +282,7 @@ nonisolated enum ChildProcess {
         }
 
         let deadline = timeout.map { ContinuousClock.now + $0 }
-        var exitStatus: Int32 = 0
+        var exitStatus: Int32?
         var timedOut = false
         while true {
             var pollers = readEnds.enumerated().map { index, descriptor in
@@ -280,11 +292,15 @@ nonisolated enum ChildProcess {
             _ = poll(&pollers, nfds_t(pollers.count), pollTimeout)
             drain(0)
             drain(1)
-            if waitpid(pid, &exitStatus, WNOHANG) == pid { break }
+            if hasExited(pid) {
+                if killsGroupOnExit, newProcessGroup { kill(-pid, SIGKILL) }
+                exitStatus = reap(pid)
+                break
+            }
             let cancelled = isCancelled()
             if cancelled || deadline.map({ ContinuousClock.now >= $0 }) == true {
                 timedOut = !cancelled
-                terminate(pid, group: newProcessGroup, exitStatus: &exitStatus)
+                exitStatus = terminate(pid, group: newProcessGroup, grace: terminationGrace)
                 break
             }
         }
@@ -294,29 +310,50 @@ nonisolated enum ChildProcess {
         if let captureFile {
             stdout = (try? Data(contentsOf: URL(fileURLWithPath: captureFile.path))) ?? Data()
         }
-        let status: Int32 = (exitStatus & 0x7f) == 0 ? (exitStatus >> 8) & 0xff : -1
         return ChildProcessResult(
-            status: status,
+            status: exitStatus.map(shellStatus) ?? -1,
             stdout: String(decoding: stdout, as: UTF8.self),
             stderr: String(decoding: stderr, as: UTF8.self),
             timedOut: timedOut
         )
     }
 
-    /// SIGTERM, a second's grace, then SIGKILL, and reaps the child.
-    private static func terminate(_ pid: pid_t, group: Bool, exitStatus: inout Int32) {
+    /// SIGTERM and `grace` to exit, then SIGKILL; a zero grace skips the SIGTERM. Reaps the child.
+    private static func terminate(_ pid: pid_t, group: Bool, grace: Duration) -> Int32? {
         let target = group ? -pid : pid
-        kill(target, SIGTERM)
-        let grace = Date().addingTimeInterval(1)
-        var info = siginfo_t()
-        while Date() < grace {
-            info.si_pid = 0
-            if waitid(P_PID, id_t(pid), &info, WEXITED | WNOHANG | WNOWAIT) == 0, info.si_pid != 0 { break }
-            usleep(20_000)
+        if grace > .zero {
+            kill(target, SIGTERM)
+            let end = ContinuousClock.now + grace
+            while ContinuousClock.now < end, !hasExited(pid) { usleep(20_000) }
         }
         // The leader is still unreaped here, so its pid can't be reused for another group yet.
         kill(target, SIGKILL)
-        while waitpid(pid, &exitStatus, 0) == -1, errno == EINTR {}
+        return reap(pid)
+    }
+
+    /// Leaves the child unreaped, so its pid, and with it the process group's id, can't be reused
+    /// before the group is signalled. A failed wait counts as exited: with ECHILD there's nothing
+    /// left to wait for, and the kevent that wakes the loop has already fired.
+    private static func hasExited(_ pid: pid_t) -> Bool {
+        var info = siginfo_t()
+        while true {
+            if waitid(P_PID, id_t(pid), &info, WEXITED | WNOHANG | WNOWAIT) == 0 { return info.si_pid == pid }
+            if errno != EINTR { return true }
+        }
+    }
+
+    /// The raw wait status, or nil when the child can't be reaped.
+    private static func reap(_ pid: pid_t) -> Int32? {
+        var status: Int32 = 0
+        while true {
+            if waitpid(pid, &status, 0) == pid { return status }
+            if errno != EINTR { return nil }
+        }
+    }
+
+    private static func shellStatus(_ waitStatus: Int32) -> Int32 {
+        let signal = waitStatus & 0x7f
+        return signal == 0 ? (waitStatus >> 8) & 0xff : 128 + signal
     }
 
     private static func makePipe() throws -> (read: Int32, write: Int32) {
