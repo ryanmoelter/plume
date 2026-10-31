@@ -41,7 +41,7 @@ struct ChatSelectionSerializerTests {
     }
 
     @Test func partialBoldKeepsItsMarkers() {
-        #expect(markdown("a **bold** word", selecting: "ol") == "**ol**")
+        #expect(markdown("a **bold** word", selecting: "ol") == "ol")
     }
 
     @Test func partialSelectionAcrossStylesWritesEachRun() {
@@ -49,11 +49,11 @@ struct ChatSelectionSerializerTests {
     }
 
     @Test func partialLinkKeepsItsURL() {
-        #expect(markdown("see [the docs](https://example.com/a) now", selecting: "docs") == "[docs](https://example.com/a)")
+        #expect(markdown("see [the docs](https://example.com/a) now", selecting: "docs") == "docs")
     }
 
     @Test func codeContainingBackticksGetsALongerFence() {
-        #expect(markdown("run ``a`b`` now", selecting: "a`b") == "``a`b``")
+        #expect(markdown("run ``a`b`` now", selecting: "a`b") == "a`b")
     }
 
     @Test func literalMarkupCharactersAreEscaped() {
@@ -65,8 +65,8 @@ struct ChatSelectionSerializerTests {
     }
 
     @Test func whitespaceStaysOutsideDelimiters() {
-        #expect(markdown("a **bold text** b", selecting: "ld te") == "**ld te**")
-        #expect(markdown("a **bold text** b", selecting: "ld ") == "**ld** ")
+        #expect(markdown("a **bold text** b", selecting: "ld te") == "ld te")
+        #expect(markdown("a **bold text** b", selecting: "ld ") == "ld ")
     }
 
     @Test func aListItemFromItsStartKeepsMarkerAndIndent() {
@@ -146,7 +146,35 @@ struct ChatSelectionSerializerTests {
             of: pieces,
             selection: Fixtures.selection(piece, text.fragments[3].start..<text.fragments[3].start + 1)
         )
-        #expect(body == "| Name | Qty |\n| --- | --: |\n| apple | 3 |")
+        #expect(body == "3")
+    }
+
+    @Test func aSelectionInsideOneStyleDropsItsMarkers() {
+        #expect(markdown("a `code span` b", selecting: "code span") == "code span")
+        #expect(markdown("a `code span` b", selecting: "de sp") == "de sp")
+        #expect(markdown("a *it* b", selecting: "it") == "it")
+        #expect(markdown("a ~~gone~~ b", selecting: "on") == "on")
+        #expect(markdown("a **bold** b", selecting: "bold") == "bold")
+        #expect(markdown("see [the docs](https://example.com/a) now", selecting: "the docs") == "the docs")
+    }
+
+    @Test func aSelectionBeyondTheStyleKeepsMarkers() {
+        #expect(markdown("a **bold** b", selecting: "a bol") == "a **bol**")
+        #expect(markdown("a **bold** b", selecting: "ld b") == "**ld** b")
+        #expect(markdown("a **bold *it* x** b", selecting: "old it") == "**old** ***it***")
+        #expect(markdown("a **b** and `c`", selecting: "b and c") == "**b** and `c`")
+    }
+
+    @Test func plainTextWithoutStyleStillEscapes() {
+        #expect(markdown("a \\*star\\* b", selecting: "*star*") == "\\*star\\*")
+    }
+
+    @Test func aSelectionInsideOneStyledTableCellDropsTheTable() {
+        let pieces = Fixtures.pieces("| Name |\n|---|\n| **apple pie** |")
+        let piece = pieces[0]
+        let start = ChatSelectableText(piece: piece).fragments[1].start
+        let result = ChatSelectionSerializer.markdown(of: pieces, selection: Fixtures.selection(piece, start..<start + 5))
+        #expect(result == "apple")
     }
 
     @Test func aHeaderlessTableSliceGetsAnEmptyHeader() {
@@ -157,7 +185,7 @@ struct ChatSelectionSerializerTests {
         )
         let start = ChatSelectableText(piece: piece).fragments[3].start
         let result = ChatSelectionSerializer.markdown(of: [piece], selection: Fixtures.selection(piece, start..<start + 1))
-        #expect(result == "|  |  |\n| --- | :-: |\n| c | d |")
+        #expect(result == "d")
     }
 
     @Test func tablePipesInCellsAreEscaped() {
@@ -167,8 +195,8 @@ struct ChatSelectionSerializerTests {
             content: .markdown(table, index: 0), wash: .none, copySource: "full"
         )
         let start = ChatSelectableText(piece: piece).fragments[1].start
-        let result = ChatSelectionSerializer.markdown(of: [piece], selection: Fixtures.selection(piece, start..<start + 2))
-        #expect(result == "| a |\n| --- |\n| x \\| y |")
+        let result = ChatSelectionSerializer.markdown(of: [piece], selection: Fixtures.selection(piece, start..<start + 5))
+        #expect(result == "x \\| y")
     }
 
     @Test func listsOfDifferentKindsAreSeparatedByABlankLine() {
@@ -209,7 +237,7 @@ struct ChatSelectionSerializerTests {
     }
 
     @Test func linkDestinationsWithParenthesesUseAngleBrackets() {
-        #expect(markdown("[doc](<https://e.com/a(1)>) end", selecting: "doc") == "[doc](<https://e.com/a(1)>)")
-        #expect(markdown("[doc](https://e.com/a%20b) end", selecting: "doc") == "[doc](https://e.com/a%20b)")
+        #expect(markdown("[doc](<https://e.com/a(1)>) end", selecting: "doc e") == "[doc](<https://e.com/a(1)>) e")
+        #expect(markdown("[doc](https://e.com/a%20b) end", selecting: "doc e") == "[doc](https://e.com/a%20b) e")
     }
 }
