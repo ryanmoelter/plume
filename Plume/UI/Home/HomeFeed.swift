@@ -24,6 +24,7 @@ struct HomeFeed: Equatable {
         var iconName: String?
         var iconTint: SidebarTint?
         var barTint: SidebarTint?
+        var context = HomeRowContext()
     }
 
     struct Item: Identifiable, Equatable {
@@ -40,6 +41,10 @@ struct HomeFeed: Equatable {
         let iconName: String?
         let iconTint: SidebarTint?
         let barTint: SidebarTint?
+        let context: HomeRowContext
+        /// Listed under "Not started", which the sidebar's rule dims: never
+        /// messaged, or resumed mid-turn.
+        let isInactive: Bool
 
         var id: UUID { tabID }
 
@@ -61,6 +66,9 @@ struct HomeFeed: Equatable {
         let agentTabCounts = Dictionary(entries.map { ($0.taskID, 1) }, uniquingKeysWith: +)
         var needsYou: [(index: Int, item: Item)] = []
         for (index, entry) in entries.enumerated() {
+            let isUnstarted = !entry.status.isActive
+                && !Self.needsYou(status: entry.status, isUnread: entry.isUnread)
+                && Self.isUnstarted(entry)
             let item = Item(
                 taskID: entry.taskID,
                 tabID: entry.tabID,
@@ -72,13 +80,15 @@ struct HomeFeed: Equatable {
                 workStartedAt: entry.status.isActive ? entry.workStartedAt : nil,
                 iconName: entry.iconName,
                 iconTint: entry.iconTint,
-                barTint: entry.barTint
+                barTint: entry.barTint,
+                context: entry.context,
+                isInactive: isUnstarted
             )
             if entry.status.isActive {
                 running.append(item)
             } else if Self.needsYou(status: entry.status, isUnread: entry.isUnread) {
                 needsYou.append((index, item))
-            } else if Self.isUnstarted(entry) {
+            } else if isUnstarted {
                 notStarted.append(item)
             } else {
                 idle.append(item)

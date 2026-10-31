@@ -104,6 +104,23 @@ struct HomeFeedTests {
         #expect(feed.idle.isEmpty)
     }
 
+    @Test func onlyNotStartedRowsAreInactive() {
+        let feed = HomeFeed(entries: [
+            entry(.notStarted), entry(.interrupted, hasSession: true),
+            entry(.notStarted, hasSession: true), entry(.awaitingReply, hasSession: true),
+            entry(.working), entry(.questionAsked), entry(.awaitingReply, isUnread: true),
+        ])
+        #expect(feed.notStarted.allSatisfy { $0.isInactive })
+        #expect(feed.notStarted.count == 2)
+        #expect(!(feed.idle + feed.running + feed.needsYou).contains { $0.isInactive })
+    }
+
+    @Test func theContextCarriesThroughToTheItem() {
+        var withContext = entry(.questionAsked)
+        withContext.context = HomeRowContext(project: "Plume", branch: "ryanm/home")
+        #expect(HomeFeed(entries: [withContext]).needsYou[0].context == withContext.context)
+    }
+
     // MARK: Ordering
 
     @Test func needsYouOrderIsErrorPermissionTerminalQuestionPlanUnread() {

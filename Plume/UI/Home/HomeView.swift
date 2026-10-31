@@ -36,7 +36,7 @@ private struct HomeContent: View, ThemedView {
                 }
                 if !feed.idle.isEmpty {
                     quietSection(
-                        "Idle", items: feed.idle, marksIdle: true,
+                        "Idle", items: feed.idle,
                         collapse: CollapseControl(
                             id: AccessibilityID.homeIdleHeader, isExpanded: $idleExpanded
                         )
@@ -87,7 +87,6 @@ private struct HomeContent: View, ThemedView {
     private func quietSection(
         _ title: String,
         items: [HomeFeed.Item],
-        marksIdle: Bool = false,
         collapse: CollapseControl? = nil
     ) -> some View {
         VStack(alignment: .leading, spacing: 4) {
@@ -102,7 +101,7 @@ private struct HomeContent: View, ThemedView {
             if collapse?.isExpanded.wrappedValue ?? true {
                 VStack(alignment: .leading, spacing: 0) {
                     ForEach(items) { item in
-                        HomeRow(item: item, isProminent: false, hangsMarkers: hangsMarkers, marksIdle: marksIdle) {
+                        HomeRow(item: item, isProminent: false, hangsMarkers: hangsMarkers) {
                             open(item.taskID, item.tabID)
                         }
                     }
@@ -141,7 +140,6 @@ private struct CollapsibleSectionHeader: View, ThemedView {
             .emphasis(.secondary)
             .padding(.horizontal, HomeRow.horizontalPadding + bleed)
             .padding(.vertical, 2)
-            .padding(.horizontal, -bleed)
             .frame(maxWidth: .infinity, alignment: .leading)
             .background {
                 RoundedRectangle(cornerRadius: SidebarMetrics.selectionCornerRadius)
@@ -153,6 +151,7 @@ private struct CollapsibleSectionHeader: View, ThemedView {
         .accessibilityAddTraits(.isHeader)
         .plumeHover { isHovered = $0 }
         .plumeID(id, label: title, value: isExpanded ? "expanded" : "collapsed") { isExpanded.toggle() }
+        .padding(.horizontal, -bleed)
     }
 }
 
@@ -185,13 +184,13 @@ private struct HomeRow: View, ThemedView {
     private static let barTextGap: CGFloat = 8
     /// What sits before the text column: the status marker and the color bar.
     static let markerGutterWidth = markerWidth + markerSpacing + barWidth + barTextGap
+    private static let contextSeparator = "  •  "
 
     let item: HomeFeed.Item
     let isProminent: Bool
     /// On a wide page the markers sit left of the text column, in the gutter,
     /// so every section's text shares one leading edge.
     let hangsMarkers: Bool
-    var marksIdle = false
     let action: () -> Void
     @Environment(\.theme) var theme
     @Environment(\.colorScheme) private var colorScheme
@@ -211,6 +210,7 @@ private struct HomeRow: View, ThemedView {
                             .lineLimit(2)
                             .truncationMode(.tail)
                     }
+                    contextLine
                 }
                 .padding(.leading, Self.barWidth + Self.barTextGap)
                 .overlay(alignment: .leading) { colorBar }
@@ -222,9 +222,8 @@ private struct HomeRow: View, ThemedView {
                 }
             }
             .padding(.horizontal, Self.horizontalPadding)
-            .padding(.vertical, isProminent ? 8 : 4)
             .padding(.trailing, bleed)
-            .padding(.horizontal, -bleed)
+            .padding(.vertical, isProminent ? 8 : 4)
             .frame(maxWidth: .infinity, alignment: .leading)
             .background {
                 RoundedRectangle(cornerRadius: SidebarMetrics.selectionCornerRadius)
@@ -235,6 +234,18 @@ private struct HomeRow: View, ThemedView {
         .buttonStyle(.plain)
         .plumeHover { isHovered = $0 }
         .plumeID(AccessibilityID.homeRow, label: label, value: item.reason, invoke: action)
+        // Outermost, so the fill, the click target and the hover region all
+        // span the gutter: negative padding shrinks only the size reported
+        // to the column, and anything applied outside it gets that size.
+        .padding(.horizontal, -bleed)
+    }
+
+    private var titleEmphasis: Emphasis {
+        item.isInactive ? .secondary : .primary
+    }
+
+    private var tintOpacity: Double {
+        item.isInactive ? TaskRowView.inactiveTintOpacity : 1
     }
 
     @ViewBuilder
@@ -248,18 +259,15 @@ private struct HomeRow: View, ThemedView {
         }
     }
 
+    @ViewBuilder
     private var leadingMarker: some View {
-        Group {
-            if marksIdle || StatusBadge.isBlank(status: item.status, isUnread: item.isUnread) {
-                Circle()
-                    .fill(Color.chatSurface(.subtle, colorScheme: colorScheme))
-                    .frame(width: 8, height: 8)
-            } else {
-                StatusBadge(status: item.status, isUnread: item.isUnread, showsElapsed: false)
-                    .font(isProminent ? typography.body.font : typography.caption.font)
-            }
+        if StatusBadge.isBlank(status: item.status, isUnread: item.isUnread) {
+            Color.clear.frame(width: Self.markerWidth, height: 0)
+        } else {
+            StatusBadge(status: item.status, isUnread: item.isUnread, showsElapsed: false)
+                .font(isProminent ? typography.body.font : typography.caption.font)
+                .frame(width: Self.markerWidth)
         }
-        .frame(width: Self.markerWidth)
     }
 
     private var label: String {
@@ -274,7 +282,7 @@ private struct HomeRow: View, ThemedView {
             }
             Text(item.taskTitle)
                 .font(isProminent ? typography.body.semibold : typography.caption.font)
-                .emphasis(isProminent ? .primary : .secondary)
+                .emphasis(titleEmphasis)
             if let tabTitle = item.tabTitle {
                 Text(tabTitle)
                     .font(typography.caption.font)
@@ -291,10 +299,60 @@ private struct HomeRow: View, ThemedView {
             .symbolRenderingMode(SidebarIcons.renderingMode(twoTone: AppSettings.shared.sidebarTwoToneIcons))
             .font(isProminent ? typography.body.font : typography.caption.font)
         if let color = item.iconTint.flatMap(theme.colors.color(for:)) {
-            icon.foregroundStyle(color)
+            icon.foregroundStyle(color.opacity(tintOpacity))
         } else {
-            icon.emphasis(isProminent ? .primary : .secondary)
+            icon.emphasis(titleEmphasis)
         }
+    }
+
+    @ViewBuilder
+    private var contextLine: some View {
+        let segments = item.context.segments
+        if !segments.isEmpty {
+            HStack(alignment: .firstTextBaseline, spacing: 0) {
+                ForEach(Array(segments.enumerated()), id: \.offset) { index, segment in
+                    if index > 0 {
+                        Text(Self.contextSeparator).emphasis(.subtle)
+                    }
+                    contextSegment(segment)
+                }
+            }
+            .font(typography.caption.font)
+            .imageScale(.small)
+            .emphasis(.secondary)
+            .lineLimit(1)
+            .truncationMode(.middle)
+        }
+    }
+
+    @ViewBuilder
+    private func contextSegment(_ segment: HomeRowContext.Segment) -> some View {
+        switch segment {
+        case .project(let name):
+            Text(name)
+        case .branch(let branch, let isWorktree, let isLocalOnly):
+            HStack(alignment: .firstTextBaseline, spacing: 3) {
+                if isWorktree { Image(systemName: "tree") }
+                Text(branch)
+                if isLocalOnly, let glyph = PullRequestChipContent.glyphs(for: .localOnly).first,
+                   let symbol = glyph.symbol {
+                    Image(systemName: symbol).help(glyph.label)
+                }
+            }
+        case .issue(let reference, let more), .pullRequest(let reference, let more):
+            HStack(alignment: .firstTextBaseline, spacing: 3) {
+                if let icon = reference.icon {
+                    Image(systemName: icon.symbol)
+                        .foregroundStyle(chipPalette.color(for: icon.tint))
+                }
+                Text(more > 0 ? "\(reference.id) +\(more)" : reference.id)
+                    .fixedSize()
+            }
+        }
+    }
+
+    private var chipPalette: ReferenceChipPalette {
+        ReferenceChipPalette(colors: theme.colors, colorScheme: colorScheme)
     }
 
     /// Only the unread preview is prose; a status reason shows as written.

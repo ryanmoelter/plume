@@ -16,7 +16,8 @@ struct TaskRowView: View {
         SidebarTaskAppearance(task: task, settings: .shared)
     }
 
-    private var tintOpacity: Double { isInactive ? 0.7 : 1 }
+    static let inactiveTintOpacity = 0.7
+    private var tintOpacity: Double { isInactive ? Self.inactiveTintOpacity : 1 }
 
     /// Live status once the engine knows the task; the persisted snapshot
     /// covers the window before any agent has run this launch.

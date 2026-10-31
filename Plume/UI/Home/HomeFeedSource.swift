@@ -10,6 +10,7 @@ struct HomeFeedSource {
     var preview: (TaskTab) -> String?
     var taskTitle: (WorkTask) -> String
     var tabTitle: (TaskTab) -> String
+    var context: (WorkTask, TaskTab) -> HomeRowContext = { _, _ in HomeRowContext() }
 
     static var live: HomeFeedSource {
         HomeFeedSource(
@@ -29,8 +30,55 @@ struct HomeFeedSource {
                 return HomePreviewCache.shared.preview(forTab: tab.id, messages: messages)
             },
             taskTitle: { TitleStore.shared.displayTitle(for: $0) },
-            tabTitle: { TitleStore.shared.title(forTab: $0.id) ?? $0.displayTitle }
+            tabTitle: { TitleStore.shared.title(forTab: $0.id) ?? $0.displayTitle },
+            context: HomeRowContext.live(task:tab:)
         )
+    }
+}
+
+extension HomeRowContext {
+    /// Reads only what the sidebar's watches have already cached; Home starts
+    /// no lookup of its own.
+    static func live(task: WorkTask, tab: TaskTab) -> HomeRowContext {
+        let directory = TabDirectoryStore.shared.directory(for: tab)
+        let checkout = CheckoutFactsStore.shared.facts(for: directory)
+        let showsPullRequests = AppSettings.shared.showsPullRequestStatus
+        var context = HomeRowContext(
+            project: TaskRowDetails.projectName(for: .init(directory: directory, checkout: checkout)),
+            branch: directory.flatMap(task.displayedBranch(in:)) ?? task.branchName,
+            isWorktree: checkout?.isWorktree ?? false,
+            isLocalOnly: showsPullRequests && PullRequestStore.shared.state(for: directory) == .localOnly
+        )
+        if showsPullRequests {
+            // This tab's own checkout leads.
+            var directories = task.agentDirectories
+            if let directory {
+                directories.removeAll { $0 == directory }
+                directories.insert(directory, at: 0)
+            }
+            var seen: Set<Int> = []
+            for directory in directories {
+                guard case .pullRequest(let pullRequest) = PullRequestStore.shared.state(for: directory),
+                      seen.insert(pullRequest.number).inserted
+                else { continue }
+                context.pullRequests.append(Reference(
+                    id: "#\(pullRequest.number)",
+                    icon: .pullRequest(number: pullRequest.number, state: pullRequest.state, isDraft: pullRequest.isDraft)
+                ))
+            }
+        }
+        if AppSettings.shared.showsLinearIssues, LinearStore.shared.isConfigured {
+            context.issues = LinearStore.shared.links(for: task, branches: task.linearBranches)
+                .filter { $0.role == .working }
+                .map { link in
+                    Reference(
+                        id: link.identifier,
+                        icon: LinearStore.shared.state(for: link.identifier)?.issue
+                            .map { .linear($0.stateType, colorHex: $0.stateColor) }
+                    )
+                }
+        }
+        return context
     }
 }
 
@@ -72,7 +120,8 @@ extension HomeFeed {
                 preview: isUnread ? source.preview(tab) : nil,
                 iconName: task.iconName,
                 iconTint: appearance.iconTint,
-                barTint: appearance.barTint
+                barTint: appearance.barTint,
+                context: source.context(task, tab)
             )
         }
         self.init(entries: entries)
