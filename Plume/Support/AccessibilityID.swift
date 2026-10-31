@@ -250,6 +250,8 @@ enum AccessibilityID {
     static let chatTrustOpenTerminal = "chat-trust-open-terminal"
 
     static let workspaceWorktreeMenu = "workspace-worktree-menu"
+    static let workspaceSubfolderMenu = "workspace-subfolder-menu"
+    static let workspaceSubfolderButton = "workspace-subfolder-button"
 
     // MARK: New worktree sheet
 
