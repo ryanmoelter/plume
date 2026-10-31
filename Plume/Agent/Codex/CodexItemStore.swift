@@ -38,6 +38,10 @@ final class CodexItemStore {
     private var savedCopies: Set<UUID> = []
     private var restoredTabs: Set<UUID> = []
     @ObservationIgnored private var cacheWrites: [UUID: Task<Void, Never>] = [:]
+    /// Reports the ID of a tab's last item the first time it is known and
+    /// whenever it changes.
+    @ObservationIgnored var onLatestItemChanged: ((UUID, String?) -> Void)?
+    @ObservationIgnored private var reportedLatestItems: [UUID: String?] = [:]
 
     init(cache: CodexHistoryCache? = nil) { self.cache = cache }
 
@@ -129,7 +133,14 @@ final class CodexItemStore {
         })
     }
 
+    /// The stable ID of the tab's last item, in the form a cached snapshot's
+    /// entries carry.
+    func latestItemID(forTab tabID: UUID) -> String? {
+        tabs[tabID]?.order.last
+    }
+
     private func persist(tabID: UUID) {
+        reportLatestItem(tabID: tabID)
         guard let cache, let threadID = threadIDs[tabID], tabs[tabID] != nil,
               restoredTabs.contains(tabID) || hydratedTabs.contains(tabID) else { return }
         guard let snapshot = snapshot(tabID: tabID, threadID: threadID) else { return }
@@ -313,9 +324,18 @@ final class CodexItemStore {
         return nil
     }
 
+    private func reportLatestItem(tabID: UUID) {
+        guard tabs[tabID] != nil else { return }
+        let latest = latestItemID(forTab: tabID)
+        if let reported = reportedLatestItems[tabID], reported == latest { return }
+        reportedLatestItems[tabID] = latest
+        onLatestItemChanged?(tabID, latest)
+    }
+
     func forget(tabID: UUID) {
         // Archive/close clears live state while retaining offline history.
         tabs.removeValue(forKey: tabID)
+        reportedLatestItems.removeValue(forKey: tabID)
         bindings.removeValue(forKey: tabID)
         threadIDs.removeValue(forKey: tabID)
         hydratedTabs.remove(tabID)
