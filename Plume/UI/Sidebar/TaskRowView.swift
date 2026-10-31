@@ -77,7 +77,7 @@ struct TaskRowView: View {
         return TaskRowDetails.lines(groups: groups)
             + TaskRowDetails.pinnedPullRequestLines(
                 pinned,
-                branchPullRequestURLs: TaskRowDetails.branchPullRequestURLs(groups),
+                groups: groups,
                 details: { LinkedPullRequestStore.shared.detail(for: $0) }
             )
             + TaskRowDetails.linearLines(working, states: { LinearStore.shared.state(for: $0) })

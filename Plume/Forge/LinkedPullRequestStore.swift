@@ -18,6 +18,9 @@ final class LinkedPullRequestStore {
     static let failureBackoff: TimeInterval = 30
     static let maxFailureBackoff: TimeInterval = 600
     static let maxConcurrentRepositories = 2
+    /// Half of `cacheLifetime`, so a retained answer is at most one tick past
+    /// its lifetime, and a failed fetch retries soon after its backoff ends.
+    static let pollInterval: TimeInterval = 60
 
     nonisolated enum Detail: Equatable, Sendable {
         case pullRequest(MentionCandidate.PullRequestEntry)
@@ -28,9 +31,10 @@ final class LinkedPullRequestStore {
     typealias Runner = @Sendable (_ arguments: [String]) async throws -> Data
 
     private var referencesByTab: [UUID: [PullRequestReference]] = [:]
-    /// Pinned references a task's sidebar row shows, kept alive when no tab
-    /// names them.
+    /// Pinned references, kept alive and polled when no tab names them.
     @ObservationIgnored private var retainedByTask: [UUID: [PullRequestReference]] = [:]
+    @ObservationIgnored private var decodedPins: [UUID: (data: Data?, pinned: [PullRequestReference])] = [:]
+    @ObservationIgnored private var pollTimer: Timer?
     private var details: [PullRequestReference: Detail] = [:]
     @ObservationIgnored private var askedAt: [PullRequestReference: Date] = [:]
     @ObservationIgnored private var inFlight: Set<PullRequestReference> = []
@@ -67,11 +71,43 @@ final class LinkedPullRequestStore {
         retainedByTask[taskID] = references.isEmpty ? nil : references
         if !Set(before).isSubset(of: Set(references)) { prune() }
         refresh(references)
+        updatePolling()
     }
 
     func forget(taskID: UUID) {
+        decodedPins[taskID] = nil
         guard retainedByTask.removeValue(forKey: taskID) != nil else { return }
         prune()
+        updatePolling()
+    }
+
+    /// The task's pinned references, decoded once per change to its
+    /// integrations, since rows and the info pane read this from `body`.
+    func pinned(of task: WorkTask) -> [PullRequestReference] {
+        let data = task.integrationsData
+        if let cached = decodedPins[task.id], cached.data == data { return cached.pinned }
+        let pinned = TaskIntegrations.decode(data).pullRequests?.pinned ?? []
+        decodedPins[task.id] = (data, pinned)
+        return pinned
+    }
+
+    var isPolling: Bool { pollTimer != nil }
+
+    /// Fetches every retained reference that is due. `refresh` skips one
+    /// still fresh or backing off, so a tick costs nothing until then.
+    func refreshRetained() {
+        refresh(Array(Set(retainedByTask.values.joined())))
+    }
+
+    private func updatePolling() {
+        if retainedByTask.isEmpty {
+            pollTimer?.invalidate()
+            pollTimer = nil
+        } else if pollTimer == nil {
+            pollTimer = Timer.scheduledTimer(withTimeInterval: Self.pollInterval, repeats: true) { [weak self] _ in
+                Task { @MainActor in self?.refreshRetained() }
+            }
+        }
     }
 
     private func prune() {

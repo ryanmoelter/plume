@@ -76,6 +76,72 @@ struct LinkedPullRequestStoreTests {
         store.forget(taskID: task)
         #expect(store.detail(for: ref) == nil)
     }
+
+    @Test func unpinningPrunesAReferenceNoTabNamesAndKeepsOneATabDoes() async {
+        let error = missingRepository
+        let store = LinkedPullRequestStore(run: { _ in throw error })
+        let tab = UUID()
+        let task = UUID()
+        let mentioned = PullRequestReference(owner: "a", repo: "b", number: 1)
+        let pinnedOnly = PullRequestReference(owner: "a", repo: "b", number: 2)
+        store.replace(tabID: tab, references: [mentioned])
+        store.retain([mentioned, pinnedOnly], forTask: task)
+        for _ in 0..<200 where store.detail(for: pinnedOnly) == nil { try? await Task.sleep(for: .milliseconds(10)) }
+        #expect(store.detail(for: mentioned) == .unavailable)
+        #expect(store.detail(for: pinnedOnly) == .unavailable)
+
+        store.retain([], forTask: task)
+        #expect(store.detail(for: mentioned) == .unavailable)
+        #expect(store.detail(for: pinnedOnly) == nil)
+    }
+
+    @Test func retainingPollsUntilTheLastTaskIsForgotten() {
+        let store = LinkedPullRequestStore(run: { _ in Data() })
+        let first = UUID()
+        let second = UUID()
+        let ref = PullRequestReference(owner: "a", repo: "b", number: 1)
+        #expect(!store.isPolling)
+        store.retain([ref], forTask: first)
+        store.retain([ref], forTask: second)
+        #expect(store.isPolling)
+        store.retain([], forTask: first)
+        #expect(store.isPolling)
+        store.forget(taskID: second)
+        #expect(!store.isPolling)
+    }
+
+    @Test func aPollRetriesAFailedFetchOnlyOnceItsBackoffHasPassed() async {
+        let counter = Counter()
+        let clock = Clock()
+        let store = LinkedPullRequestStore(
+            run: { _ in
+                await counter.bump()
+                throw ForgeError(message: "network down")
+            },
+            now: { clock.now }
+        )
+        let ref = PullRequestReference(owner: "a", repo: "b", number: 1)
+        store.retain([ref], forTask: UUID())
+        for _ in 0..<200 where await counter.value < 1 { try? await Task.sleep(for: .milliseconds(10)) }
+        // Lets the failure land before the poll.
+        try? await Task.sleep(for: .milliseconds(50))
+
+        clock.now += LinkedPullRequestStore.failureBackoff - 1
+        store.refreshRetained()
+        try? await Task.sleep(for: .milliseconds(50))
+        #expect(await counter.value == 1)
+
+        clock.now += 2
+        store.refreshRetained()
+        for _ in 0..<200 where await counter.value < 2 { try? await Task.sleep(for: .milliseconds(10)) }
+        #expect(await counter.value == 2)
+        #expect(store.detail(for: ref) == nil)
+    }
+}
+
+@MainActor
+private final class Clock {
+    var now = Date(timeIntervalSince1970: 1_000_000)
 }
 
 private actor Counter {

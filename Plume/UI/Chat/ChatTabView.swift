@@ -329,6 +329,7 @@ struct ChatTabView: View, ThemedView {
 
     var body: some View {
         let linearLinks = linkedLinearIssues
+        let pinned = settings.showsPullRequestStatus ? TaskStore.pinnedPullRequests(of: task) : []
         return VStack(spacing: 0) {
             // The tracking rides on `content` rather than on the chain below,
             // which is already at the type-checker's limit.
@@ -336,6 +337,8 @@ struct ChatTabView: View, ThemedView {
                 .onChange(of: Set(linearLinks.filter { $0.role == .mentioned }.map(\.identifier)), initial: true) { _, mentioned in
                     LinearMentionTracker.shared.observe(mentioned: mentioned, taskID: task.id)
                 }
+                // The sidebar row retains these too, but it may never mount.
+                .task(id: pinned) { LinkedPullRequestStore.shared.retain(pinned, forTask: task.id) }
                 .modifier(OptimisticFirstMessageTracking(
                     messages: transcriptMessages,
                     startFailure: headlessSession?.startFailure,

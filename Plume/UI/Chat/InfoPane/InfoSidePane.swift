@@ -34,6 +34,7 @@ struct InfoSidePane: View, ThemedView {
     @State private var isFloatingOpen = false
     @State private var showsCompletedSubagents = false
     @State private var showsMentionedLinearIssues = false
+    @State private var showsMentionedPullRequests = true
     @State private var pendingHover: Task<Void, Never>?
     @State private var collapsedSize: CGSize = .zero
     @State private var expandedHeight: CGFloat = 0
@@ -155,7 +156,8 @@ struct InfoSidePane: View, ThemedView {
             linearActions: linearActions,
             pullRequestActions: pullRequestActions,
             showsCompleted: $showsCompletedSubagents,
-            showsMentionedLinearIssues: $showsMentionedLinearIssues
+            showsMentionedLinearIssues: $showsMentionedLinearIssues,
+            showsMentionedPullRequests: $showsMentionedPullRequests
         )
         .environment(\.infoPaneIsOpen, isOpen)
         .onPreferenceChange(InfoPaneHoldsOpenKey.self) { holdsHoverOpen = $0 }

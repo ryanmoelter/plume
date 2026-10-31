@@ -21,6 +21,7 @@ struct InfoPaneContent: View, ThemedView {
     /// opens and closes.
     @Binding var showsCompleted: Bool
     @Binding var showsMentionedLinearIssues: Bool
+    @Binding var showsMentionedPullRequests: Bool
 
     @State private var settings = AppSettings.shared
     @Environment(\.openURL) private var openURL
@@ -54,7 +55,11 @@ struct InfoPaneContent: View, ThemedView {
         case .branch: branch
         case .pullRequest: pullRequest
         case .linkedPullRequests:
-            LinkedPullRequestsSection(pullRequests: facts.linkedPullRequests, actions: pullRequestActions)
+            LinkedPullRequestsSection(
+                pullRequests: facts.linkedPullRequests,
+                actions: pullRequestActions,
+                showsMentioned: $showsMentionedPullRequests
+            )
         case .linearIssues:
             LinearIssuesSection(linear: facts.linear, actions: linearActions, showsMentioned: $showsMentionedLinearIssues)
         }

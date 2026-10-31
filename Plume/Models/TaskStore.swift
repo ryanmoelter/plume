@@ -547,7 +547,7 @@ enum TaskStore {
     // MARK: - Pinned pull requests
 
     static func pinnedPullRequests(of task: WorkTask) -> [PullRequestReference] {
-        TaskIntegrations.decode(task.integrationsData).pullRequests?.pinned ?? []
+        LinkedPullRequestStore.shared.pinned(of: task)
     }
 
     /// Returns false for input that is not a pull request URL or `owner/repo#123`.
