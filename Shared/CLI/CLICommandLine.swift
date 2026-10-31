@@ -14,6 +14,8 @@ nonisolated enum CLIInvocation: Equatable, Sendable {
     case wt([String])
     /// `plume stack …`, or any arguments when invoked as `stack`.
     case stack([String])
+    /// `plume devices …`.
+    case devices([String])
 }
 
 nonisolated struct CLIUsageError: Error, Equatable, Sendable {
@@ -46,6 +48,7 @@ nonisolated enum CLICommandLine {
                                     Open a terminal tab in this task, print its ID
           wt <command>              Manage worktrees (`plume wt help`)
           stack <command>           Manage stacked branches (`plume stack help`)
+          devices <command>         Lease Android devices between agents (`plume devices help`)
           init zsh [--aliases] [--alias NAME]
                                     Print zsh completions, for `eval "$(plume init zsh)"`;
                                     --aliases adds a bare `wt`, whose `wt switch` cds,
@@ -97,6 +100,8 @@ nonisolated enum CLICommandLine {
             return .wt(rest)
         case "stack":
             return .stack(rest)
+        case "devices":
+            return .devices(rest)
         default:
             throw CLIUsageError(message: "unknown command '\(command)'", usage: usage)
         }

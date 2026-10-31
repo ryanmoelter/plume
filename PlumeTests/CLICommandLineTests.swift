@@ -129,6 +129,12 @@ struct CLICommandLineTests {
         #expect(try CLICommandLine.parse(["--version"], executableName: "stack") == .stack(["--version"]))
     }
 
+    @Test func devicesRoutesItsArgumentsVerbatim() throws {
+        #expect(try parse(["devices"]) == .devices([]))
+        #expect(try parse(["devices", "claim", "--kind=any", "--json"]) == .devices(["claim", "--kind=any", "--json"]))
+        #expect(CLICommandLine.usage.contains("devices <command>"))
+    }
+
     @Test func zshIntegrationParses() throws {
         let process = Process()
         process.executableURL = URL(fileURLWithPath: "/bin/zsh")

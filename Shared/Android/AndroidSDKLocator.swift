@@ -114,17 +114,56 @@ nonisolated enum AndroidSDKLocator {
 
         let (root, adbRoot, searched) = resolve(candidates: candidates, isExecutable: isExecutable, home: home)
         guard let root else { return .notFound(searchedPaths: searched) }
+        return .found(makeSDK(root: root, adbRoot: adbRoot, environment: shell.environment, isExecutable: isExecutable))
+    }
+
+    /// For the `plume` tool, which pays for every lookup: the login shell is queried only when the
+    /// environment and the usual install locations don't already name a full SDK.
+    static func locateSkippingShellWhenPossible(
+        environment: [String: String] = ProcessInfo.processInfo.environment
+    ) -> AndroidSDKLookup {
+        if let sdk = quickLookup(environment: environment) { return .found(sdk) }
+        return discover()
+    }
+
+    /// Nil unless one root has both the emulator and adb, so a partial install still gets the
+    /// login shell's answer.
+    static func quickLookup(
+        environment: [String: String],
+        isExecutable: (String) -> Bool = { FileManager.default.isExecutableFile(atPath: $0) },
+        home: String = NSHomeDirectory(),
+        resolveSymlinks: (String) -> String = { URL(fileURLWithPath: $0).resolvingSymlinksInPath().path }
+    ) -> AndroidSDK? {
+        var candidates = [environment["ANDROID_HOME"], environment["ANDROID_SDK_ROOT"],
+                          home + "/Library/Android/sdk", home + "/.android/sdk"].compactMap { $0 }
+        if let adb = CLIProcess.which("adb", environment: environment),
+           let root = sdkRoot(fromADB: adb, resolveSymlinks: resolveSymlinks) {
+            candidates.append(root)
+        }
+        let (root, adbRoot, _) = resolve(candidates: candidates, isExecutable: isExecutable, home: home)
+        guard let root, adbRoot == root else { return nil }
+        let inherited = environment.filter { $0.key.hasPrefix("ANDROID_") && !$0.value.isEmpty }
+        let sdk = makeSDK(root: root, adbRoot: adbRoot, environment: inherited, isExecutable: isExecutable)
+        return sdk.emulatorURL == nil ? nil : sdk
+    }
+
+    private static func makeSDK(
+        root: String,
+        adbRoot: String?,
+        environment: [String: String],
+        isExecutable: (String) -> Bool
+    ) -> AndroidSDK {
         let rootURL = URL(fileURLWithPath: root, isDirectory: true)
         let emulator = rootURL.appending(path: "emulator/emulator")
         let adb = adbRoot.map { URL(fileURLWithPath: $0, isDirectory: true).appending(path: "platform-tools/adb") }
-        var environment = shell.environment
+        var environment = environment
         environment["ANDROID_HOME"] = root
-        return .found(AndroidSDK(
+        return AndroidSDK(
             root: rootURL,
             emulatorURL: isExecutable(emulator.path) ? emulator : nil,
             adbURL: adb,
             launchEnvironment: environment
-        ))
+        )
     }
 
     static let loginShellTimeout: TimeInterval = 5

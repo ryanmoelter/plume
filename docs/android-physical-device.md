@@ -6,7 +6,7 @@ A device tab (`TabKind.device`, platform `androidPhysical`) can mirror a physica
 
 - `Packages/ScrcpyControl/` holds the wire layer: `ScrcpyServerLaunch` (push, forward, run), `ScrcpyDemuxer`, `H264Decoder` (VideoToolbox, IOSurface-backed BGRA) and `ScrcpyControlMessage`. `ScrcpyConnection` is its facade. Run `swift test` in the package for its tests; `ScrcpyProbe` mirrors a real device for a few seconds without the app.
 - `Plume/Android/PhysicalDeviceConnection.swift` adapts `ScrcpyConnection` to `DeviceConnecting`, the protocol the session talks to. `EmulatorDeviceConnection` is the emulator's adapter.
-- `Plume/Android/PhysicalDeviceDiscovery.swift` lists devices from `adb devices -l`.
+- `Shared/Android/ADBDeviceList.swift` lists devices from `adb devices -l`, and `Plume/Android/PhysicalDeviceDiscovery.swift` polls it while a picker is open.
 - `Plume/Android/AndroidKeycodeMapper.swift` turns Mac key events into Android keycodes and text, tracks what the device holds, and decides which chords stay with Plume (`AndroidShortcutPolicy`).
 
 ## The server binary

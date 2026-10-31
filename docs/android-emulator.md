@@ -11,7 +11,7 @@ A device tab (`TabKind.device`, platform `androidEmulator`) shows a live Android
 
 ## Finding the SDK
 
-`AndroidSDKLocator` takes the first candidate whose `emulator/emulator` is executable: `ANDROID_HOME`, `ANDROID_SDK_ROOT`, the same two read from an interactive login shell, `~/Library/Android/sdk`, `~/.android/sdk`, then the root above the login shell's `adb`. Failing that, it takes the first with `platform-tools/adb`, and `AndroidSDK.emulatorURL` is nil. The login-shell step exists because an app opened from Finder inherits none of the shell's environment, and `ANDROID_HOME` usually lives in `.zshrc`.
+`AndroidSDKLocator` takes the first candidate whose `emulator/emulator` is executable: `ANDROID_HOME`, `ANDROID_SDK_ROOT`, the same two read from an interactive login shell, `~/Library/Android/sdk`, `~/.android/sdk`, then the root above the login shell's `adb`. Failing that, it takes the first with `platform-tools/adb`, and `AndroidSDK.emulatorURL` is nil. The login-shell step exists because an app opened from Finder inherits none of the shell's environment, and `ANDROID_HOME` usually lives in `.zshrc`. The `plume` tool tries the same candidates from its own environment first, plus the root above an `adb` on its PATH, and asks the login shell only when no candidate has both the emulator and adb (`locateSkippingShellWhenPossible`).
 
 An AVD's id is its `<id>.ini` basename in `~/.android/avd`, not the name of the `.avd` directory that ini points at. `-avd` and the discovery file both use the id.
 
@@ -29,7 +29,7 @@ Every emulator writes `grpc.token`, whether or not it was started with `-grpc-us
 
 ## Booting
 
-`EmulatorLauncher` runs `emulator -avd <id> -no-window -grpc-use-token -no-boot-anim` in its own session (`POSIX_SPAWN_SETSID`), with stdin from `/dev/null` and output to `~/Library/Application Support/Plume/Emulators/<id>.log`. The emulator must outlive the tab and Plume: closing a tab only stops streaming, and quitting Plume leaves every emulator running. Shut one down from the tab's menu, which calls `setVmState(SHUTDOWN)`.
+`EmulatorLauncher` runs `emulator -avd <id> -no-window -grpc-use-token -no-boot-anim` in its own session (`POSIX_SPAWN_SETSID`), with stdin from `/dev/null` and output to `Emulators/<id>.log` in the data directory (the installed app's, for `plume devices`). It strips every `PLUME_*` variable from the emulator's environment, so nothing the emulator spawns looks like it belongs to a tab. The emulator must outlive the tab and Plume: closing a tab only stops streaming, and quitting Plume leaves every emulator running. Shut one down from the tab's menu, which calls `setVmState(SHUTDOWN)`.
 
 With `-no-window` the emulator runs `qemu-system-aarch64-headless` and renders with SwiftShader, a software GPU (*measured*).
 
