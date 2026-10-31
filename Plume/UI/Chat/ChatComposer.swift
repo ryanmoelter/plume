@@ -58,6 +58,8 @@ struct ChatComposer: View, ThemedView {
     /// The panel that just closed, kept on screen while it collapses.
     @State private var closingSuggestionPanel: SuggestionPanel?
     @State private var textAreaTop: CGFloat = 0
+    /// Kept until the draft that caused it is edited.
+    @State private var addDirectoryError: (message: String, draft: String)?
 
     private var headlessSession: (any AgentSession)? {
         guard tab.transport == .headless else { return nil }
@@ -136,8 +138,9 @@ struct ChatComposer: View, ThemedView {
     /// Plume's own join them only once there is something to run them
     /// against. `/rc` drives a control request, which needs a live process.
     /// `/btw` needs a conversation instead, and resumes one that has no
-    /// process. They never shadow a name the CLI reports: if a later CLI
-    /// serves `/rc` headlessly, its version wins.
+    /// process. `/add-dir` changes the tab's own list, so it needs neither.
+    /// They never shadow a name the CLI reports: if a later CLI serves `/rc`
+    /// headlessly, its version wins.
     private var availableSlashCommands: [SlashCommand] {
         if tab.provider == .codex, tab.transport == .headless {
             return CodexSkillStore.shared.skills(in: skillDirectory).map(\.command)
@@ -148,7 +151,11 @@ struct ChatComposer: View, ThemedView {
         let reportedNames = Set(reported.map(\.name))
         let plumeCommands = PlumeSlashCommand.all.filter { command in
             guard !reportedNames.contains(command.name) else { return false }
-            return command.name == "btw" ? hasConversation : headlessSession != nil
+            switch command.name {
+            case "btw": return hasConversation
+            case "add-dir": return true
+            default: return headlessSession != nil
+            }
         }
         return reported + plumeCommands
     }
@@ -353,6 +360,9 @@ struct ChatComposer: View, ThemedView {
                     )
                     .padding(.bottom, dimensions.panelContentInset)
                 }
+                if let addDirectoryError {
+                    addDirectoryErrorRow(addDirectoryError.message)
+                }
                 if isCommandMode {
                     commandModeChip
                         .transition(.opacity.combined(with: .move(edge: .bottom)))
@@ -367,6 +377,7 @@ struct ChatComposer: View, ThemedView {
                     onTextChange: { text in
                         let sendable = sendableText(text)
                         if sendable != hasSendableText { hasSendableText = sendable }
+                        if let error = addDirectoryError, error.draft != text { addDirectoryError = nil }
                         updateCommandMode(for: text)
                         autocomplete.slash.update(text: text, caretLocation: caretLocation, commands: availableSlashCommands, prefix: completionPrefix)
                     },
@@ -697,22 +708,24 @@ struct ChatComposer: View, ThemedView {
             return
         }
         if !isCommandMode, images.isEmpty, tab.provider == .claudeCode, tab.transport == .headless, let command = PlumeSlashCommand.parse(text) {
-            guard let headlessSession = liveClaudeSession(for: command) else {
-                // A question has nothing to read until a conversation exists,
-                // so it goes back in the composer rather than vanishing.
-                if case .sideQuestion = command {
-                    drafts.setDraft(text, forTab: tab.id)
-                    hasSendableText = true
-                }
-                return
-            }
             switch command {
+            case .addDirectory(let path):
+                addDirectory(path, typed: text)
             case .remoteControl(let name):
+                guard let headlessSession = liveClaudeSession(for: command) else { return }
                 headlessSession.setRemoteControl(
                     enabled: !headlessSession.remoteControl.isConnected,
                     name: name
                 )
             case .sideQuestion(let question):
+                guard let headlessSession = liveClaudeSession(for: command) else {
+                    // A question has nothing to read until a conversation
+                    // exists, so it goes back in the composer rather than
+                    // vanishing.
+                    drafts.setDraft(text, forTab: tab.id)
+                    hasSendableText = true
+                    return
+                }
                 headlessSession.askSideQuestion(question)
             }
             return
@@ -810,6 +823,36 @@ struct ChatComposer: View, ThemedView {
         }
     }
 
+    /// A bare `/add-dir` opens the folder picker. A path that is not a
+    /// folder goes back in the draft, to be corrected rather than retyped.
+    private func addDirectory(_ path: String, typed text: String) {
+        guard !path.isEmpty else {
+            AddFolderPanel.present(for: tab)
+            return
+        }
+        Task {
+            guard await !AdditionalDirectoryStore.add([path], to: tab).isEmpty else { return }
+            drafts.setDraft(text, forTab: tab.id)
+            hasSendableText = true
+            addDirectoryError = (message: "Not a folder: \(path)", draft: text)
+        }
+    }
+
+    private func addDirectoryErrorRow(_ error: String) -> some View {
+        HStack(spacing: 4) {
+            Image(systemName: "exclamationmark.triangle")
+                .font(typography.caption.font)
+            Text(error)
+                .font(typography.caption.font)
+                .lineLimit(2)
+                .truncationMode(.middle)
+        }
+        .foregroundStyle(colors.danger)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .padding(.bottom, dimensions.panelContentInset)
+        .plumeID(AccessibilityID.composerAddDirectoryError, value: error)
+    }
+
     /// The session a Plume command runs against. A side question needs a
     /// conversation to ask about, so it is never a chat's first message. On a
     /// tab with a conversation but no running process — every tab, after a
@@ -820,14 +863,7 @@ struct ChatComposer: View, ThemedView {
         guard case .sideQuestion = command else { return session }
         guard hasConversation else { return nil }
         guard session?.hasExited ?? true else { return session }
-        if session != nil { AgentSessionManager.shared.closeSession(for: tab.id) }
-        AgentLauncher.launch(message: nil, task: tab.task ?? task, tab: tab, resumeSessionID: tab.agentSessionID)
-        let resumed = headlessSession as? HeadlessSession
-        if let session, let resumed {
-            resumed.inheritSideQuestions(from: session)
-            for message in session.queuedMessages { resumed.submit(blocks: message) }
-        }
-        return resumed
+        return AgentLauncher.relaunchHeadless(task: tab.task ?? task, tab: tab) as? HeadlessSession
     }
 
     /// Recorded once the CLI reports the session, so a chat whose first
@@ -845,12 +881,8 @@ struct ChatComposer: View, ThemedView {
         let text = blocks.plainText
         if let headlessSession, !headlessSession.hasExited {
             return headlessSession.submit(blocks: blocks)
-        } else if let exitedSession = headlessSession {
-            let unsent = exitedSession.queuedMessages
-            AgentSessionManager.shared.closeSession(for: tab.id)
-            AgentLauncher.launch(message: nil, task: tab.task ?? task, tab: tab, resumeSessionID: tab.agentSessionID)
-            if let resumed = headlessSession {
-                for message in unsent { resumed.submit(blocks: message) }
+        } else if headlessSession != nil {
+            if let resumed = AgentLauncher.relaunchHeadless(task: tab.task ?? task, tab: tab) {
                 return resumed.submit(blocks: blocks)
             }
         } else if let session = SurfaceManager.shared.existingSession(for: tab.id) {

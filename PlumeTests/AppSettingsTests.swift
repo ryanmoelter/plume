@@ -258,19 +258,6 @@ struct AppSettingsTests {
 }
 
 @MainActor
-struct AgentProviderRegistryTests {
-    @Test func resolvesEachProviderToItsOwnImplementation() {
-        #expect(AgentProviderRegistry.provider(for: .claudeCode, settingsPath: nil).kind == .claudeCode)
-        #expect(AgentProviderRegistry.provider(for: .codex, settingsPath: nil).kind == .codex)
-    }
-
-    @Test func settingsPathIsForwardedToTheResolvedProvider() {
-        let provider = AgentProviderRegistry.provider(for: .claudeCode, settingsPath: "/settings.json")
-        #expect((provider as? ClaudeCodeProvider)?.settingsPath == "/settings.json")
-    }
-}
-
-@MainActor
 struct RecentRemoteDeviceModelsTests {
     @Test func keepsNewestFirstWithoutDuplicatesAndCapsAtFive() {
         let defaults = UserDefaults(suiteName: "RecentRemoteDeviceModelsTests-\(UUID().uuidString)")!

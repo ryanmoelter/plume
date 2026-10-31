@@ -87,6 +87,15 @@ final class TaskTab {
 
     /// Reserved for extra launch args and statusline preferences.
     var launchArgumentsData: Data?
+    /// JSON `[String]` of absolute paths passed as `--add-dir`. A resume
+    /// restores none of a session's added folders, so this is the only
+    /// record of them. `AdditionalDirectoryStore` owns the writes to a tab
+    /// with a session; a fork copies its source's list before it has one.
+    var additionalDirectoriesData: Data?
+    /// JSON `[String]` of folders removed from this tab. A resumed session
+    /// can go on reporting a folder it reached before, and this keeps that
+    /// report from adopting it again.
+    var removedAdditionalDirectoriesData: Data?
 
     init(kind: TabKind, orderIndex: Int, task: WorkTask? = nil) {
         self.id = UUID()
@@ -188,6 +197,26 @@ final class TaskTab {
     var model: AgentModel? {
         get { modelRaw.flatMap { AgentModel.recognizing($0, provider: provider) } }
         set { modelRaw = newValue?.id }
+    }
+
+    var additionalDirectories: [String] {
+        get {
+            guard let additionalDirectoriesData else { return [] }
+            return AdditionalDirectories.decoded(additionalDirectoriesData)
+        }
+        set {
+            additionalDirectoriesData = newValue.isEmpty ? nil : try? JSONEncoder().encode(newValue)
+        }
+    }
+
+    var removedAdditionalDirectories: [String] {
+        get {
+            guard let removedAdditionalDirectoriesData else { return [] }
+            return AdditionalDirectories.decoded(removedAdditionalDirectoriesData)
+        }
+        set {
+            removedAdditionalDirectoriesData = newValue.isEmpty ? nil : try? JSONEncoder().encode(newValue)
+        }
     }
 
     var codexCollaborationMode: CodexCollaborationMode {

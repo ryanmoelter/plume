@@ -8,9 +8,11 @@ struct ClaudeCodeProvider: AgentProvider {
     /// Nil disables instrumentation, which degrades to a plain `claude`
     /// session rather than failing to launch.
     var settingsPath: String?
+    var additionalDirectories: [String]
 
-    init(settingsPath: String? = nil) {
+    init(settingsPath: String? = nil, additionalDirectories: [String] = []) {
         self.settingsPath = settingsPath
+        self.additionalDirectories = additionalDirectories
     }
 
     func launchCommand(
@@ -21,6 +23,7 @@ struct ClaudeCodeProvider: AgentProvider {
         permissionMode: String?
     ) -> AgentLaunch {
         var arguments = ["claude"]
+        arguments += HeadlessCommand.addDirectoryArguments(additionalDirectories.map(shellQuoted))
 
         if let settingsPath {
             arguments.append("--settings")

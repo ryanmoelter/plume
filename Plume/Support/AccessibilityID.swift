@@ -229,6 +229,13 @@ enum AccessibilityID {
     // The workspace segment keeps its `composer-` string, which external
     // drivers already query.
     static let composerWorkspacePicker = "composer-workspace-picker"
+    static let composerAddDirectoryError = "composer-add-directory-error"
+    static let emptyStateAddFolderMenu = "empty-state-add-folder-menu"
+    static let addFolderMenuRecentFolder = "add-folder-menu-recent-folder"
+    static let addFolderMenuRecentProject = "add-folder-menu-recent-project"
+    static let addFolderMenuChooseButton = "add-folder-menu-choose-button"
+    static let emptyStateFolderChip = "empty-state-folder-chip"
+    static let emptyStateFolderRemoveButton = "empty-state-folder-remove-button"
     static let statuslineFiveHourMeter = "statusline-five-hour-meter"
     static let statuslineSevenDayMeter = "statusline-seven-day-meter"
     static let statuslineContextMeter = "statusline-context-meter"
@@ -334,6 +341,14 @@ enum AccessibilityID {
     static let infoPaneLinearLinkButton = "info-pane-linear-link-button"
     static let infoPaneArtifactsToggle = "info-pane-artifacts-toggle"
     static let infoPaneArtifactRow = "info-pane-artifact-row"
+    static let infoPaneFoldersToggle = "info-pane-folders-toggle"
+    static let infoPaneFoldersAddMenu = "info-pane-folders-add-menu"
+    static let infoPaneFolderRow = "info-pane-folder-row"
+    static let infoPaneFolderRevealButton = "info-pane-folder-reveal-button"
+    static let infoPaneFolderCopyButton = "info-pane-folder-copy-button"
+    static let infoPaneFolderRemoveButton = "info-pane-folder-remove-button"
+    static let infoPaneFolderKeepButton = "info-pane-folder-keep-button"
+    static let infoPaneFoldersRestartNowButton = "info-pane-folders-restart-now-button"
 
     // MARK: Side questions (/btw)
 

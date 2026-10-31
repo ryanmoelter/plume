@@ -215,6 +215,39 @@ struct ChatTabView: View, ThemedView {
         )
     }
 
+    private var folderActions: InfoPaneFolderActions {
+        let tab = tab
+        return InfoPaneFolderActions(
+            add: { paths in Task { AddFolderPanel.report(await AdditionalDirectoryStore.add(paths, to: tab)) } },
+            remove: { AdditionalDirectoryStore.remove($0, from: tab) },
+            choose: { AddFolderPanel.present(for: tab) },
+            restartNow: { AdditionalDirectoryStore.restartNow(tab) }
+        )
+    }
+
+    private var liveClaudeSession: HeadlessSession? {
+        claudeSession.flatMap { $0.hasExited ? nil : $0 }
+    }
+
+    private var folderRowsInput: FolderRowsInput {
+        let live = liveClaudeSession
+        return FolderRowsInput(
+            workingDirectory: gitDirectory,
+            launchDirectory: live?.launchDirectory,
+            added: tab.additionalDirectories,
+            launched: live?.isRestartPending == true ? live?.launchAdditionalDirectories : nil
+        )
+    }
+
+    private var folderRestart: FolderRestartFacts? {
+        guard let live = liveClaudeSession, live.isRestartPending else { return nil }
+        return FolderRestartFacts(
+            blockers: live.restartBlockers,
+            canRestartNow: AdditionalDirectoryStore.canRestartNow(live),
+            hasFailed: live.hasFailedRestart
+        )
+    }
+
     private func infoPaneFacts(linearLinks: [LinkedLinearIssue]) -> InfoPaneFacts {
         let split = InfoPaneFacts.splitSubagents(
             subagents,
@@ -246,6 +279,9 @@ struct ChatTabView: View, ThemedView {
             backgroundTasks: BackgroundTaskTracker.shared.inFlight(tabID: tab.id),
             planTitle: hasPlan ? planTitle : nil,
             folder: checkout?.projectName ?? gitDirectory.map { ($0 as NSString).lastPathComponent },
+            folderRows: FolderRowsCache.shared.rows(for: tab.id),
+            canEditFolders: tab.provider == .claudeCode,
+            folderRestart: folderRestart,
             branch: branch,
             pullRequest: pullRequest,
             linkedPullRequests: settings.showsPullRequestStatus
@@ -371,6 +407,11 @@ struct ChatTabView: View, ThemedView {
         .chatLinkHandling(directory: gitDirectory.map { URL(fileURLWithPath: $0) })
         .plumeTheme(bodySize: CGFloat(settings.chatFontSize))
         .onAppear { registerWatchIfNeeded() }
+        .task(id: folderRowsInput) {
+            let input = folderRowsInput
+            let rows = await Task.detached { input.rows() }.value
+            if !Task.isCancelled { FolderRowsCache.shared.setRows(rows, for: tab.id) }
+        }
         .task(id: tab.agentSessionID) {
             guard tab.provider == .codex, let threadID = tab.agentSessionID, !threadID.isEmpty else { return }
             await CodexItemStore.shared.restore(tabID: tab.id, threadID: threadID)
@@ -1134,7 +1175,8 @@ struct ChatTabView: View, ThemedView {
             onOpenSideChat: { isSideChatShown = true },
             remoteControlSession: headlessSession,
             linearActions: linearActions,
-            pullRequestActions: pullRequestActions
+            pullRequestActions: pullRequestActions,
+            folderActions: folderActions
         )
     }
 
@@ -1217,6 +1259,7 @@ struct ChatTabView: View, ThemedView {
         newTab.isModelUserChosen = tab.isModelUserChosen
         newTab.permissionMode = tab.permissionMode
         newTab.effort = tab.effort
+        newTab.additionalDirectories = tab.additionalDirectories
         // The fork writes no transcript until its first turn, so it opens on
         // the conversation it was cut from rather than on an empty tab.
         InheritedForkHistory.shared.adopt(from: transcript, cutBefore: target, tabID: newTab.id)
@@ -1285,6 +1328,10 @@ struct ChatTabView: View, ThemedView {
                     .emphasis(.secondary)
                 if isComposerEnabled {
                     workspaceChoice
+                    if tab.provider == .claudeCode {
+                        EmptyStateFolders(tab: tab)
+                            .padding(.top, dimensions.inlineClauseSpacing)
+                    }
                 } else {
                     Text("Waiting for the first message…")
                         .font(.title2)
@@ -1321,12 +1368,7 @@ struct ChatTabView: View, ThemedView {
     }
 
     private func reconnectAgent() {
-        let queued = headlessSession?.queuedMessages ?? []
-        AgentSessionManager.shared.closeSession(for: tab.id)
-        AgentLauncher.launch(message: nil, task: task, tab: tab, resumeSessionID: tab.agentSessionID)
-        if let session = headlessSession {
-            for message in queued { session.submit(blocks: message) }
-        }
+        AgentLauncher.relaunchHeadless(task: task, tab: tab)
     }
 
     private func agentErrorState(_ message: String) -> some View {
@@ -1526,15 +1568,7 @@ struct ChatTabView: View, ThemedView {
     /// survives an app restart and so the chat has a transcript to read.
     private func persistHeadlessSessionID(_ sessionID: String?) {
         guard let sessionID, !sessionID.isEmpty, tab.agentSessionID != sessionID else { return }
-        tab.agentSessionID = sessionID
-        // Only Claude Code keeps a transcript on disk; Codex serves its
-        // history over the protocol, so a Codex tab has no path to derive.
-        guard tab.provider == .claudeCode else { return }
-        guard let workingDirectory = task.workingDirectoryPath else { return }
-        tab.sessionJSONLPath = SessionJSONLReader.resolvedTranscriptPath(
-            workingDirectory: workingDirectory,
-            sessionID: sessionID
-        )
+        AgentLauncher.recordSessionID(sessionID, on: tab)
     }
 
 }

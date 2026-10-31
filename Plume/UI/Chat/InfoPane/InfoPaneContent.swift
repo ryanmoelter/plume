@@ -1,4 +1,5 @@
 import SwiftUI
+import UniformTypeIdentifiers
 
 /// The info pane's sections — subagents, background tasks, the plan, and where
 /// the conversation runs — shared by every presentation.
@@ -17,6 +18,7 @@ struct InfoPaneContent: View, ThemedView {
     let remoteControlSession: (any AgentSession)?
     let linearActions: InfoPaneLinearActions
     var pullRequestActions: InfoPanePullRequestActions = .none
+    var folderActions: InfoPaneFolderActions = .none
     /// Held by the presentation, which outlives this view as the side pane
     /// opens and closes.
     @Binding var showsCompleted: Bool
@@ -25,6 +27,7 @@ struct InfoPaneContent: View, ThemedView {
 
     @State private var settings = AppSettings.shared
     @Environment(\.openURL) private var openURL
+    @State private var isFolderDropTargeted = false
 
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
@@ -39,6 +42,21 @@ struct InfoPaneContent: View, ThemedView {
             }
         }
         .font(typography.caption.font)
+        .overlay {
+            if isFolderDropTargeted {
+                RoundedRectangle(cornerRadius: 8)
+                    .strokeBorder(colors.selection, lineWidth: 2)
+                    .padding(-6)
+            }
+        }
+        .onDrop(
+            of: [.fileURL],
+            delegate: AddFolderDropDelegate(
+                isEnabled: facts.canEditFolders,
+                isTargeted: $isFolderDropTargeted,
+                add: folderActions.add
+            )
+        )
     }
 
     @ViewBuilder
@@ -51,7 +69,14 @@ struct InfoPaneContent: View, ThemedView {
         case .sideChat: sideChat
         case .remoteControl:
             if let remoteControlSession { RemoteControlRow(session: remoteControlSession) }
-        case .folder: folder
+        case .folder:
+            FoldersSection(
+                workingDirectoryName: facts.folder,
+                rows: facts.folderRows,
+                canEdit: facts.canEditFolders,
+                restart: facts.folderRestart,
+                actions: folderActions
+            )
         case .branch: branch
         case .pullRequest: pullRequest
         case .linkedPullRequests:
@@ -290,20 +315,6 @@ struct InfoPaneContent: View, ThemedView {
     }
 
     // MARK: Where it runs
-
-    @ViewBuilder
-    private var folder: some View {
-        if let folder = facts.folder {
-            HStack(spacing: InfoPaneLayout.columnSpacing) {
-                InfoPaneIcon { Image(systemName: "folder") }
-                Text(folder)
-                    .lineLimit(1)
-                    .truncationMode(.middle)
-            }
-            .emphasis(.secondary)
-            .padding(.vertical, InfoPaneLayout.rowVerticalPadding)
-        }
-    }
 
     @ViewBuilder
     private var branch: some View {
