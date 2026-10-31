@@ -647,6 +647,7 @@ struct ChatTabView: View, ThemedView {
                 isVisible: isVisible && !planPresentation.isExpanded,
                 isFocused: isFocused,
                 hasContentAbove: isDocked,
+                hasContentBelow: true,
                 editQueuedMessageIndex: $editQueuedMessageIndex,
                 withdrawnMessageToEdit: $withdrawnMessageToEdit,
                 sendNowRequested: $sendNowRequested
