@@ -1,6 +1,7 @@
 import SwiftUI
 
-/// The box a composer autocomplete list sits in, above the message field.
+/// The box a composer autocomplete list sits in, above the message field, or
+/// below it when the composer opens downward.
 /// Purely chrome: the rows come from `row`, and matching, selection and key
 /// handling live with the caller.
 struct ComposerSuggestionPanel<Item: Identifiable, Row: View>: View, ThemedView {
@@ -13,6 +14,9 @@ struct ComposerSuggestionPanel<Item: Identifiable, Row: View>: View, ThemedView 
     /// same inset it gives the sides. With the queued-messages strip above,
     /// the row spacing sets the gap instead.
     var isTopOfPanel = true
+    /// Set when the list opens below the field, where the panel's bottom edge
+    /// is owed the same inset.
+    var isBottomOfPanel = false
     /// A caption under the rows, set off by a divider.
     var footer: String?
     /// A passing state, such as a search still running. Over rows it draws
@@ -45,6 +49,7 @@ struct ComposerSuggestionPanel<Item: Identifiable, Row: View>: View, ThemedView 
         .overlay { shape.strokeBorder(.separator) }
         .padding(.horizontal, -textInset)
         .padding(.top, isTopOfPanel ? -textInset : 0)
+        .padding(.bottom, isBottomOfPanel ? -textInset : 0)
     }
 
     private func caption(_ text: String) -> some View {

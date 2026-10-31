@@ -11,6 +11,7 @@ struct MentionAutocompleteView: View, ThemedView {
     let isLoading: Bool
     let onSelect: (Int) -> Void
     var isTopOfPanel = true
+    var isBottomOfPanel = false
 
     var body: some View {
         ComposerSuggestionPanel(
@@ -18,6 +19,7 @@ struct MentionAutocompleteView: View, ThemedView {
             selectedIndex: selectedIndex,
             onSelect: onSelect,
             isTopOfPanel: isTopOfPanel,
+            isBottomOfPanel: isBottomOfPanel,
             status: isLoading ? "Searching…" : nil,
             row: row
         )
