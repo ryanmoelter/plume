@@ -29,11 +29,23 @@ struct UnreadPersistence {
             guard let tab = tab(tabID), Self.persists(tab), tab.provider == .codex else { return }
             unread.latestMessageChanged(tabID: tabID, to: itemID)
         }
+        // A Claude Code tab's transcript read is already on its way. A Codex
+        // tab reports items only once its chat mounts.
+        unread.onLatestMessageUnknown = { [unread] tabID in
+            guard let tab = tab(tabID), Self.persists(tab), tab.provider == .codex,
+                  let read = cachedLatestItem(of: tab)
+            else { return }
+            Task {
+                let latest = await read.value
+                unread.latestMessageFound(tabID: tabID, messageID: latest)
+            }
+        }
     }
 
-    /// Call after `StatusEngine.restore`. A Claude Code tab is confirmed by
-    /// the transcript read its watch already runs. A Codex tab's items load
-    /// only when its chat mounts, so its cached snapshot confirms it instead.
+    /// A Claude Code tab is confirmed by the transcript read its watch runs,
+    /// and a tab with no transcript has no latest message. A Codex tab's
+    /// items load only when its chat mounts, so its cached snapshot confirms
+    /// it instead.
     @discardableResult
     func restore(_ tabs: some Sequence<TaskTab>) -> [Task<Void, Never>] {
         var cacheReads: [Task<Void, Never>] = []
@@ -44,18 +56,30 @@ struct UnreadPersistence {
                 continue
             }
             unread.restore(tabID: tab.id, messageID: messageID)
-            guard tab.provider == .codex else { continue }
-            guard let threadID = tab.agentSessionID, !threadID.isEmpty, let codexCache else {
-                unread.latestMessageChanged(tabID: tab.id, to: nil)
-                continue
+            switch tab.provider {
+            case .claudeCode:
+                if tab.sessionJSONLPath?.isEmpty ?? true {
+                    unread.latestMessageChanged(tabID: tab.id, to: nil)
+                }
+            case .codex:
+                guard let read = cachedLatestItem(of: tab) else {
+                    unread.latestMessageChanged(tabID: tab.id, to: nil)
+                    continue
+                }
+                let tabID = tab.id
+                cacheReads.append(Task { [unread] in
+                    let latest = await read.value
+                    guard unread.isAwaitingRestore(tabID: tabID) else { return }
+                    unread.latestMessageChanged(tabID: tabID, to: latest)
+                })
             }
-            let tabID = tab.id
-            cacheReads.append(Task { [unread] in
-                let latest = await codexCache.load(tabID: tabID, threadID: threadID)?.entries.last?.stableID
-                guard unread.isAwaitingRestore(tabID: tabID) else { return }
-                unread.latestMessageChanged(tabID: tabID, to: latest)
-            })
         }
         return cacheReads
+    }
+
+    private func cachedLatestItem(of tab: TaskTab) -> Task<String?, Never>? {
+        guard let threadID = tab.agentSessionID, !threadID.isEmpty, let codexCache else { return nil }
+        let tabID = tab.id
+        return Task { await codexCache.load(tabID: tabID, threadID: threadID)?.entries.last?.stableID }
     }
 }

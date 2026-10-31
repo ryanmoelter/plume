@@ -38,6 +38,10 @@ final class UnreadStore {
     /// this launch instead follows the transcript, which can land after the
     /// turn's status does.
     @ObservationIgnored private var restoredMarks: [UUID: String] = [:]
+    /// Asks for a tab's latest message ID when a mark is set before any is
+    /// known. Answered by `latestMessageFound`.
+    @ObservationIgnored var onLatestMessageUnknown: ((UUID) -> Void)?
+    @ObservationIgnored private var latestMessageLookups: Set<UUID> = []
 
     init() {}
 
@@ -117,6 +121,7 @@ final class UnreadStore {
     }
 
     func latestMessageChanged(tabID: UUID, to messageID: String?) {
+        latestMessageLookups.remove(tabID)
         latestMessageIDs[tabID] = messageID
         if let stored = pendingRestores.removeValue(forKey: tabID) {
             confirm(tabID: tabID, storedMessageID: stored)
@@ -125,6 +130,13 @@ final class UnreadStore {
         } else if unreadTabs.contains(tabID), let messageID {
             onStoredMarkChanged?(tabID, messageID)
         }
+    }
+
+    /// The answer to `onLatestMessageUnknown`. A report that arrived while
+    /// it was being looked up is newer, so it wins.
+    func latestMessageFound(tabID: UUID, messageID: String?) {
+        guard latestMessageLookups.contains(tabID) else { return }
+        latestMessageChanged(tabID: tabID, to: messageID)
     }
 
     private func confirm(tabID: UUID, storedMessageID: String) {
@@ -145,6 +157,9 @@ final class UnreadStore {
         guard changed || wasPending else { return }
         restoredMarks.removeValue(forKey: tabID)
         onStoredMarkChanged?(tabID, unread ? latestMessageIDs[tabID] : nil)
+        if unread, latestMessageIDs[tabID] == nil, latestMessageLookups.insert(tabID).inserted {
+            onLatestMessageUnknown?(tabID)
+        }
     }
 
     static func isSeen(tabID: UUID, taskID: UUID, audience: NotificationAudience) -> Bool {
@@ -159,6 +174,7 @@ final class UnreadStore {
         latestMessageIDs.removeValue(forKey: tabID)
         pendingRestores.removeValue(forKey: tabID)
         restoredMarks.removeValue(forKey: tabID)
+        latestMessageLookups.remove(tabID)
     }
 
     func reset() {
@@ -167,6 +183,7 @@ final class UnreadStore {
         latestMessageIDs.removeAll()
         pendingRestores.removeAll()
         restoredMarks.removeAll()
+        latestMessageLookups.removeAll()
     }
 
     /// Whether a task's badge shows the unread dot. A tab that wants the user

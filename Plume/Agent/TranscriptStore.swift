@@ -100,8 +100,9 @@ final class TranscriptStore {
     var onWorkingDirectoryChanged: ((UUID, String) -> Void)?
 
     /// Reports the ID of a tab's last message on its first read and whenever
-    /// it changes.
+    /// it changes. A transcript that is not there reports nil.
     var onLatestMessageChanged: ((UUID, String?) -> Void)?
+    @ObservationIgnored private var reportedLatestMessageIDs: [UUID: String?] = [:]
 
     init(
         debounce: Duration = .milliseconds(250),
@@ -175,6 +176,7 @@ final class TranscriptStore {
         subagentLinearEvidence.removeValue(forKey: tabID)
         paths.removeValue(forKey: tabID)
         transcripts.removeValue(forKey: tabID)
+        reportedLatestMessageIDs.removeValue(forKey: tabID)
         subagentTranscripts.removeValue(forKey: tabID)
         // A new session file, or a closed tab, so no finish recorded for the
         // old one should decide whether a subagent of the new one lingers.
@@ -209,11 +211,24 @@ final class TranscriptStore {
         subagentLinearEvidence.removeAll()
         paths.removeAll()
         transcripts.removeAll()
+        reportedLatestMessageIDs.removeAll()
         for tabID in subagentTranscripts.keys {
             statusEngine.setSubagentActivity(tabID: tabID, working: false)
         }
         subagentTranscripts.removeAll()
         backgroundTasks.reset()
+    }
+
+    /// The live stream's ID for the tab's newest message, ahead of the read
+    /// that will confirm or correct it.
+    func streamReportedLatestMessage(tabID: UUID, messageID: String) {
+        reportLatestMessage(messageID, tabID: tabID)
+    }
+
+    private func reportLatestMessage(_ messageID: String?, tabID: UUID) {
+        if let reported = reportedLatestMessageIDs[tabID], reported == messageID { return }
+        reportedLatestMessageIDs[tabID] = .some(messageID)
+        onLatestMessageChanged?(tabID, messageID)
     }
 
     func transcript(forTab tabID: UUID) -> Transcript? {
@@ -415,7 +430,9 @@ final class TranscriptStore {
                 // A re-point below may already have started the next read.
                 defer { if reread, self.inFlight[tabID] == nil { self.read(tabID: tabID) } }
                 guard let parsed else {
-                    self.repointIfRelocated(tabID: tabID, from: path)
+                    if !self.repointIfRelocated(tabID: tabID, from: path), self.transcripts[tabID] == nil {
+                        self.reportLatestMessage(nil, tabID: tabID)
+                    }
                     return
                 }
                 // An empty file is often the stub a move leaves behind, so the
@@ -423,13 +440,9 @@ final class TranscriptStore {
                 if parsed.transcript.messages.isEmpty, self.repointIfRelocated(tabID: tabID, from: path) {
                     return
                 }
-                let previous = self.transcripts[tabID]
+                let previousDirectory = self.transcripts[tabID]?.cwd
                 self.transcripts[tabID] = parsed.transcript
-                let latestMessageID = parsed.transcript.messages.last?.id
-                if previous == nil || previous?.messages.last?.id != latestMessageID {
-                    self.onLatestMessageChanged?(tabID, latestMessageID)
-                }
-                let previousDirectory = previous?.cwd
+                self.reportLatestMessage(parsed.transcript.messages.last?.id, tabID: tabID)
                 if let cwd = parsed.transcript.cwd, cwd != previousDirectory {
                     self.onWorkingDirectoryChanged?(tabID, cwd)
                 }
