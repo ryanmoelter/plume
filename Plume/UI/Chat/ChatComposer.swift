@@ -394,6 +394,9 @@ struct ChatComposer: View, ThemedView {
                 .padding(.top, dimensions.panelContentInset)
             }
             .animation(.snappy(duration: 0.2), value: isCommandMode)
+            .background(alignment: .topTrailing) {
+                ComposerModeBackdrop(task: task, tab: tab, headlessSession: headlessSession)
+            }
             // Anchored to the bottom: the panel is pinned to the bottom of
             // the chat, so the chip has to grow the panel upwards. Easing the
             // height from the centre splits the change across both edges and
@@ -765,4 +768,30 @@ struct ChatComposer: View, ThemedView {
 #Preview {
     ChatComposer(task: WorkTask(title: "Preview", orderIndex: 0), tab: TaskTab(kind: .agent, orderIndex: 0))
         .padding()
+}
+
+
+/// A faint icon for the permission mode, behind the text. It hangs off the
+/// text area rather than the whole composer, so an autocomplete panel growing
+/// above never moves it.
+private struct ComposerModeBackdrop: View {
+    let task: WorkTask
+    let tab: TaskTab
+    let headlessSession: (any AgentSession)?
+
+    var body: some View {
+        let state = ComposerSettings(session: headlessSession, tab: tab, defaults: .resolved(task: task))
+        if let preset = state.permissionPreset {
+            Image(systemName: preset.symbol)
+                .id(preset.id)
+                .font(.system(size: 88))
+                .foregroundStyle(.primary)
+                .opacity(0.06)
+                .offset(x: 20, y: -8)
+                .transition(.opacity)
+                .animation(.easeInOut(duration: 0.2), value: preset.id)
+                .allowsHitTesting(false)
+                .accessibilityHidden(true)
+        }
+    }
 }
