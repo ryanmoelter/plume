@@ -48,8 +48,9 @@ struct HomeFeedTests {
         #expect(feed.needsYou.map(\.isUnread) == [true])
     }
 
-    @Test func aReadFinishedTurnIsNotListed() {
+    @Test func aReadFinishedTurnIsIdle() {
         let feed = HomeFeed(entries: [entry(.awaitingReply, hasSession: true), entry(.done, hasSession: true)])
+        #expect(feed.idle.map(\.status) == [.awaitingReply, .done])
         #expect(feed.needsYou.isEmpty && feed.running.isEmpty && feed.notStarted.isEmpty)
     }
 
@@ -66,9 +67,16 @@ struct HomeFeedTests {
         #expect(feed.notStarted.count == 1)
     }
 
-    @Test func anIdleTabWithASessionIsNotListed() {
-        let feed = HomeFeed(entries: [entry(.notStarted, hasSession: true), entry(.awaitingReply, hasSession: true)])
+    @Test func aDormantTabWithASessionIsIdle() {
+        let feed = HomeFeed(entries: [entry(.notStarted, hasSession: true)])
+        #expect(feed.idle.count == 1)
         #expect(feed.notStarted.isEmpty)
+    }
+
+    @Test func anUnreadTabIsNotIdle() {
+        let feed = HomeFeed(entries: [entry(.awaitingReply, isUnread: true, hasSession: true)])
+        #expect(feed.idle.isEmpty)
+        #expect(feed.needsYou.count == 1)
     }
 
     @Test func aWorkingTabBeatsUnread() {
@@ -93,6 +101,7 @@ struct HomeFeedTests {
     @Test func anInterruptedTabIsNotStarted() {
         let feed = HomeFeed(entries: [entry(.interrupted)])
         #expect(feed.notStarted.map(\.status) == [.interrupted])
+        #expect(feed.idle.isEmpty)
     }
 
     // MARK: Ordering

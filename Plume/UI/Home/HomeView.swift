@@ -23,6 +23,8 @@ private struct HomeContent: View, ThemedView {
     let open: (UUID, UUID) -> Void
     @Environment(\.theme) var theme
     @State private var hangsMarkers = false
+    @AppStorage("homeIdleExpanded") private var idleExpanded = true
+    @AppStorage("homeNotStartedExpanded") private var notStartedExpanded = false
 
     var body: some View {
         ScrollView {
@@ -32,8 +34,21 @@ private struct HomeContent: View, ThemedView {
                 if !feed.running.isEmpty {
                     quietSection("Running", items: feed.running)
                 }
+                if !feed.idle.isEmpty {
+                    quietSection(
+                        "Idle", items: feed.idle, marksIdle: true,
+                        collapse: CollapseControl(
+                            id: AccessibilityID.homeIdleHeader, isExpanded: $idleExpanded
+                        )
+                    )
+                }
                 if !feed.notStarted.isEmpty {
-                    quietSection("Not started", items: feed.notStarted)
+                    quietSection(
+                        "Not started", items: feed.notStarted,
+                        collapse: CollapseControl(
+                            id: AccessibilityID.homeNotStartedHeader, isExpanded: $notStartedExpanded
+                        )
+                    )
                 }
             }
             .frame(maxWidth: dimensions.contentWidth, alignment: .leading)
@@ -64,13 +79,33 @@ private struct HomeContent: View, ThemedView {
         }
     }
 
-    private func quietSection(_ title: String, items: [HomeFeed.Item]) -> some View {
+    private struct CollapseControl {
+        let id: String
+        let isExpanded: Binding<Bool>
+    }
+
+    private func quietSection(
+        _ title: String,
+        items: [HomeFeed.Item],
+        marksIdle: Bool = false,
+        collapse: CollapseControl? = nil
+    ) -> some View {
         VStack(alignment: .leading, spacing: 4) {
-            sectionTitle(title)
-                .emphasis(.secondary)
-            VStack(alignment: .leading, spacing: 0) {
-                ForEach(items) { item in
-                    HomeRow(item: item, isProminent: false, hangsMarkers: hangsMarkers) { open(item.taskID, item.tabID) }
+            if let collapse {
+                CollapsibleSectionHeader(
+                    title: title, id: collapse.id, isExpanded: collapse.isExpanded, hangsMarkers: hangsMarkers
+                )
+            } else {
+                sectionTitle(title)
+                    .emphasis(.secondary)
+            }
+            if collapse?.isExpanded.wrappedValue ?? true {
+                VStack(alignment: .leading, spacing: 0) {
+                    ForEach(items) { item in
+                        HomeRow(item: item, isProminent: false, hangsMarkers: hangsMarkers, marksIdle: marksIdle) {
+                            open(item.taskID, item.tabID)
+                        }
+                    }
                 }
             }
         }
@@ -81,6 +116,43 @@ private struct HomeContent: View, ThemedView {
             .font(typography.bodyLarge.font)
             .padding(.horizontal, HomeRow.horizontalPadding)
             .accessibilityAddTraits(.isHeader)
+    }
+}
+
+private struct CollapsibleSectionHeader: View, ThemedView {
+    let title: String
+    let id: String
+    @Binding var isExpanded: Bool
+    let hangsMarkers: Bool
+    @Environment(\.theme) var theme
+    @Environment(\.colorScheme) private var colorScheme
+    @State private var isHovered = false
+
+    var body: some View {
+        let bleed = hangsMarkers ? HomeRow.markerGutterWidth : 0
+        Button { isExpanded.toggle() } label: {
+            HStack(spacing: 6) {
+                Text(title)
+                    .font(typography.bodyLarge.font)
+                Image(systemName: isExpanded ? "chevron.down" : "chevron.right")
+                    .font(typography.caption.font)
+                Spacer(minLength: 0)
+            }
+            .emphasis(.secondary)
+            .padding(.horizontal, HomeRow.horizontalPadding + bleed)
+            .padding(.vertical, 2)
+            .padding(.horizontal, -bleed)
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .background {
+                RoundedRectangle(cornerRadius: SidebarMetrics.selectionCornerRadius)
+                    .fill(isHovered ? Color.chatSurface(.backgroundTint, colorScheme: colorScheme) : .clear)
+            }
+            .contentShape(.rect)
+        }
+        .buttonStyle(.plain)
+        .accessibilityAddTraits(.isHeader)
+        .plumeHover { isHovered = $0 }
+        .plumeID(id, label: title, value: isExpanded ? "expanded" : "collapsed") { isExpanded.toggle() }
     }
 }
 
@@ -119,13 +191,15 @@ private struct HomeRow: View, ThemedView {
     /// On a wide page the markers sit left of the text column, in the gutter,
     /// so every section's text shares one leading edge.
     let hangsMarkers: Bool
+    var marksIdle = false
     let action: () -> Void
     @Environment(\.theme) var theme
     @Environment(\.colorScheme) private var colorScheme
     @State private var isHovered = false
 
     var body: some View {
-        Button(action: action) {
+        let bleed = hangsMarkers ? Self.markerGutterWidth : 0
+        return Button(action: action) {
             HStack(alignment: .firstTextBaseline, spacing: 8) {
                 leadingMarker
                 VStack(alignment: .leading, spacing: 2) {
@@ -149,7 +223,8 @@ private struct HomeRow: View, ThemedView {
             }
             .padding(.horizontal, Self.horizontalPadding)
             .padding(.vertical, isProminent ? 8 : 4)
-            .padding(.leading, hangsMarkers ? -Self.markerGutterWidth : 0)
+            .padding(.trailing, bleed)
+            .padding(.horizontal, -bleed)
             .frame(maxWidth: .infinity, alignment: .leading)
             .background {
                 RoundedRectangle(cornerRadius: SidebarMetrics.selectionCornerRadius)
@@ -175,7 +250,7 @@ private struct HomeRow: View, ThemedView {
 
     private var leadingMarker: some View {
         Group {
-            if StatusBadge.isBlank(status: item.status, isUnread: item.isUnread) {
+            if marksIdle || StatusBadge.isBlank(status: item.status, isUnread: item.isUnread) {
                 Circle()
                     .fill(Color.chatSurface(.subtle, colorScheme: colorScheme))
                     .frame(width: 8, height: 8)

@@ -52,6 +52,7 @@ struct HomeFeed: Equatable {
 
     private(set) var needsYou: [Item] = []
     private(set) var running: [Item] = []
+    private(set) var idle: [Item] = []
     private(set) var notStarted: [Item] = []
 
     static let previewCharacterLimit = 280
@@ -79,6 +80,8 @@ struct HomeFeed: Equatable {
                 needsYou.append((index, item))
             } else if Self.isUnstarted(entry) {
                 notStarted.append(item)
+            } else {
+                idle.append(item)
             }
         }
         // A tab that wants an answer outranks one that only finished, and the
@@ -95,7 +98,8 @@ struct HomeFeed: Equatable {
     }
 
     /// A conversation never messaged, or one cut off mid-turn. An idle one
-    /// with a session is finished, whether or not it has been restored yet.
+    /// with a session is finished, whether or not it has been restored yet,
+    /// and lists as idle.
     private static func isUnstarted(_ entry: Entry) -> Bool {
         entry.status == .interrupted || !entry.hasSession
     }
