@@ -60,6 +60,17 @@ nonisolated enum GitHubMentionQuery {
         )
     }
 
+    /// Several pull requests of one repository in a single request, aliased
+    /// `p<number>`.
+    static func pullRequests(numbers: [Int], owner: String, name: String) -> Request {
+        let aliased = numbers.map { "p\($0): pullRequest(number: \($0)) { \(fields) }" }
+        return Request(
+            query: "query($owner: String!, $name: String!) { "
+                + "repository(owner: $owner, name: $name) { \(aliased.joined(separator: " ")) } }",
+            variables: .named(owner: owner, name: name)
+        )
+    }
+
     static func titleSearch(_ term: String, nameWithOwner: String) -> Request {
         Request(
             query: "query($search: String!) { search(query: $search, type: ISSUE, first: \(searchSize)) "
@@ -124,6 +135,10 @@ nonisolated enum GitHubMentionQuery {
         let repository: Repository?
     }
 
+    private struct AliasedPayload: Decodable {
+        let repository: [String: Node?]?
+    }
+
     private struct SearchPayload: Decodable {
         let search: Nodes?
     }
@@ -148,6 +163,17 @@ nonisolated enum GitHubMentionQuery {
 
     static func decodePullRequest(_ data: Data) throws -> MentionCandidate.PullRequestEntry? {
         try decode(NumberPayload.self, from: data)?.repository?.pullRequest?.entry
+    }
+
+    /// The entry for each requested number GitHub found. A number left out has
+    /// no such pull request, or its repository isn't visible.
+    static func decodePullRequests(_ data: Data, numbers: [Int]) throws -> [Int: MentionCandidate.PullRequestEntry] {
+        guard let repository = try decode(AliasedPayload.self, from: data)?.repository else { return [:] }
+        var entries: [Int: MentionCandidate.PullRequestEntry] = [:]
+        for number in numbers {
+            if let node = repository["p\(number)"] ?? nil, let entry = node.entry { entries[number] = entry }
+        }
+        return entries
     }
 
     /// Every aliased search's pull requests, each once, most recently updated

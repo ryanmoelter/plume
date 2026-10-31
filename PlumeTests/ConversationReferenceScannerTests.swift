@@ -34,6 +34,38 @@ struct ConversationReferenceScannerTests {
         ])
     }
 
+    @Test func assistantCodeIsNotScanned() {
+        let reply = """
+        Recent commits:
+        ```
+        abc1234 Fix thing
+        PLUME-101 body https://github.com/a/b/pull/1
+        ```
+        Inline `PLUME-102` and ``https://linear.app/x/issue/PLUME-103`` stay quiet.
+        ~~~sh
+        PLUME-104
+        ~~~
+        Real mention: PLUME-105 and https://github.com/a/b/pull/2
+        """
+        var cache = ConversationReferenceScanner.Cache()
+        let found = ConversationReferenceScanner.scan([message("m", [.markdown(reply)])], cache: &cache)
+        #expect(found.linearIdentifiers == ["PLUME-105"])
+        #expect(found.pullRequests == [PullRequestReference(owner: "a", repo: "b", number: 2)])
+    }
+
+    @Test func userCodeIsStillScanned() {
+        var cache = ConversationReferenceScanner.Cache()
+        let found = ConversationReferenceScanner.scan(
+            [message("m", [.markdown("see `PLUME-7`\n```\nPLUME-8\n```")], role: .user)],
+            cache: &cache
+        )
+        #expect(found.linearIdentifiers == ["PLUME-7", "PLUME-8"])
+    }
+
+    @Test func unclosedFenceHidesTheRest() {
+        #expect(ConversationReferenceScanner.removingCode(from: "PLUME-1\n```\nPLUME-2").contains("PLUME-2") == false)
+    }
+
     @Test func scansOnlyProse() {
         var call = ToolCall(id: "t", name: "Bash", summary: ToolCallSummary(name: "Bash"), input: .json("{\"x\": \"PLUME-1\"}"))
         call.result = "PLUME-2"
