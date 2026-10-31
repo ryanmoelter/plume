@@ -78,6 +78,31 @@ struct TabStatusRestoreTests {
         #expect(!HomeFeed.needsYou(status: TaskStatus.questionAsked.afterRelaunch, isUnread: false))
     }
 
+    /// `MainWindow` drains a terminal tab's hook log before restoring it, so
+    /// the last run's finished turn replays first.
+    @Test(arguments: [TaskStatus.awaitingReply, .error, .questionAsked])
+    func aReplayedFinishedTurnLeavesNoUnreadMarkOnceRestored(persisted: TaskStatus) {
+        let engine = StatusEngine(backgroundTasks: BackgroundTaskTracker())
+        let unread = UnreadStore()
+        unread.observe(engine) { .inactive }
+        let (task, tab) = (UUID(), UUID())
+
+        for name in ["SessionStart", "UserPromptSubmit", "Stop", "SessionEnd"] {
+            engine.apply(HookEvent(hookEventName: name), taskID: task, tabID: tab)
+        }
+        engine.restore(tabID: tab, taskID: task, lastStatus: persisted)
+
+        #expect(engine.status(forTab: tab) == persisted.afterRelaunch)
+        #expect(!unread.isUnread(tabID: tab))
+    }
+
+    @Test func closingACodexTerminalReportsNoStatusButItsExitDoes() {
+        #expect(CodexTerminalMonitor.statusAfterStop(failed: true, reportsStatus: false) == nil)
+        #expect(CodexTerminalMonitor.statusAfterStop(failed: false, reportsStatus: false) == nil)
+        #expect(CodexTerminalMonitor.statusAfterStop(failed: true, reportsStatus: true) == .error)
+        #expect(CodexTerminalMonitor.statusAfterStop(failed: false, reportsStatus: true) == .awaitingReply)
+    }
+
     // MARK: - Persistence
 
     @Test func aTabsStatusRoundTripsThroughTheStore() throws {

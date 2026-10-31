@@ -28,10 +28,17 @@ final class CodexTerminalMonitor {
 
     func reparent(tabID: UUID, taskID: UUID) { sessions[tabID]?.taskID = taskID }
 
-    func stop(tabID: UUID) { sessions.removeValue(forKey: tabID)?.stop() }
+    /// Reports no status: the caller is closing or forgetting the tab, and a
+    /// report would re-register it with the engine and persist over its status.
+    func stop(tabID: UUID) { sessions.removeValue(forKey: tabID)?.stop(reportsStatus: false) }
     func stopAll() {
-        for session in Array(sessions.values) { session.stop() }
+        for session in Array(sessions.values) { session.stop(reportsStatus: false) }
         sessions.removeAll()
+    }
+
+    static func statusAfterStop(failed: Bool, reportsStatus: Bool) -> TaskStatus? {
+        guard reportsStatus else { return nil }
+        return failed ? .error : .awaitingReply
     }
 
     static func isConversationRoot(_ thread: JSONValue) -> Bool {
@@ -260,7 +267,7 @@ final class CodexTerminalMonitor {
             for id in presentIDs { background?.refresh(threadID: id) }
         }
 
-        func stop(failed: Bool = false) {
+        func stop(failed: Bool = false, reportsStatus: Bool = true) {
             guard !stopped else { return }
             stopped = true
             worker?.cancel(); reader?.cancel(); watchdog?.cancel(); reconnect?.cancel()
@@ -268,7 +275,9 @@ final class CodexTerminalMonitor {
             client?.stop()
             background?.stop()
             StatusEngine.shared.setSubagentActivity(tabID: tabID, working: false)
-            StatusEngine.shared.setStatus(failed ? .error : .awaitingReply, taskID: taskID, tabID: tabID, notifiable: false)
+            if let status = CodexTerminalMonitor.statusAfterStop(failed: failed, reportsStatus: reportsStatus) {
+                StatusEngine.shared.setStatus(status, taskID: taskID, tabID: tabID, notifiable: false)
+            }
             process?.terminate(); process = nil
             try? FileManager.default.removeItem(at: directory)
             onStop?()

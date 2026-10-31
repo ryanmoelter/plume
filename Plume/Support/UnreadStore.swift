@@ -68,11 +68,10 @@ final class UnreadStore {
         } else {
             finishOrder.removeValue(forKey: tabID)
         }
-        // A tab restored at launch takes back the status it last had, which
-        // says nothing new about the conversation.
-        if isRestored { return }
-        if status == .notStarted, pendingRestores[tabID] != nil || restoredMarks[tabID] != nil { return }
-        setUnread(status == .awaitingReply && !isSeen, tabID: tabID)
+        // A restored status says nothing new about the conversation, so it
+        // keeps a stored mark and clears one the launch's hook replay set.
+        if status == .notStarted || isRestored, pendingRestores[tabID] != nil || restoredMarks[tabID] != nil { return }
+        setUnread(status == .awaitingReply && !isSeen && !isRestored, tabID: tabID)
     }
 
     /// The tabs Mark as Unread marks, given the statuses of a task's tabs, or

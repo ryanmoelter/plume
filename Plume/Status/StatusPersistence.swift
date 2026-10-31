@@ -8,6 +8,9 @@ import SwiftData
 /// debounced; the badge only needs to be eventually right.
 @MainActor
 final class StatusPersistence {
+    /// The latest one wins, as it does for the engine's observers.
+    private(set) static weak var current: StatusPersistence?
+
     private let context: ModelContext
     private let engine: StatusEngine
     private var pending: [UUID: TaskStatus] = [:]
@@ -20,6 +23,7 @@ final class StatusPersistence {
         self.context = context
         self.engine = engine
         self.debounce = debounce
+        Self.current = self
 
         engine.onTaskStatusChanged = { [weak self] taskID, status in
             self?.record(taskID: taskID, status: status)
