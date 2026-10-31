@@ -170,18 +170,41 @@ struct ComposerShortcutTransformTests {
 
     private let sample = ComposerMarkdownEditing.Result(text: "x", selection: NSRange(location: 0, length: 0))
 
-    @Test func shiftTabYieldsToAutocompleteThenListThenCyclesMode() {
-        #expect(ComposerShiftTab.decide(autocompleteShowing: true, outdent: sample, canCycleMode: true) == .autocomplete)
-        #expect(ComposerShiftTab.decide(autocompleteShowing: false, outdent: sample, canCycleMode: true) == .outdent(sample))
-        #expect(ComposerShiftTab.decide(autocompleteShowing: false, outdent: nil, canCycleMode: true) == .cycleMode)
-        #expect(ComposerShiftTab.decide(autocompleteShowing: false, outdent: nil, canCycleMode: false) == .ordinary)
+    @Test func shiftTabYieldsToAutocompleteThenListThenTogglesPlanMode() {
+        #expect(ComposerShiftTab.decide(autocompleteShowing: true, outdent: sample, canTogglePlanMode: true) == .autocomplete)
+        #expect(ComposerShiftTab.decide(autocompleteShowing: false, outdent: sample, canTogglePlanMode: true) == .outdent(sample))
+        #expect(ComposerShiftTab.decide(autocompleteShowing: false, outdent: nil, canTogglePlanMode: true) == .togglePlanMode)
+        #expect(ComposerShiftTab.decide(autocompleteShowing: false, outdent: nil, canTogglePlanMode: false) == .ordinary)
     }
 
-    @Test func nextOptionWraps() {
-        #expect(ComposerShiftTab.next(after: "b", in: ["a", "b", "c"]) == "c")
-        #expect(ComposerShiftTab.next(after: "c", in: ["a", "b", "c"]) == "a")
-        #expect(ComposerShiftTab.next(after: "z", in: ["a", "b"]) == "a")
-        #expect(ComposerShiftTab.next(after: "a", in: ["a"]) == nil)
-        #expect(ComposerShiftTab.next(after: "a", in: [String]()) == nil)
+    private func preset(_ mode: PermissionMode) -> AgentPermissionPreset {
+        AgentPermissionPreset(id: mode.rawValue, label: mode.label)
+    }
+
+    private var presets: [AgentPermissionPreset] { PermissionMode.allCases.map(preset) }
+
+    @Test func togglePlanEntersPlanFromAnyOtherMode() {
+        let next = ComposerShiftTab.togglePlan(current: preset(.manual), lastNonPlan: preset(.auto), in: presets)
+        #expect(next == preset(.plan))
+    }
+
+    @Test func togglePlanReturnsToTheRememberedMode() {
+        let next = ComposerShiftTab.togglePlan(current: preset(.plan), lastNonPlan: preset(.acceptEdits), in: presets)
+        #expect(next == preset(.acceptEdits))
+    }
+
+    @Test func togglePlanFallsBackToAutoWithNothingRemembered() {
+        let next = ComposerShiftTab.togglePlan(current: preset(.plan), lastNonPlan: nil, in: presets)
+        #expect(next == preset(.auto))
+    }
+
+    @Test func togglePlanIgnoresARememberedModeThePresetsNoLongerOffer() {
+        let offered = presets.filter { $0.id != PermissionMode.bypassPermissions.rawValue }
+        let next = ComposerShiftTab.togglePlan(current: preset(.plan), lastNonPlan: preset(.bypassPermissions), in: offered)
+        #expect(next == preset(.auto))
+    }
+
+    @Test func togglePlanIsNilWithoutAPlanPreset() {
+        #expect(ComposerShiftTab.togglePlan(current: nil, lastNonPlan: nil, in: [AgentPermissionPreset.codexReadOnly]) == nil)
     }
 }

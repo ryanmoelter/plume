@@ -355,7 +355,7 @@ struct ChatComposer: View, ThemedView {
                         session.queuedMessages.isEmpty ? nil : { editQueuedMessage(at: session.queuedMessages.count - 1) }
                     },
                     onEscape: interruptOnEscape,
-                    onCycleMode: cycleModeHandler,
+                    onTogglePlanMode: togglePlanModeHandler,
                     recognizedSlashCommandNames: Set(availableSlashCommands.map(\.name)),
                     onAttachImages: attachHandler,
                     isCommandMode: isCommandMode,
@@ -394,8 +394,10 @@ struct ChatComposer: View, ThemedView {
                 .padding(.top, dimensions.panelContentInset)
             }
             .animation(.snappy(duration: 0.2), value: isCommandMode)
-            .background(alignment: .topTrailing) {
+            .background {
                 ComposerModeBackdrop(task: task, tab: tab, headlessSession: headlessSession)
+                    .padding(-dimensions.composerFieldInset)
+                    .clipShape(.rect(cornerRadius: dimensions.panelCornerRadius))
             }
             // Anchored to the bottom: the panel is pinned to the bottom of
             // the chat, so the chip has to grow the panel upwards. Easing the
@@ -533,13 +535,19 @@ struct ChatComposer: View, ThemedView {
         return true
     }
 
-    private var cycleModeHandler: (() -> Void)? {
-        isCommandMode ? nil : { cyclePermissionMode() }
+    private var togglePlanModeHandler: (() -> Void)? {
+        isCommandMode ? nil : { togglePlanMode() }
     }
 
-    private func cyclePermissionMode() {
+    private func togglePlanMode() {
         let state = ComposerSettings(session: headlessSession, tab: tab, defaults: .resolved(task: task))
-        guard let next = ComposerShiftTab.next(after: state.permissionPreset, in: state.permissionPresets) else { return }
+        let memory = LastNonPlanModeStore.shared
+        if let current = state.permissionPreset { memory.remember(current, forTab: tab.id) }
+        guard let next = ComposerShiftTab.togglePlan(
+            current: state.permissionPreset,
+            lastNonPlan: memory.preset(forTab: tab.id),
+            in: state.permissionPresets
+        ) else { return }
         state.setPermissionPreset(next)
     }
 
@@ -771,9 +779,9 @@ struct ChatComposer: View, ThemedView {
 }
 
 
-/// A faint icon for the permission mode, behind the text. It hangs off the
-/// text area rather than the whole composer, so an autocomplete panel growing
-/// above never moves it.
+/// A faint icon for the permission mode, behind the text. Its frame is the
+/// text area, so an autocomplete panel growing above never moves it; the
+/// caller expands that frame to the glass edge and clips it there.
 private struct ComposerModeBackdrop: View {
     let task: WorkTask
     let tab: TaskTab
@@ -781,17 +789,24 @@ private struct ComposerModeBackdrop: View {
 
     var body: some View {
         let state = ComposerSettings(session: headlessSession, tab: tab, defaults: .resolved(task: task))
-        if let preset = state.permissionPreset {
-            Image(systemName: preset.symbol)
-                .id(preset.id)
-                .font(.system(size: 88))
-                .foregroundStyle(.primary)
-                .opacity(0.06)
-                .offset(x: 20, y: -8)
-                .transition(.opacity)
-                .animation(.easeInOut(duration: 0.2), value: preset.id)
-                .allowsHitTesting(false)
-                .accessibilityHidden(true)
+        ZStack(alignment: .topTrailing) {
+            Color.clear
+            if let preset = state.permissionPreset {
+                icon(preset)
+            }
         }
+    }
+
+    private func icon(_ preset: AgentPermissionPreset) -> some View {
+        Image(systemName: preset.symbol)
+            .id(preset.id)
+            .font(.system(size: 88))
+            .foregroundStyle(.primary)
+            .opacity(0.06)
+            .offset(x: 20, y: -8)
+            .transition(.opacity)
+            .animation(.easeInOut(duration: 0.2), value: preset.id)
+            .allowsHitTesting(false)
+            .accessibilityHidden(true)
     }
 }

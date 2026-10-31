@@ -57,7 +57,7 @@ struct MarkdownComposerTextView: NSViewRepresentable {
     var onEscape: ((NSEvent.ModifierFlags) -> Bool)?
     /// Called on Shift-Tab when nothing else claims it. Nil leaves the key to
     /// `NSTextView`.
-    var onCycleMode: (() -> Void)?
+    var onTogglePlanMode: (() -> Void)?
     /// Names of the session's known slash commands, so a recognized leading
     /// `/name` token can be tinted as the user types it.
     var recognizedSlashCommandNames: Set<String> = []
@@ -118,7 +118,7 @@ struct MarkdownComposerTextView: NSViewRepresentable {
         textView.autocompleteHandler = autocompleteHandler
         textView.onEditQueuedMessage = onEditQueuedMessage
         textView.onEscape = onEscape
-        textView.onCycleMode = onCycleMode
+        textView.onTogglePlanMode = onTogglePlanMode
         textView.onOptionReturn = onOptionReturn
         textView.onAttachImages = onAttachImages
         textView.onDeleteBackwardWhenEmpty = onDeleteBackwardWhenEmpty
@@ -500,7 +500,7 @@ final class ComposerNSTextView: NSTextView {
 
     var onEscape: ((NSEvent.ModifierFlags) -> Bool)?
 
-    var onCycleMode: (() -> Void)?
+    var onTogglePlanMode: (() -> Void)?
 
     /// Called on ⌥↩ instead of inserting a newline, for a caller with a third
     /// action on that key — the plan field's approve-with-feedback.
@@ -658,10 +658,10 @@ final class ComposerNSTextView: NSTextView {
         switch ComposerShiftTab.decide(
             autocompleteShowing: autocompleteHandler?.isShowing == true,
             outdent: outdent,
-            canCycleMode: onCycleMode != nil && !hasMarkedText()
+            canTogglePlanMode: onTogglePlanMode != nil && !hasMarkedText()
         ) {
         case .outdent(let result): apply(result)
-        case .cycleMode: onCycleMode?()
+        case .togglePlanMode: onTogglePlanMode?()
         case .autocomplete, .ordinary: super.insertBacktab(sender)
         }
     }
