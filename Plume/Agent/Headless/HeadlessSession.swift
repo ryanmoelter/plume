@@ -83,6 +83,9 @@ final class HeadlessSession: AgentSession {
     private(set) var streamingThinking = ""
     /// The API id of the message `streamingText` belongs to.
     private(set) var streamingMessageID: String?
+    /// The API id of the turn's last main-thread message, which the
+    /// transcript keys that message by.
+    @ObservationIgnored private var lastAssistantMessageID: String?
 
     /// `total_cost_usd` is a running total for the whole conversation, so
     /// each `result` replaces the prior value rather than adding to it —
@@ -851,6 +854,7 @@ final class HeadlessSession: AgentSession {
             // main agent's turns, and no `result` follows them.
             guard envelope.parentToolUseID == nil else { break }
             if !isWorking, !hasExited { beginUnpromptedTurn() }
+            if let id = envelope.raw["id"]?.stringValue { lastAssistantMessageID = id }
 
         case .user:
             break
@@ -1114,8 +1118,14 @@ final class HeadlessSession: AgentSession {
             lastError = result.text ?? Self.unexplainedTurnFailure
             reportStatus(.error, notifiable: hasUserSubmitted)
         } else {
+            // The transcript read that would report this lands after the
+            // status, so a quit in between would store the previous message.
+            if let id = lastAssistantMessageID {
+                TranscriptStore.shared.streamReportedLatestMessage(tabID: tabID, messageID: id)
+            }
             reportStatus(.awaitingReply)
         }
+        lastAssistantMessageID = nil
         wasInterrupted = false
         requestTitleIfDue()
         sendNextQueuedMessage()

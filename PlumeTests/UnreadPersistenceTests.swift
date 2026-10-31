@@ -111,22 +111,28 @@ struct UnreadPersistenceTests {
         #expect(stored.marks[tab] == .some(nil))
     }
 
-    @Test func theLaunchStatusRestoreNeitherWipesNorCreatesAMark() {
-        let engine = StatusEngine(backgroundTasks: BackgroundTaskTracker())
+    @Test func aMarkSetBeforeAnyLatestMessageIsKnownAsksForOne() {
         let store = UnreadStore()
-        store.observe(engine) { .inactive }
-        let other = UUID()
-        engine.restore(tabID: tab, taskID: task)
-        engine.restore(tabID: other, taskID: task)
-        store.restore(tabID: tab, messageID: "m1")
+        let stored = recording(store)
+        var asked: [UUID] = []
+        store.onLatestMessageUnknown = { asked.append($0) }
 
-        store.record(.notStarted, tabID: tab, isSeen: false)
-        store.latestMessageChanged(tabID: tab, to: "m1")
-        engine.restore(tabID: tab, taskID: task)
-        store.latestMessageChanged(tabID: other, to: "m2")
+        store.markUnread([tab])
+        store.latestMessageFound(tabID: tab, messageID: "m1")
 
-        #expect(store.isUnread(tabID: tab))
-        #expect(!store.isUnread(tabID: other))
+        #expect(asked == [tab])
+        #expect(stored.marks[tab] == "m1")
+    }
+
+    @Test func aLiveReportOutranksALookedUpLatestMessage() {
+        let store = UnreadStore()
+        let stored = recording(store)
+        store.markUnread([tab])
+
+        store.latestMessageChanged(tabID: tab, to: "live")
+        store.latestMessageFound(tabID: tab, messageID: "cached")
+
+        #expect(stored.marks[tab] == "live")
     }
 
     @Test func aNewTurnClearsARestoredMark() {
@@ -243,11 +249,11 @@ struct UnreadPersistenceTests {
         try? FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
         defer { try? FileManager.default.removeItem(at: directory) }
         let path = directory.appending(path: "session.jsonl")
-        let line = "{\"type\":\"user\",\"uuid\":\"u1\",\"isSidechain\":false,\"message\":{\"role\":\"user\",\"content\":\"Hi\"}}\n"
-        try? line.write(to: path, atomically: true, encoding: .utf8)
+        try? Self.userLine.write(to: path, atomically: true, encoding: .utf8)
         let transcripts = TranscriptStore(debounce: .milliseconds(10))
         let kept = chatTab()
         let stale = chatTab()
+        for tab in [kept, stale] { tab.sessionJSONLPath = path.path }
         await read(transcripts, tab: kept.id, path: path)
         kept.unreadMessageID = transcripts.transcript(forTab: kept.id)?.messages.last?.id
         stale.unreadMessageID = "an earlier message"
@@ -265,5 +271,155 @@ struct UnreadPersistenceTests {
         #expect(store.isUnread(tabID: kept.id))
         #expect(!store.isUnread(tabID: stale.id))
         #expect(stale.unreadMessageID == nil)
+    }
+
+    private static let userLine = "{\"type\":\"user\",\"uuid\":\"u1\",\"isSidechain\":false,\"message\":{\"role\":\"user\",\"content\":\"Hi\"}}\n"
+
+    @Test func aStoredMarkOnAClaudeCodeTabWithNoTranscriptIsDropped() {
+        let store = UnreadStore()
+        let chat = chatTab()
+        chat.unreadMessageID = "m1"
+        let persistence = persistence(store)
+        persistence.install { $0 == chat.id ? chat : nil }
+
+        persistence.restore([chat])
+
+        #expect(!store.isUnread(tabID: chat.id))
+        #expect(chat.unreadMessageID == nil)
+    }
+
+    @Test func aStoredMarkWhoseTranscriptIsGoneIsDropped() async {
+        let directory = FileManager.default.temporaryDirectory.appending(path: UUID().uuidString)
+        try? FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let path = directory.appending(path: UUID().uuidString + ".jsonl")
+        let transcripts = TranscriptStore(debounce: .milliseconds(10), projectsDirectory: directory)
+        let chat = chatTab()
+        chat.sessionJSONLPath = path.path
+        chat.unreadMessageID = "m1"
+        let store = UnreadStore()
+        let persistence = UnreadPersistence(unread: store, transcripts: transcripts, codexItems: CodexItemStore(), codexCache: nil)
+        persistence.install { $0 == chat.id ? chat : nil }
+
+        persistence.restore([chat])
+        await read(transcripts, tab: chat.id, path: path)
+
+        #expect(!store.isUnread(tabID: chat.id))
+        #expect(chat.unreadMessageID == nil)
+    }
+
+    @Test func terminalTabsIgnoreLatestMessageReports() {
+        let store = UnreadStore()
+        let claude = chatTab(transport: .terminal)
+        let codex = chatTab(provider: .codex, transport: .terminal)
+        let tabs = [claude.id: claude, codex.id: codex]
+        let transcripts = TranscriptStore()
+        let items = CodexItemStore()
+        UnreadPersistence(unread: store, transcripts: transcripts, codexItems: items, codexCache: nil)
+            .install { tabs[$0] }
+
+        transcripts.streamReportedLatestMessage(tabID: claude.id, messageID: "m1")
+        items.upsert(tabID: codex.id, item: .object(["id": .string("a"), "type": .string("agentMessage")]), turnID: "t1")
+        // A restore confirms at once only against a latest message it was told about.
+        store.restore(tabID: claude.id, messageID: "m1")
+        store.restore(tabID: codex.id, messageID: "t1#a")
+
+        #expect(!store.isUnread(tabID: claude.id))
+        #expect(!store.isUnread(tabID: codex.id))
+    }
+
+    @Test func aCodexMarkSetBeforeItsChatMountsStoresItsCachedLatestItem() async {
+        let directory = FileManager.default.temporaryDirectory.appending(path: UUID().uuidString)
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let cache = CodexHistoryCache(directory: directory)
+        let chat = chatTab(provider: .codex)
+        chat.agentSessionID = "thread"
+        await cache.schedule(tabID: chat.id, snapshot: .init(threadID: "thread", entries: [
+            .init(stableID: "t1#a", item: .object([:])),
+        ]))
+        let store = UnreadStore()
+        persistence(store, cache: cache).install { $0 == chat.id ? chat : nil }
+
+        await withCheckedContinuation { continuation in
+            let installed = store.onStoredMarkChanged
+            store.onStoredMarkChanged = { tabID, messageID in
+                installed?(tabID, messageID)
+                guard messageID != nil else { return }
+                store.onStoredMarkChanged = installed
+                continuation.resume()
+            }
+            store.markUnread([chat.id])
+        }
+
+        #expect(chat.unreadMessageID == "t1#a")
+    }
+
+    @Test func aClaudeCodeMarkSetBeforeTheFirstReadStoresWhatTheReadFinds() async {
+        let directory = FileManager.default.temporaryDirectory.appending(path: UUID().uuidString)
+        try? FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let path = directory.appending(path: "session.jsonl")
+        try? Self.userLine.write(to: path, atomically: true, encoding: .utf8)
+        let transcripts = TranscriptStore(debounce: .milliseconds(10), projectsDirectory: directory)
+        let chat = chatTab()
+        let store = UnreadStore()
+        UnreadPersistence(unread: store, transcripts: transcripts, codexItems: CodexItemStore(), codexCache: nil)
+            .install { $0 == chat.id ? chat : nil }
+
+        store.markUnread([chat.id])
+        #expect(chat.unreadMessageID == nil)
+        await read(transcripts, tab: chat.id, path: path)
+
+        #expect(chat.unreadMessageID == "u1")
+    }
+
+    @Test func aTurnEndingBeforeItsTranscriptIsReadStoresTheStreamedMessage() {
+        let store = UnreadStore()
+        let chat = chatTab()
+        let transcripts = TranscriptStore()
+        UnreadPersistence(unread: store, transcripts: transcripts, codexItems: CodexItemStore(), codexCache: nil)
+            .install { $0 == chat.id ? chat : nil }
+        transcripts.streamReportedLatestMessage(tabID: chat.id, messageID: "m1")
+        store.record(.awaitingReply, tabID: chat.id, isSeen: false)
+
+        transcripts.streamReportedLatestMessage(tabID: chat.id, messageID: "m2")
+
+        #expect(chat.unreadMessageID == "m2")
+    }
+
+    @Test(arguments: [true, false])
+    func theLaunchStatusRestoreNeitherWipesNorCreatesAMark(statusRestoresFirst: Bool) {
+        let engine = StatusEngine(backgroundTasks: BackgroundTaskTracker())
+        let store = UnreadStore()
+        store.observe(engine) { .inactive }
+        let transcripts = TranscriptStore()
+        let marked = chatTab()
+        let other = chatTab()
+        for tab in [marked, other] { tab.sessionJSONLPath = "/\(tab.id).jsonl" }
+        marked.unreadMessageID = "m1"
+        let tabs = [marked.id: marked, other.id: other]
+        let persistence = UnreadPersistence(unread: store, transcripts: transcripts, codexItems: CodexItemStore(), codexCache: nil)
+        persistence.install { tabs[$0] }
+        let restoreStatuses = { for tab in [marked, other] { engine.restore(tabID: tab.id, taskID: self.task) } }
+
+        if statusRestoresFirst { restoreStatuses() }
+        persistence.restore([marked, other])
+        if !statusRestoresFirst { restoreStatuses() }
+        transcripts.streamReportedLatestMessage(tabID: marked.id, messageID: "m1")
+        transcripts.streamReportedLatestMessage(tabID: other.id, messageID: "m2")
+
+        #expect(store.isUnread(tabID: marked.id))
+        #expect(marked.unreadMessageID == "m1")
+        #expect(!store.isUnread(tabID: other.id))
+        #expect(other.unreadMessageID == nil)
+    }
+
+    @Test func forgettingATabClearsItsStoredMark() {
+        let chat = chatTab()
+        chat.unreadMessageID = "m1"
+
+        TaskStore.forgetTab(chat)
+
+        #expect(chat.unreadMessageID == nil)
     }
 }
