@@ -215,6 +215,7 @@ struct MainWindow: View {
                 ?? AppIdentity.displayName
         }
         UnreadStore.shared.observe(StatusEngine.shared) { Notifier.shared.audience() }
+        UnreadPersistence().install { tabID in tasks.lazy.flatMap(\.tabs).first { $0.id == tabID } }
         TerminalAlerts.shared.taskID = { tabID in
             tasks.first { $0.tabs.contains { $0.id == tabID } }?.id
         }
@@ -452,5 +453,6 @@ struct MainWindow: View {
                 }
             }
         }
+        UnreadPersistence().restore(tasks.flatMap(\.tabs))
     }
 }

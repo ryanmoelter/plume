@@ -75,6 +75,10 @@ final class TaskTab {
     var remoteDeviceModel: String? = nil
     var remoteExpiresAt: Date? = nil
 
+    /// A chat tab's unread mark: the ID of the conversation's latest message
+    /// when the mark was set. Nil reads as read. `UnreadPersistence` owns it.
+    var unreadMessageID: String? = nil
+
     /// Reserved for extra launch args and statusline preferences.
     var launchArgumentsData: Data?
 

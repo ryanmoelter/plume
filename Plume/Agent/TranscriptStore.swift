@@ -99,6 +99,10 @@ final class TranscriptStore {
     /// outlives the chat view.
     var onWorkingDirectoryChanged: ((UUID, String) -> Void)?
 
+    /// Reports the ID of a tab's last message on its first read and whenever
+    /// it changes.
+    var onLatestMessageChanged: ((UUID, String?) -> Void)?
+
     init(
         debounce: Duration = .milliseconds(250),
         statusEngine: StatusEngine = .shared,
@@ -419,8 +423,13 @@ final class TranscriptStore {
                 if parsed.transcript.messages.isEmpty, self.repointIfRelocated(tabID: tabID, from: path) {
                     return
                 }
-                let previousDirectory = self.transcripts[tabID]?.cwd
+                let previous = self.transcripts[tabID]
                 self.transcripts[tabID] = parsed.transcript
+                let latestMessageID = parsed.transcript.messages.last?.id
+                if previous == nil || previous?.messages.last?.id != latestMessageID {
+                    self.onLatestMessageChanged?(tabID, latestMessageID)
+                }
+                let previousDirectory = previous?.cwd
                 if let cwd = parsed.transcript.cwd, cwd != previousDirectory {
                     self.onWorkingDirectoryChanged?(tabID, cwd)
                 }

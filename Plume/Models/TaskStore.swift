@@ -448,6 +448,7 @@ enum TaskStore {
         CommandModeRuns.shared.forget(tabID: tabID)
         BellStore.shared.forget(tabID: tabID)
         UnreadStore.shared.forget(tabID: tabID)
+        if tab.unreadMessageID != nil { tab.unreadMessageID = nil }
         SubagentCompletionTracker.shared.forget(tabID: tabID)
         SubagentStatusOverrides.shared.forget(tabID: tabID)
         InheritedForkHistory.shared.forget(tabID: tabID)
