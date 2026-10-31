@@ -77,8 +77,16 @@ final class HeadlessSession: AgentSession {
     /// tab adopts as its own. The process already reaches them, so they join
     /// `launchAdditionalDirectories` too and need no restart.
     @ObservationIgnored var onAdoptDirectories: (([String]) -> Void)?
-    /// True while a restart waits for the session to go idle.
+    /// True while a restart waits for the session to go idle, and after one
+    /// failed to launch, until a later idle moment retries it.
     private(set) var isRestartPending = false
+    private(set) var hasFailedRestart = false
+    /// True from a restart stopping this process until the new one replaces
+    /// this session. Messages sent meanwhile queue for the new process.
+    private(set) var isRestarting = false
+    /// Folders the tab removed, which `init` may still report and must not
+    /// be adopted again.
+    @ObservationIgnored var declinedDirectories: () -> [String] = { [] }
     /// Returns whether a new process is on its way. False leaves this one
     /// running as if no restart had been asked for.
     @ObservationIgnored private var pendingRestart: (() -> Bool)?
@@ -368,21 +376,30 @@ final class HeadlessSession: AgentSession {
         close()?.terminate()
     }
 
-    /// Stops like `stop()`, but waits off the main actor for the process to
-    /// exit, so a resume launched after it never shares the transcript with it.
-    func stopAwaitingExit() async {
-        guard let process = close() else { return }
-        await Task.detached { process.terminate() }.value
+    /// Stops the process for a restart. The caller waits on the returned
+    /// process's exit before resuming, so the two never share the transcript.
+    ///
+    /// The session stays live rather than exited, and stays registered until
+    /// the new one replaces it: a send in the gap queues here for the new
+    /// process instead of launching a second `--resume`. Messages the CLI had
+    /// not yet taken join the front of that queue.
+    func stopForRestart() -> AgentProcess? {
+        isRestarting = true
+        queuedMessages.insert(contentsOf: deliveringMessages.filter { $0.state != .absorbed }.map(\.blocks), at: 0)
+        deliveringMessages = []
+        let stopping = close(markingExited: false)
+        stopping?.terminate()
+        return stopping
     }
 
-    private func close() -> AgentProcess? {
+    private func close(markingExited: Bool = true) -> AgentProcess? {
         endSubagentWakeHold()
         endBackgroundTaskWakeHold()
         isClosed = true
         clearPendingRestart()
         let closing = process
         process = nil
-        hasExited = true
+        if markingExited { hasExited = true }
         // Forgotten rather than emptied, so a tab switched to the terminal
         // transport reads its tasks from the transcript again.
         backgroundTasks.forget(tabID: tabID)
@@ -441,6 +458,10 @@ final class HeadlessSession: AgentSession {
     private func submit(blocks: [UserContentBlock], midTurn delivery: QueuedMessageDelivery) -> Delivery {
         let normalized = blocks.normalized
         guard normalized.hasContent else { return .queued }
+        guard !isRestarting else {
+            queuedMessages.append(normalized)
+            return .queued
+        }
         guard !isWorking else {
             queuedMessages.append(normalized)
             if delivery == .afterToolCall, sendQueueIntoRunningTurn() { return .sent }
@@ -477,7 +498,7 @@ final class HeadlessSession: AgentSession {
     func sendNow(appending blocks: [UserContentBlock]) {
         let normalized = blocks.normalized
         if normalized.hasContent { queuedMessages.append(normalized) }
-        guard !queuedMessages.isEmpty else { return }
+        guard !queuedMessages.isEmpty, !isRestarting else { return }
         guard isWorking else {
             submit(blocks: takeQueueAsOneTurn())
             return
@@ -578,15 +599,18 @@ final class HeadlessSession: AgentSession {
         case turn
         case unstartedFork
         case unsettledRewind
+        /// A message sent into the turn that the CLI has yet to take.
+        case delivery
         case subagents
         case sideQuestion
         case backgroundTasks
 
         /// Whether the user may stop it to restart sooner. A turn ends only
         /// by interrupt, and the other two would resume the wrong conversation.
+        /// A forced restart resends an undelivered message to the new process.
         var canBeCutShort: Bool {
             switch self {
-            case .subagents, .sideQuestion, .backgroundTasks: true
+            case .delivery, .subagents, .sideQuestion, .backgroundTasks: true
             case .turn, .unstartedFork, .unsettledRewind: false
             }
         }
@@ -597,6 +621,7 @@ final class HeadlessSession: AgentSession {
         if isWorking { blockers.append(.turn) }
         if isUnstartedFork { blockers.append(.unstartedFork) }
         if hasUnsettledRewind { blockers.append(.unsettledRewind) }
+        if deliveringMessages.contains(where: { $0.state != .absorbed }) { blockers.append(.delivery) }
         if hasWorkingSubagents { blockers.append(.subagents) }
         if hasUnansweredSideQuestion { blockers.append(.sideQuestion) }
         if hasRunningBackgroundTasks || backgroundTaskWakeHold != nil { blockers.append(.backgroundTasks) }
@@ -629,6 +654,7 @@ final class HeadlessSession: AgentSession {
     func restartWhenIdle(_ restart: @escaping () -> Bool) {
         pendingRestart = restart
         isRestartPending = true
+        hasFailedRestart = false
         firePendingRestartIfIdle()
     }
 
@@ -642,6 +668,7 @@ final class HeadlessSession: AgentSession {
     private func clearPendingRestart() {
         pendingRestart = nil
         isRestartPending = false
+        hasFailedRestart = false
     }
 
     /// Fails any side question still waiting, for a restart the user forces
@@ -653,12 +680,18 @@ final class HeadlessSession: AgentSession {
     /// Whatever the old process's state makes busy — a turn ending, a
     /// subagent finishing, the background task list emptying — re-runs this
     /// through observation, so no single event has to remember to.
+    ///
+    /// A restart that fails to launch stays pending, and the next time the
+    /// session goes busy and idle again retries it.
     @discardableResult
     private func firePendingRestartIfIdle() -> Bool {
         guard let restart = pendingRestart else { return false }
-        guard isBusy else {
-            clearPendingRestart()
-            return restart()
+        if !isBusy {
+            if restart() {
+                clearPendingRestart()
+                return true
+            }
+            hasFailedRestart = true
         }
         guard !isObservingForRestart else { return false }
         isObservingForRestart = true
@@ -1273,7 +1306,7 @@ final class HeadlessSession: AgentSession {
 
     private func adoptReportedDirectories(_ reported: [String]) {
         let known = Set(
-            (launchAdditionalDirectories + [launchDirectory].compactMap { $0 })
+            (launchAdditionalDirectories + [launchDirectory].compactMap { $0 } + declinedDirectories())
                 .compactMap { AdditionalDirectories.normalized($0) }
         )
         var adopted: [String] = []

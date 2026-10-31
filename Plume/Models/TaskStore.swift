@@ -461,6 +461,7 @@ enum TaskStore {
         DeviceLeaseCoordinator.shared.tabForgotten(tabID)
         TitleStore.shared.forget(tabID: tabID)
         TabDirectoryStore.shared.forget(tabID: tabID)
+        FolderRowsCache.shared.forget(tabID: tabID)
         DraftStore.shared.forget(tabID: tabID)
         CommandModeRuns.shared.forget(tabID: tabID)
         BellStore.shared.forget(tabID: tabID)

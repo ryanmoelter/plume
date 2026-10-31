@@ -26,6 +26,7 @@ enum AdditionalDirectoryStore {
             AdditionalDirectories.additions(paths, to: existing, relativeTo: base)
         }.value
         // The list may have changed while the file system was read.
+        undecline(paths, on: tab)
         update(tab, to: tab.additionalDirectories + found.additions)
         RecentLinkedFolders.remember(found.additions, in: history)
         return found.rejected
@@ -33,16 +34,29 @@ enum AdditionalDirectoryStore {
 
     static func remove(_ path: String, from tab: TaskTab) {
         let target = AdditionalDirectories.normalized(path)
+        if let target, !tab.removedAdditionalDirectories.contains(target) {
+            tab.removedAdditionalDirectories.append(target)
+        }
         update(tab, to: tab.additionalDirectories.filter { AdditionalDirectories.normalized($0) != target })
     }
 
     /// Folders the running process reports reaching beyond its launch list.
     /// The session has already counted them as launched, so no restart follows.
+    /// A folder the user removed from the tab stays removed.
     static func adopt(_ paths: [String], into tab: TaskTab, history: UserDefaults = .standard) {
+        let declined = Set(tab.removedAdditionalDirectories)
+        let paths = paths.filter { !declined.contains(AdditionalDirectories.normalized($0) ?? $0) }
         let list = AdditionalDirectories.list(tab.additionalDirectories + paths, excluding: nil)
         guard list != tab.additionalDirectories else { return }
         tab.additionalDirectories = list
         RecentLinkedFolders.remember(paths, in: history)
+    }
+
+    private static func undecline(_ paths: [String], on tab: TaskTab) {
+        let base = runningSession(of: tab)?.launchDirectory ?? TabDirectoryStore.shared.directory(for: tab)
+        let added = Set(paths.compactMap { AdditionalDirectories.normalized($0, relativeTo: base) })
+        guard tab.removedAdditionalDirectories.contains(where: added.contains) else { return }
+        tab.removedAdditionalDirectories.removeAll(where: added.contains)
     }
 
     static func canRestartNow(_ session: HeadlessSession) -> Bool {

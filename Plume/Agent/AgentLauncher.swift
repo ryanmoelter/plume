@@ -116,12 +116,15 @@ enum AgentLauncher {
               ClaudeTrustStore.isTrusted(workingDirectory),
               ClaudeCLILocator.isAvailable()
         else { return false }
-        let queued = previous.queuedMessages
-        _ = AgentSessionManager.shared.detachSession(for: tab.id)
+        let exiting = previous.stopForRestart()
         Task { [weak tab] in
-            await previous.stopAwaitingExit()
-            guard let tab else { return }
-            resume(task: tab.task ?? task, tab: tab, inheriting: previous, queued: queued)
+            await exiting?.waitUntilExited()
+            // Closing the tab or its session meanwhile cancels the resume.
+            guard let tab,
+                  AgentSessionManager.shared.existingSession(for: tab.id) as? HeadlessSession === previous
+            else { return }
+            _ = AgentSessionManager.shared.detachSession(for: tab.id)
+            resume(task: tab.task ?? task, tab: tab, inheriting: previous, queued: previous.queuedMessages)
         }
         return true
     }
@@ -153,16 +156,36 @@ enum AgentLauncher {
 
     /// What the session changed on its own, such as leaving plan mode, is
     /// otherwise saved only by a mounted chat view, and the resume reads the tab.
+    ///
+    /// A mode or model the tab only inherited stays unset, so the tab keeps
+    /// following the default rather than pinning today's value.
     private static func persistLiveSettings(of session: HeadlessSession, to tab: TaskTab) {
         if let sessionID = session.sessionID, !sessionID.isEmpty, tab.agentSessionID == nil {
-            tab.agentSessionID = sessionID
+            recordSessionID(sessionID, on: tab)
         }
-        if let mode = session.permissionMode, tab.permissionMode != mode { tab.permissionMode = mode }
-        if let model = session.model, tab.model != model {
-            tab.model = model
-            tab.isModelUserChosen = false
+        if let mode = session.permissionMode, tab.permissionMode != mode {
+            let inherited = resolvedPermissionMode(
+                tab: tab.permissionMode,
+                task: tab.task?.permissionMode,
+                appDefault: AppSettings.shared.resolvedDefaultPermissionMode
+            )
+            if tab.permissionMode != nil || mode != inherited { tab.permissionMode = mode }
         }
+        if tab.isModelUserChosen, let model = session.model, tab.model != model { tab.model = model }
         if let effort = session.effort, tab.effort != effort { tab.effort = effort }
+    }
+
+    /// Records a headless session's id with the transcript it writes, which
+    /// the chat watches.
+    static func recordSessionID(_ sessionID: String, on tab: TaskTab) {
+        tab.agentSessionID = sessionID
+        // Only Claude Code keeps a transcript on disk; Codex serves its
+        // history over the protocol, so a Codex tab has no path to derive.
+        guard tab.provider == .claudeCode, let workingDirectory = tab.task?.workingDirectoryPath else { return }
+        tab.sessionJSONLPath = SessionJSONLReader.resolvedTranscriptPath(
+            workingDirectory: workingDirectory,
+            sessionID: sessionID
+        )
     }
 
     private static func launchClaudeHeadless(
@@ -250,6 +273,7 @@ enum AgentLauncher {
             guard let tab else { return }
             AdditionalDirectoryStore.adopt(paths, into: tab)
         }
+        session.declinedDirectories = { [weak tab] in tab?.removedAdditionalDirectories ?? [] }
         if blocks.hasContent {
             session.submit(blocks: blocks)
         }

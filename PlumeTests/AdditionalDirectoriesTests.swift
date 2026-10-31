@@ -78,6 +78,20 @@ struct AdditionalDirectoriesTests {
         }
     }
 
+    @Test func aRemovedFolderIsNotAdoptedAgainUntilAddedBack() async {
+        let tab = TaskTab(kind: .agent, orderIndex: 0)
+        tab.additionalDirectories = ["/usr"]
+        AdditionalDirectoryStore.remove("/usr/", from: tab)
+        await withScratchDefaults { AdditionalDirectoryStore.adopt(["/usr"], into: tab, history: $0) }
+        #expect(tab.additionalDirectories.isEmpty)
+        #expect(tab.removedAdditionalDirectories == ["/usr"])
+
+        await withScratchDefaults { await AdditionalDirectoryStore.add(["/usr"], to: tab, history: $0) }
+
+        #expect(tab.additionalDirectories == ["/usr"])
+        #expect(tab.removedAdditionalDirectories.isEmpty)
+    }
+
     private func withScratchDefaults<T>(_ body: (UserDefaults) async -> T) async -> T {
         let name = "plume-linked-tests-\(UUID().uuidString)"
         let defaults = UserDefaults(suiteName: name)!
@@ -398,7 +412,8 @@ struct AdditionalDirectoriesTests {
 
         #expect(userTurns().count == 1)
         #expect(!session.restartedAtTurnEnd)
-        #expect(!session.isRestartPending)
+        #expect(session.isRestartPending)
+        #expect(session.hasFailedRestart)
     }
 
     private static let backgroundTaskRunning = #"{"type":"system","subtype":"background_tasks_changed","tasks":[{"task_id":"b1","run_id":"r1","task_type":"local_bash","description":"clock"}],"session_id":"s"}"#
@@ -442,6 +457,74 @@ struct AdditionalDirectoriesTests {
 
         #expect(adopted == ["/granted"])
         #expect(session.launchAdditionalDirectories == ["/granted"])
+    }
+
+    @Test func initSkipsFoldersTheTabRemoved() throws {
+        let (session, _) = makeSession()
+        session.declinedDirectories = { ["/removed/"] }
+        var adopted: [String] = []
+        session.onAdoptDirectories = { adopted += $0 }
+        let line = #"{"type":"system","subtype":"init","session_id":"s","cwd":"/repo","additional_directories":["/removed","/granted"]}"#
+
+        session.handle(try decode(line))
+
+        #expect(adopted == ["/granted"])
+    }
+
+    private static let requesting = #"{"type":"system","subtype":"status","status":"requesting"}"#
+
+    @Test func aMessageTheCLIHasNotTakenHoldsARestart() throws {
+        let (session, _) = makeSession()
+        session.queuedMessageDelivery = { .afterToolCall }
+        let userTurns = recordUserTurns(of: session)
+        session.handle(try decode(mainAssistant))
+        #expect(session.submit(blocks: [.text("also")]) == .sent)
+        #expect(userTurns().count == 1)
+        var restarts = 0
+        session.restartWhenIdle { restarts += 1; return true }
+
+        session.handle(try decode(result))
+        #expect(session.restartBlockers.contains(.delivery))
+        #expect(restarts == 0)
+
+        session.handle(try decode(Self.requesting))
+        session.handle(try decode(result))
+        #expect(restarts == 1)
+    }
+
+    @Test func stoppingForARestartCarriesUndeliveredAndLaterMessagesOver() throws {
+        let (session, _) = makeSession()
+        session.queuedMessageDelivery = { .afterToolCall }
+        let userTurns = recordUserTurns(of: session)
+        session.handle(try decode(mainAssistant))
+        _ = session.submit(blocks: [.text("in flight")])
+
+        _ = session.stopForRestart()
+        let delivery = session.submit(blocks: [.text("in the gap")])
+
+        #expect(delivery == .queued)
+        #expect(session.queuedMessages == [[.text("in flight")], [.text("in the gap")]])
+        #expect(session.deliveringMessages.isEmpty)
+        #expect(userTurns().count == 1)
+        #expect(!session.hasExited)
+    }
+
+    @Test func aFailedRestartStaysPendingAndRetriesAfterTheNextTurn() async throws {
+        let (session, _) = makeSession()
+        var attempts = 0
+        session.restartWhenIdle { attempts += 1; return attempts > 1 }
+        #expect(attempts == 1)
+        #expect(session.isRestartPending)
+        #expect(session.hasFailedRestart)
+
+        session.handle(try decode(mainAssistant))
+        await settle()
+        session.handle(try decode(result))
+        await settle()
+
+        #expect(attempts == 2)
+        #expect(!session.isRestartPending)
+        #expect(!session.hasFailedRestart)
     }
 
     @Test func theCostMeterNeverStepsBackAcrossARestart() throws {

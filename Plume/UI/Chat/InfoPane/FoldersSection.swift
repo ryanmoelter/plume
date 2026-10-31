@@ -17,22 +17,26 @@ struct FolderRestartFacts: Equatable {
 
     var blockers: [Blocker]
     var canRestartNow: Bool
+    /// The last attempt could not relaunch, so the next idle moment retries.
+    var hasFailed = false
 
     var note: String {
         switch blockers.first {
         case .turn: "Applies after this turn"
         case .unstartedFork: "Applies after this fork's first turn"
         case .unsettledRewind: "Applies after the next turn"
+        case .delivery: "Applies once your message is delivered"
         case .subagents: "Applies when subagents finish"
         case .sideQuestion: "Applies when the side question is answered"
         case .backgroundTasks: "Applies when background tasks finish"
-        case nil: "Applies in a moment"
+        case nil: hasFailed ? "Applies after the next turn" : "Applies in a moment"
         }
     }
 
     var restartNowHelp: String {
         let stopped = blockers.filter(\.canBeCutShort).map { blocker in
             switch blocker {
+            case .delivery: "resending your message to the new session"
             case .subagents: "stopping the subagents"
             case .sideQuestion: "dropping the side question"
             case .backgroundTasks: "stopping the background tasks"

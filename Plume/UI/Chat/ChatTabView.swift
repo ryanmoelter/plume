@@ -64,8 +64,6 @@ struct ChatTabView: View, ThemedView {
     /// so switching tasks inside the dead band keeps the pane as it was.
     @State private var showsInfoPaneBeside = Self.lastShowsInfoPaneBeside
     private static var lastShowsInfoPaneBeside = true
-    /// Built off the main actor, since matching paths resolves symlinks.
-    @State private var folderRows: [FolderRow] = []
     private static var lastConversationWidth: CGFloat = 0
     private static var lastCollapsedInfoPaneHeight: CGFloat = 0
     /// The dock bar and the expanded overlay are separate view trees, so the
@@ -245,7 +243,8 @@ struct ChatTabView: View, ThemedView {
         guard let live = liveClaudeSession, live.isRestartPending else { return nil }
         return FolderRestartFacts(
             blockers: live.restartBlockers,
-            canRestartNow: AdditionalDirectoryStore.canRestartNow(live)
+            canRestartNow: AdditionalDirectoryStore.canRestartNow(live),
+            hasFailed: live.hasFailedRestart
         )
     }
 
@@ -280,7 +279,7 @@ struct ChatTabView: View, ThemedView {
             backgroundTasks: BackgroundTaskTracker.shared.inFlight(tabID: tab.id),
             planTitle: hasPlan ? planTitle : nil,
             folder: checkout?.projectName ?? gitDirectory.map { ($0 as NSString).lastPathComponent },
-            folderRows: folderRows,
+            folderRows: FolderRowsCache.shared.rows(for: tab.id),
             canEditFolders: tab.provider == .claudeCode,
             folderRestart: folderRestart,
             branch: branch,
@@ -411,7 +410,7 @@ struct ChatTabView: View, ThemedView {
         .task(id: folderRowsInput) {
             let input = folderRowsInput
             let rows = await Task.detached { input.rows() }.value
-            if !Task.isCancelled { folderRows = rows }
+            if !Task.isCancelled { FolderRowsCache.shared.setRows(rows, for: tab.id) }
         }
         .task(id: tab.agentSessionID) {
             guard tab.provider == .codex, let threadID = tab.agentSessionID, !threadID.isEmpty else { return }
@@ -1569,15 +1568,7 @@ struct ChatTabView: View, ThemedView {
     /// survives an app restart and so the chat has a transcript to read.
     private func persistHeadlessSessionID(_ sessionID: String?) {
         guard let sessionID, !sessionID.isEmpty, tab.agentSessionID != sessionID else { return }
-        tab.agentSessionID = sessionID
-        // Only Claude Code keeps a transcript on disk; Codex serves its
-        // history over the protocol, so a Codex tab has no path to derive.
-        guard tab.provider == .claudeCode else { return }
-        guard let workingDirectory = task.workingDirectoryPath else { return }
-        tab.sessionJSONLPath = SessionJSONLReader.resolvedTranscriptPath(
-            workingDirectory: workingDirectory,
-            sessionID: sessionID
-        )
+        AgentLauncher.recordSessionID(sessionID, on: tab)
     }
 
 }
