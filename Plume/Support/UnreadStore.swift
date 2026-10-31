@@ -29,8 +29,7 @@ final class UnreadStore {
     @ObservationIgnored private var finishOrder: [UUID: Int] = [:]
     @ObservationIgnored private var finishCount = 0
 
-    /// The message ID to store for a tab's mark, or nil to clear it. Fires
-    /// only when that changes.
+    /// The message ID to store for a tab's mark, or nil to clear it.
     @ObservationIgnored var onStoredMarkChanged: ((UUID, String?) -> Void)?
     @ObservationIgnored private var latestMessageIDs: [UUID: String] = [:]
     /// Stored marks waiting for the tab's transcript to confirm them.
