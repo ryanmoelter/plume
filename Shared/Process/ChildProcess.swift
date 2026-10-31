@@ -167,7 +167,7 @@ nonisolated enum ChildProcess {
             _ = fcntl(descriptor, F_SETFD, FD_CLOEXEC)
             // Appending lets the truncate above rewind the daemon's writes too, since it shares this file offset.
             _ = fcntl(descriptor, F_SETFL, fcntl(descriptor, F_GETFL) | O_APPEND)
-            captureFile = (String(cString: template), descriptor)
+            captureFile = (template.withUnsafeBufferPointer { String(cString: $0.baseAddress!) }, descriptor)
             posix_spawn_file_actions_adddup2(&actions, descriptor, STDOUT_FILENO)
             posix_spawn_file_actions_adddup2(&actions, descriptor, STDERR_FILENO)
         }

@@ -4,7 +4,7 @@ A device tab (`TabKind.device`, platform `androidRemote`) can show a physical de
 
 ## Layout
 
-- `Plume/Android/Remote/AndroidCLI.swift` finds the `android` tool and runs it. `ChildProcess` captures stdout and stderr and has a deadline.
+- `Plume/Android/Remote/AndroidCLI.swift` finds the `android` tool and runs it through `ChildProcess` (`Shared/Process/ChildProcess.swift`), the runner `CLIProcess` and adb discovery share. It captures stdout and stderr and has a deadline.
 - `RemoteDeviceParsers` parses the tool's plain-text output. No command prints JSON.
 - `RemoteReservation` owns one reservation, from `create` to `remove`.
 - `RemoteReservationLedger` records every reservation Plume created until it is removed.
@@ -33,7 +33,7 @@ Every command takes `--project=<id>`, a Google Cloud project ready for streaming
 - Times are clock times with no date, written with a narrow no-break space (U+202F) before AM/PM. `RemoteDeviceParsers.clockTime` takes the date that puts the time nearest now.
 - Table columns are separated by two or more spaces. A model name can hold a single space (`Pixel Tablet`).
 - Plume runs `create` without `--connect`, then `connect` itself, so it can read the port.
-- `connect` starts a detached daemon (`android-cli device remote daemon-connect <id>`, parent pid 1) and exits. **The daemon is the tunnel**: killing it turns the adb device `offline`. `disconnect` kills it. `ChildProcess` waits for the tool to exit, never for its pipes to close, in case the daemon holds them. So `connect` writes to a temporary file instead of pipes, and `ChildProcess` unlinks it once the tool exits: the daemon's later output goes to that unlinked file, which the system frees when the daemon exits.
+- `connect` starts a detached daemon (`android-cli device remote daemon-connect <id>`, parent pid 1) and exits. **The daemon is the tunnel**: killing it turns the adb device `offline`. `disconnect` kills it. `ChildProcess` waits for the tool to exit, never for its pipes to close, in case the daemon holds them. So `connect` writes to a temporary file instead of pipes (`ChildProcess.Output.file`), and `ChildProcess` unlinks it once the tool exits: the daemon's later output goes to that unlinked file, which the system frees when the daemon exits. The tool has no flag to quiet the daemon or send its log elsewhere: `android device remote connect --help` (1.1) offers only `--project`, `--sdk` and `--verbose`.
 - `/usr/local/bin/android` is a wrapper that runs `android-cli` as its child. `ChildProcess` starts each command as the leader of its own process group and, on a cancel or a timeout, signals the whole group, so `android-cli` dies with the wrapper. A command that finishes is never signalled, so the daemon a `connect` leaves behind survives even if it stayed in the group.
 - `list <id>` with no row for the id counts as ended only when the output is the table or says `There are no active reservations.` Anything else is logged and read as unknown, which keeps the tab.
 - `connect` refuses with exit 1 and `Reservation <id> is already connected on port N.` when a connection is still recorded. If adb lists `localhost:N` as `device`, Plume reuses that tunnel. Otherwise it runs `disconnect` and tries `connect` once more.
