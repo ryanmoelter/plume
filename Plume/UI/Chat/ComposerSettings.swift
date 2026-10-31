@@ -221,6 +221,7 @@ struct ComposerSettings {
     }
 
     func setPermissionPreset(_ preset: AgentPermissionPreset) {
+        LastNonPlanModeStore.shared.remember(preset, forTab: tab.id)
         tab.permissionPreset = preset
         if provider == .claudeCode, let mode = PermissionMode(rawValue: preset.id) {
             session?.setPermissionMode(mode)
