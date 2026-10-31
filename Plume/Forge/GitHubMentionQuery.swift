@@ -14,6 +14,8 @@ nonisolated enum GitHubMentionQuery {
             /// `$owner` and `$name`, filled from gh's `{owner}` and `{repo}`
             /// placeholders, which it resolves from its working directory.
             case repository
+            /// `$owner` and `$name`, given rather than resolved by gh.
+            case named(owner: String, name: String)
             case search(String)
             /// `$search0`, `$search1`, … in order.
             case searches([String])
@@ -26,6 +28,7 @@ nonisolated enum GitHubMentionQuery {
             var arguments = ["api", "graphql", "-f", "query=" + query]
             switch variables {
             case .repository: arguments += ["-F", "owner={owner}", "-F", "name={repo}"]
+            case .named(let owner, let name): arguments += ["-f", "owner=" + owner, "-f", "name=" + name]
             case .search(let search): arguments += ["-f", "search=" + search]
             case .searches(let searches):
                 for (index, search) in searches.enumerated() { arguments += ["-f", "search\(index)=" + search] }
@@ -47,6 +50,13 @@ nonisolated enum GitHubMentionQuery {
             query: "query($owner: String!, $name: String!) { "
                 + "repository(owner: $owner, name: $name) { pullRequest(number: \(number)) { \(fields) } } }",
             variables: .repository
+        )
+    }
+
+    static func pullRequest(number: Int, owner: String, name: String) -> Request {
+        Request(
+            query: pullRequest(number: number).query,
+            variables: .named(owner: owner, name: name)
         )
     }
 

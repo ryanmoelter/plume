@@ -290,6 +290,7 @@ enum AccessibilityID {
     static let infoPaneSideChatRow = "info-pane-side-chat-row"
     static let infoPaneRemoteControlMenu = "info-pane-remote-control-menu"
     static let infoPanePullRequestRow = "info-pane-pull-request-row"
+    static let infoPaneLinkedPullRequestRow = "info-pane-linked-pull-request-row"
     static let infoPaneLinearToggle = "info-pane-linear-toggle"
     static let infoPaneLinearCapToggle = "info-pane-linear-cap-toggle"
     static let infoPaneLinearMentionedToggle = "info-pane-linear-mentioned-toggle"

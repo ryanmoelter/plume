@@ -44,7 +44,7 @@ struct MentionAutocompleteView: View, ThemedView {
             case .pullRequest(let pull):
                 Image(systemName: Self.symbol(for: pull))
                     .imageScale(.small)
-                    .foregroundStyle(tint(for: pull))
+                    .foregroundStyle(Self.tint(for: pull, colorScheme: colorScheme))
                 Text("#\(pull.number)")
                     .font(typography.caption.monoMedium)
                 title(pull.title)
@@ -89,7 +89,7 @@ struct MentionAutocompleteView: View, ThemedView {
         }
     }
 
-    private static func symbol(for pull: MentionCandidate.PullRequestEntry) -> String {
+    static func symbol(for pull: MentionCandidate.PullRequestEntry) -> String {
         switch pull.state {
         case .merged: "arrow.trianglehead.pull"
         case .closed: "nosign"
@@ -97,7 +97,7 @@ struct MentionAutocompleteView: View, ThemedView {
         }
     }
 
-    private func tint(for pull: MentionCandidate.PullRequestEntry) -> AnyShapeStyle {
+    static func tint(for pull: MentionCandidate.PullRequestEntry, colorScheme: ColorScheme) -> AnyShapeStyle {
         switch pull.state {
         case .merged: AnyShapeStyle(ChatRole.merged(for: colorScheme))
         case .closed: AnyShapeStyle(ChatRole.danger(for: colorScheme))

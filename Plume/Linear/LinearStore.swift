@@ -7,6 +7,8 @@ import Synchronization
 /// Where `TranscriptStore` reports the Linear tool calls it finds.
 protocol LinearActivitySink: AnyObject {
     func replaceActivity(tabID: UUID, evidence: [LinearEvidence])
+    /// Identifiers the conversation's prose names, unfiltered by team key.
+    func replaceMentions(tabID: UUID, identifiers: [String])
     func forgetActivity(tabID: UUID)
 }
 
@@ -46,6 +48,7 @@ private final class LinearStateBox {
 @Observable
 private final class LinearActivityBox {
     var evidence: [LinearEvidence] = []
+    var mentions: [String] = []
 }
 
 /// Keeps every wanted Linear issue's state current across all connected
@@ -198,9 +201,9 @@ final class LinearStore: LinearActivitySink {
     }
 
     private func unscopedLinks(for task: WorkTask, branches: [String]) -> [LinkedLinearIssue] {
-        let evidence = task.orderedTabs
+        let boxes = task.orderedTabs
             .filter { $0.kind == .agent }
-            .flatMap { activityBox(for: $0.id).evidence }
+            .map { activityBox(for: $0.id) }
         var candidates: [String] = []
         for branch in branches {
             for candidate in identifiers(inBranch: branch) where !candidates.contains(candidate) {
@@ -208,7 +211,8 @@ final class LinearStore: LinearActivitySink {
             }
         }
         return LinearLinkResolver.resolve(
-            evidence: evidence,
+            evidence: boxes.flatMap(\.evidence),
+            mentions: boxes.flatMap(\.mentions),
             branchIdentifiers: candidates,
             links: links(of: task),
             catalogs: allCatalogs
@@ -1144,8 +1148,14 @@ final class LinearStore: LinearActivitySink {
         reportStarted(tabID: tabID)
     }
 
+    func replaceMentions(tabID: UUID, identifiers: [String]) {
+        let box = activityBox(for: tabID)
+        if box.mentions != identifiers { box.mentions = identifiers }
+    }
+
     func forgetActivity(tabID: UUID) {
         if let box = activityBoxes[tabID], !box.evidence.isEmpty { box.evidence = [] }
+        if let box = activityBoxes[tabID], !box.mentions.isEmpty { box.mentions = [] }
         seenWrites.removeValue(forKey: tabID)
         reportedStarted.removeValue(forKey: tabID)
     }

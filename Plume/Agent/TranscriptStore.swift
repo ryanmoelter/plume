@@ -53,6 +53,9 @@ final class TranscriptStore {
     private let statusEngine: StatusEngine
     private let backgroundTasks: BackgroundTaskTracker
     private let linearActivity: LinearActivitySink
+    private let linkedPullRequests: LinkedPullRequestStore
+    /// Per tab, so a read rescans only the messages that changed.
+    private var referenceCaches: [UUID: ConversationReferenceScanner.Cache] = [:]
     private let completionTracker: SubagentCompletionTracker
     private let statusOverrides: SubagentStatusOverrides
     /// Whether a live process backs a tab, checked across both transports. A
@@ -77,6 +80,7 @@ final class TranscriptStore {
         statusEngine: StatusEngine = .shared,
         backgroundTasks: BackgroundTaskTracker = .shared,
         linearActivity: LinearActivitySink? = nil,
+        linkedPullRequests: LinkedPullRequestStore? = nil,
         completionTracker: SubagentCompletionTracker = .shared,
         statusOverrides: SubagentStatusOverrides = .shared,
         isTabLive: @escaping (UUID) -> Bool = TranscriptStore.hasLiveSession
@@ -85,6 +89,7 @@ final class TranscriptStore {
         self.statusEngine = statusEngine
         self.backgroundTasks = backgroundTasks
         self.linearActivity = linearActivity ?? LinearStore.shared
+        self.linkedPullRequests = linkedPullRequests ?? .shared
         self.completionTracker = completionTracker
         self.statusOverrides = statusOverrides
         self.isTabLive = isTabLive
@@ -129,6 +134,8 @@ final class TranscriptStore {
         statusEngine.setSubagentActivity(tabID: tabID, working: false)
         backgroundTasks.forget(tabID: tabID)
         linearActivity.forgetActivity(tabID: tabID)
+        linkedPullRequests.forget(tabID: tabID)
+        referenceCaches.removeValue(forKey: tabID)
     }
 
     func stopAll() {
@@ -137,7 +144,11 @@ final class TranscriptStore {
             for watcher in tabWatchers.values { watcher.stop() }
         }
         for task in pending.values { task.cancel() }
-        for tabID in paths.keys { linearActivity.forgetActivity(tabID: tabID) }
+        for tabID in paths.keys {
+            linearActivity.forgetActivity(tabID: tabID)
+            linkedPullRequests.forget(tabID: tabID)
+        }
+        referenceCaches.removeAll()
         watchers.removeAll()
         subagentWatchers.removeAll()
         pending.removeAll()
@@ -267,15 +278,20 @@ final class TranscriptStore {
     private func read(tabID: UUID) {
         guard let path = paths[tabID], !inFlight.contains(tabID) else { return }
         inFlight.insert(tabID)
+        let referenceCache = referenceCaches[tabID] ?? ConversationReferenceScanner.Cache()
         Task.detached(priority: .utility) {
             let parsed = FileManager.default.contents(atPath: path).map { data in
                 let transcript = TranscriptParser.parse(data)
                 let subagents = Self.readSubagents(transcriptPath: path, parentData: data)
+                var referenceCache = referenceCache
+                let references = ConversationReferenceScanner.scan(transcript.messages, cache: &referenceCache)
                 return (
                     transcript,
                     subagents,
                     BackgroundTaskScanner.inFlight(parentData: data),
-                    Self.linearEvidence(transcript: transcript, subagents: subagents)
+                    Self.linearEvidence(transcript: transcript, subagents: subagents),
+                    references,
+                    referenceCache
                 )
             }
             await MainActor.run { [weak self] in
@@ -303,6 +319,9 @@ final class TranscriptStore {
                     entries: self.isTabLive(tabID) ? parsed.2 : []
                 )
                 self.linearActivity.replaceActivity(tabID: tabID, evidence: parsed.3)
+                self.linearActivity.replaceMentions(tabID: tabID, identifiers: parsed.4.linearIdentifiers)
+                self.linkedPullRequests.replace(tabID: tabID, references: parsed.4.pullRequests)
+                self.referenceCaches[tabID] = parsed.5
                 self.syncSubagentWatchers(tabID: tabID, transcriptPath: path)
                 if parsed.0.messages.isEmpty {
                     self.repointIfRelocated(tabID: tabID, from: path)

@@ -8,6 +8,25 @@ struct InfoPaneFactsTests {
         SubagentTranscript(id: id, transcript: Transcript(), modifiedAt: nil, status: status)
     }
 
+    @Test func linkedPullRequestsLeaveOutTheBranchsOwn() {
+        let own = PullRequestReference(owner: "a", repo: "b", number: 1)
+        let other = PullRequestReference(owner: "a", repo: "b", number: 2)
+        let entry = MentionCandidate.PullRequestEntry(
+            number: 2, title: "Other", url: other.url, state: .open, isDraft: false, updatedAt: nil
+        )
+        let linked = InfoPaneFacts.linkedPullRequests(
+            [own, other],
+            branchPullRequestURL: URL(string: "https://github.com/A/B/pull/1"),
+            detail: { $0 == other ? .pullRequest(entry) : nil }
+        )
+        #expect(linked == [InfoPaneFacts.LinkedPullRequestFacts(reference: other, pullRequest: entry)])
+
+        var facts = InfoPaneFacts(tabID: UUID())
+        facts.linkedPullRequests = linked
+        #expect(facts.sections == [.linkedPullRequests])
+        #expect(facts.collapsedSections.isEmpty)
+    }
+
     @Test func aTabWithNothingToSayHasNoSections() {
         #expect(InfoPaneFacts(tabID: UUID()).sections.isEmpty)
     }
