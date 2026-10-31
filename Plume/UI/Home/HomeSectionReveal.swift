@@ -3,14 +3,11 @@ import SwiftUI
 
 /// How a collapsible Home section opens and closes. Opening springs the
 /// section's height open while each row waits for the height to reach it,
-/// then fades in, and scales in unless `scaleKey` is off. Closing fades the
-/// rows out first, then springs the height shut, so a row is never drawn over
-/// the content below it. Every spring is critically damped, like the chat's
-/// word reveal, and the height takes longer the more rows it moves, up to a
-/// cap.
+/// then fades in. Closing fades the rows out first, then springs the height
+/// shut, so a row is never drawn over the content below it. Every spring is
+/// critically damped, like the chat's word reveal, and the height takes longer
+/// the more rows it moves, up to a cap.
 nonisolated enum HomeSectionReveal {
-    static let scaleKey = "homeRevealScale"
-
     static let expandBaseDuration = 0.3
     static let expandDurationPerRow = 0.03
     static let expandMaxDuration = 0.5
@@ -19,7 +16,6 @@ nonisolated enum HomeSectionReveal {
     static let collapseMaxDuration = 0.32
     /// The chat reveal's word fade duration.
     static let rowFadeDuration = 0.3
-    static let rowStartScale = 0.9
     static let collapseFadeDuration = 0.12
 
     static func expandDuration(count: Int) -> Double {
@@ -74,15 +70,12 @@ nonisolated enum HomeSectionReveal {
     }
 
     @MainActor
-    static func rowTransition(index: Int, count: Int, scales: Bool, reduceMotion: Bool) -> AnyTransition {
+    static func rowTransition(index: Int, count: Int, reduceMotion: Bool) -> AnyTransition {
         let insertion: AnyTransition
         if reduceMotion {
             insertion = .opacity.animation(.easeOut(duration: 0.15))
         } else {
-            let entrance: AnyTransition = scales
-                ? .opacity.combined(with: .scale(scale: rowStartScale, anchor: .leading))
-                : .opacity
-            insertion = entrance.animation(rowEntrance.delay(rowDelay(index: index, count: count)))
+            insertion = AnyTransition.opacity.animation(rowEntrance.delay(rowDelay(index: index, count: count)))
         }
         return .asymmetric(insertion: insertion, removal: .opacity)
     }

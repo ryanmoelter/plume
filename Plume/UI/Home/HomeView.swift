@@ -50,26 +50,14 @@ private struct HomeContent: View, ThemedView {
     let composer: HomeComposer
     @Environment(\.theme) var theme
     @State private var hangsMarkers = false
-    #if DEBUG
-    @AppStorage(HomeRowAlignment.collapseEmptyStatusSlotKey) private var collapsesEmptyStatusSlot = false
-    @AppStorage(HomeRowAlignment.alignColorBarToTextKey) private var alignsColorBarToText = false
-    @AppStorage(HomeSectionReveal.scaleKey) private var scalesRevealedRows = true
-    #else
-    private let collapsesEmptyStatusSlot = false
-    private let alignsColorBarToText = false
-    private let scalesRevealedRows = true
-    #endif
     @State private var scrollPosition = ScrollPosition()
     @State private var scrollGeometry = HomeScrollGeometry()
     @State private var scrollReserve: CGFloat = 0
 
-    private var rowAlignment: HomeRowAlignment {
-        HomeRowAlignment(
-            hangsMarkers: hangsMarkers,
-            collapsesEmptyStatusSlot: collapsesEmptyStatusSlot,
-            alignsColorBarToText: alignsColorBarToText
-        )
+    private var bleed: CGFloat {
+        hangsMarkers ? HomeRow.gutterWidth : 0
     }
+
     @AppStorage("homeNeedsAttentionExpanded") private var needsAttentionExpanded = true
     @AppStorage("homeIdleExpanded") private var idleExpanded = true
     @AppStorage("homeNotStartedExpanded") private var notStartedExpanded = false
@@ -122,14 +110,14 @@ private struct HomeContent: View, ThemedView {
         }
         .onGeometryChange(for: Bool.self) { proxy in
             (proxy.size.width - dimensions.contentWidth) / 2
-                >= HomeRow.gutterWidth(alignsColorBarToText: alignsColorBarToText) + dimensions.horizontalEdgePadding
+                >= HomeRow.gutterWidth + dimensions.horizontalEdgePadding
         } action: { hangsMarkers = $0 }
         .plumeID(AccessibilityID.homeView)
     }
 
     private var sectionStyle: HomeSectionStyle {
         HomeSectionStyle(
-            bleed: rowAlignment.bleed, scalesRows: scalesRevealedRows, reveal: reveal, endReveal: endReveal
+            bleed: bleed, reveal: reveal, endReveal: endReveal
         )
     }
 
@@ -181,7 +169,7 @@ private struct HomeContent: View, ThemedView {
                     .transition(transition(0))
             } else {
                 ForEach(Array(feed.needsYou.enumerated()), id: \.element.id) { index, item in
-                    HomeRow(item: item, isProminent: true, alignment: rowAlignment) { open(item.taskID, item.tabID) }
+                    HomeRow(item: item, isProminent: true, hangsMarkers: hangsMarkers) { open(item.taskID, item.tabID) }
                         .padding(.top, index == 0 ? 0 : 4)
                         .transition(transition(index))
                 }
@@ -201,7 +189,7 @@ private struct HomeContent: View, ThemedView {
             count: items.count
         ) { transition in
             ForEach(Array(items.enumerated()), id: \.element.id) { index, item in
-                HomeRow(item: item, isProminent: false, alignment: rowAlignment) {
+                HomeRow(item: item, isProminent: false, hangsMarkers: hangsMarkers) {
                     open(item.taskID, item.tabID)
                 }
                 .transition(transition(index))
@@ -226,7 +214,6 @@ private enum HomeSectionHeader {
 
 private struct HomeSectionStyle {
     let bleed: CGFloat
-    let scalesRows: Bool
     /// Scrolls just far enough to show a section that has opened, given its
     /// frame in `HomeScrollGeometry.contentSpace`, on the animation its height
     /// opens with.
@@ -309,7 +296,7 @@ private struct HomeSection<Rows: View>: View, ThemedView {
             if isShown {
                 rows { index in
                     HomeSectionReveal.rowTransition(
-                        index: index, count: count, scales: style.scalesRows, reduceMotion: reduceMotion
+                        index: index, count: count, reduceMotion: reduceMotion
                     )
                 }
                 .opacity(rowsHidden ? 0 : 1)
@@ -443,45 +430,28 @@ private struct HomeGreetingHeader: View, ThemedView {
     }
 }
 
-/// How a row's leading elements sit against the page's text keyline.
-private struct HomeRowAlignment {
-    static let collapseEmptyStatusSlotKey = "homeCollapseEmptyStatusSlot"
-    static let alignColorBarToTextKey = "homeAlignColorBarToText"
-
-    /// On a wide page the markers sit left of the keyline, in the gutter,
-    /// so every section's text shares one leading edge.
-    let hangsMarkers: Bool
-    let collapsesEmptyStatusSlot: Bool
-    let alignsColorBarToText: Bool
-
-    var bleed: CGFloat {
-        hangsMarkers ? HomeRow.gutterWidth(alignsColorBarToText: alignsColorBarToText) : 0
-    }
-}
-
 private struct HomeRow: View, ThemedView {
     static let horizontalPadding: CGFloat = 10
     private static let markerWidth: CGFloat = 18
     private static let markerSpacing: CGFloat = 8
     private static let barWidth: CGFloat = 3
     private static let barTextGap: CGFloat = 8
-    /// What sits left of the keyline: the status marker, and the color bar
-    /// unless it is aligned to the keyline.
-    static func gutterWidth(alignsColorBarToText: Bool) -> CGFloat {
-        markerWidth + markerSpacing + (alignsColorBarToText ? 0 : barWidth + barTextGap)
-    }
+    /// What sits left of the keyline: the status marker and the color bar.
+    static let gutterWidth = markerWidth + markerSpacing + barWidth + barTextGap
     private static let contextSeparator = "  •  "
 
     let item: HomeFeed.Item
     let isProminent: Bool
-    let alignment: HomeRowAlignment
+    /// On a wide page the markers sit left of the keyline, in the gutter,
+    /// so every section's text shares one leading edge.
+    let hangsMarkers: Bool
     let action: () -> Void
     @Environment(\.theme) var theme
     @Environment(\.colorScheme) private var colorScheme
     @State private var isHovered = false
 
     var body: some View {
-        let bleed = alignment.bleed
+        let bleed = hangsMarkers ? Self.gutterWidth : 0
         return Button(action: action) {
             HStack(alignment: .firstTextBaseline, spacing: Self.markerSpacing) {
                 if !collapsesMarkerSlot {
@@ -498,7 +468,7 @@ private struct HomeRow: View, ThemedView {
                     }
                     contextLine
                 }
-                .padding(.leading, reservesBarSpace ? Self.barWidth + Self.barTextGap : 0)
+                .padding(.leading, Self.barWidth + Self.barTextGap)
                 .overlay(alignment: .leading) { colorBar }
                 Spacer(minLength: 8)
                 if item.status.isActive, let workStartedAt = item.workStartedAt {
@@ -538,12 +508,8 @@ private struct HomeRow: View, ThemedView {
         item.barTint.flatMap(theme.colors.color(for:))
     }
 
-    private var reservesBarSpace: Bool {
-        !alignment.alignsColorBarToText || barColor != nil
-    }
-
     private var collapsesMarkerSlot: Bool {
-        alignment.collapsesEmptyStatusSlot && !alignment.hangsMarkers
+        !hangsMarkers
             && StatusBadge.isBlank(status: item.status, isUnread: item.isUnread)
     }
 

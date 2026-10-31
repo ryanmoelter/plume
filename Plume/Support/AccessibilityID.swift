@@ -86,9 +86,6 @@ enum AccessibilityID {
     static let linearStateColorsPreviewButton = "linear-state-colors-preview-button"
 
     static let settingsPane = "settings-pane"
-    static let settingsHomeCollapseEmptyStatusSlotToggle = "settings-home-collapse-empty-status-slot-toggle"
-    static let settingsHomeAlignColorBarToggle = "settings-home-align-color-bar-toggle"
-    static let settingsHomeRevealScaleToggle = "settings-home-reveal-scale-toggle"
     static let settingsThemeReloadButton = "settings-theme-reload-button"
     static let settingsAccentSwatch = "settings-accent-swatch"
     static let settingsSidebarShowsTaskColorBarToggle = "settings-sidebar-shows-task-color-bar-toggle"
