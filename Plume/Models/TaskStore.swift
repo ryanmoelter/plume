@@ -382,6 +382,7 @@ enum TaskStore {
         }
         LinearMentionTracker.shared.forget(taskID: task.id)
         LinearStore.shared.forget(taskID: task.id)
+        LinkedPullRequestStore.shared.forget(taskID: task.id)
         context.delete(task)
     }
 
@@ -540,6 +541,38 @@ enum TaskStore {
         change(&links)
         guard links != before else { return }
         integrations.linear = links.isEmpty ? nil : links
+        task.integrationsData = integrations.encoded()
+    }
+
+    // MARK: - Pinned pull requests
+
+    static func pinnedPullRequests(of task: WorkTask) -> [PullRequestReference] {
+        TaskIntegrations.decode(task.integrationsData).pullRequests?.pinned ?? []
+    }
+
+    /// Returns false for input that is not a pull request URL or `owner/repo#123`.
+    @discardableResult
+    static func pinPullRequest(_ input: String, to task: WorkTask) -> Bool {
+        guard let reference = PullRequestReference.parse(input) else { return false }
+        pinPullRequest(reference, to: task)
+        return true
+    }
+
+    static func pinPullRequest(_ reference: PullRequestReference, to task: WorkTask) {
+        updatePullRequestLinks(of: task) { $0.pin(reference) }
+    }
+
+    static func unpinPullRequest(_ reference: PullRequestReference, from task: WorkTask) {
+        updatePullRequestLinks(of: task) { $0.unpin(reference) }
+    }
+
+    private static func updatePullRequestLinks(of task: WorkTask, _ change: (inout PullRequestTaskLinks) -> Void) {
+        var integrations = TaskIntegrations.decode(task.integrationsData)
+        let before = integrations.pullRequests ?? PullRequestTaskLinks()
+        var links = before
+        change(&links)
+        guard links != before else { return }
+        integrations.pullRequests = links.isEmpty ? nil : links
         task.integrationsData = integrations.encoded()
     }
 

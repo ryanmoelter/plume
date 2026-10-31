@@ -50,9 +50,11 @@ struct InfoPaneFacts: Equatable {
         }
     }
 
-    /// A pull request the conversation links to, other than the branch's own.
+    /// A pull request pinned to the task or named in the conversation, other
+    /// than the branch's own.
     struct LinkedPullRequestFacts: Equatable, Identifiable {
         let reference: PullRequestReference
+        var role: LinkedPullRequestRole = .mentioned
         /// Nil until GitHub has answered, and when it cannot.
         var pullRequest: MentionCandidate.PullRequestEntry?
 
@@ -99,6 +101,8 @@ struct InfoPaneFacts: Equatable {
     /// Nil when PR status is turned off or the forge cannot answer.
     var pullRequest: PullRequestFacts?
     var linkedPullRequests: [LinkedPullRequestFacts] = []
+    /// Shows the pull request section with nothing in it, for its pin button.
+    var canPinPullRequests = false
     var linear: LinearFacts?
     /// How many `/btw` questions this tab has asked.
     var sideChatCount = 0
@@ -111,7 +115,7 @@ struct InfoPaneFacts: Equatable {
         if !liveSubagents.isEmpty || !completedSubagents.isEmpty { sections.append(.subagents) }
         if !backgroundTasks.isEmpty { sections.append(.backgroundTasks) }
         if pullRequest?.hasPullRequest == true { sections.append(.pullRequest) }
-        if !linkedPullRequests.isEmpty { sections.append(.linkedPullRequests) }
+        if !linkedPullRequests.isEmpty || canPinPullRequests { sections.append(.linkedPullRequests) }
         if linear != nil { sections.append(.linearIssues) }
         if planTitle != nil { sections.append(.plan) }
         if !artifacts.isEmpty { sections.append(.artifacts) }
@@ -180,19 +184,20 @@ extension InfoPaneFacts {
 }
 
 extension InfoPaneFacts {
-    /// Leaves out the branch's own pull request, which has its own row.
+    /// Pinned first, then mentioned. Leaves out the branch's own pull
+    /// request, which has its own row.
     static func linkedPullRequests(
-        _ references: [PullRequestReference],
+        pinned: [PullRequestReference],
+        mentioned: [PullRequestReference],
         branchPullRequestURL: URL?,
         detail: (PullRequestReference) -> LinkedPullRequestStore.Detail?
     ) -> [LinkedPullRequestFacts] {
-        references
-            .filter { !$0.matches(url: branchPullRequestURL?.absoluteString) }
-            .map { reference in
-                guard case .pullRequest(let pull) = detail(reference) else {
-                    return LinkedPullRequestFacts(reference: reference)
-                }
-                return LinkedPullRequestFacts(reference: reference, pullRequest: pull)
+        LinkedPullRequest.merge(pinned: pinned, mentioned: mentioned)
+            .filter { !$0.reference.matches(url: branchPullRequestURL?.absoluteString) }
+            .map { linked in
+                var facts = LinkedPullRequestFacts(reference: linked.reference, role: linked.role)
+                if case .pullRequest(let pull) = detail(linked.reference) { facts.pullRequest = pull }
+                return facts
             }
     }
 }

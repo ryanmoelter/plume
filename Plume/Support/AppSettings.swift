@@ -50,6 +50,7 @@ final class AppSettings {
         static let infoPaneLinearExpanded = "infoPaneLinearExpanded"
         static let infoPaneBackgroundTasksExpanded = "infoPaneBackgroundTasksExpanded"
         static let infoPaneArtifactsExpanded = "infoPaneArtifactsExpanded"
+        static let infoPaneLinkedPullRequestsExpanded = "infoPaneLinkedPullRequestsExpanded"
         /// The retired Settings ▸ Integrations list, read only to migrate it.
         static let legacyIgnoredPendingChecks = "ignoredPendingChecks"
         static let notifiesOnTurnEnd = "notifiesOnTurnEnd"
@@ -218,6 +219,9 @@ final class AppSettings {
         self.infoPaneArtifactsExpanded = defaults.object(forKey: Key.infoPaneArtifactsExpanded) == nil
             ? true
             : defaults.bool(forKey: Key.infoPaneArtifactsExpanded)
+        self.infoPaneLinkedPullRequestsExpanded = defaults.object(forKey: Key.infoPaneLinkedPullRequestsExpanded) == nil
+            ? true
+            : defaults.bool(forKey: Key.infoPaneLinkedPullRequestsExpanded)
 
         // Unset reads as false, which is the wanted default.
         self.notifiesOnTurnEnd = defaults.bool(forKey: Key.notifiesOnTurnEnd)
@@ -660,6 +664,12 @@ final class AppSettings {
     var infoPaneArtifactsExpanded: Bool {
         didSet {
             defaults.set(infoPaneArtifactsExpanded, forKey: Key.infoPaneArtifactsExpanded)
+        }
+    }
+
+    var infoPaneLinkedPullRequestsExpanded: Bool {
+        didSet {
+            defaults.set(infoPaneLinkedPullRequestsExpanded, forKey: Key.infoPaneLinkedPullRequestsExpanded)
         }
     }
 

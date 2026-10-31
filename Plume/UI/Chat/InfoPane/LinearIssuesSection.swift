@@ -318,7 +318,7 @@ private final class ClosureMenuItem: NSMenuItem {
 }
 
 /// Keeps a row's content clear of the control laid over its trailing edge.
-private struct OverlaidControlSpace: View {
+struct OverlaidControlSpace: View {
     var body: some View {
         Color.clear.frame(width: InfoPaneLayout.iconColumnWidth, height: 1)
     }

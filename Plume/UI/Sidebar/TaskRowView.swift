@@ -67,8 +67,19 @@ struct TaskRowView: View {
         return LinearStore.shared.links(for: task, branches: task.linearBranches).filter { $0.role == .working }
     }
 
-    private func detailLines(working: [LinkedLinearIssue]) -> [TaskRowDetails.Line] {
-        TaskRowDetails.lines(groups: directories.map(group(for:)))
+    private var pinnedPullRequests: [PullRequestReference] {
+        guard AppSettings.shared.showsPullRequestStatus else { return [] }
+        return TaskStore.pinnedPullRequests(of: task)
+    }
+
+    private func detailLines(working: [LinkedLinearIssue], pinned: [PullRequestReference]) -> [TaskRowDetails.Line] {
+        let groups = directories.map(group(for:))
+        return TaskRowDetails.lines(groups: groups)
+            + TaskRowDetails.pinnedPullRequestLines(
+                pinned,
+                branchPullRequestURLs: TaskRowDetails.branchPullRequestURLs(groups),
+                details: { LinkedPullRequestStore.shared.detail(for: $0) }
+            )
             + TaskRowDetails.linearLines(working, states: { LinearStore.shared.state(for: $0) })
     }
 
@@ -91,7 +102,8 @@ struct TaskRowView: View {
 
     var body: some View {
         let working = workingLinearIssues
-        let rawLines = detailLines(working: working)
+        let pinned = pinnedPullRequests
+        let rawLines = detailLines(working: working, pinned: pinned)
         let lines = Array(rawLines.enumerated())
         let badgeLineCount = Self.badgeLineCount(of: rawLines)
         let firstProjectIndex = firstProjectLineIndex(in: rawLines)
@@ -127,6 +139,7 @@ struct TaskRowView: View {
         // shows, so its height eases rather than snapping the rows below it.
         .animatedHeight(alignment: .top)
         .linearIssueWatch(Set(working.map(\.identifier)))
+        .task(id: pinned) { LinkedPullRequestStore.shared.retain(pinned, forTask: task.id) }
         .onChange(of: directories, initial: true) { _, current in
             watch(Set(current))
             // From a lifecycle event, never `body` — the store writes when the
@@ -281,6 +294,10 @@ struct TaskRowView: View {
                     .font(.caption)
                     .emphasis(.secondary)
             }
+        case .pinnedPullRequest(let reference, let detail):
+            PinnedPullRequestLine(reference: reference, detail: detail)
+        case .pinnedPullRequestOverflow(let count):
+            PinnedPullRequestOverflowLine(count: count)
         case .pullRequest(let directory, let state):
             PullRequestChip(
                 state: state,

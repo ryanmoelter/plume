@@ -5,16 +5,19 @@ import Foundation
 nonisolated struct TaskIntegrations: Codable, Equatable {
     var version = 1
     var linear: LinearTaskLinks?
+    var pullRequests: PullRequestTaskLinks?
 
-    init(version: Int = 1, linear: LinearTaskLinks? = nil) {
+    init(version: Int = 1, linear: LinearTaskLinks? = nil, pullRequests: PullRequestTaskLinks? = nil) {
         self.version = version
         self.linear = linear
+        self.pullRequests = pullRequests
     }
 
     init(from decoder: any Decoder) throws {
         let container = try decoder.container(keyedBy: CodingKeys.self)
         version = (try? container.decodeIfPresent(Int.self, forKey: .version)) ?? 1
         linear = try? container.decodeIfPresent(LinearTaskLinks.self, forKey: .linear)
+        pullRequests = try? container.decodeIfPresent(PullRequestTaskLinks.self, forKey: .pullRequests)
     }
 
     static func decode(_ data: Data?) -> TaskIntegrations {
@@ -123,7 +126,7 @@ private nonisolated struct LossyElement<Element: Decodable>: Decodable {
     }
 }
 
-private nonisolated extension KeyedDecodingContainer {
+nonisolated extension KeyedDecodingContainer {
     /// Skips a malformed element rather than dropping the whole list.
     func decodeLossyArray<Element: Decodable>(_ type: Element.Type, forKey key: Key) -> [Element] {
         let elements = try? decodeIfPresent([LossyElement<Element>].self, forKey: key)

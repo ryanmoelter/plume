@@ -15,7 +15,8 @@ struct InfoPaneFactsTests {
             number: 2, title: "Other", url: other.url, state: .open, isDraft: false, updatedAt: nil
         )
         let linked = InfoPaneFacts.linkedPullRequests(
-            [own, other],
+            pinned: [],
+            mentioned: [own, other],
             branchPullRequestURL: URL(string: "https://github.com/A/B/pull/1"),
             detail: { $0 == other ? .pullRequest(entry) : nil }
         )
@@ -23,6 +24,26 @@ struct InfoPaneFactsTests {
 
         var facts = InfoPaneFacts(tabID: UUID())
         facts.linkedPullRequests = linked
+        #expect(facts.sections == [.linkedPullRequests])
+        #expect(facts.collapsedSections.isEmpty)
+    }
+
+    @Test func aPinnedPullRequestTheConversationNamesShowsOnceAsPinned() {
+        let first = PullRequestReference(owner: "a", repo: "b", number: 1)
+        let second = PullRequestReference(owner: "a", repo: "b", number: 2)
+        let linked = InfoPaneFacts.linkedPullRequests(
+            pinned: [second],
+            mentioned: [first, second],
+            branchPullRequestURL: nil,
+            detail: { _ in nil }
+        )
+        #expect(linked.map(\.reference) == [second, first])
+        #expect(linked.map(\.role) == [.pinned, .mentioned])
+    }
+
+    @Test func thePinButtonKeepsAnEmptyPullRequestSection() {
+        var facts = InfoPaneFacts(tabID: UUID())
+        facts.canPinPullRequests = true
         #expect(facts.sections == [.linkedPullRequests])
         #expect(facts.collapsedSections.isEmpty)
     }

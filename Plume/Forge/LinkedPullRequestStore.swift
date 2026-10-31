@@ -28,6 +28,9 @@ final class LinkedPullRequestStore {
     typealias Runner = @Sendable (_ arguments: [String]) async throws -> Data
 
     private var referencesByTab: [UUID: [PullRequestReference]] = [:]
+    /// Pinned references a task's sidebar row shows, kept alive when no tab
+    /// names them.
+    @ObservationIgnored private var retainedByTask: [UUID: [PullRequestReference]] = [:]
     private var details: [PullRequestReference: Detail] = [:]
     @ObservationIgnored private var askedAt: [PullRequestReference: Date] = [:]
     @ObservationIgnored private var inFlight: Set<PullRequestReference> = []
@@ -55,7 +58,24 @@ final class LinkedPullRequestStore {
     func forget(tabID: UUID) {
         guard referencesByTab[tabID] != nil else { return }
         referencesByTab[tabID] = nil
-        let live = Set(referencesByTab.values.joined())
+        prune()
+    }
+
+    /// Holds a task's pinned references and fetches any that are due.
+    func retain(_ references: [PullRequestReference], forTask taskID: UUID) {
+        let before = retainedByTask[taskID] ?? []
+        retainedByTask[taskID] = references.isEmpty ? nil : references
+        if !Set(before).isSubset(of: Set(references)) { prune() }
+        refresh(references)
+    }
+
+    func forget(taskID: UUID) {
+        guard retainedByTask.removeValue(forKey: taskID) != nil else { return }
+        prune()
+    }
+
+    private func prune() {
+        let live = Set(referencesByTab.values.joined()).union(retainedByTask.values.joined())
         for reference in details.keys where !live.contains(reference) { details[reference] = nil }
         askedAt = askedAt.filter { live.contains($0.key) || inFlight.contains($0.key) }
         failures = failures.filter { live.contains($0.key) }
