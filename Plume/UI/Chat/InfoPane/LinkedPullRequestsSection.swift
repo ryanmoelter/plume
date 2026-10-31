@@ -18,12 +18,12 @@ struct LinkedPullRequestsSection: View, ThemedView {
 
     let pullRequests: [InfoPaneFacts.LinkedPullRequestFacts]
     let actions: InfoPanePullRequestActions
+    @Binding var showsMentioned: Bool
 
     @Environment(\.infoPaneIsOpen) private var isPaneOpen
     @State private var settings = AppSettings.shared
     @State private var showsPinPopover = false
     @State private var isHoveringAdd = false
-    @State private var showsMentioned = true
 
     private static let title = "Pull Requests"
     private static let symbol = "arrow.triangle.pull"

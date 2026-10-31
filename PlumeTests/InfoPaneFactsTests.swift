@@ -41,6 +41,19 @@ struct InfoPaneFactsTests {
         #expect(linked.map(\.role) == [.pinned, .mentioned])
     }
 
+    @Test func aPinnedPullRequestThatIsTheBranchsOwnIsLeftOut() {
+        let own = PullRequestReference(owner: "a", repo: "b", number: 1)
+        let other = PullRequestReference(owner: "a", repo: "b", number: 2)
+        let linked = InfoPaneFacts.linkedPullRequests(
+            pinned: [own, other],
+            mentioned: [own],
+            branchPullRequestURL: URL(string: "https://github.com/A/B/pull/1/files"),
+            detail: { _ in nil }
+        )
+        #expect(linked.map(\.reference) == [other])
+        #expect(linked.map(\.role) == [.pinned])
+    }
+
     @Test func thePinButtonKeepsAnEmptyPullRequestSection() {
         var facts = InfoPaneFacts(tabID: UUID())
         facts.canPinPullRequests = true

@@ -104,28 +104,28 @@ enum TaskRowDetails {
         )
     }
 
-    /// Mentioned pull requests never take a line, and neither does one a
-    /// directory group already shows as its branch's.
+    /// Leaves out a pull request a directory group already shows as its
+    /// branch's. Until every group's pull request has loaded, that is not
+    /// known, so no pinned line shows rather than one that may vanish.
     static func pinnedPullRequestLines(
         _ pinned: [PullRequestReference],
-        branchPullRequestURLs: [String],
+        groups: [DirectoryGroup],
         details: (PullRequestReference) -> LinkedPullRequestStore.Detail?,
         cap: Int = pinnedLineCap
     ) -> [Line] {
-        cappedLines(
-            pinned.filter { reference in !branchPullRequestURLs.contains { reference.matches(url: $0) } },
+        guard !pinned.isEmpty,
+              !groups.contains(where: { $0.pullRequest == nil || $0.pullRequest == .loading })
+        else { return [] }
+        let branchPullRequests = Set(groups.compactMap { group -> PullRequestReference? in
+            guard case .pullRequest(let pullRequest) = group.pullRequest, let url = pullRequest.url else { return nil }
+            return ConversationReferenceScanner.references(in: url).pullRequests.first
+        })
+        return cappedLines(
+            pinned.filter { !branchPullRequests.contains($0) },
             cap: cap,
             line: { .pinnedPullRequest($0, detail: details($0)) },
             overflow: Line.pinnedPullRequestOverflow
         )
-    }
-
-    /// The URL of each group's own pull request, which already has a line.
-    static func branchPullRequestURLs(_ groups: [DirectoryGroup]) -> [String] {
-        groups.compactMap { group in
-            guard case .pullRequest(let pullRequest) = group.pullRequest else { return nil }
-            return pullRequest.url
-        }
     }
 
     /// The word standing in for an issue's state when there is none to show.

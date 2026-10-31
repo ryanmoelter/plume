@@ -342,10 +342,18 @@ struct TaskRowPinnedPullRequestLinesTests {
         PullRequestReference(owner: "a", repo: "b", number: number)
     }
 
+    private func group(_ state: PullRequestFetchState?) -> TaskRowDetails.DirectoryGroup {
+        TaskRowDetails.DirectoryGroup(directory: "/a", pullRequest: state)
+    }
+
+    private func branchPullRequest(_ url: String) -> PullRequestFetchState {
+        .pullRequest(PullRequest(number: 1, state: .open, isDraft: false, url: url))
+    }
+
     @Test func pinnedPullRequestsCapAtTwoWithAnOverflowCount() {
         let lines = TaskRowDetails.pinnedPullRequestLines(
             [ref(1), ref(2), ref(3)],
-            branchPullRequestURLs: [],
+            groups: [],
             details: { _ in nil }
         )
         #expect(lines == [
@@ -358,21 +366,21 @@ struct TaskRowPinnedPullRequestLinesTests {
     @Test func theBranchsOwnPullRequestTakesNoSecondLine() {
         let lines = TaskRowDetails.pinnedPullRequestLines(
             [ref(1), ref(2)],
-            branchPullRequestURLs: ["https://github.com/A/B/pull/1"],
+            groups: [group(branchPullRequest("https://github.com/A/B/pull/1")), group(.noPR)],
             details: { _ in .unavailable }
         )
         #expect(lines == [.pinnedPullRequest(ref(2), detail: .unavailable)])
     }
 
-    @Test func branchPullRequestURLsComeOnlyFromGroupsWithAPullRequest() {
-        let groups = [
-            TaskRowDetails.DirectoryGroup(
-                directory: "/a",
-                pullRequest: .pullRequest(PullRequest(number: 1, state: .open, isDraft: false, url: "https://github.com/a/b/pull/1"))
-            ),
-            TaskRowDetails.DirectoryGroup(directory: "/b", pullRequest: .noPR),
-        ]
-        #expect(TaskRowDetails.branchPullRequestURLs(groups) == ["https://github.com/a/b/pull/1"])
+    @Test func pinnedLinesWaitForEveryBranchPullRequestToLoad() {
+        for state in [nil, PullRequestFetchState.loading] {
+            let lines = TaskRowDetails.pinnedPullRequestLines(
+                [ref(1), ref(2)],
+                groups: [group(.noPR), group(state)],
+                details: { _ in nil }
+            )
+            #expect(lines.isEmpty)
+        }
     }
 
     @Test func pinnedPullRequestAccessibilityText() {

@@ -46,23 +46,28 @@ extension PullRequestReference: Codable {
         try container.encode(number, forKey: .number)
     }
 
-    /// Reads a pull request URL, or `owner/repo#123`.
+    /// Reads input that is wholly a github.com pull request URL, with any
+    /// path, query or fragment after the number, or `owner/repo#123`. Plume
+    /// only asks github.com, so a GitHub Enterprise host is rejected.
     nonisolated static func parse(_ text: String) -> PullRequestReference? {
         let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
-        if let found = ConversationReferenceScanner.references(in: trimmed).pullRequests.first {
-            return found
-        }
-        let whole = NSRange(location: 0, length: (trimmed as NSString).length)
-        guard let match = shorthandPattern.firstMatch(in: trimmed, range: whole),
-              let number = Int((trimmed as NSString).substring(with: match.range(at: 3))), number > 0
-        else { return nil }
         let ns = trimmed as NSString
+        let whole = NSRange(location: 0, length: ns.length)
+        guard let match = urlPattern.firstMatch(in: trimmed, range: whole)
+                ?? shorthandPattern.firstMatch(in: trimmed, range: whole),
+              let number = Int(ns.substring(with: match.range(at: 3))), number > 0
+        else { return nil }
         return PullRequestReference(
             owner: ns.substring(with: match.range(at: 1)),
             repo: ns.substring(with: match.range(at: 2)),
             number: number
         )
     }
+
+    private nonisolated static let urlPattern = try! NSRegularExpression(
+        pattern: #"^(?:https?://)?(?:www\.)?github\.com/([A-Za-z0-9-]+)/([A-Za-z0-9_.-]+)/pull/([0-9]{1,9})(?:[/?#]\S*)?$"#,
+        options: .caseInsensitive
+    )
 
     private nonisolated static let shorthandPattern = try! NSRegularExpression(
         pattern: #"^([A-Za-z0-9](?:[A-Za-z0-9-]*[A-Za-z0-9])?)/([A-Za-z0-9._-]+)#([0-9]{1,9})$"#
