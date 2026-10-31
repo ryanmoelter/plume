@@ -190,24 +190,6 @@ struct HomeDestinationTests {
     }
 }
 
-/// Rows wait for the opening height to reach them, top down, and all start
-/// before the height settles.
-struct HomeSectionRevealTests {
-    @Test func rowDelaysRunTopDownWithinTheHeightAnimation() {
-        let delays = (0..<8).map { HomeSectionReveal.rowDelay(index: $0, count: 8) }
-        #expect(delays == delays.sorted())
-        #expect(delays.first! > 0)
-        #expect(delays.last! < HomeSectionReveal.heightDuration)
-    }
-
-    /// An ease-out curve covers half its distance well before half its time.
-    @Test func theCurveInverseMatchesEaseOut() {
-        #expect(abs(HomeSectionReveal.timeFraction(atProgress: 0.5) - 0.3425) < 0.001)
-        #expect(HomeSectionReveal.timeFraction(atProgress: 0) < 0.001)
-        #expect(HomeSectionReveal.timeFraction(atProgress: 1) > 0.999)
-    }
-}
-
 /// Creating the task a plan describes, in a store, without launching it.
 @MainActor
 struct HomeTaskStarterTests {

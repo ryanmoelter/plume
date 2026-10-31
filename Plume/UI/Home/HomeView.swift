@@ -53,10 +53,15 @@ private struct HomeContent: View, ThemedView {
     #if DEBUG
     @AppStorage(HomeRowAlignment.collapseEmptyStatusSlotKey) private var collapsesEmptyStatusSlot = false
     @AppStorage(HomeRowAlignment.alignColorBarToTextKey) private var alignsColorBarToText = false
+    @AppStorage(HomeSectionReveal.scaleKey) private var scalesRevealedRows = true
     #else
     private let collapsesEmptyStatusSlot = false
     private let alignsColorBarToText = false
+    private let scalesRevealedRows = true
     #endif
+    @State private var scrollPosition = ScrollPosition()
+    @State private var scrollGeometry = HomeScrollGeometry()
+    @State private var scrollReserve: CGFloat = 0
 
     private var rowAlignment: HomeRowAlignment {
         HomeRowAlignment(
@@ -81,7 +86,10 @@ private struct HomeContent: View, ThemedView {
                 if !feed.idle.isEmpty {
                     quietSection(
                         "Idle", items: feed.idle,
-                        collapse: .init(id: AccessibilityID.homeIdleHeader, isExpanded: $idleExpanded, emphasis: .primary)
+                        collapse: .init(
+                            id: AccessibilityID.homeIdleHeader, isExpanded: $idleExpanded,
+                            emphasis: .primary, itemCount: feed.idle.count
+                        )
                     )
                 }
                 if !feed.notStarted.isEmpty {
@@ -89,7 +97,7 @@ private struct HomeContent: View, ThemedView {
                         "Not started", items: feed.notStarted,
                         collapse: .init(
                             id: AccessibilityID.homeNotStartedHeader, isExpanded: $notStartedExpanded,
-                            emphasis: .secondary
+                            emphasis: .secondary, itemCount: feed.notStarted.count
                         )
                     )
                 }
@@ -97,7 +105,20 @@ private struct HomeContent: View, ThemedView {
             .frame(maxWidth: dimensions.contentWidth, alignment: .leading)
             .padding(.horizontal, dimensions.horizontalEdgePadding)
             .padding(.vertical, 40)
+            .padding(.bottom, scrollReserve)
             .frame(maxWidth: .infinity)
+            .coordinateSpace(.named(HomeScrollGeometry.contentSpace))
+        }
+        .scrollPosition($scrollPosition)
+        // `scrollTo(y:)` takes an offset measured from the resting position,
+        // which sits `contentInsets.top` above zero under the title bar.
+        .onScrollGeometryChange(for: HomeScrollGeometry.Snapshot.self) { geometry in
+            HomeScrollGeometry.Snapshot(
+                offset: geometry.contentOffset.y + geometry.contentInsets.top,
+                visibleHeight: geometry.containerSize.height
+            )
+        } action: { _, snapshot in
+            scrollGeometry.latest = snapshot
         }
         .onGeometryChange(for: Bool.self) { proxy in
             (proxy.size.width - dimensions.contentWidth) / 2
@@ -106,14 +127,49 @@ private struct HomeContent: View, ThemedView {
         .plumeID(AccessibilityID.homeView)
     }
 
+    private var sectionStyle: HomeSectionStyle {
+        HomeSectionStyle(
+            bleed: rowAlignment.bleed, scalesRows: scalesRevealedRows, reveal: reveal, endReveal: endReveal
+        )
+    }
+
+    private func reveal(_ section: CGRect, animation: Animation?) {
+        guard let snapshot = scrollGeometry.latest else { return }
+        let delta = HomeSectionReveal.scrollDelta(
+            headerTop: section.minY - snapshot.offset,
+            sectionBottom: section.maxY - snapshot.offset,
+            visibleHeight: snapshot.visibleHeight
+        )
+        guard delta > 0 else { return }
+        // The scroll view clamps a scroll to the page's height as drawn, which
+        // lags the opening section until its animation ends. Reserving the
+        // section's height below the page keeps the target in reach throughout.
+        var unanimated = Transaction(animation: nil)
+        unanimated.disablesAnimations = true
+        withTransaction(unanimated) { scrollReserve = section.height }
+        withAnimation(animation) {
+            scrollPosition.scrollTo(y: snapshot.offset + delta)
+        } completion: {
+            // Without an animation the section has no opening to wait for.
+            if animation == nil { endReveal() }
+        }
+    }
+
+    private func endReveal() {
+        guard scrollReserve > 0 else { return }
+        var unanimated = Transaction(animation: nil)
+        unanimated.disablesAnimations = true
+        withTransaction(unanimated) { scrollReserve = 0 }
+    }
+
     private var needsYouSection: some View {
         HomeSection(
             title: "Needs attention",
             header: .collapsible(.init(
                 id: AccessibilityID.homeNeedsAttentionHeader, isExpanded: $needsAttentionExpanded,
-                emphasis: .primary
+                emphasis: .primary, itemCount: feed.needsYou.count, marksUnread: !feed.needsYou.isEmpty
             )),
-            bleed: rowAlignment.bleed,
+            style: sectionStyle,
             count: max(feed.needsYou.count, 1)
         ) { transition in
             if feed.needsYou.isEmpty {
@@ -141,7 +197,7 @@ private struct HomeContent: View, ThemedView {
         HomeSection(
             title: title,
             header: collapse.map(HomeSectionHeader.collapsible) ?? .plain(emphasis: .secondary),
-            bleed: rowAlignment.bleed,
+            style: sectionStyle,
             count: items.count
         ) { transition in
             ForEach(Array(items.enumerated()), id: \.element.id) { index, item in
@@ -158,11 +214,38 @@ private struct HomeSectionCollapse {
     let id: String
     let isExpanded: Binding<Bool>
     let emphasis: Emphasis
+    /// Shown beside the chevron while the section is collapsed.
+    let itemCount: Int
+    var marksUnread = false
 }
 
 private enum HomeSectionHeader {
     case plain(emphasis: Emphasis)
     case collapsible(HomeSectionCollapse)
+}
+
+private struct HomeSectionStyle {
+    let bleed: CGFloat
+    let scalesRows: Bool
+    /// Scrolls just far enough to show a section that has opened, given its
+    /// frame in `HomeScrollGeometry.contentSpace`, on the animation its height
+    /// opens with.
+    let reveal: (_ section: CGRect, _ animation: Animation?) -> Void
+    /// Called once the section has finished opening.
+    let endReveal: () -> Void
+}
+
+/// Where the page is scrolled to. Not observable, so scrolling never
+/// re-renders the page.
+private final class HomeScrollGeometry {
+    static let contentSpace = "homeScrollContent"
+
+    struct Snapshot: Equatable {
+        var offset: CGFloat
+        var visibleHeight: CGFloat
+    }
+
+    var latest: Snapshot?
 }
 
 /// A header over rows that, when the header collapses, open and close as
@@ -171,18 +254,41 @@ private enum HomeSectionHeader {
 private struct HomeSection<Rows: View>: View, ThemedView {
     let title: String
     let header: HomeSectionHeader
-    let bleed: CGFloat
+    let style: HomeSectionStyle
     let count: Int
     @ViewBuilder let rows: (_ transition: @escaping (Int) -> AnyTransition) -> Rows
     @Environment(\.theme) var theme
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    /// What the open and close animate, rather than the stored setting:
+    /// `@AppStorage` delivers its new value through defaults observation, in
+    /// a transaction of its own, so a write inside `withAnimation` can render
+    /// unanimated.
+    @State private var isShown: Bool
     /// Rows fade out before the height closes.
     @State private var rowsHidden = false
+    @State private var revealsOnNextLayout = false
 
-    private var isExpanded: Bool {
+    init(
+        title: String,
+        header: HomeSectionHeader,
+        style: HomeSectionStyle,
+        count: Int,
+        @ViewBuilder rows: @escaping (_ transition: @escaping (Int) -> AnyTransition) -> Rows
+    ) {
+        self.title = title
+        self.header = header
+        self.style = style
+        self.count = count
+        self.rows = rows
+        _isShown = State(initialValue: Self.storedExpansion(of: header))
+    }
+
+    private static func storedExpansion(of header: HomeSectionHeader) -> Bool {
         guard case .collapsible(let collapse) = header else { return true }
         return collapse.isExpanded.wrappedValue
     }
+
+    private var isOpen: Bool { isShown && !rowsHidden }
 
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
@@ -196,24 +302,41 @@ private struct HomeSection<Rows: View>: View, ThemedView {
                     .padding(.bottom, 4)
             case .collapsible(let collapse):
                 CollapsibleSectionHeader(
-                    title: title, id: collapse.id, isExpanded: isExpanded && !rowsHidden,
-                    emphasis: collapse.emphasis, bleed: bleed
+                    title: title, collapse: collapse, isExpanded: isOpen, bleed: style.bleed
                 ) { toggle(collapse.isExpanded) }
                 .padding(.bottom, 4)
             }
-            if isExpanded {
+            if isShown {
                 rows { index in
-                    HomeSectionReveal.rowTransition(index: index, count: count, reduceMotion: reduceMotion)
+                    HomeSectionReveal.rowTransition(
+                        index: index, count: count, scales: style.scalesRows, reduceMotion: reduceMotion
+                    )
                 }
                 .opacity(rowsHidden ? 0 : 1)
             }
         }
+        // The frame here is the layout's, already at the opened height while
+        // the animation is still under way.
+        .onGeometryChange(for: CGRect.self) {
+            $0.frame(in: .named(HomeScrollGeometry.contentSpace))
+        } action: { frame in
+            guard revealsOnNextLayout else { return }
+            revealsOnNextLayout = false
+            style.reveal(frame, reduceMotion ? nil : HomeSectionReveal.expandHeight(count: count))
+        }
+        .onChange(of: Self.storedExpansion(of: header)) { _, stored in
+            guard stored != isShown else { return }
+            rowsHidden = false
+            isShown = stored
+        }
     }
 
-    private func toggle(_ isExpanded: Binding<Bool>) {
-        if isExpanded.wrappedValue {
+    private func toggle(_ stored: Binding<Bool>) {
+        if isOpen {
+            revealsOnNextLayout = false
             guard !reduceMotion else {
-                isExpanded.wrappedValue = false
+                isShown = false
+                stored.wrappedValue = false
                 return
             }
             withAnimation(HomeSectionReveal.collapseFade) {
@@ -221,29 +344,34 @@ private struct HomeSection<Rows: View>: View, ThemedView {
             } completion: {
                 // Reopened while the rows were fading.
                 guard rowsHidden else { return }
-                withAnimation(HomeSectionReveal.collapseHeight) { isExpanded.wrappedValue = false }
-                rowsHidden = false
+                withAnimation(HomeSectionReveal.collapseHeight(count: count)) {
+                    isShown = false
+                    rowsHidden = false
+                }
+                stored.wrappedValue = false
             }
         } else {
-            rowsHidden = false
-            if reduceMotion {
-                isExpanded.wrappedValue = true
-            } else {
-                withAnimation(HomeSectionReveal.expandHeight) { isExpanded.wrappedValue = true }
+            revealsOnNextLayout = !isShown
+            withAnimation(reduceMotion ? nil : HomeSectionReveal.expandHeight(count: count)) {
+                rowsHidden = false
+                isShown = true
+            } completion: {
+                style.endReveal()
             }
+            stored.wrappedValue = true
         }
     }
 }
 
 private struct CollapsibleSectionHeader: View, ThemedView {
     let title: String
-    let id: String
+    let collapse: HomeSectionCollapse
     let isExpanded: Bool
-    let emphasis: Emphasis
     let bleed: CGFloat
     let toggle: () -> Void
     @Environment(\.theme) var theme
     @Environment(\.colorScheme) private var colorScheme
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @State private var isHovered = false
 
     var body: some View {
@@ -254,9 +382,13 @@ private struct CollapsibleSectionHeader: View, ThemedView {
                 Image(systemName: "chevron.right")
                     .font(typography.caption.font)
                     .rotationEffect(.degrees(isExpanded ? 90 : 0))
+                if !isExpanded {
+                    collapsedSummary
+                }
                 Spacer(minLength: 0)
             }
-            .emphasis(emphasis)
+            .animation(reduceMotion ? nil : HomeSectionReveal.chevron, value: isExpanded)
+            .emphasis(collapse.emphasis)
             .padding(.horizontal, HomeRow.horizontalPadding + bleed)
             .padding(.vertical, 2)
             .frame(maxWidth: .infinity, alignment: .leading)
@@ -269,8 +401,24 @@ private struct CollapsibleSectionHeader: View, ThemedView {
         .buttonStyle(.plain)
         .accessibilityAddTraits(.isHeader)
         .plumeHover { isHovered = $0 }
-        .plumeID(id, label: title, value: isExpanded ? "expanded" : "collapsed", invoke: toggle)
+        .plumeID(collapse.id, label: title, value: isExpanded ? "expanded" : "collapsed", invoke: toggle)
         .padding(.horizontal, -bleed)
+    }
+
+    @ViewBuilder
+    private var collapsedSummary: some View {
+        if collapse.itemCount > 0 {
+            Text(collapse.itemCount, format: .number)
+                .font(typography.bodyLarge.font)
+                .monospacedDigit()
+                .emphasis(.subtle)
+                .padding(.leading, 2)
+                .transition(.opacity)
+        }
+        if collapse.marksUnread {
+            UnreadDot()
+                .transition(.opacity)
+        }
     }
 }
 

@@ -42,7 +42,7 @@ struct HomeDestinationPath: View, ThemedView {
                         Text(branch)
                             .lineLimit(1)
                     }
-                    .emphasis(.subtle)
+                    .emphasis(.secondary)
                     .padding(.leading, 2)
                     .help("Branch: \(branch)")
                 }
@@ -97,7 +97,7 @@ private struct HomeDestinationSegment<Items: View>: View, ThemedView {
                 Image(systemName: "chevron.down")
                     .font(.system(size: 9, weight: .semibold))
             }
-            .emphasis(isHovered ? .primary : .secondary)
+            .emphasis(.primary)
             .padding(.horizontal, 4)
             .padding(.vertical, 2)
             .background {

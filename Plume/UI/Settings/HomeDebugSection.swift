@@ -1,9 +1,10 @@
 #if DEBUG
 import SwiftUI
 
-struct HomeRowAlignmentDebugSection: View {
+struct HomeDebugSection: View {
     @AppStorage("homeCollapseEmptyStatusSlot") private var collapsesEmptyStatusSlot = false
     @AppStorage("homeAlignColorBarToText") private var alignsColorBarToText = false
+    @AppStorage(HomeSectionReveal.scaleKey) private var scalesRevealedRows = true
 
     var body: some View {
         Section {
@@ -19,10 +20,16 @@ struct HomeRowAlignmentDebugSection: View {
                     value: alignsColorBarToText ? "on" : "off",
                     setValue: { alignsColorBarToText = $0 == "on" }
                 )
+            Toggle("Scale rows in as a section opens", isOn: $scalesRevealedRows)
+                .plumeID(
+                    AccessibilityID.settingsHomeRevealScaleToggle,
+                    value: scalesRevealedRows ? "on" : "off",
+                    setValue: { scalesRevealedRows = $0 == "on" }
+                )
         } header: {
-            Text("Home row alignment")
+            Text("Home")
         } footer: {
-            Text("Release builds use Off for both.")
+            Text("Release builds use Off for the two alignment options and On for scaling.")
         }
     }
 }

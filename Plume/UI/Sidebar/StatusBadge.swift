@@ -40,9 +40,7 @@ struct StatusBadge: View {
     @ViewBuilder
     private var glyph: some View {
         if isUnread {
-            Circle()
-                .fill(ChatRole.attention(for: colorScheme))
-                .frame(width: 8, height: 8)
+            UnreadDot()
                 .help("Finished a turn you haven't read")
                 .transition(.opacity)
         } else {
@@ -94,6 +92,17 @@ struct StatusBadge: View {
                 .foregroundStyle(ChatRole.danger(for: colorScheme))
                 .transition(.symbolEffect)
         }
+    }
+}
+
+/// Marks a finished turn the user hasn't read.
+struct UnreadDot: View {
+    @Environment(\.colorScheme) private var colorScheme
+
+    var body: some View {
+        Circle()
+            .fill(ChatRole.attention(for: colorScheme))
+            .frame(width: 8, height: 8)
     }
 }
 

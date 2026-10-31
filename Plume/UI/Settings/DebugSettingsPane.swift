@@ -18,7 +18,7 @@ struct DebugSettingsPane: View {
                 Text("Fixtures")
             }
 
-            HomeRowAlignmentDebugSection()
+            HomeDebugSection()
             AgentInstallationDebugSection()
             RevealTuningDebugSection()
             UpdatesDebugSection()

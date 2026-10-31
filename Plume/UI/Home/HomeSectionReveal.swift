@@ -1,26 +1,46 @@
+import CoreGraphics
 import SwiftUI
 
-/// How a collapsible Home section opens and closes. Opening eases the
-/// section's height open while each row waits for the height to reach it, then
-/// fades and scales in; closing fades the rows out first, then eases the
-/// height shut, so a row is never drawn over the content below it.
+/// How a collapsible Home section opens and closes. Opening springs the
+/// section's height open while each row waits for the height to reach it,
+/// then fades in, and scales in unless `scaleKey` is off. Closing fades the
+/// rows out first, then springs the height shut, so a row is never drawn over
+/// the content below it. Every spring is critically damped, like the chat's
+/// word reveal, and the height takes longer the more rows it moves, up to a
+/// cap.
 nonisolated enum HomeSectionReveal {
-    static let heightDuration = 0.32
-    static let rowFadeDuration = 0.22
+    static let scaleKey = "homeRevealScale"
+
+    static let expandBaseDuration = 0.3
+    static let expandDurationPerRow = 0.03
+    static let expandMaxDuration = 0.5
+    static let collapseBaseDuration = 0.2
+    static let collapseDurationPerRow = 0.02
+    static let collapseMaxDuration = 0.32
+    /// The chat reveal's word fade duration.
+    static let rowFadeDuration = 0.3
     static let rowStartScale = 0.9
     static let collapseFadeDuration = 0.12
-    static let collapseHeightDuration = 0.22
 
-    /// `.easeOut`'s control points, spelled out so `rowDelay` can solve the
-    /// same curve.
-    private static let curveX = 0.58
-
-    static var expandHeight: Animation {
-        .timingCurve(0, 0, curveX, 1, duration: heightDuration)
+    static func expandDuration(count: Int) -> Double {
+        min(expandBaseDuration + expandDurationPerRow * Double(max(count, 0)), expandMaxDuration)
     }
 
+    static func collapseDuration(count: Int) -> Double {
+        min(collapseBaseDuration + collapseDurationPerRow * Double(max(count, 0)), collapseMaxDuration)
+    }
+
+    static func expandHeight(count: Int) -> Animation {
+        .spring(duration: expandDuration(count: count), bounce: 0)
+    }
+
+    static func collapseHeight(count: Int) -> Animation {
+        .spring(duration: collapseDuration(count: count), bounce: 0)
+    }
+
+    static var rowEntrance: Animation { .spring(duration: rowFadeDuration, bounce: 0) }
     static var collapseFade: Animation { .easeIn(duration: collapseFadeDuration) }
-    static var collapseHeight: Animation { .easeInOut(duration: collapseHeightDuration) }
+    static var chevron: Animation { .spring(duration: 0.25, bounce: 0) }
 
     /// When row `index` of `count` starts to fade in: once the height has
     /// opened halfway through that row's slot, taking rows as equal height.
@@ -29,29 +49,41 @@ nonisolated enum HomeSectionReveal {
     static func rowDelay(index: Int, count: Int) -> Double {
         guard count > 0 else { return 0 }
         let progress = min(max((Double(index) + 0.5) / Double(count), 0), 1)
-        return heightDuration * timeFraction(atProgress: progress)
+        return time(reaching: progress, duration: expandDuration(count: count))
     }
 
-    /// Inverts the ease-out curve: the fraction of its duration at which it
-    /// has covered `progress` of the distance.
-    static func timeFraction(atProgress progress: Double) -> Double {
-        // With control points (0, 0) and (x, 1): y(s) = 3s² − 2s³, which is
-        // monotonic on 0…1, so bisection finds s.
-        var low = 0.0, high = 1.0
-        for _ in 0..<30 {
-            let s = (low + high) / 2
-            if 3 * s * s - 2 * s * s * s < progress { low = s } else { high = s }
+    /// When the opening spring has covered `progress` of the distance.
+    static func time(reaching progress: Double, duration: Double) -> Double {
+        let spring = Spring(duration: duration, bounce: 0)
+        var low = 0.0, high = duration
+        guard spring.value(target: 1.0, time: high) > progress else { return duration }
+        for _ in 0..<40 {
+            let mid = (low + high) / 2
+            if spring.value(target: 1.0, time: mid) < progress { low = mid } else { high = mid }
         }
-        let s = (low + high) / 2
-        return 3 * (1 - s) * s * s * curveX + s * s * s
+        return (low + high) / 2
+    }
+
+    /// How far to scroll down so an opened section's rows show, given the
+    /// section's edges measured from the top of the visible area. Nothing when
+    /// the section already fits; otherwise just enough to bring its bottom
+    /// into view, but never so far that the header passes the top.
+    static func scrollDelta(headerTop: CGFloat, sectionBottom: CGFloat, visibleHeight: CGFloat) -> CGFloat {
+        guard sectionBottom > visibleHeight else { return 0 }
+        return max(0, min(sectionBottom - visibleHeight, headerTop))
     }
 
     @MainActor
-    static func rowTransition(index: Int, count: Int, reduceMotion: Bool) -> AnyTransition {
-        let insertion: AnyTransition = reduceMotion
-            ? .opacity.animation(.easeOut(duration: 0.15))
-            : .opacity.combined(with: .scale(scale: rowStartScale, anchor: .leading))
-                .animation(.easeOut(duration: rowFadeDuration).delay(rowDelay(index: index, count: count)))
+    static func rowTransition(index: Int, count: Int, scales: Bool, reduceMotion: Bool) -> AnyTransition {
+        let insertion: AnyTransition
+        if reduceMotion {
+            insertion = .opacity.animation(.easeOut(duration: 0.15))
+        } else {
+            let entrance: AnyTransition = scales
+                ? .opacity.combined(with: .scale(scale: rowStartScale, anchor: .leading))
+                : .opacity
+            insertion = entrance.animation(rowEntrance.delay(rowDelay(index: index, count: count)))
+        }
         return .asymmetric(insertion: insertion, removal: .opacity)
     }
 }
