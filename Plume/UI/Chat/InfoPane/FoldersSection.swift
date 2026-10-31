@@ -63,17 +63,17 @@ struct FoldersSection: View, ThemedView {
     let actions: InfoPaneFolderActions
 
     @State private var settings = AppSettings.shared
+    @State private var isHoveringAdd = false
 
     var body: some View {
-        let isGrouped = rows.count > 1 || rows.contains { $0.kind != .workingDirectory }
-        Group {
-            if isGrouped {
-                groupedSection
-            } else {
-                inlineRow
-            }
+        InfoPaneGroup(
+            isGrouped: rows.count > 1 || rows.contains { $0.kind != .workingDirectory },
+            expand: { settings.infoPaneFoldersExpanded = true }
+        ) {
+            inlineRow
+        } grouped: {
+            groupedSection
         }
-        .animation(InfoPaneLayout.sectionAnimation, value: isGrouped)
     }
 
     private var workingDirectory: FolderRow? {
@@ -115,21 +115,22 @@ struct FoldersSection: View, ThemedView {
         .help(path.map { "Working folder: \(FolderActions.abbreviated($0))" } ?? "")
     }
 
-    /// The header opens the add-folder menu, like the lone row it replaces,
-    /// so collapsing moves to the chevron.
     private var groupedSection: some View {
         let isExpanded = settings.infoPaneFoldersExpanded
         return VStack(alignment: .leading, spacing: 0) {
-            if canEdit {
-                Menu { addFolderMenuItems } label: { header(isExpanded: isExpanded, showsChevron: false) }
-                    .modifier(InfoPaneRowMenuChrome())
-                    .help("Let this conversation reach another folder")
-                    .plumeID(AccessibilityID.infoPaneFoldersAddMenu)
-                    .overlay(alignment: .leading) { chevronToggle(isExpanded: isExpanded) }
-            } else {
-                Button(action: toggleExpanded) { header(isExpanded: isExpanded, showsChevron: true) }
-                    .buttonStyle(InfoPaneRowButtonStyle())
-                    .plumeID(AccessibilityID.infoPaneFoldersToggle, value: isExpanded ? "expanded" : "collapsed")
+            InfoPaneGroupHeader(
+                title: "Folders",
+                count: rows.count,
+                isExpanded: isExpanded,
+                accessibilityID: AccessibilityID.infoPaneFoldersToggle,
+                suppressesWash: isHoveringAdd,
+                reservesTrailingControl: canEdit,
+                action: toggleExpanded
+            ) {
+                Image(systemName: "folder")
+            }
+            .overlay(alignment: .trailing) {
+                if canEdit { addMenu }
             }
 
             if isExpanded {
@@ -151,36 +152,19 @@ struct FoldersSection: View, ThemedView {
         }
     }
 
-    private func header(isExpanded: Bool, showsChevron: Bool) -> some View {
-        HStack(spacing: InfoPaneLayout.columnSpacing) {
-            InfoPaneIcon { Image(systemName: "folder") }
-            Text("Folders")
-            Text("\(rows.count)")
-                .emphasis(.subtle)
-            DisclosureChevron(isExpanded: isExpanded)
-                .opacity(showsChevron ? 1 : 0)
-            Spacer(minLength: 0)
-            if canEdit { addCue }
+    private var addMenu: some View {
+        Menu { addFolderMenuItems } label: {
+            Image(systemName: "plus")
         }
-        .emphasis(.secondary)
-    }
-
-    /// Laid over the header's invisible chevron: hidden copies of the parts
-    /// before it put the button exactly there.
-    private func chevronToggle(isExpanded: Bool) -> some View {
-        HStack(spacing: InfoPaneLayout.columnSpacing) {
-            InfoPaneIcon { Image(systemName: "folder") }.hidden()
-            Text("Folders").hidden()
-            Text("\(rows.count)").hidden()
-            Button(action: toggleExpanded) {
-                DisclosureChevron(isExpanded: isExpanded)
-                    .contentShape(.rect)
-            }
-            .buttonStyle(.plain)
-            .emphasis(.secondary)
-            .help(isExpanded ? "Collapse folders" : "Expand folders")
-            .plumeID(AccessibilityID.infoPaneFoldersToggle, value: isExpanded ? "expanded" : "collapsed", invoke: toggleExpanded)
-        }
+        .menuStyle(.borderlessButton)
+        .menuIndicator(.hidden)
+        .fixedSize()
+        .foregroundStyle(theme.colors.selection)
+        .frame(width: InfoPaneLayout.iconColumnWidth)
+        .modifier(OverlaidControlWash(isHovering: isHoveringAdd))
+        .plumeHover { isHoveringAdd = $0 }
+        .help("Let this conversation reach another folder")
+        .plumeID(AccessibilityID.infoPaneFoldersAddMenu)
     }
 
     private func toggleExpanded() {
