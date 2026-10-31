@@ -63,6 +63,16 @@ enum AccessibilityID {
     static let homeEmptyState = "home-empty-state"
     static let homeIdleHeader = "home-idle-header"
     static let homeNotStartedHeader = "home-not-started-header"
+    static let homeComposerField = "home-composer-field"
+    static let homeComposerSendButton = "home-composer-send-button"
+    static let homeComposerError = "home-composer-error"
+    static let homeComposerGroupMenu = "home-composer-group-menu"
+    static let homeComposerProjectMenu = "home-composer-project-menu"
+    static let homeComposerWorkspaceMenu = "home-composer-workspace-menu"
+    static let homeComposerDestinationChip = "home-composer-destination-chip"
+    static let homeComposerGroupOption = "home-composer-group-option"
+    static let homeComposerProjectOption = "home-composer-project-option"
+    static let homeComposerWorkspaceOption = "home-composer-workspace-option"
 
     // MARK: Settings
 
@@ -81,6 +91,8 @@ enum AccessibilityID {
     static let linearStateColorsPreviewButton = "linear-state-colors-preview-button"
 
     static let settingsPane = "settings-pane"
+    static let settingsHomeComposerVariantPicker = "settings-home-composer-variant-picker"
+    static let settingsHomeComposerPlacementPicker = "settings-home-composer-placement-picker"
     static let settingsThemeReloadButton = "settings-theme-reload-button"
     static let settingsAccentSwatch = "settings-accent-swatch"
     static let settingsSidebarShowsTaskColorBarToggle = "settings-sidebar-shows-task-color-bar-toggle"

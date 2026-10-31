@@ -1,3 +1,4 @@
+import SwiftData
 import SwiftUI
 
 /// The overview the sidebar's Home row opens: the conversations that need the
@@ -6,21 +7,53 @@ struct HomeView: View {
     /// In sidebar order.
     let tasks: [WorkTask]
     let open: (_ taskID: UUID, _ tabID: UUID) -> Void
+    let select: (_ taskID: UUID) -> Void
     @Environment(\.colorScheme) private var colorScheme
+    @Environment(\.modelContext) private var context
     @State private var settings = AppSettings.shared
+    @State private var composer = HomeComposerModel()
+    @Query(sort: \TaskGroup.orderIndex) private var groups: [TaskGroup]
+    #if DEBUG
+    @AppStorage(HomeComposerVariant.userDefaultsKey) private var variant = HomeComposerVariant.chipRow
+    @AppStorage(HomeComposerPlacement.userDefaultsKey) private var placement = HomeComposerPlacement.top
+    #else
+    private let variant = HomeComposerVariant.chipRow
+    private let placement = HomeComposerPlacement.top
+    #endif
 
     var body: some View {
-        HomeContent(feed: HomeFeed(tasks: tasks, source: .live), open: open)
+        HomeContent(
+            feed: HomeFeed(tasks: tasks, source: .live),
+            open: open,
+            placement: placement,
+            composer: HomeComposer(model: composer, variant: variant, placement: placement, onSend: start)
+        )
+            .task(id: HomeComposerInputs(tasks: tasks, groups: groups)) {
+                await composer.refresh(
+                    HomeComposerInputs(tasks: tasks, groups: groups),
+                    recentTaskID: LastOpenTask.lastTask()
+                )
+            }
             .plumeTheme(bodySize: CGFloat(settings.chatFontSize))
             .foregroundStyle(ThemeChrome.foreground(for: colorScheme) ?? .primary)
             .background(ThemeChrome.background(for: colorScheme) ?? Color.clear)
             .navigationTitle("Home")
+    }
+
+    private func start(_ message: String) async -> Bool {
+        guard let task = await composer.start(message: message, in: context, groups: groups, tasks: tasks) else {
+            return false
+        }
+        select(task.id)
+        return true
     }
 }
 
 private struct HomeContent: View, ThemedView {
     let feed: HomeFeed
     let open: (UUID, UUID) -> Void
+    let placement: HomeComposerPlacement
+    let composer: HomeComposer
     @Environment(\.theme) var theme
     @State private var hangsMarkers = false
     @AppStorage("homeIdleExpanded") private var idleExpanded = true
@@ -30,6 +63,9 @@ private struct HomeContent: View, ThemedView {
         ScrollView {
             VStack(alignment: .leading, spacing: 32) {
                 HomeGreetingHeader()
+                if placement == .top {
+                    composer
+                }
                 needsYouSection
                 if !feed.running.isEmpty {
                     quietSection("Running", items: feed.running)
@@ -55,6 +91,15 @@ private struct HomeContent: View, ThemedView {
             .padding(.horizontal, dimensions.horizontalEdgePadding)
             .padding(.vertical, 40)
             .frame(maxWidth: .infinity)
+        }
+        .safeAreaInset(edge: .bottom, spacing: 0) {
+            if placement == .pinnedBottom {
+                composer
+                    .frame(maxWidth: dimensions.contentWidth)
+                    .padding(.horizontal, dimensions.horizontalEdgePadding)
+                    .padding(.bottom, dimensions.panelInset)
+                    .frame(maxWidth: .infinity)
+            }
         }
         .onGeometryChange(for: Bool.self) { proxy in
             (proxy.size.width - dimensions.contentWidth) / 2

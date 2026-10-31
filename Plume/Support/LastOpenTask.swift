@@ -8,6 +8,7 @@ import Foundation
 nonisolated enum LastOpenTask {
     private static let key = "lastOpenTaskID"
     private static let homeValue = "home"
+    private static let lastTaskKey = "lastSelectedTaskID"
 
     static func load(from defaults: UserDefaults = .standard) -> SidebarSelection? {
         guard let stored = defaults.string(forKey: key) else { return nil }
@@ -21,7 +22,15 @@ nonisolated enum LastOpenTask {
         switch selection {
         case nil: defaults.removeObject(forKey: key)
         case .home: defaults.set(homeValue, forKey: key)
-        case .task(let id): defaults.set(id.uuidString, forKey: key)
+        case .task(let id):
+            defaults.set(id.uuidString, forKey: key)
+            defaults.set(id.uuidString, forKey: lastTaskKey)
         }
+    }
+
+    /// The last task selected, which choosing Home leaves in place. Home's
+    /// composer starts on its group and project.
+    static func lastTask(from defaults: UserDefaults = .standard) -> UUID? {
+        defaults.string(forKey: lastTaskKey).flatMap(UUID.init(uuidString:))
     }
 }

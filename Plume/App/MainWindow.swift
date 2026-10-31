@@ -43,7 +43,7 @@ struct MainWindow: View {
             if let task = selectedTask {
                 TaskDetailView(task: task)
             } else if selection == .home {
-                HomeView(tasks: navigableTasks, open: open(taskID:tabID:))
+                HomeView(tasks: navigableTasks, open: open(taskID:tabID:), select: { choose(.task($0)) })
             } else {
                 ContentUnavailableView(
                     "No Task Selected",
