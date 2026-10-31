@@ -56,9 +56,12 @@ struct TerminalAlertsTests {
 
 @MainActor
 struct TaskRowInactivityTests {
-    @Test(arguments: [TaskStatus.notStarted, .interrupted])
-    func anIdleAgentTaskDims(status: TaskStatus) {
-        #expect(TaskRowView.isInactive(status: status, tabKinds: [.agent, .terminal]))
+    @Test func aNotStartedAgentTaskDims() {
+        #expect(TaskRowView.isInactive(status: .notStarted, tabKinds: [.agent, .terminal]))
+    }
+
+    @Test func anInterruptedAgentTaskDoesNotDim() {
+        #expect(!TaskRowView.isInactive(status: .interrupted, tabKinds: [.agent, .terminal]))
     }
 
     @Test(arguments: [TaskStatus.notStarted, .interrupted])

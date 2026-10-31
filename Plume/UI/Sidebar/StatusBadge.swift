@@ -77,7 +77,7 @@ struct StatusBadge: View {
                 .transition(.symbolEffect)
         case .interrupted:
             Image(systemName: StatusSymbol.interruption.filled)
-                .foregroundStyle(Emphasis.subtle.textHierarchy)
+                .foregroundStyle(Emphasis.primary.textHierarchy)
                 .transition(.symbolEffect)
         case .error:
             Image(systemName: StatusSymbol.error.filled)
