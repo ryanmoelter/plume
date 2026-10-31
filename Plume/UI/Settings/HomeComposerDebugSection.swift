@@ -5,6 +5,9 @@ struct HomeComposerDebugSection: View {
     @AppStorage(HomeComposerVariant.userDefaultsKey) private var variant = HomeComposerVariant.chipRow
     @AppStorage(HomeComposerPlacement.userDefaultsKey) private var placement = HomeComposerPlacement.top
 
+    @AppStorage("homeCollapseEmptyStatusSlot") private var collapsesEmptyStatusSlot = false
+    @AppStorage("homeAlignColorBarToText") private var alignsColorBarToText = false
+
     var body: some View {
         Section {
             Picker("Destination picker", selection: $variant) {
@@ -25,6 +28,24 @@ struct HomeComposerDebugSection: View {
             Text("Home composer")
         } footer: {
             Text("Release builds use A and Top.")
+        }
+        Section {
+            Toggle("Collapse empty status slot", isOn: $collapsesEmptyStatusSlot)
+                .plumeID(
+                    AccessibilityID.settingsHomeCollapseEmptyStatusSlotToggle,
+                    value: collapsesEmptyStatusSlot ? "on" : "off",
+                    setValue: { collapsesEmptyStatusSlot = $0 == "on" }
+                )
+            Toggle("Align color bar to text", isOn: $alignsColorBarToText)
+                .plumeID(
+                    AccessibilityID.settingsHomeAlignColorBarToggle,
+                    value: alignsColorBarToText ? "on" : "off",
+                    setValue: { alignsColorBarToText = $0 == "on" }
+                )
+        } header: {
+            Text("Home row alignment")
+        } footer: {
+            Text("Release builds use Off for both.")
         }
     }
 }

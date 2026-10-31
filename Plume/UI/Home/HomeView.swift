@@ -56,6 +56,21 @@ private struct HomeContent: View, ThemedView {
     let composer: HomeComposer
     @Environment(\.theme) var theme
     @State private var hangsMarkers = false
+    #if DEBUG
+    @AppStorage(HomeRowAlignment.collapseEmptyStatusSlotKey) private var collapsesEmptyStatusSlot = false
+    @AppStorage(HomeRowAlignment.alignColorBarToTextKey) private var alignsColorBarToText = false
+    #else
+    private let collapsesEmptyStatusSlot = false
+    private let alignsColorBarToText = false
+    #endif
+
+    private var rowAlignment: HomeRowAlignment {
+        HomeRowAlignment(
+            hangsMarkers: hangsMarkers,
+            collapsesEmptyStatusSlot: collapsesEmptyStatusSlot,
+            alignsColorBarToText: alignsColorBarToText
+        )
+    }
     @AppStorage("homeIdleExpanded") private var idleExpanded = true
     @AppStorage("homeNotStartedExpanded") private var notStartedExpanded = false
 
@@ -103,13 +118,16 @@ private struct HomeContent: View, ThemedView {
         }
         .onGeometryChange(for: Bool.self) { proxy in
             (proxy.size.width - dimensions.contentWidth) / 2
-                >= HomeRow.markerGutterWidth + dimensions.horizontalEdgePadding
+                >= HomeRow.gutterWidth(alignsColorBarToText: alignsColorBarToText) + dimensions.horizontalEdgePadding
         } action: { hangsMarkers = $0 }
         .plumeID(AccessibilityID.homeView)
     }
 
     private var needsYouSection: some View {
-        VStack(alignment: .leading, spacing: 2) {
+        VStack(alignment: .leading, spacing: placement == .top ? 4 : 2) {
+            if placement == .top {
+                sectionTitle("Needs attention")
+            }
             if feed.needsYou.isEmpty {
                 Text("Nothing needs you right now.")
                     .font(typography.body.font)
@@ -118,7 +136,7 @@ private struct HomeContent: View, ThemedView {
                     .plumeID(AccessibilityID.homeEmptyState)
             } else {
                 ForEach(feed.needsYou) { item in
-                    HomeRow(item: item, isProminent: true, hangsMarkers: hangsMarkers) { open(item.taskID, item.tabID) }
+                    HomeRow(item: item, isProminent: true, alignment: rowAlignment) { open(item.taskID, item.tabID) }
                 }
             }
         }
@@ -137,7 +155,7 @@ private struct HomeContent: View, ThemedView {
         VStack(alignment: .leading, spacing: 4) {
             if let collapse {
                 CollapsibleSectionHeader(
-                    title: title, id: collapse.id, isExpanded: collapse.isExpanded, hangsMarkers: hangsMarkers
+                    title: title, id: collapse.id, isExpanded: collapse.isExpanded, bleed: rowAlignment.bleed
                 )
             } else {
                 sectionTitle(title)
@@ -146,7 +164,7 @@ private struct HomeContent: View, ThemedView {
             if collapse?.isExpanded.wrappedValue ?? true {
                 VStack(alignment: .leading, spacing: 0) {
                     ForEach(items) { item in
-                        HomeRow(item: item, isProminent: false, hangsMarkers: hangsMarkers) {
+                        HomeRow(item: item, isProminent: false, alignment: rowAlignment) {
                             open(item.taskID, item.tabID)
                         }
                     }
@@ -167,13 +185,12 @@ private struct CollapsibleSectionHeader: View, ThemedView {
     let title: String
     let id: String
     @Binding var isExpanded: Bool
-    let hangsMarkers: Bool
+    let bleed: CGFloat
     @Environment(\.theme) var theme
     @Environment(\.colorScheme) private var colorScheme
     @State private var isHovered = false
 
     var body: some View {
-        let bleed = hangsMarkers ? HomeRow.markerGutterWidth : 0
         Button { isExpanded.toggle() } label: {
             HStack(spacing: 6) {
                 Text(title)
@@ -221,31 +238,50 @@ private struct HomeGreetingHeader: View, ThemedView {
     }
 }
 
+/// How a row's leading elements sit against the page's text keyline.
+private struct HomeRowAlignment {
+    static let collapseEmptyStatusSlotKey = "homeCollapseEmptyStatusSlot"
+    static let alignColorBarToTextKey = "homeAlignColorBarToText"
+
+    /// On a wide page the markers sit left of the keyline, in the gutter,
+    /// so every section's text shares one leading edge.
+    let hangsMarkers: Bool
+    let collapsesEmptyStatusSlot: Bool
+    let alignsColorBarToText: Bool
+
+    var bleed: CGFloat {
+        hangsMarkers ? HomeRow.gutterWidth(alignsColorBarToText: alignsColorBarToText) : 0
+    }
+}
+
 private struct HomeRow: View, ThemedView {
     static let horizontalPadding: CGFloat = 10
     private static let markerWidth: CGFloat = 18
     private static let markerSpacing: CGFloat = 8
     private static let barWidth: CGFloat = 3
     private static let barTextGap: CGFloat = 8
-    /// What sits before the text column: the status marker and the color bar.
-    static let markerGutterWidth = markerWidth + markerSpacing + barWidth + barTextGap
+    /// What sits left of the keyline: the status marker, and the color bar
+    /// unless it is aligned to the keyline.
+    static func gutterWidth(alignsColorBarToText: Bool) -> CGFloat {
+        markerWidth + markerSpacing + (alignsColorBarToText ? 0 : barWidth + barTextGap)
+    }
     private static let contextSeparator = "  •  "
 
     let item: HomeFeed.Item
     let isProminent: Bool
-    /// On a wide page the markers sit left of the text column, in the gutter,
-    /// so every section's text shares one leading edge.
-    let hangsMarkers: Bool
+    let alignment: HomeRowAlignment
     let action: () -> Void
     @Environment(\.theme) var theme
     @Environment(\.colorScheme) private var colorScheme
     @State private var isHovered = false
 
     var body: some View {
-        let bleed = hangsMarkers ? Self.markerGutterWidth : 0
+        let bleed = alignment.bleed
         return Button(action: action) {
-            HStack(alignment: .firstTextBaseline, spacing: 8) {
-                leadingMarker
+            HStack(alignment: .firstTextBaseline, spacing: Self.markerSpacing) {
+                if !collapsesMarkerSlot {
+                    leadingMarker
+                }
                 VStack(alignment: .leading, spacing: 2) {
                     titleLine
                     if isProminent, let reason = item.reason {
@@ -257,7 +293,7 @@ private struct HomeRow: View, ThemedView {
                     }
                     contextLine
                 }
-                .padding(.leading, Self.barWidth + Self.barTextGap)
+                .padding(.leading, reservesBarSpace ? Self.barWidth + Self.barTextGap : 0)
                 .overlay(alignment: .leading) { colorBar }
                 Spacer(minLength: 8)
                 if item.status.isActive, let workStartedAt = item.workStartedAt {
@@ -293,9 +329,22 @@ private struct HomeRow: View, ThemedView {
         item.isInactive ? TaskRowView.inactiveTintOpacity : 1
     }
 
+    private var barColor: Color? {
+        item.barTint.flatMap(theme.colors.color(for:))
+    }
+
+    private var reservesBarSpace: Bool {
+        !alignment.alignsColorBarToText || barColor != nil
+    }
+
+    private var collapsesMarkerSlot: Bool {
+        alignment.collapsesEmptyStatusSlot && !alignment.hangsMarkers
+            && StatusBadge.isBlank(status: item.status, isUnread: item.isUnread)
+    }
+
     @ViewBuilder
     private var colorBar: some View {
-        if let color = item.barTint.flatMap(theme.colors.color(for:)) {
+        if let color = barColor {
             Capsule()
                 .fill(color)
                 .frame(width: Self.barWidth)
