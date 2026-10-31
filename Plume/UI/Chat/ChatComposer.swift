@@ -21,6 +21,8 @@ struct ChatComposer: View, ThemedView {
     /// Whether something else in the panel already sits above the composer
     /// (the docked plan bar) — the caller is the only one who knows.
     var hasContentAbove = false
+    /// Whether the panel continues below the composer (the statusline footer).
+    var hasContentBelow = false
     /// Set by `ChatTabView` to pull a queued message (rendered there, above
     /// the panel) back into the draft for editing — the same operation the
     /// Up-arrow recall path below already does, since only this view knows
@@ -50,6 +52,7 @@ struct ChatComposer: View, ThemedView {
     @State private var autocomplete = ComposerAutocompleteRouter()
     /// The panel that just closed, kept on screen while it collapses.
     @State private var closingSuggestionPanel: SuggestionPanel?
+    @State private var textAreaTop: CGFloat = 0
 
     private var headlessSession: (any AgentSession)? {
         guard tab.transport == .headless else { return nil }
@@ -394,11 +397,9 @@ struct ChatComposer: View, ThemedView {
                 .padding(.top, dimensions.panelContentInset)
             }
             .animation(.snappy(duration: 0.2), value: isCommandMode)
-            .background {
-                ComposerModeBackdrop(task: task, tab: tab, headlessSession: headlessSession)
-                    .padding(-dimensions.composerFieldInset)
-                    .clipShape(.rect(cornerRadius: dimensions.panelCornerRadius))
-            }
+            .onGeometryChange(for: CGFloat.self) {
+                $0.frame(in: .named(Self.rootSpace)).minY
+            } action: { textAreaTop = $0 }
             // Anchored to the bottom: the panel is pinned to the bottom of
             // the chat, so the chip has to grow the panel upwards. Easing the
             // height from the centre splits the change across both edges and
@@ -409,6 +410,24 @@ struct ChatComposer: View, ThemedView {
         // edge, on every side — the text view's own correction above is what
         // keeps its glyphs level with the controls below it.
         .padding(dimensions.composerFieldInset)
+        // On the root, whose frame is the glass's: the text area clips its
+        // own content while its height animates.
+        .background {
+            ComposerModeBackdrop(
+                task: task,
+                tab: tab,
+                headlessSession: headlessSession,
+                textAreaTop: textAreaTop,
+                tint: colors.foreground
+            )
+            .clipShape(.rect(
+                topLeadingRadius: hasContentAbove ? 0 : dimensions.panelCornerRadius,
+                bottomLeadingRadius: hasContentBelow ? 0 : dimensions.panelCornerRadius,
+                bottomTrailingRadius: hasContentBelow ? 0 : dimensions.panelCornerRadius,
+                topTrailingRadius: hasContentAbove ? 0 : dimensions.panelCornerRadius
+            ))
+        }
+        .coordinateSpace(.named(Self.rootSpace))
         .onChange(of: isVisible, initial: true) { _, visible in
             if !visible { inputFocused = false }
         }
@@ -462,6 +481,7 @@ struct ChatComposer: View, ThemedView {
     /// `NSTextView` draws its first glyph one line-fragment padding in from
     /// its frame, which the composer's own inset has to account for.
     private static let lineFragmentPadding: CGFloat = 5
+    private static let rootSpace = "ChatComposer.root"
 
     private var sendButtonHelp: String {
         guard headlessSession?.isWorking == true else { return "Send" }
@@ -779,34 +799,34 @@ struct ChatComposer: View, ThemedView {
 }
 
 
-/// A faint icon for the permission mode, behind the text. Its frame is the
-/// text area, so an autocomplete panel growing above never moves it; the
-/// caller expands that frame to the glass edge and clips it there.
+/// A faint icon for the permission mode, behind the text. It hangs from the
+/// text area's top rather than the composer's, so an autocomplete panel
+/// growing above never moves it.
 private struct ComposerModeBackdrop: View {
     let task: WorkTask
     let tab: TaskTab
     let headlessSession: (any AgentSession)?
+    let textAreaTop: CGFloat
+    /// A concrete color with the alpha baked in: inside glass, `.primary`
+    /// renders vibrant, and once clipped it ignores an `.opacity` modifier.
+    let tint: Color
 
     var body: some View {
-        let state = ComposerSettings(session: headlessSession, tab: tab, defaults: .resolved(task: task))
-        ZStack(alignment: .topTrailing) {
-            Color.clear
-            if let preset = state.permissionPreset {
-                icon(preset)
+        let preset = ComposerSettings(session: headlessSession, tab: tab, defaults: .resolved(task: task)).permissionPreset
+        // An overlay, so the icon never grows the frame the caller clips to.
+        Color.clear.overlay(alignment: .topTrailing) {
+            if let preset {
+                Image(systemName: preset.symbol)
+                    .id(preset.id)
+                    .font(.system(size: 88))
+                    .foregroundStyle(tint.opacity(0.07))
+                    .padding(.top, textAreaTop)
+                    .offset(x: 20, y: -34)
+                    .transition(.opacity)
             }
         }
-    }
-
-    private func icon(_ preset: AgentPermissionPreset) -> some View {
-        Image(systemName: preset.symbol)
-            .id(preset.id)
-            .font(.system(size: 88))
-            .foregroundStyle(.primary)
-            .opacity(0.06)
-            .offset(x: 20, y: -8)
-            .transition(.opacity)
-            .animation(.easeInOut(duration: 0.2), value: preset.id)
-            .allowsHitTesting(false)
-            .accessibilityHidden(true)
+        .animation(.easeInOut(duration: 0.2), value: preset?.id)
+        .allowsHitTesting(false)
+        .accessibilityHidden(true)
     }
 }
