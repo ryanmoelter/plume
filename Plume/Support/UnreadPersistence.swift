@@ -34,7 +34,9 @@ struct UnreadPersistence {
     /// Call after `StatusEngine.restore`. A Claude Code tab is confirmed by
     /// the transcript read its watch already runs. A Codex tab's items load
     /// only when its chat mounts, so its cached snapshot confirms it instead.
-    func restore(_ tabs: some Sequence<TaskTab>) {
+    @discardableResult
+    func restore(_ tabs: some Sequence<TaskTab>) -> [Task<Void, Never>] {
+        var cacheReads: [Task<Void, Never>] = []
         for tab in tabs {
             guard let messageID = tab.unreadMessageID else { continue }
             guard Self.persists(tab) else {
@@ -48,11 +50,12 @@ struct UnreadPersistence {
                 continue
             }
             let tabID = tab.id
-            Task { [unread] in
+            cacheReads.append(Task { [unread] in
                 let latest = await codexCache.load(tabID: tabID, threadID: threadID)?.entries.last?.stableID
                 guard unread.isAwaitingRestore(tabID: tabID) else { return }
                 unread.latestMessageChanged(tabID: tabID, to: latest)
-            }
+            })
         }
+        return cacheReads
     }
 }
