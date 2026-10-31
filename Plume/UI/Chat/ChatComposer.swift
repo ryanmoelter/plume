@@ -43,8 +43,6 @@ struct ChatComposer: View, ThemedView {
     var handOff: ComposerHandOff?
     /// Inside the panel, over the field.
     var aboveField: AnyView?
-    /// In the control row, after the mention button.
-    var controlsLeading: AnyView?
 
     @State private var inputFocused = false
     @Environment(\.chatFontSize) private var fontSize
@@ -405,9 +403,6 @@ struct ChatComposer: View, ThemedView {
                 HStack(spacing: dimensions.panelContentInset) {
                     if !isCommandMode {
                         mentionButton
-                    }
-                    if let controlsLeading {
-                        controlsLeading
                     }
                     ComposerControlsRow(
                         task: task,

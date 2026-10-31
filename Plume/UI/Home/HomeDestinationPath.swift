@@ -4,18 +4,7 @@ import SwiftUI
 /// [tree] main ▾  ⑂ main`: the group, then the project and its worktree as
 /// the new conversation screen names them. Each segment is its own menu.
 struct HomeDestinationPath: View, ThemedView {
-    enum GroupSeparator {
-        /// Space alone, for a row of controls.
-        case gap
-        /// A `›`, for a strip that reads as one path.
-        case chevron
-    }
-
     let model: HomeComposerModel
-    var groupSeparator = GroupSeparator.gap
-    /// Off where the row is short of room; the worktree's tooltip still
-    /// names it.
-    var showsBranch = true
     @Environment(\.theme) var theme
 
     var body: some View {
@@ -28,12 +17,7 @@ struct HomeDestinationPath: View, ThemedView {
                 AccessibilityID.homeComposerGroupMenu, value: model.groupTitle,
                 setValue: model.chooseGroup(named:)
             )
-            switch groupSeparator {
-            case .gap:
-                gap
-            case .chevron:
-                Text("›").emphasis(.subtle)
-            }
+            gap
             HomeDestinationSegment(systemImage: "folder", title: model.projectTitle, help: projectHelp) {
                 menus.projectItems
             }
@@ -50,7 +34,7 @@ struct HomeDestinationPath: View, ThemedView {
                     AccessibilityID.homeComposerWorkspaceMenu, value: model.workspaceTitle,
                     setValue: model.chooseWorkspace(named:)
                 )
-                if showsBranch, let branch = model.workspaceBranch {
+                if let branch = model.workspaceBranch {
                     // The branch the worktree has out, not the worktree itself.
                     HStack(spacing: 3) {
                         Image(systemName: "arrow.triangle.branch")

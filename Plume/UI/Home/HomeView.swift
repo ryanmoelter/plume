@@ -13,20 +13,12 @@ struct HomeView: View {
     @State private var settings = AppSettings.shared
     @State private var composer = HomeComposerModel()
     @Query(sort: \TaskGroup.orderIndex) private var groups: [TaskGroup]
-    #if DEBUG
-    @AppStorage(HomeComposerVariant.userDefaultsKey) private var variant = HomeComposerVariant.aboveField
-    @AppStorage(HomeComposerPlacement.userDefaultsKey) private var placement = HomeComposerPlacement.top
-    #else
-    private let variant = HomeComposerVariant.aboveField
-    private let placement = HomeComposerPlacement.top
-    #endif
 
     var body: some View {
         HomeContent(
             feed: HomeFeed(tasks: tasks, source: .live),
             open: open,
-            placement: placement,
-            composer: HomeComposer(model: composer, variant: variant, placement: placement, onSend: start)
+            composer: HomeComposer(model: composer, onSend: start)
         )
             .task(id: HomeComposerInputs(tasks: tasks, groups: groups)) {
                 await composer.refresh(
@@ -55,7 +47,6 @@ struct HomeView: View {
 private struct HomeContent: View, ThemedView {
     let feed: HomeFeed
     let open: (UUID, UUID) -> Void
-    let placement: HomeComposerPlacement
     let composer: HomeComposer
     @Environment(\.theme) var theme
     @State private var hangsMarkers = false
@@ -82,9 +73,7 @@ private struct HomeContent: View, ThemedView {
         ScrollView {
             VStack(alignment: .leading, spacing: 32) {
                 HomeGreetingHeader()
-                if placement == .top {
-                    composer
-                }
+                composer
                 needsYouSection
                 if !feed.running.isEmpty {
                     quietSection("Running", items: feed.running)
@@ -110,15 +99,6 @@ private struct HomeContent: View, ThemedView {
             .padding(.vertical, 40)
             .frame(maxWidth: .infinity)
         }
-        .safeAreaInset(edge: .bottom, spacing: 0) {
-            if placement == .pinnedBottom {
-                composer
-                    .frame(maxWidth: dimensions.contentWidth)
-                    .padding(.horizontal, dimensions.horizontalEdgePadding)
-                    .padding(.bottom, dimensions.panelInset)
-                    .frame(maxWidth: .infinity)
-            }
-        }
         .onGeometryChange(for: Bool.self) { proxy in
             (proxy.size.width - dimensions.contentWidth) / 2
                 >= HomeRow.gutterWidth(alignsColorBarToText: alignsColorBarToText) + dimensions.horizontalEdgePadding
@@ -126,16 +106,13 @@ private struct HomeContent: View, ThemedView {
         .plumeID(AccessibilityID.homeView)
     }
 
-    /// Headerless when pinned to the bottom, and so always open there.
     private var needsYouSection: some View {
         HomeSection(
             title: "Needs attention",
-            header: placement == .top
-                ? .collapsible(.init(
-                    id: AccessibilityID.homeNeedsAttentionHeader, isExpanded: $needsAttentionExpanded,
-                    emphasis: .primary
-                ))
-                : .none,
+            header: .collapsible(.init(
+                id: AccessibilityID.homeNeedsAttentionHeader, isExpanded: $needsAttentionExpanded,
+                emphasis: .primary
+            )),
             bleed: rowAlignment.bleed,
             count: max(feed.needsYou.count, 1)
         ) { transition in
@@ -149,7 +126,7 @@ private struct HomeContent: View, ThemedView {
             } else {
                 ForEach(Array(feed.needsYou.enumerated()), id: \.element.id) { index, item in
                     HomeRow(item: item, isProminent: true, alignment: rowAlignment) { open(item.taskID, item.tabID) }
-                        .padding(.top, index == 0 ? 0 : (placement == .top ? 4 : 2))
+                        .padding(.top, index == 0 ? 0 : 4)
                         .transition(transition(index))
                 }
             }
@@ -184,7 +161,6 @@ private struct HomeSectionCollapse {
 }
 
 private enum HomeSectionHeader {
-    case none
     case plain(emphasis: Emphasis)
     case collapsible(HomeSectionCollapse)
 }
@@ -211,8 +187,6 @@ private struct HomeSection<Rows: View>: View, ThemedView {
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
             switch header {
-            case .none:
-                EmptyView()
             case .plain(let emphasis):
                 Text(title)
                     .font(typography.bodyLarge.font)
