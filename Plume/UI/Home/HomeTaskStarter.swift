@@ -15,7 +15,7 @@ enum HomeTaskStarter {
     ) async throws -> WorkTask {
         let directory: String
         switch plan.workspace {
-        case .directory(let path, _):
+        case .directory(let path, _), .existingWorktree(let path, _, _):
             directory = path
         case .newWorktree(let repository, let branch):
             directory = try await GitService.shared.createWorktree(
@@ -53,6 +53,11 @@ enum HomeTaskStarter {
             task.workspaceKind = .directory
             RecentFolders.remember(directory, in: recentFolders)
         case .newWorktree(let repository, let branch):
+            task.repoPath = repository
+            task.branchName = branch
+            task.workspaceKind = .worktree
+            RecentFolders.remember(repository, in: recentFolders)
+        case .existingWorktree(_, let repository, let branch):
             task.repoPath = repository
             task.branchName = branch
             task.workspaceKind = .worktree

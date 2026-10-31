@@ -136,6 +136,76 @@ struct HomeDestinationTests {
         let destination = HomeDestination(groupID: nil, projectPath: nil, workspace: .projectFolder)
         #expect(catalog().plan(for: destination, message: "Hi", branchPrefix: "") == nil)
     }
+
+    @Test func anExistingWorktreePlanRunsInThatWorktree() {
+        let worktree = HomeWorkspaceChoice.worktree(path: "/repos/plume/.plume/worktrees/fix", branch: "ryanm/fix")
+        let destination = HomeDestination(groupID: nil, projectPath: plume.path, workspace: worktree)
+        #expect(catalog().validated(destination) == destination)
+        #expect(catalog().plan(for: destination, message: "Hi", branchPrefix: "")?.workspace == .existingWorktree(
+            path: "/repos/plume/.plume/worktrees/fix", repository: plume.path, branch: "ryanm/fix"
+        ))
+    }
+
+    @Test func aPlainFolderCannotKeepAWorktreeChoice() {
+        let destination = HomeDestination(
+            groupID: nil, projectPath: notes.path, workspace: .worktree(path: "/elsewhere", branch: nil)
+        )
+        #expect(catalog().validated(destination).workspace == .projectFolder)
+    }
+
+    // MARK: Worktree listing
+
+    private let listing = HomeWorktreeListing(
+        projectPath: "/repos/plume",
+        worktrees: [
+            GitWorktree(path: "/repos/plume", branch: "main", isMain: true),
+            GitWorktree(path: "/repos/plume/.plume/worktrees/fix", branch: "ryanm/fix", isMain: false),
+        ],
+        branch: "main"
+    )
+
+    @Test func theListingOffersEachWorktreeThenANewOne() {
+        let fix = HomeWorkspaceChoice.worktree(path: "/repos/plume/.plume/worktrees/fix", branch: "ryanm/fix")
+        #expect(listing.choices == [.projectFolder, fix, .newWorktree])
+        #expect(listing.choices.map(listing.title(for:)) == ["main", "fix", "New Worktree"])
+        #expect(listing.branch(for: fix) == "ryanm/fix")
+        #expect(listing.branch(for: .projectFolder) == "main")
+        #expect(listing.branch(for: .newWorktree) == nil)
+    }
+
+    @Test func aBareLayoutStillOffersTheProjectFolder() {
+        let bare = HomeWorktreeListing(
+            projectPath: "/repos/bare",
+            worktrees: [GitWorktree(path: "/repos/bare/main", branch: "main", isMain: false)],
+            branch: nil
+        )
+        #expect(bare.choices.first == .projectFolder)
+        #expect(bare.title(for: .projectFolder) == "Project folder")
+    }
+
+    @Test func aRemovedWorktreeFallsBack() {
+        let gone = HomeWorkspaceChoice.worktree(path: "/repos/plume/.plume/worktrees/gone", branch: nil)
+        #expect(listing.validated(gone, fallback: .newWorktree) == .newWorktree)
+        #expect(listing.validated(.projectFolder, fallback: .newWorktree) == .projectFolder)
+    }
+}
+
+/// Rows wait for the opening height to reach them, top down, and all start
+/// before the height settles.
+struct HomeSectionRevealTests {
+    @Test func rowDelaysRunTopDownWithinTheHeightAnimation() {
+        let delays = (0..<8).map { HomeSectionReveal.rowDelay(index: $0, count: 8) }
+        #expect(delays == delays.sorted())
+        #expect(delays.first! > 0)
+        #expect(delays.last! < HomeSectionReveal.heightDuration)
+    }
+
+    /// An ease-out curve covers half its distance well before half its time.
+    @Test func theCurveInverseMatchesEaseOut() {
+        #expect(abs(HomeSectionReveal.timeFraction(atProgress: 0.5) - 0.3425) < 0.001)
+        #expect(HomeSectionReveal.timeFraction(atProgress: 0) < 0.001)
+        #expect(HomeSectionReveal.timeFraction(atProgress: 1) > 0.999)
+    }
 }
 
 /// Creating the task a plan describes, in a store, without launching it.
@@ -186,5 +256,21 @@ struct HomeTaskStarterTests {
         #expect(task.branchName == "ryanm/x-beef")
         #expect(task.workspaceKind == .worktree)
         #expect(RecentFolders.load(from: defaults) == ["/repos/plume"])
+    }
+
+    @Test func anExistingWorktreePlanRecordsItsBranch() {
+        let path = "/repos/plume/.plume/worktrees/fix"
+        let plan = HomeTaskPlan(
+            groupID: nil,
+            workspace: .existingWorktree(path: path, repository: "/repos/plume", branch: "ryanm/fix"),
+            message: "Hi"
+        )
+        let task = HomeTaskStarter.createTask(
+            for: plan, directory: path, in: context, groups: [], tasks: [], recentFolders: defaults
+        )
+        #expect(task.workingDirectoryPath == path)
+        #expect(task.repoPath == "/repos/plume")
+        #expect(task.branchName == "ryanm/fix")
+        #expect(task.workspaceKind == .worktree)
     }
 }

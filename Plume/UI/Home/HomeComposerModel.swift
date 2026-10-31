@@ -46,10 +46,51 @@ final class HomeComposerModel {
         catalog.project(at: destination.projectPath)?.name ?? "Choose project"
     }
 
-    var workspaceTitle: String { destination.workspace.title }
+    /// The project's worktrees once `git` has listed them.
+    private(set) var worktreeListing: HomeWorktreeListing?
+
+    private var currentListing: HomeWorktreeListing? {
+        worktreeListing.flatMap { $0.projectPath == destination.projectPath ? $0 : nil }
+    }
+
+    /// Only a repository has worktrees to choose among.
+    var offersWorktrees: Bool {
+        catalog.project(at: destination.projectPath)?.isRepository ?? false
+    }
+
+    var workspaceTitle: String {
+        currentListing?.title(for: destination.workspace) ?? destination.workspace.title
+    }
+
+    func workspaceTitle(for choice: HomeWorkspaceChoice) -> String {
+        currentListing?.title(for: choice) ?? choice.title
+    }
+
+    /// The branch the chosen worktree has out; nil for a new one.
+    var workspaceBranch: String? { workspaceBranch(for: destination.workspace) }
+
+    func workspaceBranch(for choice: HomeWorkspaceChoice) -> String? {
+        currentListing?.branch(for: choice)
+    }
 
     var workspaceChoices: [HomeWorkspaceChoice] {
-        catalog.project(at: destination.projectPath)?.workspaceChoices ?? [.projectFolder]
+        guard offersWorktrees else { return [.projectFolder] }
+        return currentListing?.choices ?? [.projectFolder, .newWorktree]
+    }
+
+    /// Lists the chosen project's worktrees, and drops a chosen one that has
+    /// since gone.
+    func loadWorktrees() async {
+        guard let project = catalog.project(at: destination.projectPath), project.isRepository else { return }
+        let listing = await GitService.shared.worktreeListing(
+            in: ProjectRoot.repositoryDirectory(forRoot: project.path)
+        )
+        guard !Task.isCancelled, destination.projectPath == project.path else { return }
+        let loaded = HomeWorktreeListing(projectPath: project.path, worktrees: listing.worktrees, branch: listing.branch)
+        worktreeListing = loaded
+        destination.workspace = loaded.validated(
+            destination.workspace, fallback: catalog.defaultWorkspace(forProject: project.path)
+        )
     }
 
     func chooseGroup(_ id: UUID?) {

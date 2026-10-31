@@ -74,6 +74,7 @@ private struct HomeContent: View, ThemedView {
             alignsColorBarToText: alignsColorBarToText
         )
     }
+    @AppStorage("homeNeedsAttentionExpanded") private var needsAttentionExpanded = true
     @AppStorage("homeIdleExpanded") private var idleExpanded = true
     @AppStorage("homeNotStartedExpanded") private var notStartedExpanded = false
 
@@ -91,16 +92,15 @@ private struct HomeContent: View, ThemedView {
                 if !feed.idle.isEmpty {
                     quietSection(
                         "Idle", items: feed.idle,
-                        collapse: CollapseControl(
-                            id: AccessibilityID.homeIdleHeader, isExpanded: $idleExpanded
-                        )
+                        collapse: .init(id: AccessibilityID.homeIdleHeader, isExpanded: $idleExpanded, emphasis: .primary)
                     )
                 }
                 if !feed.notStarted.isEmpty {
                     quietSection(
                         "Not started", items: feed.notStarted,
-                        collapse: CollapseControl(
-                            id: AccessibilityID.homeNotStartedHeader, isExpanded: $notStartedExpanded
+                        collapse: .init(
+                            id: AccessibilityID.homeNotStartedHeader, isExpanded: $notStartedExpanded,
+                            emphasis: .secondary
                         )
                     )
                 }
@@ -126,83 +126,163 @@ private struct HomeContent: View, ThemedView {
         .plumeID(AccessibilityID.homeView)
     }
 
+    /// Headerless when pinned to the bottom, and so always open there.
     private var needsYouSection: some View {
-        VStack(alignment: .leading, spacing: placement == .top ? 4 : 2) {
-            if placement == .top {
-                sectionTitle("Needs attention")
-            }
+        HomeSection(
+            title: "Needs attention",
+            header: placement == .top
+                ? .collapsible(.init(
+                    id: AccessibilityID.homeNeedsAttentionHeader, isExpanded: $needsAttentionExpanded,
+                    emphasis: .primary
+                ))
+                : .none,
+            bleed: rowAlignment.bleed,
+            count: max(feed.needsYou.count, 1)
+        ) { transition in
             if feed.needsYou.isEmpty {
                 Text("Nothing needs you right now.")
                     .font(typography.body.font)
                     .emphasis(.secondary)
                     .padding(.horizontal, HomeRow.horizontalPadding)
                     .plumeID(AccessibilityID.homeEmptyState)
+                    .transition(transition(0))
             } else {
-                ForEach(feed.needsYou) { item in
+                ForEach(Array(feed.needsYou.enumerated()), id: \.element.id) { index, item in
                     HomeRow(item: item, isProminent: true, alignment: rowAlignment) { open(item.taskID, item.tabID) }
+                        .padding(.top, index == 0 ? 0 : (placement == .top ? 4 : 2))
+                        .transition(transition(index))
                 }
             }
         }
-    }
-
-    private struct CollapseControl {
-        let id: String
-        let isExpanded: Binding<Bool>
     }
 
     private func quietSection(
         _ title: String,
         items: [HomeFeed.Item],
-        collapse: CollapseControl? = nil
+        collapse: HomeSectionCollapse? = nil
     ) -> some View {
-        VStack(alignment: .leading, spacing: 4) {
-            if let collapse {
-                CollapsibleSectionHeader(
-                    title: title, id: collapse.id, isExpanded: collapse.isExpanded, bleed: rowAlignment.bleed
-                )
-            } else {
-                sectionTitle(title)
-                    .emphasis(.secondary)
-            }
-            if collapse?.isExpanded.wrappedValue ?? true {
-                VStack(alignment: .leading, spacing: 0) {
-                    ForEach(items) { item in
-                        HomeRow(item: item, isProminent: false, alignment: rowAlignment) {
-                            open(item.taskID, item.tabID)
-                        }
-                    }
+        HomeSection(
+            title: title,
+            header: collapse.map(HomeSectionHeader.collapsible) ?? .plain(emphasis: .secondary),
+            bleed: rowAlignment.bleed,
+            count: items.count
+        ) { transition in
+            ForEach(Array(items.enumerated()), id: \.element.id) { index, item in
+                HomeRow(item: item, isProminent: false, alignment: rowAlignment) {
+                    open(item.taskID, item.tabID)
                 }
+                .transition(transition(index))
+            }
+        }
+    }
+}
+
+private struct HomeSectionCollapse {
+    let id: String
+    let isExpanded: Binding<Bool>
+    let emphasis: Emphasis
+}
+
+private enum HomeSectionHeader {
+    case none
+    case plain(emphasis: Emphasis)
+    case collapsible(HomeSectionCollapse)
+}
+
+/// A header over rows that, when the header collapses, open and close as
+/// `HomeSectionReveal` describes. `rows` gives each row the transition for
+/// its index.
+private struct HomeSection<Rows: View>: View, ThemedView {
+    let title: String
+    let header: HomeSectionHeader
+    let bleed: CGFloat
+    let count: Int
+    @ViewBuilder let rows: (_ transition: @escaping (Int) -> AnyTransition) -> Rows
+    @Environment(\.theme) var theme
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    /// Rows fade out before the height closes.
+    @State private var rowsHidden = false
+
+    private var isExpanded: Bool {
+        guard case .collapsible(let collapse) = header else { return true }
+        return collapse.isExpanded.wrappedValue
+    }
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 0) {
+            switch header {
+            case .none:
+                EmptyView()
+            case .plain(let emphasis):
+                Text(title)
+                    .font(typography.bodyLarge.font)
+                    .emphasis(emphasis)
+                    .padding(.horizontal, HomeRow.horizontalPadding)
+                    .accessibilityAddTraits(.isHeader)
+                    .padding(.bottom, 4)
+            case .collapsible(let collapse):
+                CollapsibleSectionHeader(
+                    title: title, id: collapse.id, isExpanded: isExpanded && !rowsHidden,
+                    emphasis: collapse.emphasis, bleed: bleed
+                ) { toggle(collapse.isExpanded) }
+                .padding(.bottom, 4)
+            }
+            if isExpanded {
+                rows { index in
+                    HomeSectionReveal.rowTransition(index: index, count: count, reduceMotion: reduceMotion)
+                }
+                .opacity(rowsHidden ? 0 : 1)
             }
         }
     }
 
-    private func sectionTitle(_ title: String) -> some View {
-        Text(title)
-            .font(typography.bodyLarge.font)
-            .padding(.horizontal, HomeRow.horizontalPadding)
-            .accessibilityAddTraits(.isHeader)
+    private func toggle(_ isExpanded: Binding<Bool>) {
+        if isExpanded.wrappedValue {
+            guard !reduceMotion else {
+                isExpanded.wrappedValue = false
+                return
+            }
+            withAnimation(HomeSectionReveal.collapseFade) {
+                rowsHidden = true
+            } completion: {
+                // Reopened while the rows were fading.
+                guard rowsHidden else { return }
+                withAnimation(HomeSectionReveal.collapseHeight) { isExpanded.wrappedValue = false }
+                rowsHidden = false
+            }
+        } else {
+            rowsHidden = false
+            if reduceMotion {
+                isExpanded.wrappedValue = true
+            } else {
+                withAnimation(HomeSectionReveal.expandHeight) { isExpanded.wrappedValue = true }
+            }
+        }
     }
 }
 
 private struct CollapsibleSectionHeader: View, ThemedView {
     let title: String
     let id: String
-    @Binding var isExpanded: Bool
+    let isExpanded: Bool
+    let emphasis: Emphasis
     let bleed: CGFloat
+    let toggle: () -> Void
     @Environment(\.theme) var theme
     @Environment(\.colorScheme) private var colorScheme
     @State private var isHovered = false
 
     var body: some View {
-        Button { isExpanded.toggle() } label: {
+        Button(action: toggle) {
             HStack(spacing: 6) {
                 Text(title)
                     .font(typography.bodyLarge.font)
-                Image(systemName: isExpanded ? "chevron.down" : "chevron.right")
+                Image(systemName: "chevron.right")
                     .font(typography.caption.font)
+                    .rotationEffect(.degrees(isExpanded ? 90 : 0))
                 Spacer(minLength: 0)
             }
-            .emphasis(.secondary)
+            .emphasis(emphasis)
             .padding(.horizontal, HomeRow.horizontalPadding + bleed)
             .padding(.vertical, 2)
             .frame(maxWidth: .infinity, alignment: .leading)
@@ -215,7 +295,7 @@ private struct CollapsibleSectionHeader: View, ThemedView {
         .buttonStyle(.plain)
         .accessibilityAddTraits(.isHeader)
         .plumeHover { isHovered = $0 }
-        .plumeID(id, label: title, value: isExpanded ? "expanded" : "collapsed") { isExpanded.toggle() }
+        .plumeID(id, label: title, value: isExpanded ? "expanded" : "collapsed", invoke: toggle)
         .padding(.horizontal, -bleed)
     }
 }

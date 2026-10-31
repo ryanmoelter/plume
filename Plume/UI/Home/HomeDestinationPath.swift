@@ -1,8 +1,8 @@
 import SwiftUI
 
-/// The destination as one path, `[group] No group ▾  [folder] Plume / Project
-/// folder ▾`: the group, then the project and its workspace under a single
-/// folder icon. Each segment is its own menu.
+/// The destination as one path, `[group] No group ▾  [folder] Plume ▾
+/// [tree] main ▾  ⑂ main`: the group, then the project and its worktree as
+/// the new conversation screen names them. Each segment is its own menu.
 struct HomeDestinationPath: View, ThemedView {
     enum GroupSeparator {
         /// Space alone, for a row of controls.
@@ -13,12 +13,15 @@ struct HomeDestinationPath: View, ThemedView {
 
     let model: HomeComposerModel
     var groupSeparator = GroupSeparator.gap
+    /// Off where the row is short of room; the worktree's tooltip still
+    /// names it.
+    var showsBranch = true
     @Environment(\.theme) var theme
 
     var body: some View {
         let menus = HomeDestinationMenus(model: model)
         HStack(spacing: 2) {
-            HomeDestinationSegment(systemImage: "square.stack", title: model.groupTitle, showsIndicator: true) {
+            HomeDestinationSegment(systemImage: "square.stack", title: model.groupTitle) {
                 menus.groupItems
             }
             .plumeID(
@@ -27,37 +30,73 @@ struct HomeDestinationPath: View, ThemedView {
             )
             switch groupSeparator {
             case .gap:
-                Spacer().frame(width: dimensions.panelContentInset)
+                gap
             case .chevron:
                 Text("›").emphasis(.subtle)
             }
-            HomeDestinationSegment(systemImage: "folder", title: model.projectTitle, showsIndicator: false) {
+            HomeDestinationSegment(systemImage: "folder", title: model.projectTitle, help: projectHelp) {
                 menus.projectItems
             }
             .plumeID(
                 AccessibilityID.homeComposerProjectMenu, value: model.projectTitle,
                 setValue: model.chooseProject(named:)
             )
-            Text("/").emphasis(.subtle)
-            HomeDestinationSegment(systemImage: nil, title: model.workspaceTitle, showsIndicator: true) {
-                menus.workspaceItems
+            if model.offersWorktrees {
+                gap
+                HomeDestinationSegment(systemImage: "tree", title: model.workspaceTitle, help: worktreeHelp) {
+                    menus.workspaceItems
+                }
+                .plumeID(
+                    AccessibilityID.homeComposerWorkspaceMenu, value: model.workspaceTitle,
+                    setValue: model.chooseWorkspace(named:)
+                )
+                if showsBranch, let branch = model.workspaceBranch {
+                    // The branch the worktree has out, not the worktree itself.
+                    HStack(spacing: 3) {
+                        Image(systemName: "arrow.triangle.branch")
+                            .imageScale(.small)
+                        Text(branch)
+                            .lineLimit(1)
+                    }
+                    .emphasis(.subtle)
+                    .padding(.leading, 2)
+                    .help("Branch: \(branch)")
+                }
             }
-            .plumeID(
-                AccessibilityID.homeComposerWorkspaceMenu, value: model.workspaceTitle,
-                setValue: model.chooseWorkspace(named:)
-            )
         }
         .font(typography.caption.font)
         .fixedSize()
+        .task(id: model.destination.projectPath) {
+            await model.loadWorktrees()
+        }
+    }
+
+    private var gap: some View {
+        Spacer().frame(width: dimensions.panelContentInset)
+    }
+
+    private var projectHelp: String {
+        guard let path = model.destination.projectPath else { return model.projectTitle }
+        return "Working folder: \(Self.abbreviated(path))"
+    }
+
+    private var worktreeHelp: String {
+        let name = model.workspaceTitle
+        guard let branch = model.workspaceBranch else { return "Worktree: \(name)" }
+        return "Worktree \(name), on \(branch)"
+    }
+
+    static func abbreviated(_ path: String) -> String {
+        path.replacingOccurrences(of: NSHomeDirectory(), with: "~")
     }
 }
 
 /// Reads as text until hovered, so the path reads as one line while each
 /// segment still shows it opens its own menu.
 private struct HomeDestinationSegment<Items: View>: View, ThemedView {
-    let systemImage: String?
+    let systemImage: String
     let title: String
-    let showsIndicator: Bool
+    var help: String?
     @ViewBuilder let items: () -> Items
     @Environment(\.theme) var theme
     @Environment(\.colorScheme) private var colorScheme
@@ -68,15 +107,11 @@ private struct HomeDestinationSegment<Items: View>: View, ThemedView {
             items()
         } label: {
             HStack(spacing: 4) {
-                if let systemImage {
-                    Image(systemName: systemImage)
-                }
+                Image(systemName: systemImage)
                 Text(title)
                     .lineLimit(1)
-                if showsIndicator {
-                    Image(systemName: "chevron.down")
-                        .font(.system(size: 9, weight: .semibold))
-                }
+                Image(systemName: "chevron.down")
+                    .font(.system(size: 9, weight: .semibold))
             }
             .emphasis(isHovered ? .primary : .secondary)
             .padding(.horizontal, 4)
@@ -91,7 +126,7 @@ private struct HomeDestinationSegment<Items: View>: View, ThemedView {
         .buttonStyle(.plain)
         .menuIndicator(.hidden)
         .fixedSize()
-        .help(title)
+        .help(help ?? title)
         .plumeHover { isHovered = $0 }
     }
 }

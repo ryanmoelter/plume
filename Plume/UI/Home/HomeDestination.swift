@@ -1,22 +1,24 @@
 import Foundation
 
-/// Where in a project a task started from Home runs.
-nonisolated enum HomeWorkspaceChoice: String, CaseIterable, Sendable {
+/// Where in a project a task started from Home runs: one of the repository's
+/// worktrees, or a new one named from the message.
+nonisolated enum HomeWorkspaceChoice: Hashable, Sendable {
     case newWorktree
+    /// The project's own folder: the repository's main checkout, or a plain
+    /// folder that isn't in one.
     case projectFolder
-    // A subfolder of the project is the next choice planned here.
+    /// A linked worktree that already exists.
+    case worktree(path: String, branch: String?)
+
+    static let newWorktreeTitle = "New Worktree"
+    /// What the new conversation screen calls the repository's own checkout.
+    static let mainWorktreeTitle = "main"
 
     var title: String {
         switch self {
-        case .newWorktree: "New worktree"
-        case .projectFolder: "Project folder"
-        }
-    }
-
-    var systemImage: String {
-        switch self {
-        case .newWorktree: "tree"
-        case .projectFolder: "folder"
+        case .newWorktree: Self.newWorktreeTitle
+        case .projectFolder: Self.mainWorktreeTitle
+        case .worktree(let path, _): (path as NSString).lastPathComponent
         }
     }
 }
@@ -30,8 +32,53 @@ nonisolated struct HomeProject: Hashable, Identifiable, Sendable {
     var id: String { path }
     var name: String { (path as NSString).lastPathComponent }
 
+    /// Before its worktrees are listed.
     var workspaceChoices: [HomeWorkspaceChoice] {
         isRepository ? [.newWorktree, .projectFolder] : [.projectFolder]
+    }
+
+    func offers(_ choice: HomeWorkspaceChoice) -> Bool {
+        isRepository || choice == .projectFolder
+    }
+}
+
+/// A repository project's worktrees, as `git worktree list` gives them, in the
+/// order the new conversation screen's worktree menu shows them.
+nonisolated struct HomeWorktreeListing: Equatable, Sendable {
+    let projectPath: String
+    let worktrees: [GitWorktree]
+    /// The main checkout's branch.
+    let branch: String?
+
+    /// The worktrees, then a new one.
+    var choices: [HomeWorkspaceChoice] {
+        var choices = worktrees.map(Self.choice(for:))
+        if !choices.contains(.projectFolder) { choices.insert(.projectFolder, at: 0) }
+        return choices + [.newWorktree]
+    }
+
+    /// A bare layout lists no main checkout, so its folder is just a folder.
+    func title(for choice: HomeWorkspaceChoice) -> String {
+        if choice == .projectFolder, !worktrees.contains(where: \.isMain) { return "Project folder" }
+        return choice.title
+    }
+
+    func branch(for choice: HomeWorkspaceChoice) -> String? {
+        switch choice {
+        case .newWorktree: nil
+        case .projectFolder: worktrees.first(where: \.isMain)?.branch ?? branch
+        case .worktree(_, let branch): branch
+        }
+    }
+
+    /// A worktree removed since it was chosen falls back to `fallback`.
+    func validated(_ choice: HomeWorkspaceChoice, fallback: HomeWorkspaceChoice) -> HomeWorkspaceChoice {
+        guard case .worktree(let path, _) = choice else { return choice }
+        return choices.first { if case .worktree(path, _) = $0 { true } else { false } } ?? fallback
+    }
+
+    private static func choice(for worktree: GitWorktree) -> HomeWorkspaceChoice {
+        worktree.isMain ? .projectFolder : .worktree(path: worktree.path, branch: worktree.branch)
     }
 }
 
@@ -48,6 +95,7 @@ nonisolated struct HomeTaskPlan: Equatable {
     enum Workspace: Equatable, Sendable {
         case directory(path: String, repoPath: String?)
         case newWorktree(repository: String, branch: String)
+        case existingWorktree(path: String, repository: String, branch: String?)
     }
 
     var groupID: UUID?
@@ -132,8 +180,7 @@ nonisolated struct HomeDestinationCatalog: Equatable, Sendable {
         if project(at: destination.projectPath) == nil {
             result.projectPath = projects.first?.path
             result.workspace = defaultWorkspace(forProject: result.projectPath)
-        } else if let project = project(at: result.projectPath),
-                  !project.workspaceChoices.contains(result.workspace) {
+        } else if let project = project(at: result.projectPath), !project.offers(result.workspace) {
             result.workspace = .projectFolder
         }
         return result
@@ -173,12 +220,15 @@ nonisolated struct HomeDestinationCatalog: Equatable, Sendable {
         guard hasText || !images.isEmpty, let project = project(at: destination.projectPath) else { return nil }
         let repository = project.isRepository ? ProjectRoot.repositoryDirectory(forRoot: project.path) : nil
         let workspace: HomeTaskPlan.Workspace
-        if destination.workspace == .newWorktree, let repository {
+        switch (destination.workspace, repository) {
+        case (.newWorktree, let repository?):
             let branch = WorkspaceProvisioner.suggestedBranchName(
                 for: Self.branchSeed(from: branchSeed ?? message), suffix: branchSuffix, prefix: branchPrefix
             )
             workspace = .newWorktree(repository: repository, branch: branch)
-        } else {
+        case (.worktree(let path, let branch), let repository?):
+            workspace = .existingWorktree(path: path, repository: repository, branch: branch)
+        default:
             workspace = .directory(path: project.path, repoPath: repository)
         }
         return HomeTaskPlan(

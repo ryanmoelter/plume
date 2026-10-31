@@ -51,7 +51,7 @@ struct HomeComposer: View, ThemedView {
                 send: onSend
             ),
             aboveField: variant == .aboveField ? AnyView(HomeDestinationPath(model: model)) : nil,
-            controlsLeading: variant == .controlRow ? AnyView(HomeDestinationPath(model: model)) : nil
+            controlsLeading: variant == .controlRow ? AnyView(HomeDestinationPath(model: model, showsBranch: false)) : nil
         )
     }
 
