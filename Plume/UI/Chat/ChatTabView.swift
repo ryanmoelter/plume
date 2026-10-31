@@ -370,7 +370,7 @@ struct ChatTabView: View, ThemedView {
         // The store re-points a session that has moved between project
         // directories; persisting it here keeps a restart and the title
         // monitor on the same file.
-        .onChange(of: TranscriptStore.shared.watchedPath(forTab: tab.id)) { _, watched in
+        .onChange(of: TranscriptStore.shared.watchedPath(forTab: tab.id), initial: true) { _, watched in
             guard let watched, !watched.isEmpty, tab.sessionJSONLPath != watched else { return }
             tab.sessionJSONLPath = watched
         }
@@ -1436,7 +1436,10 @@ struct ChatTabView: View, ThemedView {
     private func registerWatchIfNeeded() {
         guard let path = tab.sessionJSONLPath, !path.isEmpty else { return }
         TranscriptStore.shared.watch(tabID: tab.id, transcriptPath: path)
-        AgentTitleMonitor.shared.watch(tabID: tab.id, transcriptPath: path)
+        // The store may have followed the session to another project
+        // directory while this view was unmounted.
+        let watched = TranscriptStore.shared.watchedPath(forTab: tab.id) ?? path
+        AgentTitleMonitor.shared.watch(tabID: tab.id, transcriptPath: watched)
     }
 
     private func releaseGitDirectory() {

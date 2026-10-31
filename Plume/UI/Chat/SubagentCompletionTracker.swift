@@ -77,12 +77,15 @@ final class SubagentCompletionTracker {
         }
 
         // A subagent that went back to work earns a fresh linger if it
-        // finishes again.
-        for key in completedAt.keys where key.tabID == tabID && !finished.contains(key) {
+        // finishes again. One absent from a read keeps its state: while a
+        // session moves between project directories, a read can find its
+        // `subagents/` not there yet.
+        let unfinished = Set(subagents.map { Key(tabID: tabID, subagentID: $0.id) }).subtracting(finished)
+        for key in unfinished {
             completedAt.removeValue(forKey: key)
             timers.removeValue(forKey: key)?.cancel()
         }
-        preCompleted.subtract(preCompleted.filter { $0.tabID == tabID && !finished.contains($0) })
+        preCompleted.subtract(unfinished)
     }
 
     /// Whether a finished subagent has lingered long enough to move into the

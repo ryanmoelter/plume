@@ -180,8 +180,14 @@ nonisolated enum SessionJSONLReader {
     /// The `agent-*.jsonl` transcripts under a session's subagents
     /// directory, sorted, or empty if the directory does not exist.
     static func subagentTranscriptPaths(forTranscriptPath transcriptPath: String) -> [String] {
+        listedSubagentTranscriptPaths(forTranscriptPath: transcriptPath) ?? []
+    }
+
+    /// Like `subagentTranscriptPaths`, but nil when the directory could not
+    /// be listed, so a missing directory is not mistaken for an empty one.
+    static func listedSubagentTranscriptPaths(forTranscriptPath transcriptPath: String) -> [String]? {
         let directory = subagentsDirectory(forTranscriptPath: transcriptPath)
-        guard let entries = try? FileManager.default.contentsOfDirectory(atPath: directory) else { return [] }
+        guard let entries = try? FileManager.default.contentsOfDirectory(atPath: directory) else { return nil }
         return entries
             .filter { $0.hasPrefix("agent-") && $0.hasSuffix(".jsonl") }
             .sorted()
