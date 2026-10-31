@@ -38,10 +38,7 @@ struct ChatTabView: View, ThemedView {
     /// chat to open one from, so this is a single on/off toggle for the tab.
     @State private var isSideChatShown = false
     @State private var untrustedDirectoryStore = UntrustedDirectoryStore.shared
-    /// The first message, from the moment it is sent until the transcript
-    /// contains it. Held here rather than on the session because it has to
-    /// outlive a launch that never produces one.
-    @State private var pendingFirstMessage: OptimisticFirstMessage?
+    @State private var pendingFirstMessages = PendingFirstMessageStore.shared
     /// The measured height of the floating bottom chrome — the queued-message
     /// chips plus the panel beneath them — so the list can inset its content
     /// past it. Nothing in that subtree is sized from it, so measuring
@@ -72,6 +69,20 @@ struct ChatTabView: View, ThemedView {
     /// The dock bar and the expanded overlay are separate view trees, so the
     /// namespace the zoom between them matches on lives here, above both.
     @Namespace private var planZoom
+
+    /// The first message, from the moment it is sent until the transcript
+    /// contains it. Held outside the session because it has to outlive a
+    /// launch that never produces one.
+    private var pendingFirstMessage: OptimisticFirstMessage? {
+        pendingFirstMessages.message(forTab: tab.id)
+    }
+
+    private var pendingFirstMessageBinding: Binding<OptimisticFirstMessage?> {
+        Binding(
+            get: { [pendingFirstMessages, tabID = tab.id] in pendingFirstMessages.message(forTab: tabID) },
+            set: { [pendingFirstMessages, tabID = tab.id] in pendingFirstMessages.set($0, forTab: tabID) }
+        )
+    }
 
     private var untrustedPath: String? {
         untrustedDirectoryStore.path(forTab: tab.id)
@@ -329,7 +340,7 @@ struct ChatTabView: View, ThemedView {
                     messages: transcriptMessages,
                     startFailure: headlessSession?.startFailure,
                     tabID: tab.id,
-                    pending: $pendingFirstMessage
+                    pending: pendingFirstMessageBinding
                 ))
                 .onDrop(
                     of: ComposerImageDropDelegate.acceptedTypes,
@@ -1233,7 +1244,9 @@ struct ChatTabView: View, ThemedView {
                 tab: tab,
                 isVisible: isVisible,
                 isFocused: isFocused,
-                onLaunch: { pendingFirstMessage = OptimisticFirstMessage(text: $0) }
+                onLaunch: { [pendingFirstMessages, tabID = tab.id] in
+                    pendingFirstMessages.set(OptimisticFirstMessage(text: $0), forTab: tabID)
+                }
             )
             .disabled(!isComposerEnabled)
             .glassEffect(planGlass, in: .rect(cornerRadius: dimensions.panelCornerRadius))

@@ -671,7 +671,10 @@ struct ChatComposer: View, ThemedView {
         // Plume's own commands act on a session, which a hand-off has none
         // of, so they stay in the draft rather than reaching a new agent as
         // prose.
-        if handOff != nil, PlumeSlashCommand.parse(text) != nil { return }
+        if handOff != nil, PlumeSlashCommand.parse(text) != nil {
+            NSSound.beep()
+            return
+        }
         let images = attachedImages
         drafts.setDraft("", forTab: tab.id)
         drafts.clearAttachments(forTab: tab.id)

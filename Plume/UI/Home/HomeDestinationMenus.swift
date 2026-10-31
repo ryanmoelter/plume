@@ -1,8 +1,7 @@
 import AppKit
 import SwiftUI
 
-/// The menu contents every destination picker shares, so the variants differ
-/// only in how they present them.
+/// The contents of the destination path's menus.
 struct HomeDestinationMenus {
     let model: HomeComposerModel
 

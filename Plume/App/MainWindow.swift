@@ -43,7 +43,7 @@ struct MainWindow: View {
             if let task = selectedTask {
                 TaskDetailView(task: task)
             } else if selection == .home {
-                HomeView(tasks: navigableTasks, open: open(taskID:tabID:), select: { choose(.task($0)) })
+                HomeView(tasks: navigableTasks, open: open(taskID:tabID:), select: selectStartedFromHome)
             } else {
                 ContentUnavailableView(
                     "No Task Selected",
@@ -241,6 +241,13 @@ struct MainWindow: View {
         TaskStore.selectTab(tab, in: task)
         BellStore.shared.markSeen(tabID: tab.id)
         Notifier.shared.dismiss(tabID: tab.id)
+    }
+
+    /// A task can take seconds to start, so one that finishes after the user
+    /// has moved on leaves their selection alone.
+    private func selectStartedFromHome(_ taskID: UUID) {
+        guard selection == .home else { return }
+        choose(.task(taskID))
     }
 
     private var selectedTask: WorkTask? {

@@ -11,8 +11,10 @@ struct HomeView: View {
     @Environment(\.colorScheme) private var colorScheme
     @Environment(\.modelContext) private var context
     @State private var settings = AppSettings.shared
-    @State private var composer = HomeComposerModel()
+    @State private var hasRefreshed = false
     @Query(sort: \TaskGroup.orderIndex) private var groups: [TaskGroup]
+
+    private var composer: HomeComposerModel { HomeComposerTab.shared.model }
 
     var body: some View {
         HomeContent(
@@ -21,9 +23,12 @@ struct HomeView: View {
             composer: HomeComposer(model: composer, onSend: start)
         )
             .task(id: HomeComposerInputs(tasks: tasks, groups: groups)) {
+                let picksDefaults = !hasRefreshed
+                hasRefreshed = true
                 await composer.refresh(
                     HomeComposerInputs(tasks: tasks, groups: groups),
-                    recentTaskID: LastOpenTask.lastTask()
+                    recentTaskID: LastOpenTask.lastTask(),
+                    picksDefaults: picksDefaults
                 )
             }
             .plumeTheme(bodySize: CGFloat(settings.chatFontSize))
@@ -35,9 +40,9 @@ struct HomeView: View {
 
     private func start(_ message: ComposerHandOff.Message) async -> Bool {
         let home = HomeComposerTab.shared
-        guard let task = await composer.start(
-            message, choices: home.launchChoices, in: context, groups: groups, tasks: tasks
-        ) else { return false }
+        guard let task = await composer.start(message, choices: home.launchChoices, in: context) else {
+            return false
+        }
         home.didStartTask()
         select(task.id)
         return true

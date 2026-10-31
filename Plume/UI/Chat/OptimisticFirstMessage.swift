@@ -1,4 +1,5 @@
 import Foundation
+import Observation
 import SwiftUI
 
 /// The first message of a conversation, held in memory from the moment it is
@@ -92,6 +93,29 @@ nonisolated struct OptimisticFirstMessage: Equatable {
     }
 }
 
+/// Each tab's pending first message. Held outside the chat view because a
+/// task started from Home sends before its chat mounts, and a task switch
+/// unmounts the chat while the launch is still in flight.
+@MainActor
+@Observable
+final class PendingFirstMessageStore {
+    static let shared = PendingFirstMessageStore()
+
+    private var messagesByTab: [UUID: OptimisticFirstMessage] = [:]
+
+    func message(forTab tabID: UUID) -> OptimisticFirstMessage? {
+        messagesByTab[tabID]
+    }
+
+    func set(_ message: OptimisticFirstMessage?, forTab tabID: UUID) {
+        messagesByTab[tabID] = message
+    }
+
+    func forget(tabID: UUID) {
+        messagesByTab.removeValue(forKey: tabID)
+    }
+}
+
 extension ChatMessage {
     /// The message's plain prose, ignoring tool calls, thinking and injected
     /// content — what a user actually typed, when a user typed it.
@@ -160,8 +184,10 @@ struct OptimisticFirstMessageTracking: ViewModifier {
             // A start that failed with a message in play keeps the
             // conversation and puts the error in it; `startFailureState` still
             // owns the case where there is nothing on screen to attach it to.
-            .onChange(of: startFailure) { _, failure in
-                guard pending != nil else { return }
+            // Initial too: a task started from Home can fail to launch
+            // before its chat first mounts.
+            .onChange(of: startFailure, initial: true) { _, failure in
+                guard pending != nil, pending?.failure != failure else { return }
                 pending?.failure = failure
             }
     }

@@ -3,10 +3,12 @@ import SwiftData
 import Testing
 @testable import Plume
 
-/// Home's composer runs as a tab with an ID kept in UserDefaults. What it
-/// sends reaches the new task as the plan's message, with mentions expanded
-/// under that ID, its images, and the model, effort and permission choices
-/// made on Home's tab, which the new task's tab launches with.
+/// Home's composer runs as a tab that is never in a store. What it sends
+/// reaches the new task as the plan's message, with mentions expanded under
+/// the tab's ID, its images, and the model, effort and permission choices
+/// made on Home's tab, which the new task's tab launches with. Its provider,
+/// transport and Codex collaboration mode follow the settings until the user
+/// picks others.
 @MainActor
 struct HomeComposerTabTests {
     private let defaults: UserDefaults
@@ -17,22 +19,6 @@ struct HomeComposerTabTests {
     }
 
     // MARK: Identity
-
-    @Test func theIDIsStableAcrossReads() {
-        let first = HomeComposerTab.storedID(in: defaults)
-        #expect(HomeComposerTab.storedID(in: defaults) == first)
-    }
-
-    @Test func theIDIsPersisted() {
-        let id = HomeComposerTab.storedID(in: defaults)
-        #expect(defaults.string(forKey: HomeComposerTab.userDefaultsKey) == id.uuidString)
-    }
-
-    @Test func aStoredIDIsReadBack() {
-        let id = UUID()
-        defaults.set(id.uuidString, forKey: HomeComposerTab.userDefaultsKey)
-        #expect(HomeComposerTab.storedID(in: defaults) == id)
-    }
 
     @Test func theTabCarriesTheIDAndIsNeverInAStore() {
         let id = UUID()
@@ -47,6 +33,49 @@ struct HomeComposerTabTests {
         let home = HomeComposerTab(id: UUID())
         home.setDirectory(plume.path)
         #expect(TabDirectoryStore().directory(for: home.tab) == plume.path)
+    }
+
+    // MARK: Following the settings
+
+    private func settings() -> AppSettings {
+        AppSettings(defaults: defaults, domainName: "", initialAccentPaletteSlot: { nil })
+    }
+
+    @Test func theTabStartsOnTheSettingsDefaults() {
+        let settings = settings()
+        settings.defaultProvider = .codex
+        settings.defaultCodexCollaborationMode = .plan
+        let home = HomeComposerTab(id: UUID(), settings: settings)
+        #expect(home.tab.provider == .codex)
+        #expect(home.tab.codexCollaborationMode == .plan)
+    }
+
+    @Test func aChangedSettingReachesAnUntouchedTab() {
+        let settings = settings()
+        settings.defaultProvider = .claudeCode
+        let home = HomeComposerTab(id: UUID(), settings: settings)
+        settings.defaultProvider = .codex
+        settings.defaultCodexCollaborationMode = .plan
+        home.followDefaults(of: settings)
+
+        let fresh = TaskTab(kind: .agent, orderIndex: 0)
+        TaskStore.applyDefaultLaunchSettings(to: fresh, from: settings)
+        #expect(home.tab.provider == .codex)
+        #expect(home.tab.codexCollaborationMode == .plan)
+        #expect(home.tab.transport == fresh.transport)
+    }
+
+    @Test func aProviderPickedInTheComposerOutlivesASettingsChange() {
+        let settings = settings()
+        settings.defaultProvider = .claudeCode
+        let home = HomeComposerTab(id: UUID(), settings: settings)
+        home.tab.provider = .codex
+        settings.defaultCodexCollaborationMode = .plan
+        settings.defaultProvider = .claudeCode
+        settings.defaultAgentTransport = .terminal
+        home.followDefaults(of: settings)
+        #expect(home.tab.provider == .codex)
+        #expect(home.tab.codexCollaborationMode == .default)
     }
 
     // MARK: Launch choices
@@ -140,7 +169,7 @@ struct HomeComposerTabTests {
             choices: home.launchChoices
         )
         let task = HomeTaskStarter.createTask(
-            for: plan, directory: plume.path, in: context, groups: [], tasks: [], recentFolders: defaults
+            for: plan, directory: plume.path, in: context, recentFolders: defaults
         )
         let tab = try #require(task.orderedTabs.first)
         #expect(TabLaunchChoices(tab) == home.launchChoices)

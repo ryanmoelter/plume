@@ -18,10 +18,13 @@ nonisolated struct HomeComposerInputs: Hashable, Sendable {
     var tasks: [TaskInput]
 }
 
-/// The destination every picker variant shares, and the send that starts a
-/// task there.
+/// Where Home's composer starts a task, and the send that starts it there.
 @Observable @MainActor
 final class HomeComposerModel {
+    /// Maps each folder to its project, or to nil for a folder that no longer
+    /// exists. Blocks on `git`, so it runs off the main actor.
+    typealias Resolver = @Sendable ([String]) -> [String: HomeProject?]
+
     private(set) var catalog = HomeDestinationCatalog()
     var destination = HomeDestination(groupID: nil, projectPath: nil, workspace: .projectFolder)
     private(set) var isStarting = false
@@ -29,10 +32,23 @@ final class HomeComposerModel {
 
     @ObservationIgnored private var hasDefaulted = false
     @ObservationIgnored private var lastInputs: HomeComposerInputs?
-    /// Kept across Home's mounts, so returning to Home does not run `git`
-    /// for every task again. A nil entry is a folder that no longer exists.
-    private static var resolvedProjects: [String: HomeProject?] = [:]
-    private static var addedFolders: [String] = []
+    /// Only the latest refresh publishes; an older one finishing late would
+    /// put back what a newer one already replaced.
+    @ObservationIgnored private var refreshCount = 0
+    @ObservationIgnored private var resolvedProjects: [String: HomeProject?] = [:]
+    @ObservationIgnored private var addedFolders: [String] = []
+    @ObservationIgnored private let resolve: Resolver
+    @ObservationIgnored private let configuredFolders: @MainActor () -> [String]
+
+    init(
+        resolve: @escaping Resolver = HomeComposerModel.resolveWithGit,
+        configuredFolders: @escaping @MainActor () -> [String] = {
+            Array(AppSettings.shared.projectsConfiguration.repositories.keys) + RecentFolders.load()
+        }
+    ) {
+        self.resolve = resolve
+        self.configuredFolders = configuredFolders
+    }
 
     var canStart: Bool {
         !isStarting && catalog.project(at: destination.projectPath) != nil
@@ -106,20 +122,22 @@ final class HomeComposerModel {
         destination.workspace = choice
     }
 
-    /// Resolves each task's folder to its project off the main actor, then
-    /// rebuilds the catalog. The first load picks the defaults; later ones
-    /// only keep the current choice valid.
-    func refresh(_ inputs: HomeComposerInputs, recentTaskID: UUID?) async {
+    /// Resolves every folder to its project off the main actor, then rebuilds
+    /// the catalog. Every refresh resolves again, so a folder deleted or made
+    /// a repository since the last one is seen; until it finishes, the last
+    /// catalog stays up. The first load, and one that `picksDefaults`, picks
+    /// the defaults; others only keep the current choice valid.
+    func refresh(_ inputs: HomeComposerInputs, recentTaskID: UUID?, picksDefaults: Bool = false) async {
+        if picksDefaults { hasDefaulted = false }
         lastInputs = inputs
-        let configured = Array(AppSettings.shared.projectsConfiguration.repositories.keys)
-        let paths = Set(inputs.tasks.compactMap(\.path) + configured + RecentFolders.load() + Self.addedFolders)
-        let unresolved = paths.filter { Self.resolvedProjects[$0] == nil }
-        if !unresolved.isEmpty {
-            let resolved = await Task.detached { Self.resolve(Array(unresolved)) }.value
-            Self.resolvedProjects.merge(resolved) { _, new in new }
-        }
-        guard !Task.isCancelled, lastInputs == inputs else { return }
-        catalog = Self.catalog(inputs: inputs, paths: paths)
+        refreshCount += 1
+        let thisRefresh = refreshCount
+        let paths = Set(inputs.tasks.compactMap(\.path) + configuredFolders() + addedFolders)
+        let resolve = resolve
+        let resolved = await Task.detached { resolve(Array(paths)) }.value
+        guard !Task.isCancelled, thisRefresh == refreshCount else { return }
+        resolvedProjects = resolved
+        catalog = catalog(inputs: inputs)
         if hasDefaulted {
             destination = catalog.validated(destination)
         } else {
@@ -130,12 +148,10 @@ final class HomeComposerModel {
 
     /// A folder chosen from the open panel, for a project no task uses yet.
     func addFolder(_ path: String) async {
-        Self.addedFolders.append(path)
-        let resolved = await Task.detached { Self.resolve([path]) }.value
-        Self.resolvedProjects.merge(resolved) { _, new in new }
-        guard let inputs = lastInputs, let project = resolved[path] ?? nil else { return }
-        let paths = Set(inputs.tasks.compactMap(\.path) + Array(Self.resolvedProjects.keys))
-        catalog = Self.catalog(inputs: inputs, paths: paths)
+        addedFolders.append(path)
+        guard let inputs = lastInputs else { return }
+        await refresh(inputs, recentTaskID: nil)
+        guard let project = resolvedProjects[path] ?? nil else { return }
         chooseProject(project.path)
     }
 
@@ -144,14 +160,14 @@ final class HomeComposerModel {
     func start(
         _ message: ComposerHandOff.Message,
         choices: TabLaunchChoices,
-        in context: ModelContext,
-        groups: [TaskGroup],
-        tasks: [WorkTask]
+        in context: ModelContext
     ) async -> WorkTask? {
         guard canStart else { return nil }
         isStarting = true
         errorMessage = nil
         defer { isStarting = false }
+        let destination = destination
+        let catalog = catalog
         var prefix = WorkspaceProvisioner.defaultBranchPrefix
         if destination.workspace == .newWorktree, let project = catalog.project(at: destination.projectPath),
            project.isRepository {
@@ -164,15 +180,15 @@ final class HomeComposerModel {
             return nil
         }
         do {
-            return try await HomeTaskStarter.start(plan, in: context, groups: groups, tasks: tasks)
+            return try await HomeTaskStarter.start(plan, in: context)
         } catch {
             errorMessage = error.localizedDescription
             return nil
         }
     }
 
-    private static func catalog(inputs: HomeComposerInputs, paths: Set<String>) -> HomeDestinationCatalog {
-        let projects = Set(paths.compactMap { resolvedProjects[$0] ?? nil }).sorted {
+    private func catalog(inputs: HomeComposerInputs) -> HomeDestinationCatalog {
+        let projects = Set(resolvedProjects.values.compactMap { $0 }).sorted {
             ($0.name.lowercased(), $0.path) < ($1.name.lowercased(), $1.path)
         }
         let tasks = inputs.tasks.sorted { $0.createdAt > $1.createdAt }.map { input in
@@ -186,8 +202,7 @@ final class HomeComposerModel {
         return HomeDestinationCatalog(groups: inputs.groups, projects: projects, tasks: tasks)
     }
 
-    /// Blocks on `git` for each path.
-    nonisolated private static func resolve(_ paths: [String]) -> [String: HomeProject?] {
+    nonisolated static func resolveWithGit(_ paths: [String]) -> [String: HomeProject?] {
         var result: [String: HomeProject?] = [:]
         for path in paths {
             guard FileManager.default.fileExists(atPath: path) else {

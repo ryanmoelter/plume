@@ -45,11 +45,13 @@ struct HomeDestinationPath: View, ThemedView {
                     .emphasis(.secondary)
                     .padding(.leading, 2)
                     .help("Branch: \(branch)")
+                    // Truncates before any menu does.
+                    .layoutPriority(-1)
                 }
             }
         }
         .font(typography.caption.font)
-        .fixedSize()
+        .fixedSize(horizontal: false, vertical: true)
         .task(id: model.destination.projectPath) {
             await model.loadWorktrees()
         }
@@ -96,6 +98,7 @@ private struct HomeDestinationSegment<Items: View>: View, ThemedView {
                     .lineLimit(1)
                 Image(systemName: "chevron.down")
                     .font(.system(size: 9, weight: .semibold))
+                    .fixedSize()
             }
             .emphasis(.primary)
             .padding(.horizontal, 4)
@@ -109,7 +112,7 @@ private struct HomeDestinationSegment<Items: View>: View, ThemedView {
         .menuStyle(.button)
         .buttonStyle(.plain)
         .menuIndicator(.hidden)
-        .fixedSize()
+        .fixedSize(horizontal: false, vertical: true)
         .help(help ?? title)
         .plumeHover { isHovered = $0 }
     }

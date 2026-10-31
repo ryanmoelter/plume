@@ -10,8 +10,7 @@ enum HomeTaskStarter {
     static func start(
         _ plan: HomeTaskPlan,
         in context: ModelContext,
-        groups: [TaskGroup],
-        tasks: [WorkTask]
+        pendingFirstMessages: PendingFirstMessageStore = .shared
     ) async throws -> WorkTask {
         let directory: String
         switch plan.workspace {
@@ -24,8 +23,9 @@ enum HomeTaskStarter {
                 basePath: AppSettings.shared.worktreeBasePath
             )
         }
-        let task = createTask(for: plan, directory: directory, in: context, groups: groups, tasks: tasks)
+        let task = createTask(for: plan, directory: directory, in: context)
         if let tab = task.orderedTabs.first {
+            pendingFirstMessages.set(OptimisticFirstMessage(text: plan.blocks.plainText), forTab: tab.id)
             AgentLauncher.launch(blocks: plan.blocks, task: task, tab: tab)
         }
         return task
@@ -36,13 +36,9 @@ enum HomeTaskStarter {
         for plan: HomeTaskPlan,
         directory: String,
         in context: ModelContext,
-        groups: [TaskGroup],
-        tasks: [WorkTask],
         recentFolders: UserDefaults = .standard
     ) -> WorkTask {
-        let group = groups.first { $0.id == plan.groupID }
-        let siblings = tasks.filter { $0.group?.id == group?.id }
-        let task = TaskStore.createTask(in: context, group: group, siblings: siblings)
+        let task = TaskStore.createTask(in: context, groupID: plan.groupID)
         if let choices = plan.choices, let tab = task.orderedTabs.first {
             choices.apply(to: tab)
         }

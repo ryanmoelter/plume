@@ -31,6 +31,9 @@ struct HomeComposer: View, ThemedView {
         .onChange(of: model.destination.projectPath, initial: true) { _, path in
             home.setDirectory(path)
         }
+        .onChange(of: launchDefaultsKey, initial: true) {
+            home.followDefaults()
+        }
     }
 
     private var composer: some View {
@@ -45,6 +48,15 @@ struct HomeComposer: View, ThemedView {
             ),
             aboveField: AnyView(HomeDestinationPath(model: model))
         )
+    }
+
+    private var launchDefaultsKey: [String] {
+        let settings = AppSettings.shared
+        return [
+            settings.defaultProvider.rawValue,
+            settings.defaultAgentTransport.rawValue,
+            settings.defaultCodexCollaborationMode.rawValue,
+        ]
     }
 
     private var glass: Glass {

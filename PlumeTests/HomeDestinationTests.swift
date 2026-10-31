@@ -52,11 +52,6 @@ struct HomeDestinationTests {
 
     // MARK: Workspace
 
-    @Test func onlyARepositoryOffersANewWorktree() {
-        #expect(plume.workspaceChoices == [.newWorktree, .projectFolder])
-        #expect(notes.workspaceChoices == [.projectFolder])
-    }
-
     @Test func workspaceFollowsTheProjectsLatestTask() {
         let catalog = catalog(tasks: [
             facts(group: nil, project: plume.path, .worktree),
@@ -212,7 +207,7 @@ struct HomeTaskStarterTests {
             groupID: group.id, workspace: .directory(path: "/repos/plume", repoPath: "/repos/plume"), message: "Hi"
         )
         let task = HomeTaskStarter.createTask(
-            for: plan, directory: "/repos/plume", in: context, groups: [group], tasks: [sibling], recentFolders: defaults
+            for: plan, directory: "/repos/plume", in: context, recentFolders: defaults
         )
         #expect(task.group?.id == group.id)
         #expect(task.orderIndex == sibling.orderIndex + 1)
@@ -224,13 +219,36 @@ struct HomeTaskStarterTests {
         #expect(RecentFolders.load(from: defaults) == ["/repos/plume"])
     }
 
+    @Test func placementCountsOnlyLiveTasksInTheChosenGroup() {
+        let group = TaskStore.createGroup(in: context, name: "Work", existing: [])
+        let first = TaskStore.createTask(in: context, group: group, siblings: [])
+        let second = TaskStore.createTask(in: context, group: group, siblings: [first])
+        let archived = TaskStore.createTask(in: context, group: group, siblings: [first, second])
+        archived.isArchived = true
+        let plan = HomeTaskPlan(
+            groupID: group.id, workspace: .directory(path: "/repos/plume", repoPath: nil), message: "Hi"
+        )
+        let task = HomeTaskStarter.createTask(for: plan, directory: "/repos/plume", in: context, recentFolders: defaults)
+        #expect(task.orderIndex == second.orderIndex + 1)
+    }
+
+    @Test func aGroupThatNoLongerExistsPlacesTheTaskUngrouped() {
+        let ungrouped = TaskStore.createTask(in: context, siblings: [])
+        let plan = HomeTaskPlan(
+            groupID: UUID(), workspace: .directory(path: "/repos/plume", repoPath: nil), message: "Hi"
+        )
+        let task = HomeTaskStarter.createTask(for: plan, directory: "/repos/plume", in: context, recentFolders: defaults)
+        #expect(task.group == nil)
+        #expect(task.orderIndex == ungrouped.orderIndex + 1)
+    }
+
     @Test func aWorktreePlanRecordsTheBranchAndRepository() {
         let plan = HomeTaskPlan(
             groupID: nil, workspace: .newWorktree(repository: "/repos/plume", branch: "ryanm/x-beef"), message: "Hi"
         )
         let task = HomeTaskStarter.createTask(
             for: plan, directory: "/repos/plume/.plume/worktrees/ryanm-x-beef",
-            in: context, groups: [], tasks: [], recentFolders: defaults
+            in: context, recentFolders: defaults
         )
         #expect(task.group == nil)
         #expect(task.workingDirectoryPath == "/repos/plume/.plume/worktrees/ryanm-x-beef")
@@ -248,7 +266,7 @@ struct HomeTaskStarterTests {
             message: "Hi"
         )
         let task = HomeTaskStarter.createTask(
-            for: plan, directory: path, in: context, groups: [], tasks: [], recentFolders: defaults
+            for: plan, directory: path, in: context, recentFolders: defaults
         )
         #expect(task.workingDirectoryPath == path)
         #expect(task.repoPath == "/repos/plume")

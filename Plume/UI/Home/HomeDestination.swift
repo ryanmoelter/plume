@@ -32,11 +32,6 @@ nonisolated struct HomeProject: Hashable, Identifiable, Sendable {
     var id: String { path }
     var name: String { (path as NSString).lastPathComponent }
 
-    /// Before its worktrees are listed.
-    var workspaceChoices: [HomeWorkspaceChoice] {
-        isRepository ? [.newWorktree, .projectFolder] : [.projectFolder]
-    }
-
     func offers(_ choice: HomeWorkspaceChoice) -> Bool {
         isRepository || choice == .projectFolder
     }
