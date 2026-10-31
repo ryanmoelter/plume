@@ -43,16 +43,30 @@ enum TaskStore {
             Task { task.repoPath = await GitService.shared.repositoryRoot(containing: folder) }
         }
         let tab = TaskTab(kind: .agent, orderIndex: 0, task: task)
-        tab.provider = AppSettings.shared.defaultProvider
-        tab.transport = tab.provider.resolvedTransport(preferring: AppSettings.shared.defaultAgentTransport)
-        if tab.provider == .codex {
-            tab.codexCollaborationMode = AppSettings.shared.defaultCodexCollaborationMode
-        }
+        applyDefaultLaunchSettings(to: tab)
         context.insert(task)
         context.insert(tab)
         task.tabs = [tab]
         selectTab(tab, in: task)
         return task
+    }
+
+    static func applyDefaultLaunchSettings(to tab: TaskTab, from settings: AppSettings = .shared) {
+        tab.provider = settings.defaultProvider
+        tab.transport = tab.provider.resolvedTransport(preferring: settings.defaultAgentTransport)
+        if tab.provider == .codex {
+            tab.codexCollaborationMode = settings.defaultCodexCollaborationMode
+        }
+    }
+
+    /// Placed from what the store holds now, for a caller whose own lists may
+    /// be stale by the time it creates the task.
+    static func createTask(in context: ModelContext, groupID: UUID?) -> WorkTask {
+        let groups = (try? context.fetch(FetchDescriptor<TaskGroup>())) ?? []
+        let group = groups.first { $0.id == groupID }
+        let liveTasks = ((try? context.fetch(FetchDescriptor<WorkTask>())) ?? []).filter { !$0.isArchived }
+        let siblings = liveTasks.filter { $0.group?.id == group?.id }
+        return createTask(in: context, group: group, siblings: siblings)
     }
 
     /// An ungrouped task whose only tab is a terminal, for a command the user should watch run.
@@ -355,6 +369,7 @@ enum TaskStore {
     /// conversation regardless (tracked separately), so while one exists this
     /// only drops `agentSessionID` and leaves the title and watches alone.
     static func startFresh(_ tab: TaskTab) {
+        PendingFirstMessageStore.shared.forget(tabID: tab.id)
         guard AgentSessionManager.shared.existingSession(for: tab.id) == nil else {
             tab.agentSessionID = nil
             return
@@ -453,8 +468,10 @@ enum TaskStore {
         SubagentCompletionTracker.shared.forget(tabID: tabID)
         SubagentStatusOverrides.shared.forget(tabID: tabID)
         InheritedForkHistory.shared.forget(tabID: tabID)
+        PendingFirstMessageStore.shared.forget(tabID: tabID)
         TranscriptStore.shared.stopWatching(tabID: tabID)
         ChatPieceCache.forget(tabID: tabID)
+        HomePreviewCache.shared.forget(tabID: tabID)
         MentionResolver.shared.forgetTab(tabID)
         ReferenceChipStore.shared.forget(owner: tabID)
         CodexSubagentStore.shared.forget(tabID: tabID)

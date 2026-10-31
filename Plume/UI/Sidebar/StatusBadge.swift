@@ -8,11 +8,13 @@ struct StatusBadge: View {
     /// Replaces the status glyph with a dot. The elapsed time stays, since a
     /// task can be reading unread in one tab while still working in another.
     var isUnread = false
+    /// Off when the caller places the elapsed time itself.
+    var showsElapsed = true
     @Environment(\.colorScheme) private var colorScheme
 
     var body: some View {
         Group {
-            if status.isActive, let workStartedAt {
+            if showsElapsed, status.isActive, let workStartedAt {
                 HStack(spacing: 4) {
                     ElapsedLabel(since: workStartedAt)
                         .font(.caption)
@@ -27,12 +29,18 @@ struct StatusBadge: View {
         .animation(.default, value: isUnread)
     }
 
+    /// Whether the badge draws nothing, so a caller can put a placeholder there.
+    static func isBlank(status: TaskStatus, isUnread: Bool) -> Bool {
+        switch status {
+        case .notStarted, .awaitingReply: return !isUnread
+        default: return false
+        }
+    }
+
     @ViewBuilder
     private var glyph: some View {
         if isUnread {
-            Circle()
-                .fill(ChatRole.attention(for: colorScheme))
-                .frame(width: 8, height: 8)
+            UnreadDot()
                 .help("Finished a turn you haven't read")
                 .transition(.opacity)
         } else {
@@ -84,6 +92,17 @@ struct StatusBadge: View {
                 .foregroundStyle(ChatRole.danger(for: colorScheme))
                 .transition(.symbolEffect)
         }
+    }
+}
+
+/// Marks a finished turn the user hasn't read.
+struct UnreadDot: View {
+    @Environment(\.colorScheme) private var colorScheme
+
+    var body: some View {
+        Circle()
+            .fill(ChatRole.attention(for: colorScheme))
+            .frame(width: 8, height: 8)
     }
 }
 

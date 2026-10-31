@@ -7,6 +7,7 @@ enum AccessibilityID {
     // MARK: Sidebar
 
     static let taskRow = "task-row"
+    static let sidebarHomeRow = "sidebar-home-row"
     static let groupHeader = "group-header"
     static let groupHeaderNewTaskButton = "group-header-new-task-button"
     static let groupHeaderDisclosureButton = "group-header-disclosure-button"
@@ -54,6 +55,20 @@ enum AccessibilityID {
     static let updatePanelCopyBrewCommandButton = "update-panel-copy-brew-command-button"
     static let updatePanelRunInTerminalButton = "update-panel-run-in-terminal-button"
     static let updatePanelFullReleaseNotesLink = "update-panel-full-release-notes-link"
+
+    // MARK: Home
+
+    static let homeView = "home-view"
+    static let homeGreeting = "home-greeting"
+    static let homeRow = "home-row"
+    static let homeEmptyState = "home-empty-state"
+    static let homeNeedsAttentionHeader = "home-needs-attention-header"
+    static let homeIdleHeader = "home-idle-header"
+    static let homeNotStartedHeader = "home-not-started-header"
+    static let homeComposerError = "home-composer-error"
+    static let homeComposerGroupMenu = "home-composer-group-menu"
+    static let homeComposerProjectMenu = "home-composer-project-menu"
+    static let homeComposerWorkspaceMenu = "home-composer-workspace-menu"
 
     // MARK: Settings
 

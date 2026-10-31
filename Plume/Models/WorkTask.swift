@@ -163,6 +163,6 @@ final class WorkTask {
     /// record of a session ever having run; its absence on every agent tab is
     /// what "never started" actually means.
     var hasNeverStarted: Bool {
-        !liveTabs.contains { $0.kind == .agent && $0.agentSessionID != nil }
+        !liveTabs.contains(where: \.hasAgentSession)
     }
 }

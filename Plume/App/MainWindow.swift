@@ -6,7 +6,7 @@ struct MainWindow: View {
     @Environment(\.modelContext) private var context
     @Environment(\.colorScheme) private var colorScheme
     @Environment(\.openSettings) private var openSettings
-    @State private var selection: UUID?
+    @State private var selection: SidebarSelection?
     @State private var statusPersistence: StatusPersistence?
     @State private var statusNotifier: StatusNotifier?
     @State private var archiveShown = false
@@ -42,6 +42,8 @@ struct MainWindow: View {
         } detail: {
             if let task = selectedTask {
                 TaskDetailView(task: task)
+            } else if selection == .home {
+                HomeView(tasks: navigableTasks, open: open(taskID:tabID:), select: selectStartedFromHome)
             } else {
                 ContentUnavailableView(
                     "No Task Selected",
@@ -99,10 +101,10 @@ struct MainWindow: View {
         .focusedSceneValue(\.selectAdjacentTask) { offset in
             let destination = SidebarKeyboardNavigation.destination(
                 from: selection,
-                in: navigableTasks.map(\.id),
+                in: SidebarKeyboardNavigation.entries(taskIDs: navigableTasks.map(\.id)),
                 offset: offset
             )
-            if let destination { selection = destination }
+            if let destination { choose(destination) }
         }
         .focusedSceneValue(\.newTaskAction) {
             let group = selectedTask?.group
@@ -114,7 +116,7 @@ struct MainWindow: View {
                 defaultsToRecentFolder: true,
                 inheritingFrom: selectedTask
             )
-            selection = task.id
+            choose(.task(task.id))
         }
         .focusedSceneValue(\.taskCommands, selectedTask.map { task in
             TaskCommands(
@@ -163,13 +165,13 @@ struct MainWindow: View {
         }
         .modifier(worktreeRemovalDialog)
         .modifier(liveAgentRemovalDialog)
-        .onChange(of: selection) { _, id in
-            LastOpenTask.save(id)
+        .onChange(of: tasks.map(\.id)) { _, ids in
+            if let id = selection?.taskID, !ids.contains(id) { selection = .home }
         }
         .clearsUnreadOnView(of: selectedTask)
         .onChange(of: Notifier.shared.pendingRoute) { _, route in
             guard let route else { return }
-            follow(route)
+            open(taskID: route.taskID, tabID: route.tabID)
             Notifier.shared.pendingRoute = nil
         }
         .task {
@@ -182,7 +184,7 @@ struct MainWindow: View {
             restoreLastOpenTask()
             StartupWarmPass.shared.warm(directories: StartupWarmPass.directories(for: tasks))
             #if DEBUG
-            await SmokeHarness.runIfRequested(context: context, selection: $selection)
+            await SmokeHarness.runIfRequested(context: context, selection: selectedTaskID)
             #endif
         }
         .onDisappear {
@@ -201,7 +203,7 @@ struct MainWindow: View {
         Notifier.shared.audience = {
             NotificationAudience(
                 isAppActive: NSApp.isActive,
-                selectedTaskID: selection,
+                selectedTaskID: selection?.taskID,
                 onScreenTabIDs: Set(selectedTask?.paneTabIDs ?? []),
                 focusedTabID: selectedTask?.selectedTabID
             )
@@ -225,33 +227,47 @@ struct MainWindow: View {
             task: { taskID in tasks.first { $0.id == taskID } },
             taskIDForTab: { tabID in tasks.first { $0.tabs.contains { $0.id == tabID } }?.id },
             context: context,
-            reveal: { taskID in selection = taskID },
+            reveal: { taskID in choose(.task(taskID)) },
             openSettings: { openSettings() }
         ))
     }
 
-    /// A notification click selects its task, then its tab within that task.
-    /// A task or tab deleted since the notification went out doesn't match,
-    /// and the click does nothing.
-    private func follow(_ route: Notifier.Route) {
-        guard let task = tasks.first(where: { $0.id == route.taskID }) else { return }
-        selection = task.id
-        guard let tab = task.orderedTabs.first(where: { $0.id == route.tabID }) else { return }
+    /// Selects a task, then its tab within that task, for a notification or
+    /// Home row click. A task or tab deleted since then doesn't match, and
+    /// the click does nothing.
+    private func open(taskID: UUID, tabID: UUID) {
+        guard let task = tasks.first(where: { $0.id == taskID }) else { return }
+        choose(.task(task.id))
+        guard let tab = task.orderedTabs.first(where: { $0.id == tabID }) else { return }
         TaskStore.selectTab(tab, in: task)
         BellStore.shared.markSeen(tabID: tab.id)
         Notifier.shared.dismiss(tabID: tab.id)
     }
 
+    /// A task can take seconds to start, so one that finishes after the user
+    /// has moved on leaves their selection alone.
+    private func selectStartedFromHome(_ taskID: UUID) {
+        guard selection == .home else { return }
+        choose(.task(taskID))
+    }
+
     private var selectedTask: WorkTask? {
-        guard let selection else { return nil }
-        return tasks.first { $0.id == selection }
+        guard let taskID = selection?.taskID else { return nil }
+        return tasks.first { $0.id == taskID }
+    }
+
+    private var selectedTaskID: Binding<UUID?> {
+        Binding(
+            get: { selection?.taskID },
+            set: { selection = $0.map(SidebarSelection.task) }
+        )
     }
 
     /// Broken out of `body` because the full `SidebarView(...)` initializer
     /// call inline there defeats the type checker's time budget.
     private var sidebar: some View {
         SidebarView(
-            selection: $selection,
+            selection: Binding(get: { selection }, set: { choose($0) }),
             archiveShown: $archiveShown,
             requestArchive: { requestRemoval(of: $0, verb: .archive) },
             requestDelete: { requestRemoval(of: $0, verb: .delete) }
@@ -279,17 +295,29 @@ struct MainWindow: View {
 
     /// Every task in the order the sidebar shows them, matching
     /// `SidebarView.navigableTasks` so ⌘] / ⌘[ walk the same order as the
-    /// arrow keys do inside the sidebar.
+    /// arrow keys do inside the sidebar, and Home lists them in that order.
     private var navigableTasks: [WorkTask] {
         groups.flatMap { group in tasks.filter { $0.group?.id == group.id } }
             + tasks.filter { $0.group == nil }
     }
 
     /// `tasks` excludes archived ones, so a task archived or deleted since the
-    /// last launch simply doesn't match and the pane stays empty.
+    /// last launch simply doesn't match, and Home opens instead.
     private func restoreLastOpenTask() {
-        guard selection == nil, let id = LastOpenTask.load() else { return }
-        selection = tasks.first { $0.id == id }?.id
+        guard selection == nil else { return }
+        if case .task(let id) = LastOpenTask.load(), tasks.contains(where: { $0.id == id }) {
+            selection = .task(id)
+        } else {
+            // The tasks may not have loaded yet, so the saved value stays.
+            selection = .home
+        }
+    }
+
+    /// A selection the user or a route chose, which the next launch reopens.
+    /// Writing `selection` directly leaves the saved value alone.
+    private func choose(_ newSelection: SidebarSelection?) {
+        selection = newSelection
+        LastOpenTask.save(newSelection)
     }
 
     /// Entry point for both the sidebar's context menu and ⌘⌃A. A task with an
@@ -344,7 +372,7 @@ struct MainWindow: View {
                 pendingWorktreeRemoval = nil
             },
             finish: {
-                if selection == task.id { selection = nil }
+                if selection == .task(task.id) { selection = .home }
                 switch verb {
                 case .delete: TaskStore.delete(task, in: context)
                 case .archive: TaskStore.archive(task)

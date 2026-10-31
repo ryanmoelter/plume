@@ -13,16 +13,30 @@ struct LastOpenTaskTests {
         #expect(LastOpenTask.load(from: defaults()) == nil)
     }
 
-    @Test func aSavedIDLoadsBack() {
+    @Test func aSavedTaskLoadsBack() {
         let store = defaults()
         let id = UUID()
-        LastOpenTask.save(id, to: store)
-        #expect(LastOpenTask.load(from: store) == id)
+        LastOpenTask.save(.task(id), to: store)
+        #expect(LastOpenTask.load(from: store) == .task(id))
+    }
+
+    @Test func homeLoadsBack() {
+        let store = defaults()
+        LastOpenTask.save(.home, to: store)
+        #expect(LastOpenTask.load(from: store) == .home)
+    }
+
+    @Test func aTaskSavedOverHomeReplacesIt() {
+        let store = defaults()
+        let id = UUID()
+        LastOpenTask.save(.home, to: store)
+        LastOpenTask.save(.task(id), to: store)
+        #expect(LastOpenTask.load(from: store) == .task(id))
     }
 
     @Test func savingNilClearsTheStoredID() {
         let store = defaults()
-        LastOpenTask.save(UUID(), to: store)
+        LastOpenTask.save(.task(UUID()), to: store)
         LastOpenTask.save(nil, to: store)
         #expect(LastOpenTask.load(from: store) == nil)
     }
