@@ -2,7 +2,7 @@
 import SwiftUI
 
 struct HomeComposerDebugSection: View {
-    @AppStorage(HomeComposerVariant.userDefaultsKey) private var variant = HomeComposerVariant.chipRow
+    @AppStorage(HomeComposerVariant.userDefaultsKey) private var variant = HomeComposerVariant.aboveField
     @AppStorage(HomeComposerPlacement.userDefaultsKey) private var placement = HomeComposerPlacement.top
 
     @AppStorage("homeCollapseEmptyStatusSlot") private var collapsesEmptyStatusSlot = false
@@ -27,7 +27,7 @@ struct HomeComposerDebugSection: View {
         } header: {
             Text("Home composer")
         } footer: {
-            Text("Release builds use A and Top.")
+            Text("Release builds use D and Top.")
         }
         Section {
             Toggle("Collapse empty status slot", isOn: $collapsesEmptyStatusSlot)

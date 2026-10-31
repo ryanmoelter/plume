@@ -1,19 +1,19 @@
 import Foundation
 
-/// How Home's composer shows the destination picker. Release builds use the
+/// Where Home's composer shows the destination picker. Release builds use the
 /// first case; Settings ▸ Debug switches among them.
 nonisolated enum HomeComposerVariant: String, CaseIterable, Sendable {
-    case chipRow
-    case destinationChip
-    case breadcrumb
+    case aboveField
+    case headerStrip
+    case controlRow
 
     static let userDefaultsKey = "homeComposerVariant"
 
     var title: String {
         switch self {
-        case .chipRow: "A: Chip row"
-        case .destinationChip: "B: One destination chip"
-        case .breadcrumb: "C: Breadcrumb path"
+        case .aboveField: "D: Menus above the text"
+        case .headerStrip: "E: Header strip"
+        case .controlRow: "F: In the control row"
         }
     }
 }

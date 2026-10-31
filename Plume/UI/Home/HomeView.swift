@@ -14,10 +14,10 @@ struct HomeView: View {
     @State private var composer = HomeComposerModel()
     @Query(sort: \TaskGroup.orderIndex) private var groups: [TaskGroup]
     #if DEBUG
-    @AppStorage(HomeComposerVariant.userDefaultsKey) private var variant = HomeComposerVariant.chipRow
+    @AppStorage(HomeComposerVariant.userDefaultsKey) private var variant = HomeComposerVariant.aboveField
     @AppStorage(HomeComposerPlacement.userDefaultsKey) private var placement = HomeComposerPlacement.top
     #else
-    private let variant = HomeComposerVariant.chipRow
+    private let variant = HomeComposerVariant.aboveField
     private let placement = HomeComposerPlacement.top
     #endif
 
@@ -35,15 +35,18 @@ struct HomeView: View {
                 )
             }
             .plumeTheme(bodySize: CGFloat(settings.chatFontSize))
+            .environment(\.chatFontSize, CGFloat(settings.chatFontSize))
             .foregroundStyle(ThemeChrome.foreground(for: colorScheme) ?? .primary)
             .background(ThemeChrome.background(for: colorScheme) ?? Color.clear)
             .navigationTitle("Home")
     }
 
-    private func start(_ message: String) async -> Bool {
-        guard let task = await composer.start(message: message, in: context, groups: groups, tasks: tasks) else {
-            return false
-        }
+    private func start(_ message: ComposerHandOff.Message) async -> Bool {
+        let home = HomeComposerTab.shared
+        guard let task = await composer.start(
+            message, choices: home.launchChoices, in: context, groups: groups, tasks: tasks
+        ) else { return false }
+        home.didStartTask()
         select(task.id)
         return true
     }

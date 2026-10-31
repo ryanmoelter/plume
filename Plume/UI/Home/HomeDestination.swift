@@ -43,16 +43,24 @@ nonisolated struct HomeDestination: Equatable, Sendable {
     var workspace: HomeWorkspaceChoice
 }
 
-/// What a task started from Home is created with.
-nonisolated struct HomeTaskPlan: Equatable, Sendable {
+/// What a task started from Home is created with, and its first message.
+nonisolated struct HomeTaskPlan: Equatable {
     enum Workspace: Equatable, Sendable {
         case directory(path: String, repoPath: String?)
         case newWorktree(repository: String, branch: String)
     }
 
-    let groupID: UUID?
-    let workspace: Workspace
-    let message: String
+    var groupID: UUID?
+    var workspace: Workspace
+    /// With its mentions already expanded into links.
+    var message: String
+    var images: [ChatImage] = []
+    /// Nil leaves the new tab on the app's defaults.
+    var choices: TabLaunchChoices?
+
+    var blocks: [UserContentBlock] {
+        [.text(message)] + images.map { .image($0) }
+    }
 }
 
 /// Everything the destination pickers offer, and the defaults they start on.
@@ -131,26 +139,55 @@ nonisolated struct HomeDestinationCatalog: Equatable, Sendable {
         return result
     }
 
+    /// The composer's message, sent as text and images. The branch is named
+    /// from the text as typed, since an expanded mention is a whole URL.
+    func plan(
+        for destination: HomeDestination,
+        sending message: ComposerHandOff.Message,
+        choices: TabLaunchChoices?,
+        branchPrefix: String,
+        branchSuffix: String = WorkspaceProvisioner.randomSuffix()
+    ) -> HomeTaskPlan? {
+        plan(
+            for: destination,
+            message: message.blocks.plainText,
+            branchSeed: message.typedText,
+            images: message.blocks.compactMap { if case .image(let image) = $0 { image } else { nil } },
+            choices: choices,
+            branchPrefix: branchPrefix,
+            branchSuffix: branchSuffix
+        )
+    }
+
     /// Nil without a project or with nothing to send.
     func plan(
         for destination: HomeDestination,
         message: String,
+        branchSeed: String? = nil,
+        images: [ChatImage] = [],
+        choices: TabLaunchChoices? = nil,
         branchPrefix: String,
         branchSuffix: String = WorkspaceProvisioner.randomSuffix()
     ) -> HomeTaskPlan? {
-        guard !message.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty,
-              let project = project(at: destination.projectPath) else { return nil }
+        let hasText = !message.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+        guard hasText || !images.isEmpty, let project = project(at: destination.projectPath) else { return nil }
         let repository = project.isRepository ? ProjectRoot.repositoryDirectory(forRoot: project.path) : nil
         let workspace: HomeTaskPlan.Workspace
         if destination.workspace == .newWorktree, let repository {
             let branch = WorkspaceProvisioner.suggestedBranchName(
-                for: Self.branchSeed(from: message), suffix: branchSuffix, prefix: branchPrefix
+                for: Self.branchSeed(from: branchSeed ?? message), suffix: branchSuffix, prefix: branchPrefix
             )
             workspace = .newWorktree(repository: repository, branch: branch)
         } else {
             workspace = .directory(path: project.path, repoPath: repository)
         }
-        return HomeTaskPlan(groupID: group(id: destination.groupID)?.id, workspace: workspace, message: message)
+        return HomeTaskPlan(
+            groupID: group(id: destination.groupID)?.id,
+            workspace: workspace,
+            message: message,
+            images: images,
+            choices: choices
+        )
     }
 
     /// The message's first line: `slugify` trims it to a branch-sized length.

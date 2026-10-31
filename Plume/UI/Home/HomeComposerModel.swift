@@ -101,7 +101,8 @@ final class HomeComposerModel {
     /// Clears the error and reports a failure back through it, so the caller
     /// only has to put the text back.
     func start(
-        message: String,
+        _ message: ComposerHandOff.Message,
+        choices: TabLaunchChoices,
         in context: ModelContext,
         groups: [TaskGroup],
         tasks: [WorkTask]
@@ -118,7 +119,9 @@ final class HomeComposerModel {
                 configuration: AppSettings.shared.projectsConfiguration
             ) ?? prefix
         }
-        guard let plan = catalog.plan(for: destination, message: message, branchPrefix: prefix) else { return nil }
+        guard let plan = catalog.plan(for: destination, sending: message, choices: choices, branchPrefix: prefix) else {
+            return nil
+        }
         do {
             return try await HomeTaskStarter.start(plan, in: context, groups: groups, tasks: tasks)
         } catch {

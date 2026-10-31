@@ -2,8 +2,9 @@ import Foundation
 import SwiftData
 
 /// Turns a `HomeTaskPlan` into a task with a running agent: the same task ⌘N
-/// creates, given its workspace, then launched with the plan's message the way
-/// a never-started tab sends its first one.
+/// creates, given its workspace and the Home composer's launch choices, then
+/// launched with the plan's message the way a never-started tab sends its
+/// first one.
 @MainActor
 enum HomeTaskStarter {
     static func start(
@@ -25,7 +26,7 @@ enum HomeTaskStarter {
         }
         let task = createTask(for: plan, directory: directory, in: context, groups: groups, tasks: tasks)
         if let tab = task.orderedTabs.first {
-            AgentLauncher.launch(message: plan.message, task: task, tab: tab)
+            AgentLauncher.launch(blocks: plan.blocks, task: task, tab: tab)
         }
         return task
     }
@@ -42,6 +43,9 @@ enum HomeTaskStarter {
         let group = groups.first { $0.id == plan.groupID }
         let siblings = tasks.filter { $0.group?.id == group?.id }
         let task = TaskStore.createTask(in: context, group: group, siblings: siblings)
+        if let choices = plan.choices, let tab = task.orderedTabs.first {
+            choices.apply(to: tab)
+        }
         task.workingDirectoryPath = directory
         switch plan.workspace {
         case .directory(_, let repoPath):
