@@ -310,7 +310,7 @@ struct ChatComposer: View, ThemedView {
             .bottomReveal(
                 isRevealed: suggestionPanel != nil,
                 overhang: suggestionPanelOverhang,
-                animation: .easeOut(duration: 0.18),
+                animation: Self.suggestionPanelAnimation,
                 onHidden: { closingSuggestionPanel = nil }
             )
             .onChange(of: suggestionPanel) { old, new in
@@ -399,7 +399,12 @@ struct ChatComposer: View, ThemedView {
             .animation(.snappy(duration: 0.2), value: isCommandMode)
             .onGeometryChange(for: CGFloat.self) {
                 $0.frame(in: .named(Self.rootSpace)).minY
-            } action: { textAreaTop = $0 }
+            } action: { top in
+                // Only the suggestion panel moves the text area within the
+                // root, so the mode icon eases with its reveal rather than
+                // jumping to where the reveal will end.
+                withAnimation(textAreaTop == 0 ? nil : Self.suggestionPanelAnimation) { textAreaTop = top }
+            }
             // Anchored to the bottom: the panel is pinned to the bottom of
             // the chat, so the chip has to grow the panel upwards. Easing the
             // height from the centre splits the change across both edges and
@@ -482,6 +487,7 @@ struct ChatComposer: View, ThemedView {
     /// its frame, which the composer's own inset has to account for.
     private static let lineFragmentPadding: CGFloat = 5
     private static let rootSpace = "ChatComposer.root"
+    private static let suggestionPanelAnimation = Animation.easeOut(duration: 0.18)
 
     private var sendButtonHelp: String {
         guard headlessSession?.isWorking == true else { return "Send" }
