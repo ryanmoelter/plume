@@ -33,7 +33,7 @@ nonisolated struct EmulatorBootWaiter {
             scan: { EmulatorScanner.scanAll() },
             modificationDate: EmulatorScanner.modificationDate(of:),
             bootCompletedProperty: { serial in
-                AndroidSDKLocator.runCapturingOutput(
+                ChildProcess.capturedOutput(
                     executable: adbURL.path,
                     arguments: ["-s", serial, "shell", "getprop", "sys.boot_completed"],
                     timeout: 10

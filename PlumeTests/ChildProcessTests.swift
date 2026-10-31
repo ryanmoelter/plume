@@ -1,4 +1,5 @@
 import Foundation
+import Synchronization
 import Testing
 
 @testable import Plume
@@ -6,11 +7,8 @@ import Testing
 /// `android device remote connect` exits leaving a daemon that may hold its pipes open, so a run
 /// ends when the child exits, not when its pipes close.
 struct ChildProcessTests {
-    private func sh(_ script: String, timeout: Duration = .seconds(10), capturesToFile: Bool = false) async throws -> AndroidCLIResult {
-        try await ChildProcess.run(
-            executable: "/bin/sh", arguments: ["-c", script], environment: ProcessInfo.processInfo.environment,
-            timeout: timeout, capturesToFile: capturesToFile, onOutput: nil
-        )
+    private func sh(_ script: String, timeout: Duration = .seconds(10), output: ChildProcess.Output = .pipes) async throws -> ChildProcessResult {
+        try await ChildProcess.run(executable: "/bin/sh", arguments: ["-c", script], output: output, timeout: timeout)
     }
 
     @Test func capturesBothStreamsAndTheExitStatus() async throws {
@@ -18,14 +16,14 @@ struct ChildProcessTests {
         #expect(result.stdout == "out\n")
         #expect(result.stderr == "err\n")
         #expect(result.status == 3)
-        #expect(!result.succeeded)
+        #expect(!result.timedOut)
     }
 
     @Test func returnsWhenTheChildExitsThoughABackgroundProcessHoldsThePipe() async throws {
         let start = ContinuousClock.now
         let result = try await sh("sleep 5 & echo started")
         #expect(result.stdout == "started\n")
-        #expect(result.succeeded)
+        #expect(result.status == 0)
         #expect(ContinuousClock.now - start < .seconds(4))
     }
 
@@ -33,9 +31,9 @@ struct ChildProcessTests {
         let marker = NSTemporaryDirectory() + "plume-grandchild-\(UUID().uuidString)"
         defer { unlink(marker) }
         let script = "(while :; do echo tick; sleep 0.05; done) & echo $! > \(marker); echo port 59095"
-        let result = try await sh(script, capturesToFile: true)
+        let result = try await sh(script, output: .file)
         #expect(result.stdout.contains("port 59095"))
-        #expect(result.succeeded)
+        #expect(result.status == 0)
 
         let text = try String(contentsOfFile: marker, encoding: .utf8)
         let grandchild = try #require(pid_t(text.trimmingCharacters(in: .whitespacesAndNewlines)))
@@ -49,7 +47,7 @@ struct ChildProcessTests {
         defer { unlink(marker) }
         let reportSize = #"perl -e 'open(my $m, ">", $ARGV[0]); print $m ((stat(STDOUT))[7])'"#
         let script = "head -c 100000 /dev/zero | tr '\\0' x; echo; (sleep 0.5; echo tick; \(reportSize) \(marker)) & echo port 59095"
-        let result = try await sh(script, capturesToFile: true)
+        let result = try await sh(script, output: .file)
         #expect(result.stdout.contains("port 59095"))
         #expect(result.stdout.count > 100_000)
 
@@ -67,17 +65,16 @@ struct ChildProcessTests {
     }
 
     @Test func cancellingKillsTheChildsChildrenToo() async throws {
-        let grandchild = LockedValue<pid_t?>(nil)
+        let grandchild = Mutex<pid_t?>(nil)
         let run = Task {
             try await ChildProcess.run(
-                executable: "/bin/sh", arguments: ["-c", "sleep 30 & echo $!; wait"],
-                environment: ProcessInfo.processInfo.environment, timeout: .seconds(20)
+                executable: "/bin/sh", arguments: ["-c", "sleep 30 & echo $!; wait"], timeout: .seconds(20)
             ) { text in
-                if let pid = pid_t(text.trimmingCharacters(in: .whitespacesAndNewlines)) { grandchild.value = pid }
+                if let pid = pid_t(text.trimmingCharacters(in: .whitespacesAndNewlines)) { grandchild.withLock { $0 = pid } }
             }
         }
-        for _ in 0..<500 where grandchild.value == nil { try await Task.sleep(for: .milliseconds(10)) }
-        let pid = try #require(grandchild.value)
+        for _ in 0..<500 where grandchild.withLock({ $0 }) == nil { try await Task.sleep(for: .milliseconds(10)) }
+        let pid = try #require(grandchild.withLock { $0 })
         #expect(kill(pid, 0) == 0)
 
         run.cancel()
@@ -88,13 +85,13 @@ struct ChildProcessTests {
     }
 
     @Test func deliversEachNewPieceOfOutputOnce() async throws {
-        let pieces = LockedValue<[String]>([])
+        let pieces = Mutex<[String]>([])
         let result = try await ChildProcess.run(
-            executable: "/bin/sh", arguments: ["-c", "printf one; sleep 0.3; printf two"],
-            environment: ProcessInfo.processInfo.environment, timeout: .seconds(10)
-        ) { text in pieces.value.append(text) }
-        #expect(pieces.value.joined() == "onetwo")
-        #expect(pieces.value.count == 2)
+            executable: "/bin/sh", arguments: ["-c", "printf one; sleep 0.3; printf two"], timeout: .seconds(10)
+        ) { text in pieces.withLock { $0.append(text) } }
+        let delivered = pieces.withLock { $0 }
+        #expect(delivered.joined() == "onetwo")
+        #expect(delivered.count == 2)
         #expect(result.stdout == "onetwo")
     }
 
@@ -105,8 +102,43 @@ struct ChildProcessTests {
         #expect(UTF8Prefix.completeLength(of: Data()) == 0)
     }
 
-    @Test func lineBufferReturnsOnlyCompletedLines() {
-        let buffer = LineBuffer()
+    @Test func passesInputEnvironmentAndWorkingDirectory() throws {
+        let directory = "/usr/bin"
+        let result = try ChildProcess.run(
+            executable: "/bin/sh", arguments: ["-c", "cat; echo \"$PLUME_PROBE\"; pwd -P"],
+            environment: ["PATH": "/bin:/usr/bin", "PLUME_PROBE": "probe"], workingDirectory: directory, input: .text("typed\n")
+        )
+        #expect(result.stdout == "typed\nprobe\n\(directory)\n")
+    }
+
+    @Test func aChildThatIgnoresItsInputDoesNotBlockTheRun() throws {
+        let result = try ChildProcess.run(
+            executable: "/bin/sh", arguments: ["-c", "exit 0"], input: .text(String(repeating: "x", count: 1_000_000))
+        )
+        #expect(result.status == 0)
+    }
+
+    @Test func aMissingExecutableThrows() {
+        #expect(throws: ChildProcessError.self) {
+            try ChildProcess.run(executable: "/nonexistent/plume-probe", arguments: [])
+        }
+    }
+
+    @Test func capturedOutputReturnsStdout() {
+        #expect(ChildProcess.capturedOutput(executable: "/bin/sh", arguments: ["-c", "echo hi; echo err >&2"], timeout: 5) == "hi\n")
+    }
+
+    @Test func capturedOutputIsNilOnATimeoutEvenWhenABackgroundedHelperHoldsTheOutput() {
+        let start = Date()
+        let output = ChildProcess.capturedOutput(
+            executable: "/bin/sh", arguments: ["-c", "sleep 30 & echo partial; sleep 30"], timeout: 0.5
+        )
+        #expect(output == nil)
+        #expect(Date().timeIntervalSince(start) < 10)
+    }
+
+    @Test func lineSplitterReturnsOnlyCompletedLines() {
+        var buffer = LineSplitter()
         #expect(buffer.completeLines(appending: "New reservation created with id 3f3j").isEmpty)
         #expect(buffer.completeLines(appending: "pxdv5lw6y. Ends\nWaiting") == ["New reservation created with id 3f3jpxdv5lw6y. Ends"])
         #expect(buffer.completeLines(appending: "...\n") == ["Waiting..."])

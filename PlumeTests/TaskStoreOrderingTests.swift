@@ -25,6 +25,22 @@ struct TaskStoreOrderingTests {
         return (task, task.orderedTabs)
     }
 
+    @Test func aTerminalTaskIsUngroupedAfterItsSiblingsWithOneSelectedTerminalTab() throws {
+        let context = ModelContext(try container())
+        let earlier = TaskStore.createTask(in: context, siblings: [])
+
+        let (task, tab) = TaskStore.createTerminalTask(in: context, title: "Sign in", directory: "/tmp", siblings: [earlier])
+
+        #expect(task.orderIndex == earlier.orderIndex + 1)
+        #expect(task.group == nil)
+        #expect(task.workingDirectoryPath == "/tmp")
+        #expect(task.workspaceKind == .directory)
+        #expect(task.orderedTabs.map(\.id) == [tab.id])
+        #expect(tab.kind == .terminal)
+        #expect(task.selectedTabID == tab.id)
+        #expect(task.lastFocusedAgentTabID == nil)
+    }
+
     @Test func movingATabForwardReordersTheOnesBetween() throws {
         let context = ModelContext(try container())
         let (task, tabs) = makeTabs(4, in: context)
