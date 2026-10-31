@@ -41,8 +41,10 @@ nonisolated struct ConversationReferences: Equatable, Sendable {
 
 /// Finds Linear issues and pull requests in the prose of a conversation: the
 /// user's messages, pasted text included, and the assistant's replies. Tool
-/// input and output, thinking and other injected content are left out, since they quote whole files and command
-/// output that name issues the conversation is not about.
+/// input and output, thinking and other injected content are left out, since
+/// they quote whole files and command output that name issues the
+/// conversation is not about. Code in an assistant reply, fenced or inline,
+/// is left out for the same reason.
 ///
 /// An accepted `@` mention reaches the transcript as a Markdown link to its
 /// URL, so it counts through the same scan as a pasted link.
@@ -71,7 +73,7 @@ nonisolated enum ConversationReferenceScanner {
         for message in messages where message.role != .notice {
             let texts = message.blocks.compactMap { block -> String? in
                 switch block {
-                case .markdown(let text): text
+                case .markdown(let text): message.role == .assistant ? Self.removingCode(from: text) : text
                 case .injected(let content, let text) where content.isUserProse: text
                 default: nil
                 }
@@ -88,6 +90,30 @@ nonisolated enum ConversationReferenceScanner {
         }
         cache.entries = entries
         return result
+    }
+
+    /// Blanks fenced blocks and inline code spans, keeping everything else
+    /// where it was.
+    static func removingCode(from text: String) -> String {
+        var kept: [Substring] = []
+        var fence: (character: Character, length: Int)?
+        for line in text.split(separator: "\n", omittingEmptySubsequences: false) {
+            let trimmed = line.drop { $0 == " " }
+            let marker = trimmed.first.flatMap { $0 == "`" || $0 == "~" ? $0 : nil }
+            let run = marker.map { character in trimmed.prefix { $0 == character }.count } ?? 0
+            if let open = fence {
+                if marker == open.character, run >= open.length, trimmed.dropFirst(run).allSatisfy({ $0 == " " }) {
+                    fence = nil
+                }
+            } else if let marker, run >= 3, line.count - trimmed.count < 4 {
+                fence = (marker, run)
+            } else {
+                kept.append(line)
+            }
+        }
+        let joined = kept.joined(separator: "\n")
+        let whole = NSRange(location: 0, length: (joined as NSString).length)
+        return inlineCodePattern.stringByReplacingMatches(in: joined, range: whole, withTemplate: " ")
     }
 
     static func references(in text: String) -> ConversationReferences {
@@ -117,6 +143,11 @@ nonisolated enum ConversationReferenceScanner {
         }
         return result
     }
+
+    /// A backtick run closed by a run of the same length.
+    private static let inlineCodePattern = try! NSRegularExpression(
+        pattern: #"(?<!`)(`+)(?!`)[\s\S]*?(?<!`)\1(?!`)"#
+    )
 
     private static let linearURLPattern = try! NSRegularExpression(
         pattern: #"linear\.app/[A-Za-z0-9_-]+/issue/([A-Za-z][A-Za-z0-9]{0,6}-[0-9]+)(?![0-9])"#,
