@@ -179,6 +179,7 @@ struct WorkspacePickerView: View, ThemedView {
                 .truncationMode(.middle)
                 .padding(.top, dimensions.inlineBranchNoteSpacing)
                 .frame(maxWidth: .infinity, alignment: .leading)
+            nestedRepositoryWarning
             if hasRepository {
                 Text("in the worktree")
                     .padding(.top, dimensions.inlineClauseSpacing)
@@ -524,7 +525,41 @@ struct WorkspacePickerView: View, ThemedView {
         guard let path = task.workingDirectoryPath, !path.isEmpty else { return nil }
         let root = CheckoutFactsStore.shared.facts(for: path)?.projectRoot
             ?? task.repoPath.flatMap { CheckoutFactsStore.shared.facts(for: $0)?.projectRoot }
-        return root.map(abbreviate)
+        guard let root else { return nil }
+        let subpath = CheckoutFactsStore.shared.facts(for: path)?.subpath(of: path)
+        return abbreviate(subpath.map { root + "/" + $0 } ?? root)
+    }
+
+    /// The checkout's top level, when the chosen folder is inside the
+    /// repository but not at its top.
+    private var nestedRepositoryRoot: String? {
+        guard isEditable, task.workspaceKind == .directory,
+              let path = task.workingDirectoryPath, !path.isEmpty,
+              let facts = CheckoutFactsStore.shared.facts(for: path),
+              facts.subpath(of: path) != nil
+        else { return nil }
+        return facts.checkoutRoot
+    }
+
+    @ViewBuilder
+    private var nestedRepositoryWarning: some View {
+        if let root = nestedRepositoryRoot {
+            VStack(alignment: .leading, spacing: 4) {
+                Text("This folder is inside the repository at \(abbreviate(root)), not its top level. Project configuration there may not load.")
+                    .font(typography.body.font)
+                    .emphasis(.secondary)
+                    .fixedSize(horizontal: false, vertical: true)
+                Button { setDirectory(root) } label: {
+                    Text("Use the repository root instead")
+                        .font(typography.body.font)
+                        .underline()
+                }
+                .buttonStyle(.plain)
+                .plumeID("nested-repository-use-root")
+            }
+            .padding(.top, dimensions.inlineClauseSpacing)
+            .frame(maxWidth: .infinity, alignment: .leading)
+        }
     }
 
     private func name(for worktree: GitWorktree) -> String {
