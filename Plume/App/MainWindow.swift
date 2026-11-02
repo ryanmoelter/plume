@@ -146,23 +146,7 @@ struct MainWindow: View {
                 focusOtherPane: task.isSplit ? { TaskStore.focusOtherPane(in: task) } : nil
             )
         })
-        .confirmationDialog(
-            "Start a fresh conversation?",
-            isPresented: Binding(
-                get: { tabPendingStartFresh != nil },
-                set: { if !$0 { tabPendingStartFresh = nil } }
-            )
-        ) {
-            Button("Start Fresh", role: .destructive) {
-                if let tab = tabPendingStartFresh {
-                    TaskStore.startFresh(tab)
-                }
-                tabPendingStartFresh = nil
-            }
-            Button("Cancel", role: .cancel) { tabPendingStartFresh = nil }
-        } message: {
-            Text("This discards \(AppIdentity.displayName)'s link to the previous conversation. The transcript stays on disk, but \(AppIdentity.displayName) won't be able to resume it.")
-        }
+        .modifier(StartFreshDialogModifier(pendingTab: $tabPendingStartFresh))
         .modifier(worktreeRemovalDialog)
         .modifier(liveAgentRemovalDialog)
         .onChange(of: tasks.map(\.id)) { _, ids in
