@@ -1,7 +1,7 @@
 import Foundation
 
-/// Remembers what the sidebar had selected, so a launch reopens where the
-/// user left off.
+/// Remembers what the sidebar had selected, so Home can offer the task the
+/// user left off in.
 ///
 /// Kept out of `AppSettings`, which holds preferences the Settings window
 /// offers — this is restored window state, and nobody sets it deliberately.

@@ -181,7 +181,7 @@ struct MainWindow: View {
             // outlive a closed window, or the Mac would sleep mid-turn.
             KeepAwakeCoordinator.shared.start()
             restoreStatusMonitoring()
-            restoreLastOpenTask()
+            openHomeAtLaunch()
             StartupWarmPass.shared.warm(directories: StartupWarmPass.directories(for: tasks))
             #if DEBUG
             await SmokeHarness.runIfRequested(context: context, selection: selectedTaskID)
@@ -301,16 +301,12 @@ struct MainWindow: View {
             + tasks.filter { $0.group == nil }
     }
 
-    /// `tasks` excludes archived ones, so a task archived or deleted since the
-    /// last launch simply doesn't match, and Home opens instead.
-    private func restoreLastOpenTask() {
+    /// Launch opens Home, the overview of every task, rather than the middle
+    /// of whichever task was open last. A route that already chose a
+    /// selection keeps it.
+    private func openHomeAtLaunch() {
         guard selection == nil else { return }
-        if case .task(let id) = LastOpenTask.load(), tasks.contains(where: { $0.id == id }) {
-            selection = .task(id)
-        } else {
-            // The tasks may not have loaded yet, so the saved value stays.
-            selection = .home
-        }
+        selection = .home
     }
 
     /// A selection the user or a route chose, which the next launch reopens.
