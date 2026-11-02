@@ -128,7 +128,7 @@ final class CLICommandHandler {
     }
 
     /// Prefers a device tab already on the device, then one with no device, then a new tab
-    /// behind the selection. A tab on another device is never repointed.
+    /// opposite the caller's pane, behind the selection. A tab on another device is never repointed.
     private func showDevice(_ params: CLIRequest.ShowDevice) -> CLIResponse {
         guard let target = Self.deviceTarget(params) else {
             return .failure("devices.show needs an avdID for an emulator, a serial for a physical device, or a reservationID for a remote one")
@@ -144,7 +144,7 @@ final class CLICommandHandler {
         } else if case .remote(let reservationID) = target {
             return .failure("no device tab holds reservation \(reservationID)")
         } else {
-            let empty = emptyDeviceTab(in: task, context: context)
+            let empty = emptyDeviceTab(in: task, besideTab: params.tabID, context: context)
             tab = empty.tab
             created = empty.created
         }
@@ -157,17 +157,15 @@ final class CLICommandHandler {
         return response
     }
 
-    /// A device tab with no device and no reservation starting, else a new one behind the selection.
-    private func emptyDeviceTab(in task: WorkTask, context: ModelContext) -> (tab: TaskTab, created: Bool) {
+    /// A device tab with no device and no reservation starting, else a new one in the pane
+    /// opposite the caller, behind the selection.
+    private func emptyDeviceTab(in task: WorkTask, besideTab callerTabID: UUID, context: ModelContext) -> (tab: TaskTab, created: Bool) {
         let empty = task.orderedTabs.first { tab in
             tab.kind == .device && tab.deviceTarget == nil && !deviceSessions.canEndReservation(for: tab.id)
                 && !deviceLeases.isClaiming(deviceTab: tab.id)
         }
         if let empty { return (empty, false) }
-        let previous = task.selectedTabID.flatMap { id in task.tabs.first { $0.id == id } }
-        let tab = TaskStore.addTab(to: task, kind: .device, in: context)
-        if let previous { TaskStore.selectTab(previous, in: task) }
-        return (tab, true)
+        return (TaskStore.addDeviceTab(to: task, besideTab: callerTabID, in: context), true)
     }
 
     /// How long `reserveDevice` may take before it gives up rather than reserve: past
@@ -225,7 +223,7 @@ final class CLICommandHandler {
         }
         // From here to `beginClaim` holding the claim there is no suspension, so a concurrent
         // request can't pick the same tab.
-        let (tab, created) = emptyDeviceTab(in: task, context: context)
+        let (tab, created) = emptyDeviceTab(in: task, besideTab: params.tabID, context: context)
         let claim = RemoteClaim(
             owner: owner,
             deviceTabID: tab.id,

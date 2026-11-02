@@ -203,6 +203,42 @@ enum TaskStore {
         task.tabs.first { $0.id == task.selectedTabID }
     }
 
+    enum DeviceTabPlacement: Equatable {
+        case newPane
+        case pane(Int)
+    }
+
+    /// Where a device tab a claim opens goes: never in the claiming tab's
+    /// pane. A claiming tab no longer in the task leaves the focused pane to
+    /// stand in for it.
+    static func deviceTabPlacement(launchingPane: Int?, focusedPane: Int, paneCount: Int) -> DeviceTabPlacement {
+        guard paneCount > 1 else { return .newPane }
+        let occupied = launchingPane ?? focusedPane
+        return .pane(occupied == 0 ? paneCount - 1 : 0)
+    }
+
+    /// A new device tab, shown in the pane `deviceTabPlacement` picks, with
+    /// focus left where it was: the claiming agent is usually mid-turn.
+    @discardableResult
+    static func addDeviceTab(to task: WorkTask, besideTab launchingTabID: UUID, in context: ModelContext) -> TaskTab {
+        let previous = focusedTab(of: task)
+        let placement = deviceTabPlacement(
+            launchingPane: task.tabs.first { $0.id == launchingTabID }?.paneIndex,
+            focusedPane: task.focusedPane,
+            paneCount: task.paneCount
+        )
+        let tab: TaskTab
+        switch placement {
+        case .newPane:
+            tab = addTab(to: task, kind: .device, in: context)
+            openInSplit(tab, side: .right, in: task)
+        case .pane(let pane):
+            tab = addTab(to: task, kind: .device, pane: pane, in: context)
+        }
+        if let previous { selectTab(previous, in: task) }
+        return tab
+    }
+
     /// Moves `tab` into `pane`'s strip at the gap `position` (counted in the
     /// strip as drawn, `tab` included), or onto its end. A tab arriving from
     /// another pane takes focus, and a pane left empty closes; a reorder

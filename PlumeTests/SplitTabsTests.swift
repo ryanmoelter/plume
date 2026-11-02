@@ -355,6 +355,46 @@ struct SplitTabsTests {
 
         #expect(task.paneTabIDs == [tabs[1].id, tabs[2].id])
     }
+
+    // MARK: Device tabs
+
+    @Test func aDeviceTabOpensASplitWhenTheTaskHasNone() {
+        #expect(TaskStore.deviceTabPlacement(launchingPane: 0, focusedPane: 0, paneCount: 1) == .newPane)
+    }
+
+    @Test func aDeviceTabGoesOppositeTheLaunchingTab() {
+        #expect(TaskStore.deviceTabPlacement(launchingPane: 0, focusedPane: 0, paneCount: 2) == .pane(1))
+        #expect(TaskStore.deviceTabPlacement(launchingPane: 1, focusedPane: 0, paneCount: 2) == .pane(0))
+    }
+
+    @Test func aGoneLaunchingTabPlacesTheDeviceTabOppositeTheFocus() {
+        #expect(TaskStore.deviceTabPlacement(launchingPane: nil, focusedPane: 1, paneCount: 2) == .pane(0))
+        #expect(TaskStore.deviceTabPlacement(launchingPane: nil, focusedPane: 0, paneCount: 1) == .newPane)
+    }
+
+    @Test func aDeviceTabSplitsAnUnsplitTaskAndLeavesFocusAlone() throws {
+        let context = try makeContext()
+        let (task, tabs) = try makeTask(in: context)
+        TaskStore.selectTab(tabs[1], in: task)
+
+        let device = TaskStore.addDeviceTab(to: task, besideTab: tabs[1].id, in: context)
+
+        #expect(ids(task) == ids(tabs, [device]))
+        #expect(task.selectedTabID == tabs[1].id)
+        #expect(task.paneTabIDs == [tabs[1].id, device.id])
+    }
+
+    @Test func aDeviceTabJoinsThePaneOppositeTheLaunchingTab() throws {
+        let context = try makeContext()
+        let (task, tabs) = try makeSplitTask(in: context)
+
+        let device = TaskStore.addDeviceTab(to: task, besideTab: tabs[2].id, in: context)
+
+        #expect(ids(task) == ids([tabs[0], tabs[1], device], [tabs[2], tabs[3]]))
+        #expect(device.orderIndex == 2)
+        #expect(task.selectedTabID == tabs[2].id)
+        #expect(task.paneTabIDs == [device.id, tabs[2].id])
+    }
 }
 
 struct SplitLayoutTests {
