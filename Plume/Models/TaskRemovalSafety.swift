@@ -48,7 +48,7 @@ enum TaskRemovalSafety {
         case .working, .waitingOnSubagents,
              .planApproval, .questionAsked, .permissionNeeded, .needsTerminalInput:
             true
-        case .notStarted, .awaitingReply, .done, .interrupted, .error:
+        case .notStarted, .awaitingReply, .done, .interrupted, .interruptedByRestart, .error:
             false
         }
     }

@@ -36,6 +36,10 @@ enum TaskStatus: String, CaseIterable, Sendable {
     /// `awaitingReply`, which claims the work reached an end, and from
     /// `error`, which blames the agent.
     case interrupted
+    /// Was waiting on the user when the app quit, so the answer was never
+    /// given. Distinct from `interrupted`, which the user chose: this one
+    /// still wants them.
+    case interruptedByRestart
     case error
 
     /// Higher wins when aggregating tab statuses into a task status. Every
@@ -49,13 +53,14 @@ enum TaskStatus: String, CaseIterable, Sendable {
         case .done: 1
         case .awaitingReply: 2
         case .interrupted: 3
-        case .error: 4
-        case .waitingOnSubagents: 5
-        case .working: 6
-        case .needsTerminalInput: 7
-        case .permissionNeeded: 8
-        case .questionAsked: 9
-        case .planApproval: 10
+        case .interruptedByRestart: 4
+        case .error: 5
+        case .waitingOnSubagents: 6
+        case .working: 7
+        case .needsTerminalInput: 8
+        case .permissionNeeded: 9
+        case .questionAsked: 10
+        case .planApproval: 11
         }
     }
 
@@ -64,7 +69,8 @@ enum TaskStatus: String, CaseIterable, Sendable {
         switch self {
         case .planApproval, .questionAsked, .permissionNeeded, .needsTerminalInput:
             true
-        case .notStarted, .working, .waitingOnSubagents, .awaitingReply, .done, .interrupted, .error:
+        case .notStarted, .working, .waitingOnSubagents, .awaitingReply, .done, .interrupted,
+             .interruptedByRestart, .error:
             false
         }
     }
@@ -75,18 +81,18 @@ enum TaskStatus: String, CaseIterable, Sendable {
     /// happening is describing a process that no longer exists. What survives
     /// is whether the work reached an end:
     ///
-    /// - `interrupted`, `error` and `done` already describe an outcome rather
-    ///   than a process, so they stay as they are.
+    /// - `interrupted`, `interruptedByRestart`, `error` and `done` already
+    ///   describe an outcome rather than a process, so they stay as they are.
     /// - A tab that was waiting on an answer never got one, and quitting is
-    ///   what stopped it. That is an interruption, so it reads as one — the
-    ///   question or plan is still there in the transcript, unanswered.
+    ///   what stopped it. That reads as `interruptedByRestart` — the question
+    ///   or plan is still there in the transcript, unanswered.
     /// - `working`, `waitingOnSubagents` and `awaitingReply` claimed a live
     ///   process and say nothing that outlives it, so they read as
     ///   `notStarted`.
     var afterRelaunch: TaskStatus {
         switch self {
-        case .interrupted, .error, .done: self
-        case .planApproval, .questionAsked, .permissionNeeded, .needsTerminalInput: .interrupted
+        case .interrupted, .interruptedByRestart, .error, .done: self
+        case .planApproval, .questionAsked, .permissionNeeded, .needsTerminalInput: .interruptedByRestart
         case .notStarted, .working, .waitingOnSubagents, .awaitingReply: .notStarted
         }
     }

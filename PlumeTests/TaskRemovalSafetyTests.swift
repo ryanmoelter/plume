@@ -29,7 +29,7 @@ struct TaskRemovalSafetyTests {
         ]))
     }
 
-    @Test(arguments: [TaskStatus.notStarted, .awaitingReply, .done, .interrupted, .error])
+    @Test(arguments: [TaskStatus.notStarted, .awaitingReply, .done, .interrupted, .interruptedByRestart, .error])
     func aRestingStatusRemovesSilently(status: TaskStatus) {
         #expect(!TaskRemovalSafety.isMidTurn(status))
         #expect(!TaskRemovalSafety.needsConfirmation([.init(status: status, hasExited: false)]))

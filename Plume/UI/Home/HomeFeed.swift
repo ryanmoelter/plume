@@ -16,6 +16,8 @@ struct HomeFeed: Equatable {
         var status: TaskStatus = .notStarted
         var isUnread = false
         var hasSession = false
+        /// Restored from the last launch, with no live session reported yet.
+        var isDormant = false
         /// What a pending, non-interactive permission request wants to run.
         var permissionToolName: String?
         var workStartedAt: Date?
@@ -58,6 +60,7 @@ struct HomeFeed: Equatable {
     private(set) var needsYou: [Item] = []
     private(set) var running: [Item] = []
     private(set) var idle: [Item] = []
+    private(set) var fromLastTime: [Item] = []
     private(set) var notStarted: [Item] = []
 
     static let previewCharacterLimit = 280
@@ -90,6 +93,8 @@ struct HomeFeed: Equatable {
                 needsYou.append((index, item))
             } else if isUnstarted {
                 notStarted.append(item)
+            } else if entry.isDormant {
+                fromLastTime.append(item)
             } else {
                 idle.append(item)
             }
@@ -104,12 +109,12 @@ struct HomeFeed: Equatable {
 
     static func needsYou(status: TaskStatus, isUnread: Bool) -> Bool {
         guard !status.isActive else { return false }
-        return status.wantsAttention || status == .error || isUnread
+        return status.wantsAttention || status == .interruptedByRestart || status == .error || isUnread
     }
 
-    /// A conversation never messaged, or one cut off mid-turn. An idle one
-    /// with a session is finished, whether or not it has been restored yet,
-    /// and lists as idle.
+    /// A conversation never messaged, or one the user cut off mid-turn. An
+    /// idle one with a session is finished, and lists as idle, or under
+    /// "From last time" while it is still dormant.
     private static func isUnstarted(_ entry: Entry) -> Bool {
         entry.status == .interrupted || !entry.hasSession
     }
@@ -118,7 +123,8 @@ struct HomeFeed: Equatable {
     /// which the sidebar uses.
     private static func rank(_ item: Item) -> Int {
         switch item.status {
-        case .error: 5
+        case .error: 6
+        case .interruptedByRestart: 5
         case .permissionNeeded: 4
         case .needsTerminalInput: 3
         case .questionAsked: 2
@@ -135,6 +141,7 @@ struct HomeFeed: Equatable {
             return entry.permissionToolName.map { "Wants to run \($0)" } ?? "Wants permission to continue"
         case .needsTerminalInput: return "Waiting for terminal input"
         case .error: return "Stopped with an error"
+        case .interruptedByRestart: return "Interrupted by restart"
         case .notStarted, .working, .waitingOnSubagents, .awaitingReply, .done, .interrupted:
             guard entry.isUnread else { return nil }
             return entry.preview ?? "Finished a turn you haven't read"

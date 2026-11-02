@@ -123,7 +123,7 @@ final class StatusEngine {
         case .notStarted, .awaitingReply, .waitingOnSubagents:
             return .waitingOnSubagents
         case .working, .planApproval, .questionAsked, .permissionNeeded, .needsTerminalInput,
-             .error, .interrupted, .done:
+             .error, .interrupted, .interruptedByRestart, .done:
             return own
         }
     }

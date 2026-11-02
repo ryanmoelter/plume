@@ -65,6 +65,7 @@ private struct HomeContent: View, ThemedView {
 
     @AppStorage("homeNeedsAttentionExpanded") private var needsAttentionExpanded = true
     @AppStorage("homeIdleExpanded") private var idleExpanded = true
+    @AppStorage("homeFromLastTimeExpanded") private var fromLastTimeExpanded = false
     @AppStorage("homeNotStartedExpanded") private var notStartedExpanded = false
 
     var body: some View {
@@ -82,6 +83,15 @@ private struct HomeContent: View, ThemedView {
                         collapse: .init(
                             id: AccessibilityID.homeIdleHeader, isExpanded: $idleExpanded,
                             emphasis: .primary, itemCount: feed.idle.count
+                        )
+                    )
+                }
+                if !feed.fromLastTime.isEmpty {
+                    quietSection(
+                        "From last time", items: feed.fromLastTime,
+                        collapse: .init(
+                            id: AccessibilityID.homeFromLastTimeHeader, isExpanded: $fromLastTimeExpanded,
+                            emphasis: .secondary, itemCount: feed.fromLastTime.count
                         )
                     )
                 }

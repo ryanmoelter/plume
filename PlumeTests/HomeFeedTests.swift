@@ -14,6 +14,7 @@ struct HomeFeedTests {
         _ status: TaskStatus,
         isUnread: Bool = false,
         hasSession: Bool = false,
+        isDormant: Bool = false,
         permission: String? = nil,
         started: Date? = nil,
         preview: String? = nil
@@ -26,6 +27,7 @@ struct HomeFeedTests {
             status: status,
             isUnread: isUnread,
             hasSession: hasSession,
+            isDormant: isDormant,
             permissionToolName: permission,
             workStartedAt: started,
             preview: preview
@@ -67,11 +69,47 @@ struct HomeFeedTests {
         #expect(feed.notStarted.count == 1)
     }
 
-    @Test func aDormantTabWithASessionIsIdle() {
+    @Test func aSettledTabWithASessionIsIdle() {
         let feed = HomeFeed(entries: [entry(.notStarted, hasSession: true)])
         #expect(feed.idle.count == 1)
-        #expect(feed.notStarted.isEmpty)
+        #expect(feed.notStarted.isEmpty && feed.fromLastTime.isEmpty)
     }
+
+    @Test(arguments: [TaskStatus.notStarted, .done])
+    func aDormantTabWithASessionIsFromLastTime(status: TaskStatus) {
+        let feed = HomeFeed(entries: [entry(status, hasSession: true, isDormant: true)])
+        #expect(feed.fromLastTime.map(\.status) == [status])
+        #expect(feed.idle.isEmpty && feed.notStarted.isEmpty)
+        #expect(!feed.fromLastTime[0].isInactive)
+    }
+
+    @Test func aDormantTabThatNeedsYouNeedsYou() {
+        let feed = HomeFeed(entries: [
+            entry(.interruptedByRestart, hasSession: true, isDormant: true),
+            entry(.error, hasSession: true, isDormant: true),
+            entry(.notStarted, isUnread: true, hasSession: true, isDormant: true),
+        ])
+        #expect(feed.needsYou.count == 3)
+        #expect(feed.fromLastTime.isEmpty)
+    }
+
+    @Test func aNeverMessagedDormantTabIsNotStarted() {
+        let feed = HomeFeed(entries: [entry(.notStarted, isDormant: true)])
+        #expect(feed.notStarted.count == 1)
+        #expect(feed.fromLastTime.isEmpty)
+    }
+
+    @Test func aDormantTabLeavesFromLastTimeOnceLive() {
+        var tab = entry(.notStarted, hasSession: true, isDormant: true)
+        #expect(HomeFeed(entries: [tab]).fromLastTime.count == 1)
+
+        tab.isDormant = false
+        tab.status = .awaitingReply
+        let live = HomeFeed(entries: [tab])
+        #expect(live.fromLastTime.isEmpty)
+        #expect(live.idle.count == 1)
+    }
+
 
     @Test func anUnreadTabIsNotIdle() {
         let feed = HomeFeed(entries: [entry(.awaitingReply, isUnread: true, hasSession: true)])
@@ -99,9 +137,18 @@ struct HomeFeedTests {
     }
 
     @Test func anInterruptedTabIsNotStarted() {
-        let feed = HomeFeed(entries: [entry(.interrupted)])
-        #expect(feed.notStarted.map(\.status) == [.interrupted])
-        #expect(feed.idle.isEmpty)
+        let feed = HomeFeed(entries: [entry(.interrupted), entry(.interrupted, hasSession: true, isDormant: true)])
+        #expect(feed.notStarted.map(\.status) == [.interrupted, .interrupted])
+        #expect(feed.idle.isEmpty && feed.needsYou.isEmpty && feed.fromLastTime.isEmpty)
+        #expect(!HomeFeed.needsYou(status: .interrupted, isUnread: false))
+    }
+
+    @Test func aRestartInterruptionNeedsYou() {
+        let feed = HomeFeed(entries: [entry(.interruptedByRestart, hasSession: true)])
+        #expect(feed.needsYou.map(\.status) == [.interruptedByRestart])
+        #expect(feed.needsYou[0].reason == "Interrupted by restart")
+        #expect(feed.notStarted.isEmpty)
+        #expect(HomeFeed.needsYou(status: .interruptedByRestart, isUnread: false))
     }
 
     @Test func onlyNotStartedRowsAreInactive() {
@@ -123,16 +170,17 @@ struct HomeFeedTests {
 
     // MARK: Ordering
 
-    @Test func needsYouOrderIsErrorPermissionTerminalQuestionPlanUnread() {
+    @Test func needsYouOrderIsErrorRestartPermissionTerminalQuestionPlanUnread() {
         let feed = HomeFeed(entries: [
             entry(title: "unread", .awaitingReply, isUnread: true),
+            entry(title: "restart", .interruptedByRestart),
             entry(title: "error", .error),
             entry(title: "terminal", .needsTerminalInput),
             entry(title: "permission", .permissionNeeded),
             entry(title: "question", .questionAsked),
             entry(title: "plan", .planApproval),
         ])
-        #expect(feed.needsYou.map(\.taskTitle) == ["error", "permission", "terminal", "question", "plan", "unread"])
+        #expect(feed.needsYou.map(\.taskTitle) == ["error", "restart", "permission", "terminal", "question", "plan", "unread"])
     }
 
     @Test func appearanceCarriesThroughToTheItem() {
@@ -312,6 +360,32 @@ struct HomeFeedSourceTests {
             taskTitle: \.title,
             tabTitle: \.displayTitle
         )
+    }
+
+    @MainActor
+    @Test func aDormantTabLeavesFromLastTimeOnceTheEngineHearsALiveReport() throws {
+        let task = TaskStore.createTask(in: context, siblings: [])
+        let tab = try #require(task.tabs.first)
+        tab.agentSessionID = "session"
+        try context.save()
+        let engine = StatusEngine(backgroundTasks: BackgroundTaskTracker())
+        engine.restore(tabID: tab.id, taskID: task.id, lastStatus: .awaitingReply)
+        let source = HomeFeedSource(
+            status: { engine.status(forTab: $0) },
+            isUnread: { _ in false },
+            isDormant: { engine.isDormant(tabID: $0) },
+            workStarted: { _ in nil },
+            permissionToolName: { _ in nil },
+            preview: { _ in nil },
+            taskTitle: \.title,
+            tabTitle: \.displayTitle
+        )
+        #expect(HomeFeed(tasks: [task], source: source).fromLastTime.count == 1)
+
+        engine.setStatus(.awaitingReply, taskID: task.id, tabID: tab.id)
+        let live = HomeFeed(tasks: [task], source: source)
+        #expect(live.fromLastTime.isEmpty)
+        #expect(live.idle.count == 1)
     }
 
     @Test func anArchivedTaskIsLeftOut() throws {
