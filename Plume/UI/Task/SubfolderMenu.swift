@@ -52,9 +52,9 @@ enum MenuLabelGlyph {
 }
 
 extension ProjectSubfolder {
-    /// The subfolder dropdown steps one size down the type scale at the
+    /// The subfolder dropdown steps two sizes down the type scale at the
     /// project root, where it is the default nobody chose.
     static func labelStyle(_ style: Typography.Style, subfolder: String?) -> Typography.Style {
-        subfolder == nil ? style.stepped(-1) : style
+        subfolder == nil ? style.stepped(-2) : style
     }
 }

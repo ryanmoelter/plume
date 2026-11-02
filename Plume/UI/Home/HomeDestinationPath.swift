@@ -24,7 +24,6 @@ struct HomeDestinationPath: View, ThemedView {
                 HomeDestinationSegment(glyph: .pathSeparator, title: model.subfolderTitle, help: subfolderHelp) {
                     menus.subfolderItems
                 }
-                .font(ProjectSubfolder.labelStyle(typography.caption, subfolder: model.destination.subfolder).font)
                 .plumeID(
                     AccessibilityID.homeComposerSubfolderMenu, value: model.subfolderTitle,
                     setValue: model.chooseSubfolder(named:)
