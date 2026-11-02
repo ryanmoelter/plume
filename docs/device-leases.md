@@ -82,7 +82,7 @@ A remote lease lasts only as long as its reservation, so renewing one, or claimi
 
 ## Device tabs
 
-A claim from a tab asks that tab's app to show the device (`devices.show`), and records the tab in the lease as `deviceTabID`. `deviceTabCreatedByClaim` is true when the request opened the tab, and stays true when a later claim reuses it. The app picks a device tab in the caller's current task already on the device, else one with no device yet, else opens a new one behind the selection. It never repoints a tab showing another device.
+A claim from a tab asks that tab's app to show the device (`devices.show`), and records the tab in the lease as `deviceTabID`. `deviceTabCreatedByClaim` is true when the request opened the tab, and stays true when a later claim reuses it. The app picks a device tab in the caller's current task already on the device, else one with no device yet, else opens a new one behind the selection. A new tab goes in the pane opposite the caller's, opening a split when the task has none; a reused tab stays where it is. It never repoints a tab showing another device.
 
 ## From device-pool
 

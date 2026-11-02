@@ -188,6 +188,29 @@ struct CLICommandHandlerTests {
         #expect(task.selectedTabID == selected)
     }
 
+    @Test func showingADeviceOpensItInASplitBesideTheCaller() async throws {
+        let task = TaskStore.createTask(in: context, siblings: [])
+        let caller = try #require(task.tabs.first)
+        let handler = makeHandler(task: task)
+
+        let response = await show(handler, caller: caller)
+
+        #expect(task.panes.map { $0.map(\.id) } == [[caller.id], [try #require(response.tabID)]])
+        #expect(task.selectedTabID == caller.id)
+    }
+
+    @Test func aReusedDeviceTabStaysInItsPane() async throws {
+        let task = TaskStore.createTask(in: context, siblings: [])
+        let caller = try #require(task.tabs.first)
+        let empty = TaskStore.addTab(to: task, kind: .device, in: context)
+        let handler = makeHandler(task: task)
+
+        let response = await show(handler, caller: caller)
+
+        #expect(response.tabID == empty.id)
+        #expect(!task.isSplit)
+    }
+
     @Test func aTabAlreadyOnTheDeviceIsReused() async throws {
         let task = TaskStore.createTask(in: context, siblings: [])
         let caller = try #require(task.tabs.first)
