@@ -70,6 +70,7 @@ enum AccessibilityID {
     static let homeComposerError = "home-composer-error"
     static let homeComposerGroupMenu = "home-composer-group-menu"
     static let homeComposerProjectMenu = "home-composer-project-menu"
+    static let homeComposerSubfolderMenu = "home-composer-subfolder-menu"
     static let homeComposerWorkspaceMenu = "home-composer-workspace-menu"
 
     // MARK: Settings
@@ -252,7 +253,6 @@ enum AccessibilityID {
 
     static let workspaceWorktreeMenu = "workspace-worktree-menu"
     static let workspaceSubfolderMenu = "workspace-subfolder-menu"
-    static let workspaceSubfolderButton = "workspace-subfolder-button"
 
     // MARK: New worktree sheet
 

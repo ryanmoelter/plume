@@ -118,6 +118,17 @@ struct Typography {
 
         var monoMedium: Font { monospaced(weight: .medium) }
 
+        /// This role moved `steps` along the scale, keeping its weight and
+        /// face. Negative steps down.
+        func stepped(_ steps: Int) -> Style {
+            Style(
+                size: size * pow(Typography.ratio, CGFloat(steps)),
+                weight: weight,
+                proseFace: proseFace,
+                textStyle: textStyle
+            )
+        }
+
         /// Monospaced only when `condition` holds, for rows that decide at
         /// runtime whether their content is code.
         func mono(when condition: Bool) -> Font {

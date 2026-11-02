@@ -56,7 +56,6 @@ struct WorkspacePickerView: View, ThemedView {
     @State private var recentFolders = RecentFolders.load()
     @State private var isTargetedForDrop = false
     @State private var worktreeSheetShown = false
-    @State private var subfolderRevealed = false
     @State private var subfolderChoices: [String] = []
 
     var body: some View {
@@ -105,7 +104,7 @@ struct WorkspacePickerView: View, ThemedView {
                 subfolderChoices = []
                 return
             }
-            subfolderChoices = await Task.detached { Self.childFolders(of: directory) }.value
+            subfolderChoices = await Task.detached { ProjectSubfolder.childFolders(of: directory) }.value
         }
         .task(id: WorktreeListingKey(repository: task.repoPath, directory: task.workingDirectoryPath)) {
             guard let repoPath = task.repoPath else {
@@ -177,14 +176,8 @@ struct WorkspacePickerView: View, ThemedView {
                 .emphasis(.secondary)
             HStack(alignment: .firstTextBaseline, spacing: 8) {
                 inlineFolderMenu
-                if hasRepository, showsSubfolder {
-                    Text("/")
-                        .emphasis(.secondary)
+                if hasRepository {
                     inlineSubfolderMenu
-                } else if hasRepository, isEditable {
-                    Text("/")
-                        .emphasis(.secondary)
-                    workInSubfolderButton
                 }
                 Spacer(minLength: 0)
             }
@@ -247,60 +240,38 @@ struct WorkspacePickerView: View, ThemedView {
             Menu {
                 folderMenuItems
             } label: {
-                inlineLabel(folderName, systemImage: "folder")
+                inlineLabel(folderName, glyph: .symbol("folder"))
             }
             .modifier(InlineMenuChrome(help: folderHelp))
         } else {
-            inlineLabel(folderName, systemImage: "folder", isControl: false)
+            inlineLabel(folderName, glyph: .symbol("folder"), isControl: false)
                 .help(folderHelp)
         }
     }
 
-    private var showsSubfolder: Bool {
-        currentSubfolder != nil || subfolderRevealed
-    }
-
-    private var workInSubfolderButton: some View {
-        Button {
-            subfolderRevealed = true
-        } label: {
-            Label("Work in a subfolder", systemImage: "folder")
-                .font(typography.body.font)
-                .foregroundStyle(colors.selection)
-        }
-        .buttonStyle(.plain)
-        .help("Run in a folder inside this project")
-        .plumeID(AccessibilityID.workspaceSubfolderButton)
-    }
-
     @ViewBuilder
     private var inlineSubfolderMenu: some View {
-        let title = currentSubfolder ?? "Choose subfolder"
-        if isEditable {
-            Menu {
-                subfolderMenuItems
-            } label: {
-                inlineLabel(title, systemImage: "folder")
+        let title = currentSubfolder ?? ProjectSubfolder.rootTitle
+        Group {
+            if isEditable {
+                Menu {
+                    SubfolderMenuItems(
+                        choices: subfolderChoices,
+                        checkoutRoot: checkoutDirectory,
+                        choose: chooseSubfolder,
+                        chooseFolder: { setDirectory($0, keepingBranch: true) }
+                    )
+                } label: {
+                    inlineLabel(title, glyph: .pathSeparator)
+                }
+                .modifier(InlineMenuChrome(help: "Subfolder: \(title)"))
+                .plumeID(AccessibilityID.workspaceSubfolderMenu)
+            } else {
+                inlineLabel(title, glyph: .pathSeparator, isControl: false)
+                    .help("Subfolder: \(title)")
             }
-            .modifier(InlineMenuChrome(help: "Subfolder: \(title)"))
-            .plumeID(AccessibilityID.workspaceSubfolderMenu)
-        } else {
-            inlineLabel(title, systemImage: "folder", isControl: false)
-                .help("Subfolder: \(title)")
         }
-    }
-
-    @ViewBuilder
-    private var subfolderMenuItems: some View {
-        Button("Whole project") { chooseSubfolder(nil) }
-        if !subfolderChoices.isEmpty {
-            Divider()
-        }
-        ForEach(subfolderChoices, id: \.self) { name in
-            Button(name) { chooseSubfolder(name) }
-        }
-        Divider()
-        Button("Choose Folder…", action: chooseSubfolderFromPanel)
+        .font(ProjectSubfolder.labelStyle(proseTypography.headline, subfolder: currentSubfolder).font)
     }
 
     @ViewBuilder
@@ -309,12 +280,12 @@ struct WorkspacePickerView: View, ThemedView {
             Menu {
                 worktreeMenuItems
             } label: {
-                inlineLabel(worktreeName, systemImage: "tree")
+                inlineLabel(worktreeName, glyph: .symbol("tree"))
             }
             .modifier(InlineMenuChrome(help: worktreeHelp))
             .plumeID(AccessibilityID.workspaceWorktreeMenu)
         } else {
-            inlineLabel(worktreeName, systemImage: "tree", isControl: false)
+            inlineLabel(worktreeName, glyph: .symbol("tree"), isControl: false)
                 .help(worktreeHelp)
         }
     }
@@ -335,9 +306,9 @@ struct WorkspacePickerView: View, ThemedView {
     ///
     /// The label carries the sentence's full weight while the words around it
     /// step back: what you can change is what the eye should land on.
-    private func inlineLabel(_ title: String, systemImage: String, isControl: Bool = true) -> some View {
+    private func inlineLabel(_ title: String, glyph: MenuLabelGlyph, isControl: Bool = true) -> some View {
         HStack(spacing: 4) {
-            Image(systemName: systemImage)
+            glyph.view
                 .imageScale(.medium)
                 .layoutPriority(1)
             // The one compressible part: the marks around it stay whole and
@@ -614,19 +585,6 @@ struct WorkspacePickerView: View, ThemedView {
         currentSplit?.checkoutRoot ?? task.workingDirectoryPath
     }
 
-    nonisolated private static func childFolders(of directory: String) -> [String] {
-        let url = URL(fileURLWithPath: directory)
-        let children = (try? FileManager.default.contentsOfDirectory(
-            at: url,
-            includingPropertiesForKeys: [.isDirectoryKey],
-            options: [.skipsHiddenFiles]
-        )) ?? []
-        return children
-            .filter { (try? $0.resourceValues(forKeys: [.isDirectoryKey]).isDirectory) == true }
-            .map(\.lastPathComponent)
-            .sorted { $0.localizedStandardCompare($1) == .orderedAscending }
-    }
-
     private func name(for worktree: GitWorktree) -> String {
         guard worktree.isMain else { return (worktree.path as NSString).lastPathComponent }
         return "main"
@@ -755,7 +713,6 @@ struct WorkspacePickerView: View, ThemedView {
     // MARK: - Choosing
 
     private func chooseFolder() {
-        subfolderRevealed = false
         let panel = NSOpenPanel()
         panel.canChooseDirectories = true
         panel.canChooseFiles = false
@@ -768,32 +725,16 @@ struct WorkspacePickerView: View, ThemedView {
     /// The current subfolder carried into another checkout, when that checkout
     /// has it.
     private func directoryKeepingSubfolder(in checkout: String) -> String {
-        let candidate = ProjectSubfolder.directory(checkoutRoot: checkout, subfolder: currentSubfolder)
-        var isDirectory: ObjCBool = false
-        let exists = FileManager.default.fileExists(atPath: candidate, isDirectory: &isDirectory)
-        return exists && isDirectory.boolValue ? candidate : checkout
+        ProjectSubfolder.existingDirectory(checkoutRoot: checkout, subfolder: currentSubfolder)
     }
 
     private func chooseProject(_ path: String) {
-        subfolderRevealed = false
         setDirectory(path)
     }
 
     private func chooseSubfolder(_ name: String?) {
         guard let checkout = checkoutDirectory else { return }
-        if name == nil { subfolderRevealed = false }
         setDirectory(ProjectSubfolder.directory(checkoutRoot: checkout, subfolder: name), keepingBranch: true)
-    }
-
-    private func chooseSubfolderFromPanel() {
-        let panel = NSOpenPanel()
-        panel.canChooseDirectories = true
-        panel.canChooseFiles = false
-        panel.allowsMultipleSelection = false
-        panel.prompt = "Choose"
-        panel.directoryURL = checkoutDirectory.map { URL(fileURLWithPath: $0) }
-        guard panel.runModal() == .OK, let url = panel.url else { return }
-        setDirectory(url.path, keepingBranch: true)
     }
 
     private func setDirectory(_ path: String, keepingBranch: Bool = false) {

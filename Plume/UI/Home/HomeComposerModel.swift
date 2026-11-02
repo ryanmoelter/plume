@@ -54,8 +54,12 @@ final class HomeComposerModel {
         !isStarting && catalog.project(at: destination.projectPath) != nil
     }
 
+    var group: HomeDestinationCatalog.GroupOption? {
+        catalog.group(id: destination.groupID)
+    }
+
     var groupTitle: String {
-        catalog.group(id: destination.groupID)?.name ?? HomeDestinationCatalog.noGroupTitle
+        group?.name ?? HomeDestinationCatalog.noGroupTitle
     }
 
     var projectTitle: String {
@@ -87,6 +91,51 @@ final class HomeComposerModel {
 
     func workspaceBranch(for choice: HomeWorkspaceChoice) -> String? {
         currentListing?.branch(for: choice)
+    }
+
+    /// Only a folder git tracks offers a subfolder, as on the new
+    /// conversation screen.
+    var offersSubfolders: Bool { offersWorktrees }
+
+    var subfolderTitle: String {
+        destination.subfolder ?? ProjectSubfolder.rootTitle
+    }
+
+    /// The checkout whose folders the subfolder menu lists. A new worktree
+    /// does not exist yet, so the project's own folder stands in for it.
+    var subfolderCheckout: String? {
+        guard offersSubfolders else { return nil }
+        if case .worktree(let path, _) = destination.workspace { return path }
+        return destination.projectPath
+    }
+
+    /// The folders directly inside `subfolderCheckout`.
+    private(set) var subfolderChoices: [String] = []
+
+    func loadSubfolders() async {
+        guard let checkout = subfolderCheckout else {
+            subfolderChoices = []
+            return
+        }
+        let choices = await Task.detached { ProjectSubfolder.childFolders(of: checkout) }.value
+        guard !Task.isCancelled, subfolderCheckout == checkout else { return }
+        subfolderChoices = choices
+    }
+
+    func chooseSubfolder(_ subfolder: String?) {
+        guard offersSubfolders else { return }
+        destination.subfolder = subfolder.flatMap { $0.isEmpty ? nil : $0 }
+    }
+
+    /// A folder from the open panel. One outside the checkout is another
+    /// project, as it is on the new conversation screen.
+    func chooseSubfolder(atPath path: String) async {
+        if let checkout = subfolderCheckout,
+           let subfolder = ProjectSubfolder.relativePath(of: path, in: checkout) {
+            chooseSubfolder(subfolder)
+        } else {
+            await addFolder(path)
+        }
     }
 
     var workspaceChoices: [HomeWorkspaceChoice] {
@@ -222,7 +271,9 @@ final class HomeComposerModel {
 extension HomeComposerInputs {
     @MainActor
     init(tasks: [WorkTask], groups: [TaskGroup]) {
-        self.groups = groups.map { HomeDestinationCatalog.GroupOption(id: $0.id, name: $0.name) }
+        self.groups = groups.map {
+            HomeDestinationCatalog.GroupOption(id: $0.id, name: $0.name, tintRaw: $0.tintRaw, iconName: $0.iconName)
+        }
         self.tasks = tasks.map { task in
             TaskInput(
                 id: task.id,
