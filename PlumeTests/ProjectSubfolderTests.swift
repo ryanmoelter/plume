@@ -39,6 +39,17 @@ struct ProjectSubfolderTests {
         #expect(split?.subfolder == "Android")
     }
 
+    @Test func relativePathIsEmptyAtTheCheckoutAndNilOutsideIt() {
+        #expect(ProjectSubfolder.relativePath(of: "/a/b/c", in: "/a/b") == "c")
+        #expect(ProjectSubfolder.relativePath(of: "/a/b/", in: "/a/b") == "")
+        #expect(ProjectSubfolder.relativePath(of: "/a/bc", in: "/a/b") == nil)
+    }
+
+    @Test func existingDirectoryFallsBackToTheCheckout() {
+        #expect(ProjectSubfolder.existingDirectory(checkoutRoot: "/a", subfolder: "b", isDirectory: { _ in true }) == "/a/b")
+        #expect(ProjectSubfolder.existingDirectory(checkoutRoot: "/a", subfolder: "b", isDirectory: { _ in false }) == "/a")
+    }
+
     @Test func directoryJoinsSubfolderOntoCheckout() {
         #expect(ProjectSubfolder.directory(checkoutRoot: "/a/b", subfolder: "c/d") == "/a/b/c/d")
         #expect(ProjectSubfolder.directory(checkoutRoot: "/a/b", subfolder: nil) == "/a/b")

@@ -31,7 +31,8 @@ enum HomeTaskStarter {
         return task
     }
 
-    /// `directory` is the plan's folder, or the worktree just created for it.
+    /// `directory` is the plan's folder, or the worktree just created for it;
+    /// the task runs in the plan's subfolder of it.
     static func createTask(
         for plan: HomeTaskPlan,
         directory: String,
@@ -42,7 +43,7 @@ enum HomeTaskStarter {
         if let choices = plan.choices, let tab = task.orderedTabs.first {
             choices.apply(to: tab)
         }
-        task.workingDirectoryPath = directory
+        task.workingDirectoryPath = plan.workingDirectory(inCheckout: directory)
         switch plan.workspace {
         case .directory(_, let repoPath):
             task.repoPath = repoPath

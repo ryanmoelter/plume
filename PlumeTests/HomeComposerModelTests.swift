@@ -64,6 +64,79 @@ struct HomeComposerModelTests {
         #expect(model.destination.projectPath == "/docs/notes")
     }
 
+    // MARK: Subfolder
+
+    private func plumeModel() async -> HomeComposerModel {
+        disk.projects["/repos/plume"] = HomeProject(path: "/repos/plume", isRepository: true)
+        let model = model()
+        await model.refresh(inputs(paths: ["/repos/plume"]), recentTaskID: nil)
+        return model
+    }
+
+    /// Where the plan's task runs once its checkout is known, with every
+    /// subfolder treated as present.
+    private func workingDirectory(_ model: HomeComposerModel, checkout: String) throws -> String {
+        let message = ComposerHandOff.Message(typedText: "Fix it", blocks: [.text("Fix it")])
+        let plan = try #require(
+            model.catalog.plan(for: model.destination, sending: message, choices: nil, branchPrefix: "")
+        )
+        return plan.workingDirectory(inCheckout: checkout, isDirectory: { _ in true })
+    }
+
+    @Test func theProjectRootRunsInTheCheckout() async throws {
+        let model = await plumeModel()
+        #expect(model.subfolderTitle == ProjectSubfolder.rootTitle)
+        let directory = try workingDirectory(model, checkout: "/repos/plume")
+        #expect(directory == "/repos/plume")
+    }
+
+    @Test func aSubfolderRunsInsideTheProject() async throws {
+        let model = await plumeModel()
+        model.chooseWorkspace(.projectFolder)
+        model.chooseSubfolder("Android")
+        #expect(model.subfolderTitle == "Android")
+        let directory = try workingDirectory(model, checkout: "/repos/plume")
+        #expect(directory == "/repos/plume/Android")
+    }
+
+    @Test func aSubfolderRunsInsideTheNewWorktree() async throws {
+        let model = await plumeModel()
+        model.chooseSubfolder("Android/app")
+        model.chooseWorkspace(.newWorktree)
+        let worktree = "/repos/plume/.plume/worktrees/fix-it"
+        let directory = try workingDirectory(model, checkout: worktree)
+        #expect(directory == "\(worktree)/Android/app")
+    }
+
+    @Test func aSubfolderMissingFromTheCheckoutFallsBackToItsRoot() async throws {
+        let model = await plumeModel()
+        model.chooseSubfolder("Android")
+        let message = ComposerHandOff.Message(typedText: "Fix it", blocks: [.text("Fix it")])
+        let plan = try #require(
+            model.catalog.plan(for: model.destination, sending: message, choices: nil, branchPrefix: "")
+        )
+        #expect(plan.workingDirectory(inCheckout: "/wt/x", isDirectory: { _ in false }) == "/wt/x")
+    }
+
+    @Test func choosingAnotherProjectResetsTheSubfolder() async {
+        disk.projects["/repos/other"] = HomeProject(path: "/repos/other", isRepository: true)
+        let model = await plumeModel()
+        await model.addFolder("/repos/other")
+        model.chooseProject("/repos/plume")
+        model.chooseSubfolder("Android")
+        model.chooseProject("/repos/other")
+        #expect(model.destination.subfolder == nil)
+    }
+
+    @Test func aPlainFolderOffersNoSubfolder() async {
+        disk.projects["/docs/notes"] = HomeProject(path: "/docs/notes", isRepository: false)
+        let model = model()
+        await model.refresh(inputs(paths: ["/docs/notes"]), recentTaskID: nil)
+        model.chooseSubfolder("drafts")
+        #expect(!model.offersSubfolders)
+        #expect(model.destination.subfolder == nil)
+    }
+
     @Test func aFolderAddedThenDeletedLeavesTheList() async {
         disk.projects["/repos/plume"] = HomeProject(path: "/repos/plume", isRepository: true)
         disk.projects["/docs/notes"] = HomeProject(path: "/docs/notes", isRepository: false)

@@ -77,12 +77,15 @@ nonisolated struct HomeWorktreeListing: Equatable, Sendable {
     }
 }
 
-/// Group, project and workspace for the next task Home starts. A nil group is
-/// the ungrouped section.
+/// Group, project, workspace and subfolder for the next task Home starts. A
+/// nil group is the ungrouped section.
 nonisolated struct HomeDestination: Equatable, Sendable {
     var groupID: UUID?
     var projectPath: String?
     var workspace: HomeWorkspaceChoice
+    /// Relative to whichever checkout `workspace` names. Nil is the project
+    /// root.
+    var subfolder: String? = nil
 }
 
 /// What a task started from Home is created with, and its first message.
@@ -95,6 +98,8 @@ nonisolated struct HomeTaskPlan: Equatable {
 
     var groupID: UUID?
     var workspace: Workspace
+    /// Relative to the checkout `workspace` resolves to.
+    var subfolder: String? = nil
     /// With its mentions already expanded into links.
     var message: String
     var images: [ChatImage] = []
@@ -104,6 +109,15 @@ nonisolated struct HomeTaskPlan: Equatable {
     var blocks: [UserContentBlock] {
         [.text(message)] + images.map { .image($0) }
     }
+
+    /// The task's working directory once `checkout` — the plan's folder, or
+    /// the worktree created for it — is known.
+    func workingDirectory(
+        inCheckout checkout: String,
+        isDirectory: (String) -> Bool = ProjectSubfolder.isDirectory
+    ) -> String {
+        ProjectSubfolder.existingDirectory(checkoutRoot: checkout, subfolder: subfolder, isDirectory: isDirectory)
+    }
 }
 
 /// Everything the destination pickers offer, and the defaults they start on.
@@ -111,6 +125,10 @@ nonisolated struct HomeDestinationCatalog: Equatable, Sendable {
     struct GroupOption: Hashable, Identifiable, Sendable {
         let id: UUID
         let name: String
+        /// A `SidebarTint` raw value.
+        var tintRaw: String? = nil
+        /// An SF Symbol name.
+        var iconName: String? = nil
     }
 
     struct TaskFacts: Equatable, Sendable {
@@ -162,6 +180,7 @@ nonisolated struct HomeDestinationCatalog: Equatable, Sendable {
         var result = destination
         result.projectPath = path
         result.workspace = defaultWorkspace(forProject: path)
+        result.subfolder = nil
         return result
     }
 
@@ -175,8 +194,12 @@ nonisolated struct HomeDestinationCatalog: Equatable, Sendable {
         if project(at: destination.projectPath) == nil {
             result.projectPath = projects.first?.path
             result.workspace = defaultWorkspace(forProject: result.projectPath)
+            result.subfolder = nil
         } else if let project = project(at: result.projectPath), !project.offers(result.workspace) {
             result.workspace = .projectFolder
+        }
+        if project(at: result.projectPath)?.isRepository != true {
+            result.subfolder = nil
         }
         return result
     }
@@ -229,6 +252,7 @@ nonisolated struct HomeDestinationCatalog: Equatable, Sendable {
         return HomeTaskPlan(
             groupID: group(id: destination.groupID)?.id,
             workspace: workspace,
+            subfolder: repository == nil ? nil : destination.subfolder,
             message: message,
             images: images,
             choices: choices

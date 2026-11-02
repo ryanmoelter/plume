@@ -32,6 +32,15 @@ struct HomeDestinationMenus {
         Button("Choose Folder…", action: chooseFolder)
     }
 
+    var subfolderItems: some View {
+        SubfolderMenuItems(
+            choices: model.subfolderChoices,
+            checkoutRoot: model.subfolderCheckout,
+            choose: { model.chooseSubfolder($0) },
+            chooseFolder: { path in Task { await model.chooseSubfolder(atPath: path) } }
+        )
+    }
+
     /// Each worktree over its branch, then a new one, as the new conversation
     /// screen's worktree menu lists them.
     @ViewBuilder
@@ -84,6 +93,15 @@ extension HomeComposerModel {
             $0.path == name || $0.name.caseInsensitiveCompare(name) == .orderedSame
         }
         if let match { chooseProject(match.path) }
+    }
+
+    /// Also takes a path relative to the checkout.
+    func chooseSubfolder(named name: String) {
+        if name.caseInsensitiveCompare(ProjectSubfolder.rootTitle) == .orderedSame {
+            chooseSubfolder(nil)
+        } else {
+            chooseSubfolder(subfolderChoices.first { $0.caseInsensitiveCompare(name) == .orderedSame } ?? name)
+        }
     }
 
     /// Also takes a worktree's path or branch.
