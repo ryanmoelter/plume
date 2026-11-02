@@ -27,7 +27,8 @@ enum TaskStore {
         group: TaskGroup? = nil,
         siblings: [WorkTask],
         defaultsToRecentFolder: Bool = false,
-        inheritingFrom: WorkTask? = nil
+        inheritingFrom: WorkTask? = nil,
+        firstTab kind: TabKind = .agent
     ) -> WorkTask {
         let task = WorkTask(title: title, orderIndex: nextIndex(after: siblings), group: group)
         if let source = inheritingFrom, let folder = source.workingDirectoryPath {
@@ -42,17 +43,31 @@ enum TaskStore {
             // a subprocess, and nothing reads `repoPath` before then.
             Task { task.repoPath = await GitService.shared.repositoryRoot(containing: folder) }
         }
-        let tab = TaskTab(kind: .agent, orderIndex: 0, task: task)
-        tab.provider = AppSettings.shared.defaultProvider
-        tab.transport = tab.provider.resolvedTransport(preferring: AppSettings.shared.defaultAgentTransport)
-        if tab.provider == .codex {
-            tab.codexCollaborationMode = AppSettings.shared.defaultCodexCollaborationMode
-        }
+        let tab = TaskTab(kind: kind, orderIndex: 0, task: task)
+        if kind == .agent { applyDefaultLaunchSettings(to: tab) }
         context.insert(task)
         context.insert(tab)
         task.tabs = [tab]
         selectTab(tab, in: task)
         return task
+    }
+
+    static func applyDefaultLaunchSettings(to tab: TaskTab, from settings: AppSettings = .shared) {
+        tab.provider = settings.defaultProvider
+        tab.transport = tab.provider.resolvedTransport(preferring: settings.defaultAgentTransport)
+        if tab.provider == .codex {
+            tab.codexCollaborationMode = settings.defaultCodexCollaborationMode
+        }
+    }
+
+    /// Placed from what the store holds now, for a caller whose own lists may
+    /// be stale by the time it creates the task.
+    static func createTask(in context: ModelContext, groupID: UUID?) -> WorkTask {
+        let groups = (try? context.fetch(FetchDescriptor<TaskGroup>())) ?? []
+        let group = groups.first { $0.id == groupID }
+        let liveTasks = ((try? context.fetch(FetchDescriptor<WorkTask>())) ?? []).filter { !$0.isArchived }
+        let siblings = liveTasks.filter { $0.group?.id == group?.id }
+        return createTask(in: context, group: group, siblings: siblings)
     }
 
     /// An ungrouped task whose only tab is a terminal, for a command the user should watch run.
@@ -63,15 +78,10 @@ enum TaskStore {
         directory: String,
         siblings: [WorkTask]
     ) -> (task: WorkTask, tab: TaskTab) {
-        let task = WorkTask(title: title, orderIndex: nextIndex(after: siblings), group: nil)
+        let task = createTask(in: context, title: title, siblings: siblings, firstTab: .terminal)
         task.workingDirectoryPath = directory
         task.workspaceKind = .directory
-        let tab = TaskTab(kind: .terminal, orderIndex: 0, task: task)
-        context.insert(task)
-        context.insert(tab)
-        task.tabs = [tab]
-        selectTab(tab, in: task)
-        return (task, tab)
+        return (task, task.tabs[0])
     }
 
     @discardableResult
@@ -191,6 +201,42 @@ enum TaskStore {
 
     private static func focusedTab(of task: WorkTask) -> TaskTab? {
         task.tabs.first { $0.id == task.selectedTabID }
+    }
+
+    enum DeviceTabPlacement: Equatable {
+        case newPane
+        case pane(Int)
+    }
+
+    /// Where a device tab a claim opens goes: never in the claiming tab's
+    /// pane. A claiming tab no longer in the task leaves the focused pane to
+    /// stand in for it.
+    static func deviceTabPlacement(launchingPane: Int?, focusedPane: Int, paneCount: Int) -> DeviceTabPlacement {
+        guard paneCount > 1 else { return .newPane }
+        let occupied = launchingPane ?? focusedPane
+        return .pane(occupied == 0 ? paneCount - 1 : 0)
+    }
+
+    /// A new device tab, shown in the pane `deviceTabPlacement` picks, with
+    /// focus left where it was: the claiming agent is usually mid-turn.
+    @discardableResult
+    static func addDeviceTab(to task: WorkTask, besideTab launchingTabID: UUID, in context: ModelContext) -> TaskTab {
+        let previous = focusedTab(of: task)
+        let placement = deviceTabPlacement(
+            launchingPane: task.tabs.first { $0.id == launchingTabID }?.paneIndex,
+            focusedPane: task.focusedPane,
+            paneCount: task.paneCount
+        )
+        let tab: TaskTab
+        switch placement {
+        case .newPane:
+            tab = addTab(to: task, kind: .device, in: context)
+            openInSplit(tab, side: .right, in: task)
+        case .pane(let pane):
+            tab = addTab(to: task, kind: .device, pane: pane, in: context)
+        }
+        if let previous { selectTab(previous, in: task) }
+        return tab
     }
 
     /// Moves `tab` into `pane`'s strip at the gap `position` (counted in the
@@ -330,7 +376,7 @@ enum TaskStore {
         task.isArchived = false
         task.archivedAt = nil
         for tab in task.tabs where tab.kind == .agent {
-            StatusEngine.shared.restore(tabID: tab.id, taskID: task.id)
+            StatusEngine.shared.restore(tabID: tab.id, taskID: task.id, lastStatus: tab.lastStatus)
             // Seeded before any watch below, so a fallback read racing in
             // ahead of a real transcript write finds the source already
             // recorded rather than being free to overwrite a higher-ranked
@@ -355,6 +401,7 @@ enum TaskStore {
     /// conversation regardless (tracked separately), so while one exists this
     /// only drops `agentSessionID` and leaves the title and watches alone.
     static func startFresh(_ tab: TaskTab) {
+        PendingFirstMessageStore.shared.forget(tabID: tab.id)
         guard AgentSessionManager.shared.existingSession(for: tab.id) == nil else {
             tab.agentSessionID = nil
             return
@@ -382,6 +429,7 @@ enum TaskStore {
         }
         LinearMentionTracker.shared.forget(taskID: task.id)
         LinearStore.shared.forget(taskID: task.id)
+        LinkedPullRequestStore.shared.forget(taskID: task.id)
         context.delete(task)
     }
 
@@ -442,17 +490,22 @@ enum TaskStore {
         SurfaceManager.shared.closeSession(for: tabID)
         AgentSessionManager.shared.closeSession(for: tabID)
         DeviceSessionManager.shared.closeSession(for: tabID)
+        DeviceLeaseCoordinator.shared.tabForgotten(tabID)
         TitleStore.shared.forget(tabID: tabID)
         TabDirectoryStore.shared.forget(tabID: tabID)
+        FolderRowsCache.shared.forget(tabID: tabID)
         DraftStore.shared.forget(tabID: tabID)
         CommandModeRuns.shared.forget(tabID: tabID)
         BellStore.shared.forget(tabID: tabID)
         UnreadStore.shared.forget(tabID: tabID)
+        if tab.unreadMessageID != nil { tab.unreadMessageID = nil }
         SubagentCompletionTracker.shared.forget(tabID: tabID)
         SubagentStatusOverrides.shared.forget(tabID: tabID)
         InheritedForkHistory.shared.forget(tabID: tabID)
+        PendingFirstMessageStore.shared.forget(tabID: tabID)
         TranscriptStore.shared.stopWatching(tabID: tabID)
         ChatPieceCache.forget(tabID: tabID)
+        HomePreviewCache.shared.forget(tabID: tabID)
         MentionResolver.shared.forgetTab(tabID)
         ReferenceChipStore.shared.forget(owner: tabID)
         CodexSubagentStore.shared.forget(tabID: tabID)
@@ -539,6 +592,38 @@ enum TaskStore {
         change(&links)
         guard links != before else { return }
         integrations.linear = links.isEmpty ? nil : links
+        task.integrationsData = integrations.encoded()
+    }
+
+    // MARK: - Pinned pull requests
+
+    static func pinnedPullRequests(of task: WorkTask) -> [PullRequestReference] {
+        LinkedPullRequestStore.shared.pinned(of: task)
+    }
+
+    /// Returns false for input that is not a pull request URL or `owner/repo#123`.
+    @discardableResult
+    static func pinPullRequest(_ input: String, to task: WorkTask) -> Bool {
+        guard let reference = PullRequestReference.parse(input) else { return false }
+        pinPullRequest(reference, to: task)
+        return true
+    }
+
+    static func pinPullRequest(_ reference: PullRequestReference, to task: WorkTask) {
+        updatePullRequestLinks(of: task) { $0.pin(reference) }
+    }
+
+    static func unpinPullRequest(_ reference: PullRequestReference, from task: WorkTask) {
+        updatePullRequestLinks(of: task) { $0.unpin(reference) }
+    }
+
+    private static func updatePullRequestLinks(of task: WorkTask, _ change: (inout PullRequestTaskLinks) -> Void) {
+        var integrations = TaskIntegrations.decode(task.integrationsData)
+        let before = integrations.pullRequests ?? PullRequestTaskLinks()
+        var links = before
+        change(&links)
+        guard links != before else { return }
+        integrations.pullRequests = links.isEmpty ? nil : links
         task.integrationsData = integrations.encoded()
     }
 

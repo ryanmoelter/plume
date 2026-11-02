@@ -56,6 +56,7 @@ struct WorkspacePickerView: View, ThemedView {
     @State private var recentFolders = RecentFolders.load()
     @State private var isTargetedForDrop = false
     @State private var worktreeSheetShown = false
+    @State private var subfolderChoices: [String] = []
 
     var body: some View {
         Group {
@@ -71,7 +72,7 @@ struct WorkspacePickerView: View, ThemedView {
             delegate: FolderDropDelegate(
                 isEnabled: isEditable,
                 isTargeted: $isTargetedForDrop,
-                setDirectory: setDirectory
+                setDirectory: { setDirectory($0) }
             )
         )
         .sheet(isPresented: $worktreeSheetShown) {
@@ -98,6 +99,13 @@ struct WorkspacePickerView: View, ThemedView {
         // Keyed on the directory as well as the repository: creating or
         // removing a worktree moves the task inside one repository, leaving
         // `repoPath` untouched while the listing it loaded goes stale.
+        .task(id: checkoutDirectory) {
+            guard let directory = checkoutDirectory, !directory.isEmpty else {
+                subfolderChoices = []
+                return
+            }
+            subfolderChoices = await Task.detached { ProjectSubfolder.childFolders(of: directory) }.value
+        }
         .task(id: WorktreeListingKey(repository: task.repoPath, directory: task.workingDirectoryPath)) {
             guard let repoPath = task.repoPath else {
                 worktrees = []
@@ -166,9 +174,15 @@ struct WorkspacePickerView: View, ThemedView {
         VStack(alignment: .leading, spacing: 2) {
             Text("Start a conversation in")
                 .emphasis(.secondary)
-            inlineFolderMenu
-                .frame(maxWidth: .infinity, alignment: .leading)
-                .padding(.top, dimensions.inlineGlyphLeading)
+            HStack(alignment: .firstTextBaseline, spacing: 8) {
+                inlineFolderMenu
+                if hasRepository {
+                    inlineSubfolderMenu
+                }
+                Spacer(minLength: 0)
+            }
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .padding(.top, dimensions.inlineGlyphLeading)
             // Held in the layout even with nothing to say. These notes arrive a
             // subprocess later than the names above them, and letting them come
             // and go moves every line below on the way in.
@@ -226,13 +240,38 @@ struct WorkspacePickerView: View, ThemedView {
             Menu {
                 folderMenuItems
             } label: {
-                inlineLabel(folderName, systemImage: "folder")
+                inlineLabel(folderName, glyph: .symbol("folder"))
             }
             .modifier(InlineMenuChrome(help: folderHelp))
         } else {
-            inlineLabel(folderName, systemImage: "folder", isControl: false)
+            inlineLabel(folderName, glyph: .symbol("folder"), isControl: false)
                 .help(folderHelp)
         }
+    }
+
+    @ViewBuilder
+    private var inlineSubfolderMenu: some View {
+        let title = currentSubfolder ?? ProjectSubfolder.rootTitle
+        Group {
+            if isEditable {
+                Menu {
+                    SubfolderMenuItems(
+                        choices: subfolderChoices,
+                        checkoutRoot: checkoutDirectory,
+                        choose: chooseSubfolder,
+                        chooseFolder: { setDirectory($0, keepingBranch: true) }
+                    )
+                } label: {
+                    inlineLabel(title, glyph: .pathSeparator)
+                }
+                .modifier(InlineMenuChrome(help: "Subfolder: \(title)"))
+                .plumeID(AccessibilityID.workspaceSubfolderMenu)
+            } else {
+                inlineLabel(title, glyph: .pathSeparator, isControl: false)
+                    .help("Subfolder: \(title)")
+            }
+        }
+        .font(ProjectSubfolder.labelStyle(proseTypography.headline, subfolder: currentSubfolder).font)
     }
 
     @ViewBuilder
@@ -241,12 +280,12 @@ struct WorkspacePickerView: View, ThemedView {
             Menu {
                 worktreeMenuItems
             } label: {
-                inlineLabel(worktreeName, systemImage: "tree")
+                inlineLabel(worktreeName, glyph: .symbol("tree"))
             }
             .modifier(InlineMenuChrome(help: worktreeHelp))
             .plumeID(AccessibilityID.workspaceWorktreeMenu)
         } else {
-            inlineLabel(worktreeName, systemImage: "tree", isControl: false)
+            inlineLabel(worktreeName, glyph: .symbol("tree"), isControl: false)
                 .help(worktreeHelp)
         }
     }
@@ -267,9 +306,9 @@ struct WorkspacePickerView: View, ThemedView {
     ///
     /// The label carries the sentence's full weight while the words around it
     /// step back: what you can change is what the eye should land on.
-    private func inlineLabel(_ title: String, systemImage: String, isControl: Bool = true) -> some View {
+    private func inlineLabel(_ title: String, glyph: MenuLabelGlyph, isControl: Bool = true) -> some View {
         HStack(spacing: 4) {
-            Image(systemName: systemImage)
+            glyph.view
                 .imageScale(.medium)
                 .layoutPriority(1)
             // The one compressible part: the marks around it stay whole and
@@ -303,7 +342,7 @@ struct WorkspacePickerView: View, ThemedView {
     @ViewBuilder
     private var folderMenuItems: some View {
         ForEach(recentFolders, id: \.self) { path in
-            Button(abbreviate(path)) { setDirectory(path) }
+            Button(abbreviate(path)) { chooseProject(path) }
         }
         if !recentFolders.isEmpty {
             Divider()
@@ -472,7 +511,7 @@ struct WorkspacePickerView: View, ThemedView {
     /// The worktree the task is working in, matched on a standardized path —
     /// `git` and the stored path can spell one directory differently.
     private var selectedWorktree: GitWorktree? {
-        guard isSettled, let path = task.workingDirectoryPath.map(standardized) else { return nil }
+        guard isSettled, let path = checkoutDirectory.map(standardized) else { return nil }
         return worktrees.first(where: { standardized($0.path) == path })
     }
 
@@ -499,7 +538,7 @@ struct WorkspacePickerView: View, ThemedView {
     /// directory to be one the listing knows closes that window.
     private var isSettled: Bool {
         guard task.repoPath == loadedRepoPath else { return false }
-        guard let path = task.workingDirectoryPath.map(standardized), !worktrees.isEmpty else { return true }
+        guard let path = checkoutDirectory.map(standardized), !worktrees.isEmpty else { return true }
         return worktrees.contains { standardized($0.path) == path }
     }
 
@@ -524,7 +563,26 @@ struct WorkspacePickerView: View, ThemedView {
         guard let path = task.workingDirectoryPath, !path.isEmpty else { return nil }
         let root = CheckoutFactsStore.shared.facts(for: path)?.projectRoot
             ?? task.repoPath.flatMap { CheckoutFactsStore.shared.facts(for: $0)?.projectRoot }
-        return root.map(abbreviate)
+        guard let root else { return nil }
+        guard let subfolder = currentSubfolder else { return abbreviate(root) }
+        return abbreviate((root as NSString).appendingPathComponent(subfolder))
+    }
+
+    private var workingFacts: CheckoutFacts? {
+        CheckoutFactsStore.shared.facts(for: task.workingDirectoryPath)
+    }
+
+    private var currentSplit: ProjectSubfolder? {
+        guard let path = task.workingDirectoryPath else { return nil }
+        return ProjectSubfolder.split(path: path, facts: workingFacts)
+    }
+
+    private var currentSubfolder: String? { currentSplit?.subfolder }
+
+    /// The checkout's own directory, which the worktree listing names; the
+    /// working directory is deeper than it when a subfolder is chosen.
+    private var checkoutDirectory: String? {
+        currentSplit?.checkoutRoot ?? task.workingDirectoryPath
     }
 
     private func name(for worktree: GitWorktree) -> String {
@@ -589,7 +647,7 @@ struct WorkspacePickerView: View, ThemedView {
     }
 
     private func select(_ worktree: GitWorktree) {
-        task.workingDirectoryPath = worktree.path
+        task.workingDirectoryPath = directoryKeepingSubfolder(in: worktree.path)
         task.branchName = worktree.branch
         task.workspaceKind = worktree.isMain ? .directory : .worktree
         rememberProject(containing: worktree.path)
@@ -664,10 +722,27 @@ struct WorkspacePickerView: View, ThemedView {
         setDirectory(url.path)
     }
 
-    private func setDirectory(_ path: String) {
+    /// The current subfolder carried into another checkout, when that checkout
+    /// has it.
+    private func directoryKeepingSubfolder(in checkout: String) -> String {
+        ProjectSubfolder.existingDirectory(checkoutRoot: checkout, subfolder: currentSubfolder)
+    }
+
+    private func chooseProject(_ path: String) {
+        setDirectory(path)
+    }
+
+    private func chooseSubfolder(_ name: String?) {
+        guard let checkout = checkoutDirectory else { return }
+        setDirectory(ProjectSubfolder.directory(checkoutRoot: checkout, subfolder: name), keepingBranch: true)
+    }
+
+    private func setDirectory(_ path: String, keepingBranch: Bool = false) {
         task.workingDirectoryPath = path
-        task.workspaceKind = .directory
-        task.branchName = nil
+        if !keepingBranch {
+            task.workspaceKind = .directory
+            task.branchName = nil
+        }
         rememberProject(containing: path)
         // Resolved after the fact: finding the repository root is a
         // subprocess, and the picker should not wait on one to show the
@@ -694,7 +769,7 @@ private struct FolderDropDelegate: DropDelegate {
     let setDirectory: (String) -> Void
 
     func validateDrop(info: DropInfo) -> Bool {
-        isEnabled && !folders(in: info).isEmpty
+        isEnabled && !DroppedFolders.urls(in: info).isEmpty
     }
 
     func dropEntered(info: DropInfo) { isTargeted = true }
@@ -702,19 +777,9 @@ private struct FolderDropDelegate: DropDelegate {
 
     func performDrop(info: DropInfo) -> Bool {
         isTargeted = false
-        guard let folder = folders(in: info).first else { return false }
+        guard let folder = DroppedFolders.urls(in: info).first else { return false }
         setDirectory(folder.path)
         return true
-    }
-
-    /// `NSItemProvider` only loads asynchronously, so the URLs come off the
-    /// drag pasteboard instead — `validateDrop` has to answer now.
-    private func folders(in info: DropInfo) -> [URL] {
-        guard info.hasItemsConforming(to: [.fileURL]) else { return [] }
-        let options: [NSPasteboard.ReadingOptionKey: Any] = [.urlReadingFileURLsOnly: true]
-        let urls = NSPasteboard(name: .drag)
-            .readObjects(forClasses: [NSURL.self], options: options) as? [URL] ?? []
-        return urls.filter(\.hasDirectoryPath)
     }
 }
 

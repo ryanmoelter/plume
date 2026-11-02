@@ -55,6 +55,9 @@ struct MarkdownComposerTextView: NSViewRepresentable {
     /// Called on Esc the slash-command list didn't take, with its modifiers.
     /// Returns whether it consumed the key; false leaves Esc to `NSTextView`.
     var onEscape: ((NSEvent.ModifierFlags) -> Bool)?
+    /// Called on Shift-Tab when nothing else claims it. Nil leaves the key to
+    /// `NSTextView`.
+    var onTogglePlanMode: (() -> Void)?
     /// Names of the session's known slash commands, so a recognized leading
     /// `/name` token can be tinted as the user types it.
     var recognizedSlashCommandNames: Set<String> = []
@@ -115,6 +118,7 @@ struct MarkdownComposerTextView: NSViewRepresentable {
         textView.autocompleteHandler = autocompleteHandler
         textView.onEditQueuedMessage = onEditQueuedMessage
         textView.onEscape = onEscape
+        textView.onTogglePlanMode = onTogglePlanMode
         textView.onOptionReturn = onOptionReturn
         textView.onAttachImages = onAttachImages
         textView.onDeleteBackwardWhenEmpty = onDeleteBackwardWhenEmpty
@@ -496,6 +500,8 @@ final class ComposerNSTextView: NSTextView {
 
     var onEscape: ((NSEvent.ModifierFlags) -> Bool)?
 
+    var onTogglePlanMode: (() -> Void)?
+
     /// Called on ⌥↩ instead of inserting a newline, for a caller with a third
     /// action on that key — the plan field's approve-with-feedback.
     var onOptionReturn: (() -> Void)?
@@ -614,9 +620,19 @@ final class ComposerNSTextView: NSTextView {
     }
 
     override func insertText(_ string: Any, replacementRange: NSRange) {
-        guard editsMarkdown, replacementRange.location == NSNotFound, string as? String == " ",
-              let result = ComposerMarkdownEditing.insertSpace(in: self.string, selection: selectedRange())
-        else {
+        guard editsMarkdown, replacementRange.location == NSNotFound, let typed = string as? String else {
+            super.insertText(string, replacementRange: replacementRange)
+            return
+        }
+        if typed == "`" || typed == "~" {
+            super.insertText(string, replacementRange: replacementRange)
+            let caret = selectedRange()
+            if caret.length == 0, let result = ComposerFenceClosing.closing(in: self.string, caret: caret.location) {
+                apply(result)
+            }
+            return
+        }
+        guard typed == " ", let result = ComposerMarkdownEditing.insertSpace(in: self.string, selection: selectedRange()) else {
             super.insertText(string, replacementRange: replacementRange)
             return
         }
@@ -638,11 +654,26 @@ final class ComposerNSTextView: NSTextView {
     }
 
     override func insertBacktab(_ sender: Any?) {
-        guard editsMarkdown, let result = ComposerMarkdownEditing.outdent(in: string, selection: selectedRange()) else {
-            super.insertBacktab(sender)
-            return
+        let outdent = editsMarkdown ? ComposerMarkdownEditing.outdent(in: string, selection: selectedRange()) : nil
+        switch ComposerShiftTab.decide(
+            autocompleteShowing: autocompleteHandler?.isShowing == true,
+            outdent: outdent,
+            canTogglePlanMode: onTogglePlanMode != nil && !hasMarkedText()
+        ) {
+        case .outdent(let result): apply(result)
+        case .togglePlanMode: onTogglePlanMode?()
+        case .autocomplete, .ordinary: super.insertBacktab(sender)
         }
+    }
+
+    override func performKeyEquivalent(with event: NSEvent) -> Bool {
+        guard editsMarkdown, window?.firstResponder === self,
+              event.modifierFlags.intersection(.deviceIndependentFlagsMask) == .command,
+              let style = event.charactersIgnoringModifiers.flatMap(ComposerInlineFormatting.Style.init(characters:)),
+              let result = ComposerInlineFormatting.apply(style, in: string, selection: selectedRange())
+        else { return super.performKeyEquivalent(with: event) }
         apply(result)
+        return true
     }
 
     override func deleteBackward(_ sender: Any?) {

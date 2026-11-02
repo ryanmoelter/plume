@@ -6,7 +6,7 @@ import os
 /// Deliberately knows nothing about chat, status, permissions, or which CLI it
 /// is running: it delivers whole lines and writes lines back. The session that
 /// owns it supplies meaning.
-final class AgentProcess: @unchecked Sendable {
+nonisolated final class AgentProcess: @unchecked Sendable {
     private let process = Process()
     private let inPipe = Pipe()
     private let outPipe = Pipe()
@@ -31,6 +31,12 @@ final class AgentProcess: @unchecked Sendable {
     /// Whether any output arrived. Separates a launch that never started from
     /// a session that ran and later exited.
     private var didReceiveLine = false
+
+    /// Set once the child has exited, which can be well after `terminate()`
+    /// returned.
+    private var hasProcessExited = false
+    private var didLaunch = false
+    private var exitWaiters: [CheckedContinuation<Void, Never>] = []
 
     /// Names the CLI in log lines.
     private let label: String
@@ -88,11 +94,38 @@ final class AgentProcess: @unchecked Sendable {
             }
         }
         process.terminationHandler = { [weak self] process in
+            self?.recordExit()
             self?.finish(status: process.terminationStatus)
         }
 
         try process.run()
-        queue.sync { isRunning = true }
+        queue.sync {
+            isRunning = true
+            didLaunch = true
+        }
+    }
+
+    /// Returns once the child has exited, which `terminate()` bounds by
+    /// escalating to `SIGKILL`. At once for a process that never launched.
+    func waitUntilExited() async {
+        await withCheckedContinuation { continuation in
+            queue.async { [self] in
+                if !didLaunch || hasProcessExited {
+                    continuation.resume()
+                } else {
+                    exitWaiters.append(continuation)
+                }
+            }
+        }
+    }
+
+    private func recordExit() {
+        queue.async { [self] in
+            hasProcessExited = true
+            let waiters = exitWaiters
+            exitWaiters = []
+            for waiter in waiters { waiter.resume() }
+        }
     }
 
     /// The spawned pid, or nil before launch. Distinguishes an agent this app

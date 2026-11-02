@@ -21,6 +21,8 @@ struct ChatComposer: View, ThemedView {
     /// Whether something else in the panel already sits above the composer
     /// (the docked plan bar) — the caller is the only one who knows.
     var hasContentAbove = false
+    /// Whether the panel continues below the composer (the statusline footer).
+    var hasContentBelow = false
     /// Set by `ChatTabView` to pull a queued message (rendered there, above
     /// the panel) back into the draft for editing — the same operation the
     /// Up-arrow recall path below already does, since only this view knows
@@ -36,6 +38,11 @@ struct ChatComposer: View, ThemedView {
     /// conversation on it rather than waiting for the transcript. Fires only
     /// on the launch path, which is a tab's first message.
     var onLaunch: (String) -> Void = { _ in }
+    var suggestionDirection = ComposerSuggestionDirection.up
+    /// Set when the tab has no agent of its own and sends somewhere else.
+    var handOff: ComposerHandOff?
+    /// Inside the panel, over the field.
+    var aboveField: AnyView?
 
     @State private var inputFocused = false
     @Environment(\.chatFontSize) private var fontSize
@@ -50,6 +57,9 @@ struct ChatComposer: View, ThemedView {
     @State private var autocomplete = ComposerAutocompleteRouter()
     /// The panel that just closed, kept on screen while it collapses.
     @State private var closingSuggestionPanel: SuggestionPanel?
+    @State private var textAreaTop: CGFloat = 0
+    /// Kept until the draft that caused it is edited.
+    @State private var addDirectoryError: (message: String, draft: String)?
 
     private var headlessSession: (any AgentSession)? {
         guard tab.transport == .headless else { return nil }
@@ -86,13 +96,13 @@ struct ChatComposer: View, ThemedView {
     /// An image alone is a message worth sending, so the send button tracks
     /// both halves of the draft.
     private var canSend: Bool {
-        hasSendableText || !attachedImages.isEmpty
+        (hasSendableText || !attachedImages.isEmpty) && handOff?.isReady != false
     }
 
     /// What the Send Now menu command runs. Only the visible composer of the
     /// focused pane publishes one, so the command never acts on a hidden tab.
     private var sendNowCommand: (() -> Void)? {
-        guard isVisible, isFocused, tab.transport == .headless else { return nil }
+        guard isVisible, isFocused, handOff == nil, tab.transport == .headless else { return nil }
         let hasQueue = !(headlessSession?.queuedMessages.isEmpty ?? true)
         guard canSend || hasQueue else { return nil }
         return sendNow
@@ -128,8 +138,9 @@ struct ChatComposer: View, ThemedView {
     /// Plume's own join them only once there is something to run them
     /// against. `/rc` drives a control request, which needs a live process.
     /// `/btw` needs a conversation instead, and resumes one that has no
-    /// process. They never shadow a name the CLI reports: if a later CLI
-    /// serves `/rc` headlessly, its version wins.
+    /// process. `/add-dir` changes the tab's own list, so it needs neither.
+    /// They never shadow a name the CLI reports: if a later CLI serves `/rc`
+    /// headlessly, its version wins.
     private var availableSlashCommands: [SlashCommand] {
         if tab.provider == .codex, tab.transport == .headless {
             return CodexSkillStore.shared.skills(in: skillDirectory).map(\.command)
@@ -140,7 +151,11 @@ struct ChatComposer: View, ThemedView {
         let reportedNames = Set(reported.map(\.name))
         let plumeCommands = PlumeSlashCommand.all.filter { command in
             guard !reportedNames.contains(command.name) else { return false }
-            return command.name == "btw" ? hasConversation : headlessSession != nil
+            switch command.name {
+            case "btw": return hasConversation
+            case "add-dir": return true
+            default: return headlessSession != nil
+            }
         }
         return reported + plumeCommands
     }
@@ -159,7 +174,7 @@ struct ChatComposer: View, ThemedView {
     /// of the text: the chip and the monospaced field say what mode this is,
     /// so the marker has nothing left to add.
     private func updateCommandMode(for text: String) {
-        guard !isCommandMode, tab.transport == .headless else { return }
+        guard !isCommandMode, handOff == nil, tab.transport == .headless else { return }
         guard let stripped = CommandModeMatcher.enteringCommandMode(text) else { return }
         drafts.setCommandMode(true, forTab: tab.id)
         drafts.setDraft(stripped, forTab: tab.id)
@@ -169,6 +184,7 @@ struct ChatComposer: View, ThemedView {
 
     private var composerPlaceholder: String {
         if isCommandMode { return "Run a shell command…" }
+        if let handOff { return handOff.placeholder }
         guard let headlessSession, !headlessSession.queuedMessages.isEmpty else {
             if headlessSession == nil, tab.agentSessionID?.isEmpty != false,
                tab.sessionJSONLPath?.isEmpty != false {
@@ -272,7 +288,8 @@ struct ChatComposer: View, ThemedView {
                 commands: commands,
                 selectedIndex: selectedIndex,
                 onSelect: { autocomplete.slash.select($0) },
-                isTopOfPanel: !hasContentAbove,
+                isTopOfPanel: opensUp && !hasContentAbove,
+                isBottomOfPanel: !opensUp,
                 isRemembered: slashCommandsAreRemembered,
                 tokenPrefix: completionPrefix
             )
@@ -282,49 +299,69 @@ struct ChatComposer: View, ThemedView {
                 selectedIndex: selectedIndex,
                 isLoading: isLoading,
                 onSelect: { autocomplete.mention.select($0) },
-                isTopOfPanel: !hasContentAbove
+                isTopOfPanel: opensUp && !hasContentAbove,
+                isBottomOfPanel: !opensUp
             )
         }
     }
 
+    private var opensUp: Bool { suggestionDirection == .up }
+
     /// The panel steps out past the composer's content on the sides, and
-    /// above it when nothing else sits there.
+    /// past the panel's edge on the side it opens toward when nothing else
+    /// sits there.
     private var suggestionPanelOverhang: EdgeInsets {
         let inset = ComposerPanelMetrics.suggestionTextInset(contentInset: dimensions.panelContentInset)
-        return EdgeInsets(top: hasContentAbove ? 0 : inset, leading: inset, bottom: 0, trailing: inset)
+        return EdgeInsets(
+            top: opensUp && !hasContentAbove ? inset : 0,
+            leading: inset,
+            bottom: opensUp ? 0 : inset,
+            trailing: inset
+        )
+    }
+
+    private func trackClosingPanel(from old: SuggestionPanel?, to new: SuggestionPanel?) {
+        if new == nil {
+            closingSuggestionPanel = old
+        } else if closingSuggestionPanel != nil {
+            closingSuggestionPanel = nil
+        }
     }
 
     var body: some View {
         VStack(spacing: 0) {
-            // The composer is pinned to the bottom of the chat, so the panel
-            // grows upward from the field.
-            ZStack(alignment: .bottom) {
-                if let panel = suggestionPanel ?? closingSuggestionPanel {
-                    suggestionPanelView(panel)
-                        .padding(.bottom, dimensions.panelContentInset)
+            // A composer pinned to the bottom grows its panel upward from the
+            // field; one anchored to the top grows it downward.
+            if opensUp {
+                ZStack(alignment: .bottom) {
+                    if let panel = suggestionPanel ?? closingSuggestionPanel {
+                        suggestionPanelView(panel)
+                            .padding(.bottom, dimensions.panelContentInset)
+                    }
                 }
-            }
-            .bottomReveal(
-                isRevealed: suggestionPanel != nil,
-                overhang: suggestionPanelOverhang,
-                animation: .easeOut(duration: 0.18),
-                onHidden: { closingSuggestionPanel = nil }
-            )
-            .onChange(of: suggestionPanel) { old, new in
-                if new == nil {
-                    closingSuggestionPanel = old
-                } else if closingSuggestionPanel != nil {
-                    closingSuggestionPanel = nil
-                }
+                .bottomReveal(
+                    isRevealed: suggestionPanel != nil,
+                    overhang: suggestionPanelOverhang,
+                    animation: Self.suggestionPanelAnimation,
+                    onHidden: { closingSuggestionPanel = nil }
+                )
             }
 
             VStack(spacing: 0) {
+                if let aboveField {
+                    aboveField
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                        .padding(.bottom, dimensions.panelContentInset)
+                }
                 if !attachedImages.isEmpty {
                     ComposerAttachmentStrip(
                         images: attachedImages,
                         onRemove: { drafts.removeAttachment(at: $0, fromTab: tab.id) }
                     )
                     .padding(.bottom, dimensions.panelContentInset)
+                }
+                if let addDirectoryError {
+                    addDirectoryErrorRow(addDirectoryError.message)
                 }
                 if isCommandMode {
                     commandModeChip
@@ -340,6 +377,7 @@ struct ChatComposer: View, ThemedView {
                     onTextChange: { text in
                         let sendable = sendableText(text)
                         if sendable != hasSendableText { hasSendableText = sendable }
+                        if let error = addDirectoryError, error.draft != text { addDirectoryError = nil }
                         updateCommandMode(for: text)
                         autocomplete.slash.update(text: text, caretLocation: caretLocation, commands: availableSlashCommands, prefix: completionPrefix)
                     },
@@ -355,6 +393,7 @@ struct ChatComposer: View, ThemedView {
                         session.queuedMessages.isEmpty ? nil : { editQueuedMessage(at: session.queuedMessages.count - 1) }
                     },
                     onEscape: interruptOnEscape,
+                    onTogglePlanMode: togglePlanModeHandler,
                     recognizedSlashCommandNames: Set(availableSlashCommands.map(\.name)),
                     onAttachImages: attachHandler,
                     isCommandMode: isCommandMode,
@@ -393,16 +432,59 @@ struct ChatComposer: View, ThemedView {
                 .padding(.top, dimensions.panelContentInset)
             }
             .animation(.snappy(duration: 0.2), value: isCommandMode)
-            // Anchored to the bottom: the panel is pinned to the bottom of
-            // the chat, so the chip has to grow the panel upwards. Easing the
-            // height from the centre splits the change across both edges and
-            // drags the controls row with it.
-            .animatedHeight(.snappy(duration: 0.2), alignment: .bottom)
+            .onGeometryChange(for: CGFloat.self) {
+                $0.frame(in: .named(Self.rootSpace)).minY
+            } action: { top in
+                // Only the suggestion panel moves the text area within the
+                // root, so the mode icon eases with its reveal rather than
+                // jumping to where the reveal will end.
+                withAnimation(textAreaTop == 0 ? nil : Self.suggestionPanelAnimation) { textAreaTop = top }
+            }
+            // Anchored to the edge the panel is pinned by: easing the height
+            // from the centre splits the change across both edges and drags
+            // the controls row with it.
+            .animatedHeight(.snappy(duration: 0.2), alignment: opensUp ? .bottom : .top)
+
+            if !opensUp {
+                ZStack(alignment: .top) {
+                    if let panel = suggestionPanel ?? closingSuggestionPanel {
+                        suggestionPanelView(panel)
+                            .padding(.top, dimensions.panelContentInset)
+                    }
+                }
+                .topReveal(
+                    isRevealed: suggestionPanel != nil,
+                    overhang: suggestionPanelOverhang,
+                    animation: Self.suggestionPanelAnimation,
+                    onHidden: { closingSuggestionPanel = nil }
+                )
+            }
+        }
+        .onChange(of: suggestionPanel) { old, new in
+            trackClosingPanel(from: old, to: new)
         }
         // The composer's whole content sits at one inset from the glass
         // edge, on every side — the text view's own correction above is what
         // keeps its glyphs level with the controls below it.
         .padding(dimensions.composerFieldInset)
+        // On the root, whose frame is the glass's: the text area clips its
+        // own content while its height animates.
+        .background {
+            ComposerModeBackdrop(
+                task: task,
+                tab: tab,
+                headlessSession: headlessSession,
+                textAreaTop: textAreaTop,
+                tint: colors.foreground
+            )
+            .clipShape(.rect(
+                topLeadingRadius: hasContentAbove ? 0 : dimensions.panelCornerRadius,
+                bottomLeadingRadius: hasContentBelow ? 0 : dimensions.panelCornerRadius,
+                bottomTrailingRadius: hasContentBelow ? 0 : dimensions.panelCornerRadius,
+                topTrailingRadius: hasContentAbove ? 0 : dimensions.panelCornerRadius
+            ))
+        }
+        .coordinateSpace(.named(Self.rootSpace))
         .onChange(of: isVisible, initial: true) { _, visible in
             if !visible { inputFocused = false }
         }
@@ -456,6 +538,8 @@ struct ChatComposer: View, ThemedView {
     /// `NSTextView` draws its first glyph one line-fragment padding in from
     /// its frame, which the composer's own inset has to account for.
     private static let lineFragmentPadding: CGFloat = 5
+    private static let rootSpace = "ChatComposer.root"
+    private static let suggestionPanelAnimation = Animation.easeOut(duration: 0.18)
 
     private var sendButtonHelp: String {
         guard headlessSession?.isWorking == true else { return "Send" }
@@ -529,6 +613,22 @@ struct ChatComposer: View, ThemedView {
         return true
     }
 
+    private var togglePlanModeHandler: (() -> Void)? {
+        isCommandMode ? nil : { togglePlanMode() }
+    }
+
+    private func togglePlanMode() {
+        let state = ComposerSettings(session: headlessSession, tab: tab, defaults: .resolved(task: task))
+        let memory = LastNonPlanModeStore.shared
+        if let current = state.permissionPreset { memory.remember(current, forTab: tab.id) }
+        guard let next = ComposerShiftTab.togglePlan(
+            current: state.permissionPreset,
+            lastNonPlan: memory.preset(forTab: tab.id),
+            in: state.permissionPresets
+        ) else { return }
+        state.setPermissionPreset(next)
+    }
+
     /// Says what the composer will do with what is being typed. Its button
     /// leaves the mode, as Delete in an empty field does.
     private var commandModeChip: some View {
@@ -585,6 +685,13 @@ struct ChatComposer: View, ThemedView {
     private func send() {
         guard canSend, headlessSession?.isSteering != true else { return }
         let text = drafts.draft(forTab: tab.id)
+        // Plume's own commands act on a session, which a hand-off has none
+        // of, so they stay in the draft rather than reaching a new agent as
+        // prose.
+        if handOff != nil, PlumeSlashCommand.parse(text) != nil {
+            NSSound.beep()
+            return
+        }
         let images = attachedImages
         drafts.setDraft("", forTab: tab.id)
         drafts.clearAttachments(forTab: tab.id)
@@ -601,22 +708,24 @@ struct ChatComposer: View, ThemedView {
             return
         }
         if !isCommandMode, images.isEmpty, tab.provider == .claudeCode, tab.transport == .headless, let command = PlumeSlashCommand.parse(text) {
-            guard let headlessSession = liveClaudeSession(for: command) else {
-                // A question has nothing to read until a conversation exists,
-                // so it goes back in the composer rather than vanishing.
-                if case .sideQuestion = command {
-                    drafts.setDraft(text, forTab: tab.id)
-                    hasSendableText = true
-                }
-                return
-            }
             switch command {
+            case .addDirectory(let path):
+                addDirectory(path, typed: text)
             case .remoteControl(let name):
+                guard let headlessSession = liveClaudeSession(for: command) else { return }
                 headlessSession.setRemoteControl(
                     enabled: !headlessSession.remoteControl.isConnected,
                     name: name
                 )
             case .sideQuestion(let question):
+                guard let headlessSession = liveClaudeSession(for: command) else {
+                    // A question has nothing to read until a conversation
+                    // exists, so it goes back in the composer rather than
+                    // vanishing.
+                    drafts.setDraft(text, forTab: tab.id)
+                    hasSendableText = true
+                    return
+                }
                 headlessSession.askSideQuestion(question)
             }
             return
@@ -634,7 +743,23 @@ struct ChatComposer: View, ThemedView {
         let sentText = wasCommandMode ? text : expandingMentions(in: text)
         let blocks: [UserContentBlock] =
             [.text(CommandModeMatcher.unescaped(sentText))] + images.map { .image($0) }
-        dispatch(blocks)
+        if let handOff {
+            handOver(.init(typedText: text, blocks: blocks), images: images, to: handOff)
+        } else {
+            dispatch(blocks)
+        }
+    }
+
+    private func handOver(_ message: ComposerHandOff.Message, images: [ChatImage], to handOff: ComposerHandOff) {
+        let tabID = tab.id
+        Task {
+            guard !(await handOff.send(message)) else { return }
+            // Never over text typed while the send was in flight.
+            guard drafts.draft(forTab: tabID).isEmpty, drafts.attachments(forTab: tabID).isEmpty else { return }
+            drafts.setDraft(message.typedText, forTab: tabID)
+            drafts.attach(images, toTab: tabID)
+            hasSendableText = sendableText(message.typedText)
+        }
     }
 
     private func expandingMentions(in text: String) -> String {
@@ -698,6 +823,36 @@ struct ChatComposer: View, ThemedView {
         }
     }
 
+    /// A bare `/add-dir` opens the folder picker. A path that is not a
+    /// folder goes back in the draft, to be corrected rather than retyped.
+    private func addDirectory(_ path: String, typed text: String) {
+        guard !path.isEmpty else {
+            AddFolderPanel.present(for: tab)
+            return
+        }
+        Task {
+            guard await !AdditionalDirectoryStore.add([path], to: tab).isEmpty else { return }
+            drafts.setDraft(text, forTab: tab.id)
+            hasSendableText = true
+            addDirectoryError = (message: "Not a folder: \(path)", draft: text)
+        }
+    }
+
+    private func addDirectoryErrorRow(_ error: String) -> some View {
+        HStack(spacing: 4) {
+            Image(systemName: "exclamationmark.triangle")
+                .font(typography.caption.font)
+            Text(error)
+                .font(typography.caption.font)
+                .lineLimit(2)
+                .truncationMode(.middle)
+        }
+        .foregroundStyle(colors.danger)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .padding(.bottom, dimensions.panelContentInset)
+        .plumeID(AccessibilityID.composerAddDirectoryError, value: error)
+    }
+
     /// The session a Plume command runs against. A side question needs a
     /// conversation to ask about, so it is never a chat's first message. On a
     /// tab with a conversation but no running process — every tab, after a
@@ -708,14 +863,7 @@ struct ChatComposer: View, ThemedView {
         guard case .sideQuestion = command else { return session }
         guard hasConversation else { return nil }
         guard session?.hasExited ?? true else { return session }
-        if session != nil { AgentSessionManager.shared.closeSession(for: tab.id) }
-        AgentLauncher.launch(message: nil, task: tab.task ?? task, tab: tab, resumeSessionID: tab.agentSessionID)
-        let resumed = headlessSession as? HeadlessSession
-        if let session, let resumed {
-            resumed.inheritSideQuestions(from: session)
-            for message in session.queuedMessages { resumed.submit(blocks: message) }
-        }
-        return resumed
+        return AgentLauncher.relaunchHeadless(task: tab.task ?? task, tab: tab) as? HeadlessSession
     }
 
     /// Recorded once the CLI reports the session, so a chat whose first
@@ -733,12 +881,8 @@ struct ChatComposer: View, ThemedView {
         let text = blocks.plainText
         if let headlessSession, !headlessSession.hasExited {
             return headlessSession.submit(blocks: blocks)
-        } else if let exitedSession = headlessSession {
-            let unsent = exitedSession.queuedMessages
-            AgentSessionManager.shared.closeSession(for: tab.id)
-            AgentLauncher.launch(message: nil, task: tab.task ?? task, tab: tab, resumeSessionID: tab.agentSessionID)
-            if let resumed = headlessSession {
-                for message in unsent { resumed.submit(blocks: message) }
+        } else if headlessSession != nil {
+            if let resumed = AgentLauncher.relaunchHeadless(task: tab.task ?? task, tab: tab) {
                 return resumed.submit(blocks: blocks)
             }
         } else if let session = SurfaceManager.shared.existingSession(for: tab.id) {
@@ -754,4 +898,37 @@ struct ChatComposer: View, ThemedView {
 #Preview {
     ChatComposer(task: WorkTask(title: "Preview", orderIndex: 0), tab: TaskTab(kind: .agent, orderIndex: 0))
         .padding()
+}
+
+
+/// A faint icon for the permission mode, behind the text. It hangs from the
+/// text area's top rather than the composer's, so an autocomplete panel
+/// growing above never moves it.
+private struct ComposerModeBackdrop: View {
+    let task: WorkTask
+    let tab: TaskTab
+    let headlessSession: (any AgentSession)?
+    let textAreaTop: CGFloat
+    /// A concrete color with the alpha baked in: inside glass, `.primary`
+    /// renders vibrant, and once clipped it ignores an `.opacity` modifier.
+    let tint: Color
+
+    var body: some View {
+        let preset = ComposerSettings(session: headlessSession, tab: tab, defaults: .resolved(task: task)).permissionPreset
+        // An overlay, so the icon never grows the frame the caller clips to.
+        Color.clear.overlay(alignment: .topTrailing) {
+            if let preset {
+                Image(systemName: preset.symbol)
+                    .id(preset.id)
+                    .font(.system(size: 88))
+                    .foregroundStyle(tint.opacity(0.07))
+                    .padding(.top, textAreaTop)
+                    .offset(x: 20, y: -34)
+                    .transition(.opacity)
+            }
+        }
+        .animation(.easeInOut(duration: 0.2), value: preset?.id)
+        .allowsHitTesting(false)
+        .accessibilityHidden(true)
+    }
 }

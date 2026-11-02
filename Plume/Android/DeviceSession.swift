@@ -78,6 +78,16 @@ final class DeviceSession {
     /// Called when the user picks a device, so the tab can persist it.
     @ObservationIgnored var onDeviceChange: ((_ target: DeviceTarget?, _ displayName: String?) -> Void)?
     @ObservationIgnored var onRemoteDetailsChange: ((RemoteDeviceDetails?) -> Void)?
+    /// What device leases follow: a reservation reaching adb, failing to start, or ending.
+    @ObservationIgnored var onReservationEvent: ((ReservationEvent) -> Void)?
+
+    enum ReservationEvent: Equatable {
+        /// Also sent on every reconnect, whose adb port is new.
+        case attached(reservationID: String, serial: String)
+        case failed(String)
+        /// The id is nil when the reservation ended before `create` named it.
+        case ended(reservationID: String?)
+    }
 
     @ObservationIgnored private let discovery: EmulatorDiscovery
     @ObservationIgnored private let physicalDiscovery: PhysicalDeviceDiscovery
@@ -171,6 +181,21 @@ final class DeviceSession {
         locate(waitingForSink: true)
     }
 
+    /// Shows `target` in a session with no device yet, or looks again for one it already names
+    /// that isn't running. A session on another device keeps it.
+    func point(at target: DeviceTarget, displayName: String?) {
+        if self.target == nil {
+            choose(target, displayName: displayName)
+        } else if self.target != target {
+            return
+        }
+        started = true
+        switch state {
+        case .needsDevice, .notRunning, .disconnected, .failed: locate()
+        default: break
+        }
+    }
+
     /// `waitingForSink` false is for the picker, whose own view is no sink but is about to be replaced by one.
     private func locate(waitingForSink: Bool) {
         guard let target else {
@@ -231,6 +256,11 @@ final class DeviceSession {
         reserve(details: RemoteDeviceDetails(projectID: projectID, model: model.id), displayName: model.name)
     }
 
+    /// For `plume devices`, which names the model by its `codename/api` id.
+    func reserve(modelID: String, displayName: String, projectID: String) {
+        reserve(details: RemoteDeviceDetails(projectID: projectID, model: modelID), displayName: displayName)
+    }
+
     /// Reserves the same model again after a reservation ended or failed.
     func reserveAgain() {
         guard let remoteDetails, remoteDetails.model != nil else { return }
@@ -242,7 +272,7 @@ final class DeviceSession {
         workTask = nil
         stopReservationMonitor()
         disconnect()
-        reservation?.release()
+        releaseReservation()
         let reservation = RemoteReservation(
             projectID: details.projectID, model: details.model, cli: remoteCLI, ledger: ledger, now: now,
             listADB: physicalDiscovery.list
@@ -261,6 +291,7 @@ final class DeviceSession {
                 // A create that printed an id before failing still holds a billed reservation.
                 reservation.release()
                 state = .reservationFailed(error.localizedDescription)
+                onReservationEvent?(.failed(error.localizedDescription))
                 return
             }
             guard let self, self.reservation === reservation, !Task.isCancelled, !reservation.isReleased,
@@ -285,8 +316,10 @@ final class DeviceSession {
         } catch {
             guard self.reservation === reservation, !Task.isCancelled else { return }
             state = .reservationFailed(error.localizedDescription)
+            onReservationEvent?(.failed(error.localizedDescription))
             return
         }
+        if let id = reservation.reservationID { onReservationEvent?(.attached(reservationID: id, serial: serial)) }
         await physicalDiscovery.refresh()
         guard self.reservation === reservation, !Task.isCancelled else { return }
         guard let adbURL = physicalDiscovery.adbURL else {
@@ -307,16 +340,46 @@ final class DeviceSession {
         isExtending = true
         Task { [weak self] in
             do {
-                try await reservation.extend(minutes: minutes)
-                guard let self, self.reservation === reservation else { return }
-                updateRemoteDetails(from: reservation)
-                startReservationMonitor(reservation)
+                try await self?.extend(reservation, minutes: minutes)
             } catch {
                 EmulatorLog.error("extending the reservation failed: \(error.localizedDescription)")
                 self?.extendError = error.localizedDescription
             }
             self?.isExtending = false
         }
+    }
+
+    /// Extends the reservation so it lasts until at least `date`, for a lease renewed past it.
+    func extendReservation(until date: Date) async throws {
+        guard let reservation, hasLiveReservation else { throw CLIFailure("the device tab holds no live reservation") }
+        if reservation.expiresAt == nil, await reservation.status() == .ended {
+            throw CLIFailure("the reservation has ended")
+        }
+        guard let expiresAt = reservation.expiresAt else {
+            throw CLIFailure("Device Streaming didn't say when the reservation expires, so it wasn't extended; try again")
+        }
+        let short = date.timeIntervalSince(expiresAt)
+        guard short > 0 else { return }
+        try await extend(reservation, minutes: Int((short / 60).rounded(.up)))
+    }
+
+    private func extend(_ reservation: RemoteReservation, minutes: Int) async throws {
+        try await reservation.extend(minutes: minutes)
+        guard self.reservation === reservation else { return }
+        updateRemoteDetails(from: reservation)
+        startReservationMonitor(reservation)
+    }
+
+    /// Ends a reservation whose claimant can't use it, keeping the failure on screen.
+    func abandonReservation(reason: String) {
+        guard let reservation, !reservation.isReleased else { return }
+        EmulatorLog.info("\(logPrefix) abandoning the reservation: \(reason)")
+        workTask?.cancel()
+        workTask = nil
+        stopReservationMonitor()
+        disconnect()
+        releaseReservation()
+        state = .reservationFailed(reason)
     }
 
     /// Ends the reservation now and returns to the picker.
@@ -330,7 +393,7 @@ final class DeviceSession {
         guard reservation === ended else { return }
         stopReservationMonitor()
         disconnect()
-        ended.release()
+        releaseReservation()
         state = .reservationEnded
     }
 
@@ -404,7 +467,12 @@ final class DeviceSession {
             }
             let launch: EmulatorLaunch
             do {
-                launch = try EmulatorLauncher.boot(avdID: avdID, sdk: sdk)
+                launch = try EmulatorLauncher.boot(
+                    avdID: avdID,
+                    sdk: sdk,
+                    logDirectory: AppPaths.applicationSupport.appending(path: "Emulators"),
+                    onExit: { pid in EmulatorLog.info("emulator launcher pid \(pid) for \(avdID) exited") }
+                )
                 EmulatorLog.info("\(logPrefix) booting, launcher pid \(launch.pid), log \(launch.logURL.path)")
             } catch {
                 EmulatorLog.error("\(logPrefix) boot failed: \(error.localizedDescription)")
@@ -437,11 +505,11 @@ final class DeviceSession {
         }
     }
 
-    /// A file older than the launch belongs to an instance still shutting down.
     private func isBoot(of launch: EmulatorLaunch, avdID: String, _ emulator: RunningEmulator) -> Bool {
-        guard emulator.avdID == avdID, emulator.grpcToken != nil else { return false }
-        guard let written = EmulatorScanner.modificationDate(of: emulator) else { return false }
-        return written >= launch.launchedAt.addingTimeInterval(-1)
+        emulator.grpcToken != nil
+            && EmulatorBootWaiter.isInstance(
+                emulator, avdID: avdID, launchedAt: launch.launchedAt, written: EmulatorScanner.modificationDate(of: emulator)
+            )
     }
 
     /// Forgets the device so the tab shows the picker again.
@@ -450,7 +518,7 @@ final class DeviceSession {
         workTask = nil
         stopReservationMonitor()
         disconnect()
-        reservation?.release()
+        releaseReservation()
         reservation = nil
         autoRotate = nil
         remoteDetails = nil
@@ -479,7 +547,14 @@ final class DeviceSession {
         sinks.removeAll()
         stopReservationMonitor()
         disconnect()
-        reservation?.release()
+        releaseReservation()
+    }
+
+    /// Termination skips this: the lease registry drops every remote lease at quit.
+    private func releaseReservation() {
+        guard let reservation, !reservation.isReleased else { return }
+        reservation.release()
+        onReservationEvent?(.ended(reservationID: reservation.reservationID ?? reservation.knownReservationID))
     }
 
     /// Like `close()`, but never waits on the connection, for app termination.

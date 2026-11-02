@@ -140,7 +140,7 @@ Prose selection spans rows, so the list owns it, not the rows (`Plume/UI/Chat/Se
   - The document view takes first responder on mouse-down, before any tracking starts (PLUME-106).
   - When the selection is dismissed, focus goes back to the nearest composer below the transcript.
   - A swallowed click is handed to `PaneClickProbe.observe`, or a split's pane focus would stay on the other pane.
-- **Copy writes markdown and RTF.** `ChatSelectionSerializer` rebuilds markdown for partial pieces from inline intents and block kind. A prompt copied with a reply becomes a blockquote. RTF carries font traits and links but no colors. Copy as Plain Text is in the context menu.
+- **Copy writes markdown and RTF.** `ChatSelectionSerializer` rebuilds markdown for partial pieces from inline intents and block kind. A selection inside one styled region (a code span, emphasis, a link's text) or one table cell copies its text without the markers or table (`enclosedPlainText`). A prompt copied with a reply becomes a blockquote. RTF carries font traits and links but no colors. Copy as Plain Text is in the context menu.
 
 ## Reference chips
 

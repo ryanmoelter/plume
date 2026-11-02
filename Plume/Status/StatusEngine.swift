@@ -123,7 +123,7 @@ final class StatusEngine {
         case .notStarted, .awaitingReply, .waitingOnSubagents:
             return .waitingOnSubagents
         case .working, .planApproval, .questionAsked, .permissionNeeded, .needsTerminalInput,
-             .error, .interrupted, .done:
+             .error, .interrupted, .interruptedByRestart, .done:
             return own
         }
     }
@@ -186,26 +186,35 @@ final class StatusEngine {
         setStatus(processAlive ? .error : .awaitingReply, taskID: taskID, tabID: tabID)
     }
 
-    /// Registers a tab restored from disk. It has no process behind it and
-    /// will not get one until the user sends a message, so it reads as
-    /// `notStarted` and stays deaf to anything its old transcript says.
-    func restore(tabID: UUID, taskID: UUID) {
-        setStatus(.notStarted, taskID: taskID, tabID: tabID, notifiable: false)
-        dormantTabs.insert(tabID)
+    /// Registers a tab restored from disk with the status it last persisted,
+    /// read through `afterRelaunch`. It has no process behind it and will not
+    /// get one until the user sends a message, so it stays deaf to anything
+    /// its old transcript says until a live session reports.
+    func restore(tabID: UUID, taskID: UUID, lastStatus: TaskStatus = .notStarted) {
+        setStatus(lastStatus.afterRelaunch, taskID: taskID, tabID: tabID, notifiable: false, dormant: true)
     }
 
     /// `notifiable` is false when the app, not the user, started whatever
     /// produced this status. The status still stands — the sidebar and the
     /// chat both show it — but no system notification goes out for it.
     func setStatus(_ status: TaskStatus, taskID: UUID, tabID: UUID, notifiable: Bool = true) {
+        setStatus(status, taskID: taskID, tabID: tabID, notifiable: notifiable, dormant: false)
+    }
+
+    /// Observers see a restored tab as already dormant.
+    private func setStatus(_ status: TaskStatus, taskID: UUID, tabID: UUID, notifiable: Bool, dormant: Bool) {
         // Terminal hooks carry the task at launch even after a tab moves.
         let taskID = tabsByTask.first(where: { $0.value.contains(tabID) })?.key ?? taskID
         tabsByTask[taskID, default: []].insert(tabID)
-        dormantTabs.remove(tabID)
-        guard tabStatuses[tabID] != status else { return }
+        if !dormant { dormantTabs.remove(tabID) }
+        guard tabStatuses[tabID] != status else {
+            if dormant { dormantTabs.insert(tabID) }
+            return
+        }
 
         let previousTabStatus = self.status(forTab: tabID)
         let previousTaskStatus = self.status(forTask: taskID)
+        if dormant { dormantTabs.insert(tabID) }
         Log.status.info("Tab \(tabID, privacy: .public) in task \(taskID, privacy: .public): \(self.tabStatuses[tabID]?.rawValue ?? "unregistered", privacy: .public) → \(status.rawValue, privacy: .public)")
         tabStatuses[tabID] = status
         report(

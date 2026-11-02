@@ -9,13 +9,15 @@ protocol MentionSources: AnyObject, Sendable {
     /// Without `includingLookups`, only what needs no new request.
     func pullRequests(for query: MentionQuery, in directory: String?, includingLookups: Bool) async -> [RankedMention]
     /// The cache only, with no request.
-    func cachedLinearIssues(matching text: String, limit: Int) async -> [RankedMention]
+    func cachedLinearIssues(matching text: String, limit: Int, in directory: String?) async -> [RankedMention]
     /// Fills the cache with what a remote search finds.
-    func searchLinear(_ text: String) async
+    func searchLinear(_ text: String, in directory: String?) async
 }
 
 @MainActor
 final class LiveMentionSources: MentionSources {
+    private let scopes = LinearDirectoryScopes()
+
     func files(for query: MentionQuery, in directory: String?) async -> [RankedMention] {
         await FileMentionIndex.shared.matches(for: query, in: directory, limit: MentionRanker.matchLimit(for: query))
     }
@@ -29,12 +31,16 @@ final class LiveMentionSources: MentionSources {
         )
     }
 
-    func cachedLinearIssues(matching text: String, limit: Int) async -> [RankedMention] {
-        await LinearStore.shared.mentionCandidates(matching: text, limit: limit)
+    func cachedLinearIssues(matching text: String, limit: Int, in directory: String?) async -> [RankedMention] {
+        await LinearStore.shared.mentionCandidates(
+            matching: text,
+            limit: limit,
+            allowing: await scopes.allowedOrgIDs(forDirectory: directory)
+        )
     }
 
-    func searchLinear(_ text: String) async {
-        await LinearStore.shared.searchIssues(text)
+    func searchLinear(_ text: String, in directory: String?) async {
+        await LinearStore.shared.searchIssues(text, allowing: await scopes.allowedOrgIDs(forDirectory: directory))
     }
 }
 
@@ -201,13 +207,13 @@ final class MentionAutocompleteController: ComposerAutocompleteHandler {
                 }
                 if wanted.contains(.linear) {
                     group.addTask { @MainActor in
-                        Answer(.linear, await sources.cachedLinearIssues(matching: query.text, limit: limit), isFinal: false)
+                        Answer(.linear, await sources.cachedLinearIssues(matching: query.text, limit: limit, in: directory), isFinal: false)
                     }
                     group.addTask { @MainActor in
                         do { try await sleep(debounce.linearSearch) } catch { return Answer(.linear, nil) }
-                        await sources.searchLinear(query.text)
+                        await sources.searchLinear(query.text, in: directory)
                         if Task.isCancelled { return Answer(.linear, nil) }
-                        return Answer(.linear, await sources.cachedLinearIssues(matching: query.text, limit: limit))
+                        return Answer(.linear, await sources.cachedLinearIssues(matching: query.text, limit: limit, in: directory))
                     }
                 }
                 if wanted.contains(.pullRequests) {

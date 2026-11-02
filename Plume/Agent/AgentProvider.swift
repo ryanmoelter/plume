@@ -33,15 +33,3 @@ protocol AgentProvider {
 func shellQuoted(_ value: String) -> String {
     "'" + value.replacingOccurrences(of: "'", with: #"'\''"#) + "'"
 }
-
-/// Resolves a provider to its implementation.
-enum AgentProviderRegistry {
-    static func provider(for kind: AgentProviderKind, settingsPath: String?) -> any AgentProvider {
-        switch kind {
-        case .claudeCode:
-            return ClaudeCodeProvider(settingsPath: settingsPath)
-        case .codex:
-            return CodexProvider()
-        }
-    }
-}

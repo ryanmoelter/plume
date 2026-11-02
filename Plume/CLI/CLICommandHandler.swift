@@ -33,6 +33,27 @@ final class CLICommandHandler {
 
     var orderedWindows: () -> [NSWindow] = { NSApp.orderedWindows }
     var directories: TabDirectoryStore = .shared
+    var deviceSessions: DeviceSessionManager = .shared
+    var deviceLeases: DeviceLeaseCoordinator = .shared
+    var remoteDevices = RemoteDeviceDefaults()
+    var clock: () -> Date = Date.init
+
+    /// What `devices.reserve` falls back on, and how it starts a reservation, so tests reserve
+    /// nothing.
+    struct RemoteDeviceDefaults {
+        var project: @MainActor () async -> String? = {
+            await RemoteDeviceCatalog.shared.loadIfNeeded()
+            return RemoteDeviceCatalog.shared.selectedProject
+        }
+        var recentModel: @MainActor () -> String? = { AppSettings.shared.recentRemoteDeviceModels.first }
+        var models: @MainActor () async -> [RemoteDeviceModel] = {
+            await RemoteDeviceCatalog.shared.loadModels()
+            return RemoteDeviceCatalog.shared.models
+        }
+        var reserve: @MainActor (_ tab: TaskTab, _ modelID: String, _ displayName: String, _ projectID: String) -> Void = {
+            DeviceSessionManager.shared.prepareSession(for: $0).reserve(modelID: $1, displayName: $2, projectID: $3)
+        }
+    }
 
     func registerWindow(_ id: UUID, _ registration: WindowRegistration) {
         unregisterWindow(id)
@@ -54,6 +75,8 @@ final class CLICommandHandler {
             return (left, lhs.offset) < (right, rhs.offset)
         }.map(\.element)
     }
+
+    var frontmostWindow: WindowRegistration? { frontmostFirst.first }
 
     var notify: (_ tabID: UUID, _ title: String, _ body: String) -> Bool = { tabID, title, body in
         TerminalAlerts.shared.notify(tabID: tabID, title: title, body: body)
@@ -86,7 +109,177 @@ final class CLICommandHandler {
             return await newTask(params)
         case .openSettings(let params):
             return openSettings(params)
+        case .showDevice(let params):
+            return showDevice(params)
+        case .reserveDevice(let params):
+            return await reserveDevice(params)
+        case .releaseDevice(let params):
+            return await releaseDevice(params)
+        case .extendDevice(let params):
+            return await extendDevice(params)
         }
+    }
+
+    /// The task the tab is in now, which a moved tab changes.
+    private func currentTask(ofTab tabID: UUID) -> (task: WorkTask, context: ModelContext)? {
+        let windows = frontmostFirst
+        guard let taskID = windows.lazy.compactMap({ $0.taskIDForTab(tabID) }).first else { return nil }
+        return windows.lazy.compactMap { window in window.task(taskID).map { (task: $0, context: window.context) } }.first
+    }
+
+    /// Prefers a device tab already on the device, then one with no device, then a new tab
+    /// opposite the caller's pane, behind the selection. A tab on another device is never repointed.
+    private func showDevice(_ params: CLIRequest.ShowDevice) -> CLIResponse {
+        guard let target = Self.deviceTarget(params) else {
+            return .failure("devices.show needs an avdID for an emulator, a serial for a physical device, or a reservationID for a remote one")
+        }
+        guard let (task, context) = currentTask(ofTab: params.tabID) else {
+            return .failure("no Plume tab \(params.tabID.uuidString)")
+        }
+        let deviceTabs = task.orderedTabs.filter { $0.kind == .device }
+        let tab: TaskTab
+        var created = false
+        if let showing = deviceTabs.first(where: { $0.deviceTarget == target }) {
+            tab = showing
+        } else if case .remote(let reservationID) = target {
+            return .failure("no device tab holds reservation \(reservationID)")
+        } else {
+            let empty = emptyDeviceTab(in: task, besideTab: params.tabID, context: context)
+            tab = empty.tab
+            created = empty.created
+        }
+        let displayName = params.displayName ?? Self.defaultDisplayName(target)
+        if tab.deviceTarget == nil { tab.setDevice(target, displayName: displayName) }
+        deviceSessions.existingSession(for: tab.id)?.point(at: target, displayName: displayName)
+        var response = CLIResponse.success
+        response.tabID = tab.id
+        response.created = created
+        return response
+    }
+
+    /// A device tab with no device and no reservation starting, else a new one in the pane
+    /// opposite the caller, behind the selection.
+    private func emptyDeviceTab(in task: WorkTask, besideTab callerTabID: UUID, context: ModelContext) -> (tab: TaskTab, created: Bool) {
+        let empty = task.orderedTabs.first { tab in
+            tab.kind == .device && tab.deviceTarget == nil && !deviceSessions.canEndReservation(for: tab.id)
+                && !deviceLeases.isClaiming(deviceTab: tab.id)
+        }
+        if let empty { return (empty, false) }
+        return (TaskStore.addDeviceTab(to: task, besideTab: callerTabID, in: context), true)
+    }
+
+    /// How long `reserveDevice` may take before it gives up rather than reserve: past
+    /// `SocketDeviceAppClient.replyTimeout`, the claimant has stopped waiting for the answer.
+    static let reserveDeadline: TimeInterval = 25
+
+    /// Answers once the claim is recorded; `plume devices` waits on the registry for the device.
+    private func reserveDevice(_ params: CLIRequest.ReserveDevice) async -> CLIResponse {
+        let started = clock()
+        guard currentTask(ofTab: params.tabID) != nil else {
+            return .failure("no Plume tab \(params.tabID.uuidString)")
+        }
+        guard let socket = deviceLeases.appSocket else {
+            return .failure("this Plume isn't tracking device leases")
+        }
+        let projectID: String
+        if let given = params.projectID {
+            projectID = given
+        } else if let remembered = await remoteDevices.project() {
+            projectID = remembered
+        } else {
+            return .failure("no Device Streaming project: sign in and pick one in a device tab's Remote section")
+        }
+        let modelID: String
+        if let given = params.model ?? remoteDevices.recentModel() {
+            modelID = given
+        } else {
+            let offered = await remoteDevices.models().map(\.id)
+            let options = offered.isEmpty ? "" : ", one of: " + offered.joined(separator: ", ")
+            return .failure("no device model given and none reserved before; pass --model=<codename/api>\(options)")
+        }
+        // The awaits above can outlast the caller or move it to another task.
+        guard clock().timeIntervalSince(started) < Self.reserveDeadline else {
+            return .failure("loading the Device Streaming catalog took too long; try again")
+        }
+        guard let (task, context) = currentTask(ofTab: params.tabID) else {
+            return .failure("no Plume tab \(params.tabID.uuidString)")
+        }
+        let owner = DeviceLeaseOwner.tab(id: params.tabID, app: socket)
+        // A second `plume devices claim` from the same tab, racing the first, waits on its claim.
+        if let existing = deviceLeases.claim(ownedBy: owner) {
+            if let model = params.model, model != existing.model {
+                return .failure("this tab is already reserving \(existing.model); release it before reserving \(model)")
+            }
+            do {
+                try await deviceLeases.rejoin(existing)
+            } catch {
+                return .failure("couldn't record the claim: \(Devices.describe(error))")
+            }
+            var response = CLIResponse.success
+            response.tabID = existing.deviceTabID
+            response.created = false
+            response.claimID = existing.id
+            return response
+        }
+        // From here to `beginClaim` holding the claim there is no suspension, so a concurrent
+        // request can't pick the same tab.
+        let (tab, created) = emptyDeviceTab(in: task, besideTab: params.tabID, context: context)
+        let claim = RemoteClaim(
+            owner: owner,
+            deviceTabID: tab.id,
+            deviceTabCreated: created,
+            model: modelID,
+            projectID: projectID,
+            ttl: params.ttl ?? DevicePool.defaultTTL,
+            worktree: params.worktree,
+            branch: params.branch
+        )
+        do {
+            try await deviceLeases.beginClaim(claim)
+        } catch {
+            if created { closeTab(tab.id) }
+            return .failure("couldn't record the claim: \(Devices.describe(error))")
+        }
+        let displayName = RemoteDeviceCatalog.shared.models.first { $0.id == modelID }?.name ?? modelID
+        remoteDevices.reserve(tab, modelID, displayName, projectID)
+        var response = CLIResponse.success
+        response.tabID = tab.id
+        response.created = created
+        response.claimID = claim.id
+        return response
+    }
+
+    private func releaseDevice(_ params: CLIRequest.ReleaseDevice) async -> CLIResponse {
+        do {
+            guard try await deviceLeases.releaseLease(params.key) != nil else {
+                return .failure("this Plume holds no lease on \(params.key)")
+            }
+            return .success
+        } catch {
+            return .failure(Devices.describe(error))
+        }
+    }
+
+    private func extendDevice(_ params: CLIRequest.ExtendDevice) async -> CLIResponse {
+        do {
+            try await deviceLeases.extendLease(params.key, ttl: params.ttl)
+            return .success
+        } catch {
+            return .failure(Devices.describe(error))
+        }
+    }
+
+    private static func deviceTarget(_ params: CLIRequest.ShowDevice) -> DeviceTarget? {
+        switch params.kind {
+        case .emulator: params.avdID.map { .emulator(avdID: $0) }
+        case .physical: params.serial.map { .physical(serial: $0) }
+        case .remote: params.reservationID.map { .remote(reservationID: $0) }
+        }
+    }
+
+    /// What the picker would show when it has nothing better.
+    private static func defaultDisplayName(_ target: DeviceTarget) -> String {
+        target.identifier.replacingOccurrences(of: "_", with: " ")
     }
 
     /// The worktree already exists, since `wt` made it; this only opens a
@@ -142,29 +335,6 @@ final class CLICommandHandler {
         return response
     }
 
-    /// Opens a new task in the frontmost window whose terminal runs `command` from the home
-    /// folder, then brings that window forward. Nil when no main window is open.
-    func openCommandTask(title: String, command: String) -> (taskID: UUID, session: TerminalSession)? {
-        guard let registration = frontmostFirst.first else { return nil }
-        let context = registration.context
-        let ungrouped = ((try? context.fetch(FetchDescriptor<WorkTask>())) ?? []).filter { !$0.isArchived && $0.group == nil }
-        let home = NSHomeDirectory()
-        let (task, tab) = TaskStore.createTerminalTask(in: context, title: title, directory: home, siblings: ungrouped)
-        // Created before the tab mounts, so the tab hosts this command instead of a bare shell.
-        let session = SurfaceManager.shared.session(
-            for: tab.id,
-            options: TerminalSurfaceOptions(
-                workingDirectory: home,
-                envVars: LoginShellCommand.plumeEnvironment(taskID: task.id, tabID: tab.id),
-                command: LoginShellCommand.wrap(command)
-            )
-        )
-        registration.reveal(task.id)
-        activateApp()
-        registration.window()?.makeKeyAndOrderFront(nil)
-        return (task.id, session)
-    }
-
     /// Deletes a task through `TaskStore`, which closes its terminals. A no-op when no open
     /// window's store has it.
     func deleteTask(_ id: UUID) {
@@ -174,6 +344,23 @@ final class CLICommandHandler {
             TaskStore.delete(task, in: registration.context)
             return
         }
+    }
+
+    /// Closes a tab through `TaskStore`, as its close button would. A no-op when no open window's
+    /// store has it.
+    /// Leaves an archived task's tabs alone, since restoring the task brings them back.
+    func closeTab(_ id: UUID) {
+        for registration in frontmostFirst {
+            let tabs = (try? registration.context.fetch(FetchDescriptor<TaskTab>(predicate: #Predicate { $0.id == id }))) ?? []
+            guard let tab = tabs.first else { continue }
+            if tab.task?.isArchived != true { TaskStore.closeTab(tab, in: registration.context) }
+            return
+        }
+    }
+
+    func hasLiveTab(_ id: UUID) -> Bool {
+        guard let (task, _) = currentTask(ofTab: id) else { return false }
+        return !task.isArchived
     }
 
     /// Git answers with symlinks resolved, so `/var/…` must match

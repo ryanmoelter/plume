@@ -15,13 +15,29 @@ extension View {
         animation: Animation,
         onHidden: @escaping () -> Void = {}
     ) -> some View {
-        modifier(BottomReveal(isRevealed: isRevealed, overhang: overhang, animation: animation, onHidden: onHidden))
+        modifier(EdgeReveal(
+            anchor: .bottom, isRevealed: isRevealed, overhang: overhang, animation: animation, onHidden: onHidden
+        ))
+    }
+
+    /// `bottomReveal` anchored to the top edge instead, so only the bottom
+    /// edge moves.
+    func topReveal(
+        isRevealed: Bool,
+        overhang: EdgeInsets = EdgeInsets(),
+        animation: Animation,
+        onHidden: @escaping () -> Void = {}
+    ) -> some View {
+        modifier(EdgeReveal(
+            anchor: .top, isRevealed: isRevealed, overhang: overhang, animation: animation, onHidden: onHidden
+        ))
     }
 }
 
 /// Measured inside `fixedSize`, like `AnimatedHeight`, so the animated frame
 /// never feeds back into the height it animates toward.
-private struct BottomReveal: ViewModifier {
+private struct EdgeReveal: ViewModifier {
+    let anchor: Alignment
     let isRevealed: Bool
     let overhang: EdgeInsets
     let animation: Animation
@@ -39,8 +55,8 @@ private struct BottomReveal: ViewModifier {
                 guard isShown, measured != height else { return }
                 withAnimation(animation) { height = measured }
             }
-            .frame(height: height, alignment: .bottom)
-            .mask(alignment: .bottom) {
+            .frame(height: height, alignment: anchor)
+            .mask(alignment: anchor) {
                 Rectangle().padding(EdgeInsets(
                     top: -overhang.top,
                     leading: -overhang.leading,

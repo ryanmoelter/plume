@@ -1,3 +1,4 @@
+import AppKit
 import SwiftUI
 
 /// The side presentation of the info pane: one glass box at the chat's
@@ -19,11 +20,14 @@ struct InfoSidePane: View, ThemedView {
     let bottomInset: CGFloat
     let onCollapsedHeight: (CGFloat) -> Void
     var onOpenHeight: (CGFloat) -> Void = { _ in }
+    let onPin: () -> Void
     let onOpenSubagent: (SubagentTranscript) -> Void
     let onOpenPlan: () -> Void
     let onOpenSideChat: () -> Void
     let remoteControlSession: (any AgentSession)?
     let linearActions: InfoPaneLinearActions
+    var pullRequestActions: InfoPanePullRequestActions = .none
+    let folderActions: InfoPaneFolderActions
 
     @State private var settings = AppSettings.shared
     @State private var isHovering = false
@@ -31,10 +35,15 @@ struct InfoSidePane: View, ThemedView {
     @State private var isFloatingOpen = false
     @State private var showsCompletedSubagents = false
     @State private var showsMentionedLinearIssues = false
+    @State private var showsMentionedPullRequests = true
     @State private var pendingHover: Task<Void, Never>?
     @State private var collapsedSize: CGSize = .zero
     @State private var expandedHeight: CGFloat = 0
     @State private var availableHeight: CGFloat = 0
+    /// A popover anchored in the pane, which a hover close would orphan.
+    @State private var holdsHoverOpen = false
+    @State private var dragStartWidth: CGFloat?
+    @State private var isHoveringResizeHandle = false
 
     /// Long enough that a click aimed at the collapsed row lands on it rather
     /// than on the header the open pane puts under the pointer.
@@ -51,7 +60,7 @@ struct InfoSidePane: View, ThemedView {
     /// own size inside it, so opening never relays out the pane's text.
     private var boxSize: CGSize {
         isOpen
-            ? CGSize(width: InfoPaneLayout.paneWidth, height: min(expandedHeight, maxExpandedHeight))
+            ? CGSize(width: geometry.paneWidth, height: min(expandedHeight, maxExpandedHeight))
             : collapsedSize
     }
 
@@ -76,7 +85,11 @@ struct InfoSidePane: View, ThemedView {
         .onChange(of: min(expandedHeight, maxExpandedHeight), initial: true) { _, height in onOpenHeight(height) }
         .onChange(of: settings.infoPaneState) { closeTransient() }
         .onChange(of: geometry.fitsBeside) { closeTransient() }
-        .onDisappear { closeTransient() }
+        .onChange(of: holdsHoverOpen) { updateHoverOpen() }
+        .onDisappear {
+            closeTransient()
+            if isHoveringResizeHandle { NSCursor.pop() }
+        }
     }
 
     private var box: some View {
@@ -95,6 +108,9 @@ struct InfoSidePane: View, ThemedView {
         .frame(width: boxSize.width, height: boxSize.height, alignment: .topLeading)
         .clipShape(.rect(cornerRadius: dimensions.panelCornerRadius))
         .glassEffect(glass, in: .rect(cornerRadius: dimensions.panelCornerRadius))
+        .overlay(alignment: .leading) {
+            if isOpen { resizeHandle }
+        }
         .plumeHover { hovering in
             isHovering = hovering
             updateHoverOpen()
@@ -139,11 +155,16 @@ struct InfoSidePane: View, ThemedView {
             },
             remoteControlSession: remoteControlSession,
             linearActions: linearActions,
+            pullRequestActions: pullRequestActions,
+            folderActions: folderActions,
             showsCompleted: $showsCompletedSubagents,
-            showsMentionedLinearIssues: $showsMentionedLinearIssues
+            showsMentionedLinearIssues: $showsMentionedLinearIssues,
+            showsMentionedPullRequests: $showsMentionedPullRequests
         )
+        .environment(\.infoPaneIsOpen, isOpen)
+        .onPreferenceChange(InfoPaneHoldsOpenKey.self) { holdsHoverOpen = $0 }
         .padding(12)
-        .frame(width: InfoPaneLayout.paneWidth, alignment: .leading)
+        .frame(width: geometry.paneWidth, alignment: .leading)
         .fixedSize(horizontal: false, vertical: true)
         .onGeometryChange(for: CGFloat.self) { $0.size.height } action: { old, height in
             resize(isFirst: old == 0) { expandedHeight = height }
@@ -152,7 +173,46 @@ struct InfoSidePane: View, ThemedView {
         return ScrollView { content }
             .scrollDisabled(expandedHeight <= maxExpandedHeight)
             .scrollBounceBehavior(.basedOnSize)
-            .frame(width: InfoPaneLayout.paneWidth, height: min(expandedHeight, maxExpandedHeight))
+            .frame(width: geometry.paneWidth, height: min(expandedHeight, maxExpandedHeight))
+    }
+
+    /// Measured in the window's space: the leading edge moves with the drag,
+    /// so a local translation would feed back.
+    private var resizeHandle: some View {
+        Color.clear
+            .frame(width: Self.resizeHandleWidth)
+            .contentShape(.rect)
+            .gesture(
+                DragGesture(minimumDistance: 1, coordinateSpace: .global)
+                    .onChanged { value in
+                        let start = dragStartWidth ?? geometry.paneWidth
+                        dragStartWidth = start
+                        setWidth(start - value.translation.width)
+                    }
+                    .onEnded { _ in dragStartWidth = nil }
+            )
+            .simultaneousGesture(TapGesture(count: 2).onEnded(resetWidth))
+            .plumeHover { hovering in
+                guard hovering != isHoveringResizeHandle else { return }
+                isHoveringResizeHandle = hovering
+                if hovering { NSCursor.resizeLeftRight.push() } else { NSCursor.pop() }
+            }
+            .plumeID(
+                AccessibilityID.infoPaneResizeHandle,
+                value: "\(Int(geometry.paneWidth))",
+                invoke: resetWidth,
+                setValue: { text in Double(text).map { setWidth(CGFloat($0)) } }
+            )
+    }
+
+    private func setWidth(_ width: CGFloat) {
+        settings.infoPaneWidth = min(InfoPaneLayout.clampedPaneWidth(width), geometry.maxPaneWidth)
+    }
+
+    private static var resizeHandleWidth: CGFloat { 6 }
+
+    private func resetWidth() {
+        setWidth(InfoPaneLayout.defaultPaneWidth)
     }
 
     /// Grows the glass with its content, except on the first measurement, so
@@ -171,9 +231,7 @@ struct InfoSidePane: View, ThemedView {
                 settings.infoPaneState = .collapsed
             }
         } else if geometry.fitsBeside {
-            InfoPaneHeaderButton(systemImage: "pin", help: "Keep the info pane open", value: "transient") {
-                settings.infoPaneState = .expanded
-            }
+            InfoPaneHeaderButton(systemImage: "pin", help: "Keep the info pane open", value: "transient", action: onPin)
         } else {
             InfoPaneHeaderButton(systemImage: "xmark", help: "Close the info pane", value: "floating") {
                 closeTransient()
@@ -185,7 +243,11 @@ struct InfoSidePane: View, ThemedView {
     /// the chat on demand where it doesn't.
     private func toggle() {
         if geometry.fitsBeside {
-            settings.infoPaneState = geometry.isPinned ? .collapsed : .expanded
+            if geometry.isPinned {
+                settings.infoPaneState = .collapsed
+            } else {
+                onPin()
+            }
         } else {
             let opens = !isOpen
             closeTransient()
@@ -197,7 +259,7 @@ struct InfoSidePane: View, ThemedView {
     /// box doesn't snap it shut.
     private func updateHoverOpen() {
         pendingHover?.cancel()
-        let opens = isHovering
+        let opens = isHovering || (isHoverOpen && holdsHoverOpen)
         guard opens != isHoverOpen else { return }
         pendingHover = Task {
             try? await Task.sleep(for: opens ? Self.hoverOpenDelay : Self.hoverCloseDelay)
@@ -211,5 +273,21 @@ struct InfoSidePane: View, ThemedView {
         isHovering = false
         isHoverOpen = false
         isFloatingOpen = false
+    }
+}
+
+extension EnvironmentValues {
+    /// False while the side pane shows only its collapsed row. The open form
+    /// stays mounted then, so anything it presents must close on its own.
+    @Entry var infoPaneIsOpen = true
+}
+
+/// True while something in the open pane needs it to stay open through the
+/// pointer leaving it, such as a popover the pointer moves into.
+struct InfoPaneHoldsOpenKey: PreferenceKey {
+    static let defaultValue = false
+
+    static func reduce(value: inout Bool, nextValue: () -> Bool) {
+        value = value || nextValue()
     }
 }

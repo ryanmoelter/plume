@@ -178,8 +178,33 @@ enum ChatSelectionSerializer {
     private static func partialMarkdown(of slice: Slice) -> String? {
         let parts = selected(in: slice)
         guard !parts.isEmpty else { return nil }
+        if parts.count == 1, let plain = enclosedPlainText(parts[0].source, kind: parts[0].fragment.kind) { return plain }
+        if parts.count == 1, parts[0].fragment.kind.isTableCell { return fragmentMarkdown(parts[0]) }
         if parts[0].fragment.kind.isTableCell { return tableMarkdown(parts, piece: slice.piece) }
         return parts.map(fragmentMarkdown).joined(separator: "\n")
+    }
+
+    /// The text of a selection that lies inside one formatted region (a code
+    /// span, emphasis or a link's text), without that region's markers.
+    /// Nil when the selection has plain text or a second kind of formatting.
+    static func enclosedPlainText(_ text: AttributedString, kind: ChatSelectableText.Fragment.Kind) -> String? {
+        if case .code = kind { return nil }
+        var region: (intent: InlinePresentationIntent, link: URL?)?
+        var result = ""
+        for run in text.runs {
+            let content = String(text[run.range].characters)
+            if content.first == ReferenceChipText.placeholder, run.link != nil { return nil }
+            if content.allSatisfy(\.isWhitespace) {
+                result += content
+                continue
+            }
+            let current = (intent: run.inlinePresentationIntent ?? [], link: run.link)
+            if current.intent.isEmpty, current.link == nil { return nil }
+            if let region, region.intent != current.intent || region.link != current.link { return nil }
+            region = current
+            result += content
+        }
+        return region == nil ? nil : result
     }
 
     private static func fragmentMarkdown(_ part: Selected) -> String {

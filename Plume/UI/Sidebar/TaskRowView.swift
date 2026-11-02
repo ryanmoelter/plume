@@ -16,7 +16,8 @@ struct TaskRowView: View {
         SidebarTaskAppearance(task: task, settings: .shared)
     }
 
-    private var tintOpacity: Double { isInactive ? 0.7 : 1 }
+    static let inactiveTintOpacity = 0.7
+    private var tintOpacity: Double { isInactive ? Self.inactiveTintOpacity : 1 }
 
     /// Live status once the engine knows the task; the persisted snapshot
     /// covers the window before any agent has run this launch.
@@ -29,12 +30,13 @@ struct TaskRowView: View {
         Self.isInactive(status: status, tabKinds: task.liveTabs.map(\.kind))
     }
 
-    /// Not actively being worked on — covers a task that hasn't started and
-    /// one resumed mid-turn (which `TaskStatus.afterRelaunch` maps to
-    /// `.interrupted`, whether relaunch or the user interrupted it). Status
-    /// comes only from agents, so a task of plain terminals never dims.
+    /// A task that hasn't started, or that a relaunch resumed mid-turn
+    /// (`TaskStatus.afterRelaunch` maps those to `.notStarted`). An interrupted
+    /// task has real content the user stopped on purpose, so it stays at full
+    /// strength. Status comes only from agents, so a task of plain terminals
+    /// never dims.
     static func isInactive(status: TaskStatus, tabKinds: [TabKind]) -> Bool {
-        tabKinds.contains(.agent) && (status == .notStarted || status == .interrupted)
+        tabKinds.contains(.agent) && status == .notStarted
     }
 
     /// One group per distinct directory the task's agent tabs are open in. A
@@ -66,8 +68,19 @@ struct TaskRowView: View {
         return LinearStore.shared.links(for: task, branches: task.linearBranches).filter { $0.role == .working }
     }
 
-    private func detailLines(working: [LinkedLinearIssue]) -> [TaskRowDetails.Line] {
-        TaskRowDetails.lines(groups: directories.map(group(for:)))
+    private var pinnedPullRequests: [PullRequestReference] {
+        guard AppSettings.shared.showsPullRequestStatus else { return [] }
+        return TaskStore.pinnedPullRequests(of: task)
+    }
+
+    private func detailLines(working: [LinkedLinearIssue], pinned: [PullRequestReference]) -> [TaskRowDetails.Line] {
+        let groups = directories.map(group(for:))
+        return TaskRowDetails.lines(groups: groups)
+            + TaskRowDetails.pinnedPullRequestLines(
+                pinned,
+                groups: groups,
+                details: { LinkedPullRequestStore.shared.detail(for: $0) }
+            )
             + TaskRowDetails.linearLines(working, states: { LinearStore.shared.state(for: $0) })
     }
 
@@ -88,9 +101,14 @@ struct TaskRowView: View {
         agentTabIDs.contains { AgentSessionManager.shared.existingSession(for: $0)?.isRemotelyControlled == true }
     }
 
+    private var heldDevices: [DeviceLease] {
+        DeviceLeaseStore.shared.leases(ownedBy: task.orderedLiveTabs.map(\.id))
+    }
+
     var body: some View {
         let working = workingLinearIssues
-        let rawLines = detailLines(working: working)
+        let pinned = pinnedPullRequests
+        let rawLines = detailLines(working: working, pinned: pinned)
         let lines = Array(rawLines.enumerated())
         let badgeLineCount = Self.badgeLineCount(of: rawLines)
         let firstProjectIndex = firstProjectLineIndex(in: rawLines)
@@ -126,6 +144,7 @@ struct TaskRowView: View {
         // shows, so its height eases rather than snapping the rows below it.
         .animatedHeight(alignment: .top)
         .linearIssueWatch(Set(working.map(\.identifier)))
+        .task(id: pinned) { LinkedPullRequestStore.shared.retain(pinned, forTask: task.id) }
         .onChange(of: directories, initial: true) { _, current in
             watch(Set(current))
             // From a lifecycle event, never `body` — the store writes when the
@@ -252,6 +271,15 @@ struct TaskRowView: View {
                         .foregroundStyle(ChatRole.attention(for: colorScheme))
                         .help("Remote control is on")
                 }
+                if index == firstProjectIndex, case let held = heldDevices, !held.isEmpty {
+                    let summary = DeviceLeaseStore.summary(held)
+                    Image(systemName: "iphone")
+                        .font(.caption)
+                        .imageScale(.small)
+                        .emphasis(.secondary)
+                        .help("Holds \(summary)")
+                        .plumeID(AccessibilityID.taskDeviceLeaseBadge, label: TitleStore.shared.displayTitle(for: task), value: summary)
+                }
             }
         case .branch(let branch, let isWorktree, let companion):
             HStack(spacing: 4) {
@@ -280,6 +308,10 @@ struct TaskRowView: View {
                     .font(.caption)
                     .emphasis(.secondary)
             }
+        case .pinnedPullRequest(let reference, let detail):
+            PinnedPullRequestLine(reference: reference, detail: detail)
+        case .pinnedPullRequestOverflow(let count):
+            PinnedPullRequestOverflowLine(count: count)
         case .pullRequest(let directory, let state):
             PullRequestChip(
                 state: state,

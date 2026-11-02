@@ -37,7 +37,7 @@ struct RemoteControlTests {
 
     @Test func advertisesItselfAsPlumeProvided() {
         #expect(PlumeSlashCommand.all.allSatisfy { $0.isPlumeProvided })
-        #expect(PlumeSlashCommand.all.map(\.name) == ["rc", "btw"])
+        #expect(PlumeSlashCommand.all.map(\.name) == ["rc", "btw", "add-dir"])
     }
 
     // MARK: - /btw parsing

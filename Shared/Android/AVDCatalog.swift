@@ -9,10 +9,15 @@ nonisolated struct AVD: Sendable, Hashable, Identifiable {
 
 nonisolated enum AVDCatalog {
     static func list(sdk: AndroidSDK, avdHome: URL = defaultAVDHome()) async -> [AVD] {
-        await Task.detached(priority: .userInitiated) {
-            let output = runListAVDs(sdk: sdk)
-            return parseListOutput(output).map { enrich(id: $0, avdHome: avdHome) }
-        }.value
+        await Task.detached(priority: .userInitiated) { listBlocking(sdk: sdk, avdHome: avdHome) }.value
+    }
+
+    static func listBlocking(sdk: AndroidSDK, avdHome: URL = defaultAVDHome()) -> [AVD] {
+        parseListOutput(runListAVDs(sdk: sdk)).map { enrich(id: $0, avdHome: avdHome) }
+    }
+
+    static func configINI(of avd: AVD) -> String? {
+        try? String(contentsOf: avd.directory.appending(path: "config.ini"), encoding: .utf8)
     }
 
     static func defaultAVDHome(environment: [String: String] = ProcessInfo.processInfo.environment) -> URL {
@@ -69,19 +74,36 @@ nonisolated enum AVDCatalog {
         return makeAVD(id: id, rootINI: rootINI, configINI: configINI, avdHome: avdHome)
     }
 
+    static let listTimeout: TimeInterval = 20
+
+    private final class Output: @unchecked Sendable {
+        var data = Data()
+    }
+
+    /// Empty on failure or after `listTimeout`.
     private static func runListAVDs(sdk: AndroidSDK) -> String {
         guard let emulatorURL = sdk.emulatorURL else { return "" }
         let process = Process()
         process.executableURL = emulatorURL
         process.arguments = ["-list-avds"]
         process.environment = ProcessInfo.processInfo.environment.merging(sdk.launchEnvironment) { _, new in new }
-        let output = Pipe()
-        process.standardOutput = output
+        let pipe = Pipe()
+        process.standardOutput = pipe
         process.standardError = FileHandle.nullDevice
         process.standardInput = FileHandle.nullDevice
         do { try process.run() } catch { return "" }
-        let data = output.fileHandleForReading.readDataToEndOfFile()
+        let output = Output()
+        let read = DispatchSemaphore(value: 0)
+        let reader = pipe.fileHandleForReading
+        DispatchQueue.global().async {
+            output.data = reader.readDataToEndOfFile()
+            read.signal()
+        }
+        guard read.wait(timeout: .now() + listTimeout) == .success else {
+            kill(process.processIdentifier, SIGKILL)
+            return ""
+        }
         process.waitUntilExit()
-        return String(decoding: data, as: UTF8.self)
+        return String(decoding: output.data, as: UTF8.self)
     }
 }

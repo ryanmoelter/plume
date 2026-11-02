@@ -1,5 +1,48 @@
 # Changelog
 
+## 0.18.0 (38)
+
+### New
+
+- Add Home page
+  - Keep track of all your chats
+  - Prioritize conversations that need your attention
+- Add `plume devices`
+  - Manage your Android physical devices, emulators, and cloud devices in Plume
+  - `claim` leases a free emulator or device and opens it in a split beside the agent
+  - `claim --kind=remote` reserves a remote device from Google's Developer Device Platform, and `release` ends the (paid) reservation
+  - Leases belong to the tab that claimed them
+  - See which task holds a device from the sidebar
+  - Also has `renew`, `installed`, `list`, and `prune` (analogous to my `device-pool` tool)
+- Start a conversation in a project subfolder (thanks @martinGingerLabs!)
+- Add additional folders outside the working directory (thanks @martinGingerLabs!)
+  - Add one when creating a conversation or after it has started
+- Pin multiple pull requests to a conversation, like Linear issues, and see them on the task's sidebar row
+- Make the composer easier to use
+  - Format with ⌘B, ⌘I, ⌘E, and ⌘K, on a selection or at the caret
+  - Close a code fence automatically
+  - Toggle plan mode with Shift+Tab
+  - Show the current mode as a faint icon behind the text so it's more obvious
+- Misc fixes
+  - Link Linear issues and pull requests named in the conversation
+  - Keep conversation statuses across relaunches
+  - Scope Linear workspaces to a project, in Settings > Projects
+  - Resize the info pane, and let it close and reopen with the window's width
+  - Close the Linear pin popover when the info pane collapses
+  - Copy small chat selections without markdown markers
+  - Keep a chat's messages when its agent moves into or out of a worktree
+  - Stop finished subagents from coming back as empty rows
+  - Show interrupted tasks at full opacity in the sidebar
+  - Show Plume's own slash commands with the feather icon
+
+### Recently
+
+- Host Android emulators, physical devices, and remote devices in a tab
+- Mention Linear issues, pull requests, and files in the composer with `@` and `#`
+- Add the `plume` command-line tool, with `plume wt` and `plume stack`
+- Select chat text across messages, and copy it as markdown
+- Connect Linear, in Settings > Integrations
+
 ## 0.17.0 (37)
 
 ### New

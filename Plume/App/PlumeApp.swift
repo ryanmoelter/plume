@@ -37,7 +37,16 @@ struct PlumeApp: App {
             CLIServer.shared.startIfEnabled()
             GitConfigSettingsImport.runOnce(modelContext: modelContainer.mainContext)
             RemoteReservationLedger.sweepAtLaunch()
+            if let socket = CLIServer.shared.socketPath {
+                DeviceLeaseCoordinator.shared.start(appSocket: socket, liveTabIDs: Self.liveTabIDs(in: modelContainer.mainContext))
+            }
         }
+    }
+
+    /// Tabs of tasks that aren't archived, which are the only ones that can hold a device lease.
+    private static func liveTabIDs(in context: ModelContext) -> Set<UUID> {
+        let tasks = (try? context.fetch(FetchDescriptor<WorkTask>())) ?? []
+        return Set(tasks.filter { !$0.isArchived }.flatMap { $0.tabs.map(\.id) })
     }
 
     /// Opens the store, and on failure moves it aside and starts empty rather

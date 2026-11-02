@@ -22,6 +22,7 @@ The code is split three ways:
 | `plume wt <command>` | Some | Manages git worktrees; `plume wt help` lists the commands. `docs/wt-port.md` maps it to the Python tool it replaces. |
 | `plume stack <command>` | No | Manages stacked branches and their PRs or MRs; `plume stack help` lists the commands. `docs/stack-port.md` maps it to the Python tool it replaces. |
 | `plume init zsh [--aliases] [--alias NAME]` | No | Prints zsh completions for `plume`; load with `eval "$(plume init zsh)"`. It defines no `plume()` function, so `plume` always runs the tool. `--aliases` also defines a bare `wt()` function and a bare `stack` alias. `--alias NAME` (repeatable; `wt` or `stack`) defines only the named ones, for a machine where another tool already owns one of those names; an unknown name is a usage error, and `--aliases` plus `--alias x` is still both. `wt()` has its own completion, turns `wt switch` and `wt s` into a `cd` to the path `command plume wt path` prints, and passes every other call to `plume wt`. `wt` must be a function because a subprocess cannot cd the shell. `stack` needs nothing of the kind, so it is `alias stack='plume stack'`, and zsh completes it by expanding the alias, as `plume stack`. It has no completion function of its own. `plume stack` completes under `plume` either way. |
+| `plume devices <command>` | No | Leases Android emulators and devices so concurrent agents never drive the same one: `claim`, `release`, `renew`, `installed`, `list`/`ls`, `prune`. `plume devices help` lists their flags. It replaces the `device-pool` script and keeps its semantics; see below. |
 | `plume help`, `plume --version` | No | `--version` reads the enclosing app's `Info.plist`. |
 
 `plume-notify` still works as a link for older scripts: invoked under that name (argv[0]'s basename), the tool runs `notify` with the rest of the arguments. Invoked as `wt`, it runs `plume wt` with all of them, and invoked as `stack`, `plume stack`.
@@ -42,6 +43,17 @@ The code is split three ways:
 
 **`presence` runs in the tool**, from CoreGraphics. The screen reads `locked` while `CGSessionCopyCurrentDictionary` carries `CGSSessionScreenIsLocked`, then `asleep` when every online display reports `CGDisplayIsAsleep` (including no online display at all), and `awake` otherwise. `Presence.classify` is the pure rule. `--json` prints `{"displays":[{"asleep":false,"id":1}],"locked":false,"state":"awake"}`.
 
+**`devices` works without the app.** It reads adb, the running emulators' discovery files and git itself (`LiveDeviceEnvironment`). It boots an AVD with the same flags the app uses, so the app can stream an emulator the tool started. The emulator's output goes to `~/Library/Application Support/Plume/Emulators/<avd>.log`.
+
+- **One registry for everyone.** Leases live in `~/Library/Application Support/Plume/devices/registry.json`, guarded by an `flock` on `lock` beside it (`DeviceRegistryStore.defaultDirectory`). Every build, debug included, and every `plume` outside Plume shares it.
+- **Owners.** `--owner` wins. Otherwise, inside a Plume tab, the tab owns the lease, named by its `PLUME_TAB_ID` together with the owning app's `PLUME_SOCKET`, so the same tab ID in another build is another owner. Elsewhere the git worktree's path owns it.
+- **Expiry.** Every lease expires after an hour unless renewed; `--ttl` sets another length in seconds.
+- **Reaping.** Every command first drops expired leases, local leases whose serial left `adb devices` (offline and unauthorized still count as present), emulator leases whose serial now runs another AVD, and pending boots older than 15 minutes. A remote lease goes only five minutes past its expiry, which leaves the app holding its reservation time to end both. `docs/device-leases.md` covers the registry and what the app does with the leases its tabs own.
+- **Claiming.** `claim <serial>` leases that device, and renews it if you already hold it. A device adb reports as offline or unauthorized exits 1. `claim` alone reuses a free booted device first, else boots an AVD that is neither running nor booting for someone else. It records the boot as a pending `avd:<id>` entry and frees the lock while the emulator boots, so two agents never boot the same AVD. A booted emulator whose pending entry is your own, left by an interrupted claim, is leased to you. A remote device's adb serial (`localhost:<port>`) is never free: its lease is keyed by reservation, and `claim`, `release`, `renew` and `installed` accept that serial in place of the key.
+- **Remote devices.** `claim --kind=remote [--model=<codename/api>]` reserves a Device Streaming device. It works only from a Plume tab whose app answers, since the reservation is billed and must end with the tab; otherwise it exits 1. The tool asks the app to reserve (`devices.reserve`), and the app records a pending `claim:<uuid>` entry, opens a device tab and starts the reservation there. The tool then polls the registry without the lock until the app writes the lease, and prints the serial. It exits 1 when the reservation fails, when the claim disappears (its tab closed or Plume quit), when the app stops answering, or after 11 minutes. That last one leaves the reservation with its tab, and claiming again from the same tab joins it rather than reserving a second device. A tab that already holds a remote device gets it renewed, unless `--model` names another model, which fails until the held device is released. The model defaults to the last one reserved and the project to the picker's. Releasing a remote device asks its app to end the reservation (`devices.release`); if the app can't be reached, the tool drops the lease and the reservation ends when that app quits or next launches. Renewing a remote lease, or claiming one the tab already holds (by serial too), first asks its app to extend the reservation (`devices.extend`); if that fails, the tool exits 1 and leaves the lease alone.
+- **Device tabs.** A claim from a Plume tab then asks that tab's app, over its `PLUME_SOCKET`, to show the device (`devices.show`), and records the device tab in the lease. It is best effort: when the app refuses or can't be reached, `claim` warns on stderr and still exits 0.
+- **Output.** `claim` prints only the serial on stdout. Progress lines starting `==>` go to stderr, so `ANDROID_SERIAL=$(plume devices claim)` is safe.
+
 A new subcommand adds its completion to `ShellIntegration.commands`.
 
 ## Exit codes
@@ -51,6 +63,8 @@ A new subcommand adds its completion to `ShellIntegration.commands`.
 | 0 | Success. `notify` always exits 0 once its arguments parse. |
 | 1 | The command failed: the app is unreachable, the task or directory doesn't exist, or the app refused. |
 | 2 | Bad arguments. The usage goes to stderr. |
+
+**`plume devices` keeps `device-pool`'s codes instead:** 0 success, 1 failure or bad arguments, 2 the device is leased by another owner, 3 nothing free matches the filters.
 
 ## Environment
 
@@ -97,11 +111,19 @@ Requests name a `command` and carry its `params`:
 {"command":"tab.new","params":{"tabID":"<uuid>","select":false}}
 {"command":"task.new","params":{"worktreePath":"/abs/worktree","tabID":"<uuid>","select":false}}
 {"command":"settings.open","params":{"section":"projects"}}
+{"command":"devices.show","params":{"tabID":"<uuid>","kind":"emulator","avdID":"Pixel_8"}}
+{"command":"devices.reserve","params":{"tabID":"<uuid>","model":"akita/34","ttl":3600}}
+{"command":"devices.release","params":{"key":"remote:<reservationID>"}}
+{"command":"devices.extend","params":{"key":"remote:<reservationID>","ttl":7200}}
 ```
 
 `tab.new` names its task with `taskID`, or with `tabID`, a tab in that task; `taskID` wins when both are present. `directory` is absolute and optional.
 
 `task.new` opens a task on the existing worktree at `worktreePath`, at the end of the caller's group, with the caller named the same two ways. An unknown caller, or none, puts the task outside any group. The app reads the repository and the branch from the worktree, and names the task after the worktree's folder. The repository is the parent of git's common dir, or in the bare layout the `.bare` repository itself, since its parent is no repository and git fails there (`ProjectRoot.repositoryDirectory(forRoot:)`). A worktree created from such a task still lands beside `.bare` in the project folder, where `plume wt` puts its own. The path must be absolute and the root of a checkout. A linked worktree becomes a worktree task; the main checkout becomes a directory task, so deleting the task never offers to remove it. A worktree that already has a task that isn't archived gets that task back instead of a second one, so a client that timed out and retried never duplicates it. `select` reveals the task in the frontmost main window. It answers `{"ok":true,"taskID":"<uuid>"}`.
+
+`devices.show` shows a leased device in the task that holds `tabID`, the lease's owner, looked up when the request arrives, so a moved tab gets it in its new task. `kind` is `emulator`, `physical` or `remote`, and names the device by `avdID`, `serial` or `reservationID`; `displayName` is optional. The app uses a device tab in that task already on the device, else one with no device yet, else opens a new one behind the current selection, in the pane opposite `tabID`'s, splitting the task if it has one pane. It never repoints a tab showing another device, and a remote device needs a tab that already holds its reservation. If the tab's session is live, it connects at once. It answers `{"ok":true,"tabID":"<uuid>","created":true}`, with `created` false for a tab that was already there.
+
+`devices.reserve` reserves a remote device for `tabID`, which owns the lease. `model` (`codename/api`) and `projectID` default to the last model reserved and the device picker's project; with no model to fall back on it fails and lists the project's models. `ttl`, `worktree` and `branch` go into the lease. The app picks a device tab in the caller's task with no device and no reservation starting, else opens one behind the selection, in the pane opposite `tabID`'s as `devices.show` does, and records a pending `claim:<claimID>` entry before it starts the reservation. It answers then, without waiting for the device: `{"ok":true,"tabID":"<uuid>","created":true,"claimID":"<uuid>"}`. The lease, keyed `remote:<reservationID>` and carrying `claimID`, appears once the device connects to adb; a failure sets the pending entry's `error`. `devices.release` drops this app's lease at `key`, ends a remote lease's reservation, and closes its device tab if the claim opened it. It fails when this app holds no lease there. `devices.extend` extends the reservation behind this app's remote lease at `key` so it lasts at least `ttl` seconds from now, and answers once Device Streaming has; it fails when this app holds no remote lease there or the extension fails. It doesn't change the lease, which the tool then renews.
 
 `settings.open` brings Plume forward and shows the Settings window, on `section` when given. `section` is optional and names a `SettingsPane`, such as `projects`; an unknown one fails. Both commands need an open main window, and `wt` falls back on any refusal as it does for an unreachable app. Responses carry `ok`, plus `error` on failure and whatever the command returns:
 
@@ -109,6 +131,8 @@ Requests name a `command` and carry its `params`:
 {"ok":true,"version":"0.16.1"}
 {"ok":true,"tabID":"<uuid>"}
 {"ok":true,"taskID":"<uuid>"}
+{"ok":true,"tabID":"<uuid>","created":true}
+{"ok":true,"tabID":"<uuid>","created":true,"claimID":"<uuid>"}
 {"ok":false,"error":"no Plume task <uuid>"}
 ```
 

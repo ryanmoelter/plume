@@ -1,6 +1,7 @@
 import CoreGraphics
 import Foundation
 import ScrcpyControl
+import Synchronization
 import Testing
 
 @testable import Plume
@@ -364,21 +365,19 @@ struct RemoteDeviceSessionTests {
     private let ledger = makeLedger()
     private let idleSleeper = ManualSleeper()
     private let reservationSleeper = ManualSleeper()
-    private let reservationSleeps = LockedValue<[Duration]>([])
-    private let resolved = LockedValue<[String]>([])
-    private let recents = LockedValue<[String]>([])
+    private let recorded = SessionRecorder()
 
     private func makeSession(target: DeviceTarget? = nil, details: RemoteDeviceDetails? = nil) -> DeviceSession {
         let adb = ListingBox(ADBListing(adbURL: URL(fileURLWithPath: "/sdk/platform-tools/adb"), devices: []))
         let directory = FileManager.default.temporaryDirectory.appendingPathComponent("remote-session-\(UUID().uuidString)")
-        let (fake, idleSleeper, reservationSleeper, reservationSleeps, resolved) = (fake, idleSleeper, reservationSleeper, reservationSleeps, resolved)
+        let (fake, idleSleeper, reservationSleeper, recorded) = (fake, idleSleeper, reservationSleeper, recorded)
         return DeviceSession(
             tabID: UUID(), target: target, displayName: "Pixel 6", remoteDetails: details,
             discovery: EmulatorDiscovery(directories: [directory]),
             physicalDiscovery: PhysicalDeviceDiscovery { adb.list() },
             makeConnection: { device in
                 if case .physical(let serial, _, let limits) = device {
-                    resolved.value.append("\(serial) \(limits == .remoteDevice)")
+                    recorded.resolved.withLock { $0.append("\(serial) \(limits == .remoteDevice)") }
                 }
                 return fake
             },
@@ -386,11 +385,11 @@ struct RemoteDeviceSessionTests {
             remoteCLI: cli,
             ledger: ledger,
             reservationSleep: { duration in
-                reservationSleeps.value.append(duration)
+                recorded.reservationSleeps.withLock { $0.append(duration) }
                 await reservationSleeper.sleep(duration)
             },
             now: { now },
-            recordReservation: { [recents] in recents.value.append($0) }
+            recordReservation: { model in recorded.recents.withLock { $0.append(model) } }
         )
     }
 
@@ -421,12 +420,12 @@ struct RemoteDeviceSessionTests {
         #expect(session.state == .connected)
         #expect(session.isRemote)
         #expect(session.isPhysical)
-        #expect(resolved.value == ["localhost:59095 true"])
+        #expect(recorded.resolved.withLock { $0 } == ["localhost:59095 true"])
         #expect(targets == [.remote(reservationID: "r1")])
         #expect(details.last == RemoteDeviceDetails(projectID: "p", model: "oriole/31", expiresAt: at(22, 51)))
         #expect(session.remoteSerial == "localhost:59095")
         #expect(ledger.entries.map(\.reservationID) == ["r1"])
-        #expect(recents.value == ["oriole/31"])
+        #expect(recorded.recents.withLock { $0 } == ["oriole/31"])
     }
 
     @Test func aFailedReservationOffersToReserveAgain() async {
@@ -439,7 +438,7 @@ struct RemoteDeviceSessionTests {
         #expect(session.state == .reservationFailed("Error: Failed to obtain auth token: HTTP connect timed out"))
         #expect(session.remoteDetails?.model == "oriole/31")
         #expect(!session.hasLiveReservation)
-        #expect(recents.value.isEmpty)
+        #expect(recorded.recents.withLock { $0.isEmpty })
     }
 
     @Test func aTabFromAnEarlierRunOffersToReserveAgainWithoutAskingTheService() async {
@@ -543,7 +542,7 @@ struct RemoteDeviceSessionTests {
         await waitUntil { reservationSleeper.pending == 1 }
 
         #expect(session.reservation?.expiresAt == at(22, 30))
-        #expect(reservationSleeps.value == [.seconds(DeviceSession.reservationMinimumPoll)])
+        #expect(recorded.reservationSleeps.withLock { $0 } == [.seconds(DeviceSession.reservationMinimumPoll)])
     }
 
     @Test func aRemoteTabLingersLikeAPhysicalOne() async {
@@ -605,6 +604,13 @@ struct RemoteDeviceSessionTests {
         #expect(session.state == .needsDevice)
         #expect(cli.verbs == ["create", "disconnect", "remove"])
         #expect(ledger.entries.isEmpty)
-        #expect(recents.value.isEmpty)
+        #expect(recorded.recents.withLock { $0.isEmpty })
     }
+}
+
+/// What a session reported through its hooks.
+private nonisolated final class SessionRecorder: Sendable {
+    let reservationSleeps = Mutex<[Duration]>([])
+    let resolved = Mutex<[String]>([])
+    let recents = Mutex<[String]>([])
 }

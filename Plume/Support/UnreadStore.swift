@@ -10,7 +10,13 @@ import Observation
 /// until it is focused. Any later status replaces the mark, because that
 /// status is now what the tab has to say.
 ///
-/// In memory like `BellStore` — a relaunch starts with nothing unread.
+/// A chat tab's mark survives a relaunch, stored as the ID of the
+/// conversation's latest message when it was set. `onStoredMarkChanged`
+/// reports what to store, and `restore(tabID:messageID:)` brings a stored mark
+/// back. A restored mark is kept only while the tab's latest message is still
+/// that one: the transcript is the source of truth, so a conversation that
+/// moved on while Plume was closed reads as read. Other tabs' marks stay in
+/// memory, like `BellStore`.
 @MainActor
 @Observable
 final class UnreadStore {
@@ -23,12 +29,27 @@ final class UnreadStore {
     @ObservationIgnored private var finishOrder: [UUID: Int] = [:]
     @ObservationIgnored private var finishCount = 0
 
+    /// The message ID to store for a tab's mark, or nil to clear it.
+    @ObservationIgnored var onStoredMarkChanged: ((UUID, String?) -> Void)?
+    @ObservationIgnored private var latestMessageIDs: [UUID: String] = [:]
+    /// Stored marks waiting for the tab's transcript to confirm them.
+    @ObservationIgnored private var pendingRestores: [UUID: String] = [:]
+    /// Restored marks, each pinned to the message it was set on. A mark set
+    /// this launch instead follows the transcript, which can land after the
+    /// turn's status does.
+    @ObservationIgnored private var restoredMarks: [UUID: String] = [:]
+    /// Asks for a tab's latest message ID when a mark is set before any is
+    /// known. Answered by `latestMessageFound`.
+    @ObservationIgnored var onLatestMessageUnknown: ((UUID) -> Void)?
+    @ObservationIgnored private var latestMessageLookups: Set<UUID> = []
+
     init() {}
 
     func observe(_ engine: StatusEngine, audience: @escaping () -> NotificationAudience) {
-        engine.setTabStatusObserver("UnreadStore") { [weak self] taskID, tabID, status, _ in
+        engine.setTabStatusObserver("UnreadStore") { [weak self, weak engine] taskID, tabID, status, _ in
             let seen = Self.isSeen(tabID: tabID, taskID: taskID, audience: audience())
-            self?.record(status, tabID: tabID, isSeen: seen)
+            let isRestored = engine?.isDormant(tabID: tabID) ?? false
+            self?.record(status, tabID: tabID, isSeen: seen, isRestored: isRestored)
         }
     }
 
@@ -40,18 +61,17 @@ final class UnreadStore {
         tabIDs.contains { unreadTabs.contains($0) }
     }
 
-    func record(_ status: TaskStatus, tabID: UUID, isSeen: Bool) {
+    func record(_ status: TaskStatus, tabID: UUID, isSeen: Bool, isRestored: Bool = false) {
         if status == .awaitingReply {
             finishCount += 1
             finishOrder[tabID] = finishCount
         } else {
             finishOrder.removeValue(forKey: tabID)
         }
-        if status == .awaitingReply, !isSeen {
-            unreadTabs.insert(tabID)
-        } else {
-            unreadTabs.remove(tabID)
-        }
+        // A restored status says nothing new about the conversation, so it
+        // keeps a stored mark and clears one the launch's hook replay set.
+        if status == .notStarted || isRestored, pendingRestores[tabID] != nil || restoredMarks[tabID] != nil { return }
+        setUnread(status == .awaitingReply && !isSeen && !isRestored, tabID: tabID)
     }
 
     /// The tabs Mark as Unread marks, given the statuses of a task's tabs, or
@@ -72,17 +92,75 @@ final class UnreadStore {
     /// `markViewed`, which runs when focus moves, the app comes forward, or
     /// the focused tab is selected again.
     func markUnread(_ tabIDs: some Sequence<UUID>) {
-        unreadTabs.formUnion(tabIDs)
+        for tabID in tabIDs { setUnread(true, tabID: tabID) }
     }
 
     func markRead(_ tabIDs: some Sequence<UUID>) {
-        unreadTabs.subtract(tabIDs)
+        for tabID in tabIDs { setUnread(false, tabID: tabID) }
     }
 
     /// Clears the focused tab, the only one the user is reading.
     func markViewed(_ audience: NotificationAudience) {
         guard audience.isAppActive, let focused = audience.focusedTabID else { return }
-        unreadTabs.remove(focused)
+        setUnread(false, tabID: focused)
+    }
+
+    /// Brings back a mark stored by an earlier launch. It shows once
+    /// `latestMessageChanged` confirms the tab's latest message is still
+    /// `messageID`.
+    func restore(tabID: UUID, messageID: String) {
+        guard !unreadTabs.contains(tabID) else { return }
+        if latestMessageIDs[tabID] != nil {
+            confirm(tabID: tabID, storedMessageID: messageID)
+        } else {
+            pendingRestores[tabID] = messageID
+        }
+    }
+
+    func isAwaitingRestore(tabID: UUID) -> Bool {
+        pendingRestores[tabID] != nil
+    }
+
+    func latestMessageChanged(tabID: UUID, to messageID: String?) {
+        latestMessageLookups.remove(tabID)
+        latestMessageIDs[tabID] = messageID
+        if let stored = pendingRestores.removeValue(forKey: tabID) {
+            confirm(tabID: tabID, storedMessageID: stored)
+        } else if let pinned = restoredMarks[tabID] {
+            if messageID != pinned { setUnread(false, tabID: tabID) }
+        } else if unreadTabs.contains(tabID), let messageID {
+            onStoredMarkChanged?(tabID, messageID)
+        }
+    }
+
+    /// The answer to `onLatestMessageUnknown`. A report that arrived while
+    /// it was being looked up is newer, so it wins.
+    func latestMessageFound(tabID: UUID, messageID: String?) {
+        guard latestMessageLookups.contains(tabID) else { return }
+        latestMessageChanged(tabID: tabID, to: messageID)
+    }
+
+    private func confirm(tabID: UUID, storedMessageID: String) {
+        if latestMessageIDs[tabID] == storedMessageID {
+            unreadTabs.insert(tabID)
+            restoredMarks[tabID] = storedMessageID
+        } else {
+            onStoredMarkChanged?(tabID, nil)
+        }
+    }
+
+    /// Anything that sets or clears a mark also settles a restore still
+    /// waiting on its transcript, so the restore cannot revive a mark the
+    /// user has since cleared.
+    private func setUnread(_ unread: Bool, tabID: UUID) {
+        let wasPending = pendingRestores.removeValue(forKey: tabID) != nil
+        let changed = unread ? unreadTabs.insert(tabID).inserted : unreadTabs.remove(tabID) != nil
+        guard changed || wasPending else { return }
+        restoredMarks.removeValue(forKey: tabID)
+        onStoredMarkChanged?(tabID, unread ? latestMessageIDs[tabID] : nil)
+        if unread, latestMessageIDs[tabID] == nil, latestMessageLookups.insert(tabID).inserted {
+            onLatestMessageUnknown?(tabID)
+        }
     }
 
     static func isSeen(tabID: UUID, taskID: UUID, audience: NotificationAudience) -> Bool {
@@ -94,11 +172,19 @@ final class UnreadStore {
     func forget(tabID: UUID) {
         unreadTabs.remove(tabID)
         finishOrder.removeValue(forKey: tabID)
+        latestMessageIDs.removeValue(forKey: tabID)
+        pendingRestores.removeValue(forKey: tabID)
+        restoredMarks.removeValue(forKey: tabID)
+        latestMessageLookups.remove(tabID)
     }
 
     func reset() {
         unreadTabs.removeAll()
         finishOrder.removeAll()
+        latestMessageIDs.removeAll()
+        pendingRestores.removeAll()
+        restoredMarks.removeAll()
+        latestMessageLookups.removeAll()
     }
 
     /// Whether a task's badge shows the unread dot. A tab that wants the user

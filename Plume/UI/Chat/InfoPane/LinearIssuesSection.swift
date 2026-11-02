@@ -24,6 +24,7 @@ struct LinearIssuesSection: View, ThemedView {
     let actions: InfoPaneLinearActions
     @Binding var showsMentioned: Bool
 
+    @Environment(\.infoPaneIsOpen) private var isPaneOpen
     @State private var settings = AppSettings.shared
     @State private var showsLinkPopover = false
     @State private var isHoveringAdd = false
@@ -46,6 +47,10 @@ struct LinearIssuesSection: View, ThemedView {
                         mentioned(linear.mentioned)
                     }
                 }
+            }
+            .preference(key: InfoPaneHoldsOpenKey.self, value: showsLinkPopover)
+            .onChange(of: isPaneOpen) { _, isOpen in
+                if !isOpen { showsLinkPopover = false }
             }
         }
     }
@@ -313,7 +318,7 @@ private final class ClosureMenuItem: NSMenuItem {
 }
 
 /// Keeps a row's content clear of the control laid over its trailing edge.
-private struct OverlaidControlSpace: View {
+struct OverlaidControlSpace: View {
     var body: some View {
         Color.clear.frame(width: InfoPaneLayout.iconColumnWidth, height: 1)
     }

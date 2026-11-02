@@ -106,6 +106,7 @@ struct StatusNotifierBodyTests {
         #expect(StatusNotifier.body(for: .working, notifiesOnTurnEnd: false) == nil)
         #expect(StatusNotifier.body(for: .notStarted, notifiesOnTurnEnd: false) == nil)
         #expect(StatusNotifier.body(for: .interrupted, notifiesOnTurnEnd: false) == nil)
+        #expect(StatusNotifier.body(for: .interruptedByRestart, notifiesOnTurnEnd: true) == nil)
     }
 
     /// Every reason the agent can want the user names what it wants, so no

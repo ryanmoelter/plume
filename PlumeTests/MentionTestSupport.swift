@@ -58,12 +58,12 @@ final class FakeMentionSources: MentionSources {
         }
     }
 
-    func cachedLinearIssues(matching text: String, limit: Int) async -> [RankedMention] {
+    func cachedLinearIssues(matching text: String, limit: Int, in directory: String?) async -> [RankedMention] {
         linearLimits.append(limit)
         return linearAnswer(text)
     }
 
-    func searchLinear(_ text: String) async {
+    func searchLinear(_ text: String, in directory: String?) async {
         linearSearches.append(text)
     }
 

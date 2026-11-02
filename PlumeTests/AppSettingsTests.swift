@@ -195,6 +195,7 @@ struct AppSettingsTests {
     @Test func infoPaneDefaultsToExpanded() {
         let settings = AppSettings(defaults: makeDefaults())
         #expect(settings.infoPaneState == .expanded)
+        #expect(settings.infoPaneWidth == InfoPaneLayout.defaultPaneWidth)
         #expect(settings.infoPaneSubagentsExpanded)
         #expect(settings.infoPaneBackgroundTasksExpanded)
     }
@@ -203,11 +204,13 @@ struct AppSettingsTests {
         let defaults = makeDefaults()
         let settings = AppSettings(defaults: defaults)
         settings.infoPaneState = .collapsed
+        settings.infoPaneWidth = 360
         settings.infoPaneSubagentsExpanded = false
         settings.infoPaneBackgroundTasksExpanded = false
 
         let reloaded = AppSettings(defaults: defaults)
         #expect(reloaded.infoPaneState == .collapsed)
+        #expect(reloaded.infoPaneWidth == 360)
         #expect(!reloaded.infoPaneSubagentsExpanded)
         #expect(!reloaded.infoPaneBackgroundTasksExpanded)
     }
@@ -251,19 +254,6 @@ struct AppSettingsTests {
         let defaults = makeDefaults()
         defaults.set(16, forKey: "accentPaletteSlot")
         #expect(AppSettings(defaults: defaults).accentPaletteSlot == nil)
-    }
-}
-
-@MainActor
-struct AgentProviderRegistryTests {
-    @Test func resolvesEachProviderToItsOwnImplementation() {
-        #expect(AgentProviderRegistry.provider(for: .claudeCode, settingsPath: nil).kind == .claudeCode)
-        #expect(AgentProviderRegistry.provider(for: .codex, settingsPath: nil).kind == .codex)
-    }
-
-    @Test func settingsPathIsForwardedToTheResolvedProvider() {
-        let provider = AgentProviderRegistry.provider(for: .claudeCode, settingsPath: "/settings.json")
-        #expect((provider as? ClaudeCodeProvider)?.settingsPath == "/settings.json")
     }
 }
 

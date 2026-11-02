@@ -36,7 +36,8 @@ enum HeadlessCommand {
         settingsPath: String?,
         model: AgentModel? = nil,
         isModelExplicitlyChosen: Bool = true,
-        fork: Fork? = nil
+        fork: Fork? = nil,
+        addDirectories: [String] = []
     ) -> [String] {
         var arguments = [
             "claude",
@@ -52,6 +53,7 @@ enum HeadlessCommand {
             // `bypassPermissions` mid-session. It starts no session in bypass.
             "--allow-dangerously-skip-permissions"
         ]
+        arguments += addDirectoryArguments(addDirectories)
 
         // A `-p` session starts in Manual on every plan, so a mode is always
         // passed rather than left to the CLI's default. `permissionMode` is
@@ -95,5 +97,12 @@ enum HeadlessCommand {
             }
         }
         return arguments
+    }
+
+    /// `--add-dir` is variadic, so `--add-dir <path>` swallows every bare
+    /// word after it — a positional prompt included. The `=` form takes
+    /// exactly one value.
+    static func addDirectoryArguments(_ paths: [String]) -> [String] {
+        paths.map { "--add-dir=\($0)" }
     }
 }

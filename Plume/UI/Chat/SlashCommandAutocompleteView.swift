@@ -11,6 +11,7 @@ struct SlashCommandAutocompleteView: View, ThemedView {
     let selectedIndex: Int
     let onSelect: (Int) -> Void
     var isTopOfPanel = true
+    var isBottomOfPanel = false
     /// True while these names come from the last session rather than this
     /// one, so the list says so instead of presenting a guess as fact.
     var isRemembered = false
@@ -22,6 +23,7 @@ struct SlashCommandAutocompleteView: View, ThemedView {
             selectedIndex: selectedIndex,
             onSelect: onSelect,
             isTopOfPanel: isTopOfPanel,
+            isBottomOfPanel: isBottomOfPanel,
             footer: isRemembered ? "From the last session — not yet confirmed by Claude Code" : nil,
             row: row
         )
@@ -33,8 +35,11 @@ struct SlashCommandAutocompleteView: View, ThemedView {
                 .font(typography.caption.monoMedium)
             if command.isPlumeProvided {
                 // Plume runs this one itself; the CLI has never heard of it.
-                Image(systemName: "apple.terminal.fill")
-                    .imageScale(.small)
+                Image("PlumeFeather")
+                    .renderingMode(.template)
+                    .resizable()
+                    .scaledToFit()
+                    .frame(width: 11, height: 11)
                     .emphasis(.secondary)
                     .help("Handled by \(AppIdentity.displayName)")
             }

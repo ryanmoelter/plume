@@ -68,6 +68,13 @@ final class AgentSessionManager {
         return session
     }
 
+    /// Forgets the tab's session without stopping it, for a caller that
+    /// stops it itself.
+    func detachSession(for tabID: UUID) -> (any AgentSession)? {
+        codexThreadClaims.removeValue(forKey: tabID)
+        return sessions.removeValue(forKey: tabID)
+    }
+
     func closeSession(for tabID: UUID) {
         sessions.removeValue(forKey: tabID)?.stop()
         codexThreadClaims.removeValue(forKey: tabID)

@@ -49,6 +49,9 @@ struct SessionInit: Equatable {
     let permissionMode: String?
     let tools: [String]
     let slashCommands: [String]
+    /// Every folder beyond `cwd` the session can reach, from `--add-dir`,
+    /// settings and in-session grants alike, spelled exactly as given.
+    var additionalDirectories: [String] = []
 }
 
 /// A slash command the session can run, from the `initialize` handshake reply.

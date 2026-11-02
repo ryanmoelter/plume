@@ -8,6 +8,59 @@ struct InfoPaneFactsTests {
         SubagentTranscript(id: id, transcript: Transcript(), modifiedAt: nil, status: status)
     }
 
+    @Test func linkedPullRequestsLeaveOutTheBranchsOwn() {
+        let own = PullRequestReference(owner: "a", repo: "b", number: 1)
+        let other = PullRequestReference(owner: "a", repo: "b", number: 2)
+        let entry = MentionCandidate.PullRequestEntry(
+            number: 2, title: "Other", url: other.url, state: .open, isDraft: false, updatedAt: nil
+        )
+        let linked = InfoPaneFacts.linkedPullRequests(
+            pinned: [],
+            mentioned: [own, other],
+            branchPullRequestURL: URL(string: "https://github.com/A/B/pull/1"),
+            detail: { $0 == other ? .pullRequest(entry) : nil }
+        )
+        #expect(linked == [InfoPaneFacts.LinkedPullRequestFacts(reference: other, pullRequest: entry)])
+
+        var facts = InfoPaneFacts(tabID: UUID())
+        facts.linkedPullRequests = linked
+        #expect(facts.sections == [.linkedPullRequests])
+        #expect(facts.collapsedSections.isEmpty)
+    }
+
+    @Test func aPinnedPullRequestTheConversationNamesShowsOnceAsPinned() {
+        let first = PullRequestReference(owner: "a", repo: "b", number: 1)
+        let second = PullRequestReference(owner: "a", repo: "b", number: 2)
+        let linked = InfoPaneFacts.linkedPullRequests(
+            pinned: [second],
+            mentioned: [first, second],
+            branchPullRequestURL: nil,
+            detail: { _ in nil }
+        )
+        #expect(linked.map(\.reference) == [second, first])
+        #expect(linked.map(\.role) == [.pinned, .mentioned])
+    }
+
+    @Test func aPinnedPullRequestThatIsTheBranchsOwnIsLeftOut() {
+        let own = PullRequestReference(owner: "a", repo: "b", number: 1)
+        let other = PullRequestReference(owner: "a", repo: "b", number: 2)
+        let linked = InfoPaneFacts.linkedPullRequests(
+            pinned: [own, other],
+            mentioned: [own],
+            branchPullRequestURL: URL(string: "https://github.com/A/B/pull/1/files"),
+            detail: { _ in nil }
+        )
+        #expect(linked.map(\.reference) == [other])
+        #expect(linked.map(\.role) == [.pinned])
+    }
+
+    @Test func thePinButtonKeepsAnEmptyPullRequestSection() {
+        var facts = InfoPaneFacts(tabID: UUID())
+        facts.canPinPullRequests = true
+        #expect(facts.sections == [.linkedPullRequests])
+        #expect(facts.collapsedSections.isEmpty)
+    }
+
     @Test func aTabWithNothingToSayHasNoSections() {
         #expect(InfoPaneFacts(tabID: UUID()).sections.isEmpty)
     }
@@ -226,17 +279,47 @@ struct InfoPaneFactsTests {
 
 struct InfoPaneLayoutTests {
     private let chatColumn: CGFloat = 672
+    private let comfortable: CGFloat = 400
+
+    @MainActor
+    @Test func theComfortableMinimumIsTwoThirdsOfTheContentWidth() {
+        let dimensions = Dimensions(bodySize: 15)
+        #expect(dimensions.contentWidth == 600)
+        #expect(dimensions.comfortableContentWidth == 400)
+    }
     private let rail: CGFloat = 30
     private let gap: CGFloat = 10
+    private let pane = InfoPaneLayout.defaultPaneWidth
 
-    private func side(width: CGFloat, state: InfoPaneState = .expanded) -> InfoPaneLayout.SideGeometry {
+    private var reserve: CGFloat { pane + gap + rail }
+
+    private func side(
+        width: CGFloat,
+        state: InfoPaneState = .expanded,
+        wasShown: Bool = true,
+        paneWidth: CGFloat = InfoPaneLayout.defaultPaneWidth
+    ) -> InfoPaneLayout.SideGeometry {
         InfoPaneLayout.side(
             width: width,
             railFootprint: rail,
             gap: gap,
             chatColumnWidth: chatColumn,
+            comfortableChatWidth: comfortable,
+            paneWidth: paneWidth,
             state: state,
+            wasShownBeside: wasShown,
             collapsedHeight: 28
+        )
+    }
+
+    private func showsBeside(chatWidth: CGFloat, isShown: Bool, isPinned: Bool = true) -> Bool {
+        InfoPaneLayout.showsBeside(
+            availableWidth: chatWidth + reserve,
+            chatColumnWidth: chatColumn,
+            comfortableChatWidth: comfortable,
+            reservedWidth: reserve,
+            isShown: isShown,
+            isPinned: isPinned
         )
     }
 
@@ -249,18 +332,59 @@ struct InfoPaneLayoutTests {
         #expect(InfoPaneLayout.minimapExclusionHeight(geometry: collapsed, openHeight: 900, gap: gap, chatHeight: 90) == 38)
     }
 
-    @Test func thePanePinsOnlyWhileTheChatKeepsItsFullColumn() {
-        let needed = chatColumn + InfoPaneLayout.paneWidth + gap + rail
-        #expect(side(width: needed).isPinned)
-        #expect(!side(width: needed - 1).isPinned)
-        #expect(!side(width: needed - 1).fitsBeside)
+    @Test func wideningOpensThePaneOnlyOnceTheChatKeepsItsFullColumn() {
+        #expect(!showsBeside(chatWidth: chatColumn - 1, isShown: false))
+        #expect(showsBeside(chatWidth: chatColumn, isShown: false))
+    }
+
+    @Test func narrowingClosesThePaneOnlyBelowTheComfortableMinimum() {
+        #expect(showsBeside(chatWidth: comfortable, isShown: true))
+        #expect(!showsBeside(chatWidth: comfortable - 1, isShown: true))
+    }
+
+    @Test func betweenTheThresholdsThePaneKeepsItsState() {
+        let deadBand = (comfortable + chatColumn) / 2
+        #expect(showsBeside(chatWidth: deadBand, isShown: true))
+        #expect(!showsBeside(chatWidth: deadBand, isShown: false))
+    }
+
+    @Test func aCollapsedPaneNeverShowsBeside() {
+        #expect(!showsBeside(chatWidth: 5000, isShown: true, isPinned: false))
+    }
+
+    @Test func sidePinsByTheRatchet() {
+        let deadBand = (comfortable + chatColumn) / 2 + reserve
+        #expect(side(width: chatColumn + reserve, wasShown: false).isPinned)
+        #expect(side(width: deadBand, wasShown: true).isPinned)
+        #expect(!side(width: deadBand, wasShown: false).isPinned)
+        #expect(side(width: deadBand, wasShown: false).fitsBeside)
+        #expect(!side(width: comfortable + reserve - 1).isPinned)
+        #expect(!side(width: comfortable + reserve - 1).fitsBeside)
+    }
+
+    @Test func aWiderPaneTakesItsWidthFromTheChat() {
+        let pinned = side(width: 2000, paneWidth: 400)
+        #expect(pinned.paneWidth == 400)
+        #expect(pinned.chatTrailingReserve == 400 + gap + rail)
+    }
+
+    @Test func thePaneWidthStaysWithinItsBounds() {
+        #expect(side(width: 2000, paneWidth: 10).paneWidth == InfoPaneLayout.minimumPaneWidth)
+        #expect(side(width: 2000, paneWidth: 10_000).paneWidth == InfoPaneLayout.maximumPaneWidth)
+    }
+
+    @Test func aDragNeverPushesTheChatBelowItsComfortableMinimum() {
+        let width: CGFloat = comfortable + gap + rail + 300
+        #expect(side(width: width).maxPaneWidth == 300)
+        #expect(side(width: 2000).maxPaneWidth == InfoPaneLayout.maximumPaneWidth)
+        #expect(side(width: 100).maxPaneWidth == InfoPaneLayout.minimumPaneWidth)
     }
 
     /// Pinning never moves the chat vertically: that would slide every
     /// visible row while the pane animates.
     @Test func aPinnedPaneTakesRoomBesideTheChatAndKeepsTheTopInset() {
         let pinned = side(width: 2000)
-        #expect(pinned.chatTrailingReserve == InfoPaneLayout.paneWidth + gap + rail)
+        #expect(pinned.chatTrailingReserve == reserve)
         #expect(pinned.chatTopInset == side(width: 2000, state: .collapsed).chatTopInset)
     }
 
@@ -277,7 +401,7 @@ struct InfoPaneLayoutTests {
     }
 
     @Test func aNarrowWindowNeverPinsEvenWhenExpanded() {
-        let narrow = side(width: 800)
+        let narrow = side(width: 600)
         #expect(!narrow.isPinned)
         #expect(narrow.chatTrailingReserve == 0)
         #expect(narrow.trailingInset == rail + gap)

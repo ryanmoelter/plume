@@ -11,6 +11,10 @@ nonisolated enum CLIRequest: Equatable, Sendable {
     case newTab(NewTab)
     case newTask(NewTask)
     case openSettings(OpenSettings)
+    case showDevice(ShowDevice)
+    case reserveDevice(ReserveDevice)
+    case releaseDevice(ReleaseDevice)
+    case extendDevice(ExtendDevice)
 
     struct Notify: Codable, Equatable, Sendable {
         var tabID: UUID
@@ -41,6 +45,42 @@ nonisolated enum CLIRequest: Equatable, Sendable {
     struct OpenSettings: Codable, Equatable, Sendable {
         var section: String?
     }
+
+    /// Shows a leased device in a device tab of the task holding `tabID`, the
+    /// lease's owner. An emulator is named by `avdID`, a physical device by
+    /// `serial` and a remote one by `reservationID`.
+    struct ShowDevice: Codable, Equatable, Sendable {
+        var tabID: UUID
+        var kind: DeviceKind
+        var serial: String?
+        var avdID: String?
+        var reservationID: String?
+        var displayName: String?
+    }
+
+    /// Reserves a remote device for `tabID` in a device tab of its task. The app answers once the
+    /// claim is recorded, not once the device connects; the claimant then waits on the registry.
+    /// `model` and `projectID` default to what the device picker last used.
+    struct ReserveDevice: Codable, Equatable, Sendable {
+        var tabID: UUID
+        var model: String?
+        var projectID: String?
+        var ttl: TimeInterval?
+        var worktree: String?
+        var branch: String?
+    }
+
+    /// Drops the lease keyed `key`, which this app must own, and ends its reservation.
+    struct ReleaseDevice: Codable, Equatable, Sendable {
+        var key: String
+    }
+
+    /// Extends the reservation behind the remote lease keyed `key`, which this app must own, so it
+    /// lasts at least `ttl` seconds from now. The app answers once Device Streaming has.
+    struct ExtendDevice: Codable, Equatable, Sendable {
+        var key: String
+        var ttl: TimeInterval
+    }
 }
 
 nonisolated extension CLIRequest: Codable {
@@ -53,6 +93,10 @@ nonisolated extension CLIRequest: Codable {
         case newTab = "tab.new"
         case newTask = "task.new"
         case openSettings = "settings.open"
+        case showDevice = "devices.show"
+        case reserveDevice = "devices.reserve"
+        case releaseDevice = "devices.release"
+        case extendDevice = "devices.extend"
     }
 
     init(from decoder: any Decoder) throws {
@@ -69,6 +113,10 @@ nonisolated extension CLIRequest: Codable {
         case .newTab: self = .newTab(try container.decode(NewTab.self, forKey: .params))
         case .newTask: self = .newTask(try container.decode(NewTask.self, forKey: .params))
         case .openSettings: self = .openSettings(try container.decode(OpenSettings.self, forKey: .params))
+        case .showDevice: self = .showDevice(try container.decode(ShowDevice.self, forKey: .params))
+        case .reserveDevice: self = .reserveDevice(try container.decode(ReserveDevice.self, forKey: .params))
+        case .releaseDevice: self = .releaseDevice(try container.decode(ReleaseDevice.self, forKey: .params))
+        case .extendDevice: self = .extendDevice(try container.decode(ExtendDevice.self, forKey: .params))
         }
     }
 
@@ -89,6 +137,18 @@ nonisolated extension CLIRequest: Codable {
         case .openSettings(let params):
             try container.encode(Command.openSettings, forKey: .command)
             try container.encode(params, forKey: .params)
+        case .showDevice(let params):
+            try container.encode(Command.showDevice, forKey: .command)
+            try container.encode(params, forKey: .params)
+        case .reserveDevice(let params):
+            try container.encode(Command.reserveDevice, forKey: .command)
+            try container.encode(params, forKey: .params)
+        case .releaseDevice(let params):
+            try container.encode(Command.releaseDevice, forKey: .command)
+            try container.encode(params, forKey: .params)
+        case .extendDevice(let params):
+            try container.encode(Command.extendDevice, forKey: .command)
+            try container.encode(params, forKey: .params)
         }
     }
 }
@@ -101,6 +161,10 @@ nonisolated struct CLIResponse: Codable, Equatable, Sendable {
     var tabID: UUID?
     var taskID: UUID?
     var version: String?
+    /// Whether the request made the tab it names, as `devices.show` reports.
+    var created: Bool?
+    /// The pending claim `devices.reserve` recorded, which names the lease once it connects.
+    var claimID: UUID?
 
     static let success = CLIResponse(ok: true)
 

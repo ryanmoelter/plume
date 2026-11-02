@@ -38,10 +38,7 @@ struct ChatTabView: View, ThemedView {
     /// chat to open one from, so this is a single on/off toggle for the tab.
     @State private var isSideChatShown = false
     @State private var untrustedDirectoryStore = UntrustedDirectoryStore.shared
-    /// The first message, from the moment it is sent until the transcript
-    /// contains it. Held here rather than on the session because it has to
-    /// outlive a launch that never produces one.
-    @State private var pendingFirstMessage: OptimisticFirstMessage?
+    @State private var pendingFirstMessages = PendingFirstMessageStore.shared
     /// The measured height of the floating bottom chrome — the queued-message
     /// chips plus the panel beneath them — so the list can inset its content
     /// past it. Nothing in that subtree is sized from it, so measuring
@@ -63,11 +60,29 @@ struct ChatTabView: View, ThemedView {
     @State private var conversationWidth = Self.lastConversationWidth
     @State private var collapsedInfoPaneHeight = Self.lastCollapsedInfoPaneHeight
     @State private var openInfoPaneHeight: CGFloat = 0
+    /// What `InfoPaneLayout.showsBeside` last answered. Seeded across mounts,
+    /// so switching tasks inside the dead band keeps the pane as it was.
+    @State private var showsInfoPaneBeside = Self.lastShowsInfoPaneBeside
+    private static var lastShowsInfoPaneBeside = true
     private static var lastConversationWidth: CGFloat = 0
     private static var lastCollapsedInfoPaneHeight: CGFloat = 0
     /// The dock bar and the expanded overlay are separate view trees, so the
     /// namespace the zoom between them matches on lives here, above both.
     @Namespace private var planZoom
+
+    /// The first message, from the moment it is sent until the transcript
+    /// contains it. Held outside the session because it has to outlive a
+    /// launch that never produces one.
+    private var pendingFirstMessage: OptimisticFirstMessage? {
+        pendingFirstMessages.message(forTab: tab.id)
+    }
+
+    private var pendingFirstMessageBinding: Binding<OptimisticFirstMessage?> {
+        Binding(
+            get: { [pendingFirstMessages, tabID = tab.id] in pendingFirstMessages.message(forTab: tabID) },
+            set: { [pendingFirstMessages, tabID = tab.id] in pendingFirstMessages.set($0, forTab: tabID) }
+        )
+    }
 
     private var untrustedPath: String? {
         untrustedDirectoryStore.path(forTab: tab.id)
@@ -191,6 +206,48 @@ struct ChatTabView: View, ThemedView {
         )
     }
 
+    private var pullRequestActions: InfoPanePullRequestActions {
+        let task = task
+        return InfoPanePullRequestActions(
+            pin: { TaskStore.pinPullRequest($0, to: task) },
+            unpin: { TaskStore.unpinPullRequest($0, from: task) },
+            pinInput: { TaskStore.pinPullRequest($0, to: task) }
+        )
+    }
+
+    private var folderActions: InfoPaneFolderActions {
+        let tab = tab
+        return InfoPaneFolderActions(
+            add: { paths in Task { AddFolderPanel.report(await AdditionalDirectoryStore.add(paths, to: tab)) } },
+            remove: { AdditionalDirectoryStore.remove($0, from: tab) },
+            choose: { AddFolderPanel.present(for: tab) },
+            restartNow: { AdditionalDirectoryStore.restartNow(tab) }
+        )
+    }
+
+    private var liveClaudeSession: HeadlessSession? {
+        claudeSession.flatMap { $0.hasExited ? nil : $0 }
+    }
+
+    private var folderRowsInput: FolderRowsInput {
+        let live = liveClaudeSession
+        return FolderRowsInput(
+            workingDirectory: gitDirectory,
+            launchDirectory: live?.launchDirectory,
+            added: tab.additionalDirectories,
+            launched: live?.isRestartPending == true ? live?.launchAdditionalDirectories : nil
+        )
+    }
+
+    private var folderRestart: FolderRestartFacts? {
+        guard let live = liveClaudeSession, live.isRestartPending else { return nil }
+        return FolderRestartFacts(
+            blockers: live.restartBlockers,
+            canRestartNow: AdditionalDirectoryStore.canRestartNow(live),
+            hasFailed: live.hasFailedRestart
+        )
+    }
+
     private func infoPaneFacts(linearLinks: [LinkedLinearIssue]) -> InfoPaneFacts {
         let split = InfoPaneFacts.splitSubagents(
             subagents,
@@ -222,8 +279,20 @@ struct ChatTabView: View, ThemedView {
             backgroundTasks: BackgroundTaskTracker.shared.inFlight(tabID: tab.id),
             planTitle: hasPlan ? planTitle : nil,
             folder: checkout?.projectName ?? gitDirectory.map { ($0 as NSString).lastPathComponent },
+            folderRows: FolderRowsCache.shared.rows(for: tab.id),
+            canEditFolders: tab.provider == .claudeCode,
+            folderRestart: folderRestart,
             branch: branch,
             pullRequest: pullRequest,
+            linkedPullRequests: settings.showsPullRequestStatus
+                ? InfoPaneFacts.linkedPullRequests(
+                    pinned: TaskStore.pinnedPullRequests(of: task),
+                    mentioned: LinkedPullRequestStore.shared.references(for: task),
+                    branchPullRequestURL: pullRequest?.url,
+                    detail: { LinkedPullRequestStore.shared.detail(for: $0) }
+                )
+                : [],
+            canPinPullRequests: settings.showsPullRequestStatus,
             linear: InfoPaneFacts.linear(
                 isEnabled: settings.showsLinearIssues,
                 isConfigured: LinearStore.shared.isConfigured,
@@ -307,6 +376,7 @@ struct ChatTabView: View, ThemedView {
 
     var body: some View {
         let linearLinks = linkedLinearIssues
+        let pinned = settings.showsPullRequestStatus ? TaskStore.pinnedPullRequests(of: task) : []
         return VStack(spacing: 0) {
             // The tracking rides on `content` rather than on the chain below,
             // which is already at the type-checker's limit.
@@ -314,11 +384,13 @@ struct ChatTabView: View, ThemedView {
                 .onChange(of: Set(linearLinks.filter { $0.role == .mentioned }.map(\.identifier)), initial: true) { _, mentioned in
                     LinearMentionTracker.shared.observe(mentioned: mentioned, taskID: task.id)
                 }
+                // The sidebar row retains these too, but it may never mount.
+                .task(id: pinned) { LinkedPullRequestStore.shared.retain(pinned, forTask: task.id) }
                 .modifier(OptimisticFirstMessageTracking(
                     messages: transcriptMessages,
                     startFailure: headlessSession?.startFailure,
                     tabID: tab.id,
-                    pending: $pendingFirstMessage
+                    pending: pendingFirstMessageBinding
                 ))
                 .onDrop(
                     of: ComposerImageDropDelegate.acceptedTypes,
@@ -335,6 +407,11 @@ struct ChatTabView: View, ThemedView {
         .chatLinkHandling(directory: gitDirectory.map { URL(fileURLWithPath: $0) })
         .plumeTheme(bodySize: CGFloat(settings.chatFontSize))
         .onAppear { registerWatchIfNeeded() }
+        .task(id: folderRowsInput) {
+            let input = folderRowsInput
+            let rows = await Task.detached { input.rows() }.value
+            if !Task.isCancelled { FolderRowsCache.shared.setRows(rows, for: tab.id) }
+        }
         .task(id: tab.agentSessionID) {
             guard tab.provider == .codex, let threadID = tab.agentSessionID, !threadID.isEmpty else { return }
             await CodexItemStore.shared.restore(tabID: tab.id, threadID: threadID)
@@ -359,7 +436,7 @@ struct ChatTabView: View, ThemedView {
         // The store re-points a session that has moved between project
         // directories; persisting it here keeps a restart and the title
         // monitor on the same file.
-        .onChange(of: TranscriptStore.shared.watchedPath(forTab: tab.id)) { _, watched in
+        .onChange(of: TranscriptStore.shared.watchedPath(forTab: tab.id), initial: true) { _, watched in
             guard let watched, !watched.isEmpty, tab.sessionJSONLPath != watched else { return }
             tab.sessionJSONLPath = watched
         }
@@ -636,6 +713,7 @@ struct ChatTabView: View, ThemedView {
                 isVisible: isVisible && !planPresentation.isExpanded,
                 isFocused: isFocused,
                 hasContentAbove: isDocked,
+                hasContentBelow: true,
                 editQueuedMessageIndex: $editQueuedMessageIndex,
                 withdrawnMessageToEdit: $withdrawnMessageToEdit,
                 sendNowRequested: $sendNowRequested
@@ -1039,6 +1117,22 @@ struct ChatTabView: View, ThemedView {
             conversationWidth = width
             Self.lastConversationWidth = width
         }
+        .onChange(of: geometry.isPinned) { _, isPinned in
+            guard conversationWidth > 0, settings.infoPaneState == .expanded else { return }
+            setShowsInfoPaneBeside(isPinned)
+        }
+    }
+
+    private func setShowsInfoPaneBeside(_ shows: Bool) {
+        showsInfoPaneBeside = shows
+        Self.lastShowsInfoPaneBeside = shows
+    }
+
+    /// Pinning shows the pane beside the chat wherever it fits there, even
+    /// inside the dead band where a narrowed window had closed it.
+    private func pinInfoPane() {
+        setShowsInfoPaneBeside(true)
+        settings.infoPaneState = .expanded
     }
 
     private var sideInfoPaneGeometry: InfoPaneLayout.SideGeometry {
@@ -1046,13 +1140,22 @@ struct ChatTabView: View, ThemedView {
             width: conversationWidth,
             railFootprint: ChatMinimap.railFootprint(forViewport: conversationWidth, dimensions: dimensions),
             gap: dimensions.panelInset,
-            // Prose sits inside a bleed row, so it pays both rows' edge
-            // padding before it reaches its full measure.
-            chatColumnWidth: dimensions.contentWidth
-                + (dimensions.horizontalEdgePadding + dimensions.horizontalBleedPadding) * 2,
+            chatColumnWidth: dimensions.contentWidth + chatEdgePadding,
+            comfortableChatWidth: max(
+                dimensions.comfortableContentWidth + chatEdgePadding,
+                WindowMetrics.paneMinimumWidth
+            ),
+            paneWidth: settings.infoPaneWidth,
             state: settings.infoPaneState,
+            wasShownBeside: showsInfoPaneBeside,
             collapsedHeight: collapsedInfoPaneHeight
         )
+    }
+
+    /// Prose sits inside a bleed row, so it pays both rows' edge padding
+    /// before it reaches its full measure.
+    private var chatEdgePadding: CGFloat {
+        (dimensions.horizontalEdgePadding + dimensions.horizontalBleedPadding) * 2
     }
 
     private func sideInfoPane(geometry: InfoPaneLayout.SideGeometry, linearLinks: [LinkedLinearIssue]) -> some View {
@@ -1066,11 +1169,14 @@ struct ChatTabView: View, ThemedView {
                 Self.lastCollapsedInfoPaneHeight = height
             },
             onOpenHeight: { openInfoPaneHeight = $0 },
+            onPin: pinInfoPane,
             onOpenSubagent: { openSubagentID = $0.id },
             onOpenPlan: openPlan,
             onOpenSideChat: { isSideChatShown = true },
             remoteControlSession: headlessSession,
-            linearActions: linearActions
+            linearActions: linearActions,
+            pullRequestActions: pullRequestActions,
+            folderActions: folderActions
         )
     }
 
@@ -1153,6 +1259,7 @@ struct ChatTabView: View, ThemedView {
         newTab.isModelUserChosen = tab.isModelUserChosen
         newTab.permissionMode = tab.permissionMode
         newTab.effort = tab.effort
+        newTab.additionalDirectories = tab.additionalDirectories
         // The fork writes no transcript until its first turn, so it opens on
         // the conversation it was cut from rather than on an empty tab.
         InheritedForkHistory.shared.adopt(from: transcript, cutBefore: target, tabID: newTab.id)
@@ -1195,7 +1302,9 @@ struct ChatTabView: View, ThemedView {
                 tab: tab,
                 isVisible: isVisible,
                 isFocused: isFocused,
-                onLaunch: { pendingFirstMessage = OptimisticFirstMessage(text: $0) }
+                onLaunch: { [pendingFirstMessages, tabID = tab.id] in
+                    pendingFirstMessages.set(OptimisticFirstMessage(text: $0), forTab: tabID)
+                }
             )
             .disabled(!isComposerEnabled)
             .glassEffect(planGlass, in: .rect(cornerRadius: dimensions.panelCornerRadius))
@@ -1219,6 +1328,10 @@ struct ChatTabView: View, ThemedView {
                     .emphasis(.secondary)
                 if isComposerEnabled {
                     workspaceChoice
+                    if tab.provider == .claudeCode {
+                        EmptyStateFolders(tab: tab)
+                            .padding(.top, dimensions.inlineClauseSpacing)
+                    }
                 } else {
                     Text("Waiting for the first message…")
                         .font(.title2)
@@ -1255,12 +1368,7 @@ struct ChatTabView: View, ThemedView {
     }
 
     private func reconnectAgent() {
-        let queued = headlessSession?.queuedMessages ?? []
-        AgentSessionManager.shared.closeSession(for: tab.id)
-        AgentLauncher.launch(message: nil, task: task, tab: tab, resumeSessionID: tab.agentSessionID)
-        if let session = headlessSession {
-            for message in queued { session.submit(blocks: message) }
-        }
+        AgentLauncher.relaunchHeadless(task: task, tab: tab)
     }
 
     private func agentErrorState(_ message: String) -> some View {
@@ -1398,7 +1506,10 @@ struct ChatTabView: View, ThemedView {
     private func registerWatchIfNeeded() {
         guard let path = tab.sessionJSONLPath, !path.isEmpty else { return }
         TranscriptStore.shared.watch(tabID: tab.id, transcriptPath: path)
-        AgentTitleMonitor.shared.watch(tabID: tab.id, transcriptPath: path)
+        // The store may have followed the session to another project
+        // directory while this view was unmounted.
+        let watched = TranscriptStore.shared.watchedPath(forTab: tab.id) ?? path
+        AgentTitleMonitor.shared.watch(tabID: tab.id, transcriptPath: watched)
     }
 
     private func releaseGitDirectory() {
@@ -1457,15 +1568,7 @@ struct ChatTabView: View, ThemedView {
     /// survives an app restart and so the chat has a transcript to read.
     private func persistHeadlessSessionID(_ sessionID: String?) {
         guard let sessionID, !sessionID.isEmpty, tab.agentSessionID != sessionID else { return }
-        tab.agentSessionID = sessionID
-        // Only Claude Code keeps a transcript on disk; Codex serves its
-        // history over the protocol, so a Codex tab has no path to derive.
-        guard tab.provider == .claudeCode else { return }
-        guard let workingDirectory = task.workingDirectoryPath else { return }
-        tab.sessionJSONLPath = SessionJSONLReader.resolvedTranscriptPath(
-            workingDirectory: workingDirectory,
-            sessionID: sessionID
-        )
+        AgentLauncher.recordSessionID(sessionID, on: tab)
     }
 
 }

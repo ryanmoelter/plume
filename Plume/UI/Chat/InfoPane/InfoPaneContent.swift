@@ -1,4 +1,5 @@
 import SwiftUI
+import UniformTypeIdentifiers
 
 /// The info pane's sections — subagents, background tasks, the plan, and where
 /// the conversation runs — shared by every presentation.
@@ -16,13 +17,17 @@ struct InfoPaneContent: View, ThemedView {
     let onOpenSideChat: () -> Void
     let remoteControlSession: (any AgentSession)?
     let linearActions: InfoPaneLinearActions
+    var pullRequestActions: InfoPanePullRequestActions = .none
+    var folderActions: InfoPaneFolderActions = .none
     /// Held by the presentation, which outlives this view as the side pane
     /// opens and closes.
     @Binding var showsCompleted: Bool
     @Binding var showsMentionedLinearIssues: Bool
+    @Binding var showsMentionedPullRequests: Bool
 
     @State private var settings = AppSettings.shared
     @Environment(\.openURL) private var openURL
+    @State private var isFolderDropTargeted = false
 
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
@@ -37,6 +42,21 @@ struct InfoPaneContent: View, ThemedView {
             }
         }
         .font(typography.caption.font)
+        .overlay {
+            if isFolderDropTargeted {
+                RoundedRectangle(cornerRadius: 8)
+                    .strokeBorder(colors.selection, lineWidth: 2)
+                    .padding(-6)
+            }
+        }
+        .onDrop(
+            of: [.fileURL],
+            delegate: AddFolderDropDelegate(
+                isEnabled: facts.canEditFolders,
+                isTargeted: $isFolderDropTargeted,
+                add: folderActions.add
+            )
+        )
     }
 
     @ViewBuilder
@@ -49,9 +69,22 @@ struct InfoPaneContent: View, ThemedView {
         case .sideChat: sideChat
         case .remoteControl:
             if let remoteControlSession { RemoteControlRow(session: remoteControlSession) }
-        case .folder: folder
+        case .folder:
+            FoldersSection(
+                workingDirectoryName: facts.folder,
+                rows: facts.folderRows,
+                canEdit: facts.canEditFolders,
+                restart: facts.folderRestart,
+                actions: folderActions
+            )
         case .branch: branch
         case .pullRequest: pullRequest
+        case .linkedPullRequests:
+            LinkedPullRequestsSection(
+                pullRequests: facts.linkedPullRequests,
+                actions: pullRequestActions,
+                showsMentioned: $showsMentionedPullRequests
+            )
         case .linearIssues:
             LinearIssuesSection(linear: facts.linear, actions: linearActions, showsMentioned: $showsMentionedLinearIssues)
         }
@@ -213,41 +246,27 @@ struct InfoPaneContent: View, ThemedView {
     // MARK: Artifacts
 
     private var artifacts: some View {
-        let isGrouped = facts.artifacts.count > 1
-        return Group {
-            if !isGrouped, let artifact = facts.artifacts.first {
-                artifactRow(artifact, showsIcon: true)
-            } else {
-                artifactSection
-            }
-        }
-        .animation(InfoPaneLayout.sectionAnimation, value: isGrouped)
-        .onChange(of: isGrouped) { _, isGrouped in
-            if isGrouped { settings.infoPaneArtifactsExpanded = true }
-        }
-    }
-
-    private var artifactSection: some View {
         let isExpanded = settings.infoPaneArtifactsExpanded
-        return VStack(alignment: .leading, spacing: 0) {
-            Button {
-                withAnimation(InfoPaneLayout.sectionAnimation) { settings.infoPaneArtifactsExpanded.toggle() }
-            } label: {
-                HStack(spacing: InfoPaneLayout.columnSpacing) {
-                    InfoPaneIcon { Image(systemName: ArtifactSymbol.outline) }
-                    Text("Artifacts")
-                    Text("\(facts.artifacts.count)")
-                        .emphasis(.subtle)
-                    DisclosureChevron(isExpanded: isExpanded)
-                    Spacer(minLength: 0)
+        return InfoPaneGroup(
+            isGrouped: facts.artifacts.count > 1,
+            expand: { settings.infoPaneArtifactsExpanded = true }
+        ) {
+            if let artifact = facts.artifacts.first { artifactRow(artifact, showsIcon: true) }
+        } grouped: {
+            VStack(alignment: .leading, spacing: 0) {
+                InfoPaneGroupHeader(
+                    title: "Artifacts",
+                    count: facts.artifacts.count,
+                    isExpanded: isExpanded,
+                    accessibilityID: AccessibilityID.infoPaneArtifactsToggle
+                ) {
+                    withAnimation(InfoPaneLayout.sectionAnimation) { settings.infoPaneArtifactsExpanded.toggle() }
+                } icon: {
+                    Image(systemName: ArtifactSymbol.outline)
                 }
-                .emphasis(.secondary)
-            }
-            .buttonStyle(InfoPaneRowButtonStyle())
-            .plumeID(AccessibilityID.infoPaneArtifactsToggle, value: isExpanded ? "expanded" : "collapsed")
-
-            if isExpanded {
-                ForEach(facts.artifacts) { artifactRow($0, showsIcon: false) }
+                if isExpanded {
+                    ForEach(facts.artifacts) { artifactRow($0, showsIcon: false) }
+                }
             }
         }
     }
@@ -296,20 +315,6 @@ struct InfoPaneContent: View, ThemedView {
     }
 
     // MARK: Where it runs
-
-    @ViewBuilder
-    private var folder: some View {
-        if let folder = facts.folder {
-            HStack(spacing: InfoPaneLayout.columnSpacing) {
-                InfoPaneIcon { Image(systemName: "folder") }
-                Text(folder)
-                    .lineLimit(1)
-                    .truncationMode(.middle)
-            }
-            .emphasis(.secondary)
-            .padding(.vertical, InfoPaneLayout.rowVerticalPadding)
-        }
-    }
 
     @ViewBuilder
     private var branch: some View {
@@ -479,7 +484,7 @@ struct InfoPaneCollapsedIcons: View, ThemedView {
             Image(systemName: StatusSymbol.remoteControl.name)
                 .foregroundStyle(colors.attention)
                 .help("Remote Control is on")
-        case .folder, .sideChat:
+        case .folder, .sideChat, .linkedPullRequests:
             EmptyView()
         }
     }

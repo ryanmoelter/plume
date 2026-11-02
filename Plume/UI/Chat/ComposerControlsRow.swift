@@ -195,7 +195,7 @@ private struct PermissionModeControl: View, ThemedView {
     var body: some View {
         if let preset = state.permissionPreset {
             ComposerSegmentLabel(
-                systemImage: symbol(for: preset),
+                systemImage: preset.symbol,
                 text: preset.label,
                 showsText: form.showsLabels,
                 indicator: .menu,
@@ -204,7 +204,7 @@ private struct PermissionModeControl: View, ThemedView {
             )
             .overlay {
                 SymbolMenuButton(title: "Permission mode", value: preset.label, options: state.permissionPresets.map { option in
-                    SymbolMenuOption(title: option.label, systemImage: symbol(for: option), isSelected: option == preset) {
+                    SymbolMenuOption(title: option.label, systemImage: option.symbol, isSelected: option == preset) {
                         state.setPermissionPreset(option)
                     }
                 })
@@ -220,18 +220,6 @@ private struct PermissionModeControl: View, ThemedView {
     /// ordinary working modes.
     private func attention(_ preset: AgentPermissionPreset) -> StatuslineAttention {
         preset.id == PermissionMode.bypassPermissions.rawValue || preset == .codexDangerFullAccess ? .red : .neutral
-    }
-
-    /// Claude's own modes carry a symbol per case; Codex's danger-level
-    /// presets have no such enum, so they're matched by id instead.
-    private func symbol(for preset: AgentPermissionPreset) -> String {
-        if let mode = PermissionMode(rawValue: preset.id) { return mode.symbol }
-        switch preset {
-        case .codexReadOnly: return "eye"
-        case .codexWorkspace: return "folder"
-        case .codexDangerFullAccess: return "exclamationmark.triangle.fill"
-        default: return "lock.shield"
-        }
     }
 
     private func foreground(for attention: StatuslineAttention) -> Color {
@@ -377,6 +365,20 @@ private struct EffortControl: View, ThemedView {
 
     private func foreground(for attention: StatuslineAttention) -> Color {
         StatuslineColors.foreground(for: attention, colors: colors)
+    }
+}
+
+extension AgentPermissionPreset {
+    /// Claude's own modes carry a symbol per case; Codex's danger-level
+    /// presets have no such enum, so they're matched by id instead.
+    var symbol: String {
+        if let mode = PermissionMode(rawValue: id) { return mode.symbol }
+        switch self {
+        case .codexReadOnly: return "eye"
+        case .codexWorkspace: return "folder"
+        case .codexDangerFullAccess: return "exclamationmark.triangle.fill"
+        default: return "lock.shield"
+        }
     }
 }
 

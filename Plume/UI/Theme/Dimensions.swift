@@ -10,6 +10,13 @@ struct Dimensions: Equatable {
     /// advance for a proportional font.
     let contentWidth: CGFloat
 
+    /// The share of `contentWidth` a pinned info pane may squeeze the chat
+    /// down to.
+    static let comfortableContentRatio: CGFloat = 2.0 / 3.0
+
+    /// The narrowest prose column that still reads comfortably.
+    var comfortableContentWidth: CGFloat { contentWidth * Self.comfortableContentRatio }
+
     /// Room for what doesn't fit prose measure — code blocks, tables, the
     /// plan panel.
     let bleedWidth: CGFloat

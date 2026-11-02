@@ -142,8 +142,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         // agent that outlives the app goes on writing a transcript the next
         // run resumes from.
         Log.app.info("Terminating, closing \(AgentSessionManager.shared.activeSessionCount, privacy: .public) agent session(s)")
+        // Before teardown, whose statuses describe the quit rather than the work.
+        StatusPersistence.current?.flush()
         CodexTerminalMonitor.shared.stopAll()
         AgentSessionManager.shared.closeAll()
+        DeviceLeaseCoordinator.shared.dropRemoteLeasesForTermination()
         // The test host shares the installed app's ledger.
         DeviceSessionManager.shared.terminateAll(sweepsLedger: NSClassFromString("XCTestCase") == nil)
         AgentProcess.awaitTerminations()

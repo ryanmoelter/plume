@@ -36,6 +36,8 @@ final class TaskTab {
     /// The CLI's own identifier for this conversation, passed back to it to
     /// resume: a Claude Code `session_id`, or a Codex `threadId`.
     var agentSessionID: String?
+    /// An agent tab that has ever held a session; see `WorkTask.hasNeverStarted`.
+    var hasAgentSession: Bool { kind == .agent && agentSessionID != nil }
     var sessionJSONLPath: String?
     /// The model's context window, as reported by the last completed turn.
     /// A resumed headless session has no window until it takes a turn in this
@@ -75,8 +77,25 @@ final class TaskTab {
     var remoteDeviceModel: String? = nil
     var remoteExpiresAt: Date? = nil
 
+    /// A chat tab's unread mark: the ID of the conversation's latest message
+    /// when the mark was set. Nil reads as read. `UnreadPersistence` owns it.
+    var unreadMessageID: String? = nil
+
+    /// The tab's status as of `StatusPersistence`'s last debounced snapshot.
+    /// Read back at launch through `TaskStatus.afterRelaunch`.
+    var lastStatusRaw: String = TaskStatus.notStarted.rawValue
+
     /// Reserved for extra launch args and statusline preferences.
     var launchArgumentsData: Data?
+    /// JSON `[String]` of absolute paths passed as `--add-dir`. A resume
+    /// restores none of a session's added folders, so this is the only
+    /// record of them. `AdditionalDirectoryStore` owns the writes to a tab
+    /// with a session; a fork copies its source's list before it has one.
+    var additionalDirectoriesData: Data?
+    /// JSON `[String]` of folders removed from this tab. A resumed session
+    /// can go on reporting a folder it reached before, and this keeps that
+    /// report from adopting it again.
+    var removedAdditionalDirectoriesData: Data?
 
     init(kind: TabKind, orderIndex: Int, task: WorkTask? = nil) {
         self.id = UUID()
@@ -90,6 +109,11 @@ final class TaskTab {
     var kind: TabKind {
         get { TabKind(rawValue: kindRaw) ?? .agent }
         set { kindRaw = newValue.rawValue }
+    }
+
+    var lastStatus: TaskStatus {
+        get { TaskStatus(migratingRawValue: lastStatusRaw) }
+        set { lastStatusRaw = newValue.rawValue }
     }
 
     var devicePlatform: DevicePlatform? {
@@ -173,6 +197,26 @@ final class TaskTab {
     var model: AgentModel? {
         get { modelRaw.flatMap { AgentModel.recognizing($0, provider: provider) } }
         set { modelRaw = newValue?.id }
+    }
+
+    var additionalDirectories: [String] {
+        get {
+            guard let additionalDirectoriesData else { return [] }
+            return AdditionalDirectories.decoded(additionalDirectoriesData)
+        }
+        set {
+            additionalDirectoriesData = newValue.isEmpty ? nil : try? JSONEncoder().encode(newValue)
+        }
+    }
+
+    var removedAdditionalDirectories: [String] {
+        get {
+            guard let removedAdditionalDirectoriesData else { return [] }
+            return AdditionalDirectories.decoded(removedAdditionalDirectoriesData)
+        }
+        set {
+            removedAdditionalDirectoriesData = newValue.isEmpty ? nil : try? JSONEncoder().encode(newValue)
+        }
     }
 
     var codexCollaborationMode: CodexCollaborationMode {

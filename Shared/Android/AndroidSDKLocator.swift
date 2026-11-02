@@ -114,17 +114,56 @@ nonisolated enum AndroidSDKLocator {
 
         let (root, adbRoot, searched) = resolve(candidates: candidates, isExecutable: isExecutable, home: home)
         guard let root else { return .notFound(searchedPaths: searched) }
+        return .found(makeSDK(root: root, adbRoot: adbRoot, environment: shell.environment, isExecutable: isExecutable))
+    }
+
+    /// For the `plume` tool, which pays for every lookup: the login shell is queried only when the
+    /// environment and the usual install locations don't already name a full SDK.
+    static func locateSkippingShellWhenPossible(
+        environment: [String: String] = ProcessInfo.processInfo.environment
+    ) -> AndroidSDKLookup {
+        if let sdk = quickLookup(environment: environment) { return .found(sdk) }
+        return discover()
+    }
+
+    /// Nil unless one root has both the emulator and adb, so a partial install still gets the
+    /// login shell's answer.
+    static func quickLookup(
+        environment: [String: String],
+        isExecutable: (String) -> Bool = { FileManager.default.isExecutableFile(atPath: $0) },
+        home: String = NSHomeDirectory(),
+        resolveSymlinks: (String) -> String = { URL(fileURLWithPath: $0).resolvingSymlinksInPath().path }
+    ) -> AndroidSDK? {
+        var candidates = [environment["ANDROID_HOME"], environment["ANDROID_SDK_ROOT"],
+                          home + "/Library/Android/sdk", home + "/.android/sdk"].compactMap { $0 }
+        if let adb = CLIProcess.which("adb", environment: environment),
+           let root = sdkRoot(fromADB: adb, resolveSymlinks: resolveSymlinks) {
+            candidates.append(root)
+        }
+        let (root, adbRoot, _) = resolve(candidates: candidates, isExecutable: isExecutable, home: home)
+        guard let root, adbRoot == root else { return nil }
+        let inherited = environment.filter { $0.key.hasPrefix("ANDROID_") && !$0.value.isEmpty }
+        let sdk = makeSDK(root: root, adbRoot: adbRoot, environment: inherited, isExecutable: isExecutable)
+        return sdk.emulatorURL == nil ? nil : sdk
+    }
+
+    private static func makeSDK(
+        root: String,
+        adbRoot: String?,
+        environment: [String: String],
+        isExecutable: (String) -> Bool
+    ) -> AndroidSDK {
         let rootURL = URL(fileURLWithPath: root, isDirectory: true)
         let emulator = rootURL.appending(path: "emulator/emulator")
         let adb = adbRoot.map { URL(fileURLWithPath: $0, isDirectory: true).appending(path: "platform-tools/adb") }
-        var environment = shell.environment
+        var environment = environment
         environment["ANDROID_HOME"] = root
-        return .found(AndroidSDK(
+        return AndroidSDK(
             root: rootURL,
             emulatorURL: isExecutable(emulator.path) ? emulator : nil,
             adbURL: adb,
             launchEnvironment: environment
-        ))
+        )
     }
 
     static let loginShellTimeout: TimeInterval = 5
@@ -132,63 +171,10 @@ nonisolated enum AndroidSDKLocator {
     private static func queryLoginShell() -> (environment: [String: String], adbPath: String?) {
         let script = "echo \(beginMarker); env | grep '^ANDROID_'; echo PLUME_ADB=$(command -v adb); echo \(endMarker)"
         let shell = ProcessInfo.processInfo.environment["SHELL"].flatMap { $0.isEmpty ? nil : $0 } ?? "/bin/zsh"
-        guard let output = runCapturingOutput(executable: shell, arguments: ["-lic", script], timeout: loginShellTimeout) else {
+        guard let output = ChildProcess.capturedOutput(executable: shell, arguments: ["-lic", script], timeout: loginShellTimeout) else {
             return ([:], nil)
         }
         return parseShellOutput(output)
-    }
-
-    /// Runs in its own process group so a timeout kills helpers the shell backgrounded too, since they can hold the pipe open.
-    /// Returns nil on a spawn failure or timeout.
-    static func runCapturingOutput(executable: String, arguments: [String], timeout: TimeInterval) -> String? {
-        var descriptors: [Int32] = [0, 0]
-        guard pipe(&descriptors) == 0 else { return nil }
-        let (readEnd, writeEnd) = (descriptors[0], descriptors[1])
-        for descriptor in descriptors { _ = fcntl(descriptor, F_SETFD, FD_CLOEXEC) }
-
-        var actions: posix_spawn_file_actions_t?
-        posix_spawn_file_actions_init(&actions)
-        defer { posix_spawn_file_actions_destroy(&actions) }
-        posix_spawn_file_actions_addopen(&actions, STDIN_FILENO, "/dev/null", O_RDONLY, 0)
-        posix_spawn_file_actions_adddup2(&actions, writeEnd, STDOUT_FILENO)
-        posix_spawn_file_actions_addopen(&actions, STDERR_FILENO, "/dev/null", O_WRONLY, 0)
-
-        var attributes: posix_spawnattr_t?
-        posix_spawnattr_init(&attributes)
-        defer { posix_spawnattr_destroy(&attributes) }
-        posix_spawnattr_setflags(&attributes, Int16(POSIX_SPAWN_SETPGROUP | POSIX_SPAWN_CLOEXEC_DEFAULT))
-        posix_spawnattr_setpgroup(&attributes, 0)
-
-        let argv = ([executable] + arguments).map { strdup($0) } + [nil]
-        defer { argv.forEach { free($0) } }
-        var pid: pid_t = 0
-        let status = posix_spawn(&pid, executable, &actions, &attributes, argv, environ)
-        close(writeEnd)
-        guard status == 0 else {
-            close(readEnd)
-            return nil
-        }
-
-        var data = Data()
-        var chunk = [UInt8](repeating: 0, count: 16_384)
-        let deadline = Date().addingTimeInterval(timeout)
-        var timedOut = false
-        while true {
-            let remaining = deadline.timeIntervalSinceNow
-            if remaining <= 0 { timedOut = true; break }
-            var poller = pollfd(fd: readEnd, events: Int16(POLLIN), revents: 0)
-            let ready = poll(&poller, 1, Int32(min(remaining * 1000, 1000)) + 1)
-            if ready < 0 { if errno == EINTR { continue }; break }
-            if ready == 0 { continue }
-            let count = read(readEnd, &chunk, chunk.count)
-            if count > 0 { data.append(contentsOf: chunk.prefix(count)) }
-            else if count == 0 || errno != EINTR { break }
-        }
-        close(readEnd)
-        if timedOut { kill(-pid, SIGKILL) }
-        var exitStatus: Int32 = 0
-        while waitpid(pid, &exitStatus, 0) == -1, errno == EINTR {}
-        return timedOut ? nil : String(decoding: data, as: UTF8.self)
     }
 
     private final class Cache: @unchecked Sendable {

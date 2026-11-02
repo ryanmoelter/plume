@@ -50,6 +50,17 @@ struct InfoPaneFacts: Equatable {
         }
     }
 
+    /// A pull request pinned to the task or named in the conversation, other
+    /// than the branch's own.
+    struct LinkedPullRequestFacts: Equatable, Identifiable {
+        let reference: PullRequestReference
+        var role: LinkedPullRequestRole = .mentioned
+        /// Nil until GitHub has answered, and when it cannot.
+        var pullRequest: MentionCandidate.PullRequestEntry?
+
+        var id: String { reference.id }
+    }
+
     /// One linked Linear issue, flattened for drawing.
     struct LinearIssueFacts: Equatable, Identifiable {
         let identifier: String
@@ -85,10 +96,20 @@ struct InfoPaneFacts: Equatable {
     var backgroundTasks: [BackgroundTaskTracker.Entry] = []
     /// What the plan row reads, or nil when the conversation has no plan.
     var planTitle: String?
+    /// The working directory's display name.
     var folder: String?
+    /// Every folder the conversation reaches, the working directory first.
+    var folderRows: [FolderRow] = []
+    /// Claude Code takes `--add-dir`; Codex has no counterpart here.
+    var canEditFolders = false
+    /// Set while a folder change waits for the session to go idle.
+    var folderRestart: FolderRestartFacts?
     var branch: Branch?
     /// Nil when PR status is turned off or the forge cannot answer.
     var pullRequest: PullRequestFacts?
+    var linkedPullRequests: [LinkedPullRequestFacts] = []
+    /// Shows the pull request section with nothing in it, for its pin button.
+    var canPinPullRequests = false
     var linear: LinearFacts?
     /// How many `/btw` questions this tab has asked.
     var sideChatCount = 0
@@ -101,12 +122,13 @@ struct InfoPaneFacts: Equatable {
         if !liveSubagents.isEmpty || !completedSubagents.isEmpty { sections.append(.subagents) }
         if !backgroundTasks.isEmpty { sections.append(.backgroundTasks) }
         if pullRequest?.hasPullRequest == true { sections.append(.pullRequest) }
+        if !linkedPullRequests.isEmpty || canPinPullRequests { sections.append(.linkedPullRequests) }
         if linear != nil { sections.append(.linearIssues) }
         if planTitle != nil { sections.append(.plan) }
         if !artifacts.isEmpty { sections.append(.artifacts) }
         if sideChatCount > 0 { sections.append(.sideChat) }
         if remoteControl != nil { sections.append(.remoteControl) }
-        if folder != nil { sections.append(.folder) }
+        if folder != nil || !folderRows.isEmpty { sections.append(.folder) }
         if branch != nil { sections.append(.branch) }
         return sections
     }
@@ -120,7 +142,7 @@ struct InfoPaneFacts: Equatable {
             case .branch: branch?.isWorktree == true
             case .linearIssues: (linear?.workingCount ?? 0) > 0
             case .remoteControl: remoteControl == .on
-            case .folder, .sideChat: false
+            case .folder, .sideChat, .linkedPullRequests: false
             case .backgroundTasks, .plan, .pullRequest, .artifacts: true
             }
         }
@@ -165,6 +187,25 @@ extension InfoPaneFacts {
         default:
             return PullRequestFacts(state: state, checkRollup: nil, forge: forge)
         }
+    }
+}
+
+extension InfoPaneFacts {
+    /// Pinned first, then mentioned. Leaves out the branch's own pull
+    /// request, which has its own row.
+    static func linkedPullRequests(
+        pinned: [PullRequestReference],
+        mentioned: [PullRequestReference],
+        branchPullRequestURL: URL?,
+        detail: (PullRequestReference) -> LinkedPullRequestStore.Detail?
+    ) -> [LinkedPullRequestFacts] {
+        LinkedPullRequest.merge(pinned: pinned, mentioned: mentioned)
+            .filter { !$0.reference.matches(url: branchPullRequestURL?.absoluteString) }
+            .map { linked in
+                var facts = LinkedPullRequestFacts(reference: linked.reference, role: linked.role)
+                if case .pullRequest(let pull) = detail(linked.reference) { facts.pullRequest = pull }
+                return facts
+            }
     }
 }
 
@@ -239,10 +280,13 @@ enum InfoPaneSection: Equatable {
     case folder
     case branch
     case pullRequest
+    case linkedPullRequests
 }
 
 enum InfoPaneLayout {
-    static let paneWidth: CGFloat = 280
+    static let defaultPaneWidth: CGFloat = 280
+    static let minimumPaneWidth: CGFloat = 240
+    static let maximumPaneWidth: CGFloat = 480
     static let symbol = "checklist.unchecked"
     /// The shared width every row's icon centers in, so the text beside the
     /// icons starts on one edge.
@@ -253,39 +297,72 @@ enum InfoPaneLayout {
     static let rowVerticalPadding: CGFloat = 5
     static let sectionAnimation: Animation = .snappy(duration: 0.22)
 
+    static func clampedPaneWidth(_ width: CGFloat) -> CGFloat {
+        min(max(width, minimumPaneWidth), maximumPaneWidth)
+    }
+
     /// The room a pinned pane takes from the chat's trailing edge: the pane,
     /// and the gap and minimap rail beyond it. The chat's own edge padding
     /// is the gap on the pane's other side.
-    static func reservedWidth(railFootprint: CGFloat, gap: CGFloat) -> CGFloat {
+    static func reservedWidth(paneWidth: CGFloat, railFootprint: CGFloat, gap: CGFloat) -> CGFloat {
         paneWidth + gap + railFootprint
     }
 
-    /// Pinned beside the chat only while the chat keeps its full prose
-    /// column, edge padding included, so no paragraph rewraps. Narrower than
-    /// that the pane opens over the chat on demand instead.
-    static func fitsBeside(width: CGFloat, reservedWidth: CGFloat, chatColumnWidth: CGFloat) -> Bool {
-        width - reservedWidth >= chatColumnWidth
+    /// Whether a pinned pane sits beside the chat. It opens once the chat
+    /// beside it keeps its full prose column, and closes only once the chat
+    /// would drop below its comfortable minimum. Between the two it stays as
+    /// it is, so a window resized across one threshold doesn't flicker.
+    static func showsBeside(
+        availableWidth: CGFloat,
+        chatColumnWidth: CGFloat,
+        comfortableChatWidth: CGFloat,
+        reservedWidth: CGFloat,
+        isShown: Bool,
+        isPinned: Bool
+    ) -> Bool {
+        guard isPinned else { return false }
+        let chatWidth = availableWidth - reservedWidth
+        if chatWidth >= chatColumnWidth { return true }
+        if chatWidth < comfortableChatWidth { return false }
+        return isShown
     }
 
     /// Where the side pane sits over a chat `width` wide, and what room the
-    /// chat gives it.
+    /// chat gives it. `comfortableChatWidth` is the narrowest the chat gets
+    /// beside a pinned pane, and never less than the chat's hard minimum.
     static func side(
         width: CGFloat,
         railFootprint: CGFloat,
         gap: CGFloat,
         chatColumnWidth: CGFloat,
+        comfortableChatWidth: CGFloat,
+        paneWidth: CGFloat,
         state: InfoPaneState,
+        wasShownBeside: Bool,
         collapsedHeight: CGFloat
     ) -> SideGeometry {
-        let reserved = reservedWidth(railFootprint: railFootprint, gap: gap)
+        let paneWidth = clampedPaneWidth(paneWidth)
+        let reserved = reservedWidth(paneWidth: paneWidth, railFootprint: railFootprint, gap: gap)
         // Before the first measurement, so a pane left pinned opens pinned
         // rather than animating out of the collapsed form.
-        let fits = width <= 0
-            || fitsBeside(width: width, reservedWidth: reserved, chatColumnWidth: chatColumnWidth)
-        let isPinned = fits && state == .expanded
+        let isMeasured = width > 0
+        let fits = !isMeasured || width - reserved >= comfortableChatWidth
+        let isPinned = state == .expanded && (!isMeasured || showsBeside(
+            availableWidth: width,
+            chatColumnWidth: chatColumnWidth,
+            comfortableChatWidth: comfortableChatWidth,
+            reservedWidth: reserved,
+            isShown: wasShownBeside,
+            isPinned: true
+        ))
+        let maxPaneWidth = isMeasured
+            ? min(maximumPaneWidth, max(minimumPaneWidth, width - gap - railFootprint - comfortableChatWidth))
+            : maximumPaneWidth
         return SideGeometry(
             fitsBeside: fits,
             isPinned: isPinned,
+            paneWidth: paneWidth,
+            maxPaneWidth: maxPaneWidth,
             trailingInset: railFootprint + gap,
             chatTrailingReserve: isPinned ? reserved : 0,
             chatTopInset: collapsedHeight + gap
@@ -302,9 +379,15 @@ enum InfoPaneLayout {
     }
 
     struct SideGeometry: Equatable {
+        /// The chat keeps its comfortable minimum beside the pane, so pinning
+        /// would place the pane beside it rather than over it.
         var fitsBeside: Bool
         /// Open beside the chat rather than over it.
         var isPinned: Bool
+        var paneWidth: CGFloat
+        /// The widest a drag may make the pane without pushing the chat
+        /// below its comfortable minimum.
+        var maxPaneWidth: CGFloat
         /// From the chat's trailing edge to the pane's, clear of the minimap.
         var trailingInset: CGFloat
         /// Taken off the chat's trailing edge, so its columns center in what

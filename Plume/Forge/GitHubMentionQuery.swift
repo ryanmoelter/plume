@@ -14,6 +14,8 @@ nonisolated enum GitHubMentionQuery {
             /// `$owner` and `$name`, filled from gh's `{owner}` and `{repo}`
             /// placeholders, which it resolves from its working directory.
             case repository
+            /// `$owner` and `$name`, given rather than resolved by gh.
+            case named(owner: String, name: String)
             case search(String)
             /// `$search0`, `$search1`, … in order.
             case searches([String])
@@ -26,6 +28,7 @@ nonisolated enum GitHubMentionQuery {
             var arguments = ["api", "graphql", "-f", "query=" + query]
             switch variables {
             case .repository: arguments += ["-F", "owner={owner}", "-F", "name={repo}"]
+            case .named(let owner, let name): arguments += ["-f", "owner=" + owner, "-f", "name=" + name]
             case .search(let search): arguments += ["-f", "search=" + search]
             case .searches(let searches):
                 for (index, search) in searches.enumerated() { arguments += ["-f", "search\(index)=" + search] }
@@ -47,6 +50,24 @@ nonisolated enum GitHubMentionQuery {
             query: "query($owner: String!, $name: String!) { "
                 + "repository(owner: $owner, name: $name) { pullRequest(number: \(number)) { \(fields) } } }",
             variables: .repository
+        )
+    }
+
+    static func pullRequest(number: Int, owner: String, name: String) -> Request {
+        Request(
+            query: pullRequest(number: number).query,
+            variables: .named(owner: owner, name: name)
+        )
+    }
+
+    /// Several pull requests of one repository in a single request, aliased
+    /// `p<number>`.
+    static func pullRequests(numbers: [Int], owner: String, name: String) -> Request {
+        let aliased = numbers.map { "p\($0): pullRequest(number: \($0)) { \(fields) }" }
+        return Request(
+            query: "query($owner: String!, $name: String!) { "
+                + "repository(owner: $owner, name: $name) { \(aliased.joined(separator: " ")) } }",
+            variables: .named(owner: owner, name: name)
         )
     }
 
@@ -114,6 +135,10 @@ nonisolated enum GitHubMentionQuery {
         let repository: Repository?
     }
 
+    private struct AliasedPayload: Decodable {
+        let repository: [String: Node?]?
+    }
+
     private struct SearchPayload: Decodable {
         let search: Nodes?
     }
@@ -138,6 +163,17 @@ nonisolated enum GitHubMentionQuery {
 
     static func decodePullRequest(_ data: Data) throws -> MentionCandidate.PullRequestEntry? {
         try decode(NumberPayload.self, from: data)?.repository?.pullRequest?.entry
+    }
+
+    /// The entry for each requested number GitHub found. A number left out has
+    /// no such pull request, or its repository isn't visible.
+    static func decodePullRequests(_ data: Data, numbers: [Int]) throws -> [Int: MentionCandidate.PullRequestEntry] {
+        guard let repository = try decode(AliasedPayload.self, from: data)?.repository else { return [:] }
+        var entries: [Int: MentionCandidate.PullRequestEntry] = [:]
+        for number in numbers {
+            if let node = repository["p\(number)"] ?? nil, let entry = node.entry { entries[number] = entry }
+        }
+        return entries
     }
 
     /// Every aliased search's pull requests, each once, most recently updated

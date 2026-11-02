@@ -7,6 +7,7 @@ enum AccessibilityID {
     // MARK: Sidebar
 
     static let taskRow = "task-row"
+    static let sidebarHomeRow = "sidebar-home-row"
     static let groupHeader = "group-header"
     static let groupHeaderNewTaskButton = "group-header-new-task-button"
     static let groupHeaderDisclosureButton = "group-header-disclosure-button"
@@ -15,6 +16,7 @@ enum AccessibilityID {
     static let sidebarArchiveButton = "sidebar-archive-button"
     static let taskArchiveButton = "task-archive-button"
     static let taskRemoteControlToggle = "task-remote-control-toggle"
+    static let taskDeviceLeaseBadge = "task-device-lease-badge"
     static let taskDescription = "task-description"
     static let taskEditButton = "task-edit-button"
     static let groupEditButton = "group-edit-button"
@@ -40,6 +42,7 @@ enum AccessibilityID {
     static let keepAwakeLidToggle = "keep-awake-lid-toggle"
     static let devicesKeepShortcutsToggle = "devices-keep-shortcuts-toggle"
     static let taskLinearIssueLine = "task-linear-issue-line"
+    static let taskPinnedPullRequestLine = "task-pinned-pull-request-line"
     static let taskLinkLinearIssueMenuItem = "task-link-linear-issue-menu-item"
     static let linkLinearIssueField = "link-linear-issue-field"
     static let linkLinearIssueConfirmButton = "link-linear-issue-confirm-button"
@@ -53,6 +56,22 @@ enum AccessibilityID {
     static let updatePanelCopyBrewCommandButton = "update-panel-copy-brew-command-button"
     static let updatePanelRunInTerminalButton = "update-panel-run-in-terminal-button"
     static let updatePanelFullReleaseNotesLink = "update-panel-full-release-notes-link"
+
+    // MARK: Home
+
+    static let homeView = "home-view"
+    static let homeGreeting = "home-greeting"
+    static let homeRow = "home-row"
+    static let homeEmptyState = "home-empty-state"
+    static let homeNeedsAttentionHeader = "home-needs-attention-header"
+    static let homeIdleHeader = "home-idle-header"
+    static let homeFromLastTimeHeader = "home-from-last-time-header"
+    static let homeNotStartedHeader = "home-not-started-header"
+    static let homeComposerError = "home-composer-error"
+    static let homeComposerGroupMenu = "home-composer-group-menu"
+    static let homeComposerProjectMenu = "home-composer-project-menu"
+    static let homeComposerSubfolderMenu = "home-composer-subfolder-menu"
+    static let homeComposerWorkspaceMenu = "home-composer-workspace-menu"
 
     // MARK: Settings
 
@@ -212,6 +231,13 @@ enum AccessibilityID {
     // The workspace segment keeps its `composer-` string, which external
     // drivers already query.
     static let composerWorkspacePicker = "composer-workspace-picker"
+    static let composerAddDirectoryError = "composer-add-directory-error"
+    static let emptyStateAddFolderMenu = "empty-state-add-folder-menu"
+    static let addFolderMenuRecentFolder = "add-folder-menu-recent-folder"
+    static let addFolderMenuRecentProject = "add-folder-menu-recent-project"
+    static let addFolderMenuChooseButton = "add-folder-menu-choose-button"
+    static let emptyStateFolderChip = "empty-state-folder-chip"
+    static let emptyStateFolderRemoveButton = "empty-state-folder-remove-button"
     static let statuslineFiveHourMeter = "statusline-five-hour-meter"
     static let statuslineSevenDayMeter = "statusline-seven-day-meter"
     static let statuslineContextMeter = "statusline-context-meter"
@@ -226,6 +252,7 @@ enum AccessibilityID {
     static let chatTrustOpenTerminal = "chat-trust-open-terminal"
 
     static let workspaceWorktreeMenu = "workspace-worktree-menu"
+    static let workspaceSubfolderMenu = "workspace-subfolder-menu"
 
     // MARK: New worktree sheet
 
@@ -281,6 +308,7 @@ enum AccessibilityID {
     static let infoPaneCollapseButton = "info-pane-collapse-button"
     static let infoPanePill = "info-pane-pill"
     static let infoPaneFloatingDismiss = "info-pane-floating-dismiss"
+    static let infoPaneResizeHandle = "info-pane-resize-handle"
     static let infoPaneSubagentsToggle = "info-pane-subagents-toggle"
     static let infoPaneCompletedToggle = "info-pane-completed-toggle"
     static let infoPaneBackgroundTasksToggle = "info-pane-background-tasks-toggle"
@@ -289,6 +317,18 @@ enum AccessibilityID {
     static let infoPaneSideChatRow = "info-pane-side-chat-row"
     static let infoPaneRemoteControlMenu = "info-pane-remote-control-menu"
     static let infoPanePullRequestRow = "info-pane-pull-request-row"
+    static let infoPaneLinkedPullRequestRow = "info-pane-linked-pull-request-row"
+    static let infoPaneLinkedPullRequestsToggle = "info-pane-linked-pull-requests-toggle"
+    static let infoPaneLinkedPullRequestsMentionedToggle = "info-pane-linked-pull-requests-mentioned-toggle"
+    static let infoPaneLinkedPullRequestRowMenu = "info-pane-linked-pull-request-row-menu"
+    static let infoPaneLinkedPullRequestPinButton = "info-pane-linked-pull-request-pin-button"
+    static let infoPaneLinkedPullRequestUnpinButton = "info-pane-linked-pull-request-unpin-button"
+    static let infoPaneLinkedPullRequestOpenButton = "info-pane-linked-pull-request-open-button"
+    static let infoPaneLinkedPullRequestCopyButton = "info-pane-linked-pull-request-copy-button"
+    static let infoPaneLinkedPullRequestPinAnotherButton = "info-pane-linked-pull-request-pin-another-button"
+    static let infoPaneLinkedPullRequestAddButton = "info-pane-linked-pull-request-add-button"
+    static let infoPaneLinkedPullRequestPinField = "info-pane-linked-pull-request-pin-field"
+    static let infoPaneLinkedPullRequestPinSubmit = "info-pane-linked-pull-request-pin-submit"
     static let infoPaneLinearToggle = "info-pane-linear-toggle"
     static let infoPaneLinearCapToggle = "info-pane-linear-cap-toggle"
     static let infoPaneLinearMentionedToggle = "info-pane-linear-mentioned-toggle"
@@ -304,6 +344,14 @@ enum AccessibilityID {
     static let infoPaneLinearLinkButton = "info-pane-linear-link-button"
     static let infoPaneArtifactsToggle = "info-pane-artifacts-toggle"
     static let infoPaneArtifactRow = "info-pane-artifact-row"
+    static let infoPaneFoldersToggle = "info-pane-folders-toggle"
+    static let infoPaneFoldersAddMenu = "info-pane-folders-add-menu"
+    static let infoPaneFolderRow = "info-pane-folder-row"
+    static let infoPaneFolderRevealButton = "info-pane-folder-reveal-button"
+    static let infoPaneFolderCopyButton = "info-pane-folder-copy-button"
+    static let infoPaneFolderRemoveButton = "info-pane-folder-remove-button"
+    static let infoPaneFolderKeepButton = "info-pane-folder-keep-button"
+    static let infoPaneFoldersRestartNowButton = "info-pane-folders-restart-now-button"
 
     // MARK: Side questions (/btw)
 

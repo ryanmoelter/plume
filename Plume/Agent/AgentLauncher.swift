@@ -83,9 +83,113 @@ enum AgentLauncher {
         launch(message: nil, task: task, tab: tab, resumeSessionID: tab.agentSessionID)
     }
 
+    /// Replaces the tab's headless session with a new process resuming the
+    /// same conversation. Unsent messages, side chats, the title policy and
+    /// Remote Control live only in the old session, so they move across.
+    ///
+    /// For a session that has exited, or none at all. A running one goes
+    /// through `restartHeadless`, which waits for its process to exit.
+    @discardableResult
+    static func relaunchHeadless(task: WorkTask, tab: TaskTab) -> (any AgentSession)? {
+        let previous = AgentSessionManager.shared.existingSession(for: tab.id)
+        let queued = previous?.queuedMessages ?? []
+        if let previous = previous as? HeadlessSession { persistLiveSettings(of: previous, to: tab) }
+        if previous != nil { AgentSessionManager.shared.closeSession(for: tab.id) }
+        return resume(task: task, tab: tab, inheriting: previous, queued: queued)
+    }
+
+    /// Restarts a running headless session so it relaunches with the tab's
+    /// current settings. The resumed process starts only once the old one
+    /// has exited.
+    ///
+    /// False when nothing would launch, leaving the old session running:
+    /// no running session, no conversation to resume, or a launch the
+    /// pre-flight checks would refuse.
+    @discardableResult
+    static func restartHeadless(task: WorkTask, tab: TaskTab) -> Bool {
+        guard let previous = AgentSessionManager.shared.existingSession(for: tab.id) as? HeadlessSession,
+              !previous.hasExited
+        else { return false }
+        persistLiveSettings(of: previous, to: tab)
+        guard let sessionID = tab.agentSessionID, !sessionID.isEmpty,
+              let workingDirectory = claudeLaunchDirectory(for: tab, resumeSessionID: sessionID),
+              ClaudeTrustStore.isTrusted(workingDirectory),
+              ClaudeCLILocator.isAvailable()
+        else { return false }
+        let exiting = previous.stopForRestart()
+        Task { [weak tab] in
+            await exiting?.waitUntilExited()
+            // Closing the tab or its session meanwhile cancels the resume.
+            guard let tab,
+                  AgentSessionManager.shared.existingSession(for: tab.id) as? HeadlessSession === previous
+            else { return }
+            _ = AgentSessionManager.shared.detachSession(for: tab.id)
+            resume(task: tab.task ?? task, tab: tab, inheriting: previous, queued: previous.queuedMessages)
+        }
+        return true
+    }
+
+    /// A launch that fails still leaves a failed session holding the
+    /// messages, so the reconnect it offers delivers them.
+    @discardableResult
+    private static func resume(
+        task: WorkTask,
+        tab: TaskTab,
+        inheriting previous: (any AgentSession)?,
+        queued: [[UserContentBlock]]
+    ) -> (any AgentSession)? {
+        launch(message: nil, task: task, tab: tab, resumeSessionID: tab.agentSessionID)
+        let resumed = AgentSessionManager.shared.existingSession(for: tab.id)
+        if let previous = previous as? HeadlessSession, let resumed = resumed as? HeadlessSession {
+            resumed.inherit(from: previous)
+        }
+        if let resumed = resumed as? HeadlessSession, resumed.hasExited {
+            resumed.requeue(queued)
+        } else if let resumed {
+            for message in queued { resumed.submit(blocks: message) }
+        } else if !queued.isEmpty {
+            let draft = [DraftStore.shared.draft(forTab: tab.id)] + queued.map(\.plainText)
+            DraftStore.shared.setDraft(draft.filter { !$0.isEmpty }.joined(separator: "\n\n"), forTab: tab.id)
+        }
+        return resumed
+    }
+
+    /// What the session changed on its own, such as leaving plan mode, is
+    /// otherwise saved only by a mounted chat view, and the resume reads the tab.
+    ///
+    /// A mode or model the tab only inherited stays unset, so the tab keeps
+    /// following the default rather than pinning today's value.
+    private static func persistLiveSettings(of session: HeadlessSession, to tab: TaskTab) {
+        if let sessionID = session.sessionID, !sessionID.isEmpty, tab.agentSessionID == nil {
+            recordSessionID(sessionID, on: tab)
+        }
+        if let mode = session.permissionMode, tab.permissionMode != mode {
+            let inherited = resolvedPermissionMode(
+                tab: tab.permissionMode,
+                task: tab.task?.permissionMode,
+                appDefault: AppSettings.shared.resolvedDefaultPermissionMode
+            )
+            if tab.permissionMode != nil || mode != inherited { tab.permissionMode = mode }
+        }
+        if tab.isModelUserChosen, let model = session.model, tab.model != model { tab.model = model }
+        if let effort = session.effort, tab.effort != effort { tab.effort = effort }
+    }
+
+    /// Records a headless session's id with the transcript it writes, which
+    /// the chat watches.
+    static func recordSessionID(_ sessionID: String, on tab: TaskTab) {
+        tab.agentSessionID = sessionID
+        // Only Claude Code keeps a transcript on disk; Codex serves its
+        // history over the protocol, so a Codex tab has no path to derive.
+        guard tab.provider == .claudeCode, let workingDirectory = tab.task?.workingDirectoryPath else { return }
+        tab.sessionJSONLPath = SessionJSONLReader.resolvedTranscriptPath(
+            workingDirectory: workingDirectory,
+            sessionID: sessionID
+        )
+    }
+
     private static func launchClaudeHeadless(
         blocks: [UserContentBlock],
-
         task: WorkTask,
         tab: TaskTab,
         resumeSessionID: String?,
@@ -162,8 +266,14 @@ enum AgentLauncher {
             isModelExplicitlyChosen: tab.isModelUserChosen,
             environment: HeadlessCommand.environment
                 .merging(LoginShellCommand.plumeEnvironment(taskID: task.id, tabID: tab.id)) { current, _ in current },
-            fork: fork
+            fork: fork,
+            addDirectories: AdditionalDirectories.list(tab.additionalDirectories, excluding: workingDirectory)
         )
+        session.onAdoptDirectories = { [weak tab] paths in
+            guard let tab else { return }
+            AdditionalDirectoryStore.adopt(paths, into: tab)
+        }
+        session.declinedDirectories = { [weak tab] in tab?.removedAdditionalDirectories ?? [] }
         if blocks.hasContent {
             session.submit(blocks: blocks)
         }
@@ -267,7 +377,11 @@ enum AgentLauncher {
             Log.agent.error("Could not write hook settings; launching uninstrumented")
         }
 
-        let provider = AgentProviderRegistry.provider(for: .claudeCode, settingsPath: settingsPath)
+        let workingDirectory = claudeLaunchDirectory(for: tab, resumeSessionID: resumeSessionID)
+        let provider = ClaudeCodeProvider(
+            settingsPath: settingsPath,
+            additionalDirectories: AdditionalDirectories.list(tab.additionalDirectories, excluding: workingDirectory)
+        )
         let launch = provider.launchCommand(
             firstMessage: message,
             resumeSessionID: resumeSessionID,
@@ -284,7 +398,7 @@ enum AgentLauncher {
         SurfaceManager.shared.session(
             for: tab.id,
             options: TerminalSurfaceOptions(
-                workingDirectory: claudeLaunchDirectory(for: tab, resumeSessionID: resumeSessionID),
+                workingDirectory: workingDirectory,
                 envVars: launch.environment
                     .merging(LoginShellCommand.plumeEnvironment(taskID: task.id, tabID: tab.id)) { current, _ in current },
                 command: launch.command

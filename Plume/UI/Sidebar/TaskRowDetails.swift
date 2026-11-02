@@ -22,6 +22,11 @@ enum TaskRowDetails {
         case linearIssue(identifier: String, state: LinearIssueFetchState?)
         /// How many working issues the cap left out.
         case linearOverflow(Int)
+        /// A pull request pinned to the task; a nil detail means GitHub has
+        /// not answered yet.
+        case pinnedPullRequest(PullRequestReference, detail: LinkedPullRequestStore.Detail?)
+        /// How many pinned pull requests the cap left out.
+        case pinnedPullRequestOverflow(Int)
     }
 
     /// One open directory of a task: where it is, what it is on, and its pull
@@ -71,19 +76,56 @@ enum TaskRowDetails {
         return lines
     }
 
-    static let linearIssueLineCap = 2
+    static let pinnedLineCap = 2
 
-    /// One line per working issue up to `cap`, then a count of the rest.
+    /// One line per item up to `cap`, then a count of the rest.
+    static func cappedLines<Item>(
+        _ items: [Item],
+        cap: Int = pinnedLineCap,
+        line: (Item) -> Line,
+        overflow: (Int) -> Line
+    ) -> [Line] {
+        var lines = items.prefix(cap).map(line)
+        if items.count > cap { lines.append(overflow(items.count - cap)) }
+        return lines
+    }
+
     /// Mentioned issues never take a line.
     static func linearLines(
         _ issues: [LinkedLinearIssue],
         states: (String) -> LinearIssueFetchState?,
-        cap: Int = linearIssueLineCap
+        cap: Int = pinnedLineCap
     ) -> [Line] {
-        let working = issues.filter { $0.role == .working }
-        var lines = working.prefix(cap).map { Line.linearIssue(identifier: $0.identifier, state: states($0.identifier)) }
-        if working.count > cap { lines.append(.linearOverflow(working.count - cap)) }
-        return lines
+        cappedLines(
+            issues.filter { $0.role == .working },
+            cap: cap,
+            line: { .linearIssue(identifier: $0.identifier, state: states($0.identifier)) },
+            overflow: Line.linearOverflow
+        )
+    }
+
+    /// Leaves out a pull request a directory group already shows as its
+    /// branch's. Until every group's pull request has loaded, that is not
+    /// known, so no pinned line shows rather than one that may vanish.
+    static func pinnedPullRequestLines(
+        _ pinned: [PullRequestReference],
+        groups: [DirectoryGroup],
+        details: (PullRequestReference) -> LinkedPullRequestStore.Detail?,
+        cap: Int = pinnedLineCap
+    ) -> [Line] {
+        guard !pinned.isEmpty,
+              !groups.contains(where: { $0.pullRequest == nil || $0.pullRequest == .loading })
+        else { return [] }
+        let branchPullRequests = Set(groups.compactMap { group -> PullRequestReference? in
+            guard case .pullRequest(let pullRequest) = group.pullRequest, let url = pullRequest.url else { return nil }
+            return ConversationReferenceScanner.references(in: url).pullRequests.first
+        })
+        return cappedLines(
+            pinned.filter { !branchPullRequests.contains($0) },
+            cap: cap,
+            line: { .pinnedPullRequest($0, detail: details($0)) },
+            overflow: Line.pinnedPullRequestOverflow
+        )
     }
 
     /// The word standing in for an issue's state when there is none to show.
@@ -169,6 +211,13 @@ enum TaskRowDetails {
                 "Linear \(identifier)"
             }
         case .linearOverflow(let count): "\(count) more Linear issues"
+        case .pinnedPullRequest(let reference, let detail):
+            if case .pullRequest(let pull) = detail {
+                "Pull request \(reference.number), \(pull.title)"
+            } else {
+                "Pull request \(reference.number)"
+            }
+        case .pinnedPullRequestOverflow(let count): "\(count) more pull requests"
         }
     }
 }

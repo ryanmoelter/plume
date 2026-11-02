@@ -82,7 +82,8 @@ enum StreamJSONDecoder {
             model: root["model"]?.stringValue,
             permissionMode: root["permissionMode"]?.stringValue,
             tools: (root["tools"]?.arrayValue ?? []).compactMap(\.stringValue),
-            slashCommands: (root["slash_commands"]?.arrayValue ?? []).compactMap(\.stringValue)
+            slashCommands: (root["slash_commands"]?.arrayValue ?? []).compactMap(\.stringValue),
+            additionalDirectories: (root["additional_directories"]?.arrayValue ?? []).compactMap(\.stringValue)
         )
     }
 
