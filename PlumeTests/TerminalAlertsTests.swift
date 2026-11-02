@@ -60,8 +60,9 @@ struct TaskRowInactivityTests {
         #expect(TaskRowView.isInactive(status: .notStarted, tabKinds: [.agent, .terminal]))
     }
 
-    @Test func anInterruptedAgentTaskDoesNotDim() {
-        #expect(!TaskRowView.isInactive(status: .interrupted, tabKinds: [.agent, .terminal]))
+    @Test(arguments: [TaskStatus.interrupted, .interruptedByRestart])
+    func anInterruptedAgentTaskDoesNotDim(status: TaskStatus) {
+        #expect(!TaskRowView.isInactive(status: status, tabKinds: [.agent, .terminal]))
     }
 
     @Test(arguments: [TaskStatus.notStarted, .interrupted])

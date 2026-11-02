@@ -161,6 +161,11 @@ struct TaskStatusTests {
         #expect(TaskStatus.aggregate([.interrupted, .working]) == .working)
     }
 
+    @Test func aRestartInterruptionSitsBetweenInterruptedAndError() {
+        #expect(TaskStatus.aggregate([.interrupted, .interruptedByRestart]) == .interruptedByRestart)
+        #expect(TaskStatus.aggregate([.interruptedByRestart, .error]) == .error)
+    }
+
     @Test func emptyAggregatesToNotStarted() {
         #expect(TaskStatus.aggregate([]) == .notStarted)
     }
@@ -178,6 +183,7 @@ struct TaskStatusTests {
         ("needsInput", .needsTerminalInput),
         ("working", .working),
         ("interrupted", .interrupted),
+        ("interruptedByRestart", .interruptedByRestart),
         ("error", .error),
     ])
     func aSnapshotFromTheOldVocabularyStillReads(raw: String, expected: TaskStatus) {
@@ -216,15 +222,15 @@ struct RelaunchStatusTests {
 
     /// Quitting is what stopped a tab that was waiting on an answer, and the
     /// unanswered question is still sitting in the transcript.
-    @Test func aQuestionTheUserNeverAnsweredReadsAsInterrupted() {
+    @Test func aQuestionTheUserNeverAnsweredReadsAsInterruptedByRestart() {
         for status in [TaskStatus.planApproval, .questionAsked, .permissionNeeded, .needsTerminalInput] {
-            #expect(status.afterRelaunch == .interrupted, "\(status)")
+            #expect(status.afterRelaunch == .interruptedByRestart, "\(status)")
         }
     }
 
     /// These describe an outcome rather than a process, so they stay true.
     @Test func anOutcomeSurvivesAQuit() {
-        for status in [TaskStatus.interrupted, .error, .done] {
+        for status in [TaskStatus.interrupted, .interruptedByRestart, .error, .done] {
             #expect(status.afterRelaunch == status, "\(status)")
         }
     }

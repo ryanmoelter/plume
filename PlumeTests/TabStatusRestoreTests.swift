@@ -26,7 +26,7 @@ struct TabStatusRestoreTests {
         engine.restore(tabID: UUID(), taskID: UUID(), lastStatus: .error)
         engine.restore(tabID: UUID(), taskID: UUID(), lastStatus: .questionAsked)
 
-        #expect(reports.map(\.0) == [.error, .interrupted])
+        #expect(reports.map(\.0) == [.error, .interruptedByRestart])
         #expect(reports.allSatisfy { !$0.1 })
     }
 
@@ -38,7 +38,7 @@ struct TabStatusRestoreTests {
         engine.restore(tabID: tab, taskID: task, lastStatus: .questionAsked)
 
         engine.setSubagentActivity(tabID: tab, working: true)
-        #expect(engine.status(forTab: tab) == .interrupted)
+        #expect(engine.status(forTab: tab) == .interruptedByRestart)
         #expect(engine.activeTabs.isEmpty)
 
         engine.setStatus(.working, taskID: task, tabID: tab)
@@ -53,7 +53,7 @@ struct TabStatusRestoreTests {
         let task = UUID()
         engine.restore(tabID: UUID(), taskID: task, lastStatus: .working)
         engine.restore(tabID: UUID(), taskID: task, lastStatus: .planApproval)
-        #expect(engine.status(forTask: task) == .interrupted)
+        #expect(engine.status(forTask: task) == .interruptedByRestart)
         #expect(!TaskRowView.isInactive(status: engine.status(forTask: task), tabKinds: [.agent]))
 
         engine.restore(tabID: UUID(), taskID: task, lastStatus: .error)
@@ -71,11 +71,13 @@ struct TabStatusRestoreTests {
         #expect(TaskRowView.isInactive(status: .notStarted, tabKinds: [.agent]))
     }
 
-    /// An errored chat wants the user after a relaunch; an interrupted one
-    /// lists with the conversations not yet started.
-    @Test func homeCountsARestoredErrorAsNeedingTheUser() {
+    /// An errored chat, or one left on an unanswered question, wants the user
+    /// after a relaunch; one the user interrupted lists with the conversations
+    /// not yet started.
+    @Test func homeCountsARestoredErrorOrUnansweredQuestionAsNeedingTheUser() {
         #expect(HomeFeed.needsYou(status: TaskStatus.error.afterRelaunch, isUnread: false))
-        #expect(!HomeFeed.needsYou(status: TaskStatus.questionAsked.afterRelaunch, isUnread: false))
+        #expect(HomeFeed.needsYou(status: TaskStatus.questionAsked.afterRelaunch, isUnread: false))
+        #expect(!HomeFeed.needsYou(status: TaskStatus.interrupted.afterRelaunch, isUnread: false))
     }
 
     /// `MainWindow` drains a terminal tab's hook log before restoring it, so
@@ -127,7 +129,7 @@ struct TabStatusRestoreTests {
 
         let relaunched = StatusEngine(backgroundTasks: BackgroundTaskTracker())
         relaunched.restore(tabID: tab.id, taskID: task.id, lastStatus: tab.lastStatus)
-        #expect(relaunched.status(forTab: tab.id) == .interrupted)
+        #expect(relaunched.status(forTab: tab.id) == .interruptedByRestart)
     }
 
     @Test func anUnknownPersistedValueReadsAsNotStarted() {

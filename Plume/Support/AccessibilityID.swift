@@ -65,6 +65,7 @@ enum AccessibilityID {
     static let homeEmptyState = "home-empty-state"
     static let homeNeedsAttentionHeader = "home-needs-attention-header"
     static let homeIdleHeader = "home-idle-header"
+    static let homeFromLastTimeHeader = "home-from-last-time-header"
     static let homeNotStartedHeader = "home-not-started-header"
     static let homeComposerError = "home-composer-error"
     static let homeComposerGroupMenu = "home-composer-group-menu"

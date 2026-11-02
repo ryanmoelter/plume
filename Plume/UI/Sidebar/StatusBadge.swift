@@ -83,7 +83,7 @@ struct StatusBadge: View {
             Image(systemName: StatusSymbol.terminalInput.filled)
                 .foregroundStyle(ChatRole.attention(for: colorScheme))
                 .transition(.symbolEffect)
-        case .interrupted:
+        case .interrupted, .interruptedByRestart:
             Image(systemName: StatusSymbol.interruption.filled)
                 .foregroundStyle(Emphasis.primary.textHierarchy)
                 .transition(.symbolEffect)
