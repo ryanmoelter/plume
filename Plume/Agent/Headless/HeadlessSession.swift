@@ -333,7 +333,8 @@ final class HeadlessSession: AgentSession {
             model: model,
             isModelExplicitlyChosen: isModelExplicitlyChosen,
             fork: fork,
-            addDirectories: addDirectories
+            addDirectories: addDirectories,
+            systemPromptRulePath: AgentPromptRule.formattingPath
         )
         let handler = AgentProcess(
             label: "claude",

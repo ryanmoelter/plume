@@ -380,7 +380,8 @@ enum AgentLauncher {
         let workingDirectory = claudeLaunchDirectory(for: tab, resumeSessionID: resumeSessionID)
         let provider = ClaudeCodeProvider(
             settingsPath: settingsPath,
-            additionalDirectories: AdditionalDirectories.list(tab.additionalDirectories, excluding: workingDirectory)
+            additionalDirectories: AdditionalDirectories.list(tab.additionalDirectories, excluding: workingDirectory),
+            systemPromptRulePath: AgentPromptRule.formattingPath
         )
         let launch = provider.launchCommand(
             firstMessage: message,

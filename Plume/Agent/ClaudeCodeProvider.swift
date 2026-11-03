@@ -9,10 +9,12 @@ struct ClaudeCodeProvider: AgentProvider {
     /// session rather than failing to launch.
     var settingsPath: String?
     var additionalDirectories: [String]
+    var systemPromptRulePath: String?
 
-    init(settingsPath: String? = nil, additionalDirectories: [String] = []) {
+    init(settingsPath: String? = nil, additionalDirectories: [String] = [], systemPromptRulePath: String? = nil) {
         self.settingsPath = settingsPath
         self.additionalDirectories = additionalDirectories
+        self.systemPromptRulePath = systemPromptRulePath
     }
 
     func launchCommand(
@@ -29,6 +31,7 @@ struct ClaudeCodeProvider: AgentProvider {
             arguments.append("--settings")
             arguments.append(shellQuoted(settingsPath))
         }
+        arguments += AgentPromptRule.arguments(path: systemPromptRulePath.map(shellQuoted))
 
         if let permissionMode {
             arguments.append("--permission-mode")
