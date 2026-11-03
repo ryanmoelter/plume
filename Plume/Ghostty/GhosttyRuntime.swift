@@ -40,6 +40,20 @@ final class GhosttyRuntime {
         resolvedThemeDefinitions = definitions
     }
 
+    /// The config's theme, which terminals keep while a debug override
+    /// recolors the chrome.
+    private var configThemeDefinitions: GhosttyThemeResolver.ResolvedDefinitions?
+
+    func adoptChromeTheme() {
+        #if DEBUG
+        if let override = Self.debugThemeOverride() {
+            adopt(override)
+            return
+        }
+        #endif
+        adopt(configThemeDefinitions)
+    }
+
     /// The `font-family` the user's ghostty config resolves to, if any. Chat
     /// code prefers this over the bundled Cascadia Code NF, so the terminal
     /// and the chat's code spans read in the same face.
@@ -108,9 +122,10 @@ final class GhosttyRuntime {
     /// Sets `resolvedThemeDefinitions` and `configThemeNames` from the config,
     /// returning the theme to hand the controller.
     private func resolveTheme(in expanded: GhosttyConfigLoader.ExpandedConfig?) -> TerminalTheme {
-        adopt(Self.resolveThemeDefinitions(in: expanded, bundledDefault: Self.bundledLumDefinitions))
+        configThemeDefinitions = Self.resolveThemeDefinitions(in: expanded, bundledDefault: Self.bundledLumDefinitions)
+        adoptChromeTheme()
         configThemeNames = nil
-        guard let definitions = resolvedThemeDefinitions else { return TerminalTheme() }
+        guard let definitions = configThemeDefinitions else { return TerminalTheme() }
         if let expanded, GhosttyConfigLoader.winningThemeSourcePath(in: expanded) != nil {
             configThemeNames = GhosttyThemeResolver.ThemeNames(
                 light: definitions.light?.name,
