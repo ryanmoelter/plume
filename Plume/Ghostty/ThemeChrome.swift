@@ -225,15 +225,11 @@ enum ThemeChrome {
 
     /// Whether the pickers offer the extended palette: the user's choice, or
     /// else on exactly when the theme is Lum's.
-    static var usesExtendedPalette: Bool {
-        AppSettings.shared.extendedPaletteChoice ?? GhosttyRuntime.shared.extendedPalette?.defaultsOn ?? false
-    }
-
     static func usesExtendedPalette(
-        choice: Bool?,
-        definitions: GhosttyThemeResolver.ResolvedDefinitions?
+        settings: AppSettings = .shared,
+        runtime: GhosttyRuntime = .shared
     ) -> Bool {
-        choice ?? ExtendedPalette.defaultsOn(for: definitions, lum: GhosttyRuntime.bundledLumDefinitions)
+        settings.extendedPaletteChoice ?? runtime.extendedPalette?.defaultsOn ?? false
     }
 
     /// The accent color: the palette color chosen in settings, or the system

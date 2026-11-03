@@ -41,7 +41,7 @@ struct LinearIssueGlyph: View, ThemedView {
         switch strategy {
         case nil: return rgb
         case .themePalette:
-            let candidates = LinearStateColor.candidates(in: colors)
+            let candidates = LinearStateColor.candidates(in: colors, bright: false)
             return LinearStateColor.nearest(to: rgb, among: candidates).flatMap { candidates[$0] }
         case .ensureContrast:
             return LinearStateColor.contrasted(rgb, background: colors.backgroundRGB, foreground: colors.foregroundRGB)

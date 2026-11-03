@@ -34,8 +34,8 @@ struct ThemeSettingsSection: View {
             }
             .plumeID(
                 AccessibilityID.settingsExtendedPaletteToggle,
-                value: ThemeChrome.usesExtendedPalette ? "on" : "off",
-                invoke: { settings.extendedPaletteChoice = !ThemeChrome.usesExtendedPalette }
+                value: ThemeChrome.usesExtendedPalette() ? "on" : "off",
+                invoke: { settings.extendedPaletteChoice = !ThemeChrome.usesExtendedPalette() }
             )
             LabeledContent {
                 Text(settings.accentTint?.name ?? "System")
@@ -50,7 +50,8 @@ struct ThemeSettingsSection: View {
                     definition: palette.definition,
                     label: palette.label,
                     selection: settings.accentTint,
-                    extended: ThemeChrome.usesExtendedPalette || settings.accentTint?.isExtended == true,
+                    extended: ThemeChrome.usesExtendedPalette() || settings.accentTint?.isExtended == true,
+                    extendedColors: palette.extendedColors,
                     onSelect: { settings.accentTint = $0 }
                 )
             }
@@ -61,21 +62,23 @@ struct ThemeSettingsSection: View {
 
     private var usesExtendedPalette: Binding<Bool> {
         Binding(
-            get: { ThemeChrome.usesExtendedPalette },
+            get: { ThemeChrome.usesExtendedPalette() },
             set: { settings.extendedPaletteChoice = $0 }
         )
     }
 
     /// The light palette then the dark one, or just one when both sides are
     /// the same theme.
-    private var palettes: [(label: String, definition: GhosttyThemeDefinition)] {
+    private var palettes: [(label: String, definition: GhosttyThemeDefinition, extendedColors: ExtendedPalette.Colors?)] {
         let definitions = runtime.resolvedThemeDefinitions
+        let extended = runtime.extendedPalette
         let light = definitions?.light
         let dark = definitions?.dark
         if let light, let dark, light.name != dark.name {
-            return [("light", light), ("dark", dark)]
+            return [("light", light, extended?.light), ("dark", dark, extended?.dark)]
         }
-        return (light ?? dark).map { [("theme", $0)] } ?? []
+        if let light { return [("theme", light, extended?.light)] }
+        return dark.map { [("theme", $0, extended?.dark)] } ?? []
     }
 
     private var themeDescription: String {

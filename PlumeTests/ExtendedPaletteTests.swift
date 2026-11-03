@@ -1,4 +1,5 @@
 import Testing
+import Foundation
 import SwiftUI
 import GhosttyTheme
 @testable import Plume
@@ -15,6 +16,15 @@ struct ExtendedPaletteTests {
 
     private func lum() throws -> GhosttyThemeResolver.ResolvedDefinitions {
         try #require(GhosttyRuntime.bundledLumDefinitions)
+    }
+
+    private func extendedRGB(
+        _ hue: ExtendedHue,
+        bright: Bool,
+        in definition: GhosttyThemeDefinition?,
+        lum: GhosttyThemeResolver.ResolvedDefinitions
+    ) -> HexRGB? {
+        definition.flatMap { ExtendedPalette.Colors($0, lum: lum).rgb(hue, bright: bright) }
     }
 
     /// Tomorrow Night, ghostty's own default palette.
@@ -39,10 +49,10 @@ struct ExtendedPaletteTests {
     ])
     func lumGetsItsOwnColors(hue: ExtendedHue, dark: String, light: String, bright: String) throws {
         let lum = try lum()
-        #expect(ExtendedPalette.rgb(hue, bright: false, in: lum.dark, lum: lum) == hex(dark))
-        #expect(ExtendedPalette.rgb(hue, bright: false, in: lum.light, lum: lum) == hex(light))
-        #expect(ExtendedPalette.rgb(hue, bright: true, in: lum.dark, lum: lum) == hex(bright))
-        #expect(ExtendedPalette.rgb(hue, bright: true, in: lum.light, lum: lum) == hex(bright))
+        #expect(extendedRGB(hue, bright: false, in: lum.dark, lum: lum) == hex(dark))
+        #expect(extendedRGB(hue, bright: false, in: lum.light, lum: lum) == hex(light))
+        #expect(extendedRGB(hue, bright: true, in: lum.dark, lum: lum) == hex(bright))
+        #expect(extendedRGB(hue, bright: true, in: lum.light, lum: lum) == hex(bright))
     }
 
     @Test func lumIsRecognizedByItsPaletteNotItsName() throws {
@@ -54,12 +64,12 @@ struct ExtendedPaletteTests {
             foreground: "ffffff",
             palette: dark.palette.mapValues { "#" + $0.uppercased().replacingOccurrences(of: "#", with: "") }
         )
-        #expect(ExtendedPalette.rgb(.peach, bright: false, in: renamed, lum: lum) == hex("ff9279"))
+        #expect(extendedRGB(.peach, bright: false, in: renamed, lum: lum) == hex("ff9279"))
 
         var tweaked = dark.palette
         tweaked[13] = "8046bb"
         let nearlyLum = GhosttyThemeDefinition(name: "Lum dark", background: "211a14", foreground: "f6ece4", palette: tweaked)
-        #expect(ExtendedPalette.rgb(.peach, bright: false, in: nearlyLum, lum: lum) != hex("ff9279"))
+        #expect(extendedRGB(.peach, bright: false, in: nearlyLum, lum: lum) != hex("ff9279"))
     }
 
     /// Whether `m` lies on the shorter arc from `x` to `y`.
@@ -78,7 +88,7 @@ struct ExtendedPaletteTests {
         let (first, second) = hue.neighborSlots
         let x = OKLab(hex(try #require(tomorrowNight.palette[first + offset])))
         let y = OKLab(hex(try #require(tomorrowNight.palette[second + offset])))
-        let m = OKLab(try #require(ExtendedPalette.rgb(hue, bright: bright, in: tomorrowNight, lum: lum)))
+        let m = OKLab(try #require(extendedRGB(hue, bright: bright, in: tomorrowNight, lum: lum)))
 
         #expect(self.hue(m.hue, liesBetween: x.hue, and: y.hue))
         #expect(m.l >= min(x.l, y.l) - 0.01 && m.l <= max(x.l, y.l) + 0.01)
@@ -94,7 +104,7 @@ struct ExtendedPaletteTests {
             return String(format: "%02x%02x%02x", Int((rgb.red * 255).rounded()), Int((rgb.green * 255).rounded()), Int((rgb.blue * 255).rounded()))
         }
         let theme = GhosttyThemeDefinition(name: "Wheel", background: "000000", foreground: "ffffff", palette: [1: color(hue: 20), 5: color(hue: 300)])
-        let eggplant = OKLab(try #require(ExtendedPalette.rgb(.eggplant, bright: false, in: theme, lum: lum)))
+        let eggplant = OKLab(try #require(extendedRGB(.eggplant, bright: false, in: theme, lum: lum)))
         let degrees = (eggplant.hue * 180 / .pi + 360).truncatingRemainder(dividingBy: 360)
         #expect(abs(degrees - 340) < 3)
     }
@@ -109,8 +119,8 @@ struct ExtendedPaletteTests {
         )
         let green = OKLab(hex("b5bd68"))
         let blue = OKLab(hex("81a2be"))
-        let turteal = OKLab(try #require(ExtendedPalette.rgb(.turteal, bright: false, in: theme, lum: lum)))
-        let amf = OKLab(try #require(ExtendedPalette.rgb(.amf, bright: false, in: theme, lum: lum)))
+        let turteal = OKLab(try #require(extendedRGB(.turteal, bright: false, in: theme, lum: lum)))
+        let amf = OKLab(try #require(extendedRGB(.amf, bright: false, in: theme, lum: lum)))
         #expect(hue(turteal.hue, liesBetween: green.hue, and: green.hue))
         #expect(hue(amf.hue, liesBetween: blue.hue, and: blue.hue))
 
@@ -135,7 +145,7 @@ struct ExtendedPaletteTests {
         for hue in ExtendedHue.allCases {
             let (first, second) = hue.neighborSlots
             let ideal = OKLab.midpoint(OKLab(hex(theme.palette[first]!)), OKLab(hex(theme.palette[second]!)))
-            let rgb = try #require(ExtendedPalette.rgb(hue, bright: false, in: theme, lum: lum))
+            let rgb = try #require(extendedRGB(hue, bright: false, in: theme, lum: lum))
             #expect([rgb.red, rgb.green, rgb.blue].allSatisfy { (0...1).contains($0) })
             let fitted = OKLab(rgb)
             #expect(fitted.chroma <= ideal.chroma + 0.01)
@@ -146,8 +156,8 @@ struct ExtendedPaletteTests {
     @Test func aMissingNeighborGivesNoColor() throws {
         let lum = try lum()
         let theme = GhosttyThemeDefinition(name: "Sparse", background: "000000", foreground: "ffffff", palette: [1: "cc6666"])
-        #expect(ExtendedPalette.rgb(.peach, bright: false, in: theme, lum: lum) == nil)
-        #expect(ExtendedPalette.rgb(.peach, bright: false, in: nil, lum: lum) == nil)
+        #expect(extendedRGB(.peach, bright: false, in: theme, lum: lum) == nil)
+        #expect(extendedRGB(.peach, bright: false, in: nil, lum: lum) == nil)
     }
 
     // MARK: - Linear
@@ -163,7 +173,7 @@ struct ExtendedPaletteTests {
     @Test func linearMatchingConsidersOnlyTextColors() throws {
         let lum = try lum()
         let colors = palette(lum, extended: true)
-        let candidates = LinearStateColor.candidates(in: colors)
+        let candidates = LinearStateColor.candidates(in: colors, bright: false)
         #expect(candidates.count == 12)
         #expect(candidates[.extended(.lemon)] == hex("ebc843"))
         #expect(candidates[.slot(3)] == hex("ffaf5e"))
@@ -176,7 +186,7 @@ struct ExtendedPaletteTests {
 
     @Test func linearMatchingSkipsExtendedHuesWhenOff() throws {
         let colors = palette(try lum(), extended: false)
-        #expect(Set(LinearStateColor.candidates(in: colors).keys) == Set(LinearStateColor.slots.map(PaletteHue.slot)))
+        #expect(Set(LinearStateColor.candidates(in: colors, bright: false).keys) == Set(LinearStateColor.slots.map(PaletteHue.slot)))
     }
 
     // MARK: - Home
@@ -242,18 +252,40 @@ struct ExtendedPaletteTests {
 
     @Test func theExtendedPaletteDefaultsOnOnlyForLum() throws {
         let lum = try lum()
-        let other = GhosttyThemeResolver.ResolvedDefinitions(light: nil, dark: tomorrowNight)
-        #expect(ThemeChrome.usesExtendedPalette(choice: nil, definitions: lum))
-        #expect(ThemeChrome.usesExtendedPalette(choice: nil, definitions: .init(light: lum.dark, dark: lum.dark)))
-        #expect(!ThemeChrome.usesExtendedPalette(choice: nil, definitions: other))
-        let mixed = GhosttyThemeResolver.ResolvedDefinitions(light: lum.light, dark: tomorrowNight)
-        #expect(ExtendedPalette.isLum(try #require(mixed.light), lum: lum))
-        #expect(!ExtendedPalette.isLum(try #require(mixed.dark), lum: lum))
-        #expect(!ThemeChrome.usesExtendedPalette(choice: nil, definitions: mixed))
-        #expect(!ThemeChrome.usesExtendedPalette(choice: nil, definitions: nil))
+        func defaultsOn(_ definitions: GhosttyThemeResolver.ResolvedDefinitions?) -> Bool {
+            ExtendedPalette.Resolved(definitions, lum: lum).defaultsOn
+        }
+        #expect(defaultsOn(lum))
+        #expect(defaultsOn(.init(light: lum.dark, dark: lum.dark)))
+        #expect(!defaultsOn(.init(light: nil, dark: tomorrowNight)))
+        #expect(!defaultsOn(.init(light: lum.light, dark: tomorrowNight)))
+        #expect(!defaultsOn(nil))
+    }
 
-        #expect(!ThemeChrome.usesExtendedPalette(choice: false, definitions: lum))
-        #expect(ThemeChrome.usesExtendedPalette(choice: true, definitions: other))
+    @Test func theToggleFollowsTheRuntimesThemeUntilTheUserChooses() throws {
+        let settings = AppSettings(defaults: UserDefaults(suiteName: "ExtendedPaletteTests-\(UUID().uuidString)")!)
+        let runtime = GhosttyRuntime()
+        #expect(!ThemeChrome.usesExtendedPalette(settings: settings, runtime: runtime))
+
+        runtime.adopt(try lum())
+        #expect(ThemeChrome.usesExtendedPalette(settings: settings, runtime: runtime))
+        runtime.adopt(.init(light: nil, dark: tomorrowNight))
+        #expect(!ThemeChrome.usesExtendedPalette(settings: settings, runtime: runtime))
+
+        settings.extendedPaletteChoice = true
+        #expect(ThemeChrome.usesExtendedPalette(settings: settings, runtime: runtime))
+        runtime.adopt(try lum())
+        settings.extendedPaletteChoice = false
+        #expect(!ThemeChrome.usesExtendedPalette(settings: settings, runtime: runtime))
+    }
+
+    @Test func theRuntimeRefreshesItsExtendedColorsWithTheTheme() throws {
+        let runtime = GhosttyRuntime()
+        runtime.adopt(try lum())
+        #expect(runtime.extendedPalette?.dark?.rgb(.peach, bright: false) == hex("ff9279"))
+        runtime.adopt(.init(light: nil, dark: tomorrowNight))
+        #expect(runtime.extendedPalette?.dark?.rgb(.peach, bright: false) != hex("ff9279"))
+        #expect(runtime.extendedPalette?.dark?.isLum == false)
     }
 
     @Test func anExtendedTintResolvesWhetherOrNotTheToggleIsOn() throws {

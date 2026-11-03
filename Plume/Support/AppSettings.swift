@@ -175,10 +175,17 @@ final class AppSettings {
         self.animateCharacterReveal = defaults.object(forKey: Key.animateCharacterReveal) == nil
             ? true
             : defaults.bool(forKey: Key.animateCharacterReveal)
-        if let raw = defaults.string(forKey: Key.accentTintRaw) {
-            self.accentTint = Self.accentTint(rawValue: raw)
-        } else if let stored = defaults.object(forKey: Key.accentPaletteSlot) as? Int {
-            self.accentTint = Self.accentPaletteSlotRange.contains(stored) ? .palette(slot: stored) : nil
+        let storedTint = defaults.string(forKey: Key.accentTintRaw).map(Self.accentTint(rawValue:))
+        let storedSlot = defaults.object(forKey: Key.accentPaletteSlot) as? Int
+        if let storedTint, storedTint?.isExtended == true {
+            self.accentTint = storedTint
+        } else if let storedSlot {
+            // Defaults are shared across builds, and an older one writes
+            // only the slot key, so the slot wins unless the accent is one
+            // only this build can name.
+            self.accentTint = Self.accentPaletteSlotRange.contains(storedSlot) ? .palette(slot: storedSlot) : nil
+        } else if let storedTint {
+            self.accentTint = storedTint
         } else {
             let initial = initialAccentPaletteSlot()
             self.accentTint = initial.map { .palette(slot: $0) }
@@ -546,6 +553,7 @@ final class AppSettings {
     /// picks the slot closest to the system accent.
     var accentTint: SidebarTint? {
         didSet {
+            if accentTint == .text { accentTint = nil }
             defaults.set(accentTint?.rawValue ?? Self.systemAccentRaw, forKey: Key.accentTintRaw)
             // An older build reads only the slot key.
             switch accentTint {
@@ -557,6 +565,7 @@ final class AppSettings {
     }
 
     /// The theme's text color is no accent, so it reads as the system one.
+    /// The setter applies the same rule.
     private static func accentTint(rawValue: String) -> SidebarTint? {
         switch SidebarTint(rawValue: rawValue) {
         case nil, .text: nil
@@ -565,7 +574,7 @@ final class AppSettings {
     }
 
     /// Whether the pickers offer the extended palette, or nil to follow the
-    /// theme. `ThemeChrome.usesExtendedPalette` resolves nil.
+    /// theme. `ThemeChrome.usesExtendedPalette()` resolves nil.
     var extendedPaletteChoice: Bool? {
         didSet {
             if let extendedPaletteChoice {

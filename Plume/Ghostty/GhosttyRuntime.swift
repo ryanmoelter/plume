@@ -36,6 +36,10 @@ final class GhosttyRuntime {
     /// render has to.
     private(set) var extendedPalette: ExtendedPalette.Resolved?
 
+    func adopt(_ definitions: GhosttyThemeResolver.ResolvedDefinitions?) {
+        resolvedThemeDefinitions = definitions
+    }
+
     /// The `font-family` the user's ghostty config resolves to, if any. Chat
     /// code prefers this over the bundled Cascadia Code NF, so the terminal
     /// and the chat's code spans read in the same face.
@@ -55,7 +59,8 @@ final class GhosttyRuntime {
     /// default is in use.
     private(set) var configThemeNames: GhosttyThemeResolver.ThemeNames?
 
-    private init() {}
+    /// Only tests build an instance other than `shared`.
+    init() {}
 
     /// Idempotent, so a repeated call (e.g. from a re-created scene) is safe.
     func start() {
@@ -103,10 +108,7 @@ final class GhosttyRuntime {
     /// Sets `resolvedThemeDefinitions` and `configThemeNames` from the config,
     /// returning the theme to hand the controller.
     private func resolveTheme(in expanded: GhosttyConfigLoader.ExpandedConfig?) -> TerminalTheme {
-        resolvedThemeDefinitions = Self.resolveThemeDefinitions(
-            in: expanded,
-            bundledDefault: Self.bundledLumDefinitions
-        )
+        adopt(Self.resolveThemeDefinitions(in: expanded, bundledDefault: Self.bundledLumDefinitions))
         configThemeNames = nil
         guard let definitions = resolvedThemeDefinitions else { return TerminalTheme() }
         if let expanded, GhosttyConfigLoader.winningThemeSourcePath(in: expanded) != nil {

@@ -54,6 +54,8 @@ nonisolated enum ExtendedHue: String, CaseIterable, Sendable {
         }
     }
 
+    var lumBrightRGB: HexRGB { HexRGB(hex: lumBright)! }
+
     fileprivate var lumBright: String {
         switch self {
         case .peach: "de583a"
@@ -111,10 +113,6 @@ nonisolated enum ExtendedPalette {
         return nil
     }
 
-    static func isLum(_ definition: GhosttyThemeDefinition, lum: GhosttyThemeResolver.ResolvedDefinitions?) -> Bool {
-        lumVariant(of: definition, lum: lum) != nil
-    }
-
     /// One theme's extended colors, resolved once so a render never repeats
     /// the Lum check or the interpolation.
     struct Colors: Sendable {
@@ -155,22 +153,6 @@ nonisolated enum ExtendedPalette {
             let present = [light, dark].compactMap { $0 }
             defaultsOn = !present.isEmpty && present.allSatisfy(\.isLum)
         }
-    }
-
-    static func defaultsOn(
-        for definitions: GhosttyThemeResolver.ResolvedDefinitions?,
-        lum: GhosttyThemeResolver.ResolvedDefinitions?
-    ) -> Bool {
-        Resolved(definitions, lum: lum).defaultsOn
-    }
-
-    static func rgb(
-        _ hue: ExtendedHue,
-        bright: Bool,
-        in definition: GhosttyThemeDefinition?,
-        lum: GhosttyThemeResolver.ResolvedDefinitions?
-    ) -> HexRGB? {
-        definition.flatMap { Colors($0, lum: lum).rgb(hue, bright: bright) }
     }
 
     private static func rgb(

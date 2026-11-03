@@ -42,8 +42,8 @@ enum HomeGreeting: Equatable {
     /// its bright blueberry for the moon.
     var glyphTarget: HexRGB {
         switch self {
-        case .night: HexRGB(hex: "5765d5")!
-        case .morning, .day, .evening: HexRGB(hex: "f4cc25")!
+        case .night: ExtendedHue.blueberry.lumBrightRGB
+        case .morning, .day, .evening: ExtendedHue.lemon.lumBrightRGB
         }
     }
 
@@ -51,15 +51,7 @@ enum HomeGreeting: Equatable {
     /// when none is left.
     @MainActor
     func glyphRGB(in colors: Palette) -> HexRGB? {
-        var candidates: [SidebarTint: HexRGB] = [:]
-        for slot in 9...14 {
-            candidates[.palette(slot: slot)] = colors.rgb(forSlot: slot)
-        }
-        if colors.usesExtendedPalette {
-            for hue in ExtendedHue.allCases {
-                candidates[.extended(hue, bright: true)] = colors.rgb(forExtended: hue, bright: true)
-            }
-        }
+        let candidates = LinearStateColor.candidates(in: colors, bright: true)
         return LinearStateColor.nearest(to: glyphTarget, among: candidates).flatMap { candidates[$0] }
     }
 }

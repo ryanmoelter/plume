@@ -49,17 +49,17 @@ nonisolated enum LinearStateColor {
 
     static let minimumGap = 0.35
 
-    /// The theme's text hues a state can take — never the bright ones —
-    /// with the extended palette's when it is on.
+    /// The theme's text or bright hues, with the extended palette's when it
+    /// is on. Only text hues fall back to `fallbackSlots`.
     @MainActor
-    static func candidates(in colors: Palette) -> [PaletteHue: HexRGB] {
+    static func candidates(in colors: Palette, bright: Bool) -> [PaletteHue: HexRGB] {
         var candidates: [PaletteHue: HexRGB] = [:]
         for slot in slots {
-            candidates[.slot(slot)] = colors.rgb(forSlot: slot) ?? fallbackSlots[slot]
+            candidates[.slot(slot)] = bright ? colors.rgb(forSlot: slot + 8) : colors.rgb(forSlot: slot) ?? fallbackSlots[slot]
         }
         if colors.usesExtendedPalette {
             for hue in ExtendedHue.allCases {
-                candidates[.extended(hue)] = colors.rgb(forExtended: hue, bright: false)
+                candidates[.extended(hue)] = colors.rgb(forExtended: hue, bright: bright)
             }
         }
         return candidates
