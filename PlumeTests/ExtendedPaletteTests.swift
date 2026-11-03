@@ -205,6 +205,21 @@ struct ExtendedPaletteTests {
         #expect(!brights.contains("\(mapped)"))
     }
 
+    @Test func referenceChipsRestyleWhenTheMatchingCandidatesChange() throws {
+        let lum = try lum()
+        func chips(_ definitions: GhosttyThemeResolver.ResolvedDefinitions?, extended: Bool) -> ReferenceChipPalette {
+            ReferenceChipPalette(colors: palette(definitions, extended: extended), colorScheme: .dark, linearStrategy: .themePalette)
+        }
+        #expect(chips(lum, extended: true) == chips(lum, extended: true))
+        #expect(chips(lum, extended: true) != chips(lum, extended: false))
+        let dark = try #require(lum.dark)
+        let recolored = GhosttyThemeDefinition(
+            name: dark.name, background: dark.background, foreground: dark.foreground,
+            palette: dark.palette.merging([3: "00ff00"]) { $1 }
+        )
+        #expect(chips(lum, extended: false) != chips(.init(light: lum.light, dark: recolored), extended: false))
+    }
+
     @Test func linearMatchingSkipsExtendedHuesWhenOff() throws {
         let colors = palette(try lum(), extended: false)
         #expect(Set(LinearStateColor.candidates(in: colors, bright: false).keys) == Set(LinearStateColor.slots.map(PaletteHue.slot)))
