@@ -5,6 +5,8 @@ import SwiftUI
 struct ThemeSettingsSection: View {
     private let runtime = GhosttyRuntime.shared
     @State private var settings = AppSettings.shared
+    @State private var showsOtherPalette = false
+    @Environment(\.colorScheme) private var colorScheme
 
     var body: some View {
         Section {
@@ -45,30 +47,52 @@ struct ThemeSettingsSection: View {
                 Text("Click a color below to use it")
                     .foregroundStyle(.secondary)
             }
-            ForEach(palettes, id: \.label) { palette in
-                ThemePaletteView(
-                    definition: palette.definition,
-                    label: palette.label,
-                    selection: settings.accentTint,
-                    extended: settings.usesExtendedPalette || settings.accentTint?.isExtended == true,
-                    extendedColors: palette.extendedColors,
-                    onSelect: { settings.accentTint = $0 }
+            let palettes = palettes
+            if let current = palettes.first {
+                paletteView(current)
+            }
+            if palettes.count > 1 {
+                let other = palettes[1]
+                Button("\(showsOtherPalette ? "Hide" : "Show") \(other.label) palette") {
+                    showsOtherPalette.toggle()
+                }
+                .plumeID(
+                    AccessibilityID.settingsOtherPaletteButton,
+                    value: showsOtherPalette ? "shown" : "hidden",
+                    invoke: { showsOtherPalette.toggle() }
                 )
+                if showsOtherPalette {
+                    paletteView(other)
+                }
             }
         } header: {
             Text("Theme")
         }
     }
 
-    /// The light palette then the dark one, or just one when both sides are
-    /// the same theme.
-    private var palettes: [(label: String, definition: GhosttyThemeDefinition, extendedColors: ExtendedPalette.Colors?)] {
+    private typealias ThemePalette = (label: String, definition: GhosttyThemeDefinition, extendedColors: ExtendedPalette.Colors?)
+
+    private func paletteView(_ palette: ThemePalette) -> some View {
+        ThemePaletteView(
+            definition: palette.definition,
+            label: palette.label,
+            selection: settings.accentTint,
+            extended: settings.usesExtendedPalette || settings.accentTint?.isExtended == true,
+            extendedColors: palette.extendedColors,
+            onSelect: { settings.accentTint = $0 }
+        )
+    }
+
+    /// The current appearance's palette then the other one, or just one when
+    /// both sides are the same theme.
+    private var palettes: [ThemePalette] {
         let definitions = runtime.resolvedThemeDefinitions
         let extended = runtime.extendedPalette
         let light = definitions?.light
         let dark = definitions?.dark
         if let light, let dark, light.name != dark.name {
-            return [("light", light, extended?.light), ("dark", dark, extended?.dark)]
+            let both: [ThemePalette] = [("light", light, extended?.light), ("dark", dark, extended?.dark)]
+            return colorScheme == .dark ? both.reversed() : both
         }
         if let light { return [("theme", light, extended?.light)] }
         return dark.map { [("theme", $0, extended?.dark)] } ?? []
