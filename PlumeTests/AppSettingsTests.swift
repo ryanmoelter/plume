@@ -343,6 +343,39 @@ struct AppSettingsTests {
         settings.usesExtendedPalette = true
         #expect(AppSettings(defaults: defaults).usesExtendedPalette)
     }
+
+    @Test func freshInstallsMapLinearStatesToTheThemePalette() {
+        #expect(AppSettings(defaults: makeDefaults()).linearStateColors == .themePalette)
+    }
+
+    @Test func theExtendedPaletteMigrationOverwritesStoredChoices() {
+        let defaults = makeDefaults()
+        defaults.set(LinearStateColorStrategy.ensureContrast.rawValue, forKey: "linearStateColorsRaw")
+        defaults.set(false, forKey: "usesExtendedPalette")
+        let settings = AppSettings(defaults: defaults)
+        #expect(settings.linearStateColors == .themePalette)
+        #expect(settings.usesExtendedPalette)
+    }
+
+    @Test func choicesAfterTheExtendedPaletteMigrationStick() {
+        let defaults = makeDefaults()
+        let settings = AppSettings(defaults: defaults)
+        settings.linearStateColors = .ensureContrast
+        settings.usesExtendedPalette = false
+        let reloaded = AppSettings(defaults: defaults)
+        #expect(reloaded.linearStateColors == .ensureContrast)
+        #expect(!reloaded.usesExtendedPalette)
+    }
+
+    @Test func theExtendedPaletteMigrationRunsOnce() {
+        let defaults = makeDefaults()
+        _ = AppSettings(defaults: defaults)
+        defaults.set(LinearStateColorStrategy.ensureContrast.rawValue, forKey: "linearStateColorsRaw")
+        defaults.set(false, forKey: "usesExtendedPalette")
+        let settings = AppSettings(defaults: defaults)
+        #expect(settings.linearStateColors == .ensureContrast)
+        #expect(!settings.usesExtendedPalette)
+    }
 }
 
 @MainActor

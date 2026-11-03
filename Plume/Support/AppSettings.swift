@@ -42,6 +42,7 @@ final class AppSettings {
         static let showsPullRequestStatus = "showsPullRequestStatus"
         static let showsLinearIssues = "showsLinearIssues"
         static let linearStateColorsRaw = "linearStateColorsRaw"
+        static let didMigrateToExtendedPalette = "didMigrateToExtendedPalette"
         static let sidebarShowsTaskColorBar = "sidebarShowsTaskColorBar"
         static let sidebarColorsTaskNames = "sidebarColorsTaskNames"
         static let sidebarBoldTaskNames = "sidebarBoldTaskNames"
@@ -190,6 +191,7 @@ final class AppSettings {
             self.accentTint = initial.map { .palette(slot: $0) }
             defaults.set(initial ?? Self.systemAccentSentinel, forKey: Key.accentPaletteSlot)
         }
+        Self.migrateToExtendedPalette(defaults)
         self.usesExtendedPalette = defaults.object(forKey: Key.usesExtendedPalette) as? Bool ?? true
 
         self.remoteDeviceProjectID = defaults.string(forKey: Key.remoteDeviceProjectID)
@@ -199,7 +201,7 @@ final class AppSettings {
             ? true
             : defaults.bool(forKey: Key.showsPullRequestStatus)
         self.linearStateColors = defaults.string(forKey: Key.linearStateColorsRaw)
-            .flatMap(LinearStateColorStrategy.init(rawValue:)) ?? .ensureContrast
+            .flatMap(LinearStateColorStrategy.init(rawValue:)) ?? .themePalette
         self.showsLinearIssues = defaults.object(forKey: Key.showsLinearIssues) == nil
             ? true
             : defaults.bool(forKey: Key.showsLinearIssues)
@@ -609,6 +611,16 @@ final class AppSettings {
         didSet {
             defaults.set(showsLinearIssues, forKey: Key.showsLinearIssues)
         }
+    }
+
+    /// Runs once. The theme palette holds twice as many colors with the
+    /// extended palette, so Linear matching moves onto it whatever was stored,
+    /// and an extended-palette choice stored while testing it is cleared.
+    private static func migrateToExtendedPalette(_ defaults: UserDefaults) {
+        guard !defaults.bool(forKey: Key.didMigrateToExtendedPalette) else { return }
+        defaults.set(LinearStateColorStrategy.themePalette.rawValue, forKey: Key.linearStateColorsRaw)
+        defaults.removeObject(forKey: Key.usesExtendedPalette)
+        defaults.set(true, forKey: Key.didMigrateToExtendedPalette)
     }
 
     var linearStateColors: LinearStateColorStrategy {
