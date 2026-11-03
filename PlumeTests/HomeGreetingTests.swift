@@ -2,15 +2,15 @@ import Foundation
 import Testing
 @testable import Plume
 
-/// Each greeting covers [start, end): morning 5–12, day 12–17, evening 17–21,
+/// Each greeting covers [start, end): morning 5–12, afternoon 12–17, evening 17–21,
 /// night 21–5.
 struct HomeGreetingTests {
     @Test(arguments: [
         (4, HomeGreeting.night),
         (5, .morning),
         (11, .morning),
-        (12, .day),
-        (16, .day),
+        (12, .afternoon),
+        (16, .afternoon),
         (17, .evening),
         (20, .evening),
         (21, .night),
@@ -29,7 +29,7 @@ struct HomeGreetingTests {
     }
 
     @Test func symbolsAreFilled() {
-        #expect([HomeGreeting.morning, .day, .evening, .night].map(\.symbolName)
+        #expect([HomeGreeting.morning, .afternoon, .evening, .night].map(\.symbolName)
             == ["sun.horizon.fill", "sun.max.fill", "sun.horizon.fill", "moon.stars.fill"])
     }
 }

@@ -195,7 +195,7 @@ struct ExtendedPaletteTests {
         let lum = try lum()
         for scheme in [ColorScheme.dark, .light] {
             let colors = palette(lum, scheme, extended: true)
-            #expect(HomeGreeting.day.glyphRGB(in: colors) == hex("f4cc25"))
+            #expect(HomeGreeting.afternoon.glyphRGB(in: colors) == hex("f4cc25"))
             #expect(HomeGreeting.morning.glyphRGB(in: colors) == hex("f4cc25"))
             #expect(HomeGreeting.night.glyphRGB(in: colors) == hex("5765d5"))
         }
@@ -205,7 +205,7 @@ struct ExtendedPaletteTests {
         let lum = try lum()
         for scheme in [ColorScheme.dark, .light] {
             let colors = palette(lum, scheme, extended: false)
-            #expect(HomeGreeting.day.glyphRGB(in: colors) == hex("f08e00"))
+            #expect(HomeGreeting.afternoon.glyphRGB(in: colors) == hex("f08e00"))
             #expect(HomeGreeting.night.glyphRGB(in: colors) == hex("1b94e0"))
         }
     }
@@ -213,13 +213,13 @@ struct ExtendedPaletteTests {
     @Test func homeGlyphsOnAnotherTheme() throws {
         let definitions = GhosttyThemeResolver.ResolvedDefinitions(light: nil, dark: tomorrowNight)
         let off = palette(definitions, extended: false)
-        #expect(HomeGreeting.day.glyphRGB(in: off) == hex("e7c547"))
+        #expect(HomeGreeting.afternoon.glyphRGB(in: off) == hex("e7c547"))
         #expect(HomeGreeting.night.glyphRGB(in: off) == hex("7aa6da"))
 
         let on = palette(definitions, extended: true)
         let candidates = (9...14).compactMap(on.rgb(forSlot:))
             + ExtendedHue.allCases.compactMap { on.rgb(forExtended: $0, bright: true) }
-        for greeting in [HomeGreeting.day, .night] {
+        for greeting in [HomeGreeting.afternoon, .night] {
             let target = OKLab(greeting.glyphTarget)
             let chosen = try #require(greeting.glyphRGB(in: on))
             #expect(candidates.contains(chosen))
@@ -239,7 +239,7 @@ struct ExtendedPaletteTests {
             ]
         )
         let colors = palette(.init(light: nil, dark: solarized), extended: false)
-        #expect(HomeGreeting.day.glyphRGB(in: colors) == hex("cb4b16"))
+        #expect(HomeGreeting.afternoon.glyphRGB(in: colors) == hex("cb4b16"))
         #expect(HomeGreeting.night.glyphRGB(in: colors) == hex("6c71c4"))
     }
 
@@ -248,7 +248,7 @@ struct ExtendedPaletteTests {
         grayYellow[11] = "808080"
         let theme = GhosttyThemeDefinition(name: "Gray yellow", background: "1d1f21", foreground: "c5c8c6", palette: grayYellow)
         let colors = palette(.init(light: nil, dark: theme), extended: false)
-        let sun = try #require(HomeGreeting.day.glyphRGB(in: colors))
+        let sun = try #require(HomeGreeting.afternoon.glyphRGB(in: colors))
         #expect(sun != hex("808080"))
         #expect(OKLab(sun).chroma >= LinearStateColor.neutralChroma)
 
@@ -258,11 +258,11 @@ struct ExtendedPaletteTests {
             foreground: "ffffff",
             palette: Dictionary(uniqueKeysWithValues: (0...15).map { ($0, "808080") })
         )
-        #expect(HomeGreeting.day.glyphRGB(in: palette(.init(light: nil, dark: allGray), extended: true)) == nil)
+        #expect(HomeGreeting.afternoon.glyphRGB(in: palette(.init(light: nil, dark: allGray), extended: true)) == nil)
     }
 
     @Test func homeGlyphsHaveNoColorWithoutAPalette() {
-        #expect(HomeGreeting.day.glyphRGB(in: palette(nil, extended: true)) == nil)
+        #expect(HomeGreeting.afternoon.glyphRGB(in: palette(nil, extended: true)) == nil)
     }
 
     // MARK: - Default and accent
