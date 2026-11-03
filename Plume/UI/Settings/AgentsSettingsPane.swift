@@ -68,7 +68,9 @@ struct AgentsSettingsPane: View {
                 }
             }
 
-            BundledSkillsSection()
+            if isInstalled(.claudeCode) {
+                BundledSkillsSection()
+            }
 
             if isInstalled(.codex) {
                 Section("Codex") {

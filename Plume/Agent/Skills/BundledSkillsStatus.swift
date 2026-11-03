@@ -21,12 +21,15 @@ final class BundledSkillsStatus {
     private(set) var lastError: String?
 
     private let directory: URL
-    private let resources: URL?
+    private let skills: [BundledSkill]
+    /// Bumped by every read and change, so a read that began before a change
+    /// finished can't overwrite its result.
+    @ObservationIgnored private var generation = 0
     @ObservationIgnored private var activationObserver: NSObjectProtocol?
 
-    init(directory: URL = BundledSkills.skillsDirectory, resources: URL? = Bundle.main.resourceURL) {
+    init(directory: URL = BundledSkills.skillsDirectory, skills: [BundledSkill] = BundledSkills.all) {
         self.directory = directory
-        self.resources = resources
+        self.skills = skills
     }
 
     /// Plume owns none of its skills and the user hasn't said not now. A
@@ -54,18 +57,18 @@ final class BundledSkillsStatus {
     }
 
     func refresh() {
-        let directory = directory, resources = resources
+        generation += 1
+        let started = generation
+        let directory = directory, skills = skills
         Task {
-            entries = await Task.detached { Self.read(directory: directory, resources: resources) }.value
+            let read = await Task.detached { Self.read(directory: directory, skills: skills) }.value
+            guard started == generation, read != entries else { return }
+            entries = read
         }
     }
 
     func installMissing() {
-        change { skills, directory in
-            for skill in skills where BundledSkills.state(of: skill, in: directory) == .notInstalled {
-                try BundledSkills.install(skill, in: directory)
-            }
-        }
+        change { skills, directory in try BundledSkills.installMissing(skills, in: directory) }
     }
 
     func install(_ skill: BundledSkill, replacing: Bool = false) {
@@ -84,25 +87,27 @@ final class BundledSkillsStatus {
         guard !isChanging else { return }
         isChanging = true
         lastError = nil
-        let directory = directory, resources = resources
+        generation += 1
+        let directory = directory, skills = skills
         Task {
-            let (error, entries) = await Task.detached { () -> (String?, [Entry]) in
+            let (error, read) = await Task.detached { () -> (String?, [Entry]) in
                 var message: String?
                 do {
-                    try body(BundledSkills.bundled(in: resources), directory)
+                    try body(skills, directory)
                 } catch {
                     message = error.localizedDescription
                 }
-                return (message, Self.read(directory: directory, resources: resources))
+                return (message, Self.read(directory: directory, skills: skills))
             }.value
+            generation += 1
             lastError = error
-            self.entries = entries
+            if read != entries { entries = read }
             isChanging = false
         }
     }
 
-    private nonisolated static func read(directory: URL, resources: URL?) -> [Entry] {
-        BundledSkills.bundled(in: resources).map {
+    private nonisolated static func read(directory: URL, skills: [BundledSkill]) -> [Entry] {
+        skills.map {
             Entry(skill: $0, state: BundledSkills.state(of: $0, in: directory))
         }
     }

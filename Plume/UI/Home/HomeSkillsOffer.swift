@@ -9,10 +9,17 @@ struct HomeSkillsOffer: View, ThemedView {
 
     var body: some View {
         HStack(alignment: .firstTextBaseline, spacing: 12) {
-            Text("Install Plume's agent skills — teaches Claude `plume wt`, `stack`, `devices`…")
-                .font(typography.body.font)
-                .emphasis(.secondary)
-                .frame(maxWidth: .infinity, alignment: .leading)
+            VStack(alignment: .leading, spacing: 4) {
+                Text("Install Plume's agent skills — teaches Claude `plume wt`, `stack`, `devices`…")
+                    .font(typography.body.font)
+                    .emphasis(.secondary)
+                if let error = status.lastError {
+                    Text(error)
+                        .font(typography.caption.font)
+                        .foregroundStyle(.red)
+                }
+            }
+            .frame(maxWidth: .infinity, alignment: .leading)
             Button("Not Now", action: dismiss)
                 .buttonStyle(.borderless)
                 .plumeID(AccessibilityID.homeSkillsNotNowButton, invoke: dismiss)

@@ -10,11 +10,11 @@ description: Manage stacked branches and their PRs or MRs with Plume's `plume st
 ## Rules
 
 - Use `plume stack` whenever a branch's base is another feature branch. Open its PR with `plume stack submit`, not `gh pr create --base <branch>` or `glab mr create --target-branch <branch>`. Those leave no stack record, so a later restack or sync can't follow the branch.
-- Never rely on interactive pickers; they need a terminal. Pass a branch to `checkout`, `track` and `untrack`, and `<name>:<commit>` pairs to `split`.
+- Never rely on interactive pickers; they need a terminal. Pass a branch to `checkout`, and `<name>:<commit>` pairs to `split`. `track` and `untrack` default to the current branch and never prompt.
 - Parse `plume stack list --json`: `{trunk, current, branches: [{name, parent, depth, current, needs_restack, behind_trunk, pr}]}`. `needs_restack` means a parent moved, so restack the branch. `behind_trunk` only means the root trails the trunk.
 - Exit code 3 means a restack stopped on a rebase conflict. Resolve it, run `git rebase --continue`, then rerun the same `plume stack` command. It resumes where it stopped.
 - `submit` and `sync` need `gh` for GitHub or `glab` for GitLab, installed and signed in. Every other command works offline, and `list --no-pr` skips the network.
-- `submit` opens draft PRs with minimal titles and empty bodies. Write real titles and descriptions afterwards. Pass `--ready` only if the user asked for ready PRs.
+- `submit` opens draft PRs titled with the branch's first commit subject and with empty bodies. Write real titles and descriptions afterwards. Pass `--ready` only if the user asked for ready PRs.
 - If the stack's state is unclear, run `restack`, `submit` or `sync` with `--dry-run` first.
 - Pass bare branch names. `create` and `split` add the branch prefix from Plume's Settings ▸ Projects themselves.
 - `restack` refuses a dirty working tree, and `plume stack` never stashes. Commit first.

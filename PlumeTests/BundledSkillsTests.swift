@@ -27,14 +27,16 @@ struct BundledSkillsTests {
         return try #require(BundledSkills.bundled(in: resources).first { $0.name == name })
     }
 
-    private func state(_ skill: BundledSkill) -> BundledSkills.State {
-        BundledSkills.state(of: skill, in: skills)
+    private func state(_ skill: BundledSkill, running build: String = "10") -> BundledSkills.State {
+        BundledSkills.state(of: skill, in: skills, runningBuild: build)
     }
 
-    private func install(_ skill: BundledSkill, replacing: Bool = false) throws {
-        try BundledSkills.install(skill, in: skills, replacing: replacing, plumeVersion: "1.0") { url in
-            try FileManager.default.moveItem(at: url, to: trash.appending(path: url.lastPathComponent))
-        }
+    private func moveToScratchTrash(_ url: URL) throws {
+        try FileManager.default.moveItem(at: url, to: trash.appending(path: url.lastPathComponent))
+    }
+
+    private func install(_ skill: BundledSkill, replacing: Bool = false, build: String = "10") throws {
+        try BundledSkills.install(skill, in: skills, replacing: replacing, plumeBuild: build, trash: moveToScratchTrash)
     }
 
     private func installedText(_ name: String) throws -> String {
@@ -62,17 +64,63 @@ struct BundledSkillsTests {
         #expect(try installedText("plume-demo") == "v1")
         let manifestData = try Data(contentsOf: skills.appending(path: "plume-demo/.plume-skill.json"))
         let manifest = try JSONDecoder().decode(BundledSkills.Manifest.self, from: manifestData)
-        #expect(manifest == BundledSkills.Manifest(hash: skill.hash, plumeVersion: "1.0"))
+        #expect(manifest == BundledSkills.Manifest(hash: skill.hash, plumeBuild: "10"))
     }
 
-    @Test func aCopyFromAnotherBundleIsOutdated() throws {
+    @Test func aCopyFromAnOlderBuildIsOutdated() throws {
+        defer { try? FileManager.default.removeItem(at: scratch) }
+        try install(try bundle(contents: "v1"), build: "10")
+        let newer = try bundle(contents: "v2")
+        #expect(state(newer, running: "11") == .outdated)
+
+        try install(newer, build: "11")
+        #expect(state(newer, running: "11") == .installed)
+        #expect(try installedText("plume-demo") == "v2")
+    }
+
+    @Test(arguments: ["10", "9"])
+    func aCopyFromANewerOrEqualBuildIsInstalledAndLeftAlone(runningBuild: String) throws {
+        defer { try? FileManager.default.removeItem(at: scratch) }
+        try install(try bundle(contents: "v1"), build: "10")
+        let other = try bundle(contents: "v2")
+        #expect(state(other, running: runningBuild) == .installed)
+
+        try BundledSkills.refreshOutdated([other], in: skills, plumeBuild: runningBuild)
+        try install(other, build: runningBuild)
+        #expect(try installedText("plume-demo") == "v1")
+    }
+
+    @Test(arguments: [nil, "unparseable"] as [String?])
+    func aCopyWithoutAUsableBuildIsOutdated(build: String?) throws {
+        defer { try? FileManager.default.removeItem(at: scratch) }
+        let skill = try bundle(contents: "v1")
+        try install(skill)
+        let manifest = BundledSkills.Manifest(hash: skill.hash, plumeBuild: build)
+        try JSONEncoder().encode(manifest).write(to: skills.appending(path: "plume-demo/.plume-skill.json"))
+        #expect(state(try bundle(contents: "v2")) == .outdated)
+    }
+
+    @Test func extraFilesMakeACopyModifiedAndSurviveUpdate() throws {
         defer { try? FileManager.default.removeItem(at: scratch) }
         try install(try bundle(contents: "v1"))
+        let notes = skills.appending(path: "plume-demo/notes.md")
+        try Data("mine".utf8).write(to: notes)
         let newer = try bundle(contents: "v2")
-        #expect(state(newer) == .outdated)
+        #expect(state(newer, running: "11") == .modified)
 
-        try install(newer)
-        #expect(state(newer) == .installed)
+        try BundledSkills.refreshOutdated([newer], in: skills, plumeBuild: "11")
+        #expect(try String(contentsOf: notes, encoding: .utf8) == "mine")
+        #expect(try installedText("plume-demo") == "v1")
+    }
+
+    @Test func updateKeepsTheFolderAndReplacesBothFiles() throws {
+        defer { try? FileManager.default.removeItem(at: scratch) }
+        try install(try bundle(contents: "v1"), build: "10")
+        let newer = try bundle(contents: "v2")
+        try install(newer, build: "11")
+        let manifestData = try Data(contentsOf: skills.appending(path: "plume-demo/.plume-skill.json"))
+        let manifest = try JSONDecoder().decode(BundledSkills.Manifest.self, from: manifestData)
+        #expect(manifest == BundledSkills.Manifest(hash: newer.hash, plumeBuild: "11"))
         #expect(try installedText("plume-demo") == "v2")
     }
 
@@ -124,28 +172,31 @@ struct BundledSkillsTests {
         #expect(try installedText("plume-demo") == "theirs")
     }
 
-    @Test(arguments: [false, true])
-    func replacingTrashesWhatWasThereAndInstalls(isSymlink: Bool) throws {
+    @Test func replacingARealFolderTrashesIt() throws {
+        defer { try? FileManager.default.removeItem(at: scratch) }
+        let skill = try bundle()
+        let name = skills.appending(path: "plume-demo")
+        try FileManager.default.createDirectory(at: name, withIntermediateDirectories: true)
+        try Data("theirs".utf8).write(to: name.appending(path: "SKILL.md"))
+
+        try install(skill, replacing: true)
+        #expect(state(skill) == .installed)
+        #expect(try installedText("plume-demo") == "v1")
+        #expect(try String(contentsOf: trash.appending(path: "plume-demo/SKILL.md"), encoding: .utf8) == "theirs")
+    }
+
+    @Test func replacingASymlinkRemovesOnlyTheLink() throws {
         defer { try? FileManager.default.removeItem(at: scratch) }
         let skill = try bundle()
         let outside = scratch.appending(path: "theirs")
         try FileManager.default.createDirectory(at: outside, withIntermediateDirectories: true)
         try Data("theirs".utf8).write(to: outside.appending(path: "SKILL.md"))
-        let name = skills.appending(path: "plume-demo")
-        if isSymlink {
-            try FileManager.default.createSymbolicLink(at: name, withDestinationURL: outside)
-        } else {
-            try FileManager.default.copyItem(at: outside, to: name)
-        }
+        try FileManager.default.createSymbolicLink(at: skills.appending(path: "plume-demo"), withDestinationURL: outside)
 
         try install(skill, replacing: true)
         #expect(state(skill) == .installed)
         #expect(try installedText("plume-demo") == "v1")
-        let trashed = trash.appending(path: "plume-demo")
-        #expect(FileManager.default.fileExists(atPath: trashed.path))
-        let trashedALink = (try? FileManager.default.destinationOfSymbolicLink(atPath: trashed.path)) != nil
-        #expect(trashedALink == isSymlink)
-        // The link's target is never followed into.
+        #expect(!FileManager.default.fileExists(atPath: trash.appending(path: "plume-demo").path))
         #expect(try String(contentsOf: outside.appending(path: "SKILL.md"), encoding: .utf8) == "theirs")
     }
 
@@ -172,9 +223,9 @@ struct BundledSkillsTests {
         try Data("theirs".utf8).write(to: other.appending(path: "SKILL.md"))
         let bundled = try ["plume-outdated", "plume-modified", "plume-other"].map { try bundle($0, contents: "v2") }
 
-        try BundledSkills.refreshOutdated(bundled, in: skills)
+        try BundledSkills.refreshOutdated(bundled, in: skills, plumeBuild: "11")
 
-        #expect(bundled.map(state) == [.installed, .modified, .ownedByOther])
+        #expect(bundled.map { state($0) } == [.installed, .modified, .ownedByOther])
         #expect(try installedText("plume-outdated") == "v2")
         #expect(try installedText("plume-modified") == "edited")
         #expect(try installedText("plume-other") == "theirs")
@@ -188,11 +239,22 @@ struct BundledSkillsTests {
         let removed = try bundle("plume-removed")
         try install(removed)
 
-        try BundledSkills.uninstall(kept, in: skills)
-        try BundledSkills.uninstall(removed, in: skills)
+        try BundledSkills.uninstall(kept, in: skills, trash: moveToScratchTrash)
+        try BundledSkills.uninstall(removed, in: skills, trash: moveToScratchTrash)
 
         #expect(state(kept) == .modified)
         #expect(state(removed) == .notInstalled)
+        #expect(FileManager.default.fileExists(atPath: trash.appending(path: "plume-removed/SKILL.md").path))
+    }
+
+    @Test func installMissingKeepsGoingAfterAFailureAndThrowsTheFirst() throws {
+        defer { try? FileManager.default.removeItem(at: scratch) }
+        let broken = try bundle("plume-a")
+        let fine = try bundle("plume-b")
+        try FileManager.default.removeItem(at: broken.url)
+
+        #expect(throws: (any Error).self) { try BundledSkills.installMissing([broken, fine], in: skills) }
+        #expect(state(fine) == .installed)
     }
 }
 
