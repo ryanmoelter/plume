@@ -11,7 +11,7 @@ If `plume` isn't found, the user hasn't turned on **Settings â–¸ Command line â–
 
 ## Commands
 
-- `plume notify <title> [body]` posts a desktop notification that routes back to this tab. Plume skips it while the user is looking at the tab. It always exits 0, so it is safe in hooks and scripts. Use it when a long build or test run finishes, or when you are blocked on the user.
+- `plume notify <title> [body]` posts a desktop notification that routes back to this tab. Plume skips it while the user is looking at the tab. It exits 0 once its arguments parse, so it is safe in hooks and scripts. Use it when a long build or test run finishes, or when you are blocked on the user.
 - `plume presence` prints `awake`, `asleep` or `locked`; `--json` adds each display. Check it to decide whether a notification is worth sending.
 - `plume tab new [--cwd DIR] [--select]` opens a terminal tab in the calling task and prints its ID. The tab opens behind the current one unless you pass `--select`. Open one only when the user wants a terminal to watch.
 - `plume init zsh --aliases` prints zsh completions and the bare `wt` and `stack` shortcuts. It belongs in the user's `.zshrc` as `eval "$(plume init zsh --aliases)"`; don't run it yourself.

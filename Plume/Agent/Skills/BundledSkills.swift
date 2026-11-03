@@ -107,17 +107,47 @@ nonisolated enum BundledSkills {
         guard let type = try? FileManager.default.attributesOfItem(atPath: folder.path)[.type] as? FileAttributeType else {
             return .notInstalled
         }
-        guard type == .typeDirectory,
-              let manifestData = try? Data(contentsOf: folder.appending(path: manifestFileName)),
+        guard type == .typeDirectory else { return .ownedByOther }
+        switch inspect(folder) {
+        case .foreign: return .ownedByOther
+        case .modified: return .modified
+        case .unmodified(let manifest):
+            guard manifest.hash != skill.hash else { return .installed }
+            return isOlder(manifest.plumeBuild, than: runningBuild) ? .outdated : .installed
+        }
+    }
+
+    private enum Inspection {
+        case foreign
+        case modified
+        case unmodified(Manifest)
+    }
+
+    private static func inspect(_ folder: URL) -> Inspection {
+        guard let manifestData = try? Data(contentsOf: folder.appending(path: manifestFileName)),
               let manifest = try? JSONDecoder().decode(Manifest.self, from: manifestData)
-        else { return .ownedByOther }
+        else { return .foreign }
         guard let installed = try? Data(contentsOf: folder.appending(path: skillFileName)),
               hash(of: installed) == manifest.hash
         else { return .modified }
         let contents = (try? FileManager.default.contentsOfDirectory(atPath: folder.path)) ?? []
         guard Set(contents).subtracting([skillFileName, manifestFileName, ".DS_Store"]).isEmpty else { return .modified }
-        guard manifest.hash != skill.hash else { return .installed }
-        return isOlder(manifest.plumeBuild, than: runningBuild) ? .outdated : .installed
+        return .unmodified(manifest)
+    }
+
+    /// Unedited copies Plume wrote for a skill it no longer bundles.
+    static func retiredFolders(keeping skills: [BundledSkill], in directory: URL = skillsDirectory) -> [URL] {
+        let names = Set(skills.map(\.name))
+        let folders = (try? FileManager.default.contentsOfDirectory(
+            at: directory, includingPropertiesForKeys: [.isSymbolicLinkKey], options: .skipsHiddenFiles
+        )) ?? []
+        return folders.filter { folder in
+            guard !names.contains(folder.lastPathComponent),
+                  (try? folder.resourceValues(forKeys: [.isSymbolicLinkKey]).isSymbolicLink) != true,
+                  case .unmodified = inspect(folder)
+            else { return false }
+            return true
+        }
     }
 
     /// A missing or unparseable build counts as older.
@@ -178,6 +208,7 @@ nonisolated enum BundledSkills {
         try JSONEncoder().encode(manifest).write(to: staging.appending(path: manifestFileName))
 
         if state == .outdated {
+            guard self.state(of: skill, in: directory, runningBuild: plumeBuild) == .outdated else { return }
             _ = try manager.replaceItemAt(folder, withItemAt: staging)
         } else {
             try manager.moveItem(at: staging, to: folder)
@@ -191,29 +222,45 @@ nonisolated enum BundledSkills {
     /// Installs every skill with nothing at its name. Tries every one, then
     /// throws the first failure.
     static func installMissing(_ skills: [BundledSkill], in directory: URL = skillsDirectory) throws {
-        try apply(skills, in: directory, plumeBuild: plumeBuild, to: .notInstalled)
+        try apply(skills, in: directory, plumeBuild: plumeBuild) { $0 == .notInstalled }
     }
 
-    /// Updates only the skills Plume owns and nobody has edited. Tries every
-    /// one, then throws the first failure.
-    static func refreshOutdated(
+    /// Updates the skills Plume owns and nobody has edited, adds the skills
+    /// a newer build bundles once Plume owns any, and trashes unedited copies
+    /// of retired skills. Tries every one, then throws the first failure.
+    static func refreshPending(
         _ skills: [BundledSkill],
         in directory: URL = skillsDirectory,
-        plumeBuild: String = BundledSkills.plumeBuild
+        plumeBuild: String = BundledSkills.plumeBuild,
+        trash: (URL) throws -> Void = moveToTrash
     ) throws {
-        try apply(skills, in: directory, plumeBuild: plumeBuild, to: .outdated)
+        let ownsAny = skills.contains { state(of: $0, in: directory, runningBuild: plumeBuild).isPlumeOwned }
+        var firstError: Error?
+        do {
+            try apply(skills, in: directory, plumeBuild: plumeBuild) { $0 == .outdated || ($0 == .notInstalled && ownsAny) }
+        } catch {
+            firstError = error
+        }
+        for folder in retiredFolders(keeping: skills, in: directory) {
+            do {
+                try trash(folder)
+            } catch {
+                firstError = firstError ?? error
+            }
+        }
+        if let firstError { throw firstError }
     }
 
     private static func apply(
         _ skills: [BundledSkill],
         in directory: URL,
         plumeBuild: String,
-        to target: State
+        where shouldInstall: (State) -> Bool
     ) throws {
         var firstError: Error?
         for skill in skills {
             let state = state(of: skill, in: directory, runningBuild: plumeBuild)
-            guard state == target else { continue }
+            guard shouldInstall(state) else { continue }
             do {
                 try install(skill, state: state, in: directory, plumeBuild: plumeBuild)
             } catch {

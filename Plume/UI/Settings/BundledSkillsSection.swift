@@ -4,7 +4,7 @@ import SwiftUI
 /// what is installed under each name.
 struct BundledSkillsSection: View {
     @State private var status = BundledSkillsStatus.shared
-    @State private var pendingReplace: BundledSkill?
+    @State private var pendingReplace: BundledSkillsStatus.Entry?
 
     var body: some View {
         Section {
@@ -31,19 +31,20 @@ struct BundledSkillsSection: View {
         }
         .onAppear { status.refresh() }
         .confirmationDialog(
-            "Replace \(pendingReplace?.name ?? "")?",
+            "Replace \(pendingReplace?.skill.name ?? "")?",
             isPresented: Binding(get: { pendingReplace != nil }, set: { if !$0 { pendingReplace = nil } }),
             presenting: pendingReplace
-        ) { skill in
-            Button("Move to Trash and Replace", role: .destructive) {
-                status.install(skill, replacing: true)
-            }
-            .disabled(status.isChanging)
-        } message: { skill in
-            if BundledSkills.isSymlink(BundledSkills.skillsDirectory.appending(path: skill.name)) {
-                Text("Plume removes the link ~/.claude/skills/\(skill.name), leaves the folder it points to alone, then installs its own.")
+        ) { entry in
+            let replace = { status.install(entry.skill, replacing: true) }
+            Button(entry.isSymlink ? "Remove Link and Replace" : "Move to Trash and Replace", role: .destructive, action: replace)
+                .plumeID(AccessibilityID.settingsSkillConfirmReplaceButton, label: entry.skill.name, invoke: replace)
+                .disabled(status.isChanging)
+        } message: { entry in
+            let path = (status.directory.appending(path: entry.skill.name).path as NSString).abbreviatingWithTildeInPath
+            if entry.isSymlink {
+                Text("Plume removes the link \(path), leaves the folder it points to alone, then installs its own.")
             } else {
-                Text("Plume moves ~/.claude/skills/\(skill.name) to the Trash, then installs its own.")
+                Text("Plume moves \(path) to the Trash, then installs its own.")
             }
         }
     }
@@ -68,7 +69,7 @@ struct BundledSkillsSection: View {
                     button("Update", id: AccessibilityID.settingsSkillUpdateButton, skill) { status.install(skill) }
                     button("Remove", id: AccessibilityID.settingsSkillRemoveButton, skill) { status.uninstall(skill) }
                 case .ownedByOther, .modified:
-                    button("Replace…", id: AccessibilityID.settingsSkillReplaceButton, skill) { pendingReplace = skill }
+                    button("Replace…", id: AccessibilityID.settingsSkillReplaceButton, skill) { pendingReplace = entry }
                 }
             }
         } label: {

@@ -85,7 +85,7 @@ struct BundledSkillsTests {
         let other = try bundle(contents: "v2")
         #expect(state(other, running: runningBuild) == .installed)
 
-        try BundledSkills.refreshOutdated([other], in: skills, plumeBuild: runningBuild)
+        try BundledSkills.refreshPending([other], in: skills, plumeBuild: runningBuild)
         try install(other, build: runningBuild)
         #expect(try installedText("plume-demo") == "v1")
     }
@@ -108,7 +108,7 @@ struct BundledSkillsTests {
         let newer = try bundle(contents: "v2")
         #expect(state(newer, running: "11") == .modified)
 
-        try BundledSkills.refreshOutdated([newer], in: skills, plumeBuild: "11")
+        try BundledSkills.refreshPending([newer], in: skills, plumeBuild: "11")
         #expect(try String(contentsOf: notes, encoding: .utf8) == "mine")
         #expect(try installedText("plume-demo") == "v1")
     }
@@ -233,7 +233,7 @@ struct BundledSkillsTests {
         #expect(try String(contentsOf: trash.appending(path: "plume-demo/SKILL.md"), encoding: .utf8) == "edited")
     }
 
-    @Test func refreshOutdatedUpdatesOnlyPlumesUneditedCopies() throws {
+    @Test func refreshPendingUpdatesOnlyPlumesUneditedCopies() throws {
         defer { try? FileManager.default.removeItem(at: scratch) }
         for name in ["plume-outdated", "plume-modified"] {
             try install(try bundle(name, contents: "v1"))
@@ -244,12 +244,93 @@ struct BundledSkillsTests {
         try Data("theirs".utf8).write(to: other.appending(path: "SKILL.md"))
         let bundled = try ["plume-outdated", "plume-modified", "plume-other"].map { try bundle($0, contents: "v2") }
 
-        try BundledSkills.refreshOutdated(bundled, in: skills, plumeBuild: "11")
+        try BundledSkills.refreshPending(bundled, in: skills, plumeBuild: "11")
 
         #expect(bundled.map { state($0) } == [.installed, .modified, .ownedByOther])
         #expect(try installedText("plume-outdated") == "v2")
         #expect(try installedText("plume-modified") == "edited")
         #expect(try installedText("plume-other") == "theirs")
+    }
+
+    @Test func refreshPendingAddsNewSkillsOnceTheUserOwnsAny() throws {
+        defer { try? FileManager.default.removeItem(at: scratch) }
+        let first = try bundle("plume-first")
+        let added = try bundle("plume-added")
+        try BundledSkills.refreshPending([added], in: skills, plumeBuild: "10")
+        #expect(state(added) == .notInstalled)
+
+        try install(first)
+        try BundledSkills.refreshPending([first, added], in: skills, plumeBuild: "10")
+        #expect(state(added) == .installed)
+    }
+
+    @Test func refreshPendingLeavesANameAnotherSkillHoldsAlone() throws {
+        defer { try? FileManager.default.removeItem(at: scratch) }
+        let first = try bundle("plume-first")
+        try install(first)
+        let theirs = skills.appending(path: "plume-theirs")
+        try FileManager.default.createDirectory(at: theirs, withIntermediateDirectories: true)
+        let held = try bundle("plume-theirs")
+
+        try BundledSkills.refreshPending([first, held], in: skills, plumeBuild: "10")
+        #expect(state(held) == .ownedByOther)
+        #expect(!FileManager.default.fileExists(atPath: theirs.appending(path: "SKILL.md").path))
+    }
+
+    @Test func pendingCountIncludesNewSkillsOnlyOnceTheUserOwnsAny() throws {
+        defer { try? FileManager.default.removeItem(at: scratch) }
+        let skill = try bundle()
+        func entry(_ state: BundledSkills.State) -> BundledSkillsStatus.Entry {
+            .init(skill: skill, state: state, isSymlink: false)
+        }
+        func count(_ states: [BundledSkills.State], retired: Int = 0) -> Int {
+            let snapshot = BundledSkillsStatus.Snapshot(
+                entries: states.map(entry), retired: Array(repeating: skills, count: retired)
+            )
+            return BundledSkillsStatus.pendingUpdateCount(of: snapshot)
+        }
+        #expect(count([.notInstalled, .notInstalled]) == 0)
+        #expect(count([.installed, .notInstalled]) == 1)
+        #expect(count([.outdated, .notInstalled]) == 2)
+        #expect(count([.modified, .notInstalled]) == 1)
+        #expect(count([.ownedByOther, .notInstalled]) == 0)
+        #expect(count([.installed, .ownedByOther, .modified]) == 0)
+        #expect(count([.installed], retired: 2) == 2)
+    }
+
+    @Test func retiredFoldersAreUneditedPlumeCopiesOutsideTheBundle() throws {
+        defer { try? FileManager.default.removeItem(at: scratch) }
+        let kept = try bundle("plume-kept")
+        let retired = try bundle("plume-retired")
+        let edited = try bundle("plume-edited")
+        for skill in [kept, retired, edited] { try install(skill) }
+        try Data("edited".utf8).write(to: skills.appending(path: "plume-edited/SKILL.md"))
+        let theirs = skills.appending(path: "theirs")
+        try FileManager.default.createDirectory(at: theirs, withIntermediateDirectories: true)
+        try Data("theirs".utf8).write(to: theirs.appending(path: "SKILL.md"))
+        let target = scratch.appending(path: "target")
+        try FileManager.default.moveItem(at: skills.appending(path: "plume-retired"), to: target)
+        try FileManager.default.createSymbolicLink(at: skills.appending(path: "plume-link"), withDestinationURL: target)
+        try FileManager.default.moveItem(at: target, to: skills.appending(path: "plume-retired"))
+
+        let found = BundledSkills.retiredFolders(keeping: [kept], in: skills).map(\.lastPathComponent)
+        #expect(found == ["plume-retired"])
+    }
+
+    @Test func refreshPendingTrashesRetiredCopiesAndKeepsEditedOnes() throws {
+        defer { try? FileManager.default.removeItem(at: scratch) }
+        let kept = try bundle("plume-kept")
+        let retired = try bundle("plume-retired")
+        let edited = try bundle("plume-edited")
+        for skill in [kept, retired, edited] { try install(skill) }
+        try Data("edited".utf8).write(to: skills.appending(path: "plume-edited/SKILL.md"))
+
+        try BundledSkills.refreshPending([kept], in: skills, plumeBuild: "10", trash: moveToScratchTrash)
+
+        #expect(FileManager.default.fileExists(atPath: trash.appending(path: "plume-retired/SKILL.md").path))
+        #expect(!FileManager.default.fileExists(atPath: skills.appending(path: "plume-retired").path))
+        #expect(try installedText("plume-edited") == "edited")
+        #expect(try installedText("plume-kept") == "v1")
     }
 
     @Test func uninstallRemovesOnlyPlumesUneditedCopy() throws {

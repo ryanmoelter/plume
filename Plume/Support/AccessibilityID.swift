@@ -118,6 +118,7 @@ enum AccessibilityID {
     static let settingsSkillInstallButton = "settings-skill-install-button"
     static let settingsSkillUpdateButton = "settings-skill-update-button"
     static let settingsSkillReplaceButton = "settings-skill-replace-button"
+    static let settingsSkillConfirmReplaceButton = "settings-skill-confirm-replace-button"
     static let settingsSkillRemoveButton = "settings-skill-remove-button"
     static let settingsShellSetupCopyButton = "settings-shell-setup-copy-button"
     static let settingsShellSetupAddButton = "settings-shell-setup-add-button"

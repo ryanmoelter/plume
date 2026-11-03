@@ -37,5 +37,6 @@ struct HomeSkillsOffer: View, ThemedView {
 
     private func dismiss() {
         settings.bundledSkillsPromptDismissed = true
+        status.clearError(for: .home)
     }
 }
