@@ -17,6 +17,7 @@ struct SidebarFooter: View, ThemedView {
     @State private var coordinator = KeepAwakeCoordinator.shared
     @State private var settings = AppSettings.shared
     @State private var updates = UpdateController.shared
+    @State private var skills = BundledSkillsStatus.shared
 
     var body: some View {
         VStack(spacing: 0) {
@@ -41,6 +42,20 @@ struct SidebarFooter: View, ThemedView {
                     }
                     .help("Plume \(availableUpdate.displayVersion) is available")
                     .plumeID(AccessibilityID.sidebarUpdateButton)
+                    .buttonStyle(SidebarFooterButtonStyle())
+                }
+
+                if skills.outdatedCount > 0 {
+                    Button(action: skills.refreshOutdated) {
+                        SidebarFooterRow(
+                            icon: "arrow.triangle.2.circlepath",
+                            title: "Skills Out of Date",
+                            detail: "\(skills.outdatedCount)"
+                        )
+                    }
+                    .help("Update Plume's agent skills in ~/.claude/skills")
+                    .plumeID(AccessibilityID.sidebarSkillsOutdatedButton, invoke: skills.refreshOutdated)
+                    .disabled(skills.isChanging)
                     .buttonStyle(SidebarFooterButtonStyle())
                 }
 

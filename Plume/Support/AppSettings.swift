@@ -75,6 +75,7 @@ final class AppSettings {
         static let defaultCodexCollaborationModeRaw = "defaultCodexCollaborationModeRaw"
         static let shortcutBindings = "shortcutBindings"
         static let hasPromptedForFullDiskAccess = "hasPromptedForFullDiskAccess"
+        static let bundledSkillsPromptDismissed = "bundledSkillsPromptDismissed"
         static let updateInstallSourceOverrideRaw = "updateInstallSourceOverrideRaw"
         static let automaticallyChecksForUpdates = "automaticallyChecksForUpdates"
         static let remoteDeviceProjectID = "remoteDeviceProjectID"
@@ -295,6 +296,7 @@ final class AppSettings {
             ?? ShortcutBindings()
 
         self.hasPromptedForFullDiskAccess = defaults.bool(forKey: Key.hasPromptedForFullDiskAccess)
+        self.bundledSkillsPromptDismissed = defaults.bool(forKey: Key.bundledSkillsPromptDismissed)
 
         let projectsConfiguration = defaults.data(forKey: ProjectsConfiguration.userDefaultsKey)
             .flatMap { try? JSONDecoder().decode(ProjectsConfiguration.self, from: $0) }
@@ -906,6 +908,14 @@ final class AppSettings {
     var hasPromptedForFullDiskAccess: Bool {
         didSet {
             defaults.set(hasPromptedForFullDiskAccess, forKey: Key.hasPromptedForFullDiskAccess)
+        }
+    }
+
+    /// Set by Not Now on Home's offer to install the bundled skills. Settings
+    /// still offers them.
+    var bundledSkillsPromptDismissed: Bool {
+        didSet {
+            defaults.set(bundledSkillsPromptDismissed, forKey: Key.bundledSkillsPromptDismissed)
         }
     }
 
