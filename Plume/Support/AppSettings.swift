@@ -559,7 +559,6 @@ final class AppSettings {
         didSet {
             if accentTint == .text { accentTint = nil }
             defaults.set(accentTint?.rawValue ?? Self.systemAccentRaw, forKey: Key.accentTintRaw)
-            // An older build reads only the slot key.
             switch accentTint {
             case nil: defaults.set(Self.systemAccentSentinel, forKey: Key.accentPaletteSlot)
             case .palette(let slot): defaults.set(slot, forKey: Key.accentPaletteSlot)
