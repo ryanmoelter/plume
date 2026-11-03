@@ -281,7 +281,7 @@ struct AppSettingsTests {
         settings.accentTint = .palette(slot: 6)
         #expect(defaults.object(forKey: "accentPaletteSlot") as? Int == 6)
         settings.accentTint = .extended(.lemon, bright: false)
-        #expect(defaults.object(forKey: "accentPaletteSlot") as? Int == 6)
+        #expect(defaults.object(forKey: "accentPaletteSlot") as? Int == -2)
         settings.accentTint = nil
         #expect(defaults.object(forKey: "accentPaletteSlot") as? Int == -1)
     }
@@ -313,12 +313,24 @@ struct AppSettingsTests {
         #expect(AppSettings(defaults: defaults).accentTint == nil)
     }
 
-    @Test func anExtendedAccentIgnoresTheSlotKey() {
+    @Test func anExtendedAccentHoldsWhileTheSlotKeyIsUntouched() {
+        let defaults = makeDefaults()
+        let settings = AppSettings(defaults: defaults)
+        settings.accentTint = .extended(.eggplant, bright: false)
+        #expect(defaults.object(forKey: "accentPaletteSlot") as? Int == -2)
+        #expect(AppSettings(defaults: defaults).accentTint == .extended(.eggplant, bright: false))
+    }
+
+    @Test func anOlderBuildsSlotChangeWinsOverAnExtendedTint() {
         let defaults = makeDefaults()
         let settings = AppSettings(defaults: defaults)
         settings.accentTint = .extended(.eggplant, bright: false)
         defaults.set(9, forKey: "accentPaletteSlot")
-        #expect(AppSettings(defaults: defaults).accentTint == .extended(.eggplant, bright: false))
+        #expect(AppSettings(defaults: defaults).accentTint == .palette(slot: 9))
+
+        settings.accentTint = .extended(.lemon, bright: true)
+        defaults.set(-1, forKey: "accentPaletteSlot")
+        #expect(AppSettings(defaults: defaults).accentTint == nil)
     }
 
     @Test func extendedPaletteChoiceStartsAutomaticAndPersists() {

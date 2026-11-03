@@ -122,7 +122,7 @@ struct Palette {
         warning = ThemeChrome.paletteAccent(.warning, for: colorScheme, in: definitions) ?? .orange
         danger = ThemeChrome.paletteAccent(.danger, for: colorScheme, in: definitions) ?? .red
         success = ThemeChrome.paletteAccent(.success, for: colorScheme, in: definitions) ?? .green
-        let extended = extended ?? ExtendedPalette.Resolved(definitions, lum: GhosttyRuntime.bundledLumDefinitions)
+        let extended = ExtendedPalette.Resolved.resolving(extended, from: definitions)
         extendedColors = ThemeChrome.extendedColors(for: colorScheme, in: extended)
         selection = isActive
             ? ThemeChrome.accent(accent, for: colorScheme, in: definitions, extended: extended)

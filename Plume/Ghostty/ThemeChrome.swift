@@ -267,7 +267,7 @@ enum ThemeChrome {
         guard let tint else { return nil }
         var colors: ExtendedPalette.Colors?
         if case .extended = tint {
-            let resolved = extended ?? ExtendedPalette.Resolved(definitions, lum: GhosttyRuntime.bundledLumDefinitions)
+            let resolved = ExtendedPalette.Resolved.resolving(extended, from: definitions)
             colors = extendedColors(for: colorScheme, in: resolved)
         }
         return tintRGB(tint, in: definition(for: colorScheme, in: definitions), extended: colors).map(Color.init)

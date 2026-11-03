@@ -33,7 +33,9 @@ final class AppSettings {
         /// only row heights, so an existing preference still reads.
         static let animateChatMotion = "animateRowHeight"
         static let animateCharacterReveal = "animateCharacterReveal"
-        /// Superseded by `accentTintRaw`, and read only when that is unset.
+        /// Written alongside `accentTintRaw` for older builds, which read only
+        /// this key. It wins over `accentTintRaw` unless it still holds
+        /// `extendedAccentSentinel`, since an older build may have changed it.
         static let accentPaletteSlot = "accentPaletteSlot"
         static let accentTintRaw = "accentTintRaw"
         static let usesExtendedPalette = "usesExtendedPalette"
@@ -177,12 +179,9 @@ final class AppSettings {
             : defaults.bool(forKey: Key.animateCharacterReveal)
         let storedTint = defaults.string(forKey: Key.accentTintRaw).map(Self.accentTint(rawValue:))
         let storedSlot = defaults.object(forKey: Key.accentPaletteSlot) as? Int
-        if let storedTint, storedTint?.isExtended == true {
+        if let storedTint, storedTint?.isExtended == true, storedSlot == Self.extendedAccentSentinel {
             self.accentTint = storedTint
         } else if let storedSlot {
-            // Defaults are shared across builds, and an older one writes
-            // only the slot key, so the slot wins unless the accent is one
-            // only this build can name.
             self.accentTint = Self.accentPaletteSlotRange.contains(storedSlot) ? .palette(slot: storedSlot) : nil
         } else if let storedTint {
             self.accentTint = storedTint
@@ -544,6 +543,9 @@ final class AppSettings {
     static let accentPaletteSlotRange = ThemeChrome.paletteSlots
     /// Stored for the system accent, so an absent key still means first launch.
     private static let systemAccentSentinel = -1
+    /// Stored for an extended accent. Out of range, so an older build shows
+    /// the system accent.
+    private static let extendedAccentSentinel = -2
 
     private static let systemAccentRaw = "system"
 
@@ -559,7 +561,8 @@ final class AppSettings {
             switch accentTint {
             case nil: defaults.set(Self.systemAccentSentinel, forKey: Key.accentPaletteSlot)
             case .palette(let slot): defaults.set(slot, forKey: Key.accentPaletteSlot)
-            case .text, .extended: break
+            case .extended: defaults.set(Self.extendedAccentSentinel, forKey: Key.accentPaletteSlot)
+            case .text: break
             }
         }
     }

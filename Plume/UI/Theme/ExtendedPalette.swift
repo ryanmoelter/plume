@@ -180,3 +180,15 @@ nonisolated enum ExtendedPalette {
         return OKLab.midpoint(OKLab(x), OKLab(y)).clippedToSRGB()
     }
 }
+
+extension ExtendedPalette.Resolved {
+    /// `resolved` when the caller has it, or else `definitions` resolved
+    /// against the bundled Lum theme.
+    @MainActor
+    static func resolving(
+        _ resolved: ExtendedPalette.Resolved?,
+        from definitions: GhosttyThemeResolver.ResolvedDefinitions?
+    ) -> ExtendedPalette.Resolved {
+        resolved ?? ExtendedPalette.Resolved(definitions, lum: GhosttyRuntime.bundledLumDefinitions)
+    }
+}

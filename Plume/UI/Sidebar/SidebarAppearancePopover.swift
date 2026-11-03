@@ -196,6 +196,14 @@ private struct SidebarTintPicker: View {
 
     @Environment(\.theme) private var theme
 
+    private var extended: Bool {
+        theme.colors.usesExtendedPalette || selection?.isExtended == true
+    }
+
+    private var swatchSize: CGFloat {
+        extended ? PaletteSwatchGrid.compactSwatchSize : PaletteSwatchGrid.swatchSize
+    }
+
     var body: some View {
         VStack(alignment: .leading, spacing: 10) {
             Text("Color")
@@ -210,12 +218,13 @@ private struct SidebarTintPicker: View {
                         help: inherited == nil ? "No color" : "The group's color",
                         plumeID: AccessibilityID.sidebarTintSwatch,
                         plumeLabel: "\(plumeLabel) none",
+                        size: swatchSize,
                         select: { selection = nil }
                     ) {
                         if inherited == nil {
                             Rectangle()
                                 .fill(.secondary)
-                                .frame(width: 1, height: PaletteSwatchGrid.swatchSize)
+                                .frame(width: 1, height: swatchSize)
                                 .rotationEffect(.degrees(45))
                         }
                     }
@@ -228,17 +237,17 @@ private struct SidebarTintPicker: View {
                         help: "The theme's text color",
                         plumeID: AccessibilityID.sidebarTintSwatch,
                         plumeLabel: "\(plumeLabel) text",
+                        size: swatchSize,
                         select: { selection = .text }
                     )
                 }
             }
-            let extended = theme.colors.usesExtendedPalette || selection?.isExtended == true
             PaletteSwatchGrid(
                 color: theme.colors.color(for:),
                 ringColor: .primary,
                 selection: selection,
                 extended: extended,
-                swatchSize: extended ? PaletteSwatchGrid.compactSwatchSize : PaletteSwatchGrid.swatchSize,
+                swatchSize: swatchSize,
                 plumeID: AccessibilityID.sidebarTintSwatch,
                 plumeLabel: plumeLabel,
                 onSelect: { selection = $0 }
