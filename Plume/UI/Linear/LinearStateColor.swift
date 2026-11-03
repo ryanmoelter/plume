@@ -29,8 +29,9 @@ nonisolated enum LinearStateColor {
         let target = OKLab(color)
         guard target.chroma >= neutralChroma else { return nil }
         return candidates
-            .filter { OKLab($0.value).chroma >= neutralChroma }
-            .min { metric(target, OKLab($0.value)) < metric(target, OKLab($1.value)) }?
+            .map { (key: $0.key, lab: OKLab($0.value)) }
+            .filter { $0.lab.chroma >= neutralChroma }
+            .min { metric(target, $0.lab) < metric(target, $1.lab) }?
             .key
     }
 
@@ -57,6 +58,11 @@ nonisolated enum LinearStateColor {
     /// is on. Only text hues fall back to `fallbackSlots`.
     @MainActor
     static func candidates(in colors: Palette, bright: Bool) -> [PaletteHue: HexRGB] {
+        colors.candidates(bright: bright) { resolveCandidates(in: colors, bright: bright) }
+    }
+
+    @MainActor
+    private static func resolveCandidates(in colors: Palette, bright: Bool) -> [PaletteHue: HexRGB] {
         var candidates: [PaletteHue: HexRGB] = [:]
         for slot in slots {
             candidates[.slot(slot)] = bright ? colors.rgb(forSlot: slot + 8) : colors.rgb(forSlot: slot) ?? fallbackSlots[slot]

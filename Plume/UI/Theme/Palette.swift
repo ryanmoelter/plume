@@ -93,6 +93,17 @@ struct Palette {
     /// Whether this appearance's palette is Lum's.
     var isLum: Bool { extendedColors?.isLum ?? false }
 
+    /// Color matching's candidates, resolved on first use and shared by every
+    /// copy of this palette, so a render does not parse the theme's hex again.
+    private let candidateCache = CandidateCache()
+
+    func candidates(bright: Bool, resolve: () -> [PaletteHue: HexRGB]) -> [PaletteHue: HexRGB] {
+        if let cached = candidateCache.byBright[bright] { return cached }
+        let resolved = resolve()
+        candidateCache.byBright[bright] = resolved
+        return resolved
+    }
+
     /// Whether pickers offer, and color matching considers, the extended
     /// palette. A color already chosen from it resolves either way.
     let usesExtendedPalette: Bool
@@ -135,6 +146,10 @@ struct Palette {
         self.colorScheme = colorScheme
         self.definitions = definitions
     }
+}
+
+private final class CandidateCache {
+    var byBright: [Bool: [PaletteHue: HexRGB]] = [:]
 }
 
 /// The emphasis scale's alpha values for one appearance.
