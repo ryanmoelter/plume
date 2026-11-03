@@ -38,15 +38,28 @@ enum HomeGreeting: Equatable {
         }
     }
 
-    /// The glyph's color: bright yellow for the sun and bright blue for the
-    /// moon, or Lum's lemon and blueberry with the extended palette. Nil
-    /// without a palette.
+    /// What the glyph's color is matched to: Lum's bright lemon for the sun,
+    /// its bright blueberry for the moon.
+    var glyphTarget: HexRGB {
+        switch self {
+        case .night: HexRGB(hex: "5765d5")!
+        case .morning, .day, .evening: HexRGB(hex: "f4cc25")!
+        }
+    }
+
+    /// The theme's bright color nearest `glyphTarget`, skipping grays, or nil
+    /// when none is left.
     @MainActor
     func glyphRGB(in colors: Palette) -> HexRGB? {
-        let isMoon = self == .night
-        if colors.usesExtendedPalette {
-            return colors.rgb(forExtended: isMoon ? .blueberry : .lemon, bright: true)
+        var candidates: [SidebarTint: HexRGB] = [:]
+        for slot in 9...14 {
+            candidates[.palette(slot: slot)] = colors.rgb(forSlot: slot)
         }
-        return colors.rgb(forSlot: isMoon ? 12 : 11)
+        if colors.usesExtendedPalette {
+            for hue in ExtendedHue.allCases {
+                candidates[.extended(hue, bright: true)] = colors.rgb(forExtended: hue, bright: true)
+            }
+        }
+        return LinearStateColor.nearest(to: glyphTarget, among: candidates).flatMap { candidates[$0] }
     }
 }

@@ -5,8 +5,8 @@ import GhosttyTheme
 
 /// The extended palette gives Lum its own six extra hues exactly, and any
 /// other theme each one as the OKLCH midpoint of its ANSI neighbors, inside
-/// sRGB. Linear matching takes only its text colors, the Home glyphs its
-/// bright lemon and blueberry, and it is on by default only for Lum.
+/// sRGB. Linear matching takes only its text colors, the Home glyphs the
+/// bright colors nearest Lum's lemon and blueberry, and it is on by default only for Lum.
 @MainActor
 struct ExtendedPaletteTests {
     private typealias OKLab = LinearStateColor.OKLab
@@ -191,10 +191,11 @@ struct ExtendedPaletteTests {
         }
     }
 
-    @Test func homeGlyphsTakeBrightSlotsWithoutTheExtendedPalette() throws {
+    @Test func homeGlyphsTakeTheNearestBrightSlotsWithoutTheExtendedPalette() throws {
         let colors = palette(try lum(), extended: false)
-        #expect(HomeGreeting.day.glyphRGB(in: colors) == hex("f08e00"))
-        #expect(HomeGreeting.night.glyphRGB(in: colors) == hex("1b94e0"))
+        // Lum's nearest bright slots: lime for the lemon, grape for the blueberry.
+        #expect(HomeGreeting.day.glyphRGB(in: colors) == hex("aed83f"))
+        #expect(HomeGreeting.night.glyphRGB(in: colors) == hex("8046ba"))
     }
 
     @Test func homeGlyphsOnAnotherTheme() throws {
@@ -204,11 +205,33 @@ struct ExtendedPaletteTests {
         #expect(HomeGreeting.night.glyphRGB(in: off) == hex("7aa6da"))
 
         let on = palette(definitions, extended: true)
-        let lemon = try #require(on.rgb(forExtended: .lemon, bright: true))
-        let blueberry = try #require(on.rgb(forExtended: .blueberry, bright: true))
-        #expect(HomeGreeting.day.glyphRGB(in: on) == lemon)
-        #expect(HomeGreeting.evening.glyphRGB(in: on) == lemon)
-        #expect(HomeGreeting.night.glyphRGB(in: on) == blueberry)
+        let candidates = (9...14).compactMap(on.rgb(forSlot:))
+            + ExtendedHue.allCases.compactMap { on.rgb(forExtended: $0, bright: true) }
+        for greeting in [HomeGreeting.day, .night] {
+            let target = OKLab(greeting.glyphTarget)
+            let chosen = try #require(greeting.glyphRGB(in: on))
+            #expect(candidates.contains(chosen))
+            let offChoice = try #require(greeting.glyphRGB(in: off))
+            #expect(target.distance(to: OKLab(chosen)) <= target.distance(to: OKLab(offChoice)))
+        }
+    }
+
+    @Test func homeGlyphsSkipAGrayYellowSlot() throws {
+        var grayYellow = tomorrowNight.palette
+        grayYellow[11] = "808080"
+        let theme = GhosttyThemeDefinition(name: "Gray yellow", background: "1d1f21", foreground: "c5c8c6", palette: grayYellow)
+        let colors = palette(.init(light: nil, dark: theme), extended: false)
+        let sun = try #require(HomeGreeting.day.glyphRGB(in: colors))
+        #expect(sun != hex("808080"))
+        #expect(OKLab(sun).chroma >= LinearStateColor.neutralChroma)
+
+        let allGray = GhosttyThemeDefinition(
+            name: "Grays",
+            background: "000000",
+            foreground: "ffffff",
+            palette: Dictionary(uniqueKeysWithValues: (0...15).map { ($0, "808080") })
+        )
+        #expect(HomeGreeting.day.glyphRGB(in: palette(.init(light: nil, dark: allGray), extended: true)) == nil)
     }
 
     @Test func homeGlyphsHaveNoColorWithoutAPalette() {
