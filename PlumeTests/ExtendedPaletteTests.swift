@@ -298,8 +298,9 @@ struct ExtendedPaletteTests {
         #expect(HomeGreeting.afternoon.glyphRGB(in: palette(.init(light: nil, dark: allGray), extended: true)) == nil)
     }
 
-    @Test func homeGlyphsHaveNoColorWithoutAPalette() {
-        #expect(HomeGreeting.afternoon.glyphRGB(in: palette(nil, extended: true)) == nil)
+    @Test func homeGlyphsFallBackToTheSystemHuesWithoutAPalette() {
+        #expect(HomeGreeting.afternoon.glyphRGB(in: palette(nil, extended: true)) == LinearStateColor.fallbackSlots[3])
+        #expect(HomeGreeting.night.glyphRGB(in: palette(nil, extended: true)) == LinearStateColor.fallbackSlots[4])
     }
 
     // MARK: - Lum and accent

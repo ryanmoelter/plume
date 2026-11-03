@@ -106,13 +106,8 @@ enum HomeGreeting: String, CaseIterable {
         }
         var candidates: [SidebarTint: HexRGB] = [:]
         for bright in [false, true] {
-            for slot in LinearStateColor.slots {
-                candidates[.palette(slot: bright ? slot + 8 : slot)] = colors.rgb(forSlot: bright ? slot + 8 : slot)
-            }
-            if colors.usesExtendedPalette {
-                for hue in ExtendedHue.allCases {
-                    candidates[.extended(hue, bright: bright)] = colors.rgb(forExtended: hue, bright: bright)
-                }
+            for (hue, rgb) in LinearStateColor.candidates(in: colors, bright: bright) {
+                candidates[.wheel(hue, bright: bright)] = rgb
             }
         }
         return LinearStateColor.nearest(to: glyphTarget, among: candidates) { $0.hueDistance(to: $1) }
