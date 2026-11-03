@@ -26,7 +26,15 @@ final class GhosttyRuntime {
     /// form so SwiftUI chrome can read the background/foreground hex —
     /// `TerminalConfiguration` (what the controller takes) exposes no
     /// accessors to get them back out.
-    private(set) var resolvedThemeDefinitions: GhosttyThemeResolver.ResolvedDefinitions?
+    private(set) var resolvedThemeDefinitions: GhosttyThemeResolver.ResolvedDefinitions? {
+        didSet {
+            extendedPalette = ExtendedPalette.Resolved(resolvedThemeDefinitions, lum: Self.bundledLumDefinitions)
+        }
+    }
+
+    /// `resolvedThemeDefinitions`' extended colors, resolved with it so no
+    /// render has to.
+    private(set) var extendedPalette: ExtendedPalette.Resolved?
 
     /// The `font-family` the user's ghostty config resolves to, if any. Chat
     /// code prefers this over the bundled Cascadia Code NF, so the terminal

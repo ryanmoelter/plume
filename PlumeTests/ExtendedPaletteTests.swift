@@ -99,6 +99,25 @@ struct ExtendedPaletteTests {
         #expect(abs(degrees - 340) < 3)
     }
 
+    @Test func aGrayNeighborLendsNoHue() throws {
+        let lum = try lum()
+        let theme = GhosttyThemeDefinition(
+            name: "Gray cyan",
+            background: "000000",
+            foreground: "ffffff",
+            palette: [2: "b5bd68", 4: "81a2be", 6: "808080"]
+        )
+        let green = OKLab(hex("b5bd68"))
+        let blue = OKLab(hex("81a2be"))
+        let turteal = OKLab(try #require(ExtendedPalette.rgb(.turteal, bright: false, in: theme, lum: lum)))
+        let amf = OKLab(try #require(ExtendedPalette.rgb(.amf, bright: false, in: theme, lum: lum)))
+        #expect(hue(turteal.hue, liesBetween: green.hue, and: green.hue))
+        #expect(hue(amf.hue, liesBetween: blue.hue, and: blue.hue))
+
+        let grays = OKLab.midpoint(OKLab(hex("808080")), OKLab(hex("7f8082")))
+        #expect(grays.chroma < LinearStateColor.neutralChroma)
+    }
+
     @Test func theMidpointTakesTheShorterArcAcrossPi() {
         let x = OKLab(l: 0.6, chroma: 0.1, hue: 170 * .pi / 180)
         let y = OKLab(l: 0.6, chroma: 0.1, hue: -170 * .pi / 180)

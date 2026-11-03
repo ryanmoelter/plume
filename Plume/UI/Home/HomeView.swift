@@ -436,7 +436,7 @@ private struct HomeGreetingHeader: View, ThemedView {
                 Text(greeting.title)
                 if let rgb = greeting.glyphRGB(in: colors) {
                     Image(systemName: greeting.symbolName)
-                        .foregroundStyle(Color(red: rgb.red, green: rgb.green, blue: rgb.blue))
+                        .foregroundStyle(Color(rgb))
                 } else {
                     Image(systemName: greeting.symbolName)
                         .symbolRenderingMode(.multicolor)

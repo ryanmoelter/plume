@@ -3,8 +3,8 @@ import SwiftUI
 
 /// A color a group or task carries in the sidebar.
 ///
-/// A palette slot rather than a color, so a light/dark theme pair gives each
-/// appearance its own palette's version of it.
+/// A palette slot or extended-palette hue rather than a resolved color, so a
+/// light/dark theme pair gives each appearance its own palette's version of it.
 enum SidebarTint: Hashable {
     /// The theme's text color.
     case text
@@ -55,6 +55,10 @@ enum SidebarTint: Hashable {
         case .slot(let slot): .palette(slot: bright ? slot + 8 : slot)
         case .extended(let hue): .extended(hue, bright: bright)
         }
+    }
+
+    var isExtended: Bool {
+        if case .extended = self { true } else { false }
     }
 
     /// What a picker calls this color.

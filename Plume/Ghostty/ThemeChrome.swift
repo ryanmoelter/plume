@@ -202,42 +202,31 @@ enum ThemeChrome {
         definition(for: colorScheme, in: definitions)?.palette[slot].flatMap(HexRGB.init(hex:))
     }
 
-    /// One extended-palette color, nil where the theme lacks a neighbor it
-    /// is interpolated from.
-    static func extendedRGB(
-        _ hue: ExtendedHue,
-        bright: Bool,
+    /// The extended colors for `colorScheme` out of a resolution.
+    static func extendedColors(
         for colorScheme: ColorScheme,
-        in definitions: GhosttyThemeResolver.ResolvedDefinitions?
-    ) -> HexRGB? {
-        ExtendedPalette.rgb(
-            hue,
-            bright: bright,
-            in: definition(for: colorScheme, in: definitions),
-            lum: GhosttyRuntime.bundledLumDefinitions
-        )
+        in resolved: ExtendedPalette.Resolved?
+    ) -> ExtendedPalette.Colors? {
+        colorScheme == .light ? resolved?.light : resolved?.dark
     }
 
-    /// A palette or extended color, nil for `.text` or where the theme has none.
+    /// A tint's color in one theme, or nil where the theme has none.
     static func tintRGB(
         _ tint: SidebarTint,
-        for colorScheme: ColorScheme,
-        in definitions: GhosttyThemeResolver.ResolvedDefinitions?
+        in definition: GhosttyThemeDefinition?,
+        extended: ExtendedPalette.Colors?
     ) -> HexRGB? {
         switch tint {
-        case .text: nil
-        case .palette(let slot): paletteRGB(slot: slot, for: colorScheme, in: definitions)
-        case .extended(let hue, let bright): extendedRGB(hue, bright: bright, for: colorScheme, in: definitions)
+        case .text: definition.flatMap { HexRGB(hex: $0.foreground) }
+        case .palette(let slot): definition?.palette[slot].flatMap(HexRGB.init(hex:))
+        case .extended(let hue, let bright): extended?.rgb(hue, bright: bright)
         }
     }
 
     /// Whether the pickers offer the extended palette: the user's choice, or
     /// else on exactly when the theme is Lum's.
     static var usesExtendedPalette: Bool {
-        usesExtendedPalette(
-            choice: AppSettings.shared.extendedPaletteChoice,
-            definitions: GhosttyRuntime.shared.resolvedThemeDefinitions
-        )
+        AppSettings.shared.extendedPaletteChoice ?? GhosttyRuntime.shared.extendedPalette?.defaultsOn ?? false
     }
 
     static func usesExtendedPalette(
@@ -253,24 +242,39 @@ enum ThemeChrome {
     /// system grays its own accent.
     static func accent(for colorScheme: ColorScheme, isActive: Bool = true) -> Color {
         guard isActive else { return foreground(for: colorScheme) ?? .primary }
-        return accent(AppSettings.shared.accentTint, for: colorScheme, in: GhosttyRuntime.shared.resolvedThemeDefinitions)
+        let runtime = GhosttyRuntime.shared
+        return accent(
+            AppSettings.shared.accentTint,
+            for: colorScheme,
+            in: runtime.resolvedThemeDefinitions,
+            extended: runtime.extendedPalette
+        )
     }
 
+    /// `extended` is the resolution of `definitions`, when the caller already
+    /// has one.
     static func accent(
         _ tint: SidebarTint?,
         for colorScheme: ColorScheme,
-        in definitions: GhosttyThemeResolver.ResolvedDefinitions?
+        in definitions: GhosttyThemeResolver.ResolvedDefinitions?,
+        extended: ExtendedPalette.Resolved? = nil
     ) -> Color {
-        accentColor(tint, for: colorScheme, in: definitions) ?? .accentColor
+        accentColor(tint, for: colorScheme, in: definitions, extended: extended) ?? .accentColor
     }
 
     private static func accentColor(
         _ tint: SidebarTint?,
         for colorScheme: ColorScheme,
-        in definitions: GhosttyThemeResolver.ResolvedDefinitions?
+        in definitions: GhosttyThemeResolver.ResolvedDefinitions?,
+        extended: ExtendedPalette.Resolved?
     ) -> Color? {
-        tint.flatMap { tintRGB($0, for: colorScheme, in: definitions) }
-            .map { Color(red: $0.red, green: $0.green, blue: $0.blue) }
+        guard let tint else { return nil }
+        var colors: ExtendedPalette.Colors?
+        if case .extended = tint {
+            let resolved = extended ?? ExtendedPalette.Resolved(definitions, lum: GhosttyRuntime.bundledLumDefinitions)
+            colors = extendedColors(for: colorScheme, in: resolved)
+        }
+        return tintRGB(tint, in: definition(for: colorScheme, in: definitions), extended: colors).map(Color.init)
     }
 
     /// `accent(for:isActive:)` for AppKit drawing, resolving per appearance at
@@ -285,9 +289,10 @@ enum ThemeChrome {
             )
         }
         let tint = AppSettings.shared.accentTint
+        let extended = GhosttyRuntime.shared.extendedPalette
         return appearanceColor(
-            light: accentColor(tint, for: .light, in: definitions),
-            dark: accentColor(tint, for: .dark, in: definitions),
+            light: accentColor(tint, for: .light, in: definitions, extended: extended),
+            dark: accentColor(tint, for: .dark, in: definitions, extended: extended),
             fallback: .controlAccentColor
         )
     }

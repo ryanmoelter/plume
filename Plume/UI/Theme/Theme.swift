@@ -73,6 +73,7 @@ private struct ThemeModifier: ViewModifier {
             colors: Palette(
                 colorScheme: colorScheme,
                 definitions: GhosttyRuntime.shared.resolvedThemeDefinitions,
+                extended: GhosttyRuntime.shared.extendedPalette,
                 accent: AppSettings.shared.accentTint,
                 usesExtendedPalette: ThemeChrome.usesExtendedPalette,
                 isActive: appearsActive

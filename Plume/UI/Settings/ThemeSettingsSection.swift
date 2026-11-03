@@ -50,7 +50,7 @@ struct ThemeSettingsSection: View {
                     definition: palette.definition,
                     label: palette.label,
                     selection: settings.accentTint,
-                    extended: ThemeChrome.usesExtendedPalette,
+                    extended: ThemeChrome.usesExtendedPalette || settings.accentTint?.isExtended == true,
                     onSelect: { settings.accentTint = $0 }
                 )
             }

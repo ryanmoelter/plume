@@ -25,8 +25,9 @@ struct ThemePaletteView: View {
                 ? AnyLayout(VStackLayout(alignment: .leading, spacing: 12))
                 : AnyLayout(HStackLayout(alignment: .center, spacing: 14))
             layout {
+                let colors = extended ? ExtendedPalette.Colors(definition, lum: GhosttyRuntime.bundledLumDefinitions) : nil
                 PaletteSwatchGrid(
-                    color: color(for:),
+                    color: { color(for: $0, extended: colors) },
                     ringColor: foreground,
                     selection: selection,
                     extended: extended,
@@ -47,14 +48,8 @@ struct ThemePaletteView: View {
         )
     }
 
-    private func color(for tint: SidebarTint) -> Color? {
-        let rgb: HexRGB? = switch tint {
-        case .text: HexRGB(hex: definition.foreground)
-        case .palette(let slot): definition.palette[slot].flatMap(HexRGB.init(hex:))
-        case .extended(let hue, let bright):
-            ExtendedPalette.rgb(hue, bright: bright, in: definition, lum: GhosttyRuntime.bundledLumDefinitions)
-        }
-        return rgb.map { Color(red: $0.red, green: $0.green, blue: $0.blue) }
+    private func color(for tint: SidebarTint, extended: ExtendedPalette.Colors?) -> Color? {
+        ThemeChrome.tintRGB(tint, in: definition, extended: extended).map(Color.init)
     }
 
     @ViewBuilder

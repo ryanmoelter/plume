@@ -32,7 +32,7 @@ struct LinearIssueGlyph: View, ThemedView {
     }
 
     private var color: Color? {
-        Self.rgb(for: colorHex, strategy: strategy, in: colors).map { Color(red: $0.red, green: $0.green, blue: $0.blue) }
+        Self.rgb(for: colorHex, strategy: strategy, in: colors).map(Color.init)
     }
 
     /// Nil means the secondary text color.

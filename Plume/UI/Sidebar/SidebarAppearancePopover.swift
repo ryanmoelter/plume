@@ -232,7 +232,7 @@ private struct SidebarTintPicker: View {
                     )
                 }
             }
-            let extended = theme.colors.usesExtendedPalette
+            let extended = theme.colors.usesExtendedPalette || selection?.isExtended == true
             PaletteSwatchGrid(
                 color: theme.colors.color(for:),
                 ringColor: .primary,

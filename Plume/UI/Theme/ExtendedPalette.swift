@@ -115,25 +115,71 @@ nonisolated enum ExtendedPalette {
         lumVariant(of: definition, lum: lum) != nil
     }
 
-    /// Whether the extended palette is on by default: when every appearance
-    /// the theme defines uses Lum's palette.
+    /// One theme's extended colors, resolved once so a render never repeats
+    /// the Lum check or the interpolation.
+    struct Colors: Sendable {
+        let isLum: Bool
+        private let text: [ExtendedHue: HexRGB]
+        private let bright: [ExtendedHue: HexRGB]
+
+        init(_ definition: GhosttyThemeDefinition, lum: GhosttyThemeResolver.ResolvedDefinitions?) {
+            let variant = lumVariant(of: definition, lum: lum)
+            isLum = variant != nil
+            func resolve(bright: Bool) -> [ExtendedHue: HexRGB] {
+                var colors: [ExtendedHue: HexRGB] = [:]
+                for hue in ExtendedHue.allCases {
+                    colors[hue] = ExtendedPalette.rgb(hue, bright: bright, in: definition, variant: variant)
+                }
+                return colors
+            }
+            text = resolve(bright: false)
+            bright = resolve(bright: true)
+        }
+
+        /// Nil when the theme lacks either neighbor.
+        func rgb(_ hue: ExtendedHue, bright isBright: Bool) -> HexRGB? {
+            isBright ? bright[hue] : text[hue]
+        }
+    }
+
+    /// Both appearances' extended colors, and whether the palette is on by default.
+    struct Resolved: Sendable {
+        let light: Colors?
+        let dark: Colors?
+        /// On when every appearance the theme defines uses Lum's palette.
+        let defaultsOn: Bool
+
+        init(_ definitions: GhosttyThemeResolver.ResolvedDefinitions?, lum: GhosttyThemeResolver.ResolvedDefinitions?) {
+            light = definitions?.light.map { Colors($0, lum: lum) }
+            dark = definitions?.dark.map { Colors($0, lum: lum) }
+            let present = [light, dark].compactMap { $0 }
+            defaultsOn = !present.isEmpty && present.allSatisfy(\.isLum)
+        }
+    }
+
     static func defaultsOn(
         for definitions: GhosttyThemeResolver.ResolvedDefinitions?,
         lum: GhosttyThemeResolver.ResolvedDefinitions?
     ) -> Bool {
-        let present = [definitions?.light, definitions?.dark].compactMap { $0 }
-        return !present.isEmpty && present.allSatisfy { isLum($0, lum: lum) }
+        Resolved(definitions, lum: lum).defaultsOn
     }
 
-    /// Nil when the theme lacks either neighbor.
     static func rgb(
         _ hue: ExtendedHue,
         bright: Bool,
         in definition: GhosttyThemeDefinition?,
         lum: GhosttyThemeResolver.ResolvedDefinitions?
     ) -> HexRGB? {
-        guard let definition else { return nil }
-        switch lumVariant(of: definition, lum: lum) {
+        definition.flatMap { Colors($0, lum: lum).rgb(hue, bright: bright) }
+    }
+
+    private static func rgb(
+        _ hue: ExtendedHue,
+        bright: Bool,
+        in definition: GhosttyThemeDefinition,
+        variant: LumVariant?
+    ) -> HexRGB? {
+        switch variant {
         case .dark: return HexRGB(hex: bright ? hue.lumBright : hue.lumTextDark)
         case .light: return HexRGB(hex: bright ? hue.lumBright : hue.lumTextLight)
         case nil: break

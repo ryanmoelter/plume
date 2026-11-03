@@ -99,12 +99,22 @@ nonisolated enum LinearStateColor {
         var hue: Double { atan2(b, a) }
 
         /// The OKLCH midpoint: mean lightness and chroma, and the mean hue
-        /// along the shorter arc between the two.
+        /// along the shorter arc between the two. A gray's hue is noise, so a
+        /// gray beside a color lends only lightness and chroma, and two grays
+        /// average in a/b.
         static func midpoint(_ x: OKLab, _ y: OKLab) -> OKLab {
+            let l = (x.l + y.l) / 2
+            let chroma = (x.chroma + y.chroma) / 2
+            switch (x.chroma < LinearStateColor.neutralChroma, y.chroma < LinearStateColor.neutralChroma) {
+            case (true, true): return OKLab(l: l, a: (x.a + y.a) / 2, b: (x.b + y.b) / 2)
+            case (true, false): return OKLab(l: l, chroma: chroma, hue: y.hue)
+            case (false, true): return OKLab(l: l, chroma: chroma, hue: x.hue)
+            case (false, false): break
+            }
             var delta = y.hue - x.hue
             if delta > .pi { delta -= 2 * .pi }
             if delta < -.pi { delta += 2 * .pi }
-            return OKLab(l: (x.l + y.l) / 2, chroma: (x.chroma + y.chroma) / 2, hue: x.hue + delta / 2)
+            return OKLab(l: l, chroma: chroma, hue: x.hue + delta / 2)
         }
 
         /// Unclamped linear-light sRGB components.

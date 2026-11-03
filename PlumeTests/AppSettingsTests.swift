@@ -275,6 +275,17 @@ struct AppSettingsTests {
         #expect(AppSettings(defaults: defaults).accentTint == nil)
     }
 
+    @Test func aSlotOrSystemAccentStillWritesTheOldKey() {
+        let defaults = makeDefaults()
+        let settings = AppSettings(defaults: defaults, initialAccentPaletteSlot: { nil })
+        settings.accentTint = .palette(slot: 6)
+        #expect(defaults.object(forKey: "accentPaletteSlot") as? Int == 6)
+        settings.accentTint = .extended(.lemon, bright: false)
+        #expect(defaults.object(forKey: "accentPaletteSlot") as? Int == 6)
+        settings.accentTint = nil
+        #expect(defaults.object(forKey: "accentPaletteSlot") as? Int == -1)
+    }
+
     @Test func theTextColorIsNoAccent() {
         let defaults = makeDefaults()
         defaults.set("text", forKey: "accentTintRaw")
