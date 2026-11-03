@@ -56,6 +56,16 @@ struct SidebarTintTests {
         #expect(SidebarTint.wheel(.extended(.turteal), bright: true) == .extended(.turteal, bright: true))
     }
 
+    @Test func theSixteenSlotGridRunsInHueOrder() {
+        let slots = PaletteSwatchGrid.rows(extended: false).map { row in
+            row.map { tint -> Int in
+                guard case .palette(let slot) = tint else { return -1 }
+                return slot
+            }
+        }
+        #expect(slots == [[0, 1, 3, 2, 6, 4, 5, 7], [8, 9, 11, 10, 14, 12, 13, 15]])
+    }
+
     @Test func lumNamesReplaceTheSixANSIHuesOnly() {
         let lum = (0...15).map { SidebarTint.palette(slot: $0).name(lum: true) }
         #expect(lum == [

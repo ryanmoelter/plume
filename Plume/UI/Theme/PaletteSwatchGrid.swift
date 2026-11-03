@@ -33,7 +33,11 @@ struct PaletteSwatchGrid: View {
         }
     }
 
-    private var rows: [[SidebarTint]] {
+    private var rows: [[SidebarTint]] { Self.rows(extended: extended) }
+
+    /// Each row runs in hue order around the wheel, normal colors over their
+    /// bright variants.
+    static func rows(extended: Bool) -> [[SidebarTint]] {
         if extended {
             return [
                 PaletteHue.wheel.map { SidebarTint.wheel($0, bright: false) },
@@ -41,12 +45,11 @@ struct PaletteSwatchGrid: View {
                 PaletteHue.neutralSlots.map { SidebarTint.palette(slot: $0) },
             ]
         }
-        let slots = ThemeChrome.paletteSlots
-        let middle = slots.lowerBound + slots.count / 2
-        return [
-            (slots.lowerBound..<middle).map { SidebarTint.palette(slot: $0) },
-            (middle..<slots.upperBound).map { SidebarTint.palette(slot: $0) },
-        ]
+        let ansiWheel = PaletteHue.wheel.filter { if case .slot = $0 { true } else { false } }
+        return [false, true].map { bright in
+            let (black, white) = bright ? (8, 15) : (0, 7)
+            return [.palette(slot: black)] + ansiWheel.map { SidebarTint.wheel($0, bright: bright) } + [.palette(slot: white)]
+        }
     }
 
     private func row(_ tints: [SidebarTint]) -> some View {
