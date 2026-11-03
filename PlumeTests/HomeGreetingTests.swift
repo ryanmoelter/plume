@@ -32,6 +32,10 @@ struct HomeGreetingTests {
         #expect(HomeGreeting.allCases.map(\.hoursText) == ["5 AM–12 PM", "12 PM–5 PM", "5 PM–9 PM", "9 PM–5 AM"])
     }
 
+    @Test func glyphColorPaintsTheSunOrMoonLayer() {
+        #expect(HomeGreeting.allCases.map(\.glyphLayer) == [.secondary, .only, .secondary, .primary])
+    }
+
     @Test func symbolsAreFilled() {
         #expect([HomeGreeting.morning, .afternoon, .evening, .night].map(\.symbolName)
             == ["sun.horizon.fill", "sun.max.fill", "sun.horizon.fill", "moon.stars.fill"])

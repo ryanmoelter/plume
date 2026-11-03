@@ -439,14 +439,26 @@ private struct HomeGreetingHeader: View, ThemedView {
         return HomeGreeting(date: date)
     }
 
+    @ViewBuilder
+    private func glyph(_ greeting: HomeGreeting, color: Color) -> some View {
+        let image = Image(systemName: greeting.symbolName)
+        switch greeting.glyphLayer {
+        case .only:
+            image.foregroundStyle(color)
+        case .primary:
+            image.symbolRenderingMode(.palette).foregroundStyle(color, colors.foreground)
+        case .secondary:
+            image.symbolRenderingMode(.palette).foregroundStyle(colors.foreground, color)
+        }
+    }
+
     var body: some View {
         TimelineView(.everyMinute) { context in
             let greeting = greeting(at: context.date)
             HStack(spacing: 6) {
                 Text(greeting.title)
                 if let rgb = greeting.glyphRGB(in: colors) {
-                    Image(systemName: greeting.symbolName)
-                        .foregroundStyle(Color(rgb))
+                    glyph(greeting, color: Color(rgb))
                 } else {
                     Image(systemName: greeting.symbolName)
                         .symbolRenderingMode(.multicolor)

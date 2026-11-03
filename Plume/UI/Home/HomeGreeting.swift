@@ -64,6 +64,25 @@ enum HomeGreeting: String, CaseIterable {
         }
     }
 
+    /// Which palette layer of `symbolName` is the sun or moon, which takes the
+    /// matched color while the other layer takes the text color. Measured by
+    /// rendering each symbol in palette mode: `sun.max.fill` has one layer,
+    /// `sun.horizon.fill`'s primary layer is the horizon, and
+    /// `moon.stars.fill`'s primary layer is the moon.
+    enum GlyphLayer: Equatable {
+        case only
+        case primary
+        case secondary
+    }
+
+    var glyphLayer: GlyphLayer {
+        switch self {
+        case .afternoon: .only
+        case .morning, .evening: .secondary
+        case .night: .primary
+        }
+    }
+
     /// What the glyph's color is matched to: Lum's bright lemon for the sun,
     /// its bright blueberry for the moon.
     var glyphTarget: HexRGB {
