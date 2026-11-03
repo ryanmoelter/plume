@@ -11,6 +11,8 @@ struct PaletteSwatchGrid: View {
     let ringColor: Color
     let selection: SidebarTint?
     let extended: Bool
+    /// Names swatches with Lum's names.
+    var lumNames = false
     var swatchSize: CGFloat = Self.swatchSize
     let plumeID: String
     /// Prefixed to each swatch's name for the control server.
@@ -55,7 +57,7 @@ struct PaletteSwatchGrid: View {
                     color: color,
                     ringColor: ringColor,
                     isSelected: tint == selection,
-                    help: Self.help(for: tint),
+                    help: help(for: tint),
                     plumeID: plumeID,
                     plumeLabel: "\(plumeLabel) \(Self.plumeName(for: tint))",
                     size: swatchSize,
@@ -66,8 +68,9 @@ struct PaletteSwatchGrid: View {
         }
     }
 
-    private static func help(for tint: SidebarTint) -> String {
-        if case .palette(let slot) = tint { "\(tint.name) (\(slot))" } else { tint.name }
+    private func help(for tint: SidebarTint) -> String {
+        let name = tint.name(lum: lumNames)
+        return if case .palette(let slot) = tint { "\(name) (\(slot))" } else { name }
     }
 
     /// A slot's number, or an extended hue's name prefixed `bright-` for its
@@ -114,6 +117,7 @@ struct PaletteSwatch<Content: View>: View {
         }
         .buttonStyle(.plain)
         .help(help)
+        .accessibilityLabel(help)
         .plumeID(
             plumeID,
             label: plumeLabel,

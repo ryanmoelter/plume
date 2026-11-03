@@ -170,6 +170,11 @@ enum ThemeChrome {
         "Bright Blue", "Bright Magenta", "Bright Cyan", "Bright White",
     ]
 
+    /// Lum's names for its six ANSI hues, by normal slot.
+    static let lumSlotNames: [Int: String] = [
+        1: "Goji", 2: "Lime", 3: "Tangerine", 4: "Blue raspberry", 5: "Grape", 6: "Food coloring",
+    ]
+
     /// Exactly one palette slot, with no fallthrough to its bright variant:
     /// the user picked this color, not a role.
     static func paletteColor(

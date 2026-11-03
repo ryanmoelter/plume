@@ -31,6 +31,7 @@ struct ThemePaletteView: View {
                     ringColor: foreground,
                     selection: selection,
                     extended: extended,
+                    lumNames: extendedColors?.isLum == true && ThemeChrome.usesExtendedPalette(),
                     plumeID: AccessibilityID.settingsAccentSwatch,
                     plumeLabel: label,
                     onSelect: { onSelect($0) }

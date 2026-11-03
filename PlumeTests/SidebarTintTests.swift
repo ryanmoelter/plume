@@ -56,6 +56,18 @@ struct SidebarTintTests {
         #expect(SidebarTint.wheel(.extended(.turteal), bright: true) == .extended(.turteal, bright: true))
     }
 
+    @Test func lumNamesReplaceTheSixANSIHuesOnly() {
+        let lum = (0...15).map { SidebarTint.palette(slot: $0).name(lum: true) }
+        #expect(lum == [
+            "Black", "Goji", "Lime", "Tangerine", "Blue raspberry", "Grape", "Food coloring", "White",
+            "Bright Black", "Bright Goji", "Bright Lime", "Bright Tangerine",
+            "Bright Blue raspberry", "Bright Grape", "Bright Food coloring", "Bright White",
+        ])
+        #expect(SidebarTint.palette(slot: 4).name == "Blue")
+        #expect(SidebarTint.extended(.amf, bright: true).name(lum: true) == "Bright AMF")
+        #expect(SidebarTint.text.name(lum: true) == "Text")
+    }
+
     @Test func taskInheritsItsGroupsTint() throws {
         let context = ModelContext(try container())
         let group = TaskStore.createGroup(in: context, name: "Group", existing: [])
