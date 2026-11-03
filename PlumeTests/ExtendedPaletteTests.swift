@@ -5,8 +5,8 @@ import GhosttyTheme
 
 /// The extended palette gives Lum its own six extra hues exactly, and any
 /// other theme each one as the OKLCH midpoint of its ANSI neighbors, inside
-/// sRGB. Linear matching takes only its text colors, the Home glyphs only its
-/// bright ones, and it is on by default only for Lum.
+/// sRGB. Linear matching takes only its text colors, the Home glyphs its
+/// bright lemon and blueberry, and it is on by default only for Lum.
 @MainActor
 struct ExtendedPaletteTests {
     private typealias OKLab = LinearStateColor.OKLab
@@ -174,9 +174,8 @@ struct ExtendedPaletteTests {
 
     @Test func homeGlyphsTakeBrightSlotsWithoutTheExtendedPalette() throws {
         let colors = palette(try lum(), extended: false)
-        // Lum's nearest bright slots: lime for the lemon, grape for the blueberry.
-        #expect(HomeGreeting.day.glyphRGB(in: colors) == hex("aed83f"))
-        #expect(HomeGreeting.night.glyphRGB(in: colors) == hex("8046ba"))
+        #expect(HomeGreeting.day.glyphRGB(in: colors) == hex("f08e00"))
+        #expect(HomeGreeting.night.glyphRGB(in: colors) == hex("1b94e0"))
     }
 
     @Test func homeGlyphsOnAnotherTheme() throws {
@@ -186,9 +185,11 @@ struct ExtendedPaletteTests {
         #expect(HomeGreeting.night.glyphRGB(in: off) == hex("7aa6da"))
 
         let on = palette(definitions, extended: true)
+        let lemon = try #require(on.rgb(forExtended: .lemon, bright: true))
         let blueberry = try #require(on.rgb(forExtended: .blueberry, bright: true))
-        let candidates = (9...14).compactMap(on.rgb(forSlot:)) + [blueberry]
-        #expect(candidates.contains(try #require(HomeGreeting.night.glyphRGB(in: on))))
+        #expect(HomeGreeting.day.glyphRGB(in: on) == lemon)
+        #expect(HomeGreeting.evening.glyphRGB(in: on) == lemon)
+        #expect(HomeGreeting.night.glyphRGB(in: on) == blueberry)
     }
 
     @Test func homeGlyphsHaveNoColorWithoutAPalette() {
