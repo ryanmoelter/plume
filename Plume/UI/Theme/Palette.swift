@@ -90,6 +90,9 @@ struct Palette {
 
     private let extendedColors: ExtendedPalette.Colors?
 
+    /// Whether this appearance's palette is Lum's.
+    var isLum: Bool { extendedColors?.isLum ?? false }
+
     /// Whether pickers offer, and color matching considers, the extended
     /// palette. A color already chosen from it resolves either way.
     let usesExtendedPalette: Bool

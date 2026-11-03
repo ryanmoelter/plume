@@ -201,11 +201,13 @@ struct ExtendedPaletteTests {
         }
     }
 
-    @Test func homeGlyphsTakeTheNearestBrightSlotsWithoutTheExtendedPalette() throws {
-        let colors = palette(try lum(), extended: false)
-        // Lum's nearest bright slots: lime for the lemon, grape for the blueberry.
-        #expect(HomeGreeting.day.glyphRGB(in: colors) == hex("aed83f"))
-        #expect(HomeGreeting.night.glyphRGB(in: colors) == hex("8046ba"))
+    @Test func homeGlyphsTakeBrightTangerineAndBlueRaspberryOnLumWithoutTheExtendedPalette() throws {
+        let lum = try lum()
+        for scheme in [ColorScheme.dark, .light] {
+            let colors = palette(lum, scheme, extended: false)
+            #expect(HomeGreeting.day.glyphRGB(in: colors) == hex("f08e00"))
+            #expect(HomeGreeting.night.glyphRGB(in: colors) == hex("1b94e0"))
+        }
     }
 
     @Test func homeGlyphsOnAnotherTheme() throws {
@@ -222,8 +224,23 @@ struct ExtendedPaletteTests {
             let chosen = try #require(greeting.glyphRGB(in: on))
             #expect(candidates.contains(chosen))
             let offChoice = try #require(greeting.glyphRGB(in: off))
-            #expect(target.distance(to: OKLab(chosen)) <= target.distance(to: OKLab(offChoice)))
+            #expect(target.hueDistance(to: OKLab(chosen)) <= target.hueDistance(to: OKLab(offChoice)))
         }
+    }
+
+    @Test func homeGlyphsSkipSolarizedsGrayBrights() {
+        let solarized = GhosttyThemeDefinition(
+            name: "Solarized-like",
+            background: "002b36",
+            foreground: "839496",
+            palette: [
+                0: "073642", 1: "dc322f", 2: "859900", 3: "b58900", 4: "268bd2", 5: "d33682", 6: "2aa198", 7: "eee8d5",
+                8: "002b36", 9: "cb4b16", 10: "586e75", 11: "657b83", 12: "839496", 13: "6c71c4", 14: "93a1a1", 15: "fdf6e3",
+            ]
+        )
+        let colors = palette(.init(light: nil, dark: solarized), extended: false)
+        #expect(HomeGreeting.day.glyphRGB(in: colors) == hex("cb4b16"))
+        #expect(HomeGreeting.night.glyphRGB(in: colors) == hex("6c71c4"))
     }
 
     @Test func homeGlyphsSkipAGrayYellowSlot() throws {

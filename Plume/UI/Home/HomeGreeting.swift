@@ -47,11 +47,16 @@ enum HomeGreeting: Equatable {
         }
     }
 
-    /// The theme's bright color nearest `glyphTarget`, skipping grays, or nil
-    /// when none is left.
+    /// The theme's bright color nearest `glyphTarget` in hue, skipping grays,
+    /// or nil when none is left. Lum without its extended palette takes bright
+    /// tangerine and bright blue raspberry instead.
     @MainActor
     func glyphRGB(in colors: Palette) -> HexRGB? {
+        if colors.isLum && !colors.usesExtendedPalette {
+            return colors.rgb(forSlot: self == .night ? 12 : 11)
+        }
         let candidates = LinearStateColor.candidates(in: colors, bright: true)
-        return LinearStateColor.nearest(to: glyphTarget, among: candidates).flatMap { candidates[$0] }
+        return LinearStateColor.nearest(to: glyphTarget, among: candidates) { $0.hueDistance(to: $1) }
+            .flatMap { candidates[$0] }
     }
 }

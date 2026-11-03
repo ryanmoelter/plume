@@ -21,12 +21,16 @@ nonisolated enum LinearStateColor {
     ]
 
     /// The candidate nearest the color, or nil when it is neutral.
-    static func nearest<Key: Hashable>(to color: HexRGB, among candidates: [Key: HexRGB]) -> Key? {
+    static func nearest<Key: Hashable>(
+        to color: HexRGB,
+        among candidates: [Key: HexRGB],
+        by metric: (OKLab, OKLab) -> Double = { $0.distance(to: $1) }
+    ) -> Key? {
         let target = OKLab(color)
         guard target.chroma >= neutralChroma else { return nil }
         return candidates
             .filter { OKLab($0.value).chroma >= neutralChroma }
-            .min { target.distance(to: OKLab($0.value)) < target.distance(to: OKLab($1.value)) }?
+            .min { metric(target, OKLab($0.value)) < metric(target, OKLab($1.value)) }?
             .key
     }
 
@@ -158,6 +162,15 @@ nonisolated enum LinearStateColor {
         func distance(to other: OKLab) -> Double {
             let dl = (l - other.l) * 0.5
             return (dl * dl + (a - other.a) * (a - other.a) + (b - other.b) * (b - other.b)).squareRoot()
+        }
+
+        /// An OKLCH distance led by hue, with lightness and chroma only breaking
+        /// near ties, so a yellow stays yellow on a theme whose yellow is dim.
+        func hueDistance(to other: OKLab) -> Double {
+            var dh = abs(hue - other.hue)
+            if dh > .pi { dh = 2 * .pi - dh }
+            let (h, dl, dc) = (dh / .pi, (l - other.l) * 0.25, (chroma - other.chroma) * 0.25)
+            return (h * h + dl * dl + dc * dc).squareRoot()
         }
     }
 }
