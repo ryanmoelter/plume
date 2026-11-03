@@ -28,6 +28,10 @@ struct HomeGreetingTests {
         #expect(HomeGreeting(date: date, calendar: calendar) == .evening)
     }
 
+    @Test func hoursTextFollowsTheHourMapping() {
+        #expect(HomeGreeting.allCases.map(\.hoursText) == ["5 AM–12 PM", "12 PM–5 PM", "5 PM–9 PM", "9 PM–5 AM"])
+    }
+
     @Test func symbolsAreFilled() {
         #expect([HomeGreeting.morning, .afternoon, .evening, .night].map(\.symbolName)
             == ["sun.horizon.fill", "sun.max.fill", "sun.horizon.fill", "moon.stars.fill"])

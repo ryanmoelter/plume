@@ -1,7 +1,7 @@
 import Foundation
 
 /// The Home view's header, chosen by the hour of the day.
-enum HomeGreeting: Equatable {
+enum HomeGreeting: String, CaseIterable {
     case morning
     case afternoon
     case evening
@@ -18,6 +18,32 @@ enum HomeGreeting: Equatable {
 
     init(date: Date, calendar: Calendar = .current) {
         self.init(hour: calendar.component(.hour, from: date))
+    }
+
+    #if DEBUG
+    /// The Debug settings' forced greeting, as a raw value; empty is automatic.
+    static let debugOverrideKey = "PlumeDebugGreetingOverride"
+    #endif
+
+    var name: String {
+        switch self {
+        case .morning: "Morning"
+        case .afternoon: "Afternoon"
+        case .evening: "Evening"
+        case .night: "Night"
+        }
+    }
+
+    /// The hours `init(hour:)` maps here, as "5 AM–12 PM".
+    var hoursText: String {
+        let hours = 0..<24
+        let start = hours.first { Self(hour: $0) == self && Self(hour: ($0 + 23) % 24) != self } ?? 0
+        let end = (1...24).lazy.map { (start + $0) % 24 }.first { Self(hour: $0) != self } ?? start
+        return "\(Self.clockHour(start))–\(Self.clockHour(end))"
+    }
+
+    private static func clockHour(_ hour: Int) -> String {
+        "\(hour % 12 == 0 ? 12 : hour % 12) \(hour < 12 ? "AM" : "PM")"
     }
 
     var title: String {

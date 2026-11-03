@@ -428,10 +428,20 @@ private struct CollapsibleSectionHeader: View, ThemedView {
 /// whole feed redrawing.
 private struct HomeGreetingHeader: View, ThemedView {
     @Environment(\.theme) var theme
+    #if DEBUG
+    @AppStorage(HomeGreeting.debugOverrideKey) private var debugOverride = ""
+    #endif
+
+    private func greeting(at date: Date) -> HomeGreeting {
+        #if DEBUG
+        if let forced = HomeGreeting(rawValue: debugOverride) { return forced }
+        #endif
+        return HomeGreeting(date: date)
+    }
 
     var body: some View {
         TimelineView(.everyMinute) { context in
-            let greeting = HomeGreeting(date: context.date)
+            let greeting = greeting(at: context.date)
             HStack(spacing: 6) {
                 Text(greeting.title)
                 if let rgb = greeting.glyphRGB(in: colors) {

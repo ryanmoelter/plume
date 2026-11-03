@@ -22,6 +22,7 @@ struct DebugSettingsPane: View {
             RevealTuningDebugSection()
             UpdatesDebugSection()
             ThemeDebugSection()
+            GreetingDebugSection()
         }
         .formStyle(.grouped)
     }
