@@ -128,6 +128,27 @@ struct ExtendedPaletteTests {
         #expect(grays.chroma < LinearStateColor.neutralChroma)
     }
 
+    @Test(arguments: [false, true])
+    func blueberryRunsForwardFromBlueToMagentaOnGruvboxMaterialDark(bright: Bool) throws {
+        // Gruvbox Material Dark's blue sits at 179° and its magenta at 2°: 183°
+        // forward, so the shorter arc would land on a yellow near 90°.
+        let gruvbox = GhosttyThemeDefinition(
+            name: "Gruvbox Material Dark",
+            background: "282828",
+            foreground: "d4be98",
+            palette: [4: "7daea3", 5: "d3869b", 12: "7daea3", 13: "d3869b"]
+        )
+        let blueberry = OKLab(try #require(extendedRGB(.blueberry, bright: bright, in: gruvbox, lum: try lum())))
+        let degrees = (blueberry.hue * 180 / .pi + 360).truncatingRemainder(dividingBy: 360)
+        #expect(abs(degrees - 270.7) < 5)
+    }
+
+    @Test func aSlightlyReversedPairTakesTheShorterArc() {
+        let x = OKLab(l: 0.6, chroma: 0.1, hue: 100 * .pi / 180)
+        let y = OKLab(l: 0.6, chroma: 0.1, hue: 90 * .pi / 180)
+        #expect(abs(OKLab.midpoint(x, y).hue * 180 / .pi - 95) < 0.001)
+    }
+
     @Test func theMidpointTakesTheShorterArcAcrossPi() {
         let x = OKLab(l: 0.6, chroma: 0.1, hue: 170 * .pi / 180)
         let y = OKLab(l: 0.6, chroma: 0.1, hue: -170 * .pi / 180)

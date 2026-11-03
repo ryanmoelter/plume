@@ -103,9 +103,12 @@ nonisolated enum LinearStateColor {
         var hue: Double { atan2(b, a) }
 
         /// The OKLCH midpoint: mean lightness and chroma, and the mean hue
-        /// along the shorter arc between the two. A gray's hue is noise, so a
-        /// gray beside a color lends only lightness and chroma, and two grays
-        /// average in a/b.
+        /// going forward, in increasing hue, from `x` to `y`. Wheel neighbors
+        /// can sit more than 180° apart, where the shorter arc would cross the
+        /// opposite side of the wheel; a forward gap over 300° means the pair
+        /// came out slightly reversed, so that takes the shorter arc. A gray's
+        /// hue is noise, so a gray beside a color lends only lightness and
+        /// chroma, and two grays average in a/b.
         static func midpoint(_ x: OKLab, _ y: OKLab) -> OKLab {
             let l = (x.l + y.l) / 2
             let chroma = (x.chroma + y.chroma) / 2
@@ -115,9 +118,9 @@ nonisolated enum LinearStateColor {
             case (false, true): return OKLab(l: l, chroma: chroma, hue: x.hue)
             case (false, false): break
             }
-            var delta = y.hue - x.hue
-            if delta > .pi { delta -= 2 * .pi }
-            if delta < -.pi { delta += 2 * .pi }
+            var delta = (y.hue - x.hue).truncatingRemainder(dividingBy: 2 * .pi)
+            if delta < 0 { delta += 2 * .pi }
+            if delta > 300 * .pi / 180 { delta -= 2 * .pi }
             return OKLab(l: l, chroma: chroma, hue: x.hue + delta / 2)
         }
 
