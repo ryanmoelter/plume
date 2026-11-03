@@ -40,7 +40,7 @@ Plume/
   Models/     SwiftData models, TaskStore (CRUD/ordering), TitleStore, enums
   Ghostty/    GhosttyRuntime, GhosttyConfigLoader, GhosttyThemeResolver, TerminalSession, TerminalTabView, ThemeChrome
   Sessions/   SurfaceManager, LoginShellCommand
-  Agent/      AgentProvider, ClaudeCodeProvider, AgentLauncher, hook plumbing, SessionJSONLReader
+  Agent/      AgentProvider, ClaudeCodeProvider, AgentLauncher, hook plumbing, SessionJSONLReader, Skills/ (BundledSkills, AgentPromptRule)
   Status/     StatusEngine, StatusPersistence
   Workspace/  WorkspaceProvisioner, GitRunner, ProjectRoot (the key Settings ▸ Projects shares with `plume wt`)
   Linear/     LinearStore, LinearSyncCache (delta-synced disk cache; docs/linear-sync.md), LinearClient, LinearAccounts
@@ -48,7 +48,7 @@ Plume/
   Support/    Log, AppPaths, AppSettings, FileWatcher, HexColor, CommandLineHelper, SmokeHarness (DEBUG)
   CLI/        CLIServer (the socket the `plume` tool talks to), CLICommandHandler
   Control/    The debug control server: PlumeID, ControlRegistry, ControlServer, InProcessControlBackend (DEBUG)
-  Resources/  Fonts, Themes, Mermaid, Skills
+  Resources/  Fonts, Themes, Mermaid, Skills (flat `<name>.skill.md` files plus the formatting rule; docs/agent-skills.md)
   UI/         Sidebar/, Task/, Settings/, Device/
 PlumeCLI/     The `plume` tool's entry point and command dispatch (target PlumeCLI)
 Shared/CLI/   Compiled into both the app and PlumeCLI: wire types, socket path, Presence, argument parsing
@@ -95,6 +95,8 @@ An agent tab runs one of two CLIs, recorded in `TaskTab.providerID` (`AgentProvi
 **Terminal (`.terminal`).** The Claude Code TUI hosted in a real PTY, kept as an escape hatch. Input reaches it as a paste plus a synthetic Enter, so it cannot answer a running `AskUserQuestion` — that ceiling is why the headless transport exists. `docs/agent-transport.md` records it.
 
 Both transports launch through `AgentLauncher` and report through `StatusEngine`, which is transport-agnostic.
+
+**Every Claude launch appends Plume's formatting rule with `--append-system-prompt-file` (`AgentPromptRule`)**, a path into the bundle rather than the text, so no multi-line argument passes through the terminal transport's shell. A missing resource drops the flag, since the CLI refuses to start on an unreadable file. The skills Plume copies into `~/.claude/skills` are separate (`BundledSkills`). **`docs/agent-skills.md` is the reference** for both.
 
 ### Hook instrumentation (terminal transport)
 
