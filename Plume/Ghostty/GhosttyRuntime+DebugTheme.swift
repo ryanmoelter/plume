@@ -2,8 +2,8 @@
 import Foundation
 import GhosttyTheme
 
-/// Recolors Plume's own chrome with any theme Ghostty.app ships, leaving the
-/// terminals on the config's theme.
+/// Recolors Plume and its terminals with any theme Ghostty.app ships, in place
+/// of the config's theme. Nothing is written to the config.
 extension GhosttyRuntime {
     private static let debugThemeOverrideKey = "PlumeDebugThemeOverride"
     private static let debugThemesDirectory = "/Applications/Ghostty.app/Contents/Resources/ghostty/themes"
@@ -22,7 +22,7 @@ extension GhosttyRuntime {
 
     func setDebugThemeOverride(_ name: String?) {
         UserDefaults.standard.set(name, forKey: Self.debugThemeOverrideKey)
-        adoptChromeTheme()
+        reloadTheme()
     }
 
     static func debugThemeOverride() -> GhosttyThemeResolver.ResolvedDefinitions? {
