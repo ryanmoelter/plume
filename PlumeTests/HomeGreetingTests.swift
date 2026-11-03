@@ -57,6 +57,7 @@ struct HomeGreetingTests {
 
     @Test func glyphColorPaintsTheSunOrMoonLayer() {
         #expect(HomeGreeting.allCases.map(\.glyphLayer) == [.secondary, .only, .secondary, .primary])
+        #expect(HomeGreeting.allCases.map(\.drawsOtherGlyphLayer) == [false, false, false, true])
     }
 
     @Test func symbolsAreFilled() {

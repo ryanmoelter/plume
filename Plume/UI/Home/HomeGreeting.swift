@@ -65,7 +65,7 @@ enum HomeGreeting: String, CaseIterable {
     }
 
     /// Which palette layer of `symbolName` is the sun or moon, which takes the
-    /// matched color while the other layer takes the text color. Measured by
+    /// matched color. Measured by
     /// rendering each symbol in palette mode: `sun.max.fill` has one layer,
     /// `sun.horizon.fill`'s primary layer is the horizon, and
     /// `moon.stars.fill`'s primary layer is the moon.
@@ -81,6 +81,12 @@ enum HomeGreeting: String, CaseIterable {
         case .morning, .evening: .secondary
         case .night: .primary
         }
+    }
+
+    /// Whether the layer that isn't the sun or moon draws, in the text color.
+    /// The horizon line under a rising or setting sun doesn't.
+    var drawsOtherGlyphLayer: Bool {
+        self == .night
     }
 
     /// What the glyph's color is matched to: Lum's bright lemon for the sun,

@@ -442,13 +442,14 @@ private struct HomeGreetingHeader: View, ThemedView {
     @ViewBuilder
     private func glyph(_ greeting: HomeGreeting, color: Color) -> some View {
         let image = Image(systemName: greeting.symbolName)
+        let otherLayer = greeting.drawsOtherGlyphLayer ? colors.foreground : Color.clear
         switch greeting.glyphLayer {
         case .only:
             image.foregroundStyle(color)
         case .primary:
-            image.symbolRenderingMode(.palette).foregroundStyle(color, colors.foreground)
+            image.symbolRenderingMode(.palette).foregroundStyle(color, otherLayer)
         case .secondary:
-            image.symbolRenderingMode(.palette).foregroundStyle(colors.foreground, color)
+            image.symbolRenderingMode(.palette).foregroundStyle(otherLayer, color)
         }
     }
 
