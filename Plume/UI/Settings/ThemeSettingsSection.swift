@@ -38,7 +38,7 @@ struct ThemeSettingsSection: View {
                 invoke: { settings.extendedPaletteChoice = !ThemeChrome.usesExtendedPalette() }
             )
             LabeledContent {
-                Text(settings.accentTint?.name(lum: usesLumNames) ?? "System")
+                Text(settings.accentTint?.name(lum: runtime.extendedPalette?.defaultsOn == true) ?? "System")
                     .foregroundStyle(.secondary)
             } label: {
                 Text("Accent color")
@@ -58,10 +58,6 @@ struct ThemeSettingsSection: View {
         } header: {
             Text("Theme")
         }
-    }
-
-    private var usesLumNames: Bool {
-        runtime.extendedPalette?.defaultsOn == true && ThemeChrome.usesExtendedPalette()
     }
 
     private var usesExtendedPalette: Binding<Bool> {

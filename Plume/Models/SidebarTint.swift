@@ -64,17 +64,20 @@ enum SidebarTint: Hashable {
     /// What a picker calls this color.
     var name: String { name(lum: false) }
 
-    /// With `lum`, slots 1–6 and their bright variants take Lum's own names.
+    /// With `lum`, slots 1–6, the extended hues and their bright variants
+    /// take Lum's own names.
     func name(lum: Bool) -> String {
         switch self {
-        case .text: "Text"
+        case .text:
+            return "Text"
         case .palette(let slot):
-            if lum, let hue = ThemeChrome.lumSlotNames[slot > 8 ? slot - 8 : slot] {
-                slot > 8 ? "Bright \(hue)" : hue
-            } else {
-                ThemeChrome.paletteSlotNames[slot]
+            guard lum, let hue = ThemeChrome.lumSlotNames[slot > 8 ? slot - 8 : slot] else {
+                return ThemeChrome.paletteSlotNames[slot]
             }
-        case .extended(let hue, let bright): bright ? "Bright \(hue.name)" : hue.name
+            return slot > 8 ? "Bright \(hue)" : hue
+        case .extended(let hue, let bright):
+            let name = lum ? hue.lumName : hue.name
+            return bright ? "Bright \(name)" : name
         }
     }
 

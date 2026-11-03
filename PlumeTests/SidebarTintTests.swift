@@ -65,7 +65,16 @@ struct SidebarTintTests {
         ])
         #expect(SidebarTint.palette(slot: 4).name == "Blue")
         #expect(SidebarTint.extended(.amf, bright: true).name(lum: true) == "Bright AMF")
+        #expect(ExtendedHue.allCases.map { SidebarTint.extended($0, bright: false).name(lum: true) }
+            == ["Peach", "Lemon", "Turteal", "AMF", "Blueberry", "Eggplant"])
         #expect(SidebarTint.text.name(lum: true) == "Text")
+    }
+
+    @Test func otherThemesNameExtendedHuesByTheirNeighbors() {
+        #expect(ExtendedHue.allCases.map { SidebarTint.extended($0, bright: false).name }
+            == ["Orange", "Yellow-green", "Cyan-green", "Cyan-blue", "Purple", "Pink"])
+        #expect(SidebarTint.extended(.blueberry, bright: true).name == "Bright Purple")
+        #expect(SidebarTint.palette(slot: 13).name == "Bright Magenta")
     }
 
     @Test func taskInheritsItsGroupsTint() throws {

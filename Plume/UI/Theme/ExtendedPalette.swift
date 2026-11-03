@@ -9,7 +9,19 @@ nonisolated enum ExtendedHue: String, CaseIterable, Sendable {
     case blueberry
     case eggplant
 
+    /// What any theme but Lum calls this hue: where it sits between its neighbors.
     var name: String {
+        switch self {
+        case .peach: "Orange"
+        case .lemon: "Yellow-green"
+        case .turteal: "Cyan-green"
+        case .amf: "Cyan-blue"
+        case .blueberry: "Purple"
+        case .eggplant: "Pink"
+        }
+    }
+
+    var lumName: String {
         switch self {
         case .peach: "Peach"
         case .lemon: "Lemon"

@@ -247,7 +247,7 @@ private struct SidebarTintPicker: View {
                 ringColor: .primary,
                 selection: selection,
                 extended: extended,
-                lumNames: theme.colors.isLum && theme.colors.usesExtendedPalette,
+                lumNames: theme.colors.isLum,
                 swatchSize: swatchSize,
                 plumeID: AccessibilityID.sidebarTintSwatch,
                 plumeLabel: plumeLabel,
