@@ -73,15 +73,25 @@ enum HomeGreeting: String, CaseIterable {
         }
     }
 
-    /// The theme's bright color nearest `glyphTarget` in hue, skipping grays,
-    /// or nil when none is left. Lum without its extended palette takes bright
-    /// tangerine and bright blue raspberry instead.
+    /// The theme's text or bright color nearest `glyphTarget` in hue, skipping
+    /// grays, or nil when none is left. Lum without its extended palette takes
+    /// bright tangerine and bright blue raspberry instead.
     @MainActor
     func glyphRGB(in colors: Palette) -> HexRGB? {
         if colors.isLum && !colors.usesExtendedPalette {
             return colors.rgb(forSlot: self == .night ? 12 : 11)
         }
-        let candidates = LinearStateColor.candidates(in: colors, bright: true)
+        var candidates: [SidebarTint: HexRGB] = [:]
+        for bright in [false, true] {
+            for slot in LinearStateColor.slots {
+                candidates[.palette(slot: bright ? slot + 8 : slot)] = colors.rgb(forSlot: bright ? slot + 8 : slot)
+            }
+            if colors.usesExtendedPalette {
+                for hue in ExtendedHue.allCases {
+                    candidates[.extended(hue, bright: bright)] = colors.rgb(forExtended: hue, bright: bright)
+                }
+            }
+        }
         return LinearStateColor.nearest(to: glyphTarget, among: candidates) { $0.hueDistance(to: $1) }
             .flatMap { candidates[$0] }
     }

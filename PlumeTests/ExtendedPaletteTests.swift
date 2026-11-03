@@ -238,8 +238,8 @@ struct ExtendedPaletteTests {
         #expect(HomeGreeting.night.glyphRGB(in: off) == hex("7aa6da"))
 
         let on = palette(definitions, extended: true)
-        let candidates = (9...14).compactMap(on.rgb(forSlot:))
-            + ExtendedHue.allCases.compactMap { on.rgb(forExtended: $0, bright: true) }
+        let candidates = (1...14).compactMap(on.rgb(forSlot:))
+            + [false, true].flatMap { bright in ExtendedHue.allCases.compactMap { on.rgb(forExtended: $0, bright: bright) } }
         for greeting in [HomeGreeting.afternoon, .night] {
             let target = OKLab(greeting.glyphTarget)
             let chosen = try #require(greeting.glyphRGB(in: on))
@@ -249,7 +249,7 @@ struct ExtendedPaletteTests {
         }
     }
 
-    @Test func homeGlyphsSkipSolarizedsGrayBrights() {
+    @Test func homeGlyphsConsiderTextColorsToo() {
         let solarized = GhosttyThemeDefinition(
             name: "Solarized-like",
             background: "002b36",
@@ -260,7 +260,8 @@ struct ExtendedPaletteTests {
             ]
         )
         let colors = palette(.init(light: nil, dark: solarized), extended: false)
-        #expect(HomeGreeting.afternoon.glyphRGB(in: colors) == hex("cb4b16"))
+        // Its bright yellow is gray, so the sun takes the text yellow.
+        #expect(HomeGreeting.afternoon.glyphRGB(in: colors) == hex("b58900"))
         #expect(HomeGreeting.night.glyphRGB(in: colors) == hex("6c71c4"))
     }
 
