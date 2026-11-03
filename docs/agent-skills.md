@@ -19,7 +19,7 @@ Each skill is written for any Plume user, so it names no personal setup. Check a
 
 ## Install and the manifest
 
-`BundledSkills` copies rather than symlinks, so an installed skill outlives the bundle it came from. Beside each `SKILL.md`, install writes `.plume-skill.json`, which records `{"hash": <SHA-256 of the bundled file>, "plumeBuild": <CFBundleVersion>}`. It stages the folder and moves it into place, so a skill and its manifest always land together.
+`BundledSkills` copies rather than symlinks, so an installed skill outlives the bundle it came from. Beside each `SKILL.md`, install writes `.plume-skill.json`, which records `{"hash": <SHA-256 of the bundled file>, "plumeBuild": <CFBundleVersion>}`. It writes both files into a staging folder beside the skill's folder, then moves it into place, or swaps it over an outdated folder with one `replaceItemAt`. A skill and its manifest always land together, and a failed install removes its staging folder.
 
 `BundledSkills.state(of:in:)` reads one name:
 
@@ -31,9 +31,9 @@ Each skill is written for any Plume user, so it names no personal setup. Check a
 | `ownedByOther` | A symlink, or a file or folder without a manifest. | Nothing, unless the user picks **Replace**. |
 | `modified` | `SKILL.md` no longer matches its manifest, or the folder holds a file besides `SKILL.md` and the manifest. | Nothing, unless the user picks **Replace**. |
 
-**Replace trashes before it installs.** `install(_:replacing: true)` moves a real folder to the Trash first. A symlink is deleted as the link only, never its target. Without `replacing`, install refuses both of the last two states. Update rewrites only `SKILL.md` and the manifest. Uninstall trashes only `installed` and `outdated` copies.
+**Replace trashes before it installs.** `install(_:replacing: true)` moves a real folder to the Trash first. A symlink is deleted as the link only, never its target, and the Replace dialog says so. Without `replacing`, install refuses both of the last two states. Update swaps the whole folder, which holds only those two files. Uninstall trashes only `installed` and `outdated` copies.
 
-`BundledSkillsStatus` holds the states for the UI. It reads them off the main actor at launch, whenever the app becomes active, and after every change. Home offers **Install** until Plume owns any skill, unless the user picks **Not Now** (`AppSettings.bundledSkillsPromptDismissed`). Install there skips any name that something else holds, and shows the first failure. Home and Settings hide the skills UI unless Claude Code is installed. **Settings ▸ Agents ▸ Plume skills** lists every skill with its state, and offers Install, Update, Replace and Remove.
+`BundledSkillsStatus` holds the states for the UI. It lists the bundled skills (once per process) and reads their states off the main actor at launch, whenever the app becomes active, and after every change. Home offers **Install** until Plume owns any skill, unless the user picks **Not Now** (`AppSettings.bundledSkillsPromptDismissed`). Install there skips any name that something else holds. A successful install from Home or Settings sets the same flag, so removing every skill later never brings the offer back. Each surface keeps its own error (Home install, sidebar refresh, Settings changes). Home keeps the offer on screen while its error is set, and the sidebar row shows "Update failed" with the error as its help text. Home and Settings hide the skills UI unless Claude Code is installed. **Settings ▸ Agents ▸ Plume skills** lists every skill with its state, and offers Install, Update, Replace and Remove.
 
 ## The formatting rule
 

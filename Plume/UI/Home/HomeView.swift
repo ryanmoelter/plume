@@ -78,7 +78,7 @@ private struct HomeContent: View, ThemedView {
             VStack(alignment: .leading, spacing: 32) {
                 HomeGreetingHeader()
                 composer
-                if skills.needsInstallPrompt, claudeCodeInstalled {
+                if skills.needsInstallPrompt || skills.error(for: .home) != nil, claudeCodeInstalled {
                     HomeSkillsOffer(status: skills)
                         .padding(.horizontal, HomeRow.horizontalPadding)
                 }

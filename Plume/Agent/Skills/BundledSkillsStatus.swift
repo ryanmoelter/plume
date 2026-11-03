@@ -18,18 +18,28 @@ final class BundledSkillsStatus {
     /// Empty until the first read lands.
     private(set) var entries: [Entry] = []
     private(set) var isChanging = false
-    private(set) var lastError: String?
+
+    enum Surface: Hashable {
+        case home, sidebar, settings
+    }
+
+    private var errors: [Surface: String] = [:]
 
     private let directory: URL
-    private let skills: [BundledSkill]
+    /// Nil loads `BundledSkills.all` on first use, off the main actor.
+    private let skills: [BundledSkill]?
     /// Bumped by every read and change, so a read that began before a change
     /// finished can't overwrite its result.
     @ObservationIgnored private var generation = 0
     @ObservationIgnored private var activationObserver: NSObjectProtocol?
 
-    init(directory: URL = BundledSkills.skillsDirectory, skills: [BundledSkill] = BundledSkills.all) {
+    init(directory: URL = BundledSkills.skillsDirectory, skills: [BundledSkill]? = nil) {
         self.directory = directory
         self.skills = skills
+    }
+
+    func error(for surface: Surface) -> String? {
+        errors[surface]
     }
 
     /// Plume owns none of its skills and the user hasn't said not now. A
@@ -61,36 +71,47 @@ final class BundledSkillsStatus {
         let started = generation
         let directory = directory, skills = skills
         Task {
-            let read = await Task.detached { Self.read(directory: directory, skills: skills) }.value
+            let read = await Task.detached { Self.read(directory: directory, skills: skills ?? BundledSkills.all) }.value
             guard started == generation, read != entries else { return }
             entries = read
         }
     }
 
-    func installMissing() {
-        change { skills, directory in try BundledSkills.installMissing(skills, in: directory) }
+    func installMissing(on surface: Surface) {
+        change(on: surface, marksInstalled: true) { skills, directory in
+            try BundledSkills.installMissing(skills, in: directory)
+        }
     }
 
     func install(_ skill: BundledSkill, replacing: Bool = false) {
-        change { _, directory in try BundledSkills.install(skill, in: directory, replacing: replacing) }
+        change(on: .settings, marksInstalled: true) { _, directory in
+            try BundledSkills.install(skill, in: directory, replacing: replacing)
+        }
     }
 
     func refreshOutdated() {
-        change { skills, directory in try BundledSkills.refreshOutdated(skills, in: directory) }
+        change(on: .sidebar) { skills, directory in try BundledSkills.refreshOutdated(skills, in: directory) }
     }
 
     func uninstall(_ skill: BundledSkill) {
-        change { _, directory in try BundledSkills.uninstall(skill, in: directory) }
+        change(on: .settings) { _, directory in try BundledSkills.uninstall(skill, in: directory) }
     }
 
-    private func change(_ body: @escaping @Sendable ([BundledSkill], URL) throws -> Void) {
+    /// A successful install ends Home's offer for good, even if the user
+    /// later removes every skill.
+    private func change(
+        on surface: Surface,
+        marksInstalled: Bool = false,
+        _ body: @escaping @Sendable ([BundledSkill], URL) throws -> Void
+    ) {
         guard !isChanging else { return }
         isChanging = true
-        lastError = nil
+        errors[surface] = nil
         generation += 1
         let directory = directory, skills = skills
         Task {
             let (error, read) = await Task.detached { () -> (String?, [Entry]) in
+                let skills = skills ?? BundledSkills.all
                 var message: String?
                 do {
                     try body(skills, directory)
@@ -100,7 +121,10 @@ final class BundledSkillsStatus {
                 return (message, Self.read(directory: directory, skills: skills))
             }.value
             generation += 1
-            lastError = error
+            errors[surface] = error
+            if error == nil, marksInstalled {
+                AppSettings.shared.bundledSkillsPromptDismissed = true
+            }
             if read != entries { entries = read }
             isChanging = false
         }

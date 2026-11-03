@@ -31,7 +31,8 @@ nonisolated enum BundledSkills {
         Bundle.main.object(forInfoDictionaryKey: "CFBundleVersion") as? String ?? "0"
     }
 
-    /// Computed once: the bundle doesn't change while the app runs.
+    /// Computed once, on first use: the bundle doesn't change while the app runs.
+    /// The scan reads every file, so first use belongs off the main actor.
     static let all = bundled()
 
     struct Manifest: Codable, Equatable {
@@ -125,7 +126,7 @@ nonisolated enum BundledSkills {
         return installed < (Int(running) ?? 0)
     }
 
-    private static func isSymlink(_ url: URL) -> Bool {
+    static func isSymlink(_ url: URL) -> Bool {
         let type = try? FileManager.default.attributesOfItem(atPath: url.path)[.type] as? FileAttributeType
         return type == .typeSymbolicLink
     }
@@ -140,9 +141,20 @@ nonisolated enum BundledSkills {
         plumeBuild: String = BundledSkills.plumeBuild,
         trash: (URL) throws -> Void = moveToTrash
     ) throws {
+        let state = state(of: skill, in: directory, runningBuild: plumeBuild)
+        try install(skill, state: state, in: directory, replacing: replacing, plumeBuild: plumeBuild, trash: trash)
+    }
+
+    private static func install(
+        _ skill: BundledSkill,
+        state: State,
+        in directory: URL,
+        replacing: Bool = false,
+        plumeBuild: String,
+        trash: (URL) throws -> Void = moveToTrash
+    ) throws {
         let manager = FileManager.default
         let folder = directory.appending(path: skill.name)
-        let state = state(of: skill, in: directory, runningBuild: plumeBuild)
         switch state {
         case .installed:
             return
@@ -158,22 +170,17 @@ nonisolated enum BundledSkills {
         }
 
         try manager.createDirectory(at: directory, withIntermediateDirectories: true)
-        let staging = try manager.url(
-            for: .itemReplacementDirectory, in: .userDomainMask, appropriateFor: directory, create: true
-        )
+        let staging = directory.appending(path: ".\(skill.name).staging-\(UUID().uuidString)")
         defer { try? manager.removeItem(at: staging) }
-        let staged = staging.appending(path: skill.name)
-        try manager.createDirectory(at: staged, withIntermediateDirectories: false)
-        try manager.copyItem(at: skill.url, to: staged.appending(path: skillFileName))
+        try manager.createDirectory(at: staging, withIntermediateDirectories: false)
+        try manager.copyItem(at: skill.url, to: staging.appending(path: skillFileName))
         let manifest = Manifest(hash: skill.hash, plumeBuild: plumeBuild)
-        try JSONEncoder().encode(manifest).write(to: staged.appending(path: manifestFileName))
+        try JSONEncoder().encode(manifest).write(to: staging.appending(path: manifestFileName))
 
         if state == .outdated {
-            for file in [skillFileName, manifestFileName] {
-                _ = try manager.replaceItemAt(folder.appending(path: file), withItemAt: staged.appending(path: file))
-            }
+            _ = try manager.replaceItemAt(folder, withItemAt: staging)
         } else {
-            try manager.moveItem(at: staged, to: folder)
+            try manager.moveItem(at: staging, to: folder)
         }
     }
 
@@ -184,15 +191,7 @@ nonisolated enum BundledSkills {
     /// Installs every skill with nothing at its name. Tries every one, then
     /// throws the first failure.
     static func installMissing(_ skills: [BundledSkill], in directory: URL = skillsDirectory) throws {
-        var firstError: Error?
-        for skill in skills where state(of: skill, in: directory) == .notInstalled {
-            do {
-                try install(skill, in: directory)
-            } catch {
-                firstError = firstError ?? error
-            }
-        }
-        if let firstError { throw firstError }
+        try apply(skills, in: directory, plumeBuild: plumeBuild, to: .notInstalled)
     }
 
     /// Updates only the skills Plume owns and nobody has edited. Tries every
@@ -202,10 +201,21 @@ nonisolated enum BundledSkills {
         in directory: URL = skillsDirectory,
         plumeBuild: String = BundledSkills.plumeBuild
     ) throws {
+        try apply(skills, in: directory, plumeBuild: plumeBuild, to: .outdated)
+    }
+
+    private static func apply(
+        _ skills: [BundledSkill],
+        in directory: URL,
+        plumeBuild: String,
+        to target: State
+    ) throws {
         var firstError: Error?
-        for skill in skills where state(of: skill, in: directory, runningBuild: plumeBuild) == .outdated {
+        for skill in skills {
+            let state = state(of: skill, in: directory, runningBuild: plumeBuild)
+            guard state == target else { continue }
             do {
-                try install(skill, in: directory, plumeBuild: plumeBuild)
+                try install(skill, state: state, in: directory, plumeBuild: plumeBuild)
             } catch {
                 firstError = firstError ?? error
             }

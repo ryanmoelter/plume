@@ -11,7 +11,7 @@ struct BundledSkillsSection: View {
             ForEach(status.entries) { entry in
                 row(entry)
             }
-            if let error = status.lastError {
+            if let error = status.error(for: .settings) {
                 Text(error)
                     .foregroundStyle(.red)
             }
@@ -20,8 +20,8 @@ struct BundledSkillsSection: View {
                 Text("Plume skills")
                 Spacer()
                 if status.entries.contains(where: { $0.state == .notInstalled }) {
-                    Button("Install All", action: status.installMissing)
-                        .plumeID(AccessibilityID.settingsSkillsInstallAllButton, invoke: status.installMissing)
+                    Button("Install All", action: installAll)
+                        .plumeID(AccessibilityID.settingsSkillsInstallAllButton, invoke: installAll)
                         .disabled(status.isChanging)
                 }
             }
@@ -38,9 +38,18 @@ struct BundledSkillsSection: View {
             Button("Move to Trash and Replace", role: .destructive) {
                 status.install(skill, replacing: true)
             }
+            .disabled(status.isChanging)
         } message: { skill in
-            Text("Plume moves ~/.claude/skills/\(skill.name) to the Trash, then installs its own.")
+            if BundledSkills.isSymlink(BundledSkills.skillsDirectory.appending(path: skill.name)) {
+                Text("Plume removes the link ~/.claude/skills/\(skill.name), leaves the folder it points to alone, then installs its own.")
+            } else {
+                Text("Plume moves ~/.claude/skills/\(skill.name) to the Trash, then installs its own.")
+            }
         }
+    }
+
+    private func installAll() {
+        status.installMissing(on: .settings)
     }
 
     private func row(_ entry: BundledSkillsStatus.Entry) -> some View {

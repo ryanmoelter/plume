@@ -124,6 +124,27 @@ struct BundledSkillsTests {
         #expect(try installedText("plume-demo") == "v2")
     }
 
+    @Test func updateLeavesNoStagingFolderAndNoExtraFiles() throws {
+        defer { try? FileManager.default.removeItem(at: scratch) }
+        try install(try bundle(contents: "v1"), build: "10")
+        try install(try bundle(contents: "v2"), build: "11")
+        let manager = FileManager.default
+        #expect(try manager.contentsOfDirectory(atPath: skills.path) == ["plume-demo"])
+        let files = try manager.contentsOfDirectory(atPath: skills.appending(path: "plume-demo").path)
+        #expect(Set(files) == ["SKILL.md", ".plume-skill.json"])
+    }
+
+    @Test func aFailedUpdateKeepsTheOldCopyAndCleansUp() throws {
+        defer { try? FileManager.default.removeItem(at: scratch) }
+        try install(try bundle(contents: "v1"), build: "10")
+        let newer = try bundle(contents: "v2")
+        try FileManager.default.removeItem(at: newer.url)
+
+        #expect(throws: (any Error).self) { try install(newer, build: "11") }
+        #expect(try installedText("plume-demo") == "v1")
+        #expect(try FileManager.default.contentsOfDirectory(atPath: skills.path) == ["plume-demo"])
+    }
+
     @Test func aFolderWithoutAManifestIsOwnedByOther() throws {
         defer { try? FileManager.default.removeItem(at: scratch) }
         let skill = try bundle()

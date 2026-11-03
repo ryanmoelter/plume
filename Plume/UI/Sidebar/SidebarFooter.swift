@@ -50,10 +50,11 @@ struct SidebarFooter: View, ThemedView {
                         SidebarFooterRow(
                             icon: "arrow.triangle.2.circlepath",
                             title: "Skills Out of Date",
+                            subtitle: skills.error(for: .sidebar) == nil ? nil : "Update failed",
                             detail: "\(skills.outdatedCount)"
                         )
                     }
-                    .help("Update Plume's agent skills in ~/.claude/skills")
+                    .help(skills.error(for: .sidebar) ?? "Update Plume's agent skills in ~/.claude/skills")
                     .plumeID(AccessibilityID.sidebarSkillsOutdatedButton, invoke: skills.refreshOutdated)
                     .disabled(skills.isChanging)
                     .buttonStyle(SidebarFooterButtonStyle())

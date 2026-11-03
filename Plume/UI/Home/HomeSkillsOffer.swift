@@ -13,7 +13,7 @@ struct HomeSkillsOffer: View, ThemedView {
                 Text("Install Plume's agent skills — teaches Claude `plume wt`, `stack`, `devices`…")
                     .font(typography.body.font)
                     .emphasis(.secondary)
-                if let error = status.lastError {
+                if let error = status.error(for: .home) {
                     Text(error)
                         .font(typography.caption.font)
                         .foregroundStyle(.red)
@@ -23,12 +23,16 @@ struct HomeSkillsOffer: View, ThemedView {
             Button("Not Now", action: dismiss)
                 .buttonStyle(.borderless)
                 .plumeID(AccessibilityID.homeSkillsNotNowButton, invoke: dismiss)
-            Button("Install", action: status.installMissing)
+            Button("Install", action: install)
                 .buttonStyle(.bordered)
-                .plumeID(AccessibilityID.homeSkillsInstallButton, invoke: status.installMissing)
+                .plumeID(AccessibilityID.homeSkillsInstallButton, invoke: install)
                 .disabled(status.isChanging)
         }
         .controlSize(.small)
+    }
+
+    private func install() {
+        status.installMissing(on: .home)
     }
 
     private func dismiss() {
