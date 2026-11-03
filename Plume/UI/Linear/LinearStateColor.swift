@@ -20,8 +20,8 @@ nonisolated enum LinearStateColor {
         6: HexRGB(red: 0.35, green: 0.78, blue: 0.98),
     ]
 
-    /// The candidate slot nearest the color, or nil when it is neutral.
-    static func nearestSlot(to color: HexRGB, among candidates: [Int: HexRGB]) -> Int? {
+    /// The candidate nearest the color, or nil when it is neutral.
+    static func nearest<Key: Hashable>(to color: HexRGB, among candidates: [Key: HexRGB]) -> Key? {
         let target = OKLab(color)
         guard target.chroma >= neutralChroma else { return nil }
         return candidates
@@ -49,6 +49,22 @@ nonisolated enum LinearStateColor {
 
     static let minimumGap = 0.35
 
+    /// The theme's text hues a state can take — never the bright ones —
+    /// with the extended palette's when it is on.
+    @MainActor
+    static func candidates(in colors: Palette) -> [PaletteHue: HexRGB] {
+        var candidates: [PaletteHue: HexRGB] = [:]
+        for slot in slots {
+            candidates[.slot(slot)] = colors.rgb(forSlot: slot) ?? fallbackSlots[slot]
+        }
+        if colors.usesExtendedPalette {
+            for hue in ExtendedHue.allCases {
+                candidates[.extended(hue)] = colors.rgb(forExtended: hue, bright: false)
+            }
+        }
+        return candidates
+    }
+
     struct OKLab {
         let l: Double
         let a: Double
@@ -73,7 +89,23 @@ nonisolated enum LinearStateColor {
             self.b = b
         }
 
+        init(l: Double, chroma: Double, hue: Double) {
+            self.init(l: l, a: chroma * cos(hue), b: chroma * sin(hue))
+        }
+
         var chroma: Double { (a * a + b * b).squareRoot() }
+
+        /// OKLCH hue in radians, in (-π, π].
+        var hue: Double { atan2(b, a) }
+
+        /// The OKLCH midpoint: mean lightness and chroma, and the mean hue
+        /// along the shorter arc between the two.
+        static func midpoint(_ x: OKLab, _ y: OKLab) -> OKLab {
+            var delta = y.hue - x.hue
+            if delta > .pi { delta -= 2 * .pi }
+            if delta < -.pi { delta += 2 * .pi }
+            return OKLab(l: (x.l + y.l) / 2, chroma: (x.chroma + y.chroma) / 2, hue: x.hue + delta / 2)
+        }
 
         /// Unclamped linear-light sRGB components.
         private var linearRGB: (Double, Double, Double) {

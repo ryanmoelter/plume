@@ -92,6 +92,7 @@ enum AccessibilityID {
     static let settingsPane = "settings-pane"
     static let settingsThemeReloadButton = "settings-theme-reload-button"
     static let settingsAccentSwatch = "settings-accent-swatch"
+    static let settingsExtendedPaletteToggle = "settings-extended-palette-toggle"
     static let settingsSidebarShowsTaskColorBarToggle = "settings-sidebar-shows-task-color-bar-toggle"
     static let settingsSidebarColorsTaskNamesToggle = "settings-sidebar-colors-task-names-toggle"
     static let settingsSidebarBoldTaskNamesToggle = "settings-sidebar-bold-task-names-toggle"

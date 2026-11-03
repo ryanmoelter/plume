@@ -434,8 +434,13 @@ private struct HomeGreetingHeader: View, ThemedView {
             let greeting = HomeGreeting(date: context.date)
             HStack(spacing: 6) {
                 Text(greeting.title)
-                Image(systemName: greeting.symbolName)
-                    .symbolRenderingMode(.multicolor)
+                if let rgb = greeting.glyphRGB(in: colors) {
+                    Image(systemName: greeting.symbolName)
+                        .foregroundStyle(Color(red: rgb.red, green: rgb.green, blue: rgb.blue))
+                } else {
+                    Image(systemName: greeting.symbolName)
+                        .symbolRenderingMode(.multicolor)
+                }
             }
             .font(proseTypography.headline.font)
             .padding(.horizontal, HomeRow.horizontalPadding)

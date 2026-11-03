@@ -85,13 +85,13 @@ struct SidebarThemeTests {
             dimensions: Dimensions(bodySize: size),
             typography: Typography(bodySize: size)
         )
-        let slot = 4
-        let tint = SidebarPreviewTint.effective(accentSlot: slot)
+        let accent = SidebarTint.palette(slot: 4)
+        let tint = SidebarPreviewTint.effective(accent: accent)
 
-        #expect(SidebarPreviewTint.color(for: tint, accentSlot: slot, theme: themed) != nil)
-        #expect(SidebarPreviewTint.color(for: tint, accentSlot: slot, theme: unthemed) == nil)
+        #expect(SidebarPreviewTint.color(for: tint, accent: accent, theme: themed) != nil)
+        #expect(SidebarPreviewTint.color(for: tint, accent: accent, theme: unthemed) == nil)
 
-        let system = SidebarPreviewTint.effective(accentSlot: nil)
-        #expect(SidebarPreviewTint.color(for: system, accentSlot: nil, theme: themed) != nil)
+        let system = SidebarPreviewTint.effective(accent: nil)
+        #expect(SidebarPreviewTint.color(for: system, accent: nil, theme: themed) != nil)
     }
 }

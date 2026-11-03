@@ -9,10 +9,16 @@ enum SidebarTint: Hashable {
     /// The theme's text color.
     case text
     case palette(slot: Int)
+    /// A hue from the extended palette, in its text or its bright variant.
+    case extended(ExtendedHue, bright: Bool)
 
     init?(rawValue: String) {
         if rawValue == "text" {
             self = .text
+            return
+        }
+        if let extended = Self.extended(rawValue: rawValue) {
+            self = extended
             return
         }
         let prefix = "palette:"
@@ -27,6 +33,36 @@ enum SidebarTint: Hashable {
         switch self {
         case .text: "text"
         case .palette(let slot): "palette:\(slot)"
+        case .extended(let hue, let bright): "extended:\(bright ? "bright" : "text"):\(hue.rawValue)"
+        }
+    }
+
+    private static func extended(rawValue: String) -> SidebarTint? {
+        let parts = rawValue.split(separator: ":", omittingEmptySubsequences: false)
+        guard parts.count == 3, parts[0] == "extended",
+              let hue = ExtendedHue(rawValue: String(parts[2]))
+        else { return nil }
+        switch parts[1] {
+        case "text": return .extended(hue, bright: false)
+        case "bright": return .extended(hue, bright: true)
+        default: return nil
+        }
+    }
+
+    /// The tint for one swatch of the extended palette.
+    static func wheel(_ hue: PaletteHue, bright: Bool) -> SidebarTint {
+        switch hue {
+        case .slot(let slot): .palette(slot: bright ? slot + 8 : slot)
+        case .extended(let hue): .extended(hue, bright: bright)
+        }
+    }
+
+    /// What a picker calls this color.
+    var name: String {
+        switch self {
+        case .text: "Text"
+        case .palette(let slot): ThemeChrome.paletteSlotNames[slot]
+        case .extended(let hue, let bright): bright ? "Bright \(hue.name)" : hue.name
         }
     }
 
@@ -75,14 +111,14 @@ enum SidebarIcons {
 
 /// The sample row in Settings, which colors with the app's accent.
 enum SidebarPreviewTint {
-    /// `.text` stands in for the system accent, which has no palette slot;
+    /// `.text` stands in for the system accent, which has no palette color;
     /// `color(...)` resolves it.
-    static func effective(accentSlot: Int?) -> SidebarTint {
-        accentSlot.map { .palette(slot: $0) } ?? .text
+    static func effective(accent: SidebarTint?) -> SidebarTint {
+        accent ?? .text
     }
 
-    static func color(for tint: SidebarTint, accentSlot: Int?, theme: Theme) -> Color? {
-        accentSlot == nil ? .accentColor : theme.colors.color(for: tint)
+    static func color(for tint: SidebarTint, accent: SidebarTint?, theme: Theme) -> Color? {
+        accent == nil ? .accentColor : theme.colors.color(for: tint)
     }
 }
 

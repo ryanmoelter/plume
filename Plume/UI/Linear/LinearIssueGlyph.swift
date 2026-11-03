@@ -41,11 +41,8 @@ struct LinearIssueGlyph: View, ThemedView {
         switch strategy {
         case nil: return rgb
         case .themePalette:
-            var candidates: [Int: HexRGB] = [:]
-            for slot in LinearStateColor.slots {
-                candidates[slot] = colors.rgb(forSlot: slot) ?? LinearStateColor.fallbackSlots[slot]
-            }
-            return LinearStateColor.nearestSlot(to: rgb, among: candidates).flatMap { candidates[$0] }
+            let candidates = LinearStateColor.candidates(in: colors)
+            return LinearStateColor.nearest(to: rgb, among: candidates).flatMap { candidates[$0] }
         case .ensureContrast:
             return LinearStateColor.contrasted(rgb, background: colors.backgroundRGB, foreground: colors.foregroundRGB)
         }

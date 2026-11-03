@@ -33,7 +33,10 @@ final class AppSettings {
         /// only row heights, so an existing preference still reads.
         static let animateChatMotion = "animateRowHeight"
         static let animateCharacterReveal = "animateCharacterReveal"
+        /// Superseded by `accentTintRaw`, and read only when that is unset.
         static let accentPaletteSlot = "accentPaletteSlot"
+        static let accentTintRaw = "accentTintRaw"
+        static let usesExtendedPalette = "usesExtendedPalette"
         static let showsPullRequestStatus = "showsPullRequestStatus"
         static let showsLinearIssues = "showsLinearIssues"
         static let linearStateColorsRaw = "linearStateColorsRaw"
@@ -172,13 +175,16 @@ final class AppSettings {
         self.animateCharacterReveal = defaults.object(forKey: Key.animateCharacterReveal) == nil
             ? true
             : defaults.bool(forKey: Key.animateCharacterReveal)
-        if let stored = defaults.object(forKey: Key.accentPaletteSlot) as? Int {
-            self.accentPaletteSlot = Self.accentPaletteSlotRange.contains(stored) ? stored : nil
+        if let raw = defaults.string(forKey: Key.accentTintRaw) {
+            self.accentTint = Self.accentTint(rawValue: raw)
+        } else if let stored = defaults.object(forKey: Key.accentPaletteSlot) as? Int {
+            self.accentTint = Self.accentPaletteSlotRange.contains(stored) ? .palette(slot: stored) : nil
         } else {
             let initial = initialAccentPaletteSlot()
-            self.accentPaletteSlot = initial
+            self.accentTint = initial.map { .palette(slot: $0) }
             defaults.set(initial ?? Self.systemAccentSentinel, forKey: Key.accentPaletteSlot)
         }
+        self.extendedPaletteChoice = defaults.object(forKey: Key.usesExtendedPalette) as? Bool
 
         self.remoteDeviceProjectID = defaults.string(forKey: Key.remoteDeviceProjectID)
         self.remoteDeviceSignInTaskID = defaults.string(forKey: Key.remoteDeviceSignInTaskID).flatMap(UUID.init(uuidString:))
@@ -532,13 +538,35 @@ final class AppSettings {
     /// Stored for the system accent, so an absent key still means first launch.
     private static let systemAccentSentinel = -1
 
-    /// The terminal palette slot the accent color comes from, or nil for the
-    /// system accent. A slot rather than a color, so a light/dark theme pair
+    private static let systemAccentRaw = "system"
+
+    /// The palette color the accent comes from, or nil for the system accent.
+    /// A palette color rather than a resolved one, so a light/dark theme pair
     /// gives each appearance its own palette's version of it. First launch
     /// picks the slot closest to the system accent.
-    var accentPaletteSlot: Int? {
+    var accentTint: SidebarTint? {
         didSet {
-            defaults.set(accentPaletteSlot ?? Self.systemAccentSentinel, forKey: Key.accentPaletteSlot)
+            defaults.set(accentTint?.rawValue ?? Self.systemAccentRaw, forKey: Key.accentTintRaw)
+        }
+    }
+
+    /// The theme's text color is no accent, so it reads as the system one.
+    private static func accentTint(rawValue: String) -> SidebarTint? {
+        switch SidebarTint(rawValue: rawValue) {
+        case nil, .text: nil
+        case let tint: tint
+        }
+    }
+
+    /// Whether the pickers offer the extended palette, or nil to follow the
+    /// theme. `ThemeChrome.usesExtendedPalette` resolves nil.
+    var extendedPaletteChoice: Bool? {
+        didSet {
+            if let extendedPaletteChoice {
+                defaults.set(extendedPaletteChoice, forKey: Key.usesExtendedPalette)
+            } else {
+                defaults.removeObject(forKey: Key.usesExtendedPalette)
+            }
         }
     }
 

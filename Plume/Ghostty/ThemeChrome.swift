@@ -202,21 +202,75 @@ enum ThemeChrome {
         definition(for: colorScheme, in: definitions)?.palette[slot].flatMap(HexRGB.init(hex:))
     }
 
-    /// The accent color: the palette slot chosen in settings, or the system
-    /// accent when none is chosen or the theme lacks that slot.
+    /// One extended-palette color, nil where the theme lacks a neighbor it
+    /// is interpolated from.
+    static func extendedRGB(
+        _ hue: ExtendedHue,
+        bright: Bool,
+        for colorScheme: ColorScheme,
+        in definitions: GhosttyThemeResolver.ResolvedDefinitions?
+    ) -> HexRGB? {
+        ExtendedPalette.rgb(
+            hue,
+            bright: bright,
+            in: definition(for: colorScheme, in: definitions),
+            lum: GhosttyRuntime.bundledLumDefinitions
+        )
+    }
+
+    /// A palette or extended color, nil for `.text` or where the theme has none.
+    static func tintRGB(
+        _ tint: SidebarTint,
+        for colorScheme: ColorScheme,
+        in definitions: GhosttyThemeResolver.ResolvedDefinitions?
+    ) -> HexRGB? {
+        switch tint {
+        case .text: nil
+        case .palette(let slot): paletteRGB(slot: slot, for: colorScheme, in: definitions)
+        case .extended(let hue, let bright): extendedRGB(hue, bright: bright, for: colorScheme, in: definitions)
+        }
+    }
+
+    /// Whether the pickers offer the extended palette: the user's choice, or
+    /// else on exactly when the theme is Lum's.
+    static var usesExtendedPalette: Bool {
+        usesExtendedPalette(
+            choice: AppSettings.shared.extendedPaletteChoice,
+            definitions: GhosttyRuntime.shared.resolvedThemeDefinitions
+        )
+    }
+
+    static func usesExtendedPalette(
+        choice: Bool?,
+        definitions: GhosttyThemeResolver.ResolvedDefinitions?
+    ) -> Bool {
+        choice ?? ExtendedPalette.defaultsOn(for: definitions, lum: GhosttyRuntime.bundledLumDefinitions)
+    }
+
+    /// The accent color: the palette color chosen in settings, or the system
+    /// accent when none is chosen or the theme lacks that color.
     /// An inactive window draws it in the text color instead, the way the
     /// system grays its own accent.
     static func accent(for colorScheme: ColorScheme, isActive: Bool = true) -> Color {
         guard isActive else { return foreground(for: colorScheme) ?? .primary }
-        return accent(slot: AppSettings.shared.accentPaletteSlot, for: colorScheme, in: GhosttyRuntime.shared.resolvedThemeDefinitions)
+        return accent(AppSettings.shared.accentTint, for: colorScheme, in: GhosttyRuntime.shared.resolvedThemeDefinitions)
     }
 
     static func accent(
-        slot: Int?,
+        _ tint: SidebarTint?,
         for colorScheme: ColorScheme,
         in definitions: GhosttyThemeResolver.ResolvedDefinitions?
     ) -> Color {
-        slot.flatMap { paletteColor(slot: $0, for: colorScheme, in: definitions) } ?? .accentColor
+        accentColor(tint, for: colorScheme, in: definitions) ?? .accentColor
+    }
+
+    private static func accentColor(
+        _ tint: SidebarTint?,
+        for colorScheme: ColorScheme,
+        in definitions: GhosttyThemeResolver.ResolvedDefinitions?
+    ) -> Color? {
+        tint.flatMap { tintRGB($0, for: colorScheme, in: definitions) }
+            .map { Color(red: $0.red, green: $0.green, blue: $0.blue) }
     }
 
     /// `accent(for:isActive:)` for AppKit drawing, resolving per appearance at
@@ -230,10 +284,10 @@ enum ThemeChrome {
                 fallback: .labelColor
             )
         }
-        let slot = AppSettings.shared.accentPaletteSlot
+        let tint = AppSettings.shared.accentTint
         return appearanceColor(
-            light: slot.flatMap { paletteColor(slot: $0, for: .light, in: definitions) },
-            dark: slot.flatMap { paletteColor(slot: $0, for: .dark, in: definitions) },
+            light: accentColor(tint, for: .light, in: definitions),
+            dark: accentColor(tint, for: .dark, in: definitions),
             fallback: .controlAccentColor
         )
     }

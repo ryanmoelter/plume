@@ -213,10 +213,10 @@ struct ThemeChromeTests {
     }
 
     @Test func accentFallsBackToTheSystemAccent() {
-        #expect(ThemeChrome.accent(slot: nil, for: .dark, in: palettedDefinitions) == .accentColor)
-        #expect(ThemeChrome.accent(slot: 5, for: .dark, in: palettedDefinitions) == .accentColor)
-        #expect(ThemeChrome.accent(slot: 4, for: .dark, in: nil) == .accentColor)
-        #expect(ThemeChrome.accent(slot: 4, for: .dark, in: palettedDefinitions) == Color(hex: "1030a0"))
+        #expect(ThemeChrome.accent(nil, for: .dark, in: palettedDefinitions) == .accentColor)
+        #expect(ThemeChrome.accent(.palette(slot: 5), for: .dark, in: palettedDefinitions) == .accentColor)
+        #expect(ThemeChrome.accent(.palette(slot: 4), for: .dark, in: nil) == .accentColor)
+        #expect(ThemeChrome.accent(.palette(slot: 4), for: .dark, in: palettedDefinitions) == Color(hex: "1030a0"))
     }
 }
 

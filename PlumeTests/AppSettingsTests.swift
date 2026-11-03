@@ -231,29 +231,67 @@ struct AppSettingsTests {
         #expect(reloaded.notifiesOnTurnEnd)
     }
 
-    @Test func accentPaletteSlotStartsFromTheSystemMatchOnlyOnFirstLaunch() {
+    @Test func accentStartsFromTheSystemMatchOnlyOnFirstLaunch() {
         let defaults = makeDefaults()
         let settings = AppSettings(defaults: defaults, initialAccentPaletteSlot: { 4 })
-        #expect(settings.accentPaletteSlot == 4)
-        #expect(AppSettings(defaults: defaults, initialAccentPaletteSlot: { 2 }).accentPaletteSlot == 4)
+        #expect(settings.accentTint == .palette(slot: 4))
+        #expect(AppSettings(defaults: defaults, initialAccentPaletteSlot: { 2 }).accentTint == .palette(slot: 4))
 
-        settings.accentPaletteSlot = nil
-        #expect(AppSettings(defaults: defaults, initialAccentPaletteSlot: { 2 }).accentPaletteSlot == nil)
+        settings.accentTint = nil
+        #expect(AppSettings(defaults: defaults, initialAccentPaletteSlot: { 2 }).accentTint == nil)
 
-        settings.accentPaletteSlot = 12
-        #expect(AppSettings(defaults: defaults).accentPaletteSlot == 12)
+        settings.accentTint = .palette(slot: 12)
+        #expect(AppSettings(defaults: defaults).accentTint == .palette(slot: 12))
     }
 
     @Test func noSystemMatchStartsOnTheSystemAccent() {
         let defaults = makeDefaults()
-        #expect(AppSettings(defaults: defaults, initialAccentPaletteSlot: { nil }).accentPaletteSlot == nil)
-        #expect(AppSettings(defaults: defaults, initialAccentPaletteSlot: { 2 }).accentPaletteSlot == nil)
+        #expect(AppSettings(defaults: defaults, initialAccentPaletteSlot: { nil }).accentTint == nil)
+        #expect(AppSettings(defaults: defaults, initialAccentPaletteSlot: { 2 }).accentTint == nil)
     }
 
     @Test func outOfRangeAccentPaletteSlotReadsAsSystem() {
         let defaults = makeDefaults()
         defaults.set(16, forKey: "accentPaletteSlot")
-        #expect(AppSettings(defaults: defaults).accentPaletteSlot == nil)
+        #expect(AppSettings(defaults: defaults).accentTint == nil)
+    }
+
+    @Test func aSlotChosenBeforeAccentTintsExistedStillReads() {
+        let defaults = makeDefaults()
+        defaults.set(5, forKey: "accentPaletteSlot")
+        #expect(AppSettings(defaults: defaults, initialAccentPaletteSlot: { 2 }).accentTint == .palette(slot: 5))
+        defaults.set(-1, forKey: "accentPaletteSlot")
+        #expect(AppSettings(defaults: defaults, initialAccentPaletteSlot: { 2 }).accentTint == nil)
+    }
+
+    @Test func anAccentTintSupersedesTheOldSlot() {
+        let defaults = makeDefaults()
+        defaults.set(5, forKey: "accentPaletteSlot")
+        let settings = AppSettings(defaults: defaults)
+        settings.accentTint = .extended(.blueberry, bright: true)
+        #expect(AppSettings(defaults: defaults).accentTint == .extended(.blueberry, bright: true))
+
+        settings.accentTint = nil
+        #expect(AppSettings(defaults: defaults).accentTint == nil)
+    }
+
+    @Test func theTextColorIsNoAccent() {
+        let defaults = makeDefaults()
+        defaults.set("text", forKey: "accentTintRaw")
+        #expect(AppSettings(defaults: defaults).accentTint == nil)
+    }
+
+    @Test func extendedPaletteChoiceStartsAutomaticAndPersists() {
+        let defaults = makeDefaults()
+        let settings = AppSettings(defaults: defaults)
+        #expect(settings.extendedPaletteChoice == nil)
+
+        settings.extendedPaletteChoice = false
+        #expect(AppSettings(defaults: defaults).extendedPaletteChoice == false)
+        settings.extendedPaletteChoice = true
+        #expect(AppSettings(defaults: defaults).extendedPaletteChoice == true)
+        settings.extendedPaletteChoice = nil
+        #expect(AppSettings(defaults: defaults).extendedPaletteChoice == nil)
     }
 }
 

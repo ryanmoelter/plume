@@ -16,12 +16,18 @@ struct SidebarTintTests {
         )
     }
 
-    @Test(arguments: [SidebarTint.text, .palette(slot: 0), .palette(slot: 9), .palette(slot: 15)])
+    @Test(arguments: [
+        SidebarTint.text, .palette(slot: 0), .palette(slot: 9), .palette(slot: 15),
+        .extended(.peach, bright: false), .extended(.eggplant, bright: true),
+    ])
     func rawValueRoundTrips(_ tint: SidebarTint) {
         #expect(SidebarTint(rawValue: tint.rawValue) == tint)
     }
 
-    @Test(arguments: ["", "Text", "palette:", "palette:x", "palette:-1", "palette:16", "red"])
+    @Test(arguments: [
+        "", "Text", "palette:", "palette:x", "palette:-1", "palette:16", "red",
+        "extended:", "extended:text", "extended:text:mango", "extended:dim:peach", "extended:text:peach:x",
+    ])
     func unrecognizedRawValueIsNil(_ raw: String) {
         #expect(SidebarTint(rawValue: raw) == nil)
     }
@@ -37,6 +43,17 @@ struct SidebarTintTests {
         let task = TaskStore.createTask(in: context, siblings: [])
         task.tintRaw = "palette:99"
         #expect(task.tint == nil)
+
+        task.tint = .extended(.lemon, bright: true)
+        #expect(task.tintRaw == "extended:bright:lemon")
+        task.tintRaw = "extended:text:amf"
+        #expect(task.tint == .extended(.amf, bright: false))
+    }
+
+    @Test func wheelTintsPairEachHueWithItsBrightVariant() {
+        #expect(SidebarTint.wheel(.slot(3), bright: false) == .palette(slot: 3))
+        #expect(SidebarTint.wheel(.slot(3), bright: true) == .palette(slot: 11))
+        #expect(SidebarTint.wheel(.extended(.turteal), bright: true) == .extended(.turteal, bright: true))
     }
 
     @Test func taskInheritsItsGroupsTint() throws {
@@ -142,8 +159,9 @@ struct SidebarIconsTests {
     }
 
     @Test func previewTintStandsInForTheSystemAccent() {
-        #expect(SidebarPreviewTint.effective(accentSlot: nil) == .text)
-        #expect(SidebarPreviewTint.effective(accentSlot: 4) == .palette(slot: 4))
+        #expect(SidebarPreviewTint.effective(accent: nil) == .text)
+        #expect(SidebarPreviewTint.effective(accent: .palette(slot: 4)) == .palette(slot: 4))
+        #expect(SidebarPreviewTint.effective(accent: .extended(.peach, bright: false)) == .extended(.peach, bright: false))
     }
 
     @Test func recordingPutsNewestFirst() {

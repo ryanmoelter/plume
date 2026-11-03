@@ -27,8 +27,18 @@ struct ThemeSettingsSection: View {
                         .textSelection(.enabled)
                 }
             }
+            Toggle(isOn: usesExtendedPalette) {
+                Text("Use extended color palette")
+                Text("Six more hues for task, group and accent colors")
+                    .foregroundStyle(.secondary)
+            }
+            .plumeID(
+                AccessibilityID.settingsExtendedPaletteToggle,
+                value: ThemeChrome.usesExtendedPalette ? "on" : "off",
+                invoke: { settings.extendedPaletteChoice = !ThemeChrome.usesExtendedPalette }
+            )
             LabeledContent {
-                Text(settings.accentPaletteSlot.map { ThemeChrome.paletteSlotNames[$0] } ?? "System")
+                Text(settings.accentTint?.name ?? "System")
                     .foregroundStyle(.secondary)
             } label: {
                 Text("Accent color")
@@ -39,13 +49,21 @@ struct ThemeSettingsSection: View {
                 ThemePaletteView(
                     definition: palette.definition,
                     label: palette.label,
-                    selectedSlot: settings.accentPaletteSlot,
-                    onSelect: { settings.accentPaletteSlot = $0 }
+                    selection: settings.accentTint,
+                    extended: ThemeChrome.usesExtendedPalette,
+                    onSelect: { settings.accentTint = $0 }
                 )
             }
         } header: {
             Text("Theme")
         }
+    }
+
+    private var usesExtendedPalette: Binding<Bool> {
+        Binding(
+            get: { ThemeChrome.usesExtendedPalette },
+            set: { settings.extendedPaletteChoice = $0 }
+        )
     }
 
     /// The light palette then the dark one, or just one when both sides are

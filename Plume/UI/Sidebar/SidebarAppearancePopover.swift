@@ -187,7 +187,7 @@ private struct SidebarAppearanceEditor<Fields: View>: View {
     }
 }
 
-/// No color, the theme's text color, or one of its 16 palette slots.
+/// No color, the theme's text color, or a palette color.
 private struct SidebarTintPicker: View {
     @Binding var selection: SidebarTint?
     /// What a nil selection falls back to — a task's group color.
@@ -195,10 +195,6 @@ private struct SidebarTintPicker: View {
     let plumeLabel: String
 
     @Environment(\.theme) private var theme
-
-    private var selectedSlot: Int? {
-        if case .palette(let slot) = selection { slot } else { nil }
-    }
 
     var body: some View {
         VStack(alignment: .leading, spacing: 10) {
@@ -236,13 +232,16 @@ private struct SidebarTintPicker: View {
                     )
                 }
             }
+            let extended = theme.colors.usesExtendedPalette
             PaletteSwatchGrid(
-                colors: ThemeChrome.paletteSlots.map(theme.colors.color(forSlot:)),
+                color: theme.colors.color(for:),
                 ringColor: .primary,
-                selectedSlot: selectedSlot,
+                selection: selection,
+                extended: extended,
+                swatchSize: extended ? PaletteSwatchGrid.compactSwatchSize : PaletteSwatchGrid.swatchSize,
                 plumeID: AccessibilityID.sidebarTintSwatch,
                 plumeLabel: plumeLabel,
-                onSelect: { selection = .palette(slot: $0) }
+                onSelect: { selection = $0 }
             )
         }
     }

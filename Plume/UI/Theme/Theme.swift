@@ -73,7 +73,8 @@ private struct ThemeModifier: ViewModifier {
             colors: Palette(
                 colorScheme: colorScheme,
                 definitions: GhosttyRuntime.shared.resolvedThemeDefinitions,
-                accentSlot: AppSettings.shared.accentPaletteSlot,
+                accent: AppSettings.shared.accentTint,
+                usesExtendedPalette: ThemeChrome.usesExtendedPalette,
                 isActive: appearsActive
             ),
             dimensions: Dimensions(bodySize: bodySize),

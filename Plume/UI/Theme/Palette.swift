@@ -79,8 +79,18 @@ struct Palette {
         switch tint {
         case .text: foreground
         case .palette(let slot): color(forSlot: slot)
+        case .extended(let hue, let bright):
+            rgb(forExtended: hue, bright: bright).map { Color(red: $0.red, green: $0.green, blue: $0.blue) }
         }
     }
+
+    func rgb(forExtended hue: ExtendedHue, bright: Bool) -> HexRGB? {
+        ThemeChrome.extendedRGB(hue, bright: bright, for: colorScheme, in: definitions)
+    }
+
+    /// Whether pickers offer, and color matching considers, the extended
+    /// palette. A color already chosen from it resolves either way.
+    let usesExtendedPalette: Bool
 
     /// `foreground` at the given emphasis, for washes and hairlines drawn on
     /// the app's surface.
@@ -98,7 +108,8 @@ struct Palette {
     init(
         colorScheme: ColorScheme,
         definitions: GhosttyThemeResolver.ResolvedDefinitions?,
-        accentSlot: Int? = nil,
+        accent: SidebarTint? = nil,
+        usesExtendedPalette: Bool = false,
         isActive: Bool = true
     ) {
         background = ThemeChrome.background(for: colorScheme, in: definitions)
@@ -108,8 +119,9 @@ struct Palette {
         danger = ThemeChrome.paletteAccent(.danger, for: colorScheme, in: definitions) ?? .red
         success = ThemeChrome.paletteAccent(.success, for: colorScheme, in: definitions) ?? .green
         selection = isActive
-            ? ThemeChrome.accent(slot: accentSlot, for: colorScheme, in: definitions)
+            ? ThemeChrome.accent(accent, for: colorScheme, in: definitions)
             : foreground
+        self.usesExtendedPalette = usesExtendedPalette
         emphasis = EmphasisOpacities(colorScheme: colorScheme)
         self.colorScheme = colorScheme
         self.definitions = definitions

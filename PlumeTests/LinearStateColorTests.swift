@@ -11,7 +11,7 @@ struct LinearStateColorTests {
     ]
 
     private func slot(_ color: String, among palette: [Int: HexRGB]) -> Int? {
-        LinearStateColor.nearestSlot(to: hex(color), among: palette)
+        LinearStateColor.nearest(to: hex(color), among: palette)
     }
 
     // Expected slots match Linear's default workflow colors.
