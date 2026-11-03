@@ -29,11 +29,7 @@ struct ThemeSettingsSection: View {
                         .textSelection(.enabled)
                 }
             }
-            Toggle(isOn: $settings.usesExtendedPalette) {
-                Text("Use extended color palette")
-                Text("Six more hues for task, group and accent colors")
-                    .foregroundStyle(.secondary)
-            }
+            Toggle("Use extended color palette", isOn: $settings.usesExtendedPalette)
             .plumeID(
                 AccessibilityID.settingsExtendedPaletteToggle,
                 value: settings.usesExtendedPalette ? "on" : "off",
