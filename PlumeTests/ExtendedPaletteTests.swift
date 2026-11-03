@@ -6,8 +6,8 @@ import GhosttyTheme
 
 /// The extended palette gives Lum its own six extra hues exactly, and any
 /// other theme each one as the OKLCH midpoint of its ANSI neighbors, inside
-/// sRGB. Linear matching takes only its text colors, the Home glyphs the
-/// bright colors nearest Lum's lemon and blueberry, and it is on by default only for Lum.
+/// sRGB. Linear matching takes only its text colors, and the Home glyphs the
+/// colors nearest Lum's bright lemon and blueberry in hue.
 @MainActor
 struct ExtendedPaletteTests {
     private typealias OKLab = LinearStateColor.OKLab
@@ -287,35 +287,18 @@ struct ExtendedPaletteTests {
         #expect(HomeGreeting.afternoon.glyphRGB(in: palette(nil, extended: true)) == nil)
     }
 
-    // MARK: - Default and accent
+    // MARK: - Lum and accent
 
-    @Test func theExtendedPaletteDefaultsOnOnlyForLum() throws {
+    @Test func onlyAThemeLumDefinesThroughoutIsLum() throws {
         let lum = try lum()
-        func defaultsOn(_ definitions: GhosttyThemeResolver.ResolvedDefinitions?) -> Bool {
-            ExtendedPalette.Resolved(definitions, lum: lum).defaultsOn
+        func isLum(_ definitions: GhosttyThemeResolver.ResolvedDefinitions?) -> Bool {
+            ExtendedPalette.Resolved(definitions, lum: lum).isLum
         }
-        #expect(defaultsOn(lum))
-        #expect(defaultsOn(.init(light: lum.dark, dark: lum.dark)))
-        #expect(!defaultsOn(.init(light: nil, dark: tomorrowNight)))
-        #expect(!defaultsOn(.init(light: lum.light, dark: tomorrowNight)))
-        #expect(!defaultsOn(nil))
-    }
-
-    @Test func theToggleFollowsTheRuntimesThemeUntilTheUserChooses() throws {
-        let settings = AppSettings(defaults: UserDefaults(suiteName: "ExtendedPaletteTests-\(UUID().uuidString)")!)
-        let runtime = GhosttyRuntime()
-        #expect(!ThemeChrome.usesExtendedPalette(settings: settings, runtime: runtime))
-
-        runtime.adopt(try lum())
-        #expect(ThemeChrome.usesExtendedPalette(settings: settings, runtime: runtime))
-        runtime.adopt(.init(light: nil, dark: tomorrowNight))
-        #expect(!ThemeChrome.usesExtendedPalette(settings: settings, runtime: runtime))
-
-        settings.extendedPaletteChoice = true
-        #expect(ThemeChrome.usesExtendedPalette(settings: settings, runtime: runtime))
-        runtime.adopt(try lum())
-        settings.extendedPaletteChoice = false
-        #expect(!ThemeChrome.usesExtendedPalette(settings: settings, runtime: runtime))
+        #expect(isLum(lum))
+        #expect(isLum(.init(light: lum.dark, dark: lum.dark)))
+        #expect(!isLum(.init(light: nil, dark: tomorrowNight)))
+        #expect(!isLum(.init(light: lum.light, dark: tomorrowNight)))
+        #expect(!isLum(nil))
     }
 
     @Test func theRuntimeRefreshesItsExtendedColorsWithTheTheme() throws {

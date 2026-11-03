@@ -27,18 +27,18 @@ struct ThemeSettingsSection: View {
                         .textSelection(.enabled)
                 }
             }
-            Toggle(isOn: usesExtendedPalette) {
+            Toggle(isOn: $settings.usesExtendedPalette) {
                 Text("Use extended color palette")
                 Text("Six more hues for task, group and accent colors")
                     .foregroundStyle(.secondary)
             }
             .plumeID(
                 AccessibilityID.settingsExtendedPaletteToggle,
-                value: ThemeChrome.usesExtendedPalette() ? "on" : "off",
-                invoke: { settings.extendedPaletteChoice = !ThemeChrome.usesExtendedPalette() }
+                value: settings.usesExtendedPalette ? "on" : "off",
+                invoke: { settings.usesExtendedPalette.toggle() }
             )
             LabeledContent {
-                Text(settings.accentTint?.name(lum: runtime.extendedPalette?.defaultsOn == true) ?? "System")
+                Text(settings.accentTint?.name(lum: runtime.extendedPalette?.isLum == true) ?? "System")
                     .foregroundStyle(.secondary)
             } label: {
                 Text("Accent color")
@@ -50,7 +50,7 @@ struct ThemeSettingsSection: View {
                     definition: palette.definition,
                     label: palette.label,
                     selection: settings.accentTint,
-                    extended: ThemeChrome.usesExtendedPalette() || settings.accentTint?.isExtended == true,
+                    extended: settings.usesExtendedPalette || settings.accentTint?.isExtended == true,
                     extendedColors: palette.extendedColors,
                     onSelect: { settings.accentTint = $0 }
                 )
@@ -58,13 +58,6 @@ struct ThemeSettingsSection: View {
         } header: {
             Text("Theme")
         }
-    }
-
-    private var usesExtendedPalette: Binding<Bool> {
-        Binding(
-            get: { ThemeChrome.usesExtendedPalette() },
-            set: { settings.extendedPaletteChoice = $0 }
-        )
     }
 
     /// The light palette then the dark one, or just one when both sides are

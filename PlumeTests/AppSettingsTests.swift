@@ -333,17 +333,15 @@ struct AppSettingsTests {
         #expect(AppSettings(defaults: defaults).accentTint == nil)
     }
 
-    @Test func extendedPaletteChoiceStartsAutomaticAndPersists() {
+    @Test func extendedPaletteStartsOnAndPersists() {
         let defaults = makeDefaults()
         let settings = AppSettings(defaults: defaults)
-        #expect(settings.extendedPaletteChoice == nil)
+        #expect(settings.usesExtendedPalette)
 
-        settings.extendedPaletteChoice = false
-        #expect(AppSettings(defaults: defaults).extendedPaletteChoice == false)
-        settings.extendedPaletteChoice = true
-        #expect(AppSettings(defaults: defaults).extendedPaletteChoice == true)
-        settings.extendedPaletteChoice = nil
-        #expect(AppSettings(defaults: defaults).extendedPaletteChoice == nil)
+        settings.usesExtendedPalette = false
+        #expect(!AppSettings(defaults: defaults).usesExtendedPalette)
+        settings.usesExtendedPalette = true
+        #expect(AppSettings(defaults: defaults).usesExtendedPalette)
     }
 }
 

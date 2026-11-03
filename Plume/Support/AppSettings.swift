@@ -190,7 +190,7 @@ final class AppSettings {
             self.accentTint = initial.map { .palette(slot: $0) }
             defaults.set(initial ?? Self.systemAccentSentinel, forKey: Key.accentPaletteSlot)
         }
-        self.extendedPaletteChoice = defaults.object(forKey: Key.usesExtendedPalette) as? Bool
+        self.usesExtendedPalette = defaults.object(forKey: Key.usesExtendedPalette) as? Bool ?? true
 
         self.remoteDeviceProjectID = defaults.string(forKey: Key.remoteDeviceProjectID)
         self.remoteDeviceSignInTaskID = defaults.string(forKey: Key.remoteDeviceSignInTaskID).flatMap(UUID.init(uuidString:))
@@ -576,16 +576,9 @@ final class AppSettings {
         }
     }
 
-    /// Whether the pickers offer the extended palette, or nil to follow the
-    /// theme. `ThemeChrome.usesExtendedPalette()` resolves nil.
-    var extendedPaletteChoice: Bool? {
-        didSet {
-            if let extendedPaletteChoice {
-                defaults.set(extendedPaletteChoice, forKey: Key.usesExtendedPalette)
-            } else {
-                defaults.removeObject(forKey: Key.usesExtendedPalette)
-            }
-        }
+    /// Whether the pickers offer, and color matching considers, the extended palette.
+    var usesExtendedPalette: Bool {
+        didSet { defaults.set(usesExtendedPalette, forKey: Key.usesExtendedPalette) }
     }
 
     /// The Google Cloud project remote devices are reserved in, when more than one is ready.

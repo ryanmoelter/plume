@@ -152,18 +152,18 @@ nonisolated enum ExtendedPalette {
         }
     }
 
-    /// Both appearances' extended colors, and whether the palette is on by default.
+    /// Both appearances' extended colors, and whether the theme is Lum's.
     struct Resolved: Sendable {
         let light: Colors?
         let dark: Colors?
-        /// On when every appearance the theme defines uses Lum's palette.
-        let defaultsOn: Bool
+        /// Every appearance the theme defines uses Lum's palette.
+        let isLum: Bool
 
         init(_ definitions: GhosttyThemeResolver.ResolvedDefinitions?, lum: GhosttyThemeResolver.ResolvedDefinitions?) {
             light = definitions?.light.map { Colors($0, lum: lum) }
             dark = definitions?.dark.map { Colors($0, lum: lum) }
             let present = [light, dark].compactMap { $0 }
-            defaultsOn = !present.isEmpty && present.allSatisfy(\.isLum)
+            isLum = !present.isEmpty && present.allSatisfy(\.isLum)
         }
     }
 

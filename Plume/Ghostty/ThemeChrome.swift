@@ -228,15 +228,6 @@ enum ThemeChrome {
         }
     }
 
-    /// Whether the pickers offer the extended palette: the user's choice, or
-    /// else on exactly when the theme is Lum's.
-    static func usesExtendedPalette(
-        settings: AppSettings = .shared,
-        runtime: GhosttyRuntime = .shared
-    ) -> Bool {
-        settings.extendedPaletteChoice ?? runtime.extendedPalette?.defaultsOn ?? false
-    }
-
     /// The accent color: the palette color chosen in settings, or the system
     /// accent when none is chosen or the theme lacks that color.
     /// An inactive window draws it in the text color instead, the way the
