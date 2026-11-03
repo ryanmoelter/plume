@@ -1,4 +1,6 @@
 import Foundation
+import GhosttyTheme
+import SwiftUI
 import Testing
 @testable import Plume
 
@@ -30,6 +32,27 @@ struct HomeGreetingTests {
 
     @Test func hoursTextFollowsTheHourMapping() {
         #expect(HomeGreeting.allCases.map(\.hoursText) == ["5 AM–12 PM", "12 PM–5 PM", "5 PM–9 PM", "9 PM–5 AM"])
+    }
+
+    @MainActor
+    @Test func theEveningSunTakesTangerine() throws {
+        let lum = try #require(GhosttyRuntime.bundledLumDefinitions)
+        let lumColors = Palette(colorScheme: .dark, definitions: lum, usesExtendedPalette: true)
+        #expect(HomeGreeting.evening.glyphRGB(in: lumColors) == HexRGB(hex: "f08e00"))
+        #expect(HomeGreeting.morning.glyphRGB(in: lumColors) == HexRGB(hex: "f4cc25"))
+
+        let tomorrowNight = GhosttyThemeDefinition(
+            name: "Tomorrow Night",
+            background: "1d1f21",
+            foreground: "c5c8c6",
+            palette: [
+                0: "1d1f21", 1: "cc6666", 2: "b5bd68", 3: "f0c674", 4: "81a2be", 5: "b294bb", 6: "8abeb7", 7: "c5c8c6",
+                8: "666666", 9: "d54e53", 10: "b9ca4a", 11: "e7c547", 12: "7aa6da", 13: "c397d8", 14: "70c0b1", 15: "eaeaea",
+            ]
+        )
+        let colors = Palette(colorScheme: .dark, definitions: .init(light: nil, dark: tomorrowNight))
+        #expect(HomeGreeting.morning.glyphRGB(in: colors) == HexRGB(hex: "e7c547"))
+        #expect(HomeGreeting.evening.glyphRGB(in: colors) == HexRGB(hex: "f0c674"))
     }
 
     @Test func glyphColorPaintsTheSunOrMoonLayer() {

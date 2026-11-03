@@ -84,13 +84,17 @@ enum HomeGreeting: String, CaseIterable {
     }
 
     /// What the glyph's color is matched to: Lum's bright lemon for the sun,
-    /// its bright blueberry for the moon.
+    /// its bright tangerine for the setting sun, and its bright blueberry for
+    /// the moon.
     var glyphTarget: HexRGB {
         switch self {
         case .night: ExtendedHue.blueberry.lumBrightRGB
-        case .morning, .afternoon, .evening: ExtendedHue.lemon.lumBrightRGB
+        case .evening: Self.lumBrightTangerine
+        case .morning, .afternoon: ExtendedHue.lemon.lumBrightRGB
         }
     }
+
+    private static let lumBrightTangerine = HexRGB(hex: "f08e00")!
 
     /// The theme's text or bright color nearest `glyphTarget` in hue, skipping
     /// grays, or nil when none is left. Lum without its extended palette takes
