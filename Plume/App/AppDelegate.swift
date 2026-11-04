@@ -46,6 +46,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
         CommandLineHelper.repointLegacyLinks()
 
+        OrphanedAgentReaper.shared.start()
+
         #if DEBUG
         LinkClickHarness.runIfRequested()
         ControlServer.shared.startIfEnabled()

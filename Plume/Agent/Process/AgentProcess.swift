@@ -42,15 +42,31 @@ nonisolated final class AgentProcess: @unchecked Sendable {
     private let label: String
     private let onLine: @Sendable (String) -> Void
     private let onExit: @Sendable (Int32, String?) -> Void
+    private let ledger: AgentProcessLedger?
+    private var launchedPID: pid_t?
 
     init(
         label: String,
+        ledger: AgentProcessLedger? = nil,
         onLine: @escaping @Sendable (String) -> Void,
         onExit: @escaping @Sendable (Int32, String?) -> Void
     ) {
         self.label = label
+        self.ledger = ledger
         self.onLine = onLine
         self.onExit = onExit
+        for pipe in [inPipe, outPipe, errPipe] { Self.closeOnExec(pipe) }
+    }
+
+    /// `Process` leaves its pipes inheritable, and libghostty forks every
+    /// terminal's shell without closing descriptors, so each shell — and
+    /// anything it launches — would hold this agent's stdin open. Then the
+    /// agent never sees EOF when the app dies, and outlives it. The child's
+    /// own ends are unaffected: `dup2` onto its stdio clears the flag.
+    static func closeOnExec(_ pipe: Pipe) {
+        for descriptor in [pipe.fileHandleForReading.fileDescriptor, pipe.fileHandleForWriting.fileDescriptor] {
+            _ = fcntl(descriptor, F_SETFD, fcntl(descriptor, F_GETFD) | FD_CLOEXEC)
+        }
     }
 
     func start(arguments: [String], workingDirectory: String?, environment: [String: String]) throws {
@@ -99,10 +115,13 @@ nonisolated final class AgentProcess: @unchecked Sendable {
         }
 
         try process.run()
+        let pid = process.processIdentifier
         queue.sync {
             isRunning = true
             didLaunch = true
+            launchedPID = pid
         }
+        queue.async { [ledger] in ledger?.record(pid) }
     }
 
     /// Returns once the child has exited, which `terminate()` bounds by
@@ -122,6 +141,7 @@ nonisolated final class AgentProcess: @unchecked Sendable {
     private func recordExit() {
         queue.async { [self] in
             hasProcessExited = true
+            if let launchedPID { ledger?.remove(launchedPID) }
             let waiters = exitWaiters
             exitWaiters = []
             for waiter in waiters { waiter.resume() }

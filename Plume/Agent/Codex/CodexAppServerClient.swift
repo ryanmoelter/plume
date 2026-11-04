@@ -75,6 +75,7 @@ final class CodexAppServerClient {
         let incomingEvents = incomingEvents
         let handler = AgentProcess(
             label: "codex",
+            ledger: .forThisInstall,
             onLine: { line in
                 incomingEvents.enqueue(.line(line, generation))
             },
