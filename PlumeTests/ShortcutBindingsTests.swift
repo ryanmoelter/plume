@@ -47,6 +47,11 @@ struct ShortcutBindingsTests {
         }
     }
 
+    @Test func homeShipsWithCommandShiftH() {
+        #expect(ShortcutAction.showHome.defaultShortcut == MenuShortcut("h", modifiers: [.command, .shift]))
+        #expect(ShortcutBindings().conflict(for: ShortcutAction.showHome.defaultShortcut!, excluding: .showHome) == nil)
+    }
+
     @Test func sendNowIsBindableButShipsWithNoChord() {
         let defaults = ShortcutBindings()
 
