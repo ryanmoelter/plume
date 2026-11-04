@@ -36,7 +36,6 @@ nonisolated enum EmulatorKeyMapper {
         .evdev(keyCode: evdevKeyV, phase: .up),
         .evdev(keyCode: evdevLeftControl, phase: .up),
     ]
-    static let clipboardSettleDelay: Duration = .milliseconds(150)
     private static let evdevLeftControl: Int32 = 29
     private static let evdevKeyV: Int32 = 47
 

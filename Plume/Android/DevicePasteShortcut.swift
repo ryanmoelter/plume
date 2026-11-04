@@ -1,10 +1,11 @@
 import AppKit
 
-nonisolated enum DevicePasteShortcut {
+enum DevicePasteShortcut {
+    private static let shortcut = MenuShortcut("v")
+
     /// ⌘V alone. ⌘⇧V and other chords with V still reach a physical device as Meta plus the key.
     static func matches(characters: String?, flags: NSEvent.ModifierFlags) -> Bool {
-        let modifiers = flags.intersection([.command, .shift, .control, .option])
-        return modifiers == .command && characters?.lowercased() == "v"
+        shortcut.matches(characters: characters, flags: flags)
     }
 
     /// Nil when there is nothing to send.

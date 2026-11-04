@@ -145,7 +145,7 @@ public enum ScrcpyControlMessage: Sendable, Hashable {
     }
 
     static func utf8Truncated(_ text: String, maxBytes: Int) -> [UInt8] {
-        let bytes = Array(text.utf8)
+        let bytes = Array(text.utf8.prefix(maxBytes + 1))
         guard bytes.count > maxBytes else { return bytes }
         var end = maxBytes
         // Back off any continuation bytes (10xxxxxx) so the cut lands on a character start.

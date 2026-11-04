@@ -9,6 +9,8 @@ typealias EmulatorClient = Android_Emulation_Control_EmulatorController.Client<E
 
 /// A 1080x2400 RGBA frame is about 9.9 MiB, and 1440x3120 is about 17 MiB on the bytes fallback; the default 4 MiB limit would reject both.
 private let maxResponseBytes = 64 * 1024 * 1024
+/// The capped text plus the message's few bytes of framing.
+private let clipboardRequestMaxBytes = EmulatorConnection.clipboardTextMaxBytes + 1024
 private let shutDownTimeout: Duration = .seconds(3)
 
 private struct BearerTokenInterceptor: ClientInterceptor {
@@ -124,14 +126,29 @@ public actor EmulatorConnection {
         _ = try await client.setPhysicalModel(model, options: callOptions())
     }
 
-    /// Returns once the emulator has scheduled the change, before the guest's clipboard holds it.
+    public static let clipboardTextMaxBytes = 256 * 1024
+
+    /// Longer text is cut at a character boundary to `clipboardTextMaxBytes`. Returns once the
+    /// emulator has scheduled the change, before the guest's clipboard holds it.
     public func setClipboard(_ text: String) async throws {
         let client = try connectedClient()
         var clip = Android_Emulation_Control_ClipData()
-        clip.text = text
+        clip.text = Self.clipboardText(text)
         var options = callOptions()
-        options.maxRequestMessageBytes = maxResponseBytes
+        options.maxRequestMessageBytes = clipboardRequestMaxBytes
         _ = try await client.setClipboard(clip, options: options)
+    }
+
+    public nonisolated static func clipboardText(_ text: String) -> String {
+        let utf8 = text.utf8
+        guard var end = utf8.index(utf8.startIndex, offsetBy: clipboardTextMaxBytes, limitedBy: utf8.endIndex),
+              end != utf8.endIndex
+        else { return text }
+        // Back off continuation bytes (10xxxxxx) so the cut lands on a character start.
+        while end > utf8.startIndex, utf8[end] & 0xC0 == 0x80 {
+            end = utf8.index(before: end)
+        }
+        return String(text[..<end])
     }
 
     /// The emulator often exits before it answers, so a dropped connection counts as success.

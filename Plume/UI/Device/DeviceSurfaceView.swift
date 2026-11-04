@@ -325,7 +325,7 @@ extension DeviceSurfaceView: MenuShortcutYielding {
 extension DeviceSurfaceView: NSUserInterfaceValidations {
     func validateUserInterfaceItem(_ item: NSValidatedUserInterfaceItem) -> Bool {
         guard item.action == #selector(paste(_:)) else { return true }
-        return session?.isConnected == true && NSPasteboard.general.availableType(from: [.string]) != nil
+        return session?.isConnected == true && DevicePasteShortcut.text(from: .general) != nil
     }
 }
 
