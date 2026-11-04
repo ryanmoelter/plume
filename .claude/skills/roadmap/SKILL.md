@@ -31,7 +31,7 @@ When an issue could fit two projects:
 
 Six projects are retired and Completed: Agent & session, Terminals, tabs & window, Sidebar & tasks, Composer & statusline, Chat rendering & interaction, and Requests. Never put an issue in one. Older Done history still lives there, so a search can still return them.
 
-**To do** means queued. **Backlog** means wanted but not queued. **In Progress**, **Done** and **Canceled** mean what they say.
+**To do** means queued. **Backlog** means wanted but not queued. **In Progress** means an agent is working on it. **In Review** means it is merged into a release branch and waiting for the user's approval. **Done** and **Canceled** mean what they say.
 
 Status names get renamed, so filter on the state *type* when reading: `unstarted` is To do, `backlog` is Backlog. A name that matches nothing returns an empty list, not an error.
 

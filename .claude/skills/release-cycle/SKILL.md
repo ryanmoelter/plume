@@ -57,6 +57,8 @@ Report back: branch name, worktree absolute path, commit SHAs, a one-paragraph s
 results, and anything left unverified.
 ```
 
+As soon as the agents launch, move every issue they own to **In Progress** through the `roadmap` skill. Do the same for an issue whose package launches later, at its launch, and for one already running in another agent that will fold into this release.
+
 Do not poll. Completion notifications arrive on their own. Use the wait to write or refine this skill and the plan.
 
 ## 3. Merge to a release branch
@@ -70,7 +72,7 @@ If an agent used the auto-generated `worktree-agent-*` branch instead of creatin
 
 Then run the cross-cutting packages (step 1). **An `isolation: "worktree"` agent forks from `origin/main`, not from your current branch** — in the 0.13.0 run that was a commit dozens behind local `main`, since nothing had been pushed, so tell it to start with `git checkout -B <prefix>/<slug> <prefix>/release-<version>` before editing (a plain `git checkout <prefix>/release-<version>` fails because the primary checkout already has that branch out), or its annotations land on stale files and every shared file conflicts. Merge it the same way.
 
-An issue is Done once the user has reviewed and approved it directly, or once it merges into `main`, which needs the user's confirmation. Merging into a release branch is not Done. Move each issue to Done through the `roadmap` skill once it qualifies.
+When a package merges into the release branch, move its issues to **In Review**. An issue is Done once the user has reviewed and approved it directly, or once it merges into `main`, which needs the user's confirmation. Merging into a release branch is not Done. Move each issue to Done through the `roadmap` skill once it qualifies.
 
 ### Hand-offs from implement agents
 
