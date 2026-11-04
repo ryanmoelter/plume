@@ -190,13 +190,25 @@ final class CLICommandHandler {
             return .failure("no Device Streaming project: sign in and pick one in a device tab's Remote section")
         }
         let modelID: String
-        if let given = params.model ?? remoteDevices.recentModel() {
+        var catalog = RemoteDeviceCatalog.shared.models
+        if let given = params.model {
             modelID = given
+        } else if let form = params.form {
+            catalog = await remoteDevices.models()
+            guard let chosen = RemoteDeviceModel.choose(form: form, from: catalog, recent: remoteDevices.recentModel()) else {
+                let options = catalog.isEmpty ? "" : ", one of: " + catalog.map(\.id).joined(separator: ", ")
+                return .failure("Device Streaming offers no \(form.rawValue); pass --model=<codename/api>\(options)")
+            }
+            modelID = chosen.id
+        } else if let recent = remoteDevices.recentModel() {
+            modelID = recent
         } else {
             let offered = await remoteDevices.models().map(\.id)
             let options = offered.isEmpty ? "" : ", one of: " + offered.joined(separator: ", ")
-            return .failure("no device model given and none reserved before; pass --model=<codename/api>\(options)")
+            return .failure("no device model given and none reserved before; pass --model=<codename/api> or --form\(options)")
         }
+        let model = catalog.first { $0.id == modelID }
+        let form = params.form ?? model?.formFactor.deviceForm
         // The awaits above can outlast the caller or move it to another task.
         guard clock().timeIntervalSince(started) < Self.reserveDeadline else {
             return .failure("loading the Device Streaming catalog took too long; try again")
@@ -209,6 +221,11 @@ final class CLICommandHandler {
         if let existing = deviceLeases.claim(ownedBy: owner) {
             if let model = params.model, model != existing.model {
                 return .failure("this tab is already reserving \(existing.model); release it before reserving \(model)")
+            }
+            if let wanted = params.form, let reserving = existing.form, wanted != reserving {
+                return .failure(
+                    "this tab is already reserving \(existing.model), a \(reserving.rawValue); release it before reserving a \(wanted.rawValue)"
+                )
             }
             do {
                 try await deviceLeases.rejoin(existing)
@@ -229,6 +246,7 @@ final class CLICommandHandler {
             deviceTabID: tab.id,
             deviceTabCreated: created,
             model: modelID,
+            form: form,
             projectID: projectID,
             ttl: params.ttl ?? DevicePool.defaultTTL,
             worktree: params.worktree,
@@ -240,7 +258,7 @@ final class CLICommandHandler {
             if created { closeTab(tab.id) }
             return .failure("couldn't record the claim: \(Devices.describe(error))")
         }
-        let displayName = RemoteDeviceCatalog.shared.models.first { $0.id == modelID }?.name ?? modelID
+        let displayName = model?.name ?? modelID
         remoteDevices.reserve(tab, modelID, displayName, projectID)
         var response = CLIResponse.success
         response.tabID = tab.id

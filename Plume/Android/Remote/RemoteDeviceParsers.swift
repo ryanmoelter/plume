@@ -35,6 +35,17 @@ nonisolated struct RemoteDeviceModel: Hashable, Sendable, Identifiable {
     }
 
     var formFactor: FormFactor { FormFactor(modelName: name) }
+
+    /// The model `plume devices claim --kind=remote --form` reserves: the one reserved last if it
+    /// has that form, else the highest API level, the catalog's order breaking a tie.
+    static func choose(form: DeviceForm, from models: [RemoteDeviceModel], recent: String?) -> RemoteDeviceModel? {
+        let matching = models.filter { $0.formFactor.deviceForm == form }
+        if let recent, let model = matching.first(where: { $0.id == recent }) { return model }
+        return matching.reduce(nil) { best, model in
+            guard let best else { return model }
+            return model.api > best.api ? model : best
+        }
+    }
 }
 
 extension RemoteDeviceModel.FormFactor {
@@ -51,6 +62,15 @@ extension RemoteDeviceModel.FormFactor {
             self = .watch
         } else {
             self = .phone
+        }
+    }
+
+    var deviceForm: DeviceForm? {
+        switch self {
+        case .phone: .phone
+        case .tablet: .tablet
+        case .foldable: .foldable
+        case .watch: nil
         }
     }
 }
