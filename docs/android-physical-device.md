@@ -1,12 +1,13 @@
 # Physical Android devices
 
-A device tab (`TabKind.device`, platform `androidPhysical`) can mirror a physical Android device connected over adb, and forward mouse, scroll and keyboard input to it. It runs [scrcpy](https://github.com/Genymobile/scrcpy)'s server on the device and speaks its protocol directly; Plume never runs the scrcpy client. Emulators use their gRPC service instead (`docs/android-emulator.md`). Both kinds share `DeviceSession`, the picker and the device view.
+A device tab (`TabKind.device`, platform `androidPhysical`) can mirror a physical Android device connected over adb, by USB or over Wi-Fi, and forward mouse, scroll and keyboard input to it. It runs [scrcpy](https://github.com/Genymobile/scrcpy)'s server on the device and speaks its protocol directly; Plume never runs the scrcpy client. Emulators use their gRPC service instead (`docs/android-emulator.md`). Both kinds share `DeviceSession`, the picker and the device view.
 
 ## Layout
 
 - `Packages/ScrcpyControl/` holds the wire layer: `ScrcpyServerLaunch` (push, forward, run), `ScrcpyDemuxer`, `H264Decoder` (VideoToolbox, IOSurface-backed BGRA) and `ScrcpyControlMessage`. `ScrcpyConnection` is its facade. Run `swift test` in the package for its tests; `ScrcpyProbe` mirrors a real device for a few seconds without the app.
 - `Plume/Android/PhysicalDeviceConnection.swift` adapts `ScrcpyConnection` to `DeviceConnecting`, the protocol the session talks to. `EmulatorDeviceConnection` is the emulator's adapter.
 - `Shared/Android/ADBDeviceList.swift` lists devices from `adb devices -l`, and `Plume/Android/PhysicalDeviceDiscovery.swift` polls it while a picker is open.
+- `Shared/Android/ADBWireless.swift` parses and runs the Wi-Fi commands (`adb mdns`, `pair`, `connect`, `get-serialno`). `Plume/Android/WirelessPairing.swift` drives a pairing, and `Plume/UI/Device/WirelessPairingSheet.swift` is its sheet.
 - `Plume/Android/AndroidKeycodeMapper.swift` turns Mac key events into Android keycodes and text, tracks what the device holds, and decides which chords stay with Plume (`AndroidShortcutPolicy`).
 
 ## The server binary
@@ -22,9 +23,30 @@ A device tab (`TabKind.device`, platform `androidPhysical`) can mirror a physica
 
 `PhysicalDeviceDiscovery` runs `adb devices -l` off the main actor every 2 seconds while the picker is on screen, and never otherwise. `emulator-*` serials are dropped, since emulators reach the picker through their discovery files. `unauthorized` and `offline` devices are listed but disabled, with a hint. The name is the `model:` field with underscores turned into spaces, or the serial.
 
+## Wi-Fi
+
+**Pair over Wi-Fi…** in the picker's Physical devices section opens a sheet with two ways to pair, both from Settings ▸ Developer options ▸ Wireless debugging on the phone. The phone and the Mac must share a network.
+
+- **QR code.** Plume shows `WIFI:T:ADB;S:<name>;P:<password>;;`, with a fresh random `plume-<hex>` name and hex password each time (`ADBPairingQR`). Scanning it makes the phone advertise a `_adb-tls-pairing._tcp` service under that name. Plume polls `adb mdns services` every second for it, then runs `adb pair <address> <password>`. This needs adb's mDNS, so the sheet first runs `adb mdns check`. When that fails, it says so and points to the pairing code instead.
+- **Pairing code.** The user types the IP address and port and the six-digit code from Pair device with pairing code, and Plume runs `adb pair`.
+
+adb exits 0 from a failed `pair` or `connect`, so Plume reads the text: `Successfully paired`, `connected to`, `already connected to`. A failure shows adb's own last line.
+
+After a pair, adb normally connects the phone by itself through mDNS, as `adb-<serialno>-<suffix>._adb-tls-connect._tcp`. Plume polls `adb devices` for a ready Wi-Fi device that wasn't listed before the pair. After 3 polls without one, it looks up a `_adb-tls-connect._tcp` service at the host it paired with and runs `adb connect` itself, which lists the phone as `host:port`. After 15 polls it gives up and says to connect with the address under Wireless debugging. Once connected, the sheet closes and the device connects like a picked one.
+
+A device is on Wi-Fi when its serial is `host:port` or names `_adb-tls-connect._tcp`. A remote device's `localhost:` serial is a tunnel, not Wi-Fi, and `DevicePool` still classifies a LAN serial as physical. The picker shows each device's transport in its detail line.
+
+### Identity
+
+A Wi-Fi serial changes with every connection, so a tab can't persist it. Discovery reads each ready Wi-Fi device's `ro.serialno` once per connection (`adb -s <serial> get-serialno`, off the main actor) and caches it by adb serial. A tab connected to a Wi-Fi device persists `wifi:<serialno>` in `deviceIdentifier`. A USB tab persists its adb serial as before, which is the same serial number. If the serial number can't be read, the tab persists the adb serial.
+
+On start, `PhysicalDeviceDiscovery.readySerial(for:)` maps the identifier to the adb serial to connect to now. An exact serial wins. Otherwise a ready device with that serial number does, on Wi-Fi first for a `wifi:` identifier and on USB first for a plain one. So a `wifi:` tab also finds the phone plugged in over USB. A Wi-Fi tab whose phone isn't listed says to turn on Wireless debugging; **Try Again** lists adb again, and adb reconnects a paired phone on its own once Wireless debugging is back on. `devices.show` from `plume devices` maps a Wi-Fi serial to its `wifi:` identifier the same way when discovery has read it, so it finds the tab already showing that phone.
+
+The scrcpy path is unchanged: `adb -s <host:port>` push, forward and shell work over TCP as over USB.
+
 ## Connecting
 
-The tab persists `devicePlatformRaw = "androidPhysical"` and the adb serial in `deviceIdentifier`. A tab from before physical devices has `androidEmulator` and an AVD id, and still resolves to an emulator; so does a tab with an identifier but no platform.
+The tab persists `devicePlatformRaw = "androidPhysical"` and the adb serial in `deviceIdentifier`, or `wifi:<serialno>` for a Wi-Fi device (see Identity above). A tab from before physical devices has `androidEmulator` and an AVD id, and still resolves to an emulator; so does a tab with an identifier but no platform.
 
 Picking a device in the picker connects at once, since the picker's adb list is current. On start, the session refreshes the adb list. If the serial is missing or not `device`, it shows "isn't connected" with **Try Again**, which looks again. If the device is ready but no sink is attached, as for a hidden tab in a shown task, the session goes straight to `.suspended` without connecting, and the first sink connects. Otherwise `ScrcpyConnection.connect()`:
 
