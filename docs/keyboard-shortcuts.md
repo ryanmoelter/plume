@@ -1,6 +1,10 @@
 # Keyboard shortcuts
 
-Plume binds two kinds of chord. The fixed ones (⌘N, ⌘T, ⌘W, ⌘1…⌘9, `⌘\` to split or close the split, `⌥⌘\` to focus the other pane) live as `static let`s on `PlumeShortcuts`. The four cycling commands — next/previous tab, next/previous task — and Send Now are rebindable, stored per action in `ShortcutBindings` and persisted to `UserDefaults` as one JSON blob.
+Plume binds two kinds of chord. The fixed ones (⌘N, ⌘T, ⌘W, ⌘1…⌘9, `⌘\` to split or close the split, `⌥⌘\` to focus the other pane) live as `static let`s on `PlumeShortcuts`. The four cycling commands — next/previous tab, next/previous task — plus Send Now and Home are rebindable, stored per action in `ShortcutBindings` and persisted to `UserDefaults` as one JSON blob.
+
+## Home
+
+View ▸ Home selects Home, the overview. It ships on ⇧⌘H, since ⌘H is macOS's Hide and the system menu claims it (`TerminalShortcutMonitor.systemMenuShortcuts`). It works with no task selected, through the `showHomeAction` focused scene value `MainWindow` publishes.
 
 ## An action can ship with no chord
 

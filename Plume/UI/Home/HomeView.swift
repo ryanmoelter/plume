@@ -75,7 +75,7 @@ private struct HomeContent: View, ThemedView {
                 composer
                 needsYouSection
                 if !feed.running.isEmpty {
-                    quietSection("Running", items: feed.running)
+                    quietSection("Running", items: feed.running, plainEmphasis: .primary)
                 }
                 if !feed.idle.isEmpty {
                     quietSection(
@@ -195,11 +195,12 @@ private struct HomeContent: View, ThemedView {
     private func quietSection(
         _ title: String,
         items: [HomeFeed.Item],
+        plainEmphasis: Emphasis = .secondary,
         collapse: HomeSectionCollapse? = nil
     ) -> some View {
         HomeSection(
             title: title,
-            header: collapse.map(HomeSectionHeader.collapsible) ?? .plain(emphasis: .secondary),
+            header: collapse.map(HomeSectionHeader.collapsible) ?? .plain(emphasis: plainEmphasis),
             style: sectionStyle,
             count: items.count
         ) { transition in

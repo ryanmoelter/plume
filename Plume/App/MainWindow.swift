@@ -98,6 +98,7 @@ struct MainWindow: View {
             hostWindow?.makeKeyAndOrderFront(nil)
             importSource = source
         }
+        .focusedSceneValue(\.showHomeAction) { choose(.home) }
         .focusedSceneValue(\.selectAdjacentTask) { offset in
             let destination = SidebarKeyboardNavigation.destination(
                 from: selection,
