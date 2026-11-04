@@ -326,6 +326,51 @@ struct TranscriptRelocationTests {
         #expect(store.subagents(forTab: fixture.tab).first?.status == .done)
     }
 
+    /// A directory that never arrives must not pin carried rows, or the
+    /// task's working status, forever.
+    @Test func carriedSubagentsExpireWhenTheirDirectoryNeverArrives() async throws {
+        let fixture = try Fixture(parentReportsCompletion: false)
+        defer { fixture.remove() }
+        let store = TranscriptStore(
+            debounce: .milliseconds(10),
+            projectsDirectory: fixture.root,
+            carriedSubagentExpiry: .milliseconds(100)
+        )
+        defer { store.stopAll() }
+        let recorder = ReadRecorder(store: store, tab: fixture.tab)
+
+        store.watch(tabID: fixture.tab, transcriptPath: fixture.pathA)
+        #expect(await recorder.wait { store.subagents(forTab: fixture.tab).count == 1 })
+        try fixture.renameAToB()
+        try fixture.renameBToC()
+        #expect(await recorder.wait { recorder.hasRead(fixture.pathC) })
+
+        #expect(await recorder.wait { store.subagents(forTab: fixture.tab).isEmpty })
+    }
+
+    /// One unreadable subagent file must not freeze the rest of the list.
+    @Test func anUnreadableSubagentFileStillLetsOthersUpdate() async throws {
+        let fixture = try Fixture()
+        defer { fixture.remove() }
+        let store = TranscriptStore(debounce: .milliseconds(10), projectsDirectory: fixture.root)
+        defer { store.stopAll() }
+        let recorder = ReadRecorder(store: store, tab: fixture.tab)
+
+        store.watch(tabID: fixture.tab, transcriptPath: fixture.pathA)
+        #expect(await recorder.wait { store.subagents(forTab: fixture.tab).count == 1 })
+
+        let subagents = fixture.dirA.appending(path: "\(fixture.session)/subagents")
+        let unreadable = subagents.appending(path: "agent-\(Fixture.subagentID).jsonl").path
+        let line = #"{"type":"assistant","uuid":"f1","isSidechain":true,"message":{"role":"assistant","stop_reason":"end_turn","content":[{"type":"text","text":"done"}]}}"#
+        try Data((line + "\n").utf8).write(to: subagents.appending(path: "agent-fresh.jsonl"))
+        try FileManager.default.setAttributes([.posixPermissions: 0o000], ofItemAtPath: unreadable)
+        defer { try? FileManager.default.setAttributes([.posixPermissions: 0o644], ofItemAtPath: unreadable) }
+
+        fixture.append(Fixture.userLine("Trigger a read"), to: fixture.pathA)
+        #expect(await recorder.wait { store.subagents(forTab: fixture.tab).count == 2 })
+        #expect(Set(store.subagents(forTab: fixture.tab).map(\.id)) == [Fixture.subagentID, "fresh"])
+    }
+
     /// Carried rows are still corrected for liveness, so a subagent left
     /// working when its process died cannot pin the task at working.
     @Test func aCarriedWorkingSubagentSettlesWhenItsProcessDies() async throws {

@@ -57,12 +57,18 @@ final class TranscriptStore {
     /// directory separately from the transcript, before or after it, and until
     /// it lands the tab keeps the subagents it last published rather than
     /// dropping them.
-    private var awaitingSubagents: [UUID: (directory: String, watcher: FileWatcher)] = [:]
+    private var awaitingSubagents: [UUID: (directory: String, watcher: FileWatcher, expiry: Task<Void, Never>)] = [:]
+    /// The subagents each tab shows only because an earlier read had them: the
+    /// latest read could not read their files.
+    private var carriedSubagentIDs: [UUID: Set<String>] = [:]
     /// The part of each tab's Linear evidence that came from its subagents,
     /// kept so carried subagents keep contributing.
     private var subagentLinearEvidence: [UUID: [LinearEvidence]] = [:]
     private let projectsDirectory: URL
+    /// How long carried subagents wait for their directory before they go.
+    private let carriedSubagentExpiry: Duration
 
+    #if DEBUG
     /// Awaited by every read between loading a file and parsing it, with the
     /// path it loaded, so a test can hold a read in flight.
     var afterLoadingTranscript: (@Sendable (String) async -> Void)?
@@ -70,6 +76,10 @@ final class TranscriptStore {
     /// Fires when a read is requested while one is in flight, so a test can
     /// tell the request landed before releasing a held read.
     var didDeferRead: ((UUID) -> Void)?
+
+    /// Fires after carried subagents expire.
+    var didExpireCarriedSubagents: ((UUID) -> Void)?
+    #endif
 
     // This drives visible chat content rather than a sidebar label, so it
     // needs to feel live — much shorter than AgentTitleMonitor's 1s.
@@ -113,6 +123,7 @@ final class TranscriptStore {
         completionTracker: SubagentCompletionTracker = .shared,
         statusOverrides: SubagentStatusOverrides = .shared,
         projectsDirectory: URL = SessionJSONLReader.projectsDirectory,
+        carriedSubagentExpiry: Duration = .seconds(60),
         isTabLive: @escaping (UUID) -> Bool = TranscriptStore.hasLiveSession
     ) {
         self.debounce = debounce
@@ -123,6 +134,7 @@ final class TranscriptStore {
         self.completionTracker = completionTracker
         self.statusOverrides = statusOverrides
         self.projectsDirectory = projectsDirectory
+        self.carriedSubagentExpiry = carriedSubagentExpiry
         self.isTabLive = isTabLive
     }
 
@@ -172,7 +184,8 @@ final class TranscriptStore {
         pending.removeValue(forKey: tabID)?.cancel()
         inFlight.removeValue(forKey: tabID)
         rereadRequested.remove(tabID)
-        awaitingSubagents.removeValue(forKey: tabID)?.watcher.stop()
+        stopAwaitingSubagents(tabID: tabID)
+        carriedSubagentIDs.removeValue(forKey: tabID)
         subagentLinearEvidence.removeValue(forKey: tabID)
         paths.removeValue(forKey: tabID)
         transcripts.removeValue(forKey: tabID)
@@ -206,8 +219,12 @@ final class TranscriptStore {
         pending.removeAll()
         inFlight.removeAll()
         rereadRequested.removeAll()
-        for awaiting in awaitingSubagents.values { awaiting.watcher.stop() }
+        for awaiting in awaitingSubagents.values {
+            awaiting.watcher.stop()
+            awaiting.expiry.cancel()
+        }
         awaitingSubagents.removeAll()
+        carriedSubagentIDs.removeAll()
         subagentLinearEvidence.removeAll()
         paths.removeAll()
         transcripts.removeAll()
@@ -254,9 +271,7 @@ final class TranscriptStore {
     /// until the new file's read replaces it. Tearing it down would blank the
     /// chat, and briefly drop subagents whose directory has not moved yet.
     @discardableResult
-    private func repointIfRelocated(tabID: UUID, from path: String) -> Bool {
-        let sessionID = (path as NSString).lastPathComponent.replacingOccurrences(of: ".jsonl", with: "")
-        let found = SessionJSONLReader.locateTranscript(sessionID: sessionID, inProjectsDirectory: projectsDirectory)
+    private func repointIfRelocated(tabID: UUID, from path: String, locatedAt found: String?) -> Bool {
         guard let relocated = found, relocated != path else { return false }
         relocate(tabID: tabID, to: relocated)
         return true
@@ -265,7 +280,7 @@ final class TranscriptStore {
     private func relocate(tabID: UUID, to path: String) {
         watchers.removeValue(forKey: tabID)?.stop()
         stopSubagentWatchers(tabID: tabID)
-        awaitingSubagents.removeValue(forKey: tabID)?.watcher.stop()
+        stopAwaitingSubagents(tabID: tabID)
         pending.removeValue(forKey: tabID)?.cancel()
         paths[tabID] = path
         startWatcher(tabID: tabID, transcriptPath: path)
@@ -275,15 +290,45 @@ final class TranscriptStore {
     private func awaitSubagents(tabID: UUID, transcriptPath: String) {
         let directory = SessionJSONLReader.subagentsDirectory(forTranscriptPath: transcriptPath)
         guard awaitingSubagents[tabID]?.directory != directory else { return }
-        awaitingSubagents.removeValue(forKey: tabID)?.watcher.stop()
+        stopAwaitingSubagents(tabID: tabID)
         let watcher = FileWatcher(url: URL(fileURLWithPath: directory), createsFile: false) { [weak self] in
             self?.scheduleRead(tabID: tabID)
         }
         watcher.start()
-        awaitingSubagents[tabID] = (directory, watcher)
+        let expiry = Task { [weak self, carriedSubagentExpiry] in
+            try? await Task.sleep(for: carriedSubagentExpiry)
+            guard !Task.isCancelled else { return }
+            self?.expireCarriedSubagents(tabID: tabID)
+        }
+        awaitingSubagents[tabID] = (directory, watcher, expiry)
         // Back already, between the read that missed it and this watch, which
         // only reports an arrival it waits for.
         if FileManager.default.fileExists(atPath: directory) { scheduleRead(tabID: tabID) }
+    }
+
+    private func stopAwaitingSubagents(tabID: UUID) {
+        guard let awaiting = awaitingSubagents.removeValue(forKey: tabID) else { return }
+        awaiting.watcher.stop()
+        awaiting.expiry.cancel()
+    }
+
+    /// The directory never came, so the carried rows describe agents nothing
+    /// can read any more. The read this schedules republishes the Linear
+    /// evidence without them.
+    private func expireCarriedSubagents(tabID: UUID) {
+        stopAwaitingSubagents(tabID: tabID)
+        guard let carried = carriedSubagentIDs.removeValue(forKey: tabID), !carried.isEmpty,
+              let current = subagentTranscripts[tabID]
+        else { return }
+        subagentTranscripts[tabID] = current.filter { !carried.contains($0.id) }
+        subagentLinearEvidence[tabID]?.removeAll { evidence in
+            evidence.subagent.map { carried.contains($0.id) } ?? false
+        }
+        publishSubagentActivity(tabID: tabID, subagents: subagentTranscripts[tabID] ?? [])
+        scheduleRead(tabID: tabID)
+        #if DEBUG
+        didExpireCarriedSubagents?(tabID)
+        #endif
     }
 
     /// Subagents spawned by a tab's transcript.
@@ -369,6 +414,10 @@ final class TranscriptStore {
         let referenceCache: ConversationReferenceScanner.Cache
     }
 
+    private nonisolated static func sessionID(forPath path: String) -> String {
+        (path as NSString).lastPathComponent.replacingOccurrences(of: ".jsonl", with: "")
+    }
+
     private nonisolated static func subagentID(forPath path: String) -> String {
         (path as NSString)
             .lastPathComponent
@@ -395,16 +444,23 @@ final class TranscriptStore {
         guard let path = paths[tabID] else { return }
         guard inFlight[tabID] == nil else {
             rereadRequested.insert(tabID)
+            #if DEBUG
             didDeferRead?(tabID)
+            #endif
             return
         }
         let token = UUID()
         inFlight[tabID] = token
         let referenceCache = referenceCaches[tabID] ?? ConversationReferenceScanner.Cache()
+        let projectsDirectory = projectsDirectory
+        #if DEBUG
         let afterLoading = afterLoadingTranscript
+        #endif
         Task.detached(priority: .utility) {
             let data = FileManager.default.contents(atPath: path)
+            #if DEBUG
             await afterLoading?(path)
+            #endif
             let parsed = data.map { data in
                 let transcript = TranscriptParser.parse(data)
                 let (subagents, intact) = Self.readSubagents(transcriptPath: path, parentData: data)
@@ -421,6 +477,13 @@ final class TranscriptStore {
                     referenceCache: referenceCache
                 )
             }
+            // A missing or empty file is the sign of a move, so look for the
+            // session elsewhere, off the main actor.
+            let located = parsed?.transcript.messages.isEmpty ?? true
+                ? SessionJSONLReader.locateTranscript(
+                    sessionID: Self.sessionID(forPath: path), inProjectsDirectory: projectsDirectory
+                )
+                : nil
             await MainActor.run { [weak self] in
                 guard let self else { return }
                 defer { self.didRead?(tabID) }
@@ -430,14 +493,14 @@ final class TranscriptStore {
                 // A re-point below may already have started the next read.
                 defer { if reread, self.inFlight[tabID] == nil { self.read(tabID: tabID) } }
                 guard let parsed else {
-                    if !self.repointIfRelocated(tabID: tabID, from: path), self.transcripts[tabID] == nil {
+                    if !self.repointIfRelocated(tabID: tabID, from: path, locatedAt: located), self.transcripts[tabID] == nil {
                         self.reportLatestMessage(nil, tabID: tabID)
                     }
                     return
                 }
                 // An empty file is often the stub a move leaves behind, so the
                 // file it moved to replaces the chat rather than a blank one.
-                if parsed.transcript.messages.isEmpty, self.repointIfRelocated(tabID: tabID, from: path) {
+                if parsed.transcript.messages.isEmpty, self.repointIfRelocated(tabID: tabID, from: path, locatedAt: located) {
                     return
                 }
                 let previousDirectory = self.transcripts[tabID]?.cwd
@@ -446,16 +509,19 @@ final class TranscriptStore {
                 if let cwd = parsed.transcript.cwd, cwd != previousDirectory {
                     self.onWorkingDirectoryChanged?(tabID, cwd)
                 }
-                let previousSubagents = self.subagentTranscripts[tabID] ?? []
-                if !parsed.subagentsIntact, !previousSubagents.isEmpty {
-                    self.subagentTranscripts[tabID] = self.settled(
-                        Self.rederived(previousSubagents), tabID: tabID
-                    )
-                    self.awaitSubagents(tabID: tabID, transcriptPath: path)
+                let merge = Self.merging(
+                    parsed,
+                    into: self.subagentTranscripts[tabID] ?? [],
+                    evidence: self.subagentLinearEvidence[tabID] ?? []
+                )
+                self.subagentTranscripts[tabID] = self.settled(merge.subagents, tabID: tabID)
+                self.subagentLinearEvidence[tabID] = merge.evidence
+                if merge.carried.isEmpty {
+                    self.carriedSubagentIDs.removeValue(forKey: tabID)
+                    self.stopAwaitingSubagents(tabID: tabID)
                 } else {
-                    self.awaitingSubagents.removeValue(forKey: tabID)?.watcher.stop()
-                    self.subagentTranscripts[tabID] = self.settled(parsed.subagents, tabID: tabID)
-                    self.subagentLinearEvidence[tabID] = parsed.subagentEvidence
+                    self.carriedSubagentIDs[tabID] = merge.carried
+                    self.awaitSubagents(tabID: tabID, transcriptPath: path)
                 }
                 self.publishSubagentActivity(tabID: tabID, subagents: self.subagentTranscripts[tabID] ?? [])
                 // A tab with nothing behind it has a transcript that is a
@@ -474,6 +540,29 @@ final class TranscriptStore {
                 self.syncSubagentWatchers(tabID: tabID, transcriptPath: path)
             }
         }
+    }
+
+    /// A read that could not read every listed subagent file updates the ones
+    /// it did read and carries the rest over by ID from the previous list.
+    private static func merging(
+        _ parsed: ParsedRead,
+        into previous: [SubagentTranscript],
+        evidence previousEvidence: [LinearEvidence]
+    ) -> (subagents: [SubagentTranscript], evidence: [LinearEvidence], carried: Set<String>) {
+        guard !parsed.subagentsIntact, !previous.isEmpty else {
+            return (parsed.subagents, parsed.subagentEvidence, [])
+        }
+        let fresh = Dictionary(parsed.subagents.map { ($0.id, $0) }, uniquingKeysWith: { _, latest in latest })
+        let previousIDs = Set(previous.map(\.id))
+        let carried = previousIDs.subtracting(fresh.keys)
+        let carriedRows = rederived(previous.filter { carried.contains($0.id) })
+        let carriedByID = Dictionary(uniqueKeysWithValues: carriedRows.map { ($0.id, $0) })
+        let merged = previous.compactMap { fresh[$0.id] ?? carriedByID[$0.id] }
+            + parsed.subagents.filter { !previousIDs.contains($0.id) }
+        let kept = previousEvidence.filter { evidence in
+            evidence.subagent.map { carried.contains($0.id) } ?? false
+        }
+        return (merged, parsed.subagentEvidence + kept, carried)
     }
 
     /// The corrections a freshly derived list needs, both of which depend on
