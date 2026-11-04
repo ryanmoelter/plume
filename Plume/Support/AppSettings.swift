@@ -33,10 +33,16 @@ final class AppSettings {
         /// only row heights, so an existing preference still reads.
         static let animateChatMotion = "animateRowHeight"
         static let animateCharacterReveal = "animateCharacterReveal"
+        /// Written alongside `accentTintRaw` for older builds, which read only
+        /// this key. It wins over `accentTintRaw` unless it still holds
+        /// `extendedAccentSentinel`, since an older build may have changed it.
         static let accentPaletteSlot = "accentPaletteSlot"
+        static let accentTintRaw = "accentTintRaw"
+        static let usesExtendedPalette = "usesExtendedPalette"
         static let showsPullRequestStatus = "showsPullRequestStatus"
         static let showsLinearIssues = "showsLinearIssues"
         static let linearStateColorsRaw = "linearStateColorsRaw"
+        static let didMigrateToExtendedPalette = "didMigrateToExtendedPalette"
         static let sidebarShowsTaskColorBar = "sidebarShowsTaskColorBar"
         static let sidebarColorsTaskNames = "sidebarColorsTaskNames"
         static let sidebarBoldTaskNames = "sidebarBoldTaskNames"
@@ -172,13 +178,21 @@ final class AppSettings {
         self.animateCharacterReveal = defaults.object(forKey: Key.animateCharacterReveal) == nil
             ? true
             : defaults.bool(forKey: Key.animateCharacterReveal)
-        if let stored = defaults.object(forKey: Key.accentPaletteSlot) as? Int {
-            self.accentPaletteSlot = Self.accentPaletteSlotRange.contains(stored) ? stored : nil
+        let storedTint = defaults.string(forKey: Key.accentTintRaw).map(Self.accentTint(rawValue:))
+        let storedSlot = defaults.object(forKey: Key.accentPaletteSlot) as? Int
+        if let storedTint, storedTint?.isExtended == true, storedSlot == Self.extendedAccentSentinel {
+            self.accentTint = storedTint
+        } else if let storedSlot {
+            self.accentTint = Self.accentPaletteSlotRange.contains(storedSlot) ? .palette(slot: storedSlot) : nil
+        } else if let storedTint {
+            self.accentTint = storedTint
         } else {
             let initial = initialAccentPaletteSlot()
-            self.accentPaletteSlot = initial
+            self.accentTint = initial.map { .palette(slot: $0) }
             defaults.set(initial ?? Self.systemAccentSentinel, forKey: Key.accentPaletteSlot)
         }
+        Self.migrateToExtendedPalette(defaults)
+        self.usesExtendedPalette = defaults.object(forKey: Key.usesExtendedPalette) as? Bool ?? true
 
         self.remoteDeviceProjectID = defaults.string(forKey: Key.remoteDeviceProjectID)
         self.remoteDeviceSignInTaskID = defaults.string(forKey: Key.remoteDeviceSignInTaskID).flatMap(UUID.init(uuidString:))
@@ -187,7 +201,7 @@ final class AppSettings {
             ? true
             : defaults.bool(forKey: Key.showsPullRequestStatus)
         self.linearStateColors = defaults.string(forKey: Key.linearStateColorsRaw)
-            .flatMap(LinearStateColorStrategy.init(rawValue:)) ?? .ensureContrast
+            .flatMap(LinearStateColorStrategy.init(rawValue:)) ?? .themePalette
         self.showsLinearIssues = defaults.object(forKey: Key.showsLinearIssues) == nil
             ? true
             : defaults.bool(forKey: Key.showsLinearIssues)
@@ -531,15 +545,41 @@ final class AppSettings {
     static let accentPaletteSlotRange = ThemeChrome.paletteSlots
     /// Stored for the system accent, so an absent key still means first launch.
     private static let systemAccentSentinel = -1
+    /// Stored for an extended accent. Out of range, so an older build shows
+    /// the system accent.
+    private static let extendedAccentSentinel = -2
 
-    /// The terminal palette slot the accent color comes from, or nil for the
-    /// system accent. A slot rather than a color, so a light/dark theme pair
+    private static let systemAccentRaw = "system"
+
+    /// The palette color the accent comes from, or nil for the system accent.
+    /// A palette color rather than a resolved one, so a light/dark theme pair
     /// gives each appearance its own palette's version of it. First launch
     /// picks the slot closest to the system accent.
-    var accentPaletteSlot: Int? {
+    var accentTint: SidebarTint? {
         didSet {
-            defaults.set(accentPaletteSlot ?? Self.systemAccentSentinel, forKey: Key.accentPaletteSlot)
+            if accentTint == .text { accentTint = nil }
+            defaults.set(accentTint?.rawValue ?? Self.systemAccentRaw, forKey: Key.accentTintRaw)
+            switch accentTint {
+            case nil: defaults.set(Self.systemAccentSentinel, forKey: Key.accentPaletteSlot)
+            case .palette(let slot): defaults.set(slot, forKey: Key.accentPaletteSlot)
+            case .extended: defaults.set(Self.extendedAccentSentinel, forKey: Key.accentPaletteSlot)
+            case .text: break
+            }
         }
+    }
+
+    /// The theme's text color is no accent, so it reads as the system one.
+    /// The setter applies the same rule.
+    private static func accentTint(rawValue: String) -> SidebarTint? {
+        switch SidebarTint(rawValue: rawValue) {
+        case nil, .text: nil
+        case let tint: tint
+        }
+    }
+
+    /// Whether the pickers offer, and color matching considers, the extended palette.
+    var usesExtendedPalette: Bool {
+        didSet { defaults.set(usesExtendedPalette, forKey: Key.usesExtendedPalette) }
     }
 
     /// The Google Cloud project remote devices are reserved in, when more than one is ready.
@@ -570,6 +610,16 @@ final class AppSettings {
         didSet {
             defaults.set(showsLinearIssues, forKey: Key.showsLinearIssues)
         }
+    }
+
+    /// Runs once. The theme palette holds twice as many colors with the
+    /// extended palette, so Linear matching moves onto it whatever was stored,
+    /// and an extended-palette choice stored while testing it is cleared.
+    private static func migrateToExtendedPalette(_ defaults: UserDefaults) {
+        guard !defaults.bool(forKey: Key.didMigrateToExtendedPalette) else { return }
+        defaults.set(LinearStateColorStrategy.themePalette.rawValue, forKey: Key.linearStateColorsRaw)
+        defaults.removeObject(forKey: Key.usesExtendedPalette)
+        defaults.set(true, forKey: Key.didMigrateToExtendedPalette)
     }
 
     var linearStateColors: LinearStateColorStrategy {

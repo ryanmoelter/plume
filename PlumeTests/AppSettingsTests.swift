@@ -231,29 +231,150 @@ struct AppSettingsTests {
         #expect(reloaded.notifiesOnTurnEnd)
     }
 
-    @Test func accentPaletteSlotStartsFromTheSystemMatchOnlyOnFirstLaunch() {
+    @Test func accentStartsFromTheSystemMatchOnlyOnFirstLaunch() {
         let defaults = makeDefaults()
         let settings = AppSettings(defaults: defaults, initialAccentPaletteSlot: { 4 })
-        #expect(settings.accentPaletteSlot == 4)
-        #expect(AppSettings(defaults: defaults, initialAccentPaletteSlot: { 2 }).accentPaletteSlot == 4)
+        #expect(settings.accentTint == .palette(slot: 4))
+        #expect(AppSettings(defaults: defaults, initialAccentPaletteSlot: { 2 }).accentTint == .palette(slot: 4))
 
-        settings.accentPaletteSlot = nil
-        #expect(AppSettings(defaults: defaults, initialAccentPaletteSlot: { 2 }).accentPaletteSlot == nil)
+        settings.accentTint = nil
+        #expect(AppSettings(defaults: defaults, initialAccentPaletteSlot: { 2 }).accentTint == nil)
 
-        settings.accentPaletteSlot = 12
-        #expect(AppSettings(defaults: defaults).accentPaletteSlot == 12)
+        settings.accentTint = .palette(slot: 12)
+        #expect(AppSettings(defaults: defaults).accentTint == .palette(slot: 12))
     }
 
     @Test func noSystemMatchStartsOnTheSystemAccent() {
         let defaults = makeDefaults()
-        #expect(AppSettings(defaults: defaults, initialAccentPaletteSlot: { nil }).accentPaletteSlot == nil)
-        #expect(AppSettings(defaults: defaults, initialAccentPaletteSlot: { 2 }).accentPaletteSlot == nil)
+        #expect(AppSettings(defaults: defaults, initialAccentPaletteSlot: { nil }).accentTint == nil)
+        #expect(AppSettings(defaults: defaults, initialAccentPaletteSlot: { 2 }).accentTint == nil)
     }
 
     @Test func outOfRangeAccentPaletteSlotReadsAsSystem() {
         let defaults = makeDefaults()
         defaults.set(16, forKey: "accentPaletteSlot")
-        #expect(AppSettings(defaults: defaults).accentPaletteSlot == nil)
+        #expect(AppSettings(defaults: defaults).accentTint == nil)
+    }
+
+    @Test func aSlotChosenBeforeAccentTintsExistedStillReads() {
+        let defaults = makeDefaults()
+        defaults.set(5, forKey: "accentPaletteSlot")
+        #expect(AppSettings(defaults: defaults, initialAccentPaletteSlot: { 2 }).accentTint == .palette(slot: 5))
+        defaults.set(-1, forKey: "accentPaletteSlot")
+        #expect(AppSettings(defaults: defaults, initialAccentPaletteSlot: { 2 }).accentTint == nil)
+    }
+
+    @Test func anAccentTintSupersedesTheOldSlot() {
+        let defaults = makeDefaults()
+        defaults.set(5, forKey: "accentPaletteSlot")
+        let settings = AppSettings(defaults: defaults)
+        settings.accentTint = .extended(.blueberry, bright: true)
+        #expect(AppSettings(defaults: defaults).accentTint == .extended(.blueberry, bright: true))
+
+        settings.accentTint = nil
+        #expect(AppSettings(defaults: defaults).accentTint == nil)
+    }
+
+    @Test func aSlotOrSystemAccentStillWritesTheOldKey() {
+        let defaults = makeDefaults()
+        let settings = AppSettings(defaults: defaults, initialAccentPaletteSlot: { nil })
+        settings.accentTint = .palette(slot: 6)
+        #expect(defaults.object(forKey: "accentPaletteSlot") as? Int == 6)
+        settings.accentTint = .extended(.lemon, bright: false)
+        #expect(defaults.object(forKey: "accentPaletteSlot") as? Int == -2)
+        settings.accentTint = nil
+        #expect(defaults.object(forKey: "accentPaletteSlot") as? Int == -1)
+    }
+
+    @Test func theTextColorIsNoAccent() {
+        let defaults = makeDefaults()
+        defaults.set("text", forKey: "accentTintRaw")
+        #expect(AppSettings(defaults: defaults).accentTint == nil)
+
+        let settings = AppSettings(defaults: defaults)
+        settings.accentTint = .text
+        #expect(settings.accentTint == nil)
+        #expect(AppSettings(defaults: defaults).accentTint == nil)
+    }
+
+    @Test func anOlderBuildsSlotChangeWinsOverAStalePaletteTint() {
+        let defaults = makeDefaults()
+        let settings = AppSettings(defaults: defaults)
+        settings.accentTint = .palette(slot: 4)
+        defaults.set(9, forKey: "accentPaletteSlot")
+        #expect(AppSettings(defaults: defaults).accentTint == .palette(slot: 9))
+
+        settings.accentTint = nil
+        defaults.set(2, forKey: "accentPaletteSlot")
+        #expect(AppSettings(defaults: defaults).accentTint == .palette(slot: 2))
+
+        settings.accentTint = .palette(slot: 3)
+        defaults.set(-1, forKey: "accentPaletteSlot")
+        #expect(AppSettings(defaults: defaults).accentTint == nil)
+    }
+
+    @Test func anExtendedAccentHoldsWhileTheSlotKeyIsUntouched() {
+        let defaults = makeDefaults()
+        let settings = AppSettings(defaults: defaults)
+        settings.accentTint = .extended(.eggplant, bright: false)
+        #expect(defaults.object(forKey: "accentPaletteSlot") as? Int == -2)
+        #expect(AppSettings(defaults: defaults).accentTint == .extended(.eggplant, bright: false))
+    }
+
+    @Test func anOlderBuildsSlotChangeWinsOverAnExtendedTint() {
+        let defaults = makeDefaults()
+        let settings = AppSettings(defaults: defaults)
+        settings.accentTint = .extended(.eggplant, bright: false)
+        defaults.set(9, forKey: "accentPaletteSlot")
+        #expect(AppSettings(defaults: defaults).accentTint == .palette(slot: 9))
+
+        settings.accentTint = .extended(.lemon, bright: true)
+        defaults.set(-1, forKey: "accentPaletteSlot")
+        #expect(AppSettings(defaults: defaults).accentTint == nil)
+    }
+
+    @Test func extendedPaletteStartsOnAndPersists() {
+        let defaults = makeDefaults()
+        let settings = AppSettings(defaults: defaults)
+        #expect(settings.usesExtendedPalette)
+
+        settings.usesExtendedPalette = false
+        #expect(!AppSettings(defaults: defaults).usesExtendedPalette)
+        settings.usesExtendedPalette = true
+        #expect(AppSettings(defaults: defaults).usesExtendedPalette)
+    }
+
+    @Test func freshInstallsMapLinearStatesToTheThemePalette() {
+        #expect(AppSettings(defaults: makeDefaults()).linearStateColors == .themePalette)
+    }
+
+    @Test func theExtendedPaletteMigrationOverwritesStoredChoices() {
+        let defaults = makeDefaults()
+        defaults.set(LinearStateColorStrategy.ensureContrast.rawValue, forKey: "linearStateColorsRaw")
+        defaults.set(false, forKey: "usesExtendedPalette")
+        let settings = AppSettings(defaults: defaults)
+        #expect(settings.linearStateColors == .themePalette)
+        #expect(settings.usesExtendedPalette)
+    }
+
+    @Test func choicesAfterTheExtendedPaletteMigrationStick() {
+        let defaults = makeDefaults()
+        let settings = AppSettings(defaults: defaults)
+        settings.linearStateColors = .ensureContrast
+        settings.usesExtendedPalette = false
+        let reloaded = AppSettings(defaults: defaults)
+        #expect(reloaded.linearStateColors == .ensureContrast)
+        #expect(!reloaded.usesExtendedPalette)
+    }
+
+    @Test func theExtendedPaletteMigrationRunsOnce() {
+        let defaults = makeDefaults()
+        _ = AppSettings(defaults: defaults)
+        defaults.set(LinearStateColorStrategy.ensureContrast.rawValue, forKey: "linearStateColorsRaw")
+        defaults.set(false, forKey: "usesExtendedPalette")
+        let settings = AppSettings(defaults: defaults)
+        #expect(settings.linearStateColors == .ensureContrast)
+        #expect(!settings.usesExtendedPalette)
     }
 }
 

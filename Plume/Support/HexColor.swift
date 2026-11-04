@@ -50,11 +50,15 @@ nonisolated struct HexRGB: Equatable, Sendable {
 }
 
 extension Color {
+    init(_ rgb: HexRGB) {
+        self.init(red: rgb.red, green: rgb.green, blue: rgb.blue)
+    }
+
     /// Parses a ghostty-style hex color. Returns nil on anything else —
     /// callers fall back to default chrome rather than rendering black for an
     /// unparseable value.
     init?(hex: String) {
         guard let rgb = HexRGB(hex: hex) else { return nil }
-        self = Color(red: rgb.red, green: rgb.green, blue: rgb.blue)
+        self.init(rgb)
     }
 }

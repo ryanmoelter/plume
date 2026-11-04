@@ -21,16 +21,16 @@ private struct SidebarTaskPreviewContent: View {
 
     var body: some View {
         let settings = AppSettings.shared
-        let slot = settings.accentPaletteSlot
+        let accent = settings.accentTint
         let appearance = SidebarTaskAppearance(
-            effective: SidebarPreviewTint.effective(accentSlot: slot),
+            effective: SidebarPreviewTint.effective(accent: accent),
             showsBar: settings.sidebarShowsTaskColorBar,
             colorsNames: settings.sidebarColorsTaskNames,
             colorsIcons: settings.sidebarColorsTaskIcons,
             bold: settings.sidebarBoldTaskNames
         )
         let color = { (tint: SidebarTint?) in
-            tint.flatMap { SidebarPreviewTint.color(for: $0, accentSlot: slot, theme: theme) }
+            tint.flatMap { SidebarPreviewTint.color(for: $0, accent: accent, theme: theme) }
         }
         let iconName = settings.sidebarSuggestsFilledIcons
             ? SidebarIcons.filledVariant(of: Self.iconName)

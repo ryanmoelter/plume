@@ -21,6 +21,8 @@ struct DebugSettingsPane: View {
             AgentInstallationDebugSection()
             RevealTuningDebugSection()
             UpdatesDebugSection()
+            ThemeDebugSection()
+            GreetingDebugSection()
         }
         .formStyle(.grouped)
     }

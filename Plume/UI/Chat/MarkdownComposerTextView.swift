@@ -73,7 +73,7 @@ struct MarkdownComposerTextView: NSViewRepresentable {
     var verticalInset: CGFloat = MarkdownComposerTextView.defaultVerticalInset
     /// Read in the caller's body so a change in settings re-runs
     /// `updateNSView`, which an `NSTextStorage` attribute would not.
-    var accentPaletteSlot: Int? = AppSettings.shared.accentPaletteSlot
+    var accentTint: SidebarTint? = AppSettings.shared.accentTint
     /// Where references in the draft are looked up. Nil draws no chips.
     var referenceResolver: ComposerReferenceResolver?
     var referencePalette: ReferenceChipPalette?
@@ -96,7 +96,7 @@ struct MarkdownComposerTextView: NSViewRepresentable {
         context.coordinator.textView = textView
         context.coordinator.recognizedSlashCommandNames = recognizedSlashCommandNames
         context.coordinator.isCommandMode = isCommandMode
-        context.coordinator.accentPaletteSlot = accentPaletteSlot
+        context.coordinator.accentTint = accentTint
         context.coordinator.isActive = context.environment.appearsActive
         context.coordinator.referenceResolver = referenceResolver
         context.coordinator.referencePalette = referencePalette
@@ -127,9 +127,9 @@ struct MarkdownComposerTextView: NSViewRepresentable {
         context.coordinator.recognizedSlashCommandNames = recognizedSlashCommandNames
         let modeChanged = context.coordinator.isCommandMode != isCommandMode
         context.coordinator.isCommandMode = isCommandMode
-        let accentChanged = context.coordinator.accentPaletteSlot != accentPaletteSlot
+        let accentChanged = context.coordinator.accentTint != accentTint
             || context.coordinator.isActive != context.environment.appearsActive
-        context.coordinator.accentPaletteSlot = accentPaletteSlot
+        context.coordinator.accentTint = accentTint
         context.coordinator.isActive = context.environment.appearsActive
         let referencesChanged = context.coordinator.referenceResolver != referenceResolver
             || context.coordinator.referencePalette != referencePalette
@@ -195,7 +195,7 @@ struct MarkdownComposerTextView: NSViewRepresentable {
         private(set) var fontSize: CGFloat = 0
         var recognizedSlashCommandNames: Set<String> = []
         var isCommandMode = false
-        var accentPaletteSlot: Int?
+        var accentTint: SidebarTint?
         var isActive = true
         var referenceResolver: ComposerReferenceResolver?
         var referencePalette: ReferenceChipPalette?

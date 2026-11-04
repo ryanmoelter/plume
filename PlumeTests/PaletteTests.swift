@@ -71,17 +71,17 @@ struct PaletteTests {
     }
 
     @Test func selectionTakesTheChosenSlot() {
-        let palette = Palette(colorScheme: .light, definitions: definitions, accentSlot: 2)
+        let palette = Palette(colorScheme: .light, definitions: definitions, accent: .palette(slot: 2))
         #expect(palette.selection == Color(hex: "5f9c2e"))
     }
 
     @Test func selectionFallsBackToTheSystemAccent() {
         #expect(Palette(colorScheme: .light, definitions: definitions).selection == .accentColor)
-        #expect(Palette(colorScheme: .light, definitions: definitions, accentSlot: 9).selection == .accentColor)
+        #expect(Palette(colorScheme: .light, definitions: definitions, accent: .palette(slot: 9)).selection == .accentColor)
     }
 
     @Test func anInactiveWindowDrawsSelectionInTheTextColor() {
-        let palette = Palette(colorScheme: .light, definitions: definitions, accentSlot: 2, isActive: false)
+        let palette = Palette(colorScheme: .light, definitions: definitions, accent: .palette(slot: 2), isActive: false)
         #expect(palette.selection == palette.foreground)
     }
 }

@@ -1,46 +1,88 @@
 import SwiftUI
 
-/// A terminal palette's 16 slots as clickable swatches: the regular colors
-/// over their bright variants.
+/// A terminal palette as clickable swatches. Its 16 slots are the regular
+/// colors over their bright variants. The extended palette is the 12-hue
+/// wheel's text colors over its bright ones, then the four neutral slots.
 struct PaletteSwatchGrid: View {
-    /// Indexed by slot; nil where the theme has no color, which draws an
-    /// empty, disabled swatch.
-    let colors: [Color?]
+    /// Nil where the theme has no color, which draws an empty, disabled swatch.
+    let color: (SidebarTint) -> Color?
     /// Draws the selection ring and empty swatches, so it must show against
     /// whatever the grid sits on.
     let ringColor: Color
-    let selectedSlot: Int?
+    let selection: SidebarTint?
+    let extended: Bool
+    /// Names swatches with Lum's names.
+    var lumNames = false
+    var swatchSize: CGFloat = Self.swatchSize
     let plumeID: String
-    /// Prefixed to each swatch's slot number for the control server.
+    /// Prefixed to each swatch's name for the control server.
     let plumeLabel: String
-    let onSelect: (Int) -> Void
+    let onSelect: (SidebarTint) -> Void
 
     static let swatchSize: CGFloat = 22
+    /// Fits the extended palette's 12 columns in the sidebar popover.
+    static let compactSwatchSize: CGFloat = 18
+
+    private var spacing: CGFloat { swatchSize < Self.swatchSize ? 4 : 6 }
 
     var body: some View {
-        VStack(spacing: 6) {
-            let slots = ThemeChrome.paletteSlots
-            let middle = slots.lowerBound + slots.count / 2
-            row(slots: slots.lowerBound..<middle)
-            row(slots: middle..<slots.upperBound)
+        VStack(alignment: .leading, spacing: spacing) {
+            ForEach(Array(rows.enumerated()), id: \.offset) { _, tints in
+                row(tints)
+            }
         }
     }
 
-    private func row(slots: Range<Int>) -> some View {
-        HStack(spacing: 6) {
-            ForEach(slots, id: \.self) { slot in
-                let color = colors.indices.contains(slot) ? colors[slot] : nil
+    private var rows: [[SidebarTint]] { Self.rows(extended: extended) }
+
+    /// Each row runs in hue order around the wheel, normal colors over their
+    /// bright variants.
+    static func rows(extended: Bool) -> [[SidebarTint]] {
+        if extended {
+            return [
+                PaletteHue.wheel.map { SidebarTint.wheel($0, bright: false) },
+                PaletteHue.wheel.map { SidebarTint.wheel($0, bright: true) },
+                PaletteHue.neutralSlots.map { SidebarTint.palette(slot: $0) },
+            ]
+        }
+        let ansiWheel = PaletteHue.wheel.filter { if case .slot = $0 { true } else { false } }
+        return [false, true].map { bright in
+            let (black, white) = bright ? (8, 15) : (0, 7)
+            return [.palette(slot: black)] + ansiWheel.map { SidebarTint.wheel($0, bright: bright) } + [.palette(slot: white)]
+        }
+    }
+
+    private func row(_ tints: [SidebarTint]) -> some View {
+        HStack(spacing: spacing) {
+            ForEach(tints, id: \.self) { tint in
+                let color = color(tint)
                 PaletteSwatch(
                     color: color,
                     ringColor: ringColor,
-                    isSelected: slot == selectedSlot,
-                    help: "\(ThemeChrome.paletteSlotNames[slot]) (\(slot))",
+                    isSelected: tint == selection,
+                    help: help(for: tint),
                     plumeID: plumeID,
-                    plumeLabel: "\(plumeLabel) \(slot)",
-                    select: { onSelect(slot) }
+                    plumeLabel: "\(plumeLabel) \(Self.plumeName(for: tint))",
+                    size: swatchSize,
+                    select: { onSelect(tint) }
                 )
                 .disabled(color == nil)
             }
+        }
+    }
+
+    private func help(for tint: SidebarTint) -> String {
+        let name = tint.name(lum: lumNames)
+        return if case .palette(let slot) = tint { "\(name) (\(slot))" } else { name }
+    }
+
+    /// A slot's number, or an extended hue's name prefixed `bright-` for its
+    /// bright variant.
+    static func plumeName(for tint: SidebarTint) -> String {
+        switch tint {
+        case .text: "text"
+        case .palette(let slot): "\(slot)"
+        case .extended(let hue, let bright): bright ? "bright-\(hue.rawValue)" : hue.rawValue
         }
     }
 }
@@ -53,6 +95,7 @@ struct PaletteSwatch<Content: View>: View {
     let help: String
     let plumeID: String
     let plumeLabel: String
+    var size: CGFloat = PaletteSwatchGrid.swatchSize
     let select: () -> Void
     /// Drawn over the fill, as a "None" swatch's slash is.
     @ViewBuilder var overlay: () -> Content
@@ -69,14 +112,15 @@ struct PaletteSwatch<Content: View>: View {
                 if isSelected {
                     Circle()
                         .strokeBorder(ringColor, lineWidth: 2)
-                        .padding(-4)
+                        .padding(size < PaletteSwatchGrid.swatchSize ? -3 : -4)
                 }
             }
-            .frame(width: PaletteSwatchGrid.swatchSize, height: PaletteSwatchGrid.swatchSize)
+            .frame(width: size, height: size)
             .contentShape(.circle)
         }
         .buttonStyle(.plain)
         .help(help)
+        .accessibilityLabel(help)
         .plumeID(
             plumeID,
             label: plumeLabel,
@@ -94,6 +138,7 @@ extension PaletteSwatch where Content == EmptyView {
         help: String,
         plumeID: String,
         plumeLabel: String,
+        size: CGFloat = PaletteSwatchGrid.swatchSize,
         select: @escaping () -> Void
     ) {
         self.init(
@@ -103,6 +148,7 @@ extension PaletteSwatch where Content == EmptyView {
             help: help,
             plumeID: plumeID,
             plumeLabel: plumeLabel,
+            size: size,
             select: select,
             overlay: { EmptyView() }
         )

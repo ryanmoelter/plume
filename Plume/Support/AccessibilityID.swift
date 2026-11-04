@@ -92,6 +92,8 @@ enum AccessibilityID {
     static let settingsPane = "settings-pane"
     static let settingsThemeReloadButton = "settings-theme-reload-button"
     static let settingsAccentSwatch = "settings-accent-swatch"
+    static let settingsExtendedPaletteToggle = "settings-extended-palette-toggle"
+    static let settingsOtherPaletteButton = "settings-other-palette-button"
     static let settingsSidebarShowsTaskColorBarToggle = "settings-sidebar-shows-task-color-bar-toggle"
     static let settingsSidebarColorsTaskNamesToggle = "settings-sidebar-colors-task-names-toggle"
     static let settingsSidebarBoldTaskNamesToggle = "settings-sidebar-bold-task-names-toggle"
@@ -150,6 +152,8 @@ enum AccessibilityID {
     static let debugUpdatesFeedURLField = "debug-updates-feed-url-field"
     static let debugUpdatesCheckBackgroundButton = "debug-updates-check-background-button"
     static let debugUpdatesResetStateButton = "debug-updates-reset-state-button"
+    static let debugThemeOverridePicker = "debug-theme-override-picker"
+    static let debugGreetingOverridePicker = "debug-greeting-override-picker"
 
     // MARK: Tab strip
 

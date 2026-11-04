@@ -26,7 +26,19 @@ final class GhosttyRuntime {
     /// form so SwiftUI chrome can read the background/foreground hex —
     /// `TerminalConfiguration` (what the controller takes) exposes no
     /// accessors to get them back out.
-    private(set) var resolvedThemeDefinitions: GhosttyThemeResolver.ResolvedDefinitions?
+    private(set) var resolvedThemeDefinitions: GhosttyThemeResolver.ResolvedDefinitions? {
+        didSet {
+            extendedPalette = ExtendedPalette.Resolved(resolvedThemeDefinitions, lum: Self.bundledLumDefinitions)
+        }
+    }
+
+    /// `resolvedThemeDefinitions`' extended colors, resolved with it so no
+    /// render has to.
+    private(set) var extendedPalette: ExtendedPalette.Resolved?
+
+    func adopt(_ definitions: GhosttyThemeResolver.ResolvedDefinitions?) {
+        resolvedThemeDefinitions = definitions
+    }
 
     /// The `font-family` the user's ghostty config resolves to, if any. Chat
     /// code prefers this over the bundled Cascadia Code NF, so the terminal
@@ -47,7 +59,8 @@ final class GhosttyRuntime {
     /// default is in use.
     private(set) var configThemeNames: GhosttyThemeResolver.ThemeNames?
 
-    private init() {}
+    /// Only tests build an instance other than `shared`.
+    init() {}
 
     /// Idempotent, so a repeated call (e.g. from a re-created scene) is safe.
     func start() {
@@ -95,12 +108,13 @@ final class GhosttyRuntime {
     /// Sets `resolvedThemeDefinitions` and `configThemeNames` from the config,
     /// returning the theme to hand the controller.
     private func resolveTheme(in expanded: GhosttyConfigLoader.ExpandedConfig?) -> TerminalTheme {
-        resolvedThemeDefinitions = Self.resolveThemeDefinitions(
-            in: expanded,
-            bundledDefault: Self.bundledLumDefinitions
-        )
+        var definitions = Self.resolveThemeDefinitions(in: expanded, bundledDefault: Self.bundledLumDefinitions)
+        #if DEBUG
+        definitions = Self.debugThemeOverride() ?? definitions
+        #endif
+        adopt(definitions)
         configThemeNames = nil
-        guard let definitions = resolvedThemeDefinitions else { return TerminalTheme() }
+        guard let definitions else { return TerminalTheme() }
         if let expanded, GhosttyConfigLoader.winningThemeSourcePath(in: expanded) != nil {
             configThemeNames = GhosttyThemeResolver.ThemeNames(
                 light: definitions.light?.name,

@@ -7,7 +7,8 @@ import SwiftUI
 /// plain `Color`s off it, so a named color costs a struct field read rather
 /// than a palette lookup and a hex parse on every `body` pass. Terminal palette
 /// slots are the exception: `color(forSlot:)` resolves on demand, because a
-/// `Palette` is built for every chat row and most never ask for a slot.
+/// `Palette` is built for every chat row and most never ask for a slot. The
+/// extended palette's colors arrive already resolved, from `GhosttyRuntime`.
 ///
 /// Status hues come from the terminal theme's ANSI palette, which is what
 /// makes the chat read as part of the same surface as the terminal beside it.
@@ -79,8 +80,33 @@ struct Palette {
         switch tint {
         case .text: foreground
         case .palette(let slot): color(forSlot: slot)
+        case .extended(let hue, let bright): rgb(forExtended: hue, bright: bright).map(Color.init)
         }
     }
+
+    func rgb(forExtended hue: ExtendedHue, bright: Bool) -> HexRGB? {
+        extendedColors?.rgb(hue, bright: bright)
+    }
+
+    private let extendedColors: ExtendedPalette.Colors?
+
+    /// Whether this appearance's palette is Lum's.
+    var isLum: Bool { extendedColors?.isLum ?? false }
+
+    /// Color matching's candidates, resolved on first use and shared by every
+    /// copy of this palette, so a render does not parse the theme's hex again.
+    private let candidateCache = CandidateCache()
+
+    func candidates(bright: Bool, resolve: () -> [PaletteHue: HexRGB]) -> [PaletteHue: HexRGB] {
+        if let cached = candidateCache.byBright[bright] { return cached }
+        let resolved = resolve()
+        candidateCache.byBright[bright] = resolved
+        return resolved
+    }
+
+    /// Whether pickers offer, and color matching considers, the extended
+    /// palette. A color already chosen from it resolves either way.
+    let usesExtendedPalette: Bool
 
     /// `foreground` at the given emphasis, for washes and hairlines drawn on
     /// the app's surface.
@@ -95,10 +121,13 @@ struct Palette {
     var divider: Color { surface(.divider) }
 
     /// Builds the palette for one appearance from a resolved terminal theme.
+    /// `extended` is the resolution of `definitions`; nil resolves it here.
     init(
         colorScheme: ColorScheme,
         definitions: GhosttyThemeResolver.ResolvedDefinitions?,
-        accentSlot: Int? = nil,
+        extended: ExtendedPalette.Resolved? = nil,
+        accent: SidebarTint? = nil,
+        usesExtendedPalette: Bool = false,
         isActive: Bool = true
     ) {
         background = ThemeChrome.background(for: colorScheme, in: definitions)
@@ -107,13 +136,20 @@ struct Palette {
         warning = ThemeChrome.paletteAccent(.warning, for: colorScheme, in: definitions) ?? .orange
         danger = ThemeChrome.paletteAccent(.danger, for: colorScheme, in: definitions) ?? .red
         success = ThemeChrome.paletteAccent(.success, for: colorScheme, in: definitions) ?? .green
+        let extended = ExtendedPalette.Resolved.resolving(extended, from: definitions)
+        extendedColors = ThemeChrome.extendedColors(for: colorScheme, in: extended)
         selection = isActive
-            ? ThemeChrome.accent(slot: accentSlot, for: colorScheme, in: definitions)
+            ? ThemeChrome.accent(accent, for: colorScheme, in: definitions, extended: extended)
             : foreground
+        self.usesExtendedPalette = usesExtendedPalette
         emphasis = EmphasisOpacities(colorScheme: colorScheme)
         self.colorScheme = colorScheme
         self.definitions = definitions
     }
+}
+
+private final class CandidateCache {
+    var byBright: [Bool: [PaletteHue: HexRGB]] = [:]
 }
 
 /// The emphasis scale's alpha values for one appearance.

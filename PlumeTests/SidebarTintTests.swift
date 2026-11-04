@@ -16,12 +16,18 @@ struct SidebarTintTests {
         )
     }
 
-    @Test(arguments: [SidebarTint.text, .palette(slot: 0), .palette(slot: 9), .palette(slot: 15)])
+    @Test(arguments: [
+        SidebarTint.text, .palette(slot: 0), .palette(slot: 9), .palette(slot: 15),
+        .extended(.peach, bright: false), .extended(.eggplant, bright: true),
+    ])
     func rawValueRoundTrips(_ tint: SidebarTint) {
         #expect(SidebarTint(rawValue: tint.rawValue) == tint)
     }
 
-    @Test(arguments: ["", "Text", "palette:", "palette:x", "palette:-1", "palette:16", "red"])
+    @Test(arguments: [
+        "", "Text", "palette:", "palette:x", "palette:-1", "palette:16", "red",
+        "extended:", "extended:text", "extended:text:mango", "extended:dim:peach", "extended:text:peach:x",
+    ])
     func unrecognizedRawValueIsNil(_ raw: String) {
         #expect(SidebarTint(rawValue: raw) == nil)
     }
@@ -37,6 +43,48 @@ struct SidebarTintTests {
         let task = TaskStore.createTask(in: context, siblings: [])
         task.tintRaw = "palette:99"
         #expect(task.tint == nil)
+
+        task.tint = .extended(.lemon, bright: true)
+        #expect(task.tintRaw == "extended:bright:lemon")
+        task.tintRaw = "extended:text:amf"
+        #expect(task.tint == .extended(.amf, bright: false))
+    }
+
+    @Test func wheelTintsPairEachHueWithItsBrightVariant() {
+        #expect(SidebarTint.wheel(.slot(3), bright: false) == .palette(slot: 3))
+        #expect(SidebarTint.wheel(.slot(3), bright: true) == .palette(slot: 11))
+        #expect(SidebarTint.wheel(.extended(.turteal), bright: true) == .extended(.turteal, bright: true))
+    }
+
+    @Test func theSixteenSlotGridRunsInHueOrder() {
+        let slots = PaletteSwatchGrid.rows(extended: false).map { row in
+            row.map { tint -> Int in
+                guard case .palette(let slot) = tint else { return -1 }
+                return slot
+            }
+        }
+        #expect(slots == [[0, 1, 3, 2, 6, 4, 5, 7], [8, 9, 11, 10, 14, 12, 13, 15]])
+    }
+
+    @Test func lumNamesReplaceTheSixANSIHuesOnly() {
+        let lum = (0...15).map { SidebarTint.palette(slot: $0).name(lum: true) }
+        #expect(lum == [
+            "Black", "Goji", "Lime", "Tangerine", "Blue raspberry", "Grape", "Food coloring", "White",
+            "Bright Black", "Bright Goji", "Bright Lime", "Bright Tangerine",
+            "Bright Blue raspberry", "Bright Grape", "Bright Food coloring", "Bright White",
+        ])
+        #expect(SidebarTint.palette(slot: 4).name == "Blue")
+        #expect(SidebarTint.extended(.amf, bright: true).name(lum: true) == "Bright AMF")
+        #expect(ExtendedHue.allCases.map { SidebarTint.extended($0, bright: false).name(lum: true) }
+            == ["Peach", "Lemon", "Turteal", "AMF", "Blueberry", "Eggplant"])
+        #expect(SidebarTint.text.name(lum: true) == "Text")
+    }
+
+    @Test func otherThemesNameExtendedHuesByTheirNeighbors() {
+        #expect(ExtendedHue.allCases.map { SidebarTint.extended($0, bright: false).name }
+            == ["Orange", "Yellow-green", "Cyan-green", "Cyan-blue", "Purple", "Pink"])
+        #expect(SidebarTint.extended(.blueberry, bright: true).name == "Bright Purple")
+        #expect(SidebarTint.palette(slot: 13).name == "Bright Magenta")
     }
 
     @Test func taskInheritsItsGroupsTint() throws {
@@ -142,8 +190,9 @@ struct SidebarIconsTests {
     }
 
     @Test func previewTintStandsInForTheSystemAccent() {
-        #expect(SidebarPreviewTint.effective(accentSlot: nil) == .text)
-        #expect(SidebarPreviewTint.effective(accentSlot: 4) == .palette(slot: 4))
+        #expect(SidebarPreviewTint.effective(accent: nil) == .text)
+        #expect(SidebarPreviewTint.effective(accent: .palette(slot: 4)) == .palette(slot: 4))
+        #expect(SidebarPreviewTint.effective(accent: .extended(.peach, bright: false)) == .extended(.peach, bright: false))
     }
 
     @Test func recordingPutsNewestFirst() {

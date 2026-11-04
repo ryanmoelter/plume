@@ -170,6 +170,11 @@ enum ThemeChrome {
         "Bright Blue", "Bright Magenta", "Bright Cyan", "Bright White",
     ]
 
+    /// Lum's names for its six ANSI hues, by normal slot.
+    static let lumSlotNames: [Int: String] = [
+        1: "Goji", 2: "Lime", 3: "Tangerine", 4: "Blue raspberry", 5: "Grape", 6: "Food coloring",
+    ]
+
     /// Exactly one palette slot, with no fallthrough to its bright variant:
     /// the user picked this color, not a role.
     static func paletteColor(
@@ -202,21 +207,66 @@ enum ThemeChrome {
         definition(for: colorScheme, in: definitions)?.palette[slot].flatMap(HexRGB.init(hex:))
     }
 
-    /// The accent color: the palette slot chosen in settings, or the system
-    /// accent when none is chosen or the theme lacks that slot.
+    /// The extended colors for `colorScheme` out of a resolution.
+    static func extendedColors(
+        for colorScheme: ColorScheme,
+        in resolved: ExtendedPalette.Resolved?
+    ) -> ExtendedPalette.Colors? {
+        colorScheme == .light ? resolved?.light : resolved?.dark
+    }
+
+    /// A tint's color in one theme, or nil where the theme has none.
+    static func tintRGB(
+        _ tint: SidebarTint,
+        in definition: GhosttyThemeDefinition?,
+        extended: ExtendedPalette.Colors?
+    ) -> HexRGB? {
+        switch tint {
+        case .text: definition.flatMap { HexRGB(hex: $0.foreground) }
+        case .palette(let slot): definition?.palette[slot].flatMap(HexRGB.init(hex:))
+        case .extended(let hue, let bright): extended?.rgb(hue, bright: bright)
+        }
+    }
+
+    /// The accent color: the palette color chosen in settings, or the system
+    /// accent when none is chosen or the theme lacks that color.
     /// An inactive window draws it in the text color instead, the way the
     /// system grays its own accent.
     static func accent(for colorScheme: ColorScheme, isActive: Bool = true) -> Color {
         guard isActive else { return foreground(for: colorScheme) ?? .primary }
-        return accent(slot: AppSettings.shared.accentPaletteSlot, for: colorScheme, in: GhosttyRuntime.shared.resolvedThemeDefinitions)
+        let runtime = GhosttyRuntime.shared
+        return accent(
+            AppSettings.shared.accentTint,
+            for: colorScheme,
+            in: runtime.resolvedThemeDefinitions,
+            extended: runtime.extendedPalette
+        )
     }
 
+    /// `extended` is the resolution of `definitions`, when the caller already
+    /// has one.
     static func accent(
-        slot: Int?,
+        _ tint: SidebarTint?,
         for colorScheme: ColorScheme,
-        in definitions: GhosttyThemeResolver.ResolvedDefinitions?
+        in definitions: GhosttyThemeResolver.ResolvedDefinitions?,
+        extended: ExtendedPalette.Resolved? = nil
     ) -> Color {
-        slot.flatMap { paletteColor(slot: $0, for: colorScheme, in: definitions) } ?? .accentColor
+        accentColor(tint, for: colorScheme, in: definitions, extended: extended) ?? .accentColor
+    }
+
+    private static func accentColor(
+        _ tint: SidebarTint?,
+        for colorScheme: ColorScheme,
+        in definitions: GhosttyThemeResolver.ResolvedDefinitions?,
+        extended: ExtendedPalette.Resolved?
+    ) -> Color? {
+        guard let tint else { return nil }
+        var colors: ExtendedPalette.Colors?
+        if case .extended = tint {
+            let resolved = ExtendedPalette.Resolved.resolving(extended, from: definitions)
+            colors = extendedColors(for: colorScheme, in: resolved)
+        }
+        return tintRGB(tint, in: definition(for: colorScheme, in: definitions), extended: colors).map(Color.init)
     }
 
     /// `accent(for:isActive:)` for AppKit drawing, resolving per appearance at
@@ -230,10 +280,11 @@ enum ThemeChrome {
                 fallback: .labelColor
             )
         }
-        let slot = AppSettings.shared.accentPaletteSlot
+        let tint = AppSettings.shared.accentTint
+        let extended = GhosttyRuntime.shared.extendedPalette
         return appearanceColor(
-            light: slot.flatMap { paletteColor(slot: $0, for: .light, in: definitions) },
-            dark: slot.flatMap { paletteColor(slot: $0, for: .dark, in: definitions) },
+            light: accentColor(tint, for: .light, in: definitions, extended: extended),
+            dark: accentColor(tint, for: .dark, in: definitions, extended: extended),
             fallback: .controlAccentColor
         )
     }

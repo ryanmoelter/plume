@@ -110,6 +110,8 @@ struct ReferenceChipPalette: Equatable {
             && lhs.linearStrategy == rhs.linearStrategy
             && lhs.palette.backgroundRGB == rhs.palette.backgroundRGB
             && lhs.palette.foregroundRGB == rhs.palette.foregroundRGB
+            && LinearStateColor.candidates(in: lhs.palette, bright: false)
+                == LinearStateColor.candidates(in: rhs.palette, bright: false)
     }
 
     var accentWash: Color { accent.opacity(ReferenceChipMetrics.accentWash) }

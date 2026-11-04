@@ -20,13 +20,18 @@ nonisolated enum LinearStateColor {
         6: HexRGB(red: 0.35, green: 0.78, blue: 0.98),
     ]
 
-    /// The candidate slot nearest the color, or nil when it is neutral.
-    static func nearestSlot(to color: HexRGB, among candidates: [Int: HexRGB]) -> Int? {
+    /// The candidate nearest the color, or nil when it is neutral.
+    static func nearest<Key: Hashable>(
+        to color: HexRGB,
+        among candidates: [Key: HexRGB],
+        by metric: (OKLab, OKLab) -> Double = { $0.distance(to: $1) }
+    ) -> Key? {
         let target = OKLab(color)
         guard target.chroma >= neutralChroma else { return nil }
         return candidates
-            .filter { OKLab($0.value).chroma >= neutralChroma }
-            .min { target.distance(to: OKLab($0.value)) < target.distance(to: OKLab($1.value)) }?
+            .map { (key: $0.key, lab: OKLab($0.value)) }
+            .filter { $0.lab.chroma >= neutralChroma }
+            .min { metric(target, $0.lab) < metric(target, $1.lab) }?
             .key
     }
 
@@ -48,6 +53,27 @@ nonisolated enum LinearStateColor {
     }
 
     static let minimumGap = 0.35
+
+    /// The theme's text or bright hues, with the extended palette's when it
+    /// is on. Only text hues fall back to `fallbackSlots`.
+    @MainActor
+    static func candidates(in colors: Palette, bright: Bool) -> [PaletteHue: HexRGB] {
+        colors.candidates(bright: bright) { resolveCandidates(in: colors, bright: bright) }
+    }
+
+    @MainActor
+    private static func resolveCandidates(in colors: Palette, bright: Bool) -> [PaletteHue: HexRGB] {
+        var candidates: [PaletteHue: HexRGB] = [:]
+        for slot in slots {
+            candidates[.slot(slot)] = bright ? colors.rgb(forSlot: slot + 8) : colors.rgb(forSlot: slot) ?? fallbackSlots[slot]
+        }
+        if colors.usesExtendedPalette {
+            for hue in ExtendedHue.allCases {
+                candidates[.extended(hue)] = colors.rgb(forExtended: hue, bright: bright)
+            }
+        }
+        return candidates
+    }
 
     struct OKLab {
         let l: Double
@@ -73,7 +99,36 @@ nonisolated enum LinearStateColor {
             self.b = b
         }
 
+        init(l: Double, chroma: Double, hue: Double) {
+            self.init(l: l, a: chroma * cos(hue), b: chroma * sin(hue))
+        }
+
         var chroma: Double { (a * a + b * b).squareRoot() }
+
+        /// OKLCH hue in radians, in (-π, π].
+        var hue: Double { atan2(b, a) }
+
+        /// The OKLCH midpoint: mean lightness and chroma, and the mean hue
+        /// going forward, in increasing hue, from `x` to `y`. Wheel neighbors
+        /// can sit more than 180° apart, where the shorter arc would cross the
+        /// opposite side of the wheel; a forward gap over 300° means the pair
+        /// came out slightly reversed, so that takes the shorter arc. A gray's
+        /// hue is noise, so a gray beside a color lends only lightness and
+        /// chroma, and two grays average in a/b.
+        static func midpoint(_ x: OKLab, _ y: OKLab) -> OKLab {
+            let l = (x.l + y.l) / 2
+            let chroma = (x.chroma + y.chroma) / 2
+            switch (x.chroma < LinearStateColor.neutralChroma, y.chroma < LinearStateColor.neutralChroma) {
+            case (true, true): return OKLab(l: l, a: (x.a + y.a) / 2, b: (x.b + y.b) / 2)
+            case (true, false): return OKLab(l: l, chroma: chroma, hue: y.hue)
+            case (false, true): return OKLab(l: l, chroma: chroma, hue: x.hue)
+            case (false, false): break
+            }
+            var delta = (y.hue - x.hue).truncatingRemainder(dividingBy: 2 * .pi)
+            if delta < 0 { delta += 2 * .pi }
+            if delta > 300 * .pi / 180 { delta -= 2 * .pi }
+            return OKLab(l: l, chroma: chroma, hue: x.hue + delta / 2)
+        }
 
         /// Unclamped linear-light sRGB components.
         private var linearRGB: (Double, Double, Double) {
@@ -116,6 +171,15 @@ nonisolated enum LinearStateColor {
         func distance(to other: OKLab) -> Double {
             let dl = (l - other.l) * 0.5
             return (dl * dl + (a - other.a) * (a - other.a) + (b - other.b) * (b - other.b)).squareRoot()
+        }
+
+        /// An OKLCH distance led by hue, with lightness and chroma only breaking
+        /// near ties, so a yellow stays yellow on a theme whose yellow is dim.
+        func hueDistance(to other: OKLab) -> Double {
+            var dh = abs(hue - other.hue)
+            if dh > .pi { dh = 2 * .pi - dh }
+            let (h, dl, dc) = (dh / .pi, (l - other.l) * 0.25, (chroma - other.chroma) * 0.25)
+            return (h * h + dl * dl + dc * dc).squareRoot()
         }
     }
 }

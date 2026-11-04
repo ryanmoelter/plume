@@ -187,7 +187,7 @@ private struct SidebarAppearanceEditor<Fields: View>: View {
     }
 }
 
-/// No color, the theme's text color, or one of its 16 palette slots.
+/// No color, the theme's text color, or a palette color.
 private struct SidebarTintPicker: View {
     @Binding var selection: SidebarTint?
     /// What a nil selection falls back to — a task's group color.
@@ -196,8 +196,12 @@ private struct SidebarTintPicker: View {
 
     @Environment(\.theme) private var theme
 
-    private var selectedSlot: Int? {
-        if case .palette(let slot) = selection { slot } else { nil }
+    private var extended: Bool {
+        theme.colors.usesExtendedPalette || selection?.isExtended == true
+    }
+
+    private var swatchSize: CGFloat {
+        extended ? PaletteSwatchGrid.compactSwatchSize : PaletteSwatchGrid.swatchSize
     }
 
     var body: some View {
@@ -214,12 +218,13 @@ private struct SidebarTintPicker: View {
                         help: inherited == nil ? "No color" : "The group's color",
                         plumeID: AccessibilityID.sidebarTintSwatch,
                         plumeLabel: "\(plumeLabel) none",
+                        size: swatchSize,
                         select: { selection = nil }
                     ) {
                         if inherited == nil {
                             Rectangle()
                                 .fill(.secondary)
-                                .frame(width: 1, height: PaletteSwatchGrid.swatchSize)
+                                .frame(width: 1, height: swatchSize)
                                 .rotationEffect(.degrees(45))
                         }
                     }
@@ -232,17 +237,21 @@ private struct SidebarTintPicker: View {
                         help: "The theme's text color",
                         plumeID: AccessibilityID.sidebarTintSwatch,
                         plumeLabel: "\(plumeLabel) text",
+                        size: swatchSize,
                         select: { selection = .text }
                     )
                 }
             }
             PaletteSwatchGrid(
-                colors: ThemeChrome.paletteSlots.map(theme.colors.color(forSlot:)),
+                color: theme.colors.color(for:),
                 ringColor: .primary,
-                selectedSlot: selectedSlot,
+                selection: selection,
+                extended: extended,
+                lumNames: theme.colors.isLum,
+                swatchSize: swatchSize,
                 plumeID: AccessibilityID.sidebarTintSwatch,
                 plumeLabel: plumeLabel,
-                onSelect: { selection = .palette(slot: $0) }
+                onSelect: { selection = $0 }
             )
         }
     }

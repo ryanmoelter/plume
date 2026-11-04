@@ -428,14 +428,42 @@ private struct CollapsibleSectionHeader: View, ThemedView {
 /// whole feed redrawing.
 private struct HomeGreetingHeader: View, ThemedView {
     @Environment(\.theme) var theme
+    #if DEBUG
+    @AppStorage(HomeGreeting.debugOverrideKey) private var debugOverride = ""
+    #endif
+
+    private func greeting(at date: Date) -> HomeGreeting {
+        #if DEBUG
+        if let forced = HomeGreeting(rawValue: debugOverride) { return forced }
+        #endif
+        return HomeGreeting(date: date)
+    }
+
+    @ViewBuilder
+    private func glyph(_ greeting: HomeGreeting, color: Color) -> some View {
+        let image = Image(systemName: greeting.symbolName)
+        let otherLayer = greeting.drawsOtherGlyphLayer ? colors.foreground : Color.clear
+        switch greeting.glyphLayer {
+        case .only:
+            image.foregroundStyle(color)
+        case .primary:
+            image.symbolRenderingMode(.palette).foregroundStyle(color, otherLayer)
+        case .secondary:
+            image.symbolRenderingMode(.palette).foregroundStyle(otherLayer, color)
+        }
+    }
 
     var body: some View {
         TimelineView(.everyMinute) { context in
-            let greeting = HomeGreeting(date: context.date)
+            let greeting = greeting(at: context.date)
             HStack(spacing: 6) {
                 Text(greeting.title)
-                Image(systemName: greeting.symbolName)
-                    .symbolRenderingMode(.multicolor)
+                if let rgb = greeting.glyphRGB(in: colors) {
+                    glyph(greeting, color: Color(rgb))
+                } else {
+                    Image(systemName: greeting.symbolName)
+                        .symbolRenderingMode(.multicolor)
+                }
             }
             .font(proseTypography.headline.font)
             .padding(.horizontal, HomeRow.horizontalPadding)
