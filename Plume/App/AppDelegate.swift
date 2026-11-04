@@ -39,6 +39,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         // App-lifetime, so it cannot leak or double-install the way a
         // per-tab monitor would across tab and task switches.
         TerminalShortcutMonitor.shared.install()
+        TerminalInteractionMonitor.shared.install()
 
         startApplyingShortcutBindings()
 

@@ -298,7 +298,7 @@ nonisolated enum InjectedContent: Equatable {
            let element = element(named: subagentMessageTag, in: trimmed) {
             return .agentMessage(name: nil, subagentID: attribute("from", in: element.attributes) ?? "")
         }
-        if trimmed.hasPrefix("<system-reminder") {
+        if Self.injectedWrapperTags.contains(where: { trimmed.hasPrefix("<\($0)") }) {
             return .systemNote
         }
         if trimmed.hasPrefix("[Request interrupted") {
@@ -312,15 +312,17 @@ nonisolated enum InjectedContent: Equatable {
         return isMeta ? .systemNote : .userMessage
     }
 
-    /// Complete `<system-reminder>` blocks at the front of a typed message,
-    /// and the prose after them. Claude Code prepends the worktree note this
-    /// way, so classifying the whole text would hide the user's prompt.
+    private static let injectedWrapperTags = ["system-reminder", "system_instruction"]
+
+    /// Complete `<system-reminder>` and `<system_instruction>` blocks at the
+    /// front of a typed message, and the prose after them. Claude Code
+    /// prepends the worktree note and Conductor its instructions this way, so
+    /// classifying the whole text would hide the user's prompt.
     static func splittingLeadingSystemReminders(_ text: String) -> (reminders: [String], rest: String) {
-        let open = "<system-reminder>"
-        let close = "</system-reminder>"
         var reminders: [String] = []
         var remaining = Substring(text.trimmingCharacters(in: .whitespacesAndNewlines))
-        while remaining.hasPrefix(open), let end = remaining.range(of: close) {
+        while let tag = injectedWrapperTags.first(where: { remaining.hasPrefix("<\($0)>") }),
+              let end = remaining.range(of: "</\(tag)>") {
             reminders.append(String(remaining[..<end.upperBound]))
             remaining = remaining[end.upperBound...].drop(while: { $0.isWhitespace })
         }

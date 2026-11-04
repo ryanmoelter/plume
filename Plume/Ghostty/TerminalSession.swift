@@ -132,6 +132,17 @@ final class TerminalSession {
         hostedView?.window != nil
     }
 
+    /// Whether the event is a key aimed at this terminal or a pointer event
+    /// landing inside its view.
+    func isTarget(of event: NSEvent) -> Bool {
+        guard let hostedView, let window = hostedView.window, event.window === window else { return false }
+        if event.type == .keyDown {
+            return (window.firstResponder as? NSView)?.isDescendant(of: hostedView) == true
+        }
+        let point = hostedView.superview?.convert(event.locationInWindow, from: nil) ?? .zero
+        return hostedView.hitTest(point) != nil
+    }
+
     var displayTitle: String {
         title.isEmpty ? "Terminal" : title
     }

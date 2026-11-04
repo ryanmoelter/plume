@@ -34,13 +34,14 @@ final class TerminalAlerts {
         var notifies: Bool
     }
 
-    /// A bell in the other pane of a split is on screen, so it is heard and
-    /// not notified, but it stays unread until that pane is focused.
+    /// A bell on screen is heard and not notified, but it always leaves an
+    /// unread mark, which the user's next interaction with the terminal (or
+    /// focus arriving from elsewhere) clears.
     static func response(toBellIn tabID: UUID, taskID: UUID, audience: NotificationAudience) -> BellResponse {
         let onScreen = NotificationSuppression.isOnScreen(tabID: tabID, taskID: taskID, audience: audience)
         return BellResponse(
             marksBell: !onScreen,
-            marksUnread: !UnreadStore.isSeen(tabID: tabID, taskID: taskID, audience: audience),
+            marksUnread: true,
             notifies: !onScreen
         )
     }
