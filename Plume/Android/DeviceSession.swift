@@ -594,6 +594,11 @@ final class DeviceSession {
         connection?.send(input)
     }
 
+    func paste(text: String) {
+        guard isConnected, !text.isEmpty else { return }
+        connection?.paste(text: text)
+    }
+
     func press(_ button: DeviceButton) {
         guard isConnected, let connection else { return }
         connection.press(button, phase: .down)

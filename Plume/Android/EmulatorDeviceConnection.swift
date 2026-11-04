@@ -43,6 +43,21 @@ nonisolated final class EmulatorDeviceConnection: DeviceConnecting {
         connection.press(button.hardwareButton, phase: phase.keyPhase)
     }
 
+    func paste(text: String) {
+        let connection = connection
+        Task {
+            do {
+                try await connection.setClipboard(text)
+            } catch {
+                EmulatorLog.error("setting the emulator clipboard failed: \(error)")
+                return
+            }
+            // setClipboard returns before the guest has the text, and nothing reports when it does.
+            try? await Task.sleep(for: EmulatorKeyMapper.clipboardSettleDelay)
+            for key in EmulatorKeyMapper.pasteChord { connection.send(.key(key.input)) }
+        }
+    }
+
     func rotate(to rotation: DeviceRotation) async throws {
         try await connection.rotate(to: rotation.emulatorRotation)
     }

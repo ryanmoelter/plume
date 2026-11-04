@@ -121,6 +121,8 @@ nonisolated protocol DeviceConnecting: AnyObject, Sendable {
     func frames(maxPixelSize: CGSize) -> AsyncThrowingStream<DeviceFrame, Error>
     func send(_ input: DeviceInput)
     func press(_ button: DeviceButton, phase: DeviceKeyPhase)
+    /// Sets the device's clipboard to `text` and pastes it into the focused field.
+    func paste(text: String)
     func rotate(to rotation: DeviceRotation) async throws
     /// Nil when the device has no such setting or it can't be read.
     func autoRotate() async -> Bool?

@@ -124,6 +124,16 @@ public actor EmulatorConnection {
         _ = try await client.setPhysicalModel(model, options: callOptions())
     }
 
+    /// Returns once the emulator has scheduled the change, before the guest's clipboard holds it.
+    public func setClipboard(_ text: String) async throws {
+        let client = try connectedClient()
+        var clip = Android_Emulation_Control_ClipData()
+        clip.text = text
+        var options = callOptions()
+        options.maxRequestMessageBytes = maxResponseBytes
+        _ = try await client.setClipboard(clip, options: options)
+    }
+
     /// The emulator often exits before it answers, so a dropped connection counts as success.
     public func shutDown() async throws {
         let client = try connectedClient()

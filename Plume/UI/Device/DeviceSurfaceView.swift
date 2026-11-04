@@ -204,16 +204,30 @@ final class DeviceSurfaceView: NSView, DeviceFrameSink {
     }
 
     /// Takes a ⌘ chord ahead of the menu bar, so one that isn't a Plume shortcut reaches the device as
-    /// Meta plus the key, even where an Edit or Window item binds it.
+    /// Meta plus the key, even where an Edit or Window item binds it. ⌘V pastes the Mac's clipboard
+    /// instead, on every kind of device.
     override func performKeyEquivalent(with event: NSEvent) -> Bool {
         guard event.type == .keyDown, event.modifierFlags.contains(.command), window?.firstResponder === self,
-              forwardsAndroidKeys
+              session?.isConnected == true
         else { return super.performKeyEquivalent(with: event) }
         if keepsShortcutOnMac(event) {
             releaseAndroidKeys()
             return false
         }
+        if DevicePasteShortcut.matches(characters: event.charactersIgnoringModifiers, flags: event.modifierFlags) {
+            // Consumed even with no text, so the chord never falls through to the device as Meta+V.
+            paste(nil)
+            return true
+        }
+        guard forwardsAndroidKeys else { return super.performKeyEquivalent(with: event) }
         return forward(type: .keyDown, event: event)
+    }
+
+    @objc func paste(_ sender: Any?) {
+        guard let session, session.isConnected, let text = DevicePasteShortcut.text(from: .general) else { return }
+        // Lifts the Meta that ⌘ put down, so the device sees a plain paste.
+        releaseAndroidKeys()
+        session.paste(text: text)
     }
 
     override func becomeFirstResponder() -> Bool {
@@ -305,6 +319,13 @@ extension DeviceSurfaceView: MenuShortcutYielding {
 
     func menuWillPerformShortcut() {
         releaseAndroidKeys()
+    }
+}
+
+extension DeviceSurfaceView: NSUserInterfaceValidations {
+    func validateUserInterfaceItem(_ item: NSValidatedUserInterfaceItem) -> Bool {
+        guard item.action == #selector(paste(_:)) else { return true }
+        return session?.isConnected == true && NSPasteboard.general.availableType(from: [.string]) != nil
     }
 }
 

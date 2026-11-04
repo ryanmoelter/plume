@@ -45,8 +45,9 @@ With `-no-window` the emulator runs `qemu-system-aarch64-headless` and renders w
 
 - Touches are in natural-orientation device pixels (`hw.lcd.width` × `hw.lcd.height`, from `getStatus().hardwareConfig`) whatever the rotation. `DeviceCoordinateMapper` undoes the aspect fit and the rotation. Pressure 1 is down; 0 lifts.
 - Rotation is `setPhysicalModel(ROTATION, [0, 0, z])` with z = 0, 90, 180 or −90 for portrait, landscape, reverse portrait and reverse landscape.
-- Keys go as `codeType: Mac` keydown/keyup, so holds and repeats work. Mac keycode 0 (`A`) is dropped — proto3 never serializes a zero — so it goes as evdev 30 instead. ⌘ chords are never forwarded; they stay with Plume's menus.
+- Keys go as `codeType: Mac` keydown/keyup, so holds and repeats work. Mac keycode 0 (`A`) is dropped — proto3 never serializes a zero — so it goes as evdev 30 instead. ⌘ chords are never forwarded; they stay with Plume's menus, except ⌘V, which pastes.
 - Named keys `GoHome`, `GoBack`, `AppSwitch` and `Power` work. `AudioVolumeUp`/`AudioVolumeDown` are accepted and ignored, so volume goes as evdev 115 and 114.
+- **Paste.** ⌘V and Edit ▸ Paste send the Mac clipboard's text with `setClipboard`, then, 150 ms later, Control-V as evdev keys (29 and 47, `EmulatorKeyMapper.pasteChord`). `setClipboard` returns once the emulator has scheduled the change, before the guest holds it, and nothing reports when it does, so the delay is a guess, not a measurement. Control-V is what stock text fields take as paste; the named `Paste` key relies on the guest's key layout mapping KEY_PASTE, and a `text` event drops anything outside printable ASCII and can overrun the keyboard buffer past about 1 KB, as the proto says. The paste needs the emulator's clipboard sharing, which is on by default. Not yet measured on a running emulator.
 - All input rides one `streamInputEvent` client stream, so a touch's down, moves and up cannot reorder.
 
 ## Hidden tabs
