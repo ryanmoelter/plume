@@ -55,6 +55,13 @@ nonisolated enum PhysicalDeviceIdentity {
     static func hardwareSerial(of identifier: String) -> String {
         isWifi(identifier) ? String(identifier.dropFirst(wifiPrefix.count)) : identifier
     }
+
+    /// A serial number many phones share, as some builds report, which can't tell phones apart.
+    static func isPlaceholderSerial(_ serial: String) -> Bool {
+        let trimmed = serial.trimmingCharacters(in: .whitespacesAndNewlines)
+        return trimmed.isEmpty || trimmed.allSatisfy { $0 == "0" }
+            || ["unknown", "0123456789abcdef"].contains(trimmed.lowercased())
+    }
 }
 
 extension PhysicalDevice {

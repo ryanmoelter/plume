@@ -91,7 +91,9 @@ final class WirelessPairing {
         phase = .waitingForScan
         let qr = qr
         work = Task { [weak self, adb, sleep, discovery] in
-            guard let adbURL = await discovery.adb() else {
+            let adbURL = await discovery.adb()
+            guard !Task.isCancelled else { return }
+            guard let adbURL else {
                 self?.phase = .failed(Self.adbMissing)
                 return
             }
@@ -132,7 +134,9 @@ final class WirelessPairing {
         }
         phase = .pairing
         work = Task { [weak self, discovery] in
-            guard let adbURL = await discovery.adb() else {
+            let adbURL = await discovery.adb()
+            guard !Task.isCancelled else { return }
+            guard let adbURL else {
                 self?.phase = .failed(Self.adbMissing)
                 return
             }
@@ -150,7 +154,9 @@ final class WirelessPairing {
         }
         phase = .connecting
         work = Task { [weak self, adb, discovery] in
-            guard let adbURL = await discovery.adb() else {
+            let adbURL = await discovery.adb()
+            guard !Task.isCancelled else { return }
+            guard let adbURL else {
                 self?.phase = .failed(Self.adbMissing)
                 return
             }
@@ -188,18 +194,20 @@ final class WirelessPairing {
         )
     }
 
-    /// `attempted` holds addresses already connected to, which the wait never connects again.
+    /// `attempted` holds addresses already connected to, which the wait never connects again. The
+    /// phone counts on the pairing host or on the host of the address the user entered.
     private func waitForPhone(
         adb adbURL: URL, host: String, connectAddress: String?, addressGrace: Duration, attempted: Set<String> = []
     ) async {
         let start = now()
         var attempted = attempted
         var connectFailure: String?
+        let hosts = Set([host] + (connectAddress.map { [ADBWireless.host(of: $0)] } ?? []))
         while true {
             await discovery.refresh()
-            let services = await adb.services(adb: adbURL).filter { $0.kind == .connect && $0.host == host }
+            let services = await adb.services(adb: adbURL).filter { $0.kind == .connect && hosts.contains($0.host) }
             guard !Task.isCancelled else { return }
-            if let phone = discovery.devices.first(where: { Self.isPhone($0, at: host, services: services) }) {
+            if let phone = discovery.devices.first(where: { Self.isPhone($0, on: hosts, services: services) }) {
                 phase = .connected(phone)
                 return
             }
@@ -226,9 +234,9 @@ final class WirelessPairing {
     }
 
     /// Already connected counts, so pairing a phone again finds it under either serial form.
-    private static func isPhone(_ device: PhysicalDevice, at host: String, services: [ADBMDNSService]) -> Bool {
+    private static func isPhone(_ device: PhysicalDevice, on hosts: Set<String>, services: [ADBMDNSService]) -> Bool {
         guard device.isReady, device.isNetwork else { return false }
-        if ADBWireless.address(device.serial) != nil { return ADBWireless.host(of: device.serial) == host }
+        if ADBWireless.address(device.serial) != nil { return hosts.contains(ADBWireless.host(of: device.serial)) }
         return services.contains { device.serial.hasPrefix($0.instance + ".") }
     }
 }

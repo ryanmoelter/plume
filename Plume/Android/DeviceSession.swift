@@ -164,6 +164,8 @@ final class DeviceSession {
     /// False once a Wi-Fi tab found its phone missing and adb's mDNS unavailable, since adb then
     /// can't reconnect a paired phone by itself.
     private(set) var wifiReconnectsByItself = true
+    /// False once a physical tab found its phone missing because no adb was found at all.
+    private(set) var adbFound = true
     var isPhysical: Bool { target?.isPhysical == true || isRemote }
     var isRemote: Bool {
         if case .remote = target { return true }
@@ -230,11 +232,15 @@ final class DeviceSession {
                     state = .notRunning
                 }
             case .physical(let identifier):
-                await physicalDiscovery.refresh(retryingFailedReads: true)
+                await physicalDiscovery.refreshListing()
                 guard !Task.isCancelled else { return }
-                if let adbURL = physicalDiscovery.adbURL, let serial = physicalDiscovery.readySerial(for: identifier) {
-                    await upgradeSavedAddress(identifier, readySerial: serial)
+                // A USB phone listed under the saved serial needs no Wi-Fi serial number read first.
+                if !physicalDiscovery.devices.contains(where: { $0.serial == identifier && $0.isReady && !$0.isNetwork }) {
+                    await physicalDiscovery.resolveListedSerialNumbers(retryingFailedReads: true)
                     guard !Task.isCancelled else { return }
+                }
+                if let adbURL = physicalDiscovery.adbURL, let serial = physicalDiscovery.readySerial(for: identifier) {
+                    upgradeSavedAddress(identifier, readySerial: serial)
                     let device = ResolvedDevice.physical(serial: serial, adbURL: adbURL)
                     if hasSinks || !waitingForSink {
                         connect(to: device)
@@ -244,6 +250,8 @@ final class DeviceSession {
                         state = .suspended
                     }
                 } else {
+                    let adbFound = physicalDiscovery.adbURL != nil
+                    if adbFound != self.adbFound { self.adbFound = adbFound }
                     if isWifi {
                         let reconnects = if let adbURL = physicalDiscovery.adbURL { await mdnsAvailable(adbURL) } else { false }
                         guard !Task.isCancelled else { return }
@@ -274,10 +282,10 @@ final class DeviceSession {
 
     /// A tab saved under a Wi-Fi address, because the serial number couldn't be read when it was
     /// picked, switches to `wifi:<serialno>` once it can be.
-    private func upgradeSavedAddress(_ identifier: String, readySerial serial: String) async {
+    private func upgradeSavedAddress(_ identifier: String, readySerial serial: String) {
         guard !PhysicalDeviceIdentity.isWifi(identifier), ADBWireless.isNetworkSerial(identifier) else { return }
-        let resolved = await physicalDiscovery.resolvedIdentifier(forSerial: serial)
-        guard !Task.isCancelled, PhysicalDeviceIdentity.isWifi(resolved), target == .physical(serial: identifier) else { return }
+        let resolved = physicalDiscovery.identifier(forSerial: serial)
+        guard PhysicalDeviceIdentity.isWifi(resolved), target == .physical(serial: identifier) else { return }
         choose(.physical(serial: resolved), displayName: displayName)
     }
 
@@ -477,12 +485,18 @@ final class DeviceSession {
     func attach(_ device: PhysicalDevice) {
         disconnect()
         state = .locating
+        let targetBeforePick = target
         runWork { [weak self] in
             guard let self else { return }
             let identifier = await physicalDiscovery.resolvedIdentifier(forSerial: device.serial)
             guard !Task.isCancelled else {
                 // Whatever cancelled the pick and set no state of its own leaves the tab as it was.
                 if workTask == nil, state == .locating { state = target == nil ? .needsDevice : .notRunning }
+                return
+            }
+            // Something else chose a device meanwhile, as `devices.show` can; it wins over the pick.
+            guard target == targetBeforePick, state == .locating else {
+                if state == .locating { locate() }
                 return
             }
             choose(.physical(serial: identifier), displayName: device.displayName)

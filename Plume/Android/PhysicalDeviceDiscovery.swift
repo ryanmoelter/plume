@@ -31,6 +31,8 @@ final class PhysicalDeviceDiscovery {
     private enum SerialLookup {
         case running(Task<String?, Never>)
         case failed(at: ContinuousClock.Instant)
+        /// The phone reports a placeholder serial number, so reading it again won't help.
+        case placeholder
     }
 
     init(
@@ -68,6 +70,12 @@ final class PhysicalDeviceDiscovery {
     /// `retryingFailedReads` reads again at once where a recent read failed, for a caller that
     /// is about to tell the user the phone isn't there.
     func refresh(retryingFailedReads: Bool = false) async {
+        await refreshListing()
+        await resolveListedSerialNumbers(retryingFailedReads: retryingFailedReads)
+    }
+
+    /// Lists and publishes without waiting for any serial number.
+    func refreshListing() async {
         startedRefreshes += 1
         let refresh = startedRefreshes
         let listing = await list()
@@ -75,7 +83,6 @@ final class PhysicalDeviceDiscovery {
             publishedRefresh = refresh
             publish(listing)
         }
-        await resolveListedHardwareSerials(retryingFailure: retryingFailedReads)
     }
 
     /// The adb this discovery lists with, listing once if it hasn't yet.
@@ -105,6 +112,10 @@ final class PhysicalDeviceDiscovery {
     /// The phone's serial number a tab identifier names, when known: the part after `wifi:`, a
     /// USB serial as is, or the read serial number of a Wi-Fi adb serial, listed now or before.
     func hardwareSerial(ofIdentifier identifier: String) -> String? {
+        knownHardwareSerial(ofIdentifier: identifier).flatMap { PhysicalDeviceIdentity.isPlaceholderSerial($0) ? nil : $0 }
+    }
+
+    private func knownHardwareSerial(ofIdentifier identifier: String) -> String? {
         if PhysicalDeviceIdentity.isWifi(identifier) { return PhysicalDeviceIdentity.hardwareSerial(of: identifier) }
         guard ADBWireless.isNetworkSerial(identifier) else { return identifier }
         if let hardware = hardwareSerials[identifier] { return hardware }
@@ -170,10 +181,11 @@ final class PhysicalDeviceDiscovery {
         }
     }
 
-    private func resolveListedHardwareSerials(retryingFailure: Bool) async {
+    /// Waits for the serial numbers of the listed ready Wi-Fi devices, reading those not known.
+    func resolveListedSerialNumbers(retryingFailedReads: Bool) async {
         guard let adb = adbURL else { return }
         let lookups = devices.filter { $0.isNetwork && $0.isReady }.compactMap { device in
-            startLookup(of: device.serial, adb: adb, retryingFailure: retryingFailure).map { (device.serial, $0) }
+            startLookup(of: device.serial, adb: adb, retryingFailure: retryingFailedReads).map { (device.serial, $0) }
         }
         for (serial, lookup) in lookups { await finish(lookup, of: serial) }
     }
@@ -187,6 +199,8 @@ final class PhysicalDeviceDiscovery {
             return lookup
         case .failed(let at) where !retryingFailure && now() - at < Self.serialRetryDelay:
             return nil
+        case .placeholder:
+            return nil
         case .failed, nil:
             let lookup = Task { [serialNumber] in await serialNumber(adb, serial) }
             serialLookups[serial] = .running(lookup)
@@ -198,7 +212,9 @@ final class PhysicalDeviceDiscovery {
         let hardware = await lookup.value
         // A lookup dropped while it ran belongs to a connection adb no longer lists.
         guard case .running(let current) = serialLookups[serial], current == lookup else { return }
-        if let hardware {
+        if let hardware, PhysicalDeviceIdentity.isPlaceholderSerial(hardware) {
+            serialLookups[serial] = .placeholder
+        } else if let hardware {
             serialLookups[serial] = nil
             hardwareSerials[serial] = hardware
             remember(serial, hardware: hardware)

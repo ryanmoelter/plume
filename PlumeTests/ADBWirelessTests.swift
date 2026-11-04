@@ -299,6 +299,33 @@ struct PhysicalDeviceIdentityTests {
         #expect(discovery.readySerial(for: "wifi:2B021FDH200A2K") == wifi.serial)
     }
 
+    @Test func placeholderSerialNumbersNameNoPhone() {
+        for placeholder in ["", "  ", "unknown", "UNKNOWN", "0123456789ABCDEF", "0000000000"] {
+            #expect(PhysicalDeviceIdentity.isPlaceholderSerial(placeholder), "\(placeholder)")
+        }
+        #expect(!PhysicalDeviceIdentity.isPlaceholderSerial("2B021FDH200A2K"))
+    }
+
+    @Test func phonesReportingAPlaceholderSerialNumberStayApart() async {
+        let first = PhysicalDevice(serial: "192.168.1.20:41234", state: .ready, model: nil)
+        let second = PhysicalDevice(serial: "192.168.1.30:41234", state: .ready, model: nil)
+        let reads = SerialReadCounter()
+        let discovery = PhysicalDeviceDiscovery(
+            list: { [adb] in ADBListing(adbURL: adb, devices: [first, second]) },
+            serialNumber: { _, _ in
+                reads.increment()
+                return "0123456789ABCDEF"
+            }
+        )
+        await discovery.refresh()
+        await discovery.refresh(retryingFailedReads: true)
+        #expect(reads.value == 2)
+        #expect(discovery.phones(in: discovery.devices) == [first, second])
+        #expect(discovery.identifier(forSerial: first.serial) == first.serial)
+        #expect(!discovery.namesSamePhone(first.serial, second.serial))
+        #expect(discovery.readySerial(for: "wifi:0123456789ABCDEF") == nil)
+    }
+
     @Test func theListIsPublishedBeforeSerialNumbersAreRead() async {
         let wifi = PhysicalDevice(serial: "192.168.1.20:41234", state: .ready, model: nil)
         let gate = Gate()
@@ -516,6 +543,61 @@ struct WifiDeviceSessionTests {
         #expect(session.state == .needsDevice)
         #expect(session.target == nil)
         #expect(connected.isEmpty)
+    }
+
+    @Test func aPickYieldsToADeviceChosenWhileItReadsTheSerialNumber() async {
+        let wifi = PhysicalDevice(serial: "192.168.1.20:41234", state: .ready, model: "Pixel_9")
+        let usb = PhysicalDevice(serial: "R58M123456A", state: .ready, model: "Galaxy")
+        let listing = ListingBox(ADBListing(adbURL: adb, devices: [wifi, usb]))
+        let gate = Gate()
+        let reads = SerialReadCounter()
+        let discovery = PhysicalDeviceDiscovery(list: { listing.list() }, serialNumber: { _, _ in
+            reads.increment()
+            await gate.wait()
+            return "2B021FDH200A2K"
+        })
+        var connected: [String] = []
+        let session = session(target: nil, discovery: discovery) { connected.append($0) }
+        let sink = FakeSink(size: CGSize(width: 100, height: 200))
+        session.addSink(sink)
+        session.attach(wifi)
+        await waitUntilTrue { reads.value == 1 }
+        session.point(at: .physical(serial: usb.serial), displayName: "Galaxy")
+        await gate.open()
+        await waitUntilTrue { session.state == .connected }
+        #expect(session.target == .physical(serial: usb.serial))
+        #expect(connected == [usb.serial])
+        withExtendedLifetime(sink) {}
+    }
+
+    @Test func aUSBTabConnectsWithoutWaitingForWifiSerialNumbers() async {
+        let usb = PhysicalDevice(serial: "R58M123456A", state: .ready, model: "Galaxy")
+        let wifi = PhysicalDevice(serial: "192.168.1.20:41234", state: .ready, model: "Pixel_9")
+        let listing = ListingBox(ADBListing(adbURL: adb, devices: [wifi, usb]))
+        let gate = Gate()
+        let discovery = PhysicalDeviceDiscovery(list: { listing.list() }, serialNumber: { _, _ in
+            await gate.wait()
+            return "2B021FDH200A2K"
+        })
+        var connected: [String] = []
+        let session = session(target: .physical(serial: usb.serial), discovery: discovery) { connected.append($0) }
+        let sink = FakeSink(size: CGSize(width: 100, height: 200))
+        session.addSink(sink)
+        session.start()
+        await waitUntilTrue { session.state == .connected }
+        #expect(session.state == .connected)
+        #expect(connected == [usb.serial])
+        await gate.open()
+        withExtendedLifetime(sink) {}
+    }
+
+    @Test func aPhysicalTabWithoutAdbSaysSo() async {
+        let discovery = PhysicalDeviceDiscovery(list: { ADBListing(adbURL: nil, devices: []) }, serialNumber: { _, _ in nil })
+        let session = session(target: .physical(serial: "wifi:2B021FDH200A2K"), discovery: discovery) { _ in }
+        session.start()
+        await waitUntilTrue { session.state == .notRunning }
+        #expect(session.state == .notRunning)
+        #expect(!session.adbFound)
     }
 
     @Test func aWifiTabWhoseDeviceIsGoneIsNotRunning() async {

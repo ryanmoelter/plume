@@ -273,6 +273,40 @@ struct WirelessPairingTests {
         #expect(pairing.returnKeyAction == .pair)
     }
 
+    @Test func aPairCancelledWhileFindingAdbNeverPairs() async {
+        let fake = FakeWireless()
+        let gate = PairingGate()
+        let listing = fake.listing
+        let pairing = WirelessPairing(
+            adb: fake,
+            discovery: PhysicalDeviceDiscovery(
+                list: {
+                    await gate.wait()
+                    return listing.list()
+                },
+                serialNumber: { _, _ in nil }
+            ),
+            sleep: { _ in await Task.yield() }
+        )
+        pairing.pair(address: "192.168.1.20:37123", code: "123456")
+        pairing.cancel()
+        await gate.open()
+        try? await Task.sleep(for: .milliseconds(100))
+        #expect(pairing.phase == .idle)
+        #expect(fake.pairs.isEmpty)
+    }
+
+    @Test func aPhoneOnTheEnteredAddressesHostCountsAsPaired() async {
+        let fake = FakeWireless()
+        let phone = PhysicalDevice(serial: "192.168.1.21:41234", state: .ready, model: "Pixel_9")
+        fake.connected = phone
+        let pairing = makePairing(fake)
+        pairing.pair(address: "192.168.1.20:37123", code: "123456", connectAddress: "192.168.1.21:41234")
+        await waitUntil { pairing.phase == .connected(phone) }
+        #expect(pairing.phase == .connected(phone))
+        #expect(fake.connects == ["192.168.1.21:41234"])
+    }
+
     @Test func aMalformedConnectAddressIsRejectedBeforePairing() {
         let fake = FakeWireless()
         let pairing = makePairing(fake)
@@ -314,5 +348,21 @@ struct WirelessPairingTests {
         #expect(message?.contains("Connection refused") == true)
         #expect(fake.connects == [phoneAddress])
         #expect(time.now - started <= WirelessPairing.connectDeadline + WirelessPairing.pollInterval)
+    }
+}
+
+private actor PairingGate {
+    private var isOpen = false
+    private var waiters: [CheckedContinuation<Void, Never>] = []
+
+    func wait() async {
+        guard !isOpen else { return }
+        await withCheckedContinuation { waiters.append($0) }
+    }
+
+    func open() {
+        isOpen = true
+        waiters.forEach { $0.resume() }
+        waiters.removeAll()
     }
 }
