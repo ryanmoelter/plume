@@ -33,7 +33,7 @@
 ## Owners
 
 - **A Plume tab**: `{"tab": <PLUME_TAB_ID>, "app": <PLUME_SOCKET>}`. The socket names the app that owns the tab, so the same tab ID in another build is another owner.
-- **A label**: `{"label": "…"}`, from `--owner`, else the enclosing git worktree's path.
+- **A label**: `{"label": "…"}`, from `--owner`, else the enclosing git worktree's path. A remote claim's `--owner` names a tab instead, since only a tab holds a remote device.
 
 **The app only ever touches leases whose `owner.app` is its own socket** (`CLIServer.shared.socketPath`). A debug build and the installed app share the registry but never sweep, reap or release each other's leases. An app whose CLI server failed to start touches none.
 
@@ -61,12 +61,13 @@ Reading a physical device's form takes `adb shell` round trips, so only `claim -
 
 A remote lease always belongs to a Plume tab, because the reservation behind it is billed and must end with the tab. `claim --kind=remote` runs in this order:
 
-1. The tool checks the registry under the lock. A remote lease the tab already holds is renewed and printed, once its app has extended the reservation (see Renewing). A `--model` other than the held lease's fails, naming the held device, until it is released. A pending `claim:` entry of the tab's with an `error` is dropped, so the claim starts afresh.
-2. The tool sends `devices.reserve` to the tab's app, even while one of the tab's claims is still reserving; the app joins that claim (see below), unless `--model` names another model, which fails. The app resolves the model and project, picks or opens a device tab, writes `pending["claim:<claimID>"]` (owner, model, device tab, 15-minute expiry), and only then answers with the claim ID and starts the reservation in the device tab's session.
-3. The tool polls `registry.json` every second without the lock, and pings the app every 15 seconds.
-4. When the device reaches adb, the session reports it (`DeviceSession.onReservationEvent`), and the coordinator replaces the pending entry with `devices["remote:<reservationID>"]`. The lease carries the claim ID, the device tab, and whether the claim created that tab. The tool sees the lease and prints its serial.
+1. The tool finds the tab. It is the calling tab, unless `--owner` names one by its UUID (or as `Plume tab <uuid>`). A tab named from outside it is looked up among the remote leases, so it reaches its own app's socket, and it may only claim again what it holds. An `--owner` that is no tab ID fails.
+2. The tool checks the registry under the lock. A remote lease the tab already holds is renewed and printed, once its app has extended the reservation (see Renewing). A `--model` other than the held lease's fails, naming the held device, until it is released, and so does a `--form` other than the lease's recorded `form`. A pending `claim:` entry of the tab's with an `error` is dropped, so the claim starts afresh. A tab named from outside it stops here: with no lease to renew, it exits 1 without reserving.
+3. The tool sends `devices.reserve` to the tab's app, even while one of the tab's claims is still reserving; the app joins that claim (see below), unless `--model` or `--form` differs from the claim's, which fails. The app resolves the model and project, picks or opens a device tab, writes `pending["claim:<claimID>"]` (owner, model, device tab, 15-minute expiry), and only then answers with the claim ID and starts the reservation in the device tab's session. With `--form` and no `--model`, it loads the catalog and takes the model last reserved if it has that form, else that form's highest API level. The catalog has no form field, so the form comes from the model's name (`RemoteDeviceModel.FormFactor`).
+4. The tool polls `registry.json` every second without the lock, and pings the app every 15 seconds.
+5. When the device reaches adb, the session reports it (`DeviceSession.onReservationEvent`), and the coordinator replaces the pending entry with `devices["remote:<reservationID>"]`. The lease carries the claim ID, the device tab, whether the claim created that tab, and the model's form when the catalog named the model. The tool sees the lease and prints its serial.
 
-The claim lives in the coordinator's memory from step 2 until the device connects. A device tab holds one claim at a time, and a second `devices.reserve` from a tab whose claim is still reserving returns that claim's ID instead of starting another reservation, writing its pending entry again if a long reservation outlasted it. `devices.reserve` gives up without reserving if loading the catalog took 25 seconds, since the tool stops waiting for an answer at 30. If the device connects after the pending entry was reaped or the tool gave up, the lease is still written, and the next claim from that tab finds it.
+The claim lives in the coordinator's memory from step 3 until the device connects. A device tab holds one claim at a time, and a second `devices.reserve` from a tab whose claim is still reserving returns that claim's ID instead of starting another reservation, writing its pending entry again if a long reservation outlasted it. `devices.reserve` gives up without reserving if loading the catalog took 25 seconds, since the tool stops waiting for an answer at 30. If the device connects after the pending entry was reaped or the tool gave up, the lease is still written, and the next claim from that tab finds it.
 
 The session reports three events, which keep the lease in step with the reservation:
 
