@@ -47,12 +47,18 @@ public enum ScrcpyControlMessage: Sendable, Hashable {
     case expandNotificationPanel
     case expandSettingsPanel
     case collapsePanels
+    /// `paste` makes the server press KEYCODE_PASTE once the clipboard is set (Android 7 and later).
+    /// A nonzero `sequence` asks for an `ackClipboard`. Longer text is truncated at a character
+    /// boundary to the server's limit.
+    case setClipboard(sequence: UInt64 = 0, paste: Bool, text: String)
     case setDisplayPower(on: Bool)
     case rotateDevice
     /// Restarts the encoder, so the next packets are a fresh session, config and key frame.
     case resetVideo
 
     public static let injectTextMaxLength = 300
+    /// `SC_CONTROL_MSG_CLIPBOARD_TEXT_MAX_LENGTH`: the 256 KiB message limit less the 14-byte header.
+    public static let clipboardTextMaxLength = (1 << 18) - 14
 
     enum TypeCode: UInt8 {
         case injectKeycode = 0
@@ -63,6 +69,7 @@ public enum ScrcpyControlMessage: Sendable, Hashable {
         case expandNotificationPanel = 5
         case expandSettingsPanel = 6
         case collapsePanels = 7
+        case setClipboard = 9
         case setDisplayPower = 10
         case rotateDevice = 11
         case resetVideo = 17
@@ -105,6 +112,13 @@ public enum ScrcpyControlMessage: Sendable, Hashable {
             out.u8(TypeCode.expandSettingsPanel.rawValue)
         case .collapsePanels:
             out.u8(TypeCode.collapsePanels.rawValue)
+        case let .setClipboard(sequence, paste, text):
+            let bytes = Self.utf8Truncated(text, maxBytes: Self.clipboardTextMaxLength)
+            out.u8(TypeCode.setClipboard.rawValue)
+            out.u64(sequence)
+            out.u8(paste ? 1 : 0)
+            out.u32(UInt32(bytes.count))
+            out.bytes(bytes)
         case let .setDisplayPower(on):
             out.u8(TypeCode.setDisplayPower.rawValue)
             out.u8(on ? 1 : 0)
@@ -131,7 +145,7 @@ public enum ScrcpyControlMessage: Sendable, Hashable {
     }
 
     static func utf8Truncated(_ text: String, maxBytes: Int) -> [UInt8] {
-        let bytes = Array(text.utf8)
+        let bytes = Array(text.utf8.prefix(maxBytes + 1))
         guard bytes.count > maxBytes else { return bytes }
         var end = maxBytes
         // Back off any continuation bytes (10xxxxxx) so the cut lands on a character start.

@@ -10,6 +10,7 @@ nonisolated final class FakeConnection: DeviceConnecting, @unchecked Sendable {
     private var _continuations: [AsyncThrowingStream<DeviceFrame, Error>.Continuation] = []
     private var _inputs: [DeviceInput] = []
     private var _presses: [(DeviceButton, DeviceKeyPhase)] = []
+    private var _pastes: [String] = []
     private var _rotations: [DeviceRotation] = []
     private var _shutDownCount = 0
     private var _autoRotate: Bool? = true
@@ -24,6 +25,7 @@ nonisolated final class FakeConnection: DeviceConnecting, @unchecked Sendable {
     var frameRequests: [CGSize] { lock.withLock { _frameRequests } }
     var inputs: [DeviceInput] { lock.withLock { _inputs } }
     var presses: [(DeviceButton, DeviceKeyPhase)] { lock.withLock { _presses } }
+    var pastes: [String] { lock.withLock { _pastes } }
     var rotations: [DeviceRotation] { lock.withLock { _rotations } }
     var shutDownCount: Int { lock.withLock { _shutDownCount } }
     var closeCount: Int { lock.withLock { _closeCount } }
@@ -51,6 +53,7 @@ nonisolated final class FakeConnection: DeviceConnecting, @unchecked Sendable {
 
     func send(_ input: DeviceInput) { lock.withLock { _inputs.append(input) } }
     func press(_ button: DeviceButton, phase: DeviceKeyPhase) { lock.withLock { _presses.append((button, phase)) } }
+    func paste(text: String) { lock.withLock { _pastes.append(text) } }
     func rotate(to rotation: DeviceRotation) async throws { lock.withLock { _rotations.append(rotation) } }
     func autoRotate() async -> Bool? { lock.withLock { _autoRotate } }
     func setAutoRotate(_ enabled: Bool) async -> Bool {
@@ -381,6 +384,17 @@ struct DeviceSessionTests {
         await waitUntil { h.session.state == .connected }
         h.session.send(wheel)
         #expect(h.fake.inputs == [wheel])
+    }
+
+    @Test func pasteReachesTheConnectionOnlyWhileConnectedAndNonEmpty() async {
+        let h = Harness()
+        h.session.paste(text: "early")
+        #expect(h.fake.pastes.isEmpty)
+
+        await h.connected()
+        h.session.paste(text: "")
+        h.session.paste(text: "hello\nworld")
+        #expect(h.fake.pastes == ["hello\nworld"])
     }
 
     @Test func pressSendsDownThenUp() async {

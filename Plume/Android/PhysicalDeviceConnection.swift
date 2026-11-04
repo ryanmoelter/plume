@@ -99,6 +99,10 @@ nonisolated final class PhysicalDeviceConnection: DeviceConnecting {
         connection.send(.injectKeycode(action: phase.androidAction, keycode: keycode))
     }
 
+    func paste(text: String) {
+        connection?.send(.setClipboard(paste: true, text: text))
+    }
+
     /// scrcpy can only toggle between portrait and landscape, so every request flips the device.
     func rotate(to rotation: DeviceRotation) async throws {
         await connection?.rotate()

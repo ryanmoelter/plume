@@ -1,6 +1,7 @@
 import CoreGraphics
 import EmulatorControl
 import Foundation
+import Synchronization
 
 /// A running emulator over its gRPC control service.
 nonisolated final class EmulatorDeviceConnection: DeviceConnecting {
@@ -26,21 +27,63 @@ nonisolated final class EmulatorDeviceConnection: DeviceConnecting {
             let point = TouchPoint(
                 x: Int32(location.point.x), y: Int32(location.point.y), identifier: 0, pressure: phase == .up ? 0 : 1
             )
-            connection.send(.touch([point]))
+            submit(.input(.touch([point])))
         case .scroll(let location, let dx, let dy):
             if let location {
-                connection.send(.mouse(x: Int32(location.point.x), y: Int32(location.point.y), buttons: 0))
+                submit(.input(.mouse(x: Int32(location.point.x), y: Int32(location.point.y), buttons: 0)))
             }
-            connection.send(.wheel(dx: dx, dy: dy))
+            submit(.input(.wheel(dx: dx, dy: dy)))
         case .emulatorKey(let key):
-            connection.send(.key(key.input))
+            submit(.input(.key(key.input)))
         case .androidKey:
             break
         }
     }
 
     func press(_ button: DeviceButton, phase: DeviceKeyPhase) {
-        connection.press(button.hardwareButton, phase: phase.keyPhase)
+        submit(.button(button.hardwareButton, phase.keyPhase))
+    }
+
+    func paste(text: String) {
+        order.withLock { perform($0.paste(text)) }
+    }
+
+    private enum OrderedInput: Sendable {
+        case input(EmulatorInput)
+        case button(HardwareButton, KeyPhase)
+    }
+
+    /// setClipboard returns before the guest has the text, and nothing reports when it does.
+    private static let clipboardSettleDelay: Duration = .milliseconds(150)
+
+    private let order = Mutex(EmulatorInputOrder<OrderedInput>())
+
+    private func submit(_ input: OrderedInput) {
+        order.withLock { perform($0.input(input)) }
+    }
+
+    /// Runs under `order`'s lock, so a step released by a finished paste can't be overtaken by new input.
+    private func perform(_ steps: [EmulatorInputOrder<OrderedInput>.Step]) {
+        for step in steps {
+            switch step {
+            case .deliver(.input(let input)): connection.send(input)
+            case .deliver(.button(let button, let phase)): connection.press(button, phase: phase)
+            case .startPaste(let text): startPaste(text)
+            }
+        }
+    }
+
+    private func startPaste(_ text: String) {
+        Task {
+            do {
+                try await connection.setClipboard(text)
+                try? await Task.sleep(for: Self.clipboardSettleDelay)
+                for key in EmulatorKeyMapper.pasteChord { connection.send(.key(key.input)) }
+            } catch {
+                EmulatorLog.error("setting the emulator clipboard failed: \(error)")
+            }
+            order.withLock { perform($0.pasteFinished()) }
+        }
     }
 
     func rotate(to rotation: DeviceRotation) async throws {

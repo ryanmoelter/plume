@@ -28,6 +28,17 @@ nonisolated enum EmulatorKeyMapper {
         57: .capsLock,
     ]
 
+    /// Control-V, which every stock text field takes as paste. The emulator's named "Paste" key
+    /// relies on the guest's key layout mapping KEY_PASTE, and its text event drops anything but ASCII.
+    static let pasteChord: [DeviceKey] = [
+        .evdev(keyCode: evdevLeftControl, phase: .down),
+        .evdev(keyCode: evdevKeyV, phase: .down),
+        .evdev(keyCode: evdevKeyV, phase: .up),
+        .evdev(keyCode: evdevLeftControl, phase: .up),
+    ]
+    private static let evdevLeftControl: Int32 = 29
+    private static let evdevKeyV: Int32 = 47
+
     static func keyEvents(
         type: KeyEventType,
         keyCode: UInt16,
