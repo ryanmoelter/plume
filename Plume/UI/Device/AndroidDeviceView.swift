@@ -217,7 +217,9 @@ struct AndroidDeviceView: View, ThemedView {
         case .notRunning where session.isPhysical:
             status(
                 "\(session.displayName ?? "This device") isn't connected.",
-                detail: "Connect it over USB and allow USB debugging on the device."
+                detail: session.isWifi
+                    ? "Turn on Wireless debugging on the device, on the same network as this Mac."
+                    : "Connect it over USB and allow USB debugging on the device."
             ) {
                 Button("Try Again") { session.locate() }
                     .plumeID(AccessibilityID.deviceRetryButton)

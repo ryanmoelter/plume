@@ -154,6 +154,10 @@ final class DeviceSession {
     }
 
     var isConnected: Bool { state == .connected }
+    var isWifi: Bool {
+        guard case .physical(let identifier) = target else { return false }
+        return PhysicalDeviceIdentity.isWifi(identifier) || ADBWireless.isNetworkSerial(identifier)
+    }
     var isPhysical: Bool { target?.isPhysical == true || isRemote }
     var isRemote: Bool {
         if case .remote = target { return true }
@@ -218,11 +222,10 @@ final class DeviceSession {
                 } else {
                     state = .notRunning
                 }
-            case .physical(let serial):
+            case .physical(let identifier):
                 await physicalDiscovery.refresh()
                 guard !Task.isCancelled else { return }
-                if let adbURL = physicalDiscovery.adbURL,
-                   physicalDiscovery.devices.contains(where: { $0.serial == serial && $0.isReady }) {
+                if let adbURL = physicalDiscovery.adbURL, let serial = physicalDiscovery.readySerial(for: identifier) {
                     let device = ResolvedDevice.physical(serial: serial, adbURL: adbURL)
                     if hasSinks || !waitingForSink {
                         connect(to: device)
@@ -443,7 +446,7 @@ final class DeviceSession {
 
     /// Connects without listing adb again, since the picker just did.
     func attach(_ device: PhysicalDevice) {
-        choose(.physical(serial: device.serial), displayName: device.displayName)
+        choose(.physical(serial: physicalDiscovery.identifier(for: device)), displayName: device.displayName)
         guard let adbURL = physicalDiscovery.adbURL else {
             locate(waitingForSink: false)
             return

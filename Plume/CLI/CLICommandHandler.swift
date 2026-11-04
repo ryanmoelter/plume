@@ -290,7 +290,7 @@ final class CLICommandHandler {
     private static func deviceTarget(_ params: CLIRequest.ShowDevice) -> DeviceTarget? {
         switch params.kind {
         case .emulator: params.avdID.map { .emulator(avdID: $0) }
-        case .physical: params.serial.map { .physical(serial: $0) }
+        case .physical: params.serial.map { .physical(serial: PhysicalDeviceDiscovery.shared.identifier(forSerial: $0)) }
         case .remote: params.reservationID.map { .remote(reservationID: $0) }
         }
     }
