@@ -533,6 +533,11 @@ final class ComposerNSTextView: NSTextView {
     /// `NSTextView` turns them into an attachment inside the text storage —
     /// the composer's `String` binding has no way to carry one.
     override func readSelection(from pasteboard: NSPasteboard) -> Bool {
+        if editsMarkdown, let pasted = pasteboard.string(forType: .string),
+           let result = ComposerInlineFormatting.pasteLink(pasted, in: string, selection: selectedRange()) {
+            apply(result)
+            return true
+        }
         let images = attachableImages(on: pasteboard)
         guard !images.isEmpty else { return super.readSelection(from: pasteboard) }
         onAttachImages?(images)
