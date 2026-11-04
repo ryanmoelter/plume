@@ -9,16 +9,18 @@ import Foundation
 /// | Return | non-empty list item | a new item at the same indent, the next number for an ordered list |
 /// | Return | empty list item | one level out, or out of the list at the top level |
 /// | Return | quote line | continues the quote; an empty one leaves a level, unless it is code |
+/// | Return | code block inside a list item | continues at the block's indent |
 /// | Tab | start of a list item | indents under the item above, to its text column |
 /// | Shift-Tab | list item | outdents to the parent's indent |
 /// | Delete | start of a list item's text | removes the marker, or outdents a nested item |
 /// | Delete | start of a quote line's text | removes one quote level |
+/// | Delete | start of a code line inside a list item | joins it to the line above |
 /// | Delete | start of the line after a rule | removes the rule's last character |
 /// | Space | after `- `, `1. `, `x ` or `[] ` at the start of an item's text | turns the item's level of the list into bullets, numbers or tasks |
 /// | Space | after `x `, `[] ` or `[ ] ` at the start of a plain line | makes the line a task |
 ///
-/// Code and fence lines are left alone. Every list edit renumbers the
-/// ordered lists it touches.
+/// Code and fence lines are otherwise left alone. Every list edit renumbers
+/// the ordered lists it touches.
 nonisolated enum ComposerMarkdownEditing {
     struct Result: Equatable {
         var text: String
@@ -34,6 +36,11 @@ nonisolated enum ComposerMarkdownEditing {
         guard let index = lineIndex(containing: selection.location, in: lines) else { return nil }
         let line = lines[index]
         let caret = selection.location
+        if let container = line.listContainer {
+            guard caret >= NSMaxRange(container.indent) else { return nil }
+            let continuation = "\n" + quotePrefix(of: line, in: ns) + String(repeating: " ", count: container.columns)
+            return edit(text, replacing: NSRange(location: caret, length: 0), with: continuation, caret: caret + (continuation as NSString).length)
+        }
         guard caret >= line.contentStart else { return nil }
         let isEmpty = line.contentStart == NSMaxRange(line.range)
 
@@ -108,18 +115,20 @@ nonisolated enum ComposerMarkdownEditing {
         let line = lines[index]
         let base = columns(of: line.indent, in: ns)
         var affected = [index]
+        var isInsideMovedFence = false
         for next in (index + 1)..<lines.count {
             let candidate = lines[next]
-            guard candidate.quoteLevel == line.quoteLevel, candidate.kind != .blank,
-                  columns(of: candidate.indent, in: ns) > base
+            guard candidate.quoteLevel == line.quoteLevel,
+                  isInsideMovedFence || candidate.kind != .blank && columns(of: candidate.indent, in: ns) > base
             else { break }
+            if candidate.kind == .fence, candidate.listContainer != nil { isInsideMovedFence.toggle() }
             affected.append(next)
         }
 
         let result = NSMutableString(string: text)
         var start = selection.location
         var end = NSMaxRange(selection)
-        for lineIndex in affected.reversed() {
+        for lineIndex in affected.reversed() where lines[lineIndex].range.length > 0 {
             let indent = lines[lineIndex].indent
             let newColumns = max(0, columns(of: indent, in: ns) + delta)
             let replacement = String(repeating: " ", count: newColumns)
@@ -152,6 +161,11 @@ nonisolated enum ComposerMarkdownEditing {
         guard let index = lineIndex(containing: selection.location, in: lines) else { return nil }
         let line = lines[index]
         let caret = selection.location
+
+        if line.kind == .code, let container = line.listContainer, container.indent.length > 0, caret == NSMaxRange(container.indent), index > 0 {
+            let joined = NSRange(location: NSMaxRange(lines[index - 1].range), length: container.indent.location - NSMaxRange(lines[index - 1].range))
+            return edit(text, replacing: NSRange(location: joined.location, length: caret - joined.location), with: "", caret: joined.location)
+        }
 
         if caret == line.contentStart, caret > line.range.location {
             if line.isListItem {
@@ -275,7 +289,13 @@ nonisolated enum ComposerMarkdownEditing {
             let line = lines[cursor]
             guard line.quoteLevel == item.quoteLevel else { break }
             if line.kind == .blank { continue }
-            let isNested = line.isListItem ? line.depth > item.depth : line.kind == .plain && line.indent.length > 0
+            let isNested = if line.isListItem {
+                line.depth > item.depth
+            } else if let container = line.listContainer {
+                container.depth >= item.depth
+            } else {
+                line.kind == .plain && line.indent.length > 0
+            }
             guard isNested else { break }
             last = cursor
         }
@@ -384,6 +404,7 @@ nonisolated enum ComposerMarkdownEditing {
                 if line.depth == anchor.depth, isMember(line) { return true }
                 return nil
             }
+            if let container = line.listContainer { return container.depth >= anchor.depth ? false : nil }
             if line.kind == .blank || line.indent.length > 0 && line.kind == .plain { return false }
             return nil
         }
@@ -413,7 +434,7 @@ nonisolated enum ComposerMarkdownEditing {
             if line.isListItem {
                 if line.depth == depth { return line }
                 if line.depth < depth { return nil }
-            } else if line.kind != .blank, line.indent.length == 0 {
+            } else if line.kind != .blank, line.indent.length == 0, line.listContainer == nil {
                 return nil
             }
             cursor -= 1

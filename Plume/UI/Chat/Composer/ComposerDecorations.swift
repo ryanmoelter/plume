@@ -444,8 +444,8 @@ enum ComposerDecorations {
     /// from the fragment frames, which include the spacing the styler puts
     /// before the opening fence and after the closing one.
     private static func codeBoxRects(_ lines: [MarkdownLine], _ context: Context) -> [NSRect] {
-        var boxes: [NSRect] = []
-        var current: NSRect?
+        var boxes: [(frame: NSRect, column: CGFloat)] = []
+        var current: (frame: NSRect, column: CGFloat)?
         var isOpen = false
         for line in lines {
             let isCode = line.kind == .fence || line.kind == .code
@@ -455,7 +455,8 @@ enum ComposerDecorations {
                 isOpen = false
                 continue
             }
-            current = current.map { $0.union(frame) } ?? frame
+            let column = line.listContainer == nil ? 0 : context.metrics.contentColumn(for: line)
+            current = current.map { ($0.frame.union(frame), $0.column) } ?? (frame, column)
             if line.kind == .fence {
                 if isOpen, let box = current {
                     boxes.append(box)
@@ -466,7 +467,8 @@ enum ComposerDecorations {
         }
         if let box = current { boxes.append(box) }
         return boxes.map { box in
-            NSRect(x: context.columnStart, y: box.minY, width: context.columnEnd - context.columnStart, height: box.height)
+            let minX = context.columnStart + box.column
+            return NSRect(x: minX, y: box.frame.minY, width: max(0, context.columnEnd - minX), height: box.frame.height)
         }
     }
 

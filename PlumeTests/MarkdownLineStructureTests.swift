@@ -111,6 +111,38 @@ struct MarkdownLineStructureTests {
         #expect(parsed.map(\.kind) == [.fence, .code, .plain, .bullet])
     }
 
+    @Test func anIndentedFenceKeepsTheListAroundIt() {
+        let text = "- a\n  - b\n  ```\n  x\n  ```\n  - c"
+        let parsed = lines(text)
+        #expect(parsed.map(\.kind) == [.bullet, .bullet, .fence, .code, .fence, .bullet])
+        #expect(parsed[5].depth == 1)
+        #expect(parsed[2...4].map { $0.listContainer?.depth } == [0, 0, 0])
+        #expect(parsed[2...4].map { substring(text, $0.listContainer?.indent) } == ["  ", "  ", "  "])
+        #expect(parsed[3].atomicPrefix == NSRange(location: parsed[3].range.location, length: 2))
+        #expect(parsed[0].listContainer == nil && parsed[5].listContainer == nil)
+    }
+
+    @Test func aFenceBelongsToTheDeepestItemItIsIndentedPast() {
+        let text = "- a\n  - b\n    ```\n      x\n\n    ```"
+        let parsed = lines(text)
+        #expect(parsed[2...5].map { $0.listContainer?.depth } == [1, 1, 1, 1])
+        #expect(substring(text, parsed[3].listContainer?.indent) == "    ")
+        #expect(parsed[4].listContainer?.indent.length == 0)
+        #expect(parsed[4].atomicPrefix == nil)
+    }
+
+    @Test func anUnindentedFenceEndsTheList() {
+        let parsed = lines("- a\n```\nx\n```\n  - b")
+        #expect(parsed[1].listContainer == nil)
+        #expect(parsed[4].depth == 0)
+    }
+
+    @Test func aFenceInsideAQuotedListKeepsItsItem() {
+        let parsed = lines("> - a\n>   ```\n>   x\n>   ```\n>   - b")
+        #expect(parsed[1...3].map { $0.listContainer?.depth } == [0, 0, 0])
+        #expect(parsed[4].depth == 1)
+    }
+
     @Test func trailingNewlineMakesAnEmptyLastLine() {
         let parsed = lines("- a\n")
         #expect(parsed.count == 2)

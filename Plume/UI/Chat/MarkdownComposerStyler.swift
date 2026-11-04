@@ -201,6 +201,16 @@ enum MarkdownComposerStyler {
             }
             style.firstLineHeadIndent = metrics.codeInset
             style.headIndent = metrics.codeInset
+            if let container = line.listContainer {
+                for range in line.quoteMarkers + [container.indent] where range.length > 0 {
+                    collapse(range, in: storage)
+                }
+                let column = metrics.contentColumn(for: line) + metrics.codeInset
+                let prefix = NSRange(location: line.range.location, length: NSMaxRange(container.indent) - line.range.location)
+                let prefixWidth = prefix.length > 0 ? typographicWidth(of: prefix, in: storage) : 0
+                style.firstLineHeadIndent = max(0, column - prefixWidth)
+                style.headIndent = column
+            }
             if line.kind == .fence {
                 if opensFence {
                     style.paragraphSpacingBefore = metrics.codeBoxSpacing
@@ -245,7 +255,7 @@ enum MarkdownComposerStyler {
     /// neighbors, so only a list touching text gets spacing.
     private static func listEdges(at index: Int, in lines: [MarkdownLine]) -> ListEdges {
         func isInList(_ line: MarkdownLine) -> Bool {
-            line.isListItem || (line.kind == .plain && line.indent.length > 0)
+            line.isListItem || (line.kind == .plain && line.indent.length > 0) || line.listContainer != nil
         }
         func isText(_ line: MarkdownLine) -> Bool {
             line.kind != .blank && !isInList(line)
@@ -320,6 +330,7 @@ struct ComposerMarkdownMetrics {
     /// leading edge. Zero leaves the line's own layout alone.
     func contentColumn(for line: MarkdownLine) -> CGFloat {
         let quotes = CGFloat(line.quoteLevel) * quoteStep
+        if let container = line.listContainer { return quotes + CGFloat(container.depth + 1) * listStep }
         return line.isListItem ? quotes + CGFloat(line.depth + 1) * listStep : quotes
     }
 

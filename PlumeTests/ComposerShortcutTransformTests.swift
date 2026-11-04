@@ -141,6 +141,29 @@ struct ComposerShortcutTransformTests {
         #expect(format(.link, "see | now") == "see [|]() now")
     }
 
+    // MARK: - Paste link
+
+    private func pasteLink(_ url: String, over marked: String) -> String? {
+        let (text, selection) = parse(marked)
+        return ComposerInlineFormatting.pasteLink(url, in: text, selection: selection).map(render)
+    }
+
+    @Test func pastingAURLOverASelectionLinksIt() {
+        #expect(pasteLink("https://a.dev/x?y=1", over: "see [the docs] now") == "see [the docs](https://a.dev/x?y=1)| now")
+        #expect(pasteLink("  mailto:me@a.dev\n", over: "[me]") == "[me](mailto:me@a.dev)|")
+        #expect(pasteLink("https://a.dev", over: "- [item]") == "- [item](https://a.dev)|")
+    }
+
+    @Test func pastingAnythingElseIsOrdinary() {
+        #expect(pasteLink("https://a.dev", over: "see the| docs") == nil)
+        #expect(pasteLink("not a url", over: "[docs]") == nil)
+        #expect(pasteLink("a.dev", over: "[docs]") == nil)
+        #expect(pasteLink("https://a.dev more", over: "[docs]") == nil)
+        #expect(pasteLink("https://b.dev", over: "[https://a.dev]") == nil)
+        #expect(pasteLink("https://a.dev", over: "[two\nlines]") == nil)
+        #expect(pasteLink("https://a.dev", over: "```\n[code]\n```") == nil)
+    }
+
     // MARK: - Fence
 
     private func closeFence(_ marked: String) -> String? {
