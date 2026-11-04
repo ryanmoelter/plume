@@ -159,6 +159,32 @@ struct ChatListReadingPositionTests {
         #expect(positions[other] == .bottom)
     }
 
+    /// A page with no tab, a plan say, opens on its first line. Its pieces
+    /// arrive after the list exists, as a page's do.
+    @Test func aPageOpenedAtTheTopStaysOnItsFirstRowAsRowsMeasure() throws {
+        let (controller, window) = makeList()
+        defer { close(controller, window) }
+        controller.open(at: .top)
+        controller.update(ChatListInputs(leadingInset: 16))
+        layOut(controller)
+        controller.update(ChatListInputs(pieces: underestimatedPieces(count: 80), leadingInset: 16))
+        layOut(controller)
+
+        #expect(offset(of: controller) == 0)
+        #expect(bottom(of: controller) > 0)
+    }
+
+    @Test func aTabsListIgnoresAnOpeningPosition() throws {
+        let (controller, window) = makeList()
+        defer { close(controller, window) }
+        controller.update(ChatListInputs(tabID: tabID))
+        controller.open(at: .top)
+        controller.update(ChatListInputs(pieces: underestimatedPieces(count: 80), tabID: tabID))
+        layOut(controller)
+
+        #expect(offset(of: controller) == bottom(of: controller))
+    }
+
     // MARK: - Helpers
 
     private func makeList(positions: ChatReadingPositions? = nil) -> (ChatListController, NSWindow) {

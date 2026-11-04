@@ -868,7 +868,7 @@ struct ChatTabView: View, ThemedView {
             }
             .padding(12)
             Divider()
-            MarkdownContentView(content: displayedPlanMarkdown)
+            PlanDocumentView(markdown: displayedPlanMarkdown)
             planFooter
         }
         .environment(\.chatFontSize, CGFloat(settings.chatFontSize))

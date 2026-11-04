@@ -2,7 +2,7 @@ import Foundation
 import Observation
 
 /// Watches one markdown file on disk and republishes its content live, for
-/// `MarkdownContentView`. Mirrors `TranscriptStore`'s shape but keyed by
+/// the plan panel. Mirrors `TranscriptStore`'s shape but keyed by
 /// nothing — a single file at a time is all any one viewer needs.
 @MainActor
 @Observable
