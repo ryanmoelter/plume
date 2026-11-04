@@ -11,6 +11,7 @@ struct DevicePickerView: View {
     @State private var lookup: AndroidSDKLookup?
     @State private var avds: [AVD] = []
     @State private var remoteSearch = ""
+    @State private var isPairingOverWifi = false
     @Environment(\.openSettings) private var openSettings
     private var discovery: EmulatorDiscovery { .shared }
     private var physicalDiscovery: PhysicalDeviceDiscovery { .shared }
@@ -37,6 +38,9 @@ struct DevicePickerView: View {
         }
         .onChange(of: remoteCatalog.selectedProject) {
             Task { await remoteCatalog.loadModels() }
+        }
+        .sheet(isPresented: $isPairingOverWifi) {
+            WirelessPairingSheet(onConnected: onConnect)
         }
         .task { await load(refresh: false) }
         .task {
@@ -68,19 +72,19 @@ struct DevicePickerView: View {
     }
 
     /// Remote devices this app reserved are adb devices too; they show as their own tabs instead.
-    private var usbDevices: [PhysicalDevice] {
+    private var physicalDevices: [PhysicalDevice] {
         let remoteSerials = DeviceSessionManager.shared.remoteSerials
         return physicalDiscovery.devices.filter { !remoteSerials.contains($0.serial) }
     }
 
     private func physicalSection(hasADB: Bool) -> some View {
-        section("Physical devices") {
+        section("Physical devices", accessory: { if hasADB { pairOverWifiButton } }) {
             if !hasADB {
                 placeholder("adb wasn't found. Install Android SDK Platform-Tools with Android Studio's SDK Manager.")
-            } else if usbDevices.isEmpty {
-                placeholder("No devices are connected. Connect one over USB with USB debugging on.")
+            } else if physicalDevices.isEmpty {
+                placeholder("No devices are connected. Connect one over USB with USB debugging on, or pair one over Wi-Fi.")
             }
-            ForEach(usbDevices) { device in
+            ForEach(physicalDevices) { device in
                 row(
                     title: device.displayName,
                     detail: detail(for: device),
@@ -93,12 +97,19 @@ struct DevicePickerView: View {
         }
     }
 
+    private var pairOverWifiButton: some View {
+        Button("Pair over Wi-Fi…") { isPairingOverWifi = true }
+            .controlSize(.small)
+            .plumeID(AccessibilityID.devicePickerPairWifiButton) { isPairingOverWifi = true }
+    }
+
     private func detail(for device: PhysicalDevice) -> String {
-        switch device.state {
-        case .ready: device.serial
-        case .unauthorized: "Allow USB debugging on the device."
-        case .offline: "The device is offline. Reconnect it."
-        case .other(let state): "adb reports it as \(state)."
+        let transport = device.isNetwork ? "Wi-Fi" : "USB"
+        return switch device.state {
+        case .ready: "\(transport) · \(device.serial)"
+        case .unauthorized: device.isNetwork ? "Allow debugging on the device." : "Allow USB debugging on the device."
+        case .offline: device.isNetwork ? "The device is offline. Check Wireless debugging is on." : "The device is offline. Reconnect it."
+        case .other(let state): "\(transport) · adb reports it as \(state)."
         }
     }
 
