@@ -59,6 +59,11 @@ nonisolated enum MentionCandidate: Identifiable, Hashable, Sendable {
         let state: PullRequestState
         let isDraft: Bool
         let updatedAt: Date?
+        /// Filled only by the linked pull request fetch; mention queries
+        /// leave them at their defaults.
+        var reviewDecision: ReviewDecision = .none
+        var hasReviewers = false
+        var checkContexts: [CheckContext] = []
     }
 
     var id: String {

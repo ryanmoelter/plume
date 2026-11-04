@@ -26,7 +26,6 @@ struct InfoPaneContent: View, ThemedView {
     @Binding var showsMentionedPullRequests: Bool
 
     @State private var settings = AppSettings.shared
-    @Environment(\.openURL) private var openURL
     @State private var isFolderDropTargeted = false
 
     var body: some View {
@@ -78,10 +77,9 @@ struct InfoPaneContent: View, ThemedView {
                 actions: folderActions
             )
         case .branch: branch
-        case .pullRequest: pullRequest
-        case .linkedPullRequests:
-            LinkedPullRequestsSection(
-                pullRequests: facts.linkedPullRequests,
+        case .pullRequests:
+            PullRequestsSection(
+                items: InfoPanePullRequestItem.items(branch: facts.pullRequest, linked: facts.linkedPullRequests),
                 actions: pullRequestActions,
                 showsMentioned: $showsMentionedPullRequests
             )
@@ -337,43 +335,6 @@ struct InfoPaneContent: View, ThemedView {
             .padding(.vertical, InfoPaneLayout.rowVerticalPadding)
         }
     }
-
-    @ViewBuilder
-    private var pullRequest: some View {
-        if let pullRequest = facts.pullRequest {
-            let checkRollup: (PullRequest) -> CheckRollup = { pullRequest.checkRollup ?? $0.checkRollup() }
-            let url = pullRequest.url
-            Button {
-                if let url { openURL(url) }
-            } label: {
-                HStack(spacing: InfoPaneLayout.columnSpacing) {
-                    InfoPaneIcon {
-                        if let forge = pullRequest.forge, forge.markImageName != nil {
-                            ForgeMarkCell(forge: forge)
-                        } else {
-                            Image(systemName: "arrow.triangle.pull")
-                        }
-                    }
-                    .emphasis(.secondary)
-                    PullRequestChip(
-                        state: pullRequest.state,
-                        checkRollup: checkRollup,
-                        font: typography.caption.font,
-                        fontSize: typography.caption.size,
-                        imageScale: .medium
-                    )
-                    Spacer(minLength: 4)
-                    if url != nil {
-                        LinkOpenIcon()
-                    }
-                }
-            }
-            .buttonStyle(InfoPaneRowButtonStyle())
-            .disabled(url == nil)
-            .help(PullRequestChipContent.accessibilityText(for: pullRequest.state, checkRollup: checkRollup) ?? "")
-            .plumeID(AccessibilityID.infoPanePullRequestRow)
-        }
-    }
 }
 
 struct InfoPaneHeaderButton {
@@ -457,7 +418,7 @@ struct InfoPaneCollapsedIcons: View, ThemedView {
                 Text("\(facts.artifacts.count)")
             }
             .emphasis(.secondary)
-        case .pullRequest:
+        case .pullRequests:
             if let pullRequest = facts.pullRequest {
                 PullRequestChip(
                     state: pullRequest.state,
@@ -484,7 +445,7 @@ struct InfoPaneCollapsedIcons: View, ThemedView {
             Image(systemName: StatusSymbol.remoteControl.name)
                 .foregroundStyle(colors.attention)
                 .help("Remote Control is on")
-        case .folder, .sideChat, .linkedPullRequests:
+        case .folder, .sideChat:
             EmptyView()
         }
     }

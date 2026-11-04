@@ -39,6 +39,14 @@ struct InfoPaneFacts: Equatable {
         let checkRollup: CheckRollup?
         /// Nil until the store has resolved the repository's origin.
         var forge: ForgeKind? = nil
+        /// The repository's checks ignored while pending, which the check
+        /// list marks.
+        var ignoredChecks: Set<String> = []
+
+        var summary: PullRequestSummary? {
+            guard case .pullRequest(let pullRequest) = state else { return nil }
+            return PullRequestSummary(pullRequest, ignoredChecks: ignoredChecks)
+        }
 
         var hasPullRequest: Bool {
             if case .pullRequest = state { true } else { false }
@@ -121,8 +129,9 @@ struct InfoPaneFacts: Equatable {
         var sections: [InfoPaneSection] = []
         if !liveSubagents.isEmpty || !completedSubagents.isEmpty { sections.append(.subagents) }
         if !backgroundTasks.isEmpty { sections.append(.backgroundTasks) }
-        if pullRequest?.hasPullRequest == true { sections.append(.pullRequest) }
-        if !linkedPullRequests.isEmpty || canPinPullRequests { sections.append(.linkedPullRequests) }
+        if pullRequest?.hasPullRequest == true || !linkedPullRequests.isEmpty || canPinPullRequests {
+            sections.append(.pullRequests)
+        }
         if linear != nil { sections.append(.linearIssues) }
         if planTitle != nil { sections.append(.plan) }
         if !artifacts.isEmpty { sections.append(.artifacts) }
@@ -142,8 +151,9 @@ struct InfoPaneFacts: Equatable {
             case .branch: branch?.isWorktree == true
             case .linearIssues: (linear?.workingCount ?? 0) > 0
             case .remoteControl: remoteControl == .on
-            case .folder, .sideChat, .linkedPullRequests: false
-            case .backgroundTasks, .plan, .pullRequest, .artifacts: true
+            case .pullRequests: pullRequest?.hasPullRequest == true
+            case .folder, .sideChat: false
+            case .backgroundTasks, .plan, .artifacts: true
             }
         }
     }
@@ -176,6 +186,7 @@ extension InfoPaneFacts {
     static func pullRequest(
         state: PullRequestFetchState?,
         forge: ForgeKind? = nil,
+        ignoredChecks: Set<String> = [],
         checkRollup: (PullRequest) -> CheckRollup
     ) -> PullRequestFacts? {
         guard let state else { return nil }
@@ -183,7 +194,12 @@ extension InfoPaneFacts {
         case .forgeUnsupported:
             return nil
         case .pullRequest(let pullRequest):
-            return PullRequestFacts(state: state, checkRollup: checkRollup(pullRequest), forge: forge)
+            return PullRequestFacts(
+                state: state,
+                checkRollup: checkRollup(pullRequest),
+                forge: forge,
+                ignoredChecks: ignoredChecks
+            )
         default:
             return PullRequestFacts(state: state, checkRollup: nil, forge: forge)
         }
@@ -192,7 +208,7 @@ extension InfoPaneFacts {
 
 extension InfoPaneFacts {
     /// Pinned first, then mentioned. Leaves out the branch's own pull
-    /// request, which has its own row.
+    /// request, which leads the section on its own.
     static func linkedPullRequests(
         pinned: [PullRequestReference],
         mentioned: [PullRequestReference],
@@ -279,8 +295,8 @@ enum InfoPaneSection: Equatable {
     case remoteControl
     case folder
     case branch
-    case pullRequest
-    case linkedPullRequests
+    /// The branch's own pull request, then pinned and mentioned ones.
+    case pullRequests
 }
 
 enum InfoPaneLayout {

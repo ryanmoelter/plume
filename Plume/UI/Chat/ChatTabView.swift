@@ -267,7 +267,8 @@ struct ChatTabView: View, ThemedView {
         let pullRequest = settings.showsPullRequestStatus
             ? InfoPaneFacts.pullRequest(
                 state: PullRequestStore.shared.state(for: gitDirectory),
-                forge: PullRequestStore.shared.forge(for: gitDirectory)
+                forge: PullRequestStore.shared.forge(for: gitDirectory),
+                ignoredChecks: PullRequestStore.shared.ignoredPendingChecks(for: gitDirectory)
             ) {
                 PullRequestStore.shared.checkRollup(for: gitDirectory, of: $0)
             }
