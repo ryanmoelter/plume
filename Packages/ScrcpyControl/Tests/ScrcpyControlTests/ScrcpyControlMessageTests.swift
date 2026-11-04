@@ -37,6 +37,36 @@ struct ScrcpyControlMessageTests {
         #expect(bytes.count == 5 + 299)
     }
 
+    @Test func setClipboard() {
+        let message = ScrcpyControlMessage.setClipboard(sequence: 0x0102_0304_0506_0708, paste: true, text: "hello, world!")
+        let bytes = [UInt8](message.encoded())
+        #expect(bytes.count == 27)
+        #expect(bytes == [0x09, 0x01, 0x02, 0x03, 0x04, 0x05, 0x06, 0x07, 0x08, 0x01, 0x00, 0x00, 0x00, 0x0D] + Array("hello, world!".utf8))
+    }
+
+    @Test func setClipboardLong() {
+        let maxLength = ScrcpyControlMessage.clipboardTextMaxLength
+        let message = ScrcpyControlMessage.setClipboard(
+            sequence: 0x0102_0304_0506_0708, paste: true, text: String(repeating: "a", count: maxLength)
+        )
+        let bytes = [UInt8](message.encoded())
+        #expect(bytes.count == 1 << 18)
+        #expect(Array(bytes[0..<14]) == [
+            0x09, 0x01, 0x02, 0x03, 0x04, 0x05, 0x06, 0x07, 0x08, 0x01,
+            UInt8(maxLength >> 24), UInt8((maxLength >> 16) & 0xFF), UInt8((maxLength >> 8) & 0xFF), UInt8(maxLength & 0xFF),
+        ])
+        #expect(bytes[14...].allSatisfy { $0 == UInt8(ascii: "a") })
+    }
+
+    // Not from the C tests.
+    @Test func setClipboardTruncatesOnACharacterBoundary() {
+        let maxLength = ScrcpyControlMessage.clipboardTextMaxLength
+        let text = String(repeating: "a", count: maxLength - 1) + "é"
+        let bytes = [UInt8](ScrcpyControlMessage.setClipboard(paste: false, text: text).encoded())
+        #expect(bytes.count == 14 + maxLength - 1)
+        #expect(Array(bytes[0..<10]) == [0x09, 0, 0, 0, 0, 0, 0, 0, 0, 0x00])
+    }
+
     @Test func injectTouch() {
         let message = ScrcpyControlMessage.injectTouch(
             action: Android.MotionAction.down,

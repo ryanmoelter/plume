@@ -115,7 +115,7 @@ public final class ScrcpyServerLaunch: @unchecked Sendable {
             "video=true",
             "audio=false",
             "control=true",
-            // Plume never reads the device clipboard, so the server shouldn't push every copy.
+            // Plume only sets the device clipboard, which works without autosync, so the server shouldn't push every copy.
             "clipboard_autosync=false",
             "video_codec=h264",
             "cleanup=true",
