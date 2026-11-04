@@ -43,7 +43,7 @@ struct HomeSideWorkTests {
         #expect(Set(items.map(\.id)).count == 2)
     }
 
-    @Test func onlyARunningItemCarriesItsSideWork() {
+    @Test func everyItemCarriesItsSideWorkWithoutChangingItsSection() {
         let work = HomeSideWork.items(
             subagents: [],
             hasSettled: { _ in false },
@@ -59,6 +59,9 @@ struct HomeSideWorkTests {
         }
         let feed = HomeFeed(entries: [entry(.working), entry(.waitingOnSubagents), entry(.awaitingReply)])
         #expect(feed.running.map(\.sideWork) == [work, work])
-        #expect(feed.idle.map(\.sideWork) == [[]])
+        #expect(feed.idle.map(\.sideWork) == [work])
+        let needsAttention = HomeFeed(entries: [entry(.error)])
+        #expect(needsAttention.needsYou.map(\.sideWork) == [work])
+        #expect(needsAttention.running.isEmpty)
     }
 }

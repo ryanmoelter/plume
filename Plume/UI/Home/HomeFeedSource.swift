@@ -144,7 +144,7 @@ extension HomeFeed {
                 iconTint: appearance.iconTint,
                 barTint: appearance.barTint,
                 context: source.context(task, tab),
-                sideWork: status.isActive ? source.sideWork(tab) : []
+                sideWork: source.sideWork(tab)
             )
         }
         self.init(entries: entries)

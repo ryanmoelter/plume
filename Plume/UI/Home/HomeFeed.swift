@@ -89,7 +89,7 @@ struct HomeFeed: Equatable {
                 barTint: entry.barTint,
                 context: entry.context,
                 isInactive: isUnstarted,
-                sideWork: entry.status.isActive ? entry.sideWork : []
+                sideWork: entry.sideWork
             )
             if entry.status.isActive {
                 running.append(item)
