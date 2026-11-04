@@ -57,6 +57,17 @@ struct ADBWirelessParsingTests {
         #expect(ADBWireless.parseSerialNumber("") == nil)
     }
 
+    @Test func pairingServiceNames() {
+        let code = ADBMDNSService(instance: "adb-2B021FDH200A2K-OkOQKV", kind: .pairing, address: "192.168.1.20:37123")
+        #expect(code.deviceName == "2B021FDH200A2K")
+        #expect(code.isCodePairing)
+        let qr = ADBMDNSService(instance: "studio-x1y2", kind: .pairing, address: "192.168.1.20:37123")
+        #expect(qr.deviceName == "studio-x1y2")
+        #expect(!qr.isCodePairing)
+        #expect(!ADBMDNSService(instance: "plume-ab12", kind: .pairing, address: "192.168.1.20:1").isCodePairing)
+        #expect(!ADBMDNSService(instance: "adb-X-y", kind: .connect, address: "192.168.1.20:1").isCodePairing)
+    }
+
     @Test func address() {
         #expect(ADBWireless.address(" 192.168.1.20:37123 ") == "192.168.1.20:37123")
         #expect(ADBWireless.address("192.168.1.20") == nil)

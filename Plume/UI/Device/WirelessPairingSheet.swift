@@ -23,9 +23,10 @@ struct WirelessPairingSheet: View {
     @Environment(\.dismiss) private var dismiss
     @State private var pairing = WirelessPairing()
     @State private var mode = Mode.qrCode
-    @State private var address = ""
     @State private var code = ""
     @State private var connectAddress = ""
+    /// Latched once shown, so a phone appearing later never pulls the field from under typing.
+    @State private var entersAddressManually = false
 
     var body: some View {
         VStack(alignment: .leading, spacing: 16) {
@@ -55,11 +56,17 @@ struct WirelessPairingSheet: View {
         .onAppear { pairing.startQRCode() }
         .onDisappear { pairing.cancel() }
         .onChange(of: mode) {
-            if mode == .qrCode { pairing.startQRCode() } else { pairing.cancel() }
+            if mode == .qrCode { pairing.startQRCode() } else { startCodeMode() }
         }
         .onChange(of: pairing.phase) {
-            guard case .connected(let device) = pairing.phase else { return }
-            onConnected(device)
+            switch pairing.phase {
+            case .connected(let device): onConnected(device)
+            case .failed where mode == .pairingCode: pairing.startBrowsing()
+            default: break
+            }
+        }
+        .onChange(of: pairing.browsing) {
+            if pairing.browsing == .unavailable || pairing.browsing == .nothingFound { entersAddressManually = true }
         }
     }
 
@@ -88,39 +95,89 @@ struct WirelessPairingSheet: View {
             instructions(
                 "On the device, open Settings ▸ Developer options ▸ Wireless debugging ▸ Pair device with pairing code, then enter what it shows."
             )
-            TextField("IP address & port", text: $address, prompt: Text("192.168.1.20:37123"))
-                .textFieldStyle(.roundedBorder)
-                .onChange(of: address) { forgetPairing() }
-                .plumeID(AccessibilityID.wirelessPairingAddressField, value: address, setValue: { address = $0 })
+            pairingServiceList
+            if entersAddressManually {
+                TextField("IP address & port", text: $pairing.pairingAddress, prompt: Text("192.168.1.20:37123"))
+                    .textFieldStyle(.roundedBorder)
+                    .plumeID(AccessibilityID.wirelessPairingAddressField, value: pairing.pairingAddress, setValue: { pairing.pairingAddress = $0 })
+            } else {
+                Button("Enter address manually") { entersAddressManually = true }
+                    .buttonStyle(.link)
+                    .plumeID(AccessibilityID.wirelessPairingManualAddressButton, invoke: { entersAddressManually = true })
+            }
             TextField("Wi-Fi pairing code", text: $code, prompt: Text("Wi-Fi pairing code"))
                 .textFieldStyle(.roundedBorder)
                 .onChange(of: code) { forgetPairing() }
                 .onSubmit(pairWithCode)
                 .plumeID(AccessibilityID.wirelessPairingCodeField, value: code, setValue: { code = $0 })
-            connectAddressField
             Button("Pair", action: pairWithCode)
                 .keyboardShortcut(pairing.returnKeyAction == .pair ? .defaultAction : nil)
                 .plumeID(AccessibilityID.wirelessPairingPairButton, invoke: pairWithCode)
-                .disabled(isBusy || address.isEmpty || code.isEmpty || pairing.returnKeyAction != .pair)
+                .disabled(isBusy || pairing.pairingAddress.isEmpty || code.isEmpty || pairing.returnKeyAction != .pair)
         }
+        .onChange(of: pairing.pairingAddress) { forgetPairing() }
+    }
+
+    @ViewBuilder
+    private var pairingServiceList: some View {
+        switch pairing.browsing {
+        case .searching where pairing.pairingServices.isEmpty:
+            progress("Looking for a device showing its pairing code…")
+        case .unavailable:
+            hint("adb can't discover devices on this network. Enter the IP address & port the pairing dialog shows.")
+        case .nothingFound where pairing.pairingServices.isEmpty:
+            hint("No device found. On the device, open Wireless debugging ▸ Pair device with pairing code, or enter the IP address & port it shows.")
+        default:
+            VStack(alignment: .leading, spacing: 4) {
+                ForEach(pairing.pairingServices, id: \.self) { service in
+                    pairingServiceRow(service)
+                }
+            }
+        }
+    }
+
+    private func pairingServiceRow(_ service: ADBMDNSService) -> some View {
+        let selected = pairing.pairingAddress == service.address
+        return Button { pairing.select(service) } label: {
+            HStack {
+                Image(systemName: selected ? "checkmark.circle.fill" : "circle")
+                    .foregroundStyle(selected ? Color.accentColor : .secondary)
+                VStack(alignment: .leading, spacing: 1) {
+                    Text(pairing.displayName(of: service))
+                    Text(service.address).font(.caption).foregroundStyle(.secondary)
+                }
+                Spacer()
+            }
+            .contentShape(.rect)
+        }
+        .buttonStyle(.plain)
+        .plumeID(
+            AccessibilityID.wirelessPairingServiceRow, label: service.instance, value: selected ? "selected" : nil,
+            invoke: { pairing.select(service) }
+        )
+    }
+
+    private func hint(_ text: String) -> some View {
+        Text(text)
+            .foregroundStyle(.secondary)
+            .fixedSize(horizontal: false, vertical: true)
+            .plumeID(AccessibilityID.wirelessPairingBrowseStatus, value: text)
     }
 
     private var connectAddressField: some View {
         VStack(alignment: .leading, spacing: 4) {
-            TextField("IP address & port (optional)", text: $connectAddress, prompt: Text(connectAddressPrompt))
+            Text("Enter the IP address & port shown on the phone's Wireless debugging screen.")
+                .fixedSize(horizontal: false, vertical: true)
+            TextField("IP address & port", text: $connectAddress, prompt: Text(connectAddressPrompt))
                 .textFieldStyle(.roundedBorder)
                 .onSubmit(submitConnectAddress)
                 .plumeID(AccessibilityID.wirelessPairingConnectAddressField, value: connectAddress, setValue: { connectAddress = $0 })
-            Text("The IP address & port on the Wireless debugging screen itself. Needed only when adb can't find the device on the network.")
-                .font(.caption)
-                .foregroundStyle(.secondary)
-                .fixedSize(horizontal: false, vertical: true)
         }
     }
 
     /// The phone listens on the pairing dialog's host, on another port.
     private var connectAddressPrompt: String {
-        let host = ADBWireless.address(address).map(ADBWireless.host(of:)) ?? "192.168.1.20"
+        let host = ADBWireless.address(pairing.pairingAddress).map(ADBWireless.host(of:)) ?? "192.168.1.20"
         return "\(host):port"
     }
 
@@ -150,7 +207,7 @@ struct WirelessPairingSheet: View {
                     .foregroundStyle(.orange)
                     .fixedSize(horizontal: false, vertical: true)
                     .plumeID(AccessibilityID.wirelessPairingStatus, value: "paired: \(message)")
-                if mode == .qrCode { connectAddressField }
+                connectAddressField
                 Button("Connect", action: connectToAddress)
                     .keyboardShortcut(.defaultAction)
                     .plumeID(AccessibilityID.wirelessPairingConnectButton, invoke: connectToAddress)
@@ -184,7 +241,12 @@ struct WirelessPairingSheet: View {
 
     private func pairWithCode() {
         guard !isBusy, pairing.returnKeyAction == .pair else { return }
-        pairing.pair(address: address, code: code, connectAddress: connectAddress)
+        pairing.pair(address: pairing.pairingAddress, code: code)
+    }
+
+    private func startCodeMode() {
+        pairing.cancel()
+        pairing.startBrowsing()
     }
 
     private func submitConnectAddress() {
@@ -196,7 +258,7 @@ struct WirelessPairingSheet: View {
 
     /// A changed pairing address or code means pairing again, so Pair takes Return back.
     private func forgetPairing() {
-        if pairing.returnKeyAction == .connect { pairing.cancel() }
+        if pairing.returnKeyAction == .connect { startCodeMode() }
     }
 
     private func connectToAddress() {

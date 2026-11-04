@@ -307,6 +307,91 @@ struct WirelessPairingTests {
         #expect(fake.connects == ["192.168.1.21:41234"])
     }
 
+    @Test func browsingListsPhonesShowingAPairingCodeAndPicksALoneOne() async {
+        let fake = FakeWireless()
+        let codePhone = ADBMDNSService(instance: "adb-2B021FDH200A2K-OkOQKV", kind: .pairing, address: "192.168.1.20:37123")
+        fake.servicesShown = [
+            ADBMDNSService(instance: "plume-abc", kind: .pairing, address: "192.168.1.30:37000"),
+            ADBMDNSService(instance: "studio-abc", kind: .pairing, address: "192.168.1.31:37000"),
+            phoneConnectService,
+            codePhone,
+        ]
+        let pairing = makePairing(fake)
+        pairing.startBrowsing()
+        await waitUntil { pairing.browsing == .found }
+        #expect(pairing.pairingServices == [codePhone])
+        #expect(pairing.pairingAddress == codePhone.address)
+        #expect(pairing.displayName(of: codePhone) == "2B021FDH200A2K")
+        pairing.cancel()
+        #expect(pairing.browsing == .stopped)
+    }
+
+    @Test func twoPhonesWaitForAPick() async {
+        let fake = FakeWireless()
+        let first = ADBMDNSService(instance: "adb-AAA-x", kind: .pairing, address: "192.168.1.20:37123")
+        let second = ADBMDNSService(instance: "adb-BBB-y", kind: .pairing, address: "192.168.1.21:37123")
+        fake.servicesShown = [first, second]
+        let pairing = makePairing(fake)
+        pairing.startBrowsing()
+        await waitUntil { pairing.browsing == .found }
+        #expect(pairing.pairingAddress.isEmpty)
+        pairing.select(second)
+        #expect(pairing.pairingAddress == second.address)
+        pairing.stopBrowsing()
+    }
+
+    @Test func aPhoneAdbListsOverUSBIsNamedByItsModel() async {
+        let usb = PhysicalDevice(serial: "2B021FDH200A2K", state: .ready, model: "Pixel_9")
+        let fake = FakeWireless(devices: [usb])
+        let codePhone = ADBMDNSService(instance: "adb-2B021FDH200A2K-OkOQKV", kind: .pairing, address: "192.168.1.20:37123")
+        fake.servicesShown = [codePhone]
+        let pairing = makePairing(fake)
+        pairing.startBrowsing()
+        await waitUntil { pairing.browsing == .found }
+        #expect(pairing.displayName(of: codePhone) == "Pixel 9")
+        pairing.stopBrowsing()
+    }
+
+    @Test func browsingWithoutMDNSFallsBackToTyping() async {
+        let fake = FakeWireless()
+        fake.mdns = false
+        let pairing = makePairing(fake)
+        pairing.startBrowsing()
+        await waitUntil { pairing.browsing == .unavailable }
+        #expect(pairing.browsing == .unavailable)
+        #expect(fake.servicesCalls == 0)
+    }
+
+    @Test func browsingThatFindsNothingOffersTypingButKeepsLooking() async {
+        let fake = FakeWireless()
+        let time = FakeTime()
+        let pairing = makePairing(fake, time: time)
+        pairing.startBrowsing()
+        await waitUntil { pairing.browsing == .nothingFound }
+        #expect(pairing.browsing == .nothingFound)
+        let codePhone = ADBMDNSService(instance: "adb-AAA-x", kind: .pairing, address: "192.168.1.20:37123")
+        fake.servicesShown = [codePhone]
+        await waitUntil { pairing.browsing == .found }
+        #expect(pairing.pairingServices == [codePhone])
+        pairing.stopBrowsing()
+    }
+
+    @Test func pairingStopsBrowsing() async {
+        let fake = FakeWireless()
+        fake.pairOutcome = .failed("Wrong password or connection was dropped.")
+        fake.servicesShown = [ADBMDNSService(instance: "adb-AAA-x", kind: .pairing, address: "192.168.1.20:37123")]
+        let pairing = makePairing(fake)
+        pairing.startBrowsing()
+        await waitUntil { pairing.browsing == .found }
+        pairing.pair(address: pairing.pairingAddress, code: "123456")
+        #expect(pairing.browsing == .stopped)
+        _ = await failure(of: pairing)
+        let calls = fake.servicesCalls
+        try? await Task.sleep(for: .milliseconds(100))
+        #expect(fake.servicesCalls == calls)
+        #expect(fake.pairs.map(\.address) == ["192.168.1.20:37123"])
+    }
+
     @Test func aMalformedConnectAddressIsRejectedBeforePairing() {
         let fake = FakeWireless()
         let pairing = makePairing(fake)

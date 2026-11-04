@@ -16,6 +16,20 @@ nonisolated struct ADBMDNSService: Hashable, Sendable {
     let address: String
 
     var host: String { ADBWireless.host(of: address) }
+
+    /// The phone's serial number from an `adb-<serialno>-<suffix>` instance, else the instance.
+    var deviceName: String {
+        guard instance.hasPrefix("adb-") else { return instance }
+        let rest = instance.dropFirst(4)
+        guard let dash = rest.lastIndex(of: "-"), dash != rest.startIndex else { return instance }
+        return String(rest[..<dash])
+    }
+
+    /// A phone showing Pair device with pairing code. A QR session, Plume's or Android
+    /// Studio's, advertises a name its scanner chose and pairs with no code to type.
+    var isCodePairing: Bool {
+        kind == .pairing && !instance.hasPrefix("plume-") && !instance.hasPrefix("studio-")
+    }
 }
 
 /// The text a phone scans under Wireless debugging ▸ Pair device with QR code. The phone then

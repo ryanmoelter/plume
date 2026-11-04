@@ -42,6 +42,17 @@ final class WirelessPairing {
         case failed(String)
     }
 
+    /// Finding phones that show Pair device with pairing code, for the pairing-code form.
+    enum Browsing: Equatable {
+        case stopped
+        case searching
+        case found
+        /// adb's mDNS can't see the network, or adb is missing, so the address is typed.
+        case unavailable
+        /// No phone appeared within `manualAddressDelay`; the list keeps updating.
+        case nothingFound
+    }
+
     enum ReturnKeyAction: Equatable {
         case pair
         case connect
@@ -58,15 +69,23 @@ final class WirelessPairing {
     /// How long adb gets to connect a phone mDNS advertises before Plume connects it itself.
     static let autoConnectWindow: Duration = .seconds(14)
     static let connectDeadline: Duration = .seconds(20)
+    /// How long the pairing-code form looks for a phone before offering the address field.
+    static let manualAddressDelay: Duration = .seconds(4)
 
     private(set) var phase: Phase = .idle
     private(set) var qr = ADBPairingQR.random()
+    private(set) var browsing = Browsing.stopped
+    /// Phones showing Pair device with pairing code, as of the last poll.
+    private(set) var pairingServices: [ADBMDNSService] = []
+    /// The pairing dialog's `host:port`: a picked phone's, or typed.
+    var pairingAddress = ""
 
     @ObservationIgnored private let adb: ADBWirelessRunning
     @ObservationIgnored private let discovery: PhysicalDeviceDiscovery
     @ObservationIgnored private let sleep: @Sendable (Duration) async -> Void
     @ObservationIgnored private let now: () -> ContinuousClock.Instant
     @ObservationIgnored private var work: Task<Void, Never>?
+    @ObservationIgnored private var browseTask: Task<Void, Never>?
 
     init(
         adb: ADBWirelessRunning = LiveADBWireless(),
@@ -82,6 +101,63 @@ final class WirelessPairing {
 
     isolated deinit {
         work?.cancel()
+        browseTask?.cancel()
+    }
+
+    /// Polls mDNS for phones showing Pair device with pairing code, until pairing starts or
+    /// `cancel()`. A lone phone is picked for the user when no address is set.
+    func startBrowsing() {
+        stopBrowsing()
+        browsing = .searching
+        let started = now()
+        browseTask = Task { [weak self, adb, sleep, discovery] in
+            let adbURL = await discovery.adb()
+            guard !Task.isCancelled else { return }
+            guard let adbURL, await adb.mdnsAvailable(adb: adbURL) else {
+                guard !Task.isCancelled else { return }
+                self?.browsing = .unavailable
+                return
+            }
+            while !Task.isCancelled, self != nil {
+                let found = await adb.services(adb: adbURL).filter(\.isCodePairing)
+                guard !Task.isCancelled else { return }
+                self?.receive(found, browsingSince: started)
+                await sleep(Self.pollInterval)
+            }
+        }
+    }
+
+    func stopBrowsing() {
+        browseTask?.cancel()
+        browseTask = nil
+        browsing = .stopped
+    }
+
+    func select(_ service: ADBMDNSService) {
+        pairingAddress = service.address
+    }
+
+    /// A phone's model when adb already lists it under the serial number in its service name.
+    func displayName(of service: ADBMDNSService) -> String {
+        let serial = service.deviceName
+        let known = discovery.devices.first { $0.serial == serial || discovery.hardwareSerial(ofIdentifier: $0.serial) == serial }
+        guard let known, known.model != nil else { return serial }
+        return known.displayName
+    }
+
+    private func receive(_ services: [ADBMDNSService], browsingSince started: ContinuousClock.Instant) {
+        if services != pairingServices { pairingServices = services }
+        if services.count == 1, pairingAddress.trimmingCharacters(in: .whitespaces).isEmpty {
+            pairingAddress = services[0].address
+        }
+        let status: Browsing = if !services.isEmpty {
+            .found
+        } else if now() - started >= Self.manualAddressDelay {
+            .nothingFound
+        } else {
+            .searching
+        }
+        if status != browsing { browsing = status }
     }
 
     /// Shows a fresh QR code and waits for a phone to scan it.
@@ -171,6 +247,7 @@ final class WirelessPairing {
     }
 
     func cancel() {
+        stopBrowsing()
         work?.cancel()
         work = nil
         phase = .idle
