@@ -11,7 +11,7 @@ Take one item from intake to landed. You are the **coordinator**: delegate explo
 ## 0. Intake
 
 - If the argument is a `PLUME-<n>` identifier or a `linear.app/…/issue/PLUME-<n>…` URL, fetch the issue with `get_issue`, plus its comments and attachments. Read the code for what already exists; the issue states only the item.
-- Otherwise the argument is the spec. Ask whether to create an issue for it; the answer is usually yes. On yes, create it through the `roadmap` skill in the project for its area, ask the user for a size, and carry on with the new identifier.
+- Otherwise the argument is the spec. Ask whether to create an issue for it; the answer is usually yes. On yes, create it through the `roadmap` skill in the project for its outcome, ask the user for a size, and carry on with the new identifier.
 - State your understanding in one paragraph. Ask now only if the issue leaves a load-bearing choice open; otherwise start without a plan gate.
 - Move the issue to In Progress through the `roadmap` skill. Record important decisions on the issue as comments when they are made.
 

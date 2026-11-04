@@ -9,7 +9,7 @@ Run this when the user says "make the next release" or asks to work through the 
 
 ## Inputs
 
-- Optional: extra items beyond the To do queue. Recommend two or three cheap, high-value Backlog issues — prefer small estimates — and ask which to include. Always ask about a `blocked-on-decision` issue before pulling it in — the decision in its description has to be settled first.
+- Optional: extra items beyond the To do queue. Recommend two or three cheap, high-value Backlog issues — prefer small estimates — and ask which to include. Always ask about a `Needs decision` issue before pulling it in — the decision in its description has to be settled first.
 - Target version. Default: bump the minor for a feature release, the patch for fixes only.
 
 ## 1. Plan the packages
@@ -24,7 +24,7 @@ Invoke the `roadmap` skill to list the To do queue, and read each issue's descri
 
 Write the package table into the plan file before launching anything.
 
-Once the plan is approved, create the release issue as a placeholder through the `roadmap` skill. Title it `Release <version>`, put it in team Plume, project Platform & tooling, and set it to In Progress. Its description is `GitHub release: *link added on publish.*`. Its `relatedTo` lists the previous release's `Release <version>` issue and every issue planned for this release. Add an issue to it if it joins mid-cycle, and remove one if it drops out.
+Once the plan is approved, create the release issue as a placeholder through the `roadmap` skill. Title it `Release <version>`, put it in team Plume, project Admin, and set it to In Progress. Its description is `GitHub release: *link added on publish.*`. Its `relatedTo` lists the previous release's `Release <version>` issue and every issue planned for this release. Add an issue to it if it joins mid-cycle, and remove one if it drops out.
 
 `<prefix>` in the commands below is the branch prefix of whoever runs the cycle, such as `ryanm`. Pass it to every agent.
 
