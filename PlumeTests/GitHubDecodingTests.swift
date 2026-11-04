@@ -93,6 +93,21 @@ struct GitHubDecodingTests {
         #expect(pr.reviewDecision == .none)
     }
 
+    @Test func aRequestedOrPastReviewerCountsAsAssigned() throws {
+        func decode(requests: Int, reviews: Int) throws -> Bool {
+            let json = """
+            {"data":{"repository":{"owner":{"login":"me"},"b0":{"nodes":[
+            {"number":7,"state":"OPEN","isDraft":false,
+             "reviewRequests":{"totalCount":\(requests)},"latestReviews":{"totalCount":\(reviews)}}]}}}}
+            """
+            let decoded = try GitHubQuery.decode(Data(json.utf8), aliasToBranch: ["b0": "main"])
+            return try #require(decoded["main"] ?? nil).hasReviewers
+        }
+        #expect(try decode(requests: 1, reviews: 0))
+        #expect(try decode(requests: 0, reviews: 2))
+        #expect(try !decode(requests: 0, reviews: 0))
+    }
+
     @Test func aBranchWithNoPullRequestMapsToNil() throws {
         let json = """
         {"data":{"repository":{"owner":{"login":"me"},"b0":{"nodes":[]}}}}
