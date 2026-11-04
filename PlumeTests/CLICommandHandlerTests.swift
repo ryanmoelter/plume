@@ -289,6 +289,7 @@ struct CLICommandHandlerTests {
         store: DeviceRegistryStore,
         project: String? = "p",
         recentModel: String? = "akita/34",
+        models: [RemoteDeviceModel] = [RemoteDeviceModel(manufacturer: "Google", name: "Pixel 8", codename: "shiba", api: 34)],
         reservations: Reservations
     ) -> CLICommandHandler {
         let handler = makeHandler(task: task)
@@ -296,7 +297,7 @@ struct CLICommandHandlerTests {
         handler.remoteDevices = .init(
             project: { project },
             recentModel: { recentModel },
-            models: { [RemoteDeviceModel(manufacturer: "Google", name: "Pixel 8", codename: "shiba", api: 34)] },
+            models: { models },
             reserve: { tab, model, displayName, project in reservations.started.append((tab.id, model, displayName, project)) }
         )
         return handler
@@ -412,6 +413,69 @@ struct CLICommandHandlerTests {
 
         #expect(other.error == "this tab is already reserving akita/34; release it before reserving shiba/34")
         #expect(same.ok)
+        #expect(reservations.started.count == 1)
+    }
+
+    private let catalog = [
+        RemoteDeviceModel(manufacturer: "Google", name: "Pixel 8", codename: "shiba", api: 34),
+        RemoteDeviceModel(manufacturer: "Google", name: "Pixel Tablet", codename: "tangorpro", api: 34),
+        RemoteDeviceModel(manufacturer: "Google", name: "Pixel Tablet", codename: "tangorpro", api: 36),
+        RemoteDeviceModel(manufacturer: "Samsung", name: "Galaxy Tab S9", codename: "gts9", api: 35),
+    ]
+
+    @Test func reservingByFormPicksTheNewestModelOfThatForm() async throws {
+        let task = TaskStore.createTask(in: context, siblings: [])
+        let caller = try #require(task.tabs.first)
+        let reservations = Reservations()
+        let handler = makeReservingHandler(task: task, store: try makeDeviceStore(), models: catalog, reservations: reservations)
+
+        let response = await handler.handle(.reserveDevice(.init(tabID: caller.id, form: .tablet)))
+
+        #expect(response.ok)
+        #expect(reservations.started.map(\.model) == ["tangorpro/36"])
+        #expect(reservations.started.map(\.displayName) == ["Pixel Tablet"])
+        #expect(handler.deviceLeases.claim(ownedBy: .tab(id: caller.id, app: "/me.sock"))?.form == .tablet)
+    }
+
+    @Test func reservingByFormPrefersTheModelLastReserved() async throws {
+        let task = TaskStore.createTask(in: context, siblings: [])
+        let caller = try #require(task.tabs.first)
+        let reservations = Reservations()
+        let handler = makeReservingHandler(
+            task: task, store: try makeDeviceStore(), recentModel: "gts9/35", models: catalog, reservations: reservations
+        )
+
+        _ = await handler.handle(.reserveDevice(.init(tabID: caller.id, form: .tablet)))
+
+        #expect(reservations.started.map(\.model) == ["gts9/35"])
+    }
+
+    @Test func reservingAFormTheCatalogLacksFails() async throws {
+        let task = TaskStore.createTask(in: context, siblings: [])
+        let caller = try #require(task.tabs.first)
+        let reservations = Reservations()
+        let store = try makeDeviceStore()
+        let handler = makeReservingHandler(task: task, store: store, models: catalog, reservations: reservations)
+
+        let response = await handler.handle(.reserveDevice(.init(tabID: caller.id, form: .foldable)))
+
+        #expect(response.error?.hasPrefix("Device Streaming offers no foldable; pass --model=<codename/api>, one of: shiba/34") == true)
+        #expect(reservations.started.isEmpty)
+        #expect(try store.load().pending.isEmpty)
+    }
+
+    @Test func joiningAClaimForAnotherFormFails() async throws {
+        let task = TaskStore.createTask(in: context, siblings: [])
+        let caller = try #require(task.tabs.first)
+        let reservations = Reservations()
+        let handler = makeReservingHandler(task: task, store: try makeDeviceStore(), models: catalog, reservations: reservations)
+        _ = await handler.handle(.reserveDevice(.init(tabID: caller.id, form: .tablet)))
+
+        let phone = await handler.handle(.reserveDevice(.init(tabID: caller.id, form: .phone)))
+        let tablet = await handler.handle(.reserveDevice(.init(tabID: caller.id, form: .tablet)))
+
+        #expect(phone.error == "this tab is already reserving tangorpro/36, a tablet; release it before reserving a phone")
+        #expect(tablet.ok)
         #expect(reservations.started.count == 1)
     }
 

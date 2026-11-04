@@ -390,6 +390,15 @@ nonisolated final class DevicePool {
         }
     }
 
+    /// The owner of a remote lease held by `tabID`, in whichever app owns that tab.
+    func remoteOwner(ofTab tabID: UUID) throws -> DeviceLeaseOwner? {
+        try withReaped { snapshot in
+            try saveIfReaped(snapshot)
+            return snapshot.registry.devices.sorted(by: { $0.key < $1.key })
+                .first { $0.value.kind == .remote && $0.value.owner.tabID == tabID }?.value.owner
+        }
+    }
+
     func renew(_ key: String, owner: DeviceLeaseOwner, ttl: TimeInterval) throws -> DeviceLease {
         try withReaped { snapshot in
             guard var held = snapshot.registry.devices[key] else {

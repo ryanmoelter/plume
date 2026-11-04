@@ -60,10 +60,12 @@ nonisolated enum CLIRequest: Equatable, Sendable {
 
     /// Reserves a remote device for `tabID` in a device tab of its task. The app answers once the
     /// claim is recorded, not once the device connects; the claimant then waits on the registry.
-    /// `model` and `projectID` default to what the device picker last used.
+    /// `model` and `projectID` default to what the device picker last used. With no `model`,
+    /// `form` picks one of that form from the catalog.
     struct ReserveDevice: Codable, Equatable, Sendable {
         var tabID: UUID
         var model: String?
+        var form: DeviceForm?
         var projectID: String?
         var ttl: TimeInterval?
         var worktree: String?

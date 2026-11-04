@@ -394,6 +394,8 @@ nonisolated struct RemoteClaim: Equatable, Sendable {
     var deviceTabCreated: Bool
     /// `codename/api`.
     var model: String
+    /// Nil when the catalog didn't name the model.
+    var form: DeviceForm? = nil
     var projectID: String
     var ttl: TimeInterval
     var worktree: String?
@@ -475,6 +477,7 @@ nonisolated extension DeviceRegistry {
         devices[Self.remoteKey(reservationID: reservationID)] = DeviceLease(
             kind: .remote,
             serial: serial,
+            form: claim.form,
             model: claim.model,
             owner: claim.owner,
             worktree: claim.worktree,
