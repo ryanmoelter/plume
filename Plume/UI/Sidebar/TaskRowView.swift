@@ -313,12 +313,19 @@ struct TaskRowView: View {
         case .pinnedPullRequestOverflow(let count):
             PinnedPullRequestOverflowLine(count: count)
         case .pullRequest(let directory, let state):
-            PullRequestChip(
-                state: state,
-                forge: PullRequestStore.shared.forge(for: directory),
-                checkRollup: { PullRequestStore.shared.checkRollup(for: directory, of: $0) },
-                symbolWeight: .bold
-            )
+            if case .pullRequest(let pullRequest) = state {
+                PullRequestLine(summary: PullRequestSummary(
+                    pullRequest,
+                    ignoredChecks: PullRequestStore.shared.ignoredPendingChecks(for: directory)
+                ))
+            } else {
+                PullRequestChip(
+                    state: state,
+                    forge: PullRequestStore.shared.forge(for: directory),
+                    checkRollup: { PullRequestStore.shared.checkRollup(for: directory, of: $0) },
+                    symbolWeight: .bold
+                )
+            }
         }
     }
 

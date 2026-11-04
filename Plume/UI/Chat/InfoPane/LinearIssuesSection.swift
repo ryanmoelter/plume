@@ -138,8 +138,9 @@ struct LinearIssuesSection: View, ThemedView {
     }
 }
 
-/// Clicking opens the issue in Linear. A mentioned issue, or one with no URL
-/// yet, opens its menu instead, since there is nothing linked to open.
+/// Clicking opens the issue in Linear, which the open mark atop the trailing
+/// edge shows. A mentioned issue, or one with no URL yet, opens its menu
+/// instead, since there is nothing linked to open, and shows no mark.
 private struct IssueRow: View, ThemedView {
     @Environment(\.theme) var theme
 
@@ -162,7 +163,9 @@ private struct IssueRow: View, ThemedView {
                     detailLine
                 }
                 Spacer(minLength: 4)
-                OverlaidControlSpace()
+                LinkOpenIcon()
+                    .frame(width: InfoPaneLayout.iconColumnWidth)
+                    .opacity(opensIssue ? 1 : 0)
             }
         }
         .buttonStyle(InfoPaneRowButtonStyle(suppressesWash: isHoveringMenu))
@@ -174,8 +177,10 @@ private struct IssueRow: View, ThemedView {
             value: issue.statusWord ?? issue.stateName,
             invoke: activate
         )
-        .overlay(alignment: .topTrailing) { actionsMenu }
+        .overlay(alignment: .bottomTrailing) { actionsMenu }
     }
+
+    private var opensIssue: Bool { issue.role == .working && issue.url != nil }
 
     @ViewBuilder
     private var icon: some View {
@@ -188,17 +193,14 @@ private struct IssueRow: View, ThemedView {
         }
     }
 
-    @ViewBuilder
+    /// Always drawn, so the actions menu has a second line to sit on.
     private var detailLine: some View {
-        let details = detailParts.joined(separator: " · ")
-        if issue.title != nil || !details.isEmpty {
-            Text([issue.title != nil ? issue.identifier : nil, details.isEmpty ? nil : details]
-                .compactMap { $0 }
-                .joined(separator: " · "))
-                .lineLimit(1)
-                .truncationMode(.tail)
-                .emphasis(.subtle)
-        }
+        let parts = [issue.title != nil ? issue.identifier : nil] + detailParts
+        let detail = parts.compactMap { $0 }.joined(separator: " · ")
+        return Text(detail.isEmpty ? issue.identifier : detail)
+            .lineLimit(1)
+            .truncationMode(.tail)
+            .emphasis(.subtle)
     }
 
     private var detailParts: [String] {
@@ -228,7 +230,7 @@ private struct IssueRow: View, ThemedView {
         .frame(width: InfoPaneLayout.iconColumnWidth)
         .modifier(OverlaidControlWash(isHovering: isHoveringMenu))
         .plumeHover { isHoveringMenu = $0 }
-        .padding(.top, InfoPaneLayout.rowVerticalPadding)
+        .padding(.bottom, InfoPaneLayout.rowVerticalPadding)
         .help("Linear issue actions")
         .plumeID(AccessibilityID.infoPaneLinearRowMenu, label: issue.identifier)
     }
@@ -262,6 +264,11 @@ private struct IssueRow: View, ThemedView {
         entries.append(.action("Copy Identifier", AccessibilityID.infoPaneLinearCopyButton, isEnabled: true) {
             NSPasteboard.general.clearContents()
             NSPasteboard.general.setString(identifier, forType: .string)
+        })
+        entries.append(.action("Copy Link", AccessibilityID.infoPaneLinearCopyLinkButton, isEnabled: issue.url != nil) {
+            guard let url = issue.url else { return }
+            NSPasteboard.general.clearContents()
+            NSPasteboard.general.setString(url.absoluteString, forType: .string)
         })
         if issue.role == .working {
             entries.append(.divider)

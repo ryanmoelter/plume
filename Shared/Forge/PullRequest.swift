@@ -4,7 +4,7 @@ import Foundation
 /// reports. GitHub's rollup mixes `StatusContext` (context/state) and
 /// `CheckRun` (name/conclusion/status); both reduce to a name and an
 /// uppercased status here.
-nonisolated struct CheckContext: Sendable, Equatable {
+nonisolated struct CheckContext: Sendable, Hashable {
     let name: String
     let status: String
 
@@ -41,7 +41,7 @@ nonisolated enum PullRequestState: String, Sendable, Equatable {
 /// GitHub's `REVIEW_REQUIRED` and a null decision are the same fact to a
 /// reader — nobody has weighed in yet — so both fold to `none` and show no
 /// marker.
-nonisolated enum ReviewDecision: Sendable, Equatable {
+nonisolated enum ReviewDecision: Sendable, Hashable {
     case approved
     case changesRequested
     case none
@@ -73,6 +73,9 @@ nonisolated struct PullRequest: Sendable, Equatable {
     let baseRefName: String?
     let headRefOid: String?
     let reviewDecision: ReviewDecision
+    /// Someone is requested or has reviewed, so a missing decision means
+    /// waiting rather than nobody asked.
+    let hasReviewers: Bool
     let checkContexts: [CheckContext]
     /// Nil off GitHub, outside a stack, or when the query didn't ask.
     let githubStack: GitHubStackMembership?
@@ -86,6 +89,7 @@ nonisolated struct PullRequest: Sendable, Equatable {
         baseRefName: String? = nil,
         headRefOid: String? = nil,
         reviewDecision: ReviewDecision = .none,
+        hasReviewers: Bool = false,
         checkContexts: [CheckContext] = [],
         githubStack: GitHubStackMembership? = nil
     ) {
@@ -97,6 +101,7 @@ nonisolated struct PullRequest: Sendable, Equatable {
         self.baseRefName = baseRefName
         self.headRefOid = headRefOid
         self.reviewDecision = reviewDecision
+        self.hasReviewers = hasReviewers
         self.checkContexts = checkContexts
         self.githubStack = githubStack
     }

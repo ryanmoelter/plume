@@ -83,6 +83,7 @@ nonisolated enum GitLabQuery {
             baseRefName: node["targetBranch"] as? String,
             headRefOid: node["diffHeadSha"] as? String,
             reviewDecision: review,
+            hasReviewers: !reviewers.isEmpty || !approvers.isEmpty,
             checkContexts: checks
         )
     }

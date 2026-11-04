@@ -13,6 +13,7 @@ nonisolated enum GitHubQuery {
 
     private static let prNodeFields = """
         number state isDraft baseRefName url title headRefOid reviewDecision \
+        reviewRequests(first: 1) { totalCount } latestReviews(first: 1) { totalCount } \
         headRepositoryOwner { login } \
         commits(last: 1) { nodes { commit { statusCheckRollup { contexts(first: 100) \
         { nodes { __typename ... on StatusContext { context state } \
@@ -98,6 +99,7 @@ nonisolated struct GitHubPRNode: Decodable, Sendable {
         let size: Int?
     }
     struct NativeStackEntry: Decodable, Sendable { let position: Int? }
+    struct Count: Decodable, Sendable { let totalCount: Int? }
 
     let number: Int
     let state: String?
@@ -107,6 +109,8 @@ nonisolated struct GitHubPRNode: Decodable, Sendable {
     let title: String?
     let headRefOid: String?
     let reviewDecision: String?
+    let reviewRequests: Count?
+    let latestReviews: Count?
     let headRepositoryOwner: Owner?
     let commits: Commits?
     let stack: NativeStack?
@@ -168,6 +172,7 @@ nonisolated extension PullRequest {
             baseRefName: node.baseRefName,
             headRefOid: node.headRefOid,
             reviewDecision: ReviewDecision(rawValue: node.reviewDecision),
+            hasReviewers: (node.reviewRequests?.totalCount ?? 0) + (node.latestReviews?.totalCount ?? 0) > 0,
             checkContexts: contexts,
             githubStack: Self.stackMembership(node)
         )

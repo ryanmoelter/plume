@@ -6,6 +6,12 @@ nonisolated enum GitHubMentionQuery {
     static let searchSize = 10
 
     private static let fields = "number title url state isDraft updatedAt"
+    /// What a linked pull request's row draws beyond a mention's fields.
+    private static let statusFields = "reviewDecision "
+        + "reviewRequests(first: 1) { totalCount } latestReviews(first: 1) { totalCount } "
+        + "commits(last: 1) { nodes { commit { statusCheckRollup { contexts(first: 100) "
+        + "{ nodes { __typename ... on StatusContext { context state } "
+        + "... on CheckRun { name conclusion status } } } } } } }"
 
     /// A query and its variables. What the user typed travels only as a
     /// variable, sent with `-f`, which gh passes through as a plain string.
@@ -63,7 +69,7 @@ nonisolated enum GitHubMentionQuery {
     /// Several pull requests of one repository in a single request, aliased
     /// `p<number>`.
     static func pullRequests(numbers: [Int], owner: String, name: String) -> Request {
-        let aliased = numbers.map { "p\($0): pullRequest(number: \($0)) { \(fields) }" }
+        let aliased = numbers.map { "p\($0): pullRequest(number: \($0)) { \(fields) \(statusFields) }" }
         return Request(
             query: "query($owner: String!, $name: String!) { "
                 + "repository(owner: $owner, name: $name) { \(aliased.joined(separator: " ")) } }",
@@ -106,16 +112,26 @@ nonisolated enum GitHubMentionQuery {
         let state: String?
         let isDraft: Bool?
         let updatedAt: Date?
+        let reviewDecision: String?
+        let reviewRequests: GitHubPRNode.Count?
+        let latestReviews: GitHubPRNode.Count?
+        let commits: GitHubPRNode.Commits?
 
         var entry: MentionCandidate.PullRequestEntry? {
             guard let number, let url, let state = PullRequestState(rawValue: state ?? "") else { return nil }
+            let contexts = (commits?.nodes?.first?.commit?.statusCheckRollup?.contexts?.nodes ?? []).map {
+                CheckContext(context: $0.context, state: $0.state, name: $0.name, conclusion: $0.conclusion, status: $0.status)
+            }
             return .init(
                 number: number,
                 title: title ?? "",
                 url: url,
                 state: state,
                 isDraft: isDraft ?? false,
-                updatedAt: updatedAt
+                updatedAt: updatedAt,
+                reviewDecision: ReviewDecision(rawValue: reviewDecision),
+                hasReviewers: (reviewRequests?.totalCount ?? 0) + (latestReviews?.totalCount ?? 0) > 0,
+                checkContexts: contexts
             )
         }
     }
