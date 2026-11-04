@@ -103,6 +103,7 @@ Delegate to a Sonnet verifier, on the release branch in the primary checkout:
 - Launch the built `Plume.app` from DerivedData (`-showBuildSettings | awk '$1 == "BUILT_PRODUCTS_DIR"'`). Debug writes to `Plume.debug/` (`Plume.debug-<worktree>/` from a worktree), so it runs beside the installed app.
 - **Launch it with `env -u CLAUDE_CODE_CHILD_SESSION -u CLAUDECODE`.** The app inherits the shell that started it and passes that to every terminal tab it spawns, so launching from an agent's shell leaves each tab's `claude` reading itself as a nested session and skipping its transcript — the chat UI then shows nothing.
 - Walk the process tree from Plume's own PID and read the unified log for errors. Never `pgrep -x Plume` or global-grep `claude`.
+- A verifier that starts chats must start them on Haiku. When it is done, it archives every chat it created. Leftover test tasks crowd the sidebar and slow down the next verifier.
 
 Tell the user the app is running and give a per-package checklist of what to try. Each round of feedback becomes targeted agents on the release branch (Sonnet for tweaks, Opus for behavior bugs), then rebuild and relaunch through the verifier.
 
