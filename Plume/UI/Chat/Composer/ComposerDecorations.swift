@@ -455,7 +455,6 @@ enum ComposerDecorations {
                 isOpen = false
                 continue
             }
-            // A block inside a list item sits under the item's text.
             let column = line.listContainer == nil ? 0 : context.metrics.contentColumn(for: line)
             current = current.map { ($0.frame.union(frame), $0.column) } ?? (frame, column)
             if line.kind == .fence {

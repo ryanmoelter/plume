@@ -69,7 +69,8 @@ nonisolated struct MarkdownLine: Equatable {
 
     /// The characters the caret skips as one unit: quote markers, the
     /// indent, and a hidden marker. Shown markers and plain indents only
-    /// count when a quote precedes them.
+    /// count when a quote precedes them. Code in a list item skips its list
+    /// container's indent, which the composer hides.
     var atomicPrefix: NSRange? {
         var end = hidesMarker ? contentStart : (quoteMarkers.last.map(NSMaxRange) ?? range.location)
         if let listContainer { end = max(end, NSMaxRange(listContainer.indent)) }
