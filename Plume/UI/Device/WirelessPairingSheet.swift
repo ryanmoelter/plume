@@ -90,16 +90,18 @@ struct WirelessPairingSheet: View {
             )
             TextField("IP address & port", text: $address, prompt: Text("192.168.1.20:37123"))
                 .textFieldStyle(.roundedBorder)
+                .onChange(of: address) { forgetPairing() }
                 .plumeID(AccessibilityID.wirelessPairingAddressField, value: address, setValue: { address = $0 })
             TextField("Wi-Fi pairing code", text: $code, prompt: Text("Wi-Fi pairing code"))
                 .textFieldStyle(.roundedBorder)
+                .onChange(of: code) { forgetPairing() }
                 .onSubmit(pairWithCode)
                 .plumeID(AccessibilityID.wirelessPairingCodeField, value: code, setValue: { code = $0 })
             connectAddressField
             Button("Pair", action: pairWithCode)
-                .keyboardShortcut(.defaultAction)
+                .keyboardShortcut(pairing.returnKeyAction == .pair ? .defaultAction : nil)
                 .plumeID(AccessibilityID.wirelessPairingPairButton, invoke: pairWithCode)
-                .disabled(isBusy || address.isEmpty || code.isEmpty)
+                .disabled(isBusy || address.isEmpty || code.isEmpty || pairing.returnKeyAction != .pair)
         }
     }
 
@@ -107,6 +109,7 @@ struct WirelessPairingSheet: View {
         VStack(alignment: .leading, spacing: 4) {
             TextField("IP address & port (optional)", text: $connectAddress, prompt: Text(connectAddressPrompt))
                 .textFieldStyle(.roundedBorder)
+                .onSubmit(submitConnectAddress)
                 .plumeID(AccessibilityID.wirelessPairingConnectAddressField, value: connectAddress, setValue: { connectAddress = $0 })
             Text("The IP address & port on the Wireless debugging screen itself. Needed only when adb can't find the device on the network.")
                 .font(.caption)
@@ -149,6 +152,7 @@ struct WirelessPairingSheet: View {
                     .plumeID(AccessibilityID.wirelessPairingStatus, value: "paired: \(message)")
                 if mode == .qrCode { connectAddressField }
                 Button("Connect", action: connectToAddress)
+                    .keyboardShortcut(.defaultAction)
                     .plumeID(AccessibilityID.wirelessPairingConnectButton, invoke: connectToAddress)
                     .disabled(connectAddress.trimmingCharacters(in: .whitespaces).isEmpty)
             }
@@ -179,12 +183,24 @@ struct WirelessPairingSheet: View {
     }
 
     private func pairWithCode() {
-        guard !isBusy else { return }
+        guard !isBusy, pairing.returnKeyAction == .pair else { return }
         pairing.pair(address: address, code: code, connectAddress: connectAddress)
     }
 
+    private func submitConnectAddress() {
+        switch pairing.returnKeyAction {
+        case .connect: connectToAddress()
+        case .pair: pairWithCode()
+        }
+    }
+
+    /// A changed pairing address or code means pairing again, so Pair takes Return back.
+    private func forgetPairing() {
+        if pairing.returnKeyAction == .connect { pairing.cancel() }
+    }
+
     private func connectToAddress() {
-        guard !isBusy else { return }
+        guard !isBusy, !connectAddress.trimmingCharacters(in: .whitespaces).isEmpty else { return }
         pairing.connect(address: connectAddress)
     }
 

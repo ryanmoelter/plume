@@ -283,10 +283,13 @@ struct CLICommandHandlerTests {
         let handler = makeHandler(task: task)
         let adb = URL(fileURLWithPath: "/sdk/platform-tools/adb")
         let saved = PhysicalDevice(serial: "192.168.1.20:41234", state: .ready, model: nil)
+        let listing = ListingBox(ADBListing(adbURL: adb, devices: [saved]))
         handler.physicalDiscovery = PhysicalDeviceDiscovery(
-            list: { ADBListing(adbURL: adb, devices: [saved]) },
+            list: { listing.list() },
             serialNumber: { _, _ in "2B021FDH200A2K" }
         )
+        await handler.physicalDiscovery.refresh()
+        listing.listing.devices = [PhysicalDevice(serial: "192.168.1.20:39999", state: .ready, model: nil)]
         await handler.physicalDiscovery.refresh()
 
         let response = await handler.handle(.showDevice(.init(tabID: caller.id, kind: .physical, serial: "192.168.1.20:39999")))

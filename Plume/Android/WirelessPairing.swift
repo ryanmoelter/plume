@@ -1,46 +1,21 @@
 import Foundation
 import Observation
-import Synchronization
 
 /// The adb commands pairing runs, so tests can script them.
 nonisolated protocol ADBWirelessRunning: Sendable {
-    func mdnsAvailable() async -> Bool
-    func services() async -> [ADBMDNSService]
-    func pair(address: String, code: String) async -> ADBCommandOutcome
-    func connect(address: String) async -> ADBCommandOutcome
+    func mdnsAvailable(adb: URL) async -> Bool
+    func services(adb: URL) async -> [ADBMDNSService]
+    func pair(adb: URL, address: String, code: String) async -> ADBCommandOutcome
+    func connect(adb: URL, address: String) async -> ADBCommandOutcome
 }
 
-nonisolated final class LiveADBWireless: ADBWirelessRunning {
-    static let shared = LiveADBWireless()
-
-    private let located = Mutex<URL?>(nil)
-
-    func mdnsAvailable() async -> Bool {
-        guard let adb = await adb() else { return false }
-        return await ADBWireless.mdnsAvailable(adb: adb)
+nonisolated struct LiveADBWireless: ADBWirelessRunning {
+    func mdnsAvailable(adb: URL) async -> Bool { await ADBWireless.mdnsAvailable(adb: adb) }
+    func services(adb: URL) async -> [ADBMDNSService] { await ADBWireless.services(adb: adb) }
+    func pair(adb: URL, address: String, code: String) async -> ADBCommandOutcome {
+        await ADBWireless.pair(adb: adb, address: address, code: code)
     }
-
-    func services() async -> [ADBMDNSService] {
-        guard let adb = await adb() else { return [] }
-        return await ADBWireless.services(adb: adb)
-    }
-
-    func pair(address: String, code: String) async -> ADBCommandOutcome {
-        guard let adb = await adb() else { return .failed("adb wasn't found.") }
-        return await ADBWireless.pair(adb: adb, address: address, code: code)
-    }
-
-    func connect(address: String) async -> ADBCommandOutcome {
-        guard let adb = await adb() else { return .failed("adb wasn't found.") }
-        return await ADBWireless.connect(adb: adb, address: address)
-    }
-
-    private func adb() async -> URL? {
-        if let url = located.withLock({ $0 }) { return url }
-        let url = await AndroidSDKLocator.locate().sdk?.adbURL
-        located.withLock { $0 = url }
-        return url
-    }
+    func connect(adb: URL, address: String) async -> ADBCommandOutcome { await ADBWireless.connect(adb: adb, address: address) }
 }
 
 /// Pairs a phone over Wireless debugging and waits until adb lists it ready.
@@ -67,6 +42,16 @@ final class WirelessPairing {
         case failed(String)
     }
 
+    enum ReturnKeyAction: Equatable {
+        case pair
+        case connect
+    }
+
+    /// Once paired, Return connects; pairing again would reuse a code the phone has dropped.
+    var returnKeyAction: ReturnKeyAction {
+        if case .pairedNotConnected = phase { .connect } else { .pair }
+    }
+
     static let pollInterval: Duration = .seconds(1)
     /// How long adb gets to connect the phone by itself before Plume connects to an entered address.
     static let enteredAddressGrace: Duration = .seconds(3)
@@ -84,7 +69,7 @@ final class WirelessPairing {
     @ObservationIgnored private var work: Task<Void, Never>?
 
     init(
-        adb: ADBWirelessRunning = LiveADBWireless.shared,
+        adb: ADBWirelessRunning = LiveADBWireless(),
         discovery: PhysicalDeviceDiscovery = .shared,
         sleep: @escaping @Sendable (Duration) async -> Void = { try? await Task.sleep(for: $0) },
         now: @escaping () -> ContinuousClock.Instant = { .now }
@@ -95,22 +80,30 @@ final class WirelessPairing {
         self.now = now
     }
 
+    isolated deinit {
+        work?.cancel()
+    }
+
     /// Shows a fresh QR code and waits for a phone to scan it.
     func startQRCode() {
         cancel()
         qr = .random()
         phase = .waitingForScan
         let qr = qr
-        work = Task { [weak self, adb, sleep] in
-            guard await adb.mdnsAvailable() else {
+        work = Task { [weak self, adb, sleep, discovery] in
+            guard let adbURL = await discovery.adb() else {
+                self?.phase = .failed(Self.adbMissing)
+                return
+            }
+            guard await adb.mdnsAvailable(adb: adbURL) else {
                 guard !Task.isCancelled else { return }
                 self?.phase = .mdnsUnavailable
                 return
             }
-            while !Task.isCancelled {
-                if let service = await adb.services().first(where: { $0.kind == .pairing && $0.instance == qr.name }) {
+            while !Task.isCancelled, self != nil {
+                if let service = await adb.services(adb: adbURL).first(where: { $0.kind == .pairing && $0.instance == qr.name }) {
                     guard !Task.isCancelled else { return }
-                    await self?.pairAndConnect(address: service.address, code: qr.password, connectAddress: nil)
+                    await self?.pairAndConnect(adb: adbURL, address: service.address, code: qr.password, connectAddress: nil)
                     return
                 }
                 await sleep(Self.pollInterval)
@@ -137,10 +130,18 @@ final class WirelessPairing {
             phase = .failed(Self.enterConnectAddress)
             return
         }
-        work = Task { [weak self] in await self?.pairAndConnect(address: address, code: code, connectAddress: connect) }
+        phase = .pairing
+        work = Task { [weak self, discovery] in
+            guard let adbURL = await discovery.adb() else {
+                self?.phase = .failed(Self.adbMissing)
+                return
+            }
+            await self?.pairAndConnect(adb: adbURL, address: address, code: code, connectAddress: connect)
+        }
     }
 
-    /// Connects an already paired phone at the address on its Wireless debugging screen.
+    /// Connects an already paired phone at the address on its Wireless debugging screen, at once,
+    /// then waits for adb to list it.
     func connect(address: String) {
         cancel()
         guard let address = ADBWireless.address(address) else {
@@ -148,8 +149,18 @@ final class WirelessPairing {
             return
         }
         phase = .connecting
-        work = Task { [weak self] in
-            await self?.waitForPhone(host: ADBWireless.host(of: address), connectAddress: address, addressGrace: .zero)
+        work = Task { [weak self, adb, discovery] in
+            guard let adbURL = await discovery.adb() else {
+                self?.phase = .failed(Self.adbMissing)
+                return
+            }
+            let outcome = await adb.connect(adb: adbURL, address: address)
+            guard !Task.isCancelled, let self else { return }
+            if case .failed(let message) = outcome {
+                phase = .pairedNotConnected("The device didn't connect: \(message) " + Self.enterConnectAddress)
+                return
+            }
+            await waitForPhone(adb: adbURL, host: ADBWireless.host(of: address), connectAddress: nil, addressGrace: .zero, attempted: [address])
         }
     }
 
@@ -161,26 +172,32 @@ final class WirelessPairing {
 
     private static let enterConnectAddress =
         "Enter the IP address and port from the device's Wireless debugging screen, like 192.168.1.20:41234."
+    private static let adbMissing = "adb wasn't found."
 
-    private func pairAndConnect(address: String, code: String, connectAddress: String?) async {
+    private func pairAndConnect(adb adbURL: URL, address: String, code: String, connectAddress: String?) async {
         phase = .pairing
-        let outcome = await adb.pair(address: address, code: code)
+        let outcome = await adb.pair(adb: adbURL, address: address, code: code)
         guard !Task.isCancelled else { return }
         if case .failed(let message) = outcome {
             phase = .failed(message)
             return
         }
         phase = .connecting
-        await waitForPhone(host: ADBWireless.host(of: address), connectAddress: connectAddress, addressGrace: Self.enteredAddressGrace)
+        await waitForPhone(
+            adb: adbURL, host: ADBWireless.host(of: address), connectAddress: connectAddress, addressGrace: Self.enteredAddressGrace
+        )
     }
 
-    private func waitForPhone(host: String, connectAddress: String?, addressGrace: Duration) async {
+    /// `attempted` holds addresses already connected to, which the wait never connects again.
+    private func waitForPhone(
+        adb adbURL: URL, host: String, connectAddress: String?, addressGrace: Duration, attempted: Set<String> = []
+    ) async {
         let start = now()
-        var attempted: Set<String> = []
+        var attempted = attempted
         var connectFailure: String?
         while true {
             await discovery.refresh()
-            let services = await adb.services().filter { $0.kind == .connect && $0.host == host }
+            let services = await adb.services(adb: adbURL).filter { $0.kind == .connect && $0.host == host }
             guard !Task.isCancelled else { return }
             if let phone = discovery.devices.first(where: { Self.isPhone($0, at: host, services: services) }) {
                 phase = .connected(phone)
@@ -197,7 +214,7 @@ final class WirelessPairing {
             }
             for address in addresses where !attempted.contains(address) {
                 attempted.insert(address)
-                if case .failed(let message) = await adb.connect(address: address) { connectFailure = message }
+                if case .failed(let message) = await adb.connect(adb: adbURL, address: address) { connectFailure = message }
                 guard !Task.isCancelled else { return }
             }
             await sleep(Self.pollInterval)

@@ -251,6 +251,54 @@ struct PhysicalDeviceIdentityTests {
         #expect(!discovery.namesSamePhone("192.168.1.99:5555", "wifi:2B021FDH200A2K"))
     }
 
+    @Test func aWifiAddressAdbNoLongerListsStillNamesItsPhone() async {
+        let old = PhysicalDevice(serial: "192.168.1.20:41234", state: .ready, model: nil)
+        let new = PhysicalDevice(serial: "192.168.1.20:39999", state: .ready, model: nil)
+        let listing = ListingBox(ADBListing(adbURL: adb, devices: [old]))
+        let discovery = PhysicalDeviceDiscovery(list: { listing.list() }, serialNumber: { _, _ in "2B021FDH200A2K" })
+        await discovery.refresh()
+        listing.listing.devices = [new]
+        await discovery.refresh()
+        #expect(discovery.namesSamePhone(old.serial, "wifi:2B021FDH200A2K"))
+        #expect(discovery.readySerial(for: old.serial) == new.serial)
+    }
+
+    @Test func aSerialNumberReadForAnUnlistedSerialSurvivesAPublish() async {
+        let gate = Gate()
+        let reads = SerialReadCounter()
+        let discovery = PhysicalDeviceDiscovery(
+            list: { [adb] in ADBListing(adbURL: adb, devices: []) },
+            serialNumber: { _, _ in
+                reads.increment()
+                await gate.wait()
+                return "2B021FDH200A2K"
+            }
+        )
+        await discovery.refresh()
+        let resolving = Task { await discovery.resolvedIdentifier(forSerial: "192.168.1.20:41234") }
+        await waitUntilTrue { reads.value == 1 }
+        await discovery.refresh()
+        await gate.open()
+        #expect(await resolving.value == "wifi:2B021FDH200A2K")
+        #expect(discovery.hardwareSerial(ofIdentifier: "192.168.1.20:41234") == "2B021FDH200A2K")
+    }
+
+    @Test func aRetryingRefreshReadsAFailedSerialNumberAtOnce() async {
+        let wifi = PhysicalDevice(serial: "192.168.1.20:41234", state: .ready, model: nil)
+        let reads = SerialReadCounter()
+        let discovery = PhysicalDeviceDiscovery(
+            list: { [adb] in ADBListing(adbURL: adb, devices: [wifi]) },
+            serialNumber: { _, _ in
+                reads.increment()
+                return reads.value >= 2 ? "2B021FDH200A2K" : nil
+            }
+        )
+        await discovery.refresh()
+        await discovery.refresh(retryingFailedReads: true)
+        #expect(reads.value == 2)
+        #expect(discovery.readySerial(for: "wifi:2B021FDH200A2K") == wifi.serial)
+    }
+
     @Test func theListIsPublishedBeforeSerialNumbersAreRead() async {
         let wifi = PhysicalDevice(serial: "192.168.1.20:41234", state: .ready, model: nil)
         let gate = Gate()
@@ -342,7 +390,7 @@ struct WifiDeviceSessionTests {
                 return fake
             },
             idleSleep: { _ in },
-            mdnsAvailable: { mdnsAvailable }
+            mdnsAvailable: { _ in mdnsAvailable }
         )
     }
 
@@ -396,6 +444,78 @@ struct WifiDeviceSessionTests {
         await waitUntilTrue { session.state == .connected }
         #expect(session.state == .connected)
         #expect(connected == [moved.serial])
+    }
+
+    @Test func showingTheSamePhoneOverWifiLooksForItAgain() async {
+        let listing = ListingBox(ADBListing(adbURL: adb, devices: []))
+        var connected: [String] = []
+        let session = session(target: .physical(serial: "2B021FDH200A2K"), discovery: discovery(listing)) { connected.append($0) }
+        let sink = FakeSink(size: CGSize(width: 100, height: 200))
+        session.addSink(sink)
+        session.start()
+        await waitUntilTrue { session.state == .notRunning }
+        let wifi = PhysicalDevice(serial: "192.168.1.20:41234", state: .ready, model: "Pixel_9")
+        listing.listing.devices = [wifi]
+        session.point(at: .physical(serial: "wifi:2B021FDH200A2K"), displayName: "Pixel 9")
+        await waitUntilTrue { session.state == .connected }
+        #expect(connected == [wifi.serial])
+        #expect(session.target == .physical(serial: "2B021FDH200A2K"))
+        withExtendedLifetime(sink) {}
+    }
+
+    @Test func aTabSavedUnderAnAddressSwitchesToTheSerialNumberOnceRead() async {
+        let wifi = PhysicalDevice(serial: "192.168.1.20:41234", state: .ready, model: "Pixel_9")
+        let listing = ListingBox(ADBListing(adbURL: adb, devices: [wifi]))
+        let session = session(target: .physical(serial: wifi.serial), discovery: discovery(listing)) { _ in }
+        var reported: [DeviceTarget?] = []
+        session.onDeviceChange = { target, _ in reported.append(target) }
+        session.start()
+        await waitUntilTrue { session.state == .suspended }
+        #expect(reported == [.physical(serial: "wifi:2B021FDH200A2K")])
+        #expect(session.target == .physical(serial: "wifi:2B021FDH200A2K"))
+    }
+
+    @Test func aWifiTabFindsItsPhoneWhileAFailedReadWaitsOutItsBackoff() async {
+        let wifi = PhysicalDevice(serial: "192.168.1.20:41234", state: .ready, model: "Pixel_9")
+        let listing = ListingBox(ADBListing(adbURL: adb, devices: [wifi]))
+        let reads = SerialReadCounter()
+        let discovery = PhysicalDeviceDiscovery(list: { listing.list() }, serialNumber: { _, _ in
+            reads.increment()
+            return reads.value >= 2 ? "2B021FDH200A2K" : nil
+        })
+        await discovery.refresh()
+        var connected: [String] = []
+        let session = session(target: .physical(serial: "wifi:2B021FDH200A2K"), discovery: discovery) { connected.append($0) }
+        let sink = FakeSink(size: CGSize(width: 100, height: 200))
+        session.addSink(sink)
+        session.start()
+        await waitUntilTrue { session.state == .connected || session.state == .notRunning }
+        #expect(session.state == .connected)
+        #expect(connected == [wifi.serial])
+        withExtendedLifetime(sink) {}
+    }
+
+    @Test func aPickCancelledWhileReadingTheSerialNumberLeavesNoDevice() async {
+        let wifi = PhysicalDevice(serial: "192.168.1.20:41234", state: .ready, model: "Pixel_9")
+        let listing = ListingBox(ADBListing(adbURL: adb, devices: [wifi]))
+        let gate = Gate()
+        let reads = SerialReadCounter()
+        let discovery = PhysicalDeviceDiscovery(list: { listing.list() }, serialNumber: { _, _ in
+            reads.increment()
+            await gate.wait()
+            return "2B021FDH200A2K"
+        })
+        var connected: [String] = []
+        let session = session(target: nil, discovery: discovery) { connected.append($0) }
+        session.attach(wifi)
+        await waitUntilTrue { reads.value == 1 }
+        #expect(session.state == .locating)
+        session.close()
+        await gate.open()
+        await waitUntilTrue { session.state == .needsDevice }
+        #expect(session.state == .needsDevice)
+        #expect(session.target == nil)
+        #expect(connected.isEmpty)
     }
 
     @Test func aWifiTabWhoseDeviceIsGoneIsNotRunning() async {

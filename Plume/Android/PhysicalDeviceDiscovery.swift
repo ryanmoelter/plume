@@ -13,6 +13,10 @@ final class PhysicalDeviceDiscovery {
     private(set) var adbURL: URL?
     /// Each listed Wi-Fi device's `ro.serialno`, by adb serial.
     private(set) var hardwareSerials: [String: String] = [:]
+    /// Serial numbers of Wi-Fi serials adb no longer lists, so a tab saved under a phone's old
+    /// address still names that phone. Oldest first, at most `rememberedLimit`.
+    @ObservationIgnored private var remembered: [(serial: String, hardware: String)] = []
+    static let rememberedLimit = 64
 
     @ObservationIgnored private var retainCount = 0
     @ObservationIgnored private var pollTask: Task<Void, Never>?
@@ -61,7 +65,9 @@ final class PhysicalDeviceDiscovery {
     /// Publishes the listing at once, then waits for the serial numbers of the published Wi-Fi
     /// devices. A listing older than one already published is dropped, so overlapping refreshes
     /// never go back, but its caller still waits for the newer listing's serial numbers.
-    func refresh() async {
+    /// `retryingFailedReads` reads again at once where a recent read failed, for a caller that
+    /// is about to tell the user the phone isn't there.
+    func refresh(retryingFailedReads: Bool = false) async {
         startedRefreshes += 1
         let refresh = startedRefreshes
         let listing = await list()
@@ -69,7 +75,13 @@ final class PhysicalDeviceDiscovery {
             publishedRefresh = refresh
             publish(listing)
         }
-        await resolveListedHardwareSerials()
+        await resolveListedHardwareSerials(retryingFailure: retryingFailedReads)
+    }
+
+    /// The adb this discovery lists with, listing once if it hasn't yet.
+    func adb() async -> URL? {
+        if adbURL == nil { await refresh() }
+        return adbURL
     }
 
     /// What a tab persists for the device at `serial`: `wifi:<ro.serialno>` for a Wi-Fi device
@@ -83,7 +95,7 @@ final class PhysicalDeviceDiscovery {
     /// caller that can't wait for a poll.
     func resolvedIdentifier(forSerial serial: String) async -> String {
         guard ADBWireless.isNetworkSerial(serial) else { return serial }
-        if hardwareSerials[serial] == nil, let adb = await currentADB(),
+        if hardwareSerials[serial] == nil, let adb = await adb(),
            let lookup = startLookup(of: serial, adb: adb, retryingFailure: true) {
             await finish(lookup, of: serial)
         }
@@ -91,10 +103,14 @@ final class PhysicalDeviceDiscovery {
     }
 
     /// The phone's serial number a tab identifier names, when known: the part after `wifi:`, a
-    /// USB serial as is, or the read serial number of a Wi-Fi adb serial.
+    /// USB serial as is, or the read serial number of a Wi-Fi adb serial, listed now or before.
     func hardwareSerial(ofIdentifier identifier: String) -> String? {
         if PhysicalDeviceIdentity.isWifi(identifier) { return PhysicalDeviceIdentity.hardwareSerial(of: identifier) }
-        return ADBWireless.isNetworkSerial(identifier) ? hardwareSerials[identifier] : identifier
+        guard ADBWireless.isNetworkSerial(identifier) else { return identifier }
+        if let hardware = hardwareSerials[identifier] { return hardware }
+        // A listed serial may be another phone's connection now, so only an unlisted one falls back.
+        guard !devices.contains(where: { $0.serial == identifier }) else { return nil }
+        return remembered.last { $0.serial == identifier }?.hardware
     }
 
     /// Whether two tab identifiers name the same phone, over USB, Wi-Fi or both.
@@ -127,14 +143,15 @@ final class PhysicalDeviceDiscovery {
     }
 
     /// The ready adb serial a tab's identifier names now. An exact serial wins; otherwise a phone
-    /// with that serial number on either transport does, Wi-Fi first for a `wifi:` identifier.
+    /// with that serial number on either transport does, Wi-Fi first for a Wi-Fi identifier.
     func readySerial(for identifier: String) -> String? {
         let ready = devices.filter(\.isReady)
         if let exact = ready.first(where: { $0.serial == identifier }) { return exact.serial }
-        let hardware = PhysicalDeviceIdentity.hardwareSerial(of: identifier)
+        guard let hardware = hardwareSerial(ofIdentifier: identifier) else { return nil }
         let overWifi = ready.first { $0.isNetwork && hardwareSerials[$0.serial] == hardware }
         let overUSB = ready.first { !$0.isNetwork && $0.serial == hardware }
-        return (PhysicalDeviceIdentity.isWifi(identifier) ? overWifi ?? overUSB : overUSB ?? overWifi)?.serial
+        let prefersWifi = PhysicalDeviceIdentity.isWifi(identifier) || ADBWireless.isNetworkSerial(identifier)
+        return (prefersWifi ? overWifi ?? overUSB : overUSB ?? overWifi)?.serial
     }
 
     private func publish(_ listing: ADBListing) {
@@ -146,13 +163,17 @@ final class PhysicalDeviceDiscovery {
         let listed = Set(listing.devices.map(\.serial))
         let kept = hardwareSerials.filter { listed.contains($0.key) }
         if kept != hardwareSerials { hardwareSerials = kept }
-        serialLookups = serialLookups.filter { listed.contains($0.key) }
+        // A running read may be `resolvedIdentifier`'s for a serial this listing predates.
+        serialLookups = serialLookups.filter { entry in
+            if case .running = entry.value { return true }
+            return listed.contains(entry.key)
+        }
     }
 
-    private func resolveListedHardwareSerials() async {
+    private func resolveListedHardwareSerials(retryingFailure: Bool) async {
         guard let adb = adbURL else { return }
         let lookups = devices.filter { $0.isNetwork && $0.isReady }.compactMap { device in
-            startLookup(of: device.serial, adb: adb, retryingFailure: false).map { (device.serial, $0) }
+            startLookup(of: device.serial, adb: adb, retryingFailure: retryingFailure).map { (device.serial, $0) }
         }
         for (serial, lookup) in lookups { await finish(lookup, of: serial) }
     }
@@ -180,13 +201,15 @@ final class PhysicalDeviceDiscovery {
         if let hardware {
             serialLookups[serial] = nil
             hardwareSerials[serial] = hardware
+            remember(serial, hardware: hardware)
         } else {
             serialLookups[serial] = .failed(at: now())
         }
     }
 
-    private func currentADB() async -> URL? {
-        if let adbURL { return adbURL }
-        return await AndroidSDKLocator.locate().sdk?.adbURL
+    private func remember(_ serial: String, hardware: String) {
+        remembered.removeAll { $0.serial == serial }
+        remembered.append((serial, hardware))
+        if remembered.count > Self.rememberedLimit { remembered.removeFirst(remembered.count - Self.rememberedLimit) }
     }
 }

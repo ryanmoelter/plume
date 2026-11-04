@@ -151,7 +151,7 @@ final class CLICommandHandler {
         }
         let displayName = params.displayName ?? target.fallbackName
         if tab.deviceTarget == nil { tab.setDevice(target, displayName: displayName) }
-        deviceSessions.existingSession(for: tab.id)?.point(at: target, displayName: displayName)
+        deviceSessions.existingSession(for: tab.id)?.point(at: tab.deviceTarget ?? target, displayName: displayName)
         var response = CLIResponse.success
         response.tabID = tab.id
         response.created = created

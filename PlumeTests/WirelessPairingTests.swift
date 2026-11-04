@@ -35,16 +35,16 @@ private nonisolated final class FakeWireless: ADBWirelessRunning, @unchecked Sen
     var connected: PhysicalDevice? { get { lock.withLock { _connected } } set { lock.withLock { _connected = newValue } } }
     var connectOutcome: ADBCommandOutcome { get { lock.withLock { _connectOutcome } } set { lock.withLock { _connectOutcome = newValue } } }
 
-    func mdnsAvailable() async -> Bool { mdns }
+    func mdnsAvailable(adb: URL) async -> Bool { mdns }
 
-    func services() async -> [ADBMDNSService] {
+    func services(adb: URL) async -> [ADBMDNSService] {
         lock.withLock {
             _servicesCalls += 1
             return _services
         }
     }
 
-    func pair(address: String, code: String) async -> ADBCommandOutcome {
+    func pair(adb: URL, address: String, code: String) async -> ADBCommandOutcome {
         let (outcome, device) = lock.withLock {
             _pairs.append((address, code))
             return (_pairOutcome, _autoConnected)
@@ -53,7 +53,7 @@ private nonisolated final class FakeWireless: ADBWirelessRunning, @unchecked Sen
         return outcome
     }
 
-    func connect(address: String) async -> ADBCommandOutcome {
+    func connect(adb: URL, address: String) async -> ADBCommandOutcome {
         let (outcome, device) = lock.withLock {
             _connects.append(address)
             return (_connectOutcome, _connected)
@@ -245,6 +245,32 @@ struct WirelessPairingTests {
         await waitUntil { pairing.phase == .connected(phone) }
         #expect(pairing.phase == .connected(phone))
         #expect(fake.connects == [phoneAddress])
+    }
+
+    @Test func aTypedAddressIsConnectedAtOnceEvenWithAConnectService() async {
+        let fake = FakeWireless()
+        let phone = PhysicalDevice(serial: phoneAddress, state: .ready, model: "Pixel_9")
+        fake.connected = phone
+        fake.servicesShown = [phoneConnectService]
+        let time = FakeTime()
+        let started = time.now
+        let pairing = makePairing(fake, time: time)
+        pairing.connect(address: phoneAddress)
+        await waitUntil { pairing.phase == .connected(phone) }
+        #expect(pairing.phase == .connected(phone))
+        #expect(fake.connects == [phoneAddress])
+        #expect(time.now - started < WirelessPairing.autoConnectWindow)
+    }
+
+    @Test func returnConnectsOncePairedAndPairsOtherwise() async {
+        let fake = FakeWireless()
+        let pairing = makePairing(fake)
+        #expect(pairing.returnKeyAction == .pair)
+        pairing.pair(address: "192.168.1.20:37123", code: "123456")
+        _ = await pairedNotConnected(pairing)
+        #expect(pairing.returnKeyAction == .connect)
+        pairing.cancel()
+        #expect(pairing.returnKeyAction == .pair)
     }
 
     @Test func aMalformedConnectAddressIsRejectedBeforePairing() {
