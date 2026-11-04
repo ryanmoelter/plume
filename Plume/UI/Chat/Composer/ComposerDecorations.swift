@@ -36,6 +36,7 @@ enum ComposerDecorations {
         var brand: ReferenceChipBrand?
         var textTint: NSColor = .linkColor
         var title: Title?
+        var toolTip: ComposerReferenceChip.ToolTip?
     }
 
     /// A chip's title, drawn from the left end of its baseline.
@@ -418,7 +419,8 @@ enum ComposerDecorations {
                 brandRect: icons.brand,
                 brand: chip.brand,
                 textTint: chip.textTint,
-                title: title
+                title: title,
+                toolTip: chip.toolTip
             )
         }
     }

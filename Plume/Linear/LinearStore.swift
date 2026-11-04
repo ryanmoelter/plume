@@ -944,6 +944,17 @@ final class LinearStore: LinearActivitySink {
     }
 
     /// The cached issue or search hit `identifier` names, with no request.
+    /// What is known of an issue without a request: its published state,
+    /// the sync cache, or a search hit.
+    func knownIssue(identifier: String) -> LinearIssue? {
+        let identifier = identifier.uppercased()
+        if let issue = state(for: identifier)?.issue ?? cachedIssue(identifier)?.issue { return issue }
+        for account in accounts.accounts {
+            if let hit = searchHits[account.orgID]?[identifier] { return hit.issue }
+        }
+        return nil
+    }
+
     func mentionIssue(identifier: String) -> MentionCandidate.LinearIssue? {
         let identifier = identifier.uppercased()
         if let (orgID, _) = cachedIssue(identifier), let cache = caches[orgID],

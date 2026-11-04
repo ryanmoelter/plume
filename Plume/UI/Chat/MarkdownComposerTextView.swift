@@ -288,6 +288,7 @@ struct MarkdownComposerTextView: NSViewRepresentable {
                 caret: caret,
                 palette: referencePalette,
                 textTint: ThemeChrome.accentNSColor(isActive: isActive),
+                directory: referenceResolver.directory,
                 resolution: referenceResolver.cached
             )
             lookUp(found.misses.filter { !attemptedReferences.contains($0) }, with: referenceResolver)
@@ -592,15 +593,19 @@ final class ComposerNSTextView: NSTextView {
         didSet { if referenceChips != oldValue { needsDisplay = true } }
     }
 
+    private let referenceToolTips = ComposerReferenceToolTips()
+
     /// Draws decorations and the placeholder here rather than in `draw(_:)`:
     /// overriding `draw(_:)` drops an `NSTextView` to TextKit 1, and the
     /// decorations read TextKit 2 layout. AppKit calls this before the glyphs
     /// even with `drawsBackground` off.
     override func drawBackground(in rect: NSRect) {
         super.drawBackground(in: rect)
-        if let markdownMetrics {
-            ComposerDecorations.draw(ComposerDecorations.rects(in: self, metrics: markdownMetrics), in: rect, metrics: markdownMetrics)
+        let decorations = markdownMetrics.map { ComposerDecorations.rects(in: self, metrics: $0) }
+        if let decorations, let markdownMetrics {
+            ComposerDecorations.draw(decorations, in: rect, metrics: markdownMetrics)
         }
+        referenceToolTips.update(decorations?.referenceChips ?? [], in: self)
         guard let placeholderText, let font = self.font else { return }
         let attributes: [NSAttributedString.Key: Any] = [
             .font: font,

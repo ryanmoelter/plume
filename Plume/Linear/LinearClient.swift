@@ -44,7 +44,7 @@ nonisolated enum LinearQuery {
         """
 
     static let issueFields = """
-        id identifier title url updatedAt archivedAt trashed \
+        id identifier title url updatedAt archivedAt trashed description dueDate \
         state { id name type color } assignee { id displayName name } team { id key }
         """
 
@@ -212,6 +212,8 @@ nonisolated enum LinearQuery {
         let updatedAt: Date
         let archivedAt: Date?
         let trashed: Bool?
+        let description: String?
+        let dueDate: String?
         let state: State
         let assignee: Assignee?
         let team: Team
@@ -234,7 +236,9 @@ nonisolated enum LinearQuery {
                     stateType: state.type,
                     stateColor: state.color,
                     assigneeName: assigneeName,
-                    teamKey: team.key
+                    teamKey: team.key,
+                    summary: LinearIssue.summary(ofDescription: description),
+                    dueDate: dueDate
                 )
             )
         }
