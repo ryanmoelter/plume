@@ -492,6 +492,7 @@ private struct HomeRow: View, ThemedView {
     let action: () -> Void
     @Environment(\.theme) var theme
     @Environment(\.colorScheme) private var colorScheme
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @State private var isHovered = false
 
     var body: some View {
@@ -511,7 +512,13 @@ private struct HomeRow: View, ThemedView {
                             .truncationMode(.tail)
                     }
                     contextLine
+                    if !item.sideWork.isEmpty {
+                        HomeSideWorkRow(items: item.sideWork)
+                            .padding(.top, 2)
+                            .transition(.opacity)
+                    }
                 }
+                .animation(reduceMotion ? nil : .default, value: item.sideWork.map(\.id))
                 .padding(.leading, Self.barWidth + Self.barTextGap)
                 .overlay(alignment: .leading) { colorBar }
                 Spacer(minLength: 8)

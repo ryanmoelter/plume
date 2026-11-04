@@ -62,6 +62,7 @@ enum AccessibilityID {
     static let homeView = "home-view"
     static let homeGreeting = "home-greeting"
     static let homeRow = "home-row"
+    static let homeSideWorkChip = "home-side-work-chip"
     static let homeEmptyState = "home-empty-state"
     static let homeNeedsAttentionHeader = "home-needs-attention-header"
     static let homeIdleHeader = "home-idle-header"
