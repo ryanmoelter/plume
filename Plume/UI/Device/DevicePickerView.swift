@@ -12,6 +12,8 @@ struct DevicePickerView: View {
     @State private var avds: [AVD] = []
     @State private var remoteSearch = ""
     @State private var isPairingOverWifi = false
+    /// Held until the sheet is gone, because connecting replaces this view and the sheet with it.
+    @State private var pairedDevice: PhysicalDevice?
     @Environment(\.openSettings) private var openSettings
     private var discovery: EmulatorDiscovery { .shared }
     private var physicalDiscovery: PhysicalDeviceDiscovery { .shared }
@@ -39,8 +41,11 @@ struct DevicePickerView: View {
         .onChange(of: remoteCatalog.selectedProject) {
             Task { await remoteCatalog.loadModels() }
         }
-        .sheet(isPresented: $isPairingOverWifi) {
-            WirelessPairingSheet(onConnected: onConnect)
+        .sheet(isPresented: $isPairingOverWifi, onDismiss: connectPairedDevice) {
+            WirelessPairingSheet { device in
+                pairedDevice = device
+                isPairingOverWifi = false
+            }
         }
         .task { await load(refresh: false) }
         .task {
@@ -95,6 +100,12 @@ struct DevicePickerView: View {
                 .disabled(!device.isReady)
             }
         }
+    }
+
+    private func connectPairedDevice() {
+        guard let pairedDevice else { return }
+        self.pairedDevice = nil
+        onConnect(pairedDevice)
     }
 
     private var pairOverWifiButton: some View {

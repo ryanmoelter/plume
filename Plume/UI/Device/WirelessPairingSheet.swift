@@ -4,7 +4,7 @@ import CoreImage.CIFilterBuiltins
 import SwiftUI
 
 /// Pairs a phone over Wireless debugging, by QR code or pairing code, and hands back the
-/// device once adb lists it ready.
+/// device once adb lists it ready. The presenter dismisses the sheet.
 struct WirelessPairingSheet: View {
     let onConnected: (PhysicalDevice) -> Void
 
@@ -59,7 +59,6 @@ struct WirelessPairingSheet: View {
         .onChange(of: pairing.phase) {
             guard case .connected(let device) = pairing.phase else { return }
             onConnected(device)
-            dismiss()
         }
     }
 
@@ -181,16 +180,19 @@ private struct PairingQRCode: View {
         .frame(width: 168, height: 168)
         .clipShape(.rect(cornerRadius: 8))
         .plumeID(AccessibilityID.wirelessPairingQRCode, value: image == nil ? "loading" : payload)
-        .task(id: payload) { image = Self.render(payload) }
+        .task(id: payload) {
+            let cgImage = await Task.detached(priority: .userInitiated) { [payload] in Self.render(payload) }.value
+            image = cgImage.map { NSImage(cgImage: $0, size: NSSize(width: $0.width, height: $0.height)) }
+        }
     }
 
-    private static func render(_ payload: String) -> NSImage? {
+    nonisolated private static let context = CIContext()
+
+    nonisolated private static func render(_ payload: String) -> CGImage? {
         let filter = CIFilter.qrCodeGenerator()
         filter.message = Data(payload.utf8)
         filter.correctionLevel = "M"
-        guard let output = filter.outputImage,
-              let cgImage = CIContext().createCGImage(output, from: output.extent)
-        else { return nil }
-        return NSImage(cgImage: cgImage, size: output.extent.size)
+        guard let output = filter.outputImage else { return nil }
+        return context.createCGImage(output, from: output.extent)
     }
 }

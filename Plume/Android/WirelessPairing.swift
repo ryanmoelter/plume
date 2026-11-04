@@ -37,9 +37,10 @@ nonisolated struct LiveADBWireless: ADBWirelessRunning {
 
 /// Pairs a phone over Wireless debugging and waits until adb lists it ready.
 ///
-/// After a pair, adb normally connects the phone by itself through mDNS. If no new Wi-Fi device
-/// shows up after a few polls, Plume looks up the phone's connect service at the address it
-/// paired with and runs `adb connect` itself.
+/// After a pair, adb normally connects the phone by itself through mDNS. The phone is the ready
+/// Wi-Fi device at the host it paired from: a `host:port` serial on that host, or an mDNS serial
+/// named by a connect service on it. If none shows up within a few seconds, Plume runs
+/// `adb connect` itself, once per connect service at that host.
 @MainActor @Observable
 final class WirelessPairing {
     enum Phase: Equatable {
@@ -54,9 +55,9 @@ final class WirelessPairing {
     }
 
     static let pollInterval: Duration = .seconds(1)
-    /// Polls before Plume connects by hand rather than waiting on adb's auto-connect.
-    static let autoConnectPolls = 3
-    static let connectPolls = 15
+    /// How long Plume waits on adb's auto-connect before connecting by hand.
+    static let autoConnectGrace: Duration = .seconds(3)
+    static let connectDeadline: Duration = .seconds(20)
 
     private(set) var phase: Phase = .idle
     private(set) var qr = ADBPairingQR.random()
@@ -64,16 +65,19 @@ final class WirelessPairing {
     @ObservationIgnored private let adb: ADBWirelessRunning
     @ObservationIgnored private let discovery: PhysicalDeviceDiscovery
     @ObservationIgnored private let sleep: @Sendable (Duration) async -> Void
+    @ObservationIgnored private let now: () -> ContinuousClock.Instant
     @ObservationIgnored private var work: Task<Void, Never>?
 
     init(
         adb: ADBWirelessRunning = LiveADBWireless(),
         discovery: PhysicalDeviceDiscovery = .shared,
-        sleep: @escaping @Sendable (Duration) async -> Void = { try? await Task.sleep(for: $0) }
+        sleep: @escaping @Sendable (Duration) async -> Void = { try? await Task.sleep(for: $0) },
+        now: @escaping () -> ContinuousClock.Instant = { .now }
     ) {
         self.adb = adb
         self.discovery = discovery
         self.sleep = sleep
+        self.now = now
     }
 
     /// Shows a fresh QR code and waits for a phone to scan it.
@@ -122,8 +126,6 @@ final class WirelessPairing {
 
     private func pairAndConnect(address: String, code: String) async {
         phase = .pairing
-        await discovery.refresh()
-        let before = Set(discovery.devices.map(\.serial))
         let outcome = await adb.pair(address: address, code: code)
         guard !Task.isCancelled else { return }
         if case .failed(let message) = outcome {
@@ -132,24 +134,23 @@ final class WirelessPairing {
         }
         phase = .connecting
         let host = ADBWireless.host(of: address)
-        var connectedAddress: String?
+        let start = now()
+        var attempted: Set<String> = []
         var connectFailure: String?
-        for poll in 0..<Self.connectPolls {
+        while now() - start < Self.connectDeadline {
             await discovery.refresh()
+            let services = await adb.services().filter { $0.kind == .connect && $0.host == host }
             guard !Task.isCancelled else { return }
-            let ready = discovery.devices.filter { $0.isReady && $0.isNetwork }
-            if let device = ready.first(where: { !before.contains($0.serial) || $0.serial == connectedAddress }) {
-                phase = .connected(device)
+            if let phone = discovery.devices.first(where: { Self.isPhone($0, at: host, services: services) }) {
+                phase = .connected(phone)
                 return
             }
-            if poll >= Self.autoConnectPolls, connectedAddress == nil,
-               let service = await adb.services().first(where: { $0.kind == .connect && $0.host == host }) {
-                guard !Task.isCancelled else { return }
-                switch await adb.connect(address: service.address) {
-                case .succeeded: connectedAddress = service.address
-                case .failed(let message): connectFailure = message
+            if now() - start >= Self.autoConnectGrace {
+                for service in services where !attempted.contains(service.address) {
+                    attempted.insert(service.address)
+                    if case .failed(let message) = await adb.connect(address: service.address) { connectFailure = message }
+                    guard !Task.isCancelled else { return }
                 }
-                guard !Task.isCancelled else { return }
             }
             await sleep(Self.pollInterval)
         }
@@ -159,5 +160,12 @@ final class WirelessPairing {
                 + (connectFailure.map { ": \($0)" } ?? ".")
                 + " Check that it's on the same network, then connect to the IP address and port under Wireless debugging with adb connect."
         )
+    }
+
+    /// Already connected counts, so pairing a phone again finds it under either serial form.
+    private static func isPhone(_ device: PhysicalDevice, at host: String, services: [ADBMDNSService]) -> Bool {
+        guard device.isReady, device.isNetwork else { return false }
+        if ADBWireless.address(device.serial) != nil { return ADBWireless.host(of: device.serial) == host }
+        return services.contains { device.serial.hasPrefix($0.instance + ".") }
     }
 }
