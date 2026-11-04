@@ -66,7 +66,7 @@ If the work only partly landed, leave the issue open and add a `save_comment` sa
 
 `save_issue` with `team: "Plume"`, the `project` for its outcome, `state: "Backlog"`, and a description holding the item and any real blocker. If the item came from outside this repo, add the `Requested` label.
 
-Do not inventory the codebase in the description. Ask the user for a size; leave `estimate` unset rather than guessing.
+Do not inventory the codebase in the description. Set `estimate` yourself from what you know of the work, and say the size when you report the issue. Ask only if the user asks to size it, or if the scope is too unclear to judge.
 
 ## Reprioritize
 
