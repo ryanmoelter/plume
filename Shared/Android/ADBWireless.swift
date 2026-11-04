@@ -68,7 +68,7 @@ nonisolated enum ADBWireless {
     static let connectServiceType = "_adb-tls-connect._tcp"
 
     static func isNetworkSerial(_ serial: String) -> Bool {
-        if serial.hasPrefix("localhost:") || serial.hasPrefix("emulator-") { return false }
+        if DevicePool.isRemoteSerial(serial) || DevicePool.isEmulator(serial) { return false }
         if serial.contains("." + connectServiceType) { return true }
         return address(serial) != nil
     }
@@ -114,13 +114,19 @@ nonisolated enum ADBWireless {
         return text.contains("mdns daemon version") && !text.contains("unavailable")
     }
 
-    /// adb exits 0 from a failed pair, so only the text tells.
+    /// Read from the text, since adb's exit status differs between failures and versions.
     static func parsePair(_ output: String) -> ADBCommandOutcome {
         if output.contains("Successfully paired") { return .succeeded }
+        if output.contains("protocol fault") || output.contains("Unable to start pairing client") {
+            return .failed(unreachablePairingService)
+        }
         return .failed(failureMessage(output, fallback: "Pairing failed."))
     }
 
-    /// adb exits 0 from a failed connect too.
+    static let unreachablePairingService =
+        "Couldn't reach the device's pairing service. Check the address and code, and that the pairing dialog is still open."
+
+    /// adb exits 0 from a failed connect, so only the text tells.
     static func parseConnect(_ output: String) -> ADBCommandOutcome {
         let lines = output.split(whereSeparator: \.isNewline).map { $0.trimmingCharacters(in: .whitespaces) }
         if lines.contains(where: { $0.hasPrefix("connected to") || $0.hasPrefix("already connected to") }) {
@@ -129,12 +135,13 @@ nonisolated enum ADBWireless {
         return .failed(failureMessage(output, fallback: "Connecting failed."))
     }
 
+    /// Parses `getprop ro.serialno`, which prints the value or an empty line.
     static func parseSerialNumber(_ output: String) -> String? {
-        let line = output.split(whereSeparator: \.isNewline).last.map { $0.trimmingCharacters(in: .whitespaces) } ?? ""
-        guard !line.isEmpty, line != "unknown", !line.lowercased().hasPrefix("error"),
-              !line.contains(where: \.isWhitespace)
+        let value = output.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !value.isEmpty, value != "unknown", !value.lowercased().hasPrefix("error"),
+              !value.contains(where: \.isWhitespace)
         else { return nil }
-        return line
+        return value
     }
 
     private static func failureMessage(_ output: String, fallback: String) -> String {
@@ -170,9 +177,13 @@ nonisolated enum ADBWireless {
         return parseConnect(result.combined)
     }
 
-    /// The phone's `ro.serialno`, the same across every connection.
+    /// The phone's `ro.serialno`, the same across every connection. `adb get-serialno` won't do:
+    /// it answers with the transport's serial, which for Wi-Fi is the address or mDNS name.
     static func serialNumber(adb: URL, serial: String) async -> String? {
-        await run(adb, ["-s", serial, "get-serialno"], timeout: 5).flatMap { parseSerialNumber($0.stdout) }
+        guard let result = await run(adb, ["-s", serial, "shell", "getprop", "ro.serialno"], timeout: 5),
+              result.status == 0
+        else { return nil }
+        return parseSerialNumber(result.stdout)
     }
 
     /// Nil when adb couldn't run or overran `timeout`. Cancelling the task kills it.

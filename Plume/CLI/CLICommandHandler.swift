@@ -35,6 +35,7 @@ final class CLICommandHandler {
     var directories: TabDirectoryStore = .shared
     var deviceSessions: DeviceSessionManager = .shared
     var deviceLeases: DeviceLeaseCoordinator = .shared
+    var physicalDiscovery: PhysicalDeviceDiscovery = .shared
     var remoteDevices = RemoteDeviceDefaults()
     var clock: () -> Date = Date.init
 
@@ -110,7 +111,7 @@ final class CLICommandHandler {
         case .openSettings(let params):
             return openSettings(params)
         case .showDevice(let params):
-            return showDevice(params)
+            return await showDevice(params)
         case .reserveDevice(let params):
             return await reserveDevice(params)
         case .releaseDevice(let params):
@@ -129,8 +130,8 @@ final class CLICommandHandler {
 
     /// Prefers a device tab already on the device, then one with no device, then a new tab
     /// opposite the caller's pane, behind the selection. A tab on another device is never repointed.
-    private func showDevice(_ params: CLIRequest.ShowDevice) -> CLIResponse {
-        guard let target = Self.deviceTarget(params) else {
+    private func showDevice(_ params: CLIRequest.ShowDevice) async -> CLIResponse {
+        guard let target = await deviceTarget(params) else {
             return .failure("devices.show needs an avdID for an emulator, a serial for a physical device, or a reservationID for a remote one")
         }
         guard let (task, context) = currentTask(ofTab: params.tabID) else {
@@ -287,17 +288,26 @@ final class CLICommandHandler {
         }
     }
 
-    private static func deviceTarget(_ params: CLIRequest.ShowDevice) -> DeviceTarget? {
+    /// A Wi-Fi serial becomes the `wifi:` identifier a picked tab persists, so a tab already
+    /// showing the phone is found.
+    private func deviceTarget(_ params: CLIRequest.ShowDevice) async -> DeviceTarget? {
         switch params.kind {
-        case .emulator: params.avdID.map { .emulator(avdID: $0) }
-        case .physical: params.serial.map { .physical(serial: PhysicalDeviceDiscovery.shared.identifier(forSerial: $0)) }
-        case .remote: params.reservationID.map { .remote(reservationID: $0) }
+        case .emulator: return params.avdID.map { .emulator(avdID: $0) }
+        case .physical:
+            guard let serial = params.serial else { return nil }
+            return .physical(serial: await physicalDiscovery.resolvedIdentifier(forSerial: serial))
+        case .remote: return params.reservationID.map { .remote(reservationID: $0) }
         }
     }
 
     /// What the picker would show when it has nothing better.
     private static func defaultDisplayName(_ target: DeviceTarget) -> String {
-        target.identifier.replacingOccurrences(of: "_", with: " ")
+        let name = if case .physical(let identifier) = target {
+            PhysicalDeviceIdentity.hardwareSerial(of: identifier)
+        } else {
+            target.identifier
+        }
+        return name.replacingOccurrences(of: "_", with: " ")
     }
 
     /// The worktree already exists, since `wt` made it; this only opens a

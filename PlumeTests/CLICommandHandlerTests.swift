@@ -238,6 +238,25 @@ struct CLICommandHandlerTests {
         #expect(empty.title == "Pixel 8")
     }
 
+    @Test func aWifiSerialFindsTheTabShowingThatPhone() async throws {
+        let task = TaskStore.createTask(in: context, siblings: [])
+        let caller = try #require(task.tabs.first)
+        let showing = TaskStore.addTab(to: task, kind: .device, in: context)
+        showing.setDevice(.physical(serial: "wifi:2B021FDH200A2K"), displayName: "Pixel 9")
+        let handler = makeHandler(task: task)
+        let adb = URL(fileURLWithPath: "/sdk/platform-tools/adb")
+        handler.physicalDiscovery = PhysicalDeviceDiscovery(
+            list: { ADBListing(adbURL: adb, devices: []) },
+            serialNumber: { _, _ in "2B021FDH200A2K" }
+        )
+        await handler.physicalDiscovery.refresh()
+
+        let response = await handler.handle(.showDevice(.init(tabID: caller.id, kind: .physical, serial: "192.168.1.20:41234")))
+
+        #expect(response.tabID == showing.id)
+        #expect(response.created == false)
+    }
+
     @Test func aTabOnAnotherDeviceIsNeverRepointed() async throws {
         let task = TaskStore.createTask(in: context, siblings: [])
         let caller = try #require(task.tabs.first)

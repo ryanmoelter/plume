@@ -32,7 +32,9 @@ struct ADBWirelessParsingTests {
 
     @Test func pairOutcome() {
         #expect(ADBWireless.parsePair("Successfully paired to 192.168.1.20:37123 [guid=adb-2B021FDH200A2K-OkOQKV]\n") == .succeeded)
-        #expect(ADBWireless.parsePair("Failed: Unable to start pairing client.\n") == .failed("Unable to start pairing client."))
+        #expect(ADBWireless.parsePair("Failed: Unable to start pairing client.\n") == .failed(ADBWireless.unreachablePairingService))
+        #expect(ADBWireless.parsePair("error: protocol fault (couldn't read status message): Undefined error: 0\n") == .failed(ADBWireless.unreachablePairingService))
+        #expect(ADBWireless.parsePair("Failed: Wrong password or connection was dropped.\n") == .failed("Wrong password or connection was dropped."))
         #expect(ADBWireless.parsePair("\n") == .failed("Pairing failed."))
     }
 
@@ -46,8 +48,10 @@ struct ADBWirelessParsingTests {
         #expect(ADBWireless.parseConnect("cannot connect to 192.168.1.20:41234: No route to host\n") != .succeeded)
     }
 
+    /// `getprop ro.serialno` output: the value, or an empty line on a device that doesn't set it.
     @Test func serialNumber() {
-        #expect(ADBWireless.parseSerialNumber("2B021FDH200A2K\n") == "2B021FDH200A2K")
+        #expect(ADBWireless.parseSerialNumber("53221FDKD0008F\r\n") == "53221FDKD0008F")
+        #expect(ADBWireless.parseSerialNumber("\n") == nil)
         #expect(ADBWireless.parseSerialNumber("unknown\n") == nil)
         #expect(ADBWireless.parseSerialNumber("error: device offline\n") == nil)
         #expect(ADBWireless.parseSerialNumber("") == nil)
@@ -152,6 +156,66 @@ struct PhysicalDeviceIdentityTests {
         #expect(discovery.readySerial(for: offline.serial) == nil)
     }
 
+    @Test func aFailedSerialNumberReadIsNotRepeatedForTheSameConnection() async {
+        let wifi = PhysicalDevice(serial: "192.168.1.20:41234", state: .ready, model: nil)
+        let reads = SerialReadCounter()
+        let discovery = PhysicalDeviceDiscovery(
+            list: { [adb] in ADBListing(adbURL: adb, devices: [wifi]) },
+            serialNumber: { _, _ in
+                reads.increment()
+                return nil
+            }
+        )
+        await discovery.refresh()
+        await discovery.refresh()
+        #expect(reads.value == 1)
+        #expect(discovery.identifier(for: wifi) == wifi.serial)
+    }
+
+    @Test func theListIsPublishedBeforeSerialNumbersAreRead() async {
+        let wifi = PhysicalDevice(serial: "192.168.1.20:41234", state: .ready, model: nil)
+        let gate = Gate()
+        let discovery = PhysicalDeviceDiscovery(
+            list: { [adb] in ADBListing(adbURL: adb, devices: [wifi]) },
+            serialNumber: { _, _ in
+                await gate.wait()
+                return "2B021FDH200A2K"
+            }
+        )
+        let refresh = Task { await discovery.refresh() }
+        await waitUntilTrue { discovery.devices == [wifi] }
+        #expect(discovery.devices == [wifi])
+        #expect(discovery.identifier(for: wifi) == wifi.serial)
+        await gate.open()
+        await refresh.value
+        #expect(discovery.identifier(for: wifi) == "wifi:2B021FDH200A2K")
+    }
+
+    @Test func anOlderListingNeverReplacesANewerOne() async {
+        let old = PhysicalDevice(serial: "OLD", state: .ready, model: nil)
+        let new = PhysicalDevice(serial: "NEW", state: .ready, model: nil)
+        let gate = Gate()
+        let calls = SerialReadCounter()
+        let discovery = PhysicalDeviceDiscovery(
+            list: { [adb] in
+                calls.increment()
+                if calls.value == 1 {
+                    await gate.wait()
+                    return ADBListing(adbURL: adb, devices: [old])
+                }
+                return ADBListing(adbURL: adb, devices: [new])
+            },
+            serialNumber: { _, _ in nil }
+        )
+        let first = Task { await discovery.refresh() }
+        await waitUntilTrue { calls.value == 1 }
+        await discovery.refresh()
+        #expect(discovery.devices == [new])
+        await gate.open()
+        await first.value
+        #expect(discovery.devices == [new])
+    }
+
     @Test func serialNumbersAreReadOncePerConnection() async {
         let wifi = PhysicalDevice(serial: "192.168.1.20:41234", state: .ready, model: nil)
         let reads = SerialReadCounter()
@@ -244,6 +308,23 @@ struct WifiDeviceSessionTests {
 private func waitUntilTrue(_ condition: () -> Bool) async {
     for _ in 0..<2000 where !condition() {
         try? await Task.sleep(for: .milliseconds(5))
+    }
+}
+
+/// Holds every waiter until opened.
+private actor Gate {
+    private var isOpen = false
+    private var waiters: [CheckedContinuation<Void, Never>] = []
+
+    func wait() async {
+        guard !isOpen else { return }
+        await withCheckedContinuation { waiters.append($0) }
+    }
+
+    func open() {
+        isOpen = true
+        waiters.forEach { $0.resume() }
+        waiters = []
     }
 }
 
