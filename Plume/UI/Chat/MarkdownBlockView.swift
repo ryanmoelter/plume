@@ -269,6 +269,7 @@ struct InlineMarkdownText: View, ThemedView {
             let styled = chipped(MarkdownCache.chippedInline(source, fontSize: size))
             styled.text()
                 .revealFade(styled, chipFill: colors.surfaceTint, references: references(in: styled, fontSize: size))
+                .referenceChipToolTips(styled)
         } else {
             let attributed = flat(MarkdownCache.styledInline(source, fontSize: size, tint: colors.surfaceTint))
             Text(attributed)

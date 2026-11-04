@@ -8,7 +8,7 @@ import Foundation
 /// Every issue held here is current as of the cursor: an incomplete delta
 /// drops what it could not vouch for rather than keep it unverified.
 nonisolated struct LinearSyncCache: Sendable, Equatable, Codable {
-    static let formatVersion = 1
+    static let formatVersion = 2
     /// How far before the cursor each delta starts. A write that commits late
     /// with an earlier `updatedAt` still lands inside the next query; ids
     /// dedupe the rows seen twice.
@@ -31,6 +31,8 @@ nonisolated struct LinearSyncCache: Sendable, Equatable, Codable {
         let teamKey: String
         /// Read only when the state is missing from `states`.
         let fallbackState: LinearWorkflowState
+        var summary: String? = nil
+        var dueDate: String? = nil
     }
 
     private(set) var formatVersion = LinearSyncCache.formatVersion
@@ -83,7 +85,9 @@ nonisolated struct LinearSyncCache: Sendable, Equatable, Codable {
             stateType: state.type,
             stateColor: state.color,
             assigneeName: issue.assigneeID.flatMap { users[$0]?.name },
-            teamKey: issue.teamKey
+            teamKey: issue.teamKey,
+            summary: issue.summary,
+            dueDate: issue.dueDate
         )
     }
 
@@ -125,7 +129,9 @@ nonisolated struct LinearSyncCache: Sendable, Equatable, Codable {
             assigneeID: snapshot.assignee?.id,
             teamID: snapshot.teamID,
             teamKey: snapshot.issue.teamKey.uppercased(),
-            fallbackState: snapshot.state
+            fallbackState: snapshot.state,
+            summary: snapshot.issue.summary,
+            dueDate: snapshot.issue.dueDate
         )
         idByIdentifier[identifier] = snapshot.id
         aliases.removeValue(forKey: identifier)
