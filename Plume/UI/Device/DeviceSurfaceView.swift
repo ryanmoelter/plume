@@ -214,9 +214,14 @@ final class DeviceSurfaceView: NSView, DeviceFrameSink {
             releaseAndroidKeys()
             return false
         }
-        if DevicePasteShortcut.matches(characters: event.charactersIgnoringModifiers, flags: event.modifierFlags) {
+        if let action = DevicePasteShortcut.action(
+            characters: event.charactersIgnoringModifiers, flags: event.modifierFlags, isRepeat: event.isARepeat
+        ) {
             // Consumed even with no text, so the chord never falls through to the device as Meta+V.
-            paste(nil)
+            switch action {
+            case .paste: paste(nil)
+            case .releaseKeysOnly: releaseAndroidKeys()
+            }
             return true
         }
         guard forwardsAndroidKeys else { return super.performKeyEquivalent(with: event) }
@@ -224,9 +229,11 @@ final class DeviceSurfaceView: NSView, DeviceFrameSink {
     }
 
     @objc func paste(_ sender: Any?) {
-        guard let session, session.isConnected, let text = DevicePasteShortcut.text(from: .general) else { return }
-        // Lifts the Meta that ⌘ put down, so the device sees a plain paste.
+        guard let session, session.isConnected else { return }
+        // Lifts the Meta that ⌘ put down, whether or not there is text, so the device sees a plain paste
+        // and the later ⌘ release is no lone Meta tap.
         releaseAndroidKeys()
+        guard let text = DevicePasteShortcut.text(from: .general) else { return }
         session.paste(text: text)
     }
 
@@ -325,7 +332,7 @@ extension DeviceSurfaceView: MenuShortcutYielding {
 extension DeviceSurfaceView: NSUserInterfaceValidations {
     func validateUserInterfaceItem(_ item: NSValidatedUserInterfaceItem) -> Bool {
         guard item.action == #selector(paste(_:)) else { return true }
-        return session?.isConnected == true && DevicePasteShortcut.text(from: .general) != nil
+        return session?.isConnected == true && NSPasteboard.general.availableType(from: [.string]) != nil
     }
 }
 

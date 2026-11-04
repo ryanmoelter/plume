@@ -22,6 +22,13 @@ struct DevicePasteShortcutTests {
         #expect(!DevicePasteShortcut.matches(characters: nil, flags: .command))
     }
 
+    @Test func commandVPastesAndARepeatOnlyReleasesKeys() {
+        #expect(DevicePasteShortcut.action(characters: "v", flags: .command, isRepeat: false) == .paste)
+        #expect(DevicePasteShortcut.action(characters: "v", flags: .command, isRepeat: true) == .releaseKeysOnly)
+        #expect(DevicePasteShortcut.action(characters: "v", flags: [.command, .shift], isRepeat: false) == nil)
+        #expect(DevicePasteShortcut.action(characters: "c", flags: .command, isRepeat: false) == nil)
+    }
+
     @Test func pasteTextIsNilWithoutText() {
         let pasteboard = NSPasteboard(name: NSPasteboard.Name("DevicePasteShortcutTests-\(UUID().uuidString)"))
         defer { pasteboard.releaseGlobally() }

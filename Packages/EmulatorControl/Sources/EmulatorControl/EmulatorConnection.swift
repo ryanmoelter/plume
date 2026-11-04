@@ -9,8 +9,8 @@ typealias EmulatorClient = Android_Emulation_Control_EmulatorController.Client<E
 
 /// A 1080x2400 RGBA frame is about 9.9 MiB, and 1440x3120 is about 17 MiB on the bytes fallback; the default 4 MiB limit would reject both.
 private let maxResponseBytes = 64 * 1024 * 1024
-/// The capped text plus the message's few bytes of framing.
-private let clipboardRequestMaxBytes = EmulatorConnection.clipboardTextMaxBytes + 1024
+/// Emulator input waits behind a pending paste, so a stalled call must not hold it for long.
+private let setClipboardTimeout: Duration = .seconds(2)
 private let shutDownTimeout: Duration = .seconds(3)
 
 private struct BearerTokenInterceptor: ClientInterceptor {
@@ -135,7 +135,7 @@ public actor EmulatorConnection {
         var clip = Android_Emulation_Control_ClipData()
         clip.text = Self.clipboardText(text)
         var options = callOptions()
-        options.maxRequestMessageBytes = clipboardRequestMaxBytes
+        options.timeout = setClipboardTimeout
         _ = try await client.setClipboard(clip, options: options)
     }
 
