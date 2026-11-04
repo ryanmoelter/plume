@@ -99,6 +99,13 @@ private func failure(of pairing: WirelessPairing) async -> String? {
     return message
 }
 
+@MainActor
+private func pairedNotConnected(_ pairing: WirelessPairing) async -> String? {
+    await waitUntil { if case .pairedNotConnected = pairing.phase { true } else { false } }
+    guard case .pairedNotConnected(let message) = pairing.phase else { return nil }
+    return message
+}
+
 private let mdnsPhone = PhysicalDevice(serial: "adb-2B021FDH200A2K-OkOQKV._adb-tls-connect._tcp", state: .ready, model: "Pixel_9")
 private let phoneConnectService = ADBMDNSService(instance: "adb-2B021FDH200A2K-OkOQKV", kind: .connect, address: phoneAddress)
 
@@ -171,7 +178,7 @@ struct WirelessPairingTests {
         #expect(fake.pairs.map(\.address) == ["192.168.1.20:37123"])
     }
 
-    @Test func withoutAutoConnectPlumeConnectsToThePhonesConnectService() async {
+    @Test func withoutAutoConnectPlumeConnectsToThePhonesConnectServiceNearTheEnd() async {
         let fake = FakeWireless()
         let phone = PhysicalDevice(serial: phoneAddress, state: .ready, model: "Pixel_9")
         fake.connected = phone
@@ -179,11 +186,73 @@ struct WirelessPairingTests {
             ADBMDNSService(instance: "adb-OTHER-x", kind: .connect, address: "192.168.1.99:40000"),
             phoneConnectService,
         ]
-        let pairing = makePairing(fake)
+        let time = FakeTime()
+        let started = time.now
+        let pairing = makePairing(fake, time: time)
         pairing.pair(address: "192.168.1.20:37123", code: "123456")
         await waitUntil { pairing.phase == .connected(phone) }
         #expect(pairing.phase == .connected(phone))
         #expect(fake.connects == [phoneAddress])
+        #expect(time.now - started >= WirelessPairing.autoConnectWindow)
+    }
+
+    @Test func aPhoneAdbConnectsWithinTheWindowGetsNoConnectOfPlumesOwn() async {
+        let fake = FakeWireless()
+        fake.servicesShown = [phoneConnectService]
+        let time = FakeTime()
+        let started = time.now
+        let listing = fake.listing
+        let pairing = WirelessPairing(
+            adb: fake,
+            discovery: PhysicalDeviceDiscovery(list: { listing.list() }, serialNumber: { _, _ in nil }),
+            sleep: { duration in
+                time.advance(duration)
+                if time.now - started >= .seconds(5), !listing.list().devices.contains(mdnsPhone) {
+                    listing.listing.devices.append(mdnsPhone)
+                }
+                await Task.yield()
+            },
+            now: { time.now }
+        )
+        pairing.pair(address: "192.168.1.20:37123", code: "123456")
+        await waitUntil { pairing.phase == .connected(mdnsPhone) }
+        #expect(pairing.phase == .connected(mdnsPhone))
+        #expect(fake.connects.isEmpty)
+    }
+
+    @Test func withoutMDNSPlumeConnectsToTheEnteredAddress() async {
+        let fake = FakeWireless()
+        let phone = PhysicalDevice(serial: phoneAddress, state: .ready, model: "Pixel_9")
+        fake.connected = phone
+        let pairing = makePairing(fake)
+        pairing.pair(address: "192.168.1.20:37123", code: "123456", connectAddress: " 192.168.1.20:41234 ")
+        await waitUntil { pairing.phase == .connected(phone) }
+        #expect(pairing.phase == .connected(phone))
+        #expect(fake.connects == [phoneAddress])
+    }
+
+    @Test func withoutMDNSOrAnAddressPairingAsksForTheAddressThenConnects() async {
+        let fake = FakeWireless()
+        let phone = PhysicalDevice(serial: phoneAddress, state: .ready, model: "Pixel_9")
+        fake.connected = phone
+        let pairing = makePairing(fake)
+        pairing.pair(address: "192.168.1.20:37123", code: "123456")
+        let message = await pairedNotConnected(pairing)
+        #expect(message?.contains("Wireless debugging screen") == true)
+        #expect(fake.connects.isEmpty)
+
+        pairing.connect(address: phoneAddress)
+        await waitUntil { pairing.phase == .connected(phone) }
+        #expect(pairing.phase == .connected(phone))
+        #expect(fake.connects == [phoneAddress])
+    }
+
+    @Test func aMalformedConnectAddressIsRejectedBeforePairing() {
+        let fake = FakeWireless()
+        let pairing = makePairing(fake)
+        pairing.pair(address: "192.168.1.20:37123", code: "123456", connectAddress: "192.168.1.20")
+        guard case .failed = pairing.phase else { Issue.record("expected a failure, got \(pairing.phase)"); return }
+        #expect(fake.pairs.isEmpty)
     }
 
     @Test func aNewWifiDeviceOnAnotherHostIsNotThePairedPhone() async {
@@ -192,8 +261,8 @@ struct WirelessPairingTests {
         fake.servicesShown = [ADBMDNSService(instance: "adb-OTHER-x", kind: .connect, address: "192.168.1.50:5555")]
         let pairing = makePairing(fake)
         pairing.pair(address: "192.168.1.20:37123", code: "123456")
-        let message = await failure(of: pairing)
-        #expect(message?.hasPrefix("Paired, but the device didn't connect.") == true)
+        let message = await pairedNotConnected(pairing)
+        #expect(message?.hasPrefix("Paired, but adb didn't connect the device by itself.") == true)
         #expect(fake.connects.isEmpty)
     }
 
@@ -215,7 +284,7 @@ struct WirelessPairingTests {
         let started = time.now
         let pairing = makePairing(fake, time: time)
         pairing.pair(address: "192.168.1.20:37123", code: "123456")
-        let message = await failure(of: pairing)
+        let message = await pairedNotConnected(pairing)
         #expect(message?.contains("Connection refused") == true)
         #expect(fake.connects == [phoneAddress])
         #expect(time.now - started <= WirelessPairing.connectDeadline + WirelessPairing.pollInterval)

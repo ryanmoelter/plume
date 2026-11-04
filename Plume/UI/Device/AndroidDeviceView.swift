@@ -47,7 +47,7 @@ struct AndroidDeviceView: View, ThemedView {
     }
 
     private var deviceName: String {
-        session.displayName ?? session.target?.identifier ?? "Device"
+        session.displayName ?? session.target?.fallbackName ?? "Device"
     }
 
     private var toolbar: some View {
@@ -217,9 +217,11 @@ struct AndroidDeviceView: View, ThemedView {
         case .notRunning where session.isPhysical:
             status(
                 "\(session.displayName ?? "This device") isn't connected.",
-                detail: session.isWifi
+                detail: !session.isWifi
+                    ? "Connect it over USB and allow USB debugging on the device."
+                    : session.wifiReconnectsByItself
                     ? "Turn on Wireless debugging on the device, on the same network as this Mac."
-                    : "Connect it over USB and allow USB debugging on the device."
+                    : "adb can't discover devices on this network, so it won't reconnect by itself. Choose Change Device… and pair or connect it again over Wi-Fi."
             ) {
                 Button("Try Again") { session.locate() }
                     .plumeID(AccessibilityID.deviceRetryButton)

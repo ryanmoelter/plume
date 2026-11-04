@@ -79,7 +79,7 @@ struct DevicePickerView: View {
     /// Remote devices this app reserved are adb devices too; they show as their own tabs instead.
     private var physicalDevices: [PhysicalDevice] {
         let remoteSerials = DeviceSessionManager.shared.remoteSerials
-        return physicalDiscovery.devices.filter { !remoteSerials.contains($0.serial) }
+        return physicalDiscovery.phones(in: physicalDiscovery.devices.filter { !remoteSerials.contains($0.serial) })
     }
 
     private func physicalSection(hasADB: Bool) -> some View {

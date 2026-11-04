@@ -39,6 +39,12 @@ nonisolated enum DeviceTarget: Hashable, Sendable {
 
     /// A remote device is a physical phone too, mirrored the same way.
     var isPhysical: Bool { platform != .androidEmulator }
+
+    /// What to call the device when nothing named it, without the `wifi:` prefix.
+    var fallbackName: String {
+        let name = if case .physical(let identifier) = self { PhysicalDeviceIdentity.hardwareSerial(of: identifier) } else { identifier }
+        return name.replacingOccurrences(of: "_", with: " ")
+    }
 }
 
 /// What a remote tab persists beside its reservation id.

@@ -25,6 +25,7 @@ struct WirelessPairingSheet: View {
     @State private var mode = Mode.qrCode
     @State private var address = ""
     @State private var code = ""
+    @State private var connectAddress = ""
 
     var body: some View {
         VStack(alignment: .leading, spacing: 16) {
@@ -94,11 +95,30 @@ struct WirelessPairingSheet: View {
                 .textFieldStyle(.roundedBorder)
                 .onSubmit(pairWithCode)
                 .plumeID(AccessibilityID.wirelessPairingCodeField, value: code, setValue: { code = $0 })
+            connectAddressField
             Button("Pair", action: pairWithCode)
                 .keyboardShortcut(.defaultAction)
                 .plumeID(AccessibilityID.wirelessPairingPairButton, invoke: pairWithCode)
                 .disabled(isBusy || address.isEmpty || code.isEmpty)
         }
+    }
+
+    private var connectAddressField: some View {
+        VStack(alignment: .leading, spacing: 4) {
+            TextField("IP address & port (optional)", text: $connectAddress, prompt: Text(connectAddressPrompt))
+                .textFieldStyle(.roundedBorder)
+                .plumeID(AccessibilityID.wirelessPairingConnectAddressField, value: connectAddress, setValue: { connectAddress = $0 })
+            Text("The IP address & port on the Wireless debugging screen itself. Needed only when adb can't find the device on the network.")
+                .font(.caption)
+                .foregroundStyle(.secondary)
+                .fixedSize(horizontal: false, vertical: true)
+        }
+    }
+
+    /// The phone listens on the pairing dialog's host, on another port.
+    private var connectAddressPrompt: String {
+        let host = ADBWireless.address(address).map(ADBWireless.host(of:)) ?? "192.168.1.20"
+        return "\(host):port"
     }
 
     private func instructions(_ text: String) -> some View {
@@ -121,6 +141,17 @@ struct WirelessPairingSheet: View {
             progress("Pairing…")
         case .connecting:
             progress("Paired. Connecting…")
+        case .pairedNotConnected(let message):
+            VStack(alignment: .leading, spacing: 8) {
+                Text(message)
+                    .foregroundStyle(.orange)
+                    .fixedSize(horizontal: false, vertical: true)
+                    .plumeID(AccessibilityID.wirelessPairingStatus, value: "paired: \(message)")
+                if mode == .qrCode { connectAddressField }
+                Button("Connect", action: connectToAddress)
+                    .plumeID(AccessibilityID.wirelessPairingConnectButton, invoke: connectToAddress)
+                    .disabled(connectAddress.trimmingCharacters(in: .whitespaces).isEmpty)
+            }
         case .failed(let message):
             VStack(alignment: .leading, spacing: 8) {
                 Text(message)
@@ -149,7 +180,12 @@ struct WirelessPairingSheet: View {
 
     private func pairWithCode() {
         guard !isBusy else { return }
-        pairing.pair(address: address, code: code)
+        pairing.pair(address: address, code: code, connectAddress: connectAddress)
+    }
+
+    private func connectToAddress() {
+        guard !isBusy else { return }
+        pairing.connect(address: connectAddress)
     }
 
     private func close() {
@@ -181,6 +217,7 @@ private struct PairingQRCode: View {
         .clipShape(.rect(cornerRadius: 8))
         .plumeID(AccessibilityID.wirelessPairingQRCode, value: image == nil ? "loading" : payload)
         .task(id: payload) {
+            image = nil
             let cgImage = await Task.detached(priority: .userInitiated) { [payload] in Self.render(payload) }.value
             image = cgImage.map { NSImage(cgImage: $0, size: NSSize(width: $0.width, height: $0.height)) }
         }

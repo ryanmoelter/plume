@@ -93,6 +93,7 @@ final class DeviceSession {
     @ObservationIgnored private let physicalDiscovery: PhysicalDeviceDiscovery
     @ObservationIgnored private let makeConnection: (ResolvedDevice) -> DeviceConnecting
     @ObservationIgnored private let idleSleep: (Duration) async -> Void
+    @ObservationIgnored private let mdnsAvailable: @Sendable () async -> Bool
     @ObservationIgnored private var connection: DeviceConnecting?
     /// What `connection` was made for, so a suspended session can reconnect without a fresh lookup.
     @ObservationIgnored private var connectedDevice: ResolvedDevice?
@@ -119,6 +120,7 @@ final class DeviceSession {
         physicalDiscovery: PhysicalDeviceDiscovery = .shared,
         makeConnection: @escaping (ResolvedDevice) -> DeviceConnecting = DeviceSession.liveConnection,
         idleSleep: @escaping (Duration) async -> Void = { try? await Task.sleep(for: $0) },
+        mdnsAvailable: @escaping @Sendable () async -> Bool = { await LiveADBWireless.shared.mdnsAvailable() },
         remoteCLI: AndroidCLIRunning = AndroidCLI.shared,
         ledger: RemoteReservationLedger = .shared,
         reservationSleep: @escaping (Duration) async -> Void = { try? await Task.sleep(for: $0) },
@@ -132,6 +134,7 @@ final class DeviceSession {
         self.physicalDiscovery = physicalDiscovery
         self.makeConnection = makeConnection
         self.idleSleep = idleSleep
+        self.mdnsAvailable = mdnsAvailable
         self.remoteCLI = remoteCLI
         self.ledger = ledger
         self.reservationSleep = reservationSleep
@@ -158,6 +161,9 @@ final class DeviceSession {
         guard case .physical(let identifier) = target else { return false }
         return PhysicalDeviceIdentity.isWifi(identifier) || ADBWireless.isNetworkSerial(identifier)
     }
+    /// False once a Wi-Fi tab found its phone missing and adb's mDNS unavailable, since adb then
+    /// can't reconnect a paired phone by itself.
+    private(set) var wifiReconnectsByItself = true
     var isPhysical: Bool { target?.isPhysical == true || isRemote }
     var isRemote: Bool {
         if case .remote = target { return true }
@@ -235,6 +241,11 @@ final class DeviceSession {
                         state = .suspended
                     }
                 } else {
+                    if isWifi {
+                        let reconnects = await mdnsAvailable()
+                        guard !Task.isCancelled else { return }
+                        if reconnects != wifiReconnectsByItself { wifiReconnectsByItself = reconnects }
+                    }
                     state = .notRunning
                 }
             case .remote:
@@ -444,14 +455,21 @@ final class DeviceSession {
         connect(to: .emulator(emulator))
     }
 
-    /// Connects without listing adb again, since the picker just did.
+    /// Connects without listing adb again, since the picker just did. A Wi-Fi device's serial
+    /// number is read first if discovery hasn't yet, so the tab never persists its passing address.
     func attach(_ device: PhysicalDevice) {
-        choose(.physical(serial: physicalDiscovery.identifier(for: device)), displayName: device.displayName)
-        guard let adbURL = physicalDiscovery.adbURL else {
-            locate(waitingForSink: false)
-            return
+        state = .locating
+        runWork { [weak self] in
+            guard let self else { return }
+            let identifier = await physicalDiscovery.resolvedIdentifier(forSerial: device.serial)
+            guard !Task.isCancelled else { return }
+            choose(.physical(serial: identifier), displayName: device.displayName)
+            guard let adbURL = physicalDiscovery.adbURL else {
+                locate(waitingForSink: false)
+                return
+            }
+            connect(to: .physical(serial: device.serial, adbURL: adbURL))
         }
-        connect(to: .physical(serial: device.serial, adbURL: adbURL))
     }
 
     func boot(_ avd: AVD) {

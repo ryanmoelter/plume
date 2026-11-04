@@ -197,6 +197,8 @@ enum AccessibilityID {
     static let wirelessPairingAddressField = "wireless-pairing-address-field"
     static let wirelessPairingCodeField = "wireless-pairing-code-field"
     static let wirelessPairingPairButton = "wireless-pairing-pair-button"
+    static let wirelessPairingConnectAddressField = "wireless-pairing-connect-address-field"
+    static let wirelessPairingConnectButton = "wireless-pairing-connect-button"
     static let wirelessPairingRetryButton = "wireless-pairing-retry-button"
     static let wirelessPairingUseCodeButton = "wireless-pairing-use-code-button"
     static let wirelessPairingCancelButton = "wireless-pairing-cancel-button"

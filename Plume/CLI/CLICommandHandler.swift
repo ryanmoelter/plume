@@ -140,7 +140,7 @@ final class CLICommandHandler {
         let deviceTabs = task.orderedTabs.filter { $0.kind == .device }
         let tab: TaskTab
         var created = false
-        if let showing = deviceTabs.first(where: { $0.deviceTarget == target }) {
+        if let showing = deviceTabs.first(where: { $0.deviceTarget.map { isSameDevice($0, target) } ?? false }) {
             tab = showing
         } else if case .remote(let reservationID) = target {
             return .failure("no device tab holds reservation \(reservationID)")
@@ -149,7 +149,7 @@ final class CLICommandHandler {
             tab = empty.tab
             created = empty.created
         }
-        let displayName = params.displayName ?? Self.defaultDisplayName(target)
+        let displayName = params.displayName ?? target.fallbackName
         if tab.deviceTarget == nil { tab.setDevice(target, displayName: displayName) }
         deviceSessions.existingSession(for: tab.id)?.point(at: target, displayName: displayName)
         var response = CLIResponse.success
@@ -300,14 +300,13 @@ final class CLICommandHandler {
         }
     }
 
-    /// What the picker would show when it has nothing better.
-    private static func defaultDisplayName(_ target: DeviceTarget) -> String {
-        let name = if case .physical(let identifier) = target {
-            PhysicalDeviceIdentity.hardwareSerial(of: identifier)
-        } else {
-            target.identifier
+    /// A physical tab matches by the phone's serial number when known, so a USB tab and a Wi-Fi
+    /// request for the same phone, or a tab saved under a Wi-Fi address, are one device.
+    private func isSameDevice(_ tabTarget: DeviceTarget, _ target: DeviceTarget) -> Bool {
+        guard case .physical(let tabIdentifier) = tabTarget, case .physical(let identifier) = target else {
+            return tabTarget == target
         }
-        return name.replacingOccurrences(of: "_", with: " ")
+        return physicalDiscovery.namesSamePhone(tabIdentifier, identifier)
     }
 
     /// The worktree already exists, since `wt` made it; this only opens a
