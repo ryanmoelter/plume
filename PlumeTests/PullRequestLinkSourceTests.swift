@@ -45,6 +45,21 @@ struct PullRequestLinkSourceTests {
     private let p12 = PullRequestLinkSource.Key(owner: "Ryan", repo: "Plume", number: 12)
     private let p13 = PullRequestLinkSource.Key(owner: "ryan", repo: "plume", number: 13)
 
+    @Test func anAnswerCarriesItsAuthorAndReviewDecision() async throws {
+        let pull: [String: Any] = [
+            "number": 12, "title": "Twelve", "url": "u", "state": "OPEN", "isDraft": false,
+            "author": ["login": "octocat"], "reviewDecision": "CHANGES_REQUESTED",
+        ]
+        let data = try JSONSerialization.data(withJSONObject: ["data": ["repository": ["p12": pull]]])
+        let script = Script([.success(data)])
+        let answers = await source(script).lookUp([p12])
+        #expect(answers[p12] == .found(.init(
+            number: 12, title: "Twelve", state: .open, isDraft: false, author: "octocat", reviewDecision: .changesRequested
+        )))
+        let query = try #require(script.calls.first?.first { $0.hasPrefix("query=") })
+        #expect(query.contains("author { login } reviewDecision"))
+    }
+
     @Test func oneRepositoryIsOneAliasedQueryWithItsNameAsVariables() async throws {
         let script = Script([body([12: ("Twelve", "OPEN"), 13: ("Thirteen", "MERGED")])])
         let answers = await source(script).lookUp([p12, p13])

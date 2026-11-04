@@ -45,6 +45,21 @@ struct LinearSyncCacheTests {
         #expect(cache.issue(identifier: "p-1")?.title == "New")
     }
 
+    @Test func aSummaryAndDueDateSurviveTheCacheAndAJSONRoundTrip() throws {
+        let held = snapshot("P-1")
+        var issue = held.issue
+        issue.summary = "Opening line"
+        issue.dueDate = "2026-11-05"
+        var cache = LinearSyncCache(orgID: "A")
+        cache.upsert(LinearIssueSnapshot(
+            id: held.id, updatedAt: held.updatedAt, archivedAt: nil, isTrashed: false,
+            state: held.state, assignee: nil, teamID: held.teamID, issue: issue
+        ))
+        let decoded = try JSONDecoder().decode(LinearSyncCache.self, from: JSONEncoder().encode(cache))
+        #expect(decoded.issue(identifier: "P-1")?.summary == "Opening line")
+        #expect(decoded.issue(identifier: "P-1")?.dueDate == "2026-11-05")
+    }
+
     @Test func reapplyingTheSameSnapshotAtTheCursorEdgeIsIdempotent() {
         var cache = LinearSyncCache(orgID: "A")
         let issue = snapshot("P-1", at: 10)
