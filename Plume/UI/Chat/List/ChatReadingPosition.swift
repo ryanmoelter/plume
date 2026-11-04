@@ -1,9 +1,11 @@
 import CoreGraphics
 import Foundation
 
-/// Where the reader left a chat: at the bottom, or scrolled up to an item.
+/// Where the reader left a chat: at the top, at the bottom, or scrolled to an item.
 enum ChatReadingPosition: Equatable {
     case bottom
+    /// The first item at the viewport's top edge.
+    case top
     /// The item under the viewport's top edge, and how far into its slot the
     /// viewport's top sits.
     case anchor(id: String, distance: CGFloat)

@@ -86,6 +86,12 @@ A long message from another agent collapses to its first few pieces, about ten l
 
 A hidden chat tab is unmounted, so a return builds a fresh controller. `ChatReadingPositions` keeps each tab's `ChatReadingPosition` in memory, keyed by tab id and never persisted: `.bottom` for a reader following the bottom, or `.anchor(id:distance:)`, the reader anchor, for one scrolled up. `tearDown()` saves it, and so does `update(_:)` when the tab id changes on a live controller. The next controller for that tab holds it in `pendingRestore` until its pieces arrive, since `ChatMessageList` builds them after the list exists, then restores it as the follow state or the reader anchor. An anchor on a piece that is gone falls back to the bottom. Any scroll command or reader scroll before the pieces arrive drops the pending position.
 
+## Pages over the chat
+
+The plan panel and the subagent transcript overlay draw in this same list, through `ChatPageList` (`ChatPageList.swift`). It builds pieces from `ChatMessage`s with its own `ChatPieceCache` and hands them to `ChatListView` with no tab id, so a page gets the transcript's selection but no permission dock, no streaming reveal, and no saved reading position. A plan becomes one assistant message (`PlanDocument`), so it splits like a reply. `ChatListView.initialPosition` says where a page opens: a plan at `.top`, a subagent at `.bottom` like the main chat. A tab's list ignores it and reopens where the reader left it.
+
+Reference chips on a page are wanted under the page's own owner id, not the tab's, because `ReferenceChipStore.want` replaces an owner's whole set.
+
 ## Send-to-top and slack
 
 `pin(pieceID:)` is how a just-sent prompt gets pushed to the top of the viewport with room below it for the reply. `ChatListCommands.pin(pieceID:)` is called from `ChatMessageList.pinSentPrompt`. It sets the model's anchor to that piece and scrolls to `.bottom` animated.

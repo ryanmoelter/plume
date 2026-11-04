@@ -447,10 +447,20 @@ final class ChatListController: NSObject {
         if case let .anchor(id, distance) = position, items[id] != nil {
             isFollowing = false
             readerAnchor = (id: id, distance: distance)
+        } else if position == .top, let first = inputs.pieces.first {
+            isFollowing = false
+            readerAnchor = (id: first.id, distance: -inputs.leadingInset)
         } else {
             isFollowing = true
             readerAnchor = nil
         }
+    }
+
+    /// Where a list with no tab opens. A tab's list opens where the reader
+    /// left it instead.
+    func open(at position: ChatReadingPosition) {
+        guard inputs.tabID == nil, inputs.pieces.isEmpty else { return }
+        pendingRestore = position
     }
 
     // MARK: - Commands

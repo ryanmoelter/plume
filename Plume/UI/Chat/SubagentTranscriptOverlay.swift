@@ -1,11 +1,7 @@
 import SwiftUI
 
-/// A subagent's whole conversation, over the chat, rendered by the same
-/// `ChatPieceView` the main transcript uses.
-///
-/// A plain `VStack` rather than the main list's own container: a subagent
-/// transcript is tens of rows, not thousands, so it needs none of that
-/// list's realized-window machinery.
+/// A subagent's whole conversation, over the chat, in the main transcript's
+/// own list.
 struct SubagentTranscriptOverlay: View, ThemedView {
     @Environment(\.theme) var theme
 
@@ -19,13 +15,6 @@ struct SubagentTranscriptOverlay: View, ThemedView {
         subagent.transcript.messages
     }
 
-    /// Built in `onChange` rather than in `body`, for the reason the main
-    /// list builds its own there: markdown parsing must not run on the render
-    /// path.
-    @State private var pieces: [ChatPiece] = []
-    @State private var cache = ChatPieceCache()
-    @State private var expandedAgentMessages: Set<String> = []
-
     var body: some View {
         VStack(spacing: 0) {
             header
@@ -36,47 +25,13 @@ struct SubagentTranscriptOverlay: View, ThemedView {
                     .emphasis(.subtle)
                     .frame(maxWidth: .infinity, maxHeight: .infinity)
             } else {
-                ScrollViewReader { proxy in
-                    ScrollView {
-                        VStack(alignment: .leading, spacing: 0) {
-                            ForEach(pieces) { piece in
-                                ChatPieceView(piece: piece, onToggleAgentMessage: { toggleAgentMessage($0, proxy: proxy) })
-                                    .listItemPadding(bleed: true, vertical: false)
-                                    .padding(.top, piece.paysInsetOutside ? piece.topInset : 0)
-                                    .padding(.bottom, piece.bottomInset)
-                            }
-                        }
-                        .padding(.bottom, dimensions.verticalPadding)
-                    }
-                }
+                ChatPageList(messages: messages, status: subagent.status)
+                    .id(subagent.id)
             }
         }
-        .onChange(of: messages, initial: true) { rebuildPieces() }
-        .onChange(of: subagent.status) { rebuildPieces() }
         .glassEffect(glass, in: .rect(cornerRadius: 12))
         .listItemPadding(bleed: true)
         .padding(.vertical, 8)
-    }
-
-    private func rebuildPieces() {
-        pieces = cache.pieces(
-            for: messages,
-            status: subagent.status,
-            hiddenToolUseIDs: [],
-            expandedAgentMessages: expandedAgentMessages,
-            dimensions: dimensions
-        )
-    }
-
-    /// Closing a long message from its foot would leave the reader below
-    /// it, so a collapse brings its title back into view.
-    private func toggleAgentMessage(_ key: String, proxy: ScrollViewProxy) {
-        let collapsing = expandedAgentMessages.contains(key)
-        withAnimation(.easeOut(duration: 0.2)) {
-            expandedAgentMessages.formSymmetricDifference([key])
-            rebuildPieces()
-            if collapsing { proxy.scrollTo(key) }
-        }
     }
 
     private var header: some View {
