@@ -17,6 +17,8 @@ enum LoginShellCommand {
     /// command string and have no environment to carry it in.
     static let plumeEnvironment: [String: String] = ["PLUME": "1"]
 
+    nonisolated static let cliEnvironmentKey = "PLUME_CLI"
+
     /// `plumeEnvironment` plus the socket the `plume` tool reaches this app
     /// through, when this app serves one, this app's bundle ID, whose
     /// defaults domain holds the settings the tool reads. For a process serving many tabs,
@@ -28,8 +30,13 @@ enum LoginShellCommand {
         )
     }
 
-    static func sharedPlumeEnvironment(socketPath: String?, bundleID: String?) -> [String: String] {
+    static func sharedPlumeEnvironment(
+        socketPath: String?,
+        bundleID: String?,
+        cliURL: URL? = CommandLineHelper.bundledURL
+    ) -> [String: String] {
         var environment = plumeEnvironment
+        environment[cliEnvironmentKey] = cliURL?.path
         environment[CLISocket.pathEnvironmentKey] = socketPath
         environment[UserDefaultsProjectSettingsSource.bundleIDEnvironmentKey] = bundleID
         return environment
@@ -67,12 +74,23 @@ enum LoginShellCommand {
         CLISocket.taskIDEnvironmentKey,
         UserDefaultsProjectSettingsSource.bundleIDEnvironmentKey,
         "PLUME_EVENTS_DIR",
+        cliEnvironmentKey,
     ]
 
     /// This process's environment plus `overrides`. It carries no inherited
     /// `instanceKeys`, since `dropInheritedInstanceKeys` cleared them at launch.
-    nonisolated static func childEnvironment(overrides: [String: String]) -> [String: String] {
-        ProcessInfo.processInfo.environment.merging(overrides) { $1 }
+    ///
+    /// When `overrides` set no `PATH`, the bundled tool's directory is appended
+    /// to this process's.
+    nonisolated static func childEnvironment(
+        overrides: [String: String],
+        helpersDirectory: URL? = CommandLineHelper.bundledDirectory
+    ) -> [String: String] {
+        var environment = ProcessInfo.processInfo.environment.merging(overrides) { $1 }
+        if overrides["PATH"] == nil, let path = environment["PATH"] {
+            environment["PATH"] = CommandLineHelper.appending(helpersDirectory, toPath: path)
+        }
+        return environment
     }
 
     /// Clears `instanceKeys` from this process at launch, so no child

@@ -31,6 +31,20 @@ nonisolated enum CommandLineHelper {
         bundleURL.appending(path: "Contents/Helpers/plume")
     }
 
+    /// The directory holding the bundled tool, when this bundle carries it.
+    static var bundledDirectory: URL? {
+        bundledURL?.deletingLastPathComponent()
+    }
+
+    /// `path` with `directory` last, so a `plume` the user linked still wins.
+    /// A path that already lists it is returned unchanged.
+    static func appending(_ directory: URL?, toPath path: String) -> String {
+        guard let directory else { return path }
+        let entries = path.split(separator: ":", omittingEmptySubsequences: true)
+        guard !entries.contains(where: { $0 == directory.path }) else { return path }
+        return entries.isEmpty ? directory.path : path + ":" + directory.path
+    }
+
     /// Where the script lived before the tool replaced it.
     static func legacyScriptURL(inBundle bundleURL: URL) -> URL {
         bundleURL.appending(path: "Contents/Resources/plume-notify")
