@@ -31,14 +31,20 @@ Every emulator writes `grpc.token`, whether or not it was started with `-grpc-us
 
 `EmulatorLauncher` runs `emulator -avd <id> -qt-hide-window -grpc-use-token -no-boot-anim` in its own session (`POSIX_SPAWN_SETSID`), with stdin from `/dev/null` and output to `Emulators/<id>.log` in the data directory (the installed app's, for `plume devices`). It strips every `PLUME_*` variable from the emulator's environment, so nothing the emulator spawns looks like it belongs to a tab. The emulator must outlive the tab and Plume: closing a tab only stops streaming, and quitting Plume leaves every emulator running. Shut one down from the tab's menu, which calls `setVmState(SHUTDOWN)`.
 
-`-qt-hide-window` runs the full `qemu-system-aarch64` with its window hidden, so it shows no window or Dock icon, and `streamScreenshot` and input work as usual. `-no-window` forces `qemu-system-aarch64-headless`, which renders in software with SwiftShader (`gles_mode_selected:swangle` in the log). The full binary selects `gles_mode_selected:host`: ANGLE on Metal on the Mac's GPU, with Vulkan still on lavapipe. Adding `-gpu host` moves Vulkan to the GPU too, but changes CPU by nothing measurable, so Plume leaves it off.
+`-qt-hide-window` runs the full `qemu-system-aarch64` with its window hidden, so it shows no window or Dock icon, and `streamScreenshot` and input work as usual. `-no-window` forces `qemu-system-aarch64-headless`, which renders in software with SwiftShader (`gles_mode_selected:swangle` in the log). The full binary selects `gles_mode_selected:host`: ANGLE on Metal on the Mac's GPU, with Vulkan still on lavapipe. Adding `-gpu host` moves Vulkan to the GPU too, but doesn't change CPU measurably, so Plume leaves it off.
 
 Measured on an M4 Pro, emulator 37.1.11.0, `Medium_Phone_API_36`. CPU is the qemu process's mean, as a percent of one core:
 
-| | Idle | Scrolling | Streaming + scrolling | RSS |
+| Flag | Idle | Scrolling | Streaming + scrolling | RSS |
 |---|---|---|---|---|
 | `-no-window` | 17% | 1107% | 1064% | ~6.0 GB |
 | `-qt-hide-window` | 14% | 37% | 72% | ~5.1–5.4 GB |
+
+Also measured: while an emulator boots with the full binary, no window or Dock icon appears and the frontmost app doesn't change.
+
+Text copied inside the guest now reaches the Mac clipboard (emulator 37.1.11.0). The headless binary never touched the Mac clipboard. Mac to guest was not observed. Plume's paste (gRPC `setClipboard`) works under both binaries and does not touch the Mac clipboard. The emulator has no command-line flag to turn clipboard sharing off.
+
+Not measured: the full binary needs the user's GUI session, so a `plume devices claim` that boots an emulator from outside it (over SSH, say) may fail where the headless binary would have booted.
 
 ## Frames (measured)
 
