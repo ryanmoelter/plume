@@ -381,6 +381,8 @@ scripts/update-tap.sh <version>   # e.g. scripts/update-tap.sh 0.12.0
 
 It clones `ryanmoelter/homebrew-tap` into `mktemp -d`, downloads that version's DMG, computes its sha256, edits `version`/`sha256` in the cask, commits, and pushes — then deletes the temp clone. It refuses if the release for that version is still a draft, since the DMG URL 404s until publication and hashing then would hash bytes nobody can download.
 
+Homebrew links the `plume` tool through the cask's `binary "#{appdir}/Plume.app/Contents/Helpers/plume"` stanza, so `update-tap.sh` fails the bump if that line is missing. The Settings ▸ Command line switch is for DMG installs, and Home's skills install skips linking the tool on a Homebrew install.
+
 The script lives in this (public) repo, so it never references a tap checkout on any particular machine — only the tap's repo name.
 
 ### Checking the cask
