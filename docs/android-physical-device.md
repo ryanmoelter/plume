@@ -77,6 +77,15 @@ On quit, `DeviceSessionManager.terminateAll()` starts each stop without waiting,
 - scrcpy sends a frame only when the screen changes. The session keeps the last frame and hands it to a sink that attaches mid-stream, so a tab shown again within the grace period doesn't stay black on a static screen.
 - A config packet the decoder rejects, or a frame it fails to decode (including one VideoToolbox returns with no image and no error), costs frames, not the connection. The decoder drops frames until the next key frame, and the pump sends `RESET_VIDEO` for one, at most once a second until a frame decodes (`KeyFrameRecovery`). If nothing decodes for 10 seconds, the stream ends with "The device's video couldn't be decoded", and the tab offers **Reconnect**.
 
+## Video quality
+
+scrcpy-server takes its size, bitrate and frame rate only at launch, so Plume adapts a slow stream by reconnecting with lower limits. A reconnect takes about a second and never touches a remote reservation.
+
+- **The ladder.** `VideoQualityLadder` starts at the device's own limits, native for USB and Wi-Fi and `ScrcpyVideoLimits.remoteDevice` for a remote device, then adds each rung below them: 1280 px at 4 Mbit/s, 1024 px at 2 Mbit/s, 800 px at 1 Mbit/s, all at 30 fps.
+- **Lag.** Each `ScrcpyFrame` carries the device's PTS and the time its bytes came off the socket, before decoding. `StreamLagMeter` reads a frame's lag as how much later it arrived, relative to its PTS, than the fastest frame of the last 60 seconds. A steady network delay reads as no lag, and the window keeps clock drift from building up. A PTS that goes backwards, as an encoder restart can, starts a fresh baseline.
+- **Policy.** `VideoQualityGovernor` steps down one level once frames have arrived more than 500 ms late for 2 seconds. It steps back up once frames have arrived within 150 ms for 30 seconds. A step down within 60 seconds of a step up doubles that wait, up to 8 minutes. The level survives reconnects and resets when the tab changes device. It is pure logic, tested against synthetic timestamps.
+- **Manual choice.** The ellipsis menu's **Video Quality** picker offers Automatic, which names the level it is at, or any fixed level, which stops adapting. Picking a level reconnects at once.
+
 ## Hidden tabs and the grace period
 
 A physical tab stays connected for `DeviceSession.physicalIdleStopDelay` (5 seconds) after its last sink leaves, or after a connect that finishes with no sink, as a picker's connect can. A sink returning within that time cancels the stop and keeps the same connection and stream. Once the delay expires the session closes the connection, which stops the server and removes the forward, so a hidden tab never keeps the phone encoding. The session's state is then `.suspended`, which is not an error and offers no button. The next sink to attach reconnects to the same device, which takes about a second. Emulators stop streaming at once and keep their connection.

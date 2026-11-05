@@ -129,6 +129,9 @@ struct AndroidDeviceView: View, ThemedView {
                             .disabled(!session.canPauseStreaming)
                             .plumeID(AccessibilityID.deviceStreamingMenuItem, value: "on")
                     }
+                    if !session.videoQualityLevels.isEmpty {
+                        videoQualityPicker
+                    }
                 }
                 if session.canEndReservation {
                     Button("End Reservation…") { confirmingEndReservation = true }
@@ -148,6 +151,25 @@ struct AndroidDeviceView: View, ThemedView {
             .padding(.horizontal, 6)
             .plumeID(AccessibilityID.deviceMoreMenu)
         }
+    }
+
+    /// "Automatic" names the level it is at, since that level changes with the connection.
+    private var videoQualityPicker: some View {
+        let levels = session.videoQualityLevels
+        return Picker("Video Quality", selection: Binding(get: { session.videoQualityChoice }, set: { session.setVideoQuality($0) })) {
+            Text("Automatic (\(levels[min(session.videoQualityLevel, levels.count - 1)]))").tag(VideoQualityChoice.automatic)
+            ForEach(levels.indices, id: \.self) { level in
+                Text(levels[level]).tag(VideoQualityChoice.fixed(level))
+            }
+        }
+        .pickerStyle(.menu)
+        .plumeID(
+            AccessibilityID.deviceVideoQualityMenu,
+            value: session.videoQualityChoice == .automatic ? "automatic" : String(session.videoQualityLevel),
+            setValue: { value in
+                session.setVideoQuality(Int(value).map(VideoQualityChoice.fixed) ?? .automatic)
+            }
+        )
     }
 
     private var reservationControls: some View {

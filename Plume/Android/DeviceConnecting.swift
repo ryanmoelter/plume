@@ -73,6 +73,8 @@ nonisolated struct DeviceFrame: @unchecked Sendable {
     let rotation: DeviceRotation
     /// The natural-orientation size touches are sent in, when the frame defines it.
     let deviceSize: CGSize?
+    /// Only a scrcpy stream carries it; it drives `VideoQualityGovernor`.
+    var timing: DeviceFrameTiming? = nil
 
     var layerContents: Any {
         switch contents {
