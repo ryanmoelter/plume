@@ -1,6 +1,6 @@
 ---
 name: plume-worktrees
-description: Create, list, commit in, rename and remove git worktrees with Plume's `plume wt` command. Use whenever a task involves worktrees ("make a worktree", "do this in a new worktree", "clean up that worktree") and the `plume` command is available, as it is in a Plume tab ($PLUME is set) once Plume's command line tool is on.
+description: Create, list, commit in, rename and remove git worktrees with Plume's `plume wt` command. Use whenever a task involves worktrees ("make a worktree", "do this in a new worktree", "clean up that worktree") inside a Plume tab ($PLUME is set).
 ---
 
 # Worktrees with `plume wt`

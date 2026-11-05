@@ -1,6 +1,6 @@
 ---
 name: plume-stack
-description: Manage stacked branches and their PRs or MRs with Plume's `plume stack` command — create, split, track, navigate, restack, submit and sync. Use on "stack these changes", "restack", "submit the stack", and whenever a branch is or will be based on another feature branch rather than the trunk ("base this on X", "branch off X"), when the `plume` command is available, as it is in a Plume tab ($PLUME is set) once Plume's command line tool is on.
+description: Manage stacked branches and their PRs or MRs with Plume's `plume stack` command — create, split, track, navigate, restack, submit and sync. Use on "stack these changes", "restack", "submit the stack", and whenever a branch is or will be based on another feature branch rather than the trunk ("base this on X", "branch off X"), inside a Plume tab ($PLUME is set).
 ---
 
 # Stacked branches with `plume stack`
