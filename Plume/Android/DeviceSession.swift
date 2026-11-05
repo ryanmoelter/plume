@@ -198,7 +198,7 @@ final class DeviceSession {
     /// device over USB and Wi-Fi.
     func point(at target: DeviceTarget, displayName: String?) {
         if let current = self.target {
-            guard current == target || namesSamePhone(current, target) else { return }
+            guard physicalDiscovery.namesSameDevice(current, target) else { return }
         } else {
             choose(target, displayName: displayName)
         }
@@ -240,7 +240,7 @@ final class DeviceSession {
                     guard !Task.isCancelled else { return }
                 }
                 if let adbURL = physicalDiscovery.adbURL, let serial = physicalDiscovery.readySerial(for: identifier) {
-                    upgradeSavedAddress(identifier, readySerial: serial)
+                    upgradeSavedAddress(identifier)
                     let device = ResolvedDevice.physical(serial: serial, adbURL: adbURL)
                     if hasSinks || !waitingForSink {
                         connect(to: device)
@@ -275,18 +275,14 @@ final class DeviceSession {
         }
     }
 
-    private func namesSamePhone(_ first: DeviceTarget, _ second: DeviceTarget) -> Bool {
-        guard case .physical(let a) = first, case .physical(let b) = second else { return false }
-        return physicalDiscovery.namesSamePhone(a, b)
-    }
-
     /// A tab saved under a Wi-Fi address, because the serial number couldn't be read when it was
-    /// picked, switches to `wifi:<serialno>` once it can be.
-    private func upgradeSavedAddress(_ identifier: String, readySerial serial: String) {
-        guard !PhysicalDeviceIdentity.isWifi(identifier), ADBWireless.isNetworkSerial(identifier) else { return }
-        let resolved = physicalDiscovery.identifier(forSerial: serial)
-        guard PhysicalDeviceIdentity.isWifi(resolved), target == .physical(serial: identifier) else { return }
-        choose(.physical(serial: resolved), displayName: displayName)
+    /// picked, switches to `wifi:<serialno>` once it can be, whichever transport found the phone.
+    private func upgradeSavedAddress(_ identifier: String) {
+        guard !PhysicalDeviceIdentity.isWifi(identifier), ADBWireless.isNetworkSerial(identifier),
+              target == .physical(serial: identifier),
+              let hardware = physicalDiscovery.hardwareSerial(ofIdentifier: identifier)
+        else { return }
+        choose(.physical(serial: PhysicalDeviceIdentity.wifi(hardwareSerial: hardware)), displayName: displayName)
     }
 
     // MARK: Remote devices
@@ -359,7 +355,7 @@ final class DeviceSession {
             return
         }
         if let id = reservation.reservationID { onReservationEvent?(.attached(reservationID: id, serial: serial)) }
-        await physicalDiscovery.refresh()
+        await physicalDiscovery.refreshListing()
         guard self.reservation === reservation, !Task.isCancelled else { return }
         guard let adbURL = physicalDiscovery.adbURL else {
             state = .reservationFailed("adb wasn't found.")
@@ -758,7 +754,7 @@ final class DeviceSession {
         let sinks = sinks.values.compactMap(\.sink)
         if state == .suspended, !sinks.isEmpty, let connectedDevice {
             EmulatorLog.info("\(logPrefix) a sink returned, reconnecting")
-            connect(to: connectedDevice)
+            reconnect(to: connectedDevice)
             return
         }
         guard isConnected, let connection else {
@@ -842,10 +838,16 @@ final class DeviceSession {
         guard state == .streamingPaused, let connectedDevice else { return }
         EmulatorLog.info("\(logPrefix) streaming turned on")
         if hasSinks {
-            connect(to: connectedDevice)
+            reconnect(to: connectedDevice)
         } else {
             state = .suspended
         }
+    }
+
+    /// A Wi-Fi phone's serial changes with each connection, so it is looked up again rather than
+    /// reached at the one it had.
+    private func reconnect(to device: ResolvedDevice) {
+        if isWifi { locate() } else { connect(to: device) }
     }
 
     private func cancelIdleStop() {

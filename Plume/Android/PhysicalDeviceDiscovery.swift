@@ -67,11 +67,9 @@ final class PhysicalDeviceDiscovery {
     /// Publishes the listing at once, then waits for the serial numbers of the published Wi-Fi
     /// devices. A listing older than one already published is dropped, so overlapping refreshes
     /// never go back, but its caller still waits for the newer listing's serial numbers.
-    /// `retryingFailedReads` reads again at once where a recent read failed, for a caller that
-    /// is about to tell the user the phone isn't there.
-    func refresh(retryingFailedReads: Bool = false) async {
+    func refresh() async {
         await refreshListing()
-        await resolveListedSerialNumbers(retryingFailedReads: retryingFailedReads)
+        await resolveListedSerialNumbers(retryingFailedReads: false)
     }
 
     /// Lists and publishes without waiting for any serial number.
@@ -131,6 +129,12 @@ final class PhysicalDeviceDiscovery {
         return hardware == hardwareSerial(ofIdentifier: second)
     }
 
+    /// Whether two targets are one device: equal, or physical and the same phone.
+    func namesSameDevice(_ first: DeviceTarget, _ second: DeviceTarget) -> Bool {
+        guard case .physical(let a) = first, case .physical(let b) = second else { return first == second }
+        return namesSamePhone(a, b)
+    }
+
     /// One row per phone: a phone adb lists twice, over USB and Wi-Fi or under both an mDNS name
     /// and an address, keeps its ready connection, preferring USB, then the mDNS name.
     func phones(in devices: [PhysicalDevice]) -> [PhysicalDevice] {
@@ -182,6 +186,8 @@ final class PhysicalDeviceDiscovery {
     }
 
     /// Waits for the serial numbers of the listed ready Wi-Fi devices, reading those not known.
+    /// `retryingFailedReads` reads again at once where a recent read failed, for a caller that
+    /// is about to tell the user the phone isn't there.
     func resolveListedSerialNumbers(retryingFailedReads: Bool) async {
         guard let adb = adbURL else { return }
         let lookups = devices.filter { $0.isNetwork && $0.isReady }.compactMap { device in

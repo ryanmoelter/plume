@@ -22,11 +22,11 @@ nonisolated struct LiveADBWireless: ADBWirelessRunning {
 ///
 /// After a pair, adb normally connects the phone by itself through mDNS. The phone is the ready
 /// Wi-Fi device at the host it paired from: a `host:port` serial on that host, or an mDNS serial
-/// named by a connect service on it. While mDNS shows a connect service for the host, Plume
-/// leaves the connecting to adb until near the end of the wait, since an `adb connect` of its own
-/// would add a second transport for the same phone. Without one, adb can't connect the phone, so
-/// Plume connects to the address the user entered from the phone's Wireless debugging screen.
-/// Each address is tried once.
+/// named by a connect service seen on it, or carrying the paired phone's serial number. While
+/// mDNS shows a connect service for the host, Plume leaves the connecting to adb until near the
+/// end of the wait, since an `adb connect` of its own would add a second transport for the same
+/// phone. Without one, the wait ends in `pairedNotConnected`, and the user connects the address
+/// from the phone's Wireless debugging screen. Each address is tried once.
 @MainActor @Observable
 final class WirelessPairing {
     enum Phase: Equatable {
@@ -64,8 +64,6 @@ final class WirelessPairing {
     }
 
     static let pollInterval: Duration = .seconds(1)
-    /// How long adb gets to connect the phone by itself before Plume connects to an entered address.
-    static let enteredAddressGrace: Duration = .seconds(3)
     /// How long adb gets to connect a phone mDNS advertises before Plume connects it itself.
     static let autoConnectWindow: Duration = .seconds(14)
     static let connectDeadline: Duration = .seconds(20)
@@ -86,6 +84,8 @@ final class WirelessPairing {
     @ObservationIgnored private let now: () -> ContinuousClock.Instant
     @ObservationIgnored private var work: Task<Void, Never>?
     @ObservationIgnored private var browseTask: Task<Void, Never>?
+    /// The service `pairingAddress` was filled from, while the user hasn't edited it since.
+    @ObservationIgnored private var filledFrom: ADBMDNSService?
 
     init(
         adb: ADBWirelessRunning = LiveADBWireless(),
@@ -134,7 +134,12 @@ final class WirelessPairing {
     }
 
     func select(_ service: ADBMDNSService) {
-        pairingAddress = service.address
+        fill(from: service)
+    }
+
+    private func fill(from service: ADBMDNSService?) {
+        filledFrom = service
+        pairingAddress = service?.address ?? ""
     }
 
     /// A phone's model when adb already lists it under the serial number in its service name.
@@ -147,8 +152,14 @@ final class WirelessPairing {
 
     private func receive(_ services: [ADBMDNSService], browsingSince started: ContinuousClock.Instant) {
         if services != pairingServices { pairingServices = services }
-        if services.count == 1, pairingAddress.trimmingCharacters(in: .whitespaces).isEmpty {
-            pairingAddress = services[0].address
+        if let filled = filledFrom, filled.address != pairingAddress { filledFrom = nil }
+        if let filled = filledFrom {
+            // A phone re-advertises under its instance name at a new port when its dialog reopens.
+            if !services.contains(filled) {
+                fill(from: services.first { $0.instance == filled.instance } ?? (services.count == 1 ? services[0] : nil))
+            }
+        } else if services.count == 1, pairingAddress.trimmingCharacters(in: .whitespaces).isEmpty {
+            fill(from: services[0])
         }
         let status: Browsing = if !services.isEmpty {
             .found
@@ -181,7 +192,7 @@ final class WirelessPairing {
             while !Task.isCancelled, self != nil {
                 if let service = await adb.services(adb: adbURL).first(where: { $0.kind == .pairing && $0.instance == qr.name }) {
                     guard !Task.isCancelled else { return }
-                    await self?.pairAndConnect(adb: adbURL, address: service.address, code: qr.password, connectAddress: nil)
+                    await self?.pairAndConnect(adb: adbURL, address: service.address, code: qr.password, pairedSerial: nil)
                     return
                 }
                 await sleep(Self.pollInterval)
@@ -189,9 +200,8 @@ final class WirelessPairing {
         }
     }
 
-    /// Pairs with the address and code from Pair device with pairing code. `connectAddress` is
-    /// the IP address and port on the Wireless debugging screen itself, optional.
-    func pair(address: String, code: String, connectAddress: String = "") {
+    /// Pairs with the address and code from Pair device with pairing code.
+    func pair(address: String, code: String) {
         cancel()
         let code = code.trimmingCharacters(in: .whitespaces)
         guard let address = ADBWireless.address(address) else {
@@ -202,12 +212,7 @@ final class WirelessPairing {
             phase = .failed("Enter the Wi-Fi pairing code the device shows.")
             return
         }
-        let trimmed = connectAddress.trimmingCharacters(in: .whitespaces)
-        let connect = ADBWireless.address(trimmed)
-        guard trimmed.isEmpty || connect != nil else {
-            phase = .failed(Self.enterConnectAddress)
-            return
-        }
+        let pairedSerial = pairingServices.first { $0.address == address }.map(\.deviceName)
         phase = .pairing
         work = Task { [weak self, discovery] in
             let adbURL = await discovery.adb()
@@ -216,7 +221,7 @@ final class WirelessPairing {
                 self?.phase = .failed(Self.adbMissing)
                 return
             }
-            await self?.pairAndConnect(adb: adbURL, address: address, code: code, connectAddress: connect)
+            await self?.pairAndConnect(adb: adbURL, address: address, code: code, pairedSerial: pairedSerial)
         }
     }
 
@@ -242,7 +247,7 @@ final class WirelessPairing {
                 phase = .pairedNotConnected("The device didn't connect: \(message) " + Self.enterConnectAddress)
                 return
             }
-            await waitForPhone(adb: adbURL, host: ADBWireless.host(of: address), connectAddress: nil, addressGrace: .zero, attempted: [address])
+            await waitForPhone(adb: adbURL, host: ADBWireless.host(of: address), pairedSerial: nil, attempted: [address])
         }
     }
 
@@ -257,7 +262,8 @@ final class WirelessPairing {
         "Enter the IP address and port from the device's Wireless debugging screen, like 192.168.1.20:41234."
     private static let adbMissing = "adb wasn't found."
 
-    private func pairAndConnect(adb adbURL: URL, address: String, code: String, connectAddress: String?) async {
+    /// `pairedSerial` is the serial number in the pairing service's name, when the user picked one.
+    private func pairAndConnect(adb adbURL: URL, address: String, code: String, pairedSerial: String?) async {
         phase = .pairing
         let outcome = await adb.pair(adb: adbURL, address: address, code: code)
         guard !Task.isCancelled else { return }
@@ -266,37 +272,30 @@ final class WirelessPairing {
             return
         }
         phase = .connecting
-        await waitForPhone(
-            adb: adbURL, host: ADBWireless.host(of: address), connectAddress: connectAddress, addressGrace: Self.enteredAddressGrace
-        )
+        await waitForPhone(adb: adbURL, host: ADBWireless.host(of: address), pairedSerial: pairedSerial)
     }
 
-    /// `attempted` holds addresses already connected to, which the wait never connects again. The
-    /// phone counts on the pairing host or on the host of the address the user entered.
-    private func waitForPhone(
-        adb adbURL: URL, host: String, connectAddress: String?, addressGrace: Duration, attempted: Set<String> = []
-    ) async {
+    /// `attempted` holds addresses already connected to, which the wait never connects again.
+    private func waitForPhone(adb adbURL: URL, host: String, pairedSerial: String?, attempted: Set<String> = []) async {
         let start = now()
         var attempted = attempted
         var connectFailure: String?
-        let hosts = Set([host] + (connectAddress.map { [ADBWireless.host(of: $0)] } ?? []))
+        // adb can list the phone a poll after mDNS stops advertising it.
+        var seenServices: Set<String> = []
         while true {
-            await discovery.refresh()
-            let services = await adb.services(adb: adbURL).filter { $0.kind == .connect && hosts.contains($0.host) }
+            await discovery.refreshListing()
+            let services = await adb.services(adb: adbURL).filter { $0.kind == .connect && $0.host == host }
             guard !Task.isCancelled else { return }
-            if let phone = discovery.devices.first(where: { Self.isPhone($0, on: hosts, services: services) }) {
+            seenServices.formUnion(services.map(\.instance))
+            if let phone = discovery.devices.first(where: {
+                Self.isPhone($0, at: host, seenServices: seenServices, pairedSerial: pairedSerial)
+            }) {
                 phase = .connected(phone)
                 return
             }
             let elapsed = now() - start
             guard elapsed < Self.connectDeadline else { break }
-            let addresses: [String] = if !services.isEmpty {
-                elapsed >= Self.autoConnectWindow ? services.map(\.address) : []
-            } else if let connectAddress, elapsed >= addressGrace {
-                [connectAddress]
-            } else {
-                []
-            }
+            let addresses = elapsed >= Self.autoConnectWindow ? services.map(\.address) : []
             for address in addresses where !attempted.contains(address) {
                 attempted.insert(address)
                 if case .failed(let message) = await adb.connect(adb: adbURL, address: address) { connectFailure = message }
@@ -311,9 +310,12 @@ final class WirelessPairing {
     }
 
     /// Already connected counts, so pairing a phone again finds it under either serial form.
-    private static func isPhone(_ device: PhysicalDevice, on hosts: Set<String>, services: [ADBMDNSService]) -> Bool {
+    private static func isPhone(_ device: PhysicalDevice, at host: String, seenServices: Set<String>, pairedSerial: String?) -> Bool {
         guard device.isReady, device.isNetwork else { return false }
-        if ADBWireless.address(device.serial) != nil { return hosts.contains(ADBWireless.host(of: device.serial)) }
-        return services.contains { device.serial.hasPrefix($0.instance + ".") }
+        if ADBWireless.address(device.serial) != nil { return ADBWireless.host(of: device.serial) == host }
+        guard let instance = device.serial.components(separatedBy: "._").first else { return false }
+        if seenServices.contains(instance) { return true }
+        guard let pairedSerial else { return false }
+        return ADBMDNSService(instance: instance, kind: .connect, address: "").deviceName == pairedSerial
     }
 }

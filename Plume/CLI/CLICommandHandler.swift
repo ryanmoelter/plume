@@ -140,7 +140,7 @@ final class CLICommandHandler {
         let deviceTabs = task.orderedTabs.filter { $0.kind == .device }
         let tab: TaskTab
         var created = false
-        if let showing = deviceTabs.first(where: { $0.deviceTarget.map { isSameDevice($0, target) } ?? false }) {
+        if let showing = deviceTabs.first(where: { $0.deviceTarget.map { physicalDiscovery.namesSameDevice($0, target) } ?? false }) {
             tab = showing
         } else if case .remote(let reservationID) = target {
             return .failure("no device tab holds reservation \(reservationID)")
@@ -298,15 +298,6 @@ final class CLICommandHandler {
             return .physical(serial: await physicalDiscovery.resolvedIdentifier(forSerial: serial))
         case .remote: return params.reservationID.map { .remote(reservationID: $0) }
         }
-    }
-
-    /// A physical tab matches by the phone's serial number when known, so a USB tab and a Wi-Fi
-    /// request for the same phone, or a tab saved under a Wi-Fi address, are one device.
-    private func isSameDevice(_ tabTarget: DeviceTarget, _ target: DeviceTarget) -> Bool {
-        guard case .physical(let tabIdentifier) = tabTarget, case .physical(let identifier) = target else {
-            return tabTarget == target
-        }
-        return physicalDiscovery.namesSamePhone(tabIdentifier, identifier)
     }
 
     /// The worktree already exists, since `wt` made it; this only opens a

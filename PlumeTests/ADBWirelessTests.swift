@@ -51,10 +51,10 @@ struct ADBWirelessParsingTests {
     /// `getprop ro.serialno` output: the value, or an empty line on a device that doesn't set it.
     @Test func serialNumber() {
         #expect(ADBWireless.parseSerialNumber("53221FDKD0008F\r\n") == "53221FDKD0008F")
-        #expect(ADBWireless.parseSerialNumber("\n") == nil)
-        #expect(ADBWireless.parseSerialNumber("unknown\n") == nil)
+        #expect(ADBWireless.parseSerialNumber("\n") == "")
+        #expect(ADBWireless.parseSerialNumber("unknown\n") == "unknown")
         #expect(ADBWireless.parseSerialNumber("error: device offline\n") == nil)
-        #expect(ADBWireless.parseSerialNumber("") == nil)
+        #expect(ADBWireless.parseSerialNumber("") == "")
     }
 
     @Test func pairingServiceNames() {
@@ -305,7 +305,8 @@ struct PhysicalDeviceIdentityTests {
             }
         )
         await discovery.refresh()
-        await discovery.refresh(retryingFailedReads: true)
+        await discovery.refreshListing()
+        await discovery.resolveListedSerialNumbers(retryingFailedReads: true)
         #expect(reads.value == 2)
         #expect(discovery.readySerial(for: "wifi:2B021FDH200A2K") == wifi.serial)
     }
@@ -329,12 +330,32 @@ struct PhysicalDeviceIdentityTests {
             }
         )
         await discovery.refresh()
-        await discovery.refresh(retryingFailedReads: true)
+        await discovery.refreshListing()
+        await discovery.resolveListedSerialNumbers(retryingFailedReads: true)
         #expect(reads.value == 2)
         #expect(discovery.phones(in: discovery.devices) == [first, second])
         #expect(discovery.identifier(forSerial: first.serial) == first.serial)
         #expect(!discovery.namesSamePhone(first.serial, second.serial))
         #expect(discovery.readySerial(for: "wifi:0123456789ABCDEF") == nil)
+    }
+
+    @Test func anEmptyOrUnknownSerialNumberIsAPlaceholderNotAFailure() async {
+        for reported in ["", "unknown"] {
+            let wifi = PhysicalDevice(serial: "192.168.1.20:41234", state: .ready, model: nil)
+            let reads = SerialReadCounter()
+            let discovery = PhysicalDeviceDiscovery(
+                list: { [adb] in ADBListing(adbURL: adb, devices: [wifi]) },
+                serialNumber: { _, _ in
+                    reads.increment()
+                    return reported
+                }
+            )
+            await discovery.refresh()
+            await discovery.refreshListing()
+            await discovery.resolveListedSerialNumbers(retryingFailedReads: true)
+            #expect(reads.value == 1, "\(reported)")
+            #expect(discovery.identifier(forSerial: wifi.serial) == wifi.serial, "\(reported)")
+        }
     }
 
     @Test func theListIsPublishedBeforeSerialNumbersAreRead() async {
@@ -511,6 +532,63 @@ struct WifiDeviceSessionTests {
         await waitUntilTrue { session.state == .suspended }
         #expect(reported == [.physical(serial: "wifi:2B021FDH200A2K")])
         #expect(session.target == .physical(serial: "wifi:2B021FDH200A2K"))
+    }
+
+    @Test func aTabSavedUnderAnAddressUpgradesWhenItsPhoneIsOnUSB() async {
+        let old = PhysicalDevice(serial: "192.168.1.20:41234", state: .ready, model: "Pixel_9")
+        let usb = PhysicalDevice(serial: "2B021FDH200A2K", state: .ready, model: "Pixel_9")
+        let listing = ListingBox(ADBListing(adbURL: adb, devices: [old]))
+        let discovery = discovery(listing)
+        await discovery.refresh()
+        listing.listing.devices = [usb]
+        await discovery.refresh()
+        var connected: [String] = []
+        let session = session(target: .physical(serial: old.serial), discovery: discovery) { connected.append($0) }
+        var reported: [DeviceTarget?] = []
+        session.onDeviceChange = { target, _ in reported.append(target) }
+        let sink = FakeSink(size: CGSize(width: 100, height: 200))
+        session.addSink(sink)
+        session.start()
+        await waitUntilTrue { session.state == .connected }
+        #expect(connected == [usb.serial])
+        #expect(reported == [.physical(serial: "wifi:2B021FDH200A2K")])
+        #expect(session.target == .physical(serial: "wifi:2B021FDH200A2K"))
+        withExtendedLifetime(sink) {}
+    }
+
+    @Test func aSuspendedWifiTabLooksForItsPhoneAgainWhenShown() async {
+        let first = PhysicalDevice(serial: "192.168.1.20:41234", state: .ready, model: "Pixel_9")
+        let moved = PhysicalDevice(serial: "192.168.1.20:39999", state: .ready, model: "Pixel_9")
+        let listing = ListingBox(ADBListing(adbURL: adb, devices: [first]))
+        var connected: [String] = []
+        let session = session(target: .physical(serial: "wifi:2B021FDH200A2K"), discovery: discovery(listing)) { connected.append($0) }
+        session.start()
+        await waitUntilTrue { session.state == .suspended }
+        listing.listing.devices = [moved]
+        let sink = FakeSink(size: CGSize(width: 100, height: 200))
+        session.addSink(sink)
+        await waitUntilTrue { session.state == .connected }
+        #expect(connected == [moved.serial])
+        withExtendedLifetime(sink) {}
+    }
+
+    @Test func aPausedWifiTabLooksForItsPhoneAgainOnResume() async {
+        let first = PhysicalDevice(serial: "192.168.1.20:41234", state: .ready, model: "Pixel_9")
+        let moved = PhysicalDevice(serial: "192.168.1.20:39999", state: .ready, model: "Pixel_9")
+        let listing = ListingBox(ADBListing(adbURL: adb, devices: [first]))
+        var connected: [String] = []
+        let session = session(target: .physical(serial: "wifi:2B021FDH200A2K"), discovery: discovery(listing)) { connected.append($0) }
+        let sink = FakeSink(size: CGSize(width: 100, height: 200))
+        session.addSink(sink)
+        session.start()
+        await waitUntilTrue { session.state == .connected }
+        session.pauseStreaming()
+        #expect(session.state == .streamingPaused)
+        listing.listing.devices = [moved]
+        session.resumeStreaming()
+        await waitUntilTrue { session.state == .connected && connected.count == 2 }
+        #expect(connected == [first.serial, moved.serial])
+        withExtendedLifetime(sink) {}
     }
 
     @Test func aWifiTabFindsItsPhoneWhileAFailedReadWaitsOutItsBackoff() async {

@@ -156,12 +156,12 @@ nonisolated enum ADBWireless {
         return .failed(failureMessage(output, fallback: "Connecting failed."))
     }
 
-    /// Parses `getprop ro.serialno`, which prints the value or an empty line.
+    /// Parses `getprop ro.serialno`, which prints the value or an empty line. An empty or
+    /// `unknown` value comes back as is, a placeholder (`PhysicalDeviceIdentity.isPlaceholderSerial`)
+    /// rather than a failure, so it isn't read again. Nil means the read itself failed.
     static func parseSerialNumber(_ output: String) -> String? {
         let value = output.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !value.isEmpty, value != "unknown", !value.lowercased().hasPrefix("error"),
-              !value.contains(where: \.isWhitespace)
-        else { return nil }
+        guard !value.lowercased().hasPrefix("error"), !value.contains(where: \.isWhitespace) else { return nil }
         return value
     }
 
