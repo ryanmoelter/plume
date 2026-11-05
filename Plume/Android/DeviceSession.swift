@@ -77,6 +77,10 @@ final class DeviceSession {
     private(set) var remoteDetails: RemoteDeviceDetails?
     private(set) var isExtending = false
     var extendError: String?
+    /// Empty until a scrcpy stream connects.
+    private(set) var videoQualityLevels: [String] = []
+    private(set) var videoQualityLevel = 0
+    private(set) var videoQualityChoice: VideoQualityChoice = .automatic
 
     /// Called when the user picks a device, so the tab can persist it.
     @ObservationIgnored var onDeviceChange: ((_ target: DeviceTarget?, _ displayName: String?) -> Void)?
@@ -113,6 +117,8 @@ final class DeviceSession {
     @ObservationIgnored private let now: () -> Date
     @ObservationIgnored private let recordReservation: @MainActor (_ modelID: String) -> Void
     @ObservationIgnored private var reservationMonitor: Task<Void, Never>?
+    /// Ignored by observation because it absorbs every frame.
+    @ObservationIgnored private var videoQuality: VideoQualityGovernor?
 
     init(
         tabID: UUID,
@@ -713,6 +719,7 @@ final class DeviceSession {
 
     private func choose(_ target: DeviceTarget?, displayName: String?) {
         guard target != self.target || displayName != self.displayName else { return }
+        if target != self.target { resetVideoQuality(ceiling: nil) }
         self.target = target
         self.displayName = displayName
         onDeviceChange?(target, displayName)
@@ -721,7 +728,7 @@ final class DeviceSession {
     private func connect(to device: ResolvedDevice) {
         disconnect()
         state = .connecting
-        let connection = makeConnection(device)
+        let connection = makeConnection(applyingVideoQuality(to: device))
         self.connection = connection
         connectedDevice = device
         switch device {
@@ -833,6 +840,41 @@ final class DeviceSession {
         if let size = frame.deviceSize, size != deviceSize { deviceSize = size }
         lastFrame = frame
         for entry in sinks.values { entry.sink?.present(frame) }
+        if let timing = frame.timing, videoQuality?.record(timing) != nil { videoQualityLevelChanged() }
+    }
+
+    // MARK: Video quality
+
+    func setVideoQuality(_ choice: VideoQualityChoice) {
+        guard videoQuality != nil else { return }
+        let changed = videoQuality?.choose(choice) == true
+        videoQualityChoice = choice
+        if changed { videoQualityLevelChanged() }
+    }
+
+    /// The device's own limits are the ladder's ceiling; the connection gets the current level's.
+    private func applyingVideoQuality(to device: ResolvedDevice) -> ResolvedDevice {
+        guard case .physical(let serial, let adbURL, let ceiling) = device else { return device }
+        if videoQuality?.ladder.ceiling != ceiling { resetVideoQuality(ceiling: ceiling) }
+        videoQuality?.connectionStarted()
+        return .physical(serial: serial, adbURL: adbURL, videoLimits: videoQuality?.limits ?? ceiling)
+    }
+
+    private func resetVideoQuality(ceiling: ScrcpyVideoLimits?) {
+        videoQuality = ceiling.map(VideoQualityGovernor.init(ceiling:))
+        let levels = videoQuality.map { quality in quality.ladder.levels.indices.map(quality.ladder.name(of:)) } ?? []
+        if levels != videoQualityLevels { videoQualityLevels = levels }
+        if videoQualityLevel != 0 { videoQualityLevel = 0 }
+        if videoQualityChoice != .automatic { videoQualityChoice = .automatic }
+    }
+
+    /// scrcpy-server takes its limits only at launch, so a new level means a reconnect.
+    private func videoQualityLevelChanged() {
+        guard let videoQuality else { return }
+        videoQualityLevel = videoQuality.level
+        EmulatorLog.info("\(logPrefix) video quality \(videoQuality.ladder.name(of: videoQuality.level))")
+        guard isConnected, let connectedDevice else { return }
+        reconnect(to: connectedDevice)
     }
 
     private func scheduleIdleStop() {
