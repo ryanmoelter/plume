@@ -98,7 +98,8 @@ struct VideoQualityGovernorTests {
 
     @Test func theLowestLevelStaysPutWhileLagging() {
         var governor = VideoQualityGovernor(ceiling: .remoteDevice)
-        #expect(governor.choose(.fixed(2)))
+        let changed = governor.choose(.fixed(2))
+        #expect(changed)
         _ = governor.choose(.automatic)
         _ = feed(&governor, from: 0, to: 1, delay: 0)
         #expect(feed(&governor, from: 1, to: 10, delay: 0.8).isEmpty)
@@ -133,8 +134,10 @@ struct VideoQualityGovernorTests {
 
     @Test func aFixedChoiceStopsAdapting() {
         var governor = VideoQualityGovernor(ceiling: .none)
-        #expect(governor.choose(.fixed(1)))
-        #expect(!governor.choose(.fixed(1)))
+        let first = governor.choose(.fixed(1))
+        let again = governor.choose(.fixed(1))
+        #expect(first)
+        #expect(!again)
         _ = feed(&governor, from: 0, to: 1, delay: 0)
         #expect(feed(&governor, from: 1, to: 10, delay: 0.8).isEmpty)
         #expect(feed(&governor, from: 10, to: 100, delay: 0).isEmpty)
@@ -163,7 +166,7 @@ struct DeviceSessionVideoQualityTests {
                 if case .physical(_, _, let deviceLimits) = device { limits.withLock { $0.append(deviceLimits) } }
                 return fake
             },
-            idleSleep: { _ in }
+            idleSleep: { _ in try? await Task.sleep(for: .seconds(3600)) }
         )
         await physicalDiscovery.refresh()
         session.attach(pixel)
