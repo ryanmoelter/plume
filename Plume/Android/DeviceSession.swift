@@ -71,6 +71,9 @@ final class DeviceSession {
     private(set) var reservation: RemoteReservation?
     /// Nil while unknown.
     private(set) var autoRotate: Bool?
+    /// Empty for a device without a hinge.
+    private(set) var postures: [DevicePosture] = []
+    private(set) var posture: DevicePosture?
     private(set) var remoteDetails: RemoteDeviceDetails?
     private(set) var isExtending = false
     var extendError: String?
@@ -580,6 +583,8 @@ final class DeviceSession {
         releaseReservation()
         reservation = nil
         autoRotate = nil
+        postures = []
+        posture = nil
         remoteDetails = nil
         choose(nil, displayName: nil)
         state = .needsDevice
@@ -683,6 +688,27 @@ final class DeviceSession {
         }
     }
 
+    /// Shows the new posture at once: the emulator applies it later, so reading it straight back can see the old one.
+    func setPosture(_ posture: DevicePosture) {
+        guard isConnected, let connection, postures.contains(posture) else { return }
+        self.posture = posture
+        runWork { [weak self] in
+            do {
+                try await connection.setPosture(posture)
+            } catch {
+                EmulatorLog.error("setting the posture failed: \(error)")
+                guard let self, self.connection === connection else { return }
+                await self.refreshPosture(from: connection)
+            }
+        }
+    }
+
+    private func refreshPosture(from connection: DeviceConnecting) async {
+        let value = await connection.posture()
+        guard self.connection === connection else { return }
+        posture = value
+    }
+
     private func refreshAutoRotate(from connection: DeviceConnecting) async {
         let value = await connection.autoRotate()
         guard self.connection === connection else { return }
@@ -716,12 +742,14 @@ final class DeviceSession {
                 let info = try await connection.connect()
                 guard let self, self.connection === connection else { return }
                 deviceSize = info.deviceSize
+                postures = info.postures
                 // Physical frames arrive already rotated; an emulator's rotation is real and outlives a reconnect.
                 if case .physical = device { rotation = .portrait }
                 EmulatorLog.info("\(logPrefix) connected, display \(String(describing: info.deviceSize))")
                 state = .connected
                 updateStreaming()
                 if self.isRemote { await self.refreshAutoRotate(from: connection) }
+                if !self.postures.isEmpty { await self.refreshPosture(from: connection) }
             } catch {
                 guard let self, self.connection === connection else { return }
                 lose(connection, reason: error.localizedDescription)

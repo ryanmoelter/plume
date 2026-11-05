@@ -177,6 +177,7 @@ enum AccessibilityID {
     static let deviceOverviewButton = "device-overview-button"
     static let deviceRotateLeftButton = "device-rotate-left-button"
     static let deviceRotateRightButton = "device-rotate-right-button"
+    static let deviceFoldPostureButton = "device-fold-posture-button"
     static let deviceVolumeDownButton = "device-volume-down-button"
     static let deviceVolumeUpButton = "device-volume-up-button"
     static let devicePowerButton = "device-power-button"

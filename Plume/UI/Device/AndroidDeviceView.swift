@@ -100,6 +100,7 @@ struct AndroidDeviceView: View, ThemedView {
                     button("rotate.right", "Rotate Right", AccessibilityID.deviceRotateRightButton) { session.rotate(clockwise: true) }
                     Divider().frame(height: 14).padding(.horizontal, 4)
                 }
+                DeviceFoldControls(session: session)
                 button("speaker.minus", "Volume Down", AccessibilityID.deviceVolumeDownButton) { session.press(.volumeDown) }
                 button("speaker.plus", "Volume Up", AccessibilityID.deviceVolumeUpButton) { session.press(.volumeUp) }
                 button("power", "Power", AccessibilityID.devicePowerButton) { session.press(.power) }
