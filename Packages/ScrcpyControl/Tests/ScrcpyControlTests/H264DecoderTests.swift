@@ -26,9 +26,20 @@ struct AnnexBTests {
         #expect(AnnexB.type(of: Data([0x65])) == AnnexB.NALType.idr)
     }
 
+    @Test func skipsEmptyUnitsBetweenAdjacentStartCodes() {
+        let stream = Data([0, 0, 1, 0, 0, 1, 0x65, 0x01, 0x01, 0, 0, 0, 1])
+        #expect(AnnexB.split(stream) == [Data([0x65, 0x01, 0x01])])
+    }
+
     @Test func prefixesEachUnitWithItsLength() {
-        let avcc = AnnexB.avcc([Data([0x65, 0x01]), Data([0x41])])
-        #expect([UInt8](avcc) == [0, 0, 0, 2, 0x65, 0x01, 0, 0, 0, 1, 0x41])
+        let stream = Data([0, 0, 0, 1, 0x65, 0x01, 0, 0, 1, 0x41])
+        let avcc = stream.withUnsafeBytes { bytes in
+            let units = AnnexB.unitRanges(in: bytes)
+            var out = [UInt8](repeating: 0xEE, count: AnnexB.avccLength(of: units))
+            out.withUnsafeMutableBytes { AnnexB.writeAVCC(units, from: bytes, to: $0.baseAddress!) }
+            return out
+        }
+        #expect(avcc == [0, 0, 0, 2, 0x65, 0x01, 0, 0, 0, 1, 0x41])
     }
 }
 
