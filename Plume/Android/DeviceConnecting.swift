@@ -85,6 +85,14 @@ nonisolated struct DeviceFrame: @unchecked Sendable {
 nonisolated struct DeviceConnectionInfo: Sendable {
     /// Natural-orientation device pixels.
     var deviceSize: CGSize?
+    /// Empty for a device without a hinge.
+    var postures: [DevicePosture] = []
+}
+
+nonisolated enum DevicePosture: Sendable, Hashable, CaseIterable {
+    case closed
+    case halfOpen
+    case open
 }
 
 /// A point in device pixels, with the device size it was mapped against.
@@ -138,6 +146,16 @@ nonisolated protocol DeviceConnecting: AnyObject, Sendable {
     /// Starts releasing anything that would outlive the app, without waiting, so a quit right after
     /// can wait for it. `close()` still tears down the rest.
     func terminate()
+    /// Nil when the device reports none or it can't be read.
+    func posture() async -> DevicePosture?
+    func setPosture(_ posture: DevicePosture) async throws
+}
+
+extension DeviceConnecting {
+    func posture() async -> DevicePosture? { nil }
+    func setPosture(_ posture: DevicePosture) async throws {
+        throw DeviceConnectionError(message: "This device has no hinge.")
+    }
 }
 
 extension AsyncThrowingStream where Failure == Error {

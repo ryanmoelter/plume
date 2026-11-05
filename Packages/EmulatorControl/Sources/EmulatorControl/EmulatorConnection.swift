@@ -78,7 +78,34 @@ public actor EmulatorConnection {
                   main.width > 0, main.height > 0 {
             displaySize = CGSize(width: Double(main.width), height: Double(main.height))
         }
-        return EmulatorStatusSnapshot(booted: status.booted, version: status.version, displaySize: displaySize)
+        return EmulatorStatusSnapshot(
+            booted: status.booted, version: status.version, displaySize: displaySize, postures: Self.postures(fromConfig: config)
+        )
+    }
+
+    /// The postures an AVD's hinge supports, from `hw.sensor.hinge` and `hw.sensor.posture_list`.
+    public nonisolated static func postures(fromConfig config: [String: String]) -> [EmulatorPosture] {
+        guard let hinge = config["hw.sensor.hinge"]?.lowercased(), ["yes", "true"].contains(hinge) else { return [] }
+        let listed = (config["hw.sensor.posture_list"] ?? "")
+            .split(separator: ",")
+            .compactMap { Int($0.trimmingCharacters(in: .whitespaces)).flatMap(EmulatorPosture.init(rawValue:)) }
+        return listed.isEmpty ? [.closed, .halfOpen, .open] : listed
+    }
+
+    /// Nil when the emulator reports no posture, as one without a hinge does.
+    public func posture() async throws -> EmulatorPosture? {
+        let client = try connectedClient()
+        var request = Android_Emulation_Control_PhysicalModelValue()
+        request.target = .posture
+        let model = try await client.getPhysicalModel(request, options: callOptions())
+        return model.value.data.first.flatMap { EmulatorPosture(rawValue: Int($0.rounded())) }
+    }
+
+    public func setPosture(_ posture: EmulatorPosture) async throws {
+        let client = try connectedClient()
+        var request = Android_Emulation_Control_Posture()
+        request.value = Android_Emulation_Control_Posture.PostureValue(rawValue: posture.rawValue) ?? .postureUnknown
+        _ = try await client.setPosture(request, options: callOptions())
     }
 
     public nonisolated func frames(
