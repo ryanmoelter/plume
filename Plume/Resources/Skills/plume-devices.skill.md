@@ -7,6 +7,8 @@ description: Coordinate Android emulators and devices between concurrent agents 
 
 `plume devices` leases Android devices so parallel agents never install onto or drive the same one. Run `plume devices help` first; its output wins over anything here.
 
+If `plume` is not on PATH, run `"$PLUME_CLI"` instead.
+
 ## Rules
 
 1. Claim before you touch. Any adb, maestro or other direct use of a device must target a serial you hold. `plume devices claim` leases a free device and prints its serial, reusing a booted one or else booting a stopped emulator. `plume devices claim <serial>` claims that device.

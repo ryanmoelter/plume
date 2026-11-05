@@ -7,7 +7,7 @@ description: Use Plume's `plume` command from inside a Plume tab ($PLUME is set)
 
 Plume's tabs export `PLUME=1`, plus `PLUME_SOCKET`, `PLUME_TAB_ID` and `PLUME_TASK_ID`, which the `plume` tool uses to reach the app and the calling tab. `plume help` lists every command.
 
-If `plume` isn't found, the user hasn't turned on **Settings ▸ Command line ▸ Command line tool**. Ask them to, rather than searching for the binary.
+If `plume` is not on PATH, run `"$PLUME_CLI"` instead.
 
 ## Commands
 

@@ -45,6 +45,20 @@ nonisolated enum CommandLineHelper {
         return entries.isEmpty ? directory.path : path + ":" + directory.path
     }
 
+    /// Posted on the main queue after something other than the Settings pane
+    /// links the tool, so an open pane rereads.
+    static let linksDidChangeNotification = Notification.Name("PlumeCommandLineLinksDidChange")
+
+    /// Whether Home's skills install also links the tool: only when `plume` is
+    /// absent or dangling, and Homebrew's cask isn't what links it.
+    static func linksWithSkillsInstall(plumeState: State?, isHomebrewInstall: Bool) -> Bool {
+        guard !isHomebrewInstall, let plumeState else { return false }
+        switch plumeState {
+        case .notInstalled, .brokenLink: return true
+        case .installed, .occupiedByOther, .ownedByOtherPlume, .outdated: return false
+        }
+    }
+
     /// Where the script lived before the tool replaced it.
     static func legacyScriptURL(inBundle bundleURL: URL) -> URL {
         bundleURL.appending(path: "Contents/Resources/plume-notify")

@@ -20,6 +20,8 @@ final class BundledSkillsStatus {
         var entries: [Entry] = []
         /// Unedited copies of skills Plume no longer bundles.
         var retired: [URL] = []
+        /// The `plume` link's state. Nil until the first read lands.
+        var plumeLink: CommandLineHelper.State?
     }
 
     /// Empty until the first read lands.
@@ -34,6 +36,7 @@ final class BundledSkillsStatus {
     private var errors: [Surface: String] = [:]
 
     let directory: URL
+    private let cliDirectory: URL
     /// Nil loads `BundledSkills.all` on first use, off the main actor.
     private let skills: [BundledSkill]?
     /// Bumped by every read and change, so a read that began before a change
@@ -41,9 +44,18 @@ final class BundledSkillsStatus {
     @ObservationIgnored private var generation = 0
     @ObservationIgnored private var activationObserver: NSObjectProtocol?
 
-    init(directory: URL = BundledSkills.skillsDirectory, skills: [BundledSkill]? = nil) {
+    init(
+        directory: URL = BundledSkills.skillsDirectory,
+        cliDirectory: URL = CommandLineHelper.installDirectory,
+        skills: [BundledSkill]? = nil
+    ) {
         self.directory = directory
+        self.cliDirectory = cliDirectory
         self.skills = skills
+    }
+
+    func linksCLIOnInstall(isHomebrewInstall: Bool) -> Bool {
+        CommandLineHelper.linksWithSkillsInstall(plumeState: snapshot.plumeLink, isHomebrewInstall: isHomebrewInstall)
     }
 
     func error(for surface: Surface) -> String? {
@@ -90,17 +102,36 @@ final class BundledSkillsStatus {
     func refresh() {
         generation += 1
         let started = generation
-        let directory = directory, skills = skills
+        let directory = directory, skills = skills, cliDirectory = cliDirectory
         Task {
-            let read = await Task.detached { Self.read(directory: directory, skills: skills ?? BundledSkills.all) }.value
+            let read = await Task.detached {
+                Self.read(directory: directory, cliDirectory: cliDirectory, skills: skills ?? BundledSkills.all)
+            }.value
             guard started == generation, read != snapshot else { return }
             snapshot = read
         }
     }
 
-    func installMissing(on surface: Surface) {
+    /// With `isHomebrewInstall` false, also links the `plume` tool when it is
+    /// absent or dangling. Another tool owning the name is skipped silently.
+    func installMissing(on surface: Surface, isHomebrewInstall: Bool = true) {
+        let cliDirectory = cliDirectory
         change(on: surface, marksInstalled: true) { skills, directory in
-            try BundledSkills.installMissing(skills, in: directory)
+            var firstError: Error?
+            do {
+                try BundledSkills.installMissing(skills, in: directory)
+            } catch {
+                firstError = error
+            }
+            let plumeLink = CommandLineHelper.state(of: cliDirectory.appending(path: "plume"))
+            if CommandLineHelper.linksWithSkillsInstall(plumeState: plumeLink, isHomebrewInstall: isHomebrewInstall) {
+                do {
+                    try CommandLineHelper.install(in: cliDirectory)
+                } catch {
+                    firstError = firstError ?? error
+                }
+            }
+            if let firstError { throw firstError }
         }
     }
 
@@ -129,7 +160,7 @@ final class BundledSkillsStatus {
         isChanging = true
         errors[surface] = nil
         generation += 1
-        let directory = directory, skills = skills
+        let directory = directory, skills = skills, cliDirectory = cliDirectory
         Task {
             let (error, read) = await Task.detached { () -> (String?, Snapshot) in
                 let skills = skills ?? BundledSkills.all
@@ -139,8 +170,9 @@ final class BundledSkillsStatus {
                 } catch {
                     message = error.localizedDescription
                 }
-                return (message, Self.read(directory: directory, skills: skills))
+                return (message, Self.read(directory: directory, cliDirectory: cliDirectory, skills: skills))
             }.value
+            NotificationCenter.default.post(name: CommandLineHelper.linksDidChangeNotification, object: nil)
             generation += 1
             errors[surface] = error
             if error == nil, marksInstalled {
@@ -151,7 +183,7 @@ final class BundledSkillsStatus {
         }
     }
 
-    private nonisolated static func read(directory: URL, skills: [BundledSkill]) -> Snapshot {
+    private nonisolated static func read(directory: URL, cliDirectory: URL, skills: [BundledSkill]) -> Snapshot {
         let entries = skills.map {
             Entry(
                 skill: $0,
@@ -159,6 +191,10 @@ final class BundledSkillsStatus {
                 isSymlink: BundledSkills.isSymlink(directory.appending(path: $0.name))
             )
         }
-        return Snapshot(entries: entries, retired: BundledSkills.retiredFolders(keeping: skills, in: directory))
+        return Snapshot(
+            entries: entries,
+            retired: BundledSkills.retiredFolders(keeping: skills, in: directory),
+            plumeLink: CommandLineHelper.state(of: cliDirectory.appending(path: "plume"))
+        )
     }
 }

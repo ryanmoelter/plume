@@ -7,6 +7,8 @@ description: Create, list, commit in, rename and remove git worktrees with Plume
 
 `plume wt` manages git worktrees and opens them in Plume's tabs and tasks. Run `plume wt help` first. It lists the current commands and this repository's resolved settings: base branch, branch prefix and protected worktrees. Its output wins over anything here.
 
+If `plume` is not on PATH, run `"$PLUME_CLI"` instead.
+
 ## Rules
 
 - Pass `--no-tab` to `co`, `cob` and `bg` unless the user wants to see the worktree. Inside Plume these commands otherwise open a tab. Pass `--task` instead to open it as a new task. Don't run `plume wt open`: it only opens a tab.

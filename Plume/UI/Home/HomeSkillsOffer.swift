@@ -15,12 +15,24 @@ struct HomeSkillsOffer: View, ThemedView {
             Text("Teach agents how to use Plume, like managing devices, opening tabs, creating worktrees, and stacking PRs")
                 .font(typography.body.font)
                 .emphasis(.secondary)
+            if status.linksCLIOnInstall(isHomebrewInstall: isHomebrewInstall) {
+                Text("Also adds the `plume` command to ~/.local/bin.")
+                    .font(typography.caption.font)
+                    .emphasis(.secondary)
+            }
             if let error = status.error(for: .home) {
                 Text(error)
                     .font(typography.caption.font)
                     .foregroundStyle(colors.danger)
             }
             HStack(spacing: dimensions.panelContentInset) {
+                Spacer()
+                Button(action: dismiss) {
+                    Text("Not Now").font(typography.body.font)
+                }
+                .buttonStyle(.bordered)
+                .tint(colors.foreground)
+                .plumeID(AccessibilityID.homeSkillsNotNowButton, invoke: dismiss)
                 Button(action: install) {
                     Text("Install").font(typography.body.font)
                 }
@@ -28,12 +40,6 @@ struct HomeSkillsOffer: View, ThemedView {
                 .tint(colors.selection)
                 .plumeID(AccessibilityID.homeSkillsInstallButton, invoke: install)
                 .disabled(status.isChanging)
-                Button(action: dismiss) {
-                    Text("Not Now").font(typography.body.font)
-                }
-                .buttonStyle(.bordered)
-                .tint(colors.foreground)
-                .plumeID(AccessibilityID.homeSkillsNotNowButton, invoke: dismiss)
             }
         }
         .padding(dimensions.composerFieldInset)
@@ -44,8 +50,12 @@ struct HomeSkillsOffer: View, ThemedView {
         }
     }
 
+    private var isHomebrewInstall: Bool {
+        UpdateController.shared.installSource == .homebrew
+    }
+
     private func install() {
-        status.installMissing(on: .home)
+        status.installMissing(on: .home, isHomebrewInstall: isHomebrewInstall)
     }
 
     private func dismiss() {

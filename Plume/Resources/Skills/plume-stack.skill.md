@@ -7,6 +7,8 @@ description: Manage stacked branches and their PRs or MRs with Plume's `plume st
 
 `plume stack` records which branch each branch sits on. It uses that to restack children when a parent changes or squash-merges, and to point each PR at its parent. Run `plume stack help` first. It lists the commands, flags and resolved settings, and its output wins over anything here.
 
+If `plume` is not on PATH, run `"$PLUME_CLI"` instead.
+
 ## Rules
 
 - Use `plume stack` whenever a branch's base is another feature branch. Open its PR with `plume stack submit`, not `gh pr create --base <branch>` or `glab mr create --target-branch <branch>`. Those leave no stack record, so a later restack or sync can't follow the branch.

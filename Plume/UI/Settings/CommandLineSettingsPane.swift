@@ -81,6 +81,9 @@ struct CommandLineSettingsPane: View {
         .onReceive(NotificationCenter.default.publisher(for: NSWindow.didBecomeKeyNotification)) { _ in
             Task { await refresh() }
         }
+        .onReceive(NotificationCenter.default.publisher(for: CommandLineHelper.linksDidChangeNotification)) { _ in
+            Task { await refresh() }
+        }
     }
 
     private var commandLineToolRow: some View {
