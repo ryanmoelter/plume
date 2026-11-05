@@ -126,4 +126,10 @@ struct AndroidSDKQuickLookupTests {
         )
         #expect(child == ["HOME": "/h", "ANDROID_HOME": "/sdk"])
     }
+
+    @Test func theEmulatorBootsWithAHiddenWindowNotHeadless() {
+        let arguments = EmulatorLauncher.arguments(avdID: "Pixel_8")
+        #expect(arguments.contains("-qt-hide-window"))
+        #expect(!arguments.contains("-no-window"))
+    }
 }

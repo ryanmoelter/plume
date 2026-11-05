@@ -29,9 +29,16 @@ Every emulator writes `grpc.token`, whether or not it was started with `-grpc-us
 
 ## Booting
 
-`EmulatorLauncher` runs `emulator -avd <id> -no-window -grpc-use-token -no-boot-anim` in its own session (`POSIX_SPAWN_SETSID`), with stdin from `/dev/null` and output to `Emulators/<id>.log` in the data directory (the installed app's, for `plume devices`). It strips every `PLUME_*` variable from the emulator's environment, so nothing the emulator spawns looks like it belongs to a tab. The emulator must outlive the tab and Plume: closing a tab only stops streaming, and quitting Plume leaves every emulator running. Shut one down from the tab's menu, which calls `setVmState(SHUTDOWN)`.
+`EmulatorLauncher` runs `emulator -avd <id> -qt-hide-window -grpc-use-token -no-boot-anim` in its own session (`POSIX_SPAWN_SETSID`), with stdin from `/dev/null` and output to `Emulators/<id>.log` in the data directory (the installed app's, for `plume devices`). It strips every `PLUME_*` variable from the emulator's environment, so nothing the emulator spawns looks like it belongs to a tab. The emulator must outlive the tab and Plume: closing a tab only stops streaming, and quitting Plume leaves every emulator running. Shut one down from the tab's menu, which calls `setVmState(SHUTDOWN)`.
 
-With `-no-window` the emulator runs `qemu-system-aarch64-headless` and renders with SwiftShader, a software GPU (*measured*).
+`-qt-hide-window` runs the full `qemu-system-aarch64` with its window hidden, so it shows no window or Dock icon, and `streamScreenshot` and input work as usual. `-no-window` forces `qemu-system-aarch64-headless`, which renders in software with SwiftShader (`gles_mode_selected:swangle` in the log). The full binary selects `gles_mode_selected:host`: ANGLE on Metal on the Mac's GPU, with Vulkan still on lavapipe. Adding `-gpu host` moves Vulkan to the GPU too, but changes CPU by nothing measurable, so Plume leaves it off.
+
+Measured on an M4 Pro, emulator 37.1.11.0, `Medium_Phone_API_36`. CPU is the qemu process's mean, as a percent of one core:
+
+| | Idle | Scrolling | Streaming + scrolling | RSS |
+|---|---|---|---|---|
+| `-no-window` | 17% | 1107% | 1064% | ~6.0 GB |
+| `-qt-hide-window` | 14% | 37% | 72% | ~5.1–5.4 GB |
 
 ## Frames (measured)
 
