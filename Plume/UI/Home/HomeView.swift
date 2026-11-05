@@ -80,7 +80,6 @@ private struct HomeContent: View, ThemedView {
                 composer
                 if skills.needsInstallPrompt || skills.error(for: .home) != nil, claudeCodeInstalled {
                     HomeSkillsOffer(status: skills)
-                        .padding(.horizontal, HomeRow.horizontalPadding)
                 }
                 needsYouSection
                 if !feed.running.isEmpty {
