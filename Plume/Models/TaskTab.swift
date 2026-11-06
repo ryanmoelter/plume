@@ -294,6 +294,7 @@ final class TaskTab {
         case .terminal: return "Terminal"
         case .device: return "Device"
         case .vm: return vmSlot == 0 ? "VM" : VMPaths.key(vmSlot)
+        case .review: return "Review"
         }
     }
 }

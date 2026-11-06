@@ -11,4 +11,6 @@ nonisolated enum Log {
     static let chatList = Logger(subsystem: subsystem, category: "chat-list")
     static let control = Logger(subsystem: subsystem, category: "control")
     static let emulator = Logger(subsystem: subsystem, category: "emulator")
+    static let review = Logger(subsystem: subsystem, category: "review")
+    static let reviewSignposter = OSSignposter(subsystem: subsystem, category: "review")
 }

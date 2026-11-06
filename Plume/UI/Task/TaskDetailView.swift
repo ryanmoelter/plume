@@ -10,6 +10,20 @@ struct TaskDetailView: View {
     @State private var draggedFraction: Double?
 
     var body: some View {
+        HStack(spacing: 0) {
+            tabs
+            #if DEBUG
+            if ReviewPaneVisibility.shared.isShown {
+                Divider()
+                ReviewDetailPane(task: task)
+                    .frame(width: 300)
+            }
+            #endif
+        }
+        .navigationTitle(TitleStore.shared.displayTitle(for: task))
+    }
+
+    private var tabs: some View {
         GeometryReader { proxy in
             let panes = task.panes
             let shown = task.paneTabIDs(in: panes)
@@ -45,7 +59,6 @@ struct TaskDetailView: View {
                 )
             }
         }
-        .navigationTitle(TitleStore.shared.displayTitle(for: task))
     }
 
     private func layout(panes: Int, fraction: Double, width: CGFloat) -> SplitLayout {

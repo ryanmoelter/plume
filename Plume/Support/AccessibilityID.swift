@@ -555,4 +555,18 @@ enum AccessibilityID {
     static let queuedMessageEditButton = "queued-message-edit-button"
     static let queuedMessageRemoveButton = "queued-message-remove-button"
     static let deliveringMessage = "delivering-message"
+
+    // MARK: Review (DEBUG spike)
+
+    static let newReviewTabCommand = "new-review-tab-command"
+    static let toggleReviewPaneCommand = "toggle-review-pane-command"
+    static let reviewTab = "review-tab"
+    static let reviewFileList = "review-file-list"
+    static let reviewFileRow = "review-file-row"
+    static let reviewRefreshButton = "review-refresh-button"
+    static let reviewDiffBody = "review-diff-body"
+    static let reviewLoadAnywayButton = "review-load-anyway-button"
+    static let reviewDetailPane = "review-detail-pane"
+    static let reviewChangedOnlyToggle = "review-changed-only-toggle"
+    static let reviewTreeRow = "review-tree-row"
 }

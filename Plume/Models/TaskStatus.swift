@@ -151,6 +151,8 @@ nonisolated enum TabKind: String, CaseIterable, Sendable {
     case device
     /// Views a slot of `VMManager`'s pool; the slot is `TaskTab.vmSlot`.
     case vm
+    /// A diff review of the task folder. Only a debug build can create one.
+    case review
 }
 
 /// What a `.device` tab mirrors. Persisted on `TaskTab.devicePlatformRaw`.

@@ -158,6 +158,13 @@ struct TabContentView: View {
             DeviceTabHost(tab: tab, isVisible: isVisible)
         case .vm:
             VMTabHost(tab: tab, isVisible: isVisible)
+        case .review:
+            // Holds no process, so a hidden one costs nothing unmounted.
+            if isVisible {
+                ReviewTabView(task: task, isFocused: isFocused)
+            } else {
+                Color.clear
+            }
         }
     }
 }

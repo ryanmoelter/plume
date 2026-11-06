@@ -283,6 +283,10 @@ private struct TabChip: View {
                 Image(systemName: "desktopcomputer")
                     .font(.caption)
                     .accessibilityHidden(true)
+            case .review:
+                Image(systemName: "plus.forwardslash.minus")
+                    .font(.caption)
+                    .accessibilityHidden(true)
             }
             Text(chipTitle)
                 .lineLimit(1)

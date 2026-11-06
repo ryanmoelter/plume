@@ -110,10 +110,18 @@ enum PlumeShortcuts {
     /// ⌘1 through ⌘9, selecting a tab by position.
     static let selectTab: [MenuShortcut] = (1...9).map { MenuShortcut(Character("\($0)")) }
 
+    #if DEBUG
+    static let newReviewTab = MenuShortcut("r", modifiers: [.command, .option])
+    static let toggleReviewPane = MenuShortcut("0", modifiers: [.command, .option])
+    private static let debugOnly = [newReviewTab, toggleReviewPane]
+    #else
+    private static let debugOnly: [MenuShortcut] = []
+    #endif
+
     private static let fixed: [MenuShortcut] = [
         newTask, newTerminalTab, newAgentTab, showArchive, closeTab, archiveTask,
         toggleSplit, focusOtherPane,
-    ] + selectTab
+    ] + selectTab + debugOnly
 
     static var all: [MenuShortcut] {
         all(with: AppSettings.shared.shortcutBindings)
@@ -244,6 +252,18 @@ struct PlumeCommands: Commands {
             Button("Send Now") { sendNow?() }
                 .keyboardShortcut(shortcut(for: .sendNow))
                 .disabled(sendNow == nil)
+
+            #if DEBUG
+            Divider()
+
+            Button("New Review Tab") { task?.addTab(.review) }
+                .keyboardShortcut(PlumeShortcuts.newReviewTab)
+                .plumeID(AccessibilityID.newReviewTabCommand)
+                .disabled(task == nil)
+            Button("Toggle Review Pane") { ReviewPaneVisibility.shared.isShown.toggle() }
+                .keyboardShortcut(PlumeShortcuts.toggleReviewPane)
+                .plumeID(AccessibilityID.toggleReviewPaneCommand)
+            #endif
         }
     }
 }
