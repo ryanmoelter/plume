@@ -54,8 +54,17 @@ final class BundledSkillsStatus {
         self.skills = skills
     }
 
+    /// A Debug build's tool lives in DerivedData, which a link must not outlive.
+    private nonisolated static var linksCLI: Bool {
+        #if DEBUG
+        false
+        #else
+        true
+        #endif
+    }
+
     func linksCLIOnInstall(isHomebrewInstall: Bool) -> Bool {
-        CommandLineHelper.linksWithSkillsInstall(plumeState: snapshot.plumeLink, isHomebrewInstall: isHomebrewInstall)
+        Self.linksCLI && CommandLineHelper.linksWithSkillsInstall(plumeState: snapshot.plumeLink, isHomebrewInstall: isHomebrewInstall)
     }
 
     func error(for surface: Surface) -> String? {
@@ -112,8 +121,9 @@ final class BundledSkillsStatus {
         }
     }
 
-    /// With `isHomebrewInstall` false, also links the `plume` tool when it is
-    /// absent or dangling. Another tool owning the name is skipped silently.
+    /// With `isHomebrewInstall` false, also links each name of the `plume`
+    /// tool that is absent or dangling, in a Release build only. A name
+    /// another tool owns is skipped silently.
     func installMissing(on surface: Surface, isHomebrewInstall: Bool = true) {
         let cliDirectory = cliDirectory
         change(on: surface, marksInstalled: true) { skills, directory in
@@ -124,9 +134,10 @@ final class BundledSkillsStatus {
                 firstError = error
             }
             let plumeLink = CommandLineHelper.state(of: cliDirectory.appending(path: "plume"))
-            if CommandLineHelper.linksWithSkillsInstall(plumeState: plumeLink, isHomebrewInstall: isHomebrewInstall) {
+            if Self.linksCLI,
+               CommandLineHelper.linksWithSkillsInstall(plumeState: plumeLink, isHomebrewInstall: isHomebrewInstall) {
                 do {
-                    try CommandLineHelper.install(in: cliDirectory)
+                    try CommandLineHelper.installAvailable(in: cliDirectory)
                 } catch {
                     firstError = firstError ?? error
                 }
@@ -176,6 +187,7 @@ final class BundledSkillsStatus {
             generation += 1
             errors[surface] = error
             if error == nil, marksInstalled {
+                errors[.home] = nil
                 AppSettings.shared.bundledSkillsPromptDismissed = true
             }
             if read != snapshot { snapshot = read }

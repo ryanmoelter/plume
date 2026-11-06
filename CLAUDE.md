@@ -96,7 +96,7 @@ An agent tab runs one of two CLIs, recorded in `TaskTab.providerID` (`AgentProvi
 
 Both transports launch through `AgentLauncher` and report through `StatusEngine`, which is transport-agnostic.
 
-**Every Claude launch appends Plume's formatting rule with `--append-system-prompt-file` (`AgentPromptRule`)**, a path into the bundle rather than the text, so no multi-line argument passes through the terminal transport's shell. A missing resource drops the flag, since the CLI refuses to start on an unreadable file. The skills Plume copies into `~/.claude/skills` are separate (`BundledSkills`). **`docs/agent-skills.md` is the reference** for both.
+**Headless Claude launches append Plume's formatting rule with `--append-system-prompt-file` (`AgentPromptRule`)**, a path into the bundle rather than the text. The terminal transport doesn't pass it. A missing resource drops the flag, since the CLI refuses to start on an unreadable file. The skills Plume copies into `~/.claude/skills` are separate (`BundledSkills`). **`docs/agent-skills.md` is the reference** for both.
 
 ### Hook instrumentation (terminal transport)
 

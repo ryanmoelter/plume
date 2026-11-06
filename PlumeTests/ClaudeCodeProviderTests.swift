@@ -28,10 +28,9 @@ struct ClaudeCodeProviderTests {
         #expect(launch.command == loginWrapped("claude --resume 'abc-123' 'continue'"))
     }
 
-    @Test func appendsTheSystemPromptRuleFileQuoted() {
-        let launch = ClaudeCodeProvider(systemPromptRulePath: "/Apps/My Plume.app/rule.md")
-            .launchCommand(firstMessage: nil, resumeSessionID: nil)
-        #expect(launch.command == loginWrapped("claude --append-system-prompt-file '/Apps/My Plume.app/rule.md'"))
+    @Test func neverAppendsTheSystemPromptRuleFile() {
+        let launch = provider.launchCommand(firstMessage: "hi", resumeSessionID: "abc")
+        #expect(!launch.command.contains("--append-system-prompt-file"))
     }
 
     @Test func noArgumentsStartsAPlainSession() {

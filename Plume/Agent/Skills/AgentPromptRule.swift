@@ -1,8 +1,7 @@
 import Foundation
 
-/// Text Plume appends to every `claude` it launches, through
-/// `--append-system-prompt-file`. A file rather than the text itself, so no
-/// multi-line argument has to survive the terminal transport's shell quoting.
+/// Text Plume appends to every headless `claude` it launches, through
+/// `--append-system-prompt-file`.
 nonisolated enum AgentPromptRule {
     /// Nil in a bundle without the resource, which launches without the flag
     /// rather than failing: the CLI refuses to start on an unreadable file.

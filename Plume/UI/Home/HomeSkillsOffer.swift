@@ -110,6 +110,7 @@ struct HomeSkillsOffer: View, ThemedView {
                 .buttonStyle(.bordered)
                 .tint(colors.foreground)
                 .plumeID(AccessibilityID.homeSkillsNotNowButton, invoke: dismiss)
+                .disabled(status.isChanging)
                 Button(action: install) {
                     Text("Install").font(typography.body.font)
                 }

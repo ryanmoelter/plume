@@ -135,8 +135,14 @@ nonisolated enum BundledSkills {
         return .unmodified(manifest)
     }
 
-    /// Unedited copies Plume wrote for a skill it no longer bundles.
-    static func retiredFolders(keeping skills: [BundledSkill], in directory: URL = skillsDirectory) -> [URL] {
+    /// Unedited copies an older build wrote for a skill this one no longer
+    /// bundles. A copy from an equal or newer build may be a skill this build
+    /// predates, so it stays.
+    static func retiredFolders(
+        keeping skills: [BundledSkill],
+        in directory: URL = skillsDirectory,
+        runningBuild: String = BundledSkills.plumeBuild
+    ) -> [URL] {
         let names = Set(skills.map(\.name))
         let folders = (try? FileManager.default.contentsOfDirectory(
             at: directory, includingPropertiesForKeys: [.isSymbolicLinkKey], options: .skipsHiddenFiles
@@ -144,9 +150,9 @@ nonisolated enum BundledSkills {
         return folders.filter { folder in
             guard !names.contains(folder.lastPathComponent),
                   (try? folder.resourceValues(forKeys: [.isSymbolicLinkKey]).isSymbolicLink) != true,
-                  case .unmodified = inspect(folder)
+                  case .unmodified(let manifest) = inspect(folder)
             else { return false }
-            return true
+            return isOlder(manifest.plumeBuild, than: runningBuild)
         }
     }
 
@@ -200,8 +206,9 @@ nonisolated enum BundledSkills {
         }
 
         try manager.createDirectory(at: directory, withIntermediateDirectories: true)
-        let staging = directory.appending(path: ".\(skill.name).staging-\(UUID().uuidString)")
-        defer { try? manager.removeItem(at: staging) }
+        let stagingRoot = try stagingDirectory(appropriateFor: directory)
+        defer { try? manager.removeItem(at: stagingRoot) }
+        let staging = stagingRoot.appending(path: skill.name)
         try manager.createDirectory(at: staging, withIntermediateDirectories: false)
         try manager.copyItem(at: skill.url, to: staging.appending(path: skillFileName))
         let manifest = Manifest(hash: skill.hash, plumeBuild: plumeBuild)
@@ -213,6 +220,20 @@ nonisolated enum BundledSkills {
         } else {
             try manager.moveItem(at: staging, to: folder)
         }
+    }
+
+    /// A temporary directory on `directory`'s volume, so the move into place
+    /// stays atomic and a crash leaves nothing in the skills directory.
+    private static func stagingDirectory(appropriateFor directory: URL) throws -> URL {
+        let manager = FileManager.default
+        if let url = try? manager.url(
+            for: .itemReplacementDirectory, in: .userDomainMask, appropriateFor: directory, create: true
+        ) {
+            return url
+        }
+        let url = manager.temporaryDirectory.appending(path: "plume-skill-staging-\(UUID().uuidString)")
+        try manager.createDirectory(at: url, withIntermediateDirectories: false)
+        return url
     }
 
     static func moveToTrash(_ url: URL) throws {
@@ -241,7 +262,7 @@ nonisolated enum BundledSkills {
         } catch {
             firstError = error
         }
-        for folder in retiredFolders(keeping: skills, in: directory) {
+        for folder in retiredFolders(keeping: skills, in: directory, runningBuild: plumeBuild) {
             do {
                 try trash(folder)
             } catch {

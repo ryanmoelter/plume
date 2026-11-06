@@ -119,6 +119,17 @@ struct CommandLineHelperTests {
         #expect(wtState() == .notInstalled)
     }
 
+    @Test func installingAvailableNamesSkipsOneAnotherToolOwnsWithoutThrowing() throws {
+        defer { try? FileManager.default.removeItem(at: scratch) }
+        let theirs = scratch.appending(path: "theirs")
+        try Data().write(to: theirs)
+        try link("plume-notify", to: theirs)
+
+        try CommandLineHelper.installAvailable(in: bin, bundledURL: tool)
+        #expect(try destination("plume") == tool.path)
+        #expect(try destination("plume-notify") == theirs.path)
+    }
+
     private func makeOtherPlumeTool() throws -> URL {
         let otherTool = CommandLineHelper.toolURL(inBundle: scratch.appending(path: "Applications/Plume.app"))
         try FileManager.default.createDirectory(at: otherTool.deletingLastPathComponent(), withIntermediateDirectories: true)

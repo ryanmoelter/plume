@@ -303,7 +303,7 @@ struct BundledSkillsTests {
         let kept = try bundle("plume-kept")
         let retired = try bundle("plume-retired")
         let edited = try bundle("plume-edited")
-        for skill in [kept, retired, edited] { try install(skill) }
+        for skill in [kept, retired, edited] { try install(skill, build: "9") }
         try Data("edited".utf8).write(to: skills.appending(path: "plume-edited/SKILL.md"))
         let theirs = skills.appending(path: "theirs")
         try FileManager.default.createDirectory(at: theirs, withIntermediateDirectories: true)
@@ -313,8 +313,22 @@ struct BundledSkillsTests {
         try FileManager.default.createSymbolicLink(at: skills.appending(path: "plume-link"), withDestinationURL: target)
         try FileManager.default.moveItem(at: target, to: skills.appending(path: "plume-retired"))
 
-        let found = BundledSkills.retiredFolders(keeping: [kept], in: skills).map(\.lastPathComponent)
+        let found = BundledSkills.retiredFolders(keeping: [kept], in: skills, runningBuild: "10").map(\.lastPathComponent)
         #expect(found == ["plume-retired"])
+    }
+
+    @Test func aFolderFromAnEqualOrNewerBuildIsNeverRetired() throws {
+        defer { try? FileManager.default.removeItem(at: scratch) }
+        let kept = try bundle("plume-kept")
+        let sameBuild = try bundle("plume-same")
+        let newerBuild = try bundle("plume-newer")
+        try install(sameBuild, build: "10")
+        try install(newerBuild, build: "11")
+
+        #expect(BundledSkills.retiredFolders(keeping: [kept], in: skills, runningBuild: "10").isEmpty)
+        try BundledSkills.refreshPending([kept], in: skills, plumeBuild: "10", trash: moveToScratchTrash)
+        #expect(try installedText("plume-newer") == "v1")
+        #expect(try installedText("plume-same") == "v1")
     }
 
     @Test func refreshPendingTrashesRetiredCopiesAndKeepsEditedOnes() throws {
@@ -322,7 +336,7 @@ struct BundledSkillsTests {
         let kept = try bundle("plume-kept")
         let retired = try bundle("plume-retired")
         let edited = try bundle("plume-edited")
-        for skill in [kept, retired, edited] { try install(skill) }
+        for skill in [kept, retired, edited] { try install(skill, build: "9") }
         try Data("edited".utf8).write(to: skills.appending(path: "plume-edited/SKILL.md"))
 
         try BundledSkills.refreshPending([kept], in: skills, plumeBuild: "10", trash: moveToScratchTrash)
