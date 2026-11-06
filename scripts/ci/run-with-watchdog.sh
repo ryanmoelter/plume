@@ -22,7 +22,17 @@ while kill -0 "$pid" 2>/dev/null; do
     /usr/bin/log show --last 10m --style compact \
       --predicate 'process == "Plume" OR subsystem == "com.ryanmoelter.Plume" OR process == "testmanagerd" OR process == "tccd"' \
       > "$out/log.txt" 2>&1 || true
-    grep -E 'Plume|xctest|testmanagerd' "$out/ps.txt" || true
+    # Everything the test host started, and which of them hold pipes, since
+    # a child that keeps a pipe open is the usual reason a read never ends.
+    descendants() { for c in $(pgrep -P "$1"); do echo "$c"; descendants "$c"; done; }
+    for host in $(pgrep -f 'Plume.app/Contents/MacOS/Plume'); do
+      echo "::group::children of $host"
+      for c in $(descendants "$host"); do
+        ps -o pid,ppid,etime,stat,command -p "$c" | tail -n +2
+        lsof -p "$c" -a -d 0-20 2>/dev/null | tail -n +2
+      done
+      echo "::endgroup::"
+    done
     for f in "$out"/sample-*.txt; do
       [ -f "$f" ] || continue
       echo "::group::$(basename "$f")"; sed '/^Binary Images:/,$d' "$f"; echo "::endgroup::"
