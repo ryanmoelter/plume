@@ -16,7 +16,8 @@ permissions:
 jobs:
   test:
     name: Build and test
-    runs-on: macos-26
+    # The Xcode 27 image (macOS 27, Apple Silicon); macos-26 only has Xcode 26.
+    runs-on: xcode-27
     timeout-minutes: 60
     steps:
       - uses: actions/checkout@v4
@@ -24,13 +25,10 @@ jobs:
       - name: Select Xcode 27
         run: |
           ls -d /Applications/Xcode*.app
-          XCODE=$(ls -d /Applications/Xcode_27*.app | sort -V | tail -1)
-          if [ -z "$XCODE" ]; then
-            echo "::error::No Xcode 27 on this runner image"
-            exit 1
-          fi
-          sudo xcode-select -s "$XCODE/Contents/Developer"
+          XCODE=$(ls -d /Applications/Xcode_27*.app 2>/dev/null | sort -V | tail -1 || true)
+          [ -n "$XCODE" ] && sudo xcode-select -s "$XCODE/Contents/Developer"
           xcodebuild -version
+          xcodebuild -version | grep -q '^Xcode 27' || { echo "::error::Plume needs Xcode 27"; exit 1; }
 
       - name: Cache Swift packages
         uses: actions/cache@v4
