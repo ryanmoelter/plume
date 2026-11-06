@@ -61,7 +61,6 @@ struct TabStripView: View {
                 } label: {
                     Label("Android Device Tab", systemImage: "ipad.landscape.and.iphone")
                 }
-                .plumeID(AccessibilityID.newAndroidDeviceTabMenuItem)
             } label: {
                 Image(systemName: "plus")
                     .frame(width: 22, height: 22)
@@ -72,6 +71,21 @@ struct TabStripView: View {
             .help("New tab")
             .accessibilityLabel("New tab")
             .plumeID(AccessibilityID.newTabButton, label: paneLabel)
+            // The menu's items mount only while it is open, so the control
+            // server reaches them through these always-mounted entries.
+            .background {
+                ZStack {
+                    Color.clear.plumeID(AccessibilityID.newChatTabMenuItem, label: paneLabel, invoke: {
+                        TaskStore.addTab(to: task, kind: .agent, pane: pane, in: context)
+                    })
+                    Color.clear.plumeID(AccessibilityID.newTerminalTabMenuItem, label: paneLabel, invoke: {
+                        TaskStore.addTab(to: task, kind: .terminal, pane: pane, in: context)
+                    })
+                    Color.clear.plumeID(AccessibilityID.newAndroidDeviceTabMenuItem, label: paneLabel, invoke: {
+                        TaskStore.addTab(to: task, kind: .device, pane: pane, in: context)
+                    })
+                }
+            }
 
             Spacer()
         }
