@@ -80,15 +80,16 @@ enum LoginShellCommand {
     /// This process's environment plus `overrides`. It carries no inherited
     /// `instanceKeys`, since `dropInheritedInstanceKeys` cleared them at launch.
     ///
-    /// When `overrides` set no `PATH`, the bundled tool's directory is appended
-    /// to this process's.
+    /// When `overrides` set no `PATH`, this process's loses every app bundle's
+    /// `Contents/MacOS` and `Contents/Helpers`, and the bundled tool's
+    /// directory is appended.
     nonisolated static func childEnvironment(
         overrides: [String: String],
         helpersDirectory: URL? = CommandLineHelper.bundledDirectory
     ) -> [String: String] {
         var environment = ProcessInfo.processInfo.environment.merging(overrides) { $1 }
         if overrides["PATH"] == nil, let path = environment["PATH"] {
-            environment["PATH"] = CommandLineHelper.appending(helpersDirectory, toPath: path)
+            environment["PATH"] = CommandLineHelper.appending(helpersDirectory, toPath: CommandLineHelper.droppingAppDirectories(fromPath: path))
         }
         return environment
     }

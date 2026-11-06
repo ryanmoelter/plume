@@ -40,4 +40,10 @@ struct TerminalSessionPathTests {
         let pinned = TerminalSession.pinningPath(TerminalSurfaceOptions(), environment: ["PATH": path], helpersDirectory: helpers)
         #expect(pinned.envVars["PATH"] == path)
     }
+
+    @Test func dropsAnotherAppsHelpersDirectoryButKeepsPlainOnes() {
+        let path = "/Applications/Plume.app/Contents/Helpers:/usr/bin:/opt/Helpers:/Users/me/Other.app/Contents/Helpers/"
+        let pinned = TerminalSession.pinningPath(TerminalSurfaceOptions(), environment: ["PATH": path], helpersDirectory: helpers)
+        #expect(pinned.envVars["PATH"] == "/usr/bin:/opt/Helpers:/Users/me/Plume.app/Contents/Helpers")
+    }
 }

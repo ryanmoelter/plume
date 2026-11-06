@@ -108,9 +108,9 @@ final class TerminalSession {
     /// app and never returns. A surface's own variables apply after that
     /// append, so an explicit `PATH` replaces it. An app launched from a
     /// terminal inherits that terminal's `Contents/MacOS` the same way, so
-    /// every app bundle's executable directory is dropped. This app's
-    /// `Contents/Helpers` is then appended, so its own tool is found without
-    /// the Command line switch.
+    /// every app bundle's `Contents/MacOS` and `Contents/Helpers` is dropped.
+    /// This app's `Contents/Helpers` is then appended, so its own tool is
+    /// found without the Command line switch.
     nonisolated static func pinningPath(
         _ options: TerminalSurfaceOptions,
         environment: [String: String] = ProcessInfo.processInfo.environment,
@@ -118,18 +118,9 @@ final class TerminalSession {
     ) -> TerminalSurfaceOptions {
         guard options.envVars["PATH"] == nil, let path = environment["PATH"] else { return options }
         var pinned = options
-        let filtered = path
-            .split(separator: ":", omittingEmptySubsequences: false)
-            .filter { !isAppExecutableDirectory($0) }
-            .joined(separator: ":")
+        let filtered = CommandLineHelper.droppingAppDirectories(fromPath: path)
         pinned.envVars["PATH"] = CommandLineHelper.appending(helpersDirectory, toPath: filtered)
         return pinned
-    }
-
-    private nonisolated static func isAppExecutableDirectory(_ entry: Substring) -> Bool {
-        var entry = entry
-        while entry.count > 1, entry.hasSuffix("/") { entry = entry.dropLast() }
-        return entry.hasSuffix(".app/Contents/MacOS")
     }
 
     var isHostedInWindow: Bool {

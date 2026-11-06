@@ -112,6 +112,14 @@ struct LoginShellCommandTests {
         #expect(path?.components(separatedBy: "/Apps/Plume.app/Contents/Helpers").count == 2)
     }
 
+    @Test func aChildPathHasNoInheritedAppToolDirectories() {
+        let helpers = URL(fileURLWithPath: "/Apps/Plume.app/Contents/Helpers")
+        let path = LoginShellCommand.childEnvironment(overrides: [:], helpersDirectory: helpers)["PATH"] ?? ""
+        let appEntries = path.split(separator: ":").map(String.init)
+            .filter { $0.hasSuffix(".app/Contents/Helpers") || $0.hasSuffix(".app/Contents/MacOS") }
+        #expect(appEntries == [helpers.path])
+    }
+
     @Test func anExplicitChildPathIsLeftAlone() {
         let helpers = URL(fileURLWithPath: "/Apps/Plume.app/Contents/Helpers")
         let environment = LoginShellCommand.childEnvironment(overrides: ["PATH": "/opt/bin"], helpersDirectory: helpers)
