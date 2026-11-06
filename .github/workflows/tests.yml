@@ -55,9 +55,24 @@ jobs:
           set -o pipefail
           xcodebuild build-for-testing $XCODEBUILD_FLAGS
 
+      # One small suite first, so a run that can't start any test fails
+      # in minutes and is told apart from one stuck test.
+      - name: Smoke test
+        env:
+          WATCHDOG_MINUTES: "5"
+          WATCHDOG_LABEL: smoke
+          DIAGNOSTICS_DIR: .build/diagnostics
+        run: |
+          set -o pipefail
+          scripts/ci/run-with-watchdog.sh \
+            xcodebuild test-without-building $XCODEBUILD_FLAGS \
+              -only-testing:PlumeTests/HexColorTests \
+              -resultBundlePath .build/Smoke.xcresult
+
       - name: Run PlumeTests
         env:
-          WATCHDOG_MINUTES: "25"
+          WATCHDOG_MINUTES: "20"
+          WATCHDOG_LABEL: full
           DIAGNOSTICS_DIR: .build/diagnostics
         run: |
           set -o pipefail
