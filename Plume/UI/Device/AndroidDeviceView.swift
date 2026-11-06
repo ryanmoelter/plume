@@ -258,7 +258,7 @@ struct AndroidDeviceView: View, ThemedView {
         case .notRunning:
             status("\(session.displayName ?? "This emulator") isn't running.") {
                 Button("Boot") { session.bootChosenDevice() }
-                    .plumeID(AccessibilityID.emulatorBootButton)
+                    .plumeID(AccessibilityID.emulatorBootButton, invoke: { session.bootChosenDevice() })
             }
         case .disconnected(let reason):
             status("Lost the connection to the \(session.isPhysical ? "device" : "emulator").", detail: reason) {
@@ -268,7 +268,7 @@ struct AndroidDeviceView: View, ThemedView {
         case .failed(let reason):
             status("The emulator could not start.", detail: reason) {
                 Button("Try Again") { session.bootChosenDevice() }
-                    .plumeID(AccessibilityID.emulatorBootButton)
+                    .plumeID(AccessibilityID.emulatorBootButton, invoke: { session.bootChosenDevice() })
             }
         case .reserving:
             status(
