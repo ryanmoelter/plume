@@ -47,6 +47,10 @@ gh repo clone "$TAP_REPO" "$TAP" -- -q || fail "clone failed"
 CASK="$TAP/Casks/plume.rb"
 [ -f "$CASK" ] || fail "no cask at $CASK"
 
+BINARY_STANZA='binary "#{appdir}/Plume.app/Contents/Helpers/plume"'
+grep -qF "$BINARY_STANZA" "$CASK" \
+  || fail "cask no longer contains the line: $BINARY_STANZA — Homebrew installs would lose the plume command. Restore it in $TAP_REPO before bumping."
+
 # version and sha256 are each declared once, near the top of the cask.
 sed -i '' \
   -e "s/^  version \".*\"/  version \"$VERSION\"/" \

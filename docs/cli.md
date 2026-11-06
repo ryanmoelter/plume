@@ -74,11 +74,14 @@ The app exports these into every tab's process, terminal and agent alike, and in
 |---|---|
 | `PLUME` | `1` |
 | `PLUME_SOCKET` | The socket this app serves (`CLIServer.shared.socketPath`), so a debug or worktree build's tabs reach that build. Omitted when the server failed to start. |
+| `PLUME_CLI` | The path of this app's bundled tool (`Contents/Helpers/plume`). Omitted when the bundle doesn't carry it. |
 | `PLUME_TAB_ID` | The tab's UUID |
 | `PLUME_TASK_ID` | The task's UUID |
 | `PLUME_BUNDLE_ID` | The app's bundle ID, so `wt` reads this build's Projects settings from its defaults domain. Outside Plume the tool falls back to the release ID, `com.ryanmoelter.Plume`. |
 
-**Headless Codex tabs get their IDs through their thread, not their process.** One `codex app-server` process serves every headless Codex tab, so the process carries only `PLUME`, `PLUME_SOCKET` and `PLUME_BUNDLE_ID`. `thread/start` and `thread/resume` add each tab's variables as per-thread `config` overrides, one `shell_environment_policy.set.<NAME>` key each (`CodexSession.threadConfig`). The dotted keys merge into the user's own `shell_environment_policy.set` instead of replacing it, and `set` applies after `inherit` and `exclude`, so the values reach commands even with `inherit = "none"`. Only a user `include_only` list that leaves them out drops them. A resume that attaches to a thread already running in the app-server ignores `config`, so that thread keeps the environment it started with.
+Every child Plume launches also has the app's `Contents/Helpers` appended to its `PATH`, after any inherited `*.app/Contents/MacOS` or `*.app/Contents/Helpers` entry is dropped, with or without the Command line tool switch: `TerminalSession.pinningPath` for terminal surfaces, `LoginShellCommand.childEnvironment` for agent and `!` processes that set no `PATH` of their own. It goes last, so a `plume` the user linked into `~/.local/bin` still wins, and `PLUME_CLI` names the tool when a login shell's profile reorders `PATH`.
+
+**Headless Codex tabs get their IDs through their thread, not their process.** One `codex app-server` process serves every headless Codex tab, so the process carries only `PLUME`, `PLUME_SOCKET`, `PLUME_BUNDLE_ID` and `PLUME_CLI`, with the app's `Contents/Helpers` appended to its `PATH`. `thread/start` and `thread/resume` add each tab's variables as per-thread `config` overrides, one `shell_environment_policy.set.<NAME>` key each (`CodexSession.threadConfig`). The dotted keys merge into the user's own `shell_environment_policy.set` instead of replacing it, and `set` applies after `inherit` and `exclude`, so the values reach commands even with `inherit = "none"`. Only a user `include_only` list that leaves them out drops them. A resume that attaches to a thread already running in the app-server ignores `config`, so that thread keeps the environment it started with.
 
 A Claude Code terminal tab already carried `PLUME_TAB_ID` and `PLUME_TASK_ID` for hook instrumentation. The hook command keys off `PLUME_EVENTS_DIR`, which only that path sets, so exporting the IDs elsewhere writes no events.
 

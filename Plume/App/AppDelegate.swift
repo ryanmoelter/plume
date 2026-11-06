@@ -49,6 +49,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
         OrphanedAgentReaper.shared.start()
 
+        BundledSkillsStatus.shared.start()
+
         #if DEBUG
         LinkClickHarness.runIfRequested()
         ControlServer.shared.startIfEnabled()

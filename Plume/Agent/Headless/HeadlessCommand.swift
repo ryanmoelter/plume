@@ -37,7 +37,8 @@ enum HeadlessCommand {
         model: AgentModel? = nil,
         isModelExplicitlyChosen: Bool = true,
         fork: Fork? = nil,
-        addDirectories: [String] = []
+        addDirectories: [String] = [],
+        systemPromptRulePath: String? = nil
     ) -> [String] {
         var arguments = [
             "claude",
@@ -81,6 +82,7 @@ enum HeadlessCommand {
             arguments.append("--settings")
             arguments.append(settingsPath)
         }
+        arguments += AgentPromptRule.arguments(path: systemPromptRulePath)
         if let resumeSessionID, !resumeSessionID.isEmpty {
             arguments.append("--resume")
             arguments.append(resumeSessionID)

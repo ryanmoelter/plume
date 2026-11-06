@@ -36,6 +36,30 @@ struct CommandLineHelperTests {
         try FileManager.default.destinationOfSymbolicLink(atPath: bin.appending(path: name).path)
     }
 
+    @Test func skillsInstallLinksOnlyAnAbsentOrDanglingToolOffHomebrew() {
+        let other = URL(fileURLWithPath: "/elsewhere/plume")
+        func links(_ state: CommandLineHelper.State?, homebrew: Bool = false) -> Bool {
+            CommandLineHelper.linksWithSkillsInstall(plumeState: state, isHomebrewInstall: homebrew)
+        }
+        #expect(links(.notInstalled))
+        #expect(links(.brokenLink))
+        #expect(!links(.notInstalled, homebrew: true))
+        #expect(!links(.installed))
+        #expect(!links(.occupiedByOther(other)))
+        #expect(!links(.occupiedByOther(nil)))
+        #expect(!links(.ownedByOtherPlume(other)))
+        #expect(!links(.outdated(other)))
+        #expect(!links(nil))
+    }
+
+    @Test func appendingSkipsAPathThatAlreadyListsTheDirectory() {
+        let directory = URL(fileURLWithPath: "/Apps/Plume.app/Contents/Helpers")
+        #expect(CommandLineHelper.appending(directory, toPath: "/usr/bin") == "/usr/bin:/Apps/Plume.app/Contents/Helpers")
+        #expect(CommandLineHelper.appending(directory, toPath: "/usr/bin:\(directory.path)") == "/usr/bin:\(directory.path)")
+        #expect(CommandLineHelper.appending(directory, toPath: "") == directory.path)
+        #expect(CommandLineHelper.appending(nil, toPath: "/usr/bin") == "/usr/bin")
+    }
+
     @Test func nothingAtThePathIsNotInstalled() {
         defer { try? FileManager.default.removeItem(at: scratch) }
         #expect(state("plume") == .notInstalled)
@@ -93,6 +117,17 @@ struct CommandLineHelperTests {
         #expect(state("plume") == .notInstalled)
         #expect(state("plume-notify") == .notInstalled)
         #expect(wtState() == .notInstalled)
+    }
+
+    @Test func installingAvailableNamesSkipsOneAnotherToolOwnsWithoutThrowing() throws {
+        defer { try? FileManager.default.removeItem(at: scratch) }
+        let theirs = scratch.appending(path: "theirs")
+        try Data().write(to: theirs)
+        try link("plume-notify", to: theirs)
+
+        try CommandLineHelper.installAvailable(in: bin, bundledURL: tool)
+        #expect(try destination("plume") == tool.path)
+        #expect(try destination("plume-notify") == theirs.path)
     }
 
     private func makeOtherPlumeTool() throws -> URL {

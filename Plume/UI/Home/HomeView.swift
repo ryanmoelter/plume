@@ -58,6 +58,11 @@ private struct HomeContent: View, ThemedView {
     @State private var scrollPosition = ScrollPosition()
     @State private var scrollGeometry = HomeScrollGeometry()
     @State private var scrollReserve: CGFloat = 0
+    @State private var skills = BundledSkillsStatus.shared
+
+    private var claudeCodeInstalled: Bool {
+        AgentCLIInstallation.displayedProviders(AgentCLIAvailability.shared.providers ?? []).contains(.claudeCode)
+    }
 
     private var bleed: CGFloat {
         hangsMarkers ? HomeRow.gutterWidth : 0
@@ -73,6 +78,10 @@ private struct HomeContent: View, ThemedView {
             VStack(alignment: .leading, spacing: 32) {
                 HomeGreetingHeader()
                 composer
+                HomeSkillsOfferSlot(
+                    status: skills,
+                    isWanted: (skills.needsInstallPrompt || skills.error(for: .home) != nil) && claudeCodeInstalled
+                )
                 needsYouSection
                 if !feed.running.isEmpty {
                     quietSection("Running", items: feed.running, plainEmphasis: .primary)
