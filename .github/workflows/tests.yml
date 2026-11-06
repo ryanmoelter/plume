@@ -1,0 +1,84 @@
+name: Tests
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+concurrency:
+  group: tests-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    name: Build and test
+    runs-on: macos-26
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Select Xcode 27
+        run: |
+          ls -d /Applications/Xcode*.app
+          XCODE=$(ls -d /Applications/Xcode_27*.app | sort -V | tail -1)
+          if [ -z "$XCODE" ]; then
+            echo "::error::No Xcode 27 on this runner image"
+            exit 1
+          fi
+          sudo xcode-select -s "$XCODE/Contents/Developer"
+          xcodebuild -version
+
+      - name: Cache Swift packages
+        uses: actions/cache@v4
+        with:
+          path: .build/SourcePackages
+          key: spm-${{ runner.os }}-${{ hashFiles('Plume.xcodeproj/project.xcworkspace/xcshareddata/swiftpm/Package.resolved') }}
+          restore-keys: spm-${{ runner.os }}-
+
+      - name: Build and run PlumeTests
+        run: |
+          set -o pipefail
+          xcodebuild test \
+            -project Plume.xcodeproj \
+            -scheme Plume \
+            -destination 'platform=macOS' \
+            -only-testing:PlumeTests \
+            -derivedDataPath .build/DerivedData \
+            -clonedSourcePackagesDirPath .build/SourcePackages \
+            -resultBundlePath .build/Tests.xcresult \
+            -skipPackagePluginValidation \
+            -skipMacroValidation \
+            CODE_SIGN_IDENTITY=- \
+            CODE_SIGN_STYLE=Manual \
+            DEVELOPMENT_TEAM= \
+            ENABLE_HARDENED_RUNTIME=NO
+
+      - name: Summarize failures
+        if: failure()
+        run: |
+          [ -d .build/Tests.xcresult ] || exit 0
+          xcrun xcresulttool get test-results tests --path .build/Tests.xcresult \
+            | python3 -c '
+          import json, sys
+          def walk(node, path):
+              name = node.get("name", "")
+              kids = node.get("children", [])
+              if node.get("result") == "Failed" and node.get("nodeType") in ("Test Case", "Failure Message"):
+                  print("::error::" + " / ".join(path + [name]))
+              for k in kids:
+                  walk(k, path + [name] if node.get("nodeType") not in ("Failure Message",) else path)
+          for n in json.load(sys.stdin).get("testNodes", []):
+              walk(n, [])
+          '
+
+      - name: Upload test results
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: Tests.xcresult
+          path: .build/Tests.xcresult
+          retention-days: 7
