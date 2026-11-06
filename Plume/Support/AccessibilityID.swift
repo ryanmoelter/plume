@@ -196,6 +196,7 @@ enum AccessibilityID {
     static let deviceMoreMenu = "device-more-menu"
     static let deviceChangeDeviceMenuItem = "device-change-device-menu-item"
     static let emulatorShutDownMenuItem = "emulator-shut-down-menu-item"
+    static let emulatorShutDownConfirmButton = "emulator-shut-down-confirm-button"
     static let deviceChangeDeviceButton = "device-change-device-button"
     static let emulatorBootButton = "emulator-boot-button"
     static let deviceReconnectButton = "device-reconnect-button"

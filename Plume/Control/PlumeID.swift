@@ -24,6 +24,20 @@ extension View {
         #endif
     }
 
+    /// Registers an item of the `Menu` this modifies. A menu mounts its items only while it is open, so a `plumeID` inside one never registers. The entry has the menu's frame, so it answers `invoke` and not `click`.
+    func plumeMenuItem(
+        _ id: String,
+        label: String? = nil,
+        isEnabled: Bool = true,
+        invoke: @escaping () -> Void
+    ) -> some View {
+        #if DEBUG
+        background { Color.clear.plumeID(id, label: label, invoke: invoke).disabled(!isEnabled) }
+        #else
+        self
+        #endif
+    }
+
     /// Marks a subtree as off screen for the control server, for a container
     /// that hides content by opacity rather than unmounting it.
     func plumeControlsHidden(_ hidden: Bool) -> some View {

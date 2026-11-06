@@ -25,6 +25,7 @@ struct AndroidDeviceView: View, ThemedView {
             isPresented: $confirmingShutDown
         ) {
             Button("Shut Down", role: .destructive) { session.shutDownEmulator() }
+                .plumeID(AccessibilityID.emulatorShutDownConfirmButton, invoke: { session.shutDownEmulator() })
         } message: {
             Text("Anything else using it, such as an agent's adb connection, loses it too.")
         }
@@ -140,7 +141,6 @@ struct AndroidDeviceView: View, ThemedView {
                 }
                 if !session.isPhysical {
                     Button("Shut Down Emulator…") { confirmingShutDown = true }
-                        .plumeID(AccessibilityID.emulatorShutDownMenuItem)
                         .disabled(!session.canShutDownEmulator)
                 }
             } label: {
@@ -151,6 +151,10 @@ struct AndroidDeviceView: View, ThemedView {
             .fixedSize()
             .padding(.horizontal, 6)
             .plumeID(AccessibilityID.deviceMoreMenu)
+            .plumeMenuItem(
+                AccessibilityID.emulatorShutDownMenuItem,
+                isEnabled: !session.isPhysical && session.canShutDownEmulator
+            ) { confirmingShutDown = true }
         }
     }
 
