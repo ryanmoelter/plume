@@ -38,6 +38,8 @@ Commit as you go, following the `commit-message` skill and the Commits section o
 
 Verify through a Sonnet agent: `xcodebuild … build`, then `test -only-testing:PlumeTests`, confirming test names scroll past. `CLAUDE.md` lists the suites that fail for environmental reasons; anything else is yours to fix. Add tests for pure logic.
 
+**Build the driving infrastructure with the feature.** Every change ships with what an agent needs to exercise it in a running debug build. That includes the debug control server (`docs/control-server.md`), `plumeID`, and the `plume` tool. Give each new or touched control a `plumeID`. Pass `invoke:` where a click can't reach it: hidden windows, `List` rows, and menu items, which register through `plumeMenuItem`. Add any control-server command or `SmokeHarness` hook the verification needs. If a step can only be done by hand, treat that as a gap to close on this branch, not something to hand to the user. Record each new pattern in `docs/control-server.md`'s gotchas.
+
 ## 3. Review loop
 
 Before the first debug build, review until clean:
@@ -52,7 +54,8 @@ A Sonnet verifier builds and launches the worktree's own bundle:
 
 - Find it with `-showBuildSettings | awk '$1 == "BUILT_PRODUCTS_DIR"'`, and launch with `env -u CLAUDE_CODE_CHILD_SESSION -u CLAUDECODE open <app>`. Without the `env -u`, every agent tab's `claude` reads itself as nested and the chat shows nothing.
 - Quit or relaunch only PIDs matching this bundle path (`pgrep -f "^<app>/Contents/MacOS/Plume"`). Other agents run their own builds.
-- Confirm the launch with the `drive-plume` skill, then send `command -v plume >/dev/null && plume notify "Ready to test" "PLUME-<n>"`.
+- Drive the change itself with the `drive-plume` skill, not just the launch: perform the issue's user-visible behavior and read back the result. If the verifier can't reach a step, it reports the missing hook; an implementer adds it, and the verifier runs again before the user is asked to test.
+- Then send `command -v plume >/dev/null && plume notify "Ready to test" "PLUME-<n>"`.
 
 Tell the user it is running and give a short checklist of what to try. Iterate on their feedback: a sub-agent edits, the verifier rebuilds and relaunches. Skip the review loop between iterations. Rebase onto `main` or the release branch when asked. If the user waives manual testing, note it and move on.
 
