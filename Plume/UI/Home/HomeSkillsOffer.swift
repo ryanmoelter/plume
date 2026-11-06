@@ -67,7 +67,7 @@ struct HomeSkillsOffer: View, ThemedView {
     var body: some View {
         Group {
             if showsLater {
-                Text("Install skills later in Settings")
+                Text("Install skills later in Settings ▸ Agents")
                     .font(typography.body.font)
                     .emphasis(.secondary)
                     .frame(maxWidth: .infinity, alignment: .leading)
