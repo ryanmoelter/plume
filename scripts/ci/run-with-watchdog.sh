@@ -5,7 +5,7 @@
 # evidence instead of a bare timeout.
 set -u
 minutes=${WATCHDOG_MINUTES:-25}
-out=${DIAGNOSTICS_DIR:-.build/diagnostics}
+out=${DIAGNOSTICS_DIR:-.build/diagnostics}/${WATCHDOG_LABEL:-run}
 mkdir -p "$out"
 
 "$@" &
@@ -25,9 +25,9 @@ while kill -0 "$pid" 2>/dev/null; do
     grep -E 'Plume|xctest|testmanagerd' "$out/ps.txt" || true
     for f in "$out"/sample-*.txt; do
       [ -f "$f" ] || continue
-      echo "::group::$(basename "$f")"; sed -n '1,120p' "$f"; echo "::endgroup::"
+      echo "::group::$(basename "$f")"; sed '/^Binary Images:/,$d' "$f"; echo "::endgroup::"
     done
-    echo "::group::log"; tail -200 "$out/log.txt"; echo "::endgroup::"
+    echo "::group::log"; grep -v tccd "$out/log.txt" | tail -300; echo "::endgroup::"
     kill -TERM "$pid" 2>/dev/null; sleep 10; kill -KILL "$pid" 2>/dev/null
     wait "$pid" 2>/dev/null
     exit 124
