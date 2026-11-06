@@ -19,6 +19,19 @@ jobs:
     # The Xcode 27 image (macOS 27, Apple Silicon); macos-26 only has Xcode 26.
     runs-on: xcode-27
     timeout-minutes: 60
+    env:
+      XCODEBUILD_FLAGS: >-
+        -project Plume.xcodeproj
+        -scheme Plume
+        -destination platform=macOS
+        -derivedDataPath .build/DerivedData
+        -clonedSourcePackagesDirPath .build/SourcePackages
+        -skipPackagePluginValidation
+        -skipMacroValidation
+        CODE_SIGN_IDENTITY=-
+        CODE_SIGN_STYLE=Manual
+        DEVELOPMENT_TEAM=
+        ENABLE_HARDENED_RUNTIME=NO
     steps:
       - uses: actions/checkout@v4
 
@@ -37,23 +50,21 @@ jobs:
           key: spm-${{ runner.os }}-${{ hashFiles('Plume.xcodeproj/project.xcworkspace/xcshareddata/swiftpm/Package.resolved') }}
           restore-keys: spm-${{ runner.os }}-
 
-      - name: Build and run PlumeTests
+      - name: Build for testing
         run: |
           set -o pipefail
-          xcodebuild test \
-            -project Plume.xcodeproj \
-            -scheme Plume \
-            -destination 'platform=macOS' \
-            -only-testing:PlumeTests \
-            -derivedDataPath .build/DerivedData \
-            -clonedSourcePackagesDirPath .build/SourcePackages \
-            -resultBundlePath .build/Tests.xcresult \
-            -skipPackagePluginValidation \
-            -skipMacroValidation \
-            CODE_SIGN_IDENTITY=- \
-            CODE_SIGN_STYLE=Manual \
-            DEVELOPMENT_TEAM= \
-            ENABLE_HARDENED_RUNTIME=NO
+          xcodebuild build-for-testing $XCODEBUILD_FLAGS
+
+      - name: Run PlumeTests
+        env:
+          WATCHDOG_MINUTES: "25"
+          DIAGNOSTICS_DIR: .build/diagnostics
+        run: |
+          set -o pipefail
+          scripts/ci/run-with-watchdog.sh \
+            xcodebuild test-without-building $XCODEBUILD_FLAGS \
+              -only-testing:PlumeTests \
+              -resultBundlePath .build/Tests.xcresult
 
       - name: Summarize failures
         if: failure()
@@ -77,6 +88,8 @@ jobs:
         if: failure()
         uses: actions/upload-artifact@v4
         with:
-          name: Tests.xcresult
-          path: .build/Tests.xcresult
+          name: test-results
+          path: |
+            .build/Tests.xcresult
+            .build/diagnostics
           retention-days: 7
