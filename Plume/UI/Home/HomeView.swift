@@ -78,9 +78,10 @@ private struct HomeContent: View, ThemedView {
             VStack(alignment: .leading, spacing: 32) {
                 HomeGreetingHeader()
                 composer
-                if skills.needsInstallPrompt || skills.error(for: .home) != nil, claudeCodeInstalled {
-                    HomeSkillsOffer(status: skills)
-                }
+                HomeSkillsOfferSlot(
+                    status: skills,
+                    isWanted: (skills.needsInstallPrompt || skills.error(for: .home) != nil) && claudeCodeInstalled
+                )
                 needsYouSection
                 if !feed.running.isEmpty {
                     quietSection("Running", items: feed.running, plainEmphasis: .primary)
