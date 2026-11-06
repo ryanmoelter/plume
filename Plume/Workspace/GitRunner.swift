@@ -29,7 +29,8 @@ nonisolated enum GitRunner {
         in directory: String? = nil,
         timeout: Duration? = nil,
         trimsOutput: Bool = true,
-        environment: [String: String] = [:]
+        environment: [String: String] = [:],
+        successStatuses: Set<Int32> = [0]
     ) throws -> String {
         let process = Process()
         process.executableURL = URL(fileURLWithPath: "/usr/bin/env")
@@ -81,7 +82,7 @@ nonisolated enum GitRunner {
         let rawOutput = String(decoding: outputData, as: UTF8.self)
         let stdout = trimsOutput ? rawOutput.trimmingCharacters(in: .whitespacesAndNewlines) : rawOutput
 
-        guard process.terminationStatus == 0 else {
+        guard successStatuses.contains(process.terminationStatus) else {
             throw GitError(
                 command: "git " + arguments.joined(separator: " "),
                 status: process.terminationStatus,
