@@ -71,7 +71,7 @@ jobs:
 
       - name: Run PlumeTests
         env:
-          WATCHDOG_MINUTES: "20"
+          WATCHDOG_MINUTES: "10"
           WATCHDOG_LABEL: full
           DIAGNOSTICS_DIR: .build/diagnostics
         run: |
