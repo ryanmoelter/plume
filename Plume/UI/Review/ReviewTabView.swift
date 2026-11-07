@@ -192,12 +192,12 @@ struct ReviewChangeBadge: View, ThemedView {
     var body: some View {
         Text(kind.badge)
             .font(.system(size: 9, weight: .bold, design: .monospaced))
-            .foregroundStyle(color)
+            .foregroundStyle(Self.color(for: kind, in: colors))
             .frame(width: 14, height: 14)
-            .background(color.opacity(0.15), in: .rect(cornerRadius: 3))
+            .background(Self.color(for: kind, in: colors).opacity(0.15), in: .rect(cornerRadius: 3))
     }
 
-    private var color: Color {
+    static func color(for kind: DiffChangeKind, in colors: Palette) -> Color {
         switch kind {
         case .added: colors.success
         case .modified: colors.warning

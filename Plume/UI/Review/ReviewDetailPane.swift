@@ -119,7 +119,7 @@ private struct ReviewDetailPaneContent: View, ThemedView {
                     .emphasis(.subtle)
                 Text(node.name)
                     .lineLimit(1)
-                    .foregroundStyle(change.map(color) ?? (changedBelow != nil ? colors.foreground : colors.foreground.opacity(0.6)))
+                    .foregroundStyle(change.map { ReviewChangeBadge.color(for: $0, in: colors) } ?? (changedBelow != nil ? colors.foreground : colors.foreground.opacity(0.6)))
                 Spacer(minLength: 4)
                 if let change {
                     ReviewChangeBadge(kind: change)
@@ -143,15 +143,6 @@ private struct ReviewDetailPaneContent: View, ThemedView {
             label: node.path,
             value: change?.rawValue ?? (changedBelow.map { "\($0) changed" })
         )
-    }
-
-    private func color(_ kind: DiffChangeKind) -> Color {
-        switch kind {
-        case .added: colors.success
-        case .modified: colors.warning
-        case .deleted: colors.danger
-        case .renamed: colors.attention
-        }
     }
 }
 #endif
