@@ -1,29 +1,25 @@
+#if DEBUG
 import SwiftUI
 
 /// A file's unified diff as a lazy SwiftUI list: line numbers, a marker, and
-/// the line highlighted with the chat's `CodeSyntax`.
-///
-/// Highlighting is per line, so a construct spanning lines (a block comment, a
-/// multi-line string) colors only where a single line shows it.
+/// the line as `ReviewDiffRow` highlighted it.
 struct ReviewDiffBody: View, ThemedView {
     @Environment(\.theme) var theme
     let rows: [ReviewDiffRow]
-    let language: String
 
     @State private var viewportWidth: CGFloat = 0
 
     static let numberWidth: CGFloat = 44
 
     var body: some View {
-        let palette = CodeSyntaxPalette(palette: colors)
         ScrollView([.vertical, .horizontal]) {
             LazyVStack(alignment: .leading, spacing: 0) {
                 ForEach(rows) { row in
                     switch row.kind {
                     case .hunk(let header):
                         hunk(header)
-                    case .line(let line):
-                        self.line(line, palette: palette)
+                    case .line(let line, let text):
+                        self.line(line, text: text)
                     }
                 }
             }
@@ -45,14 +41,14 @@ struct ReviewDiffBody: View, ThemedView {
             .background(colors.attention.opacity(0.08))
     }
 
-    private func line(_ line: DiffLine, palette: CodeSyntaxPalette) -> some View {
+    private func line(_ line: DiffLine, text: AttributedString) -> some View {
         HStack(spacing: 0) {
             number(line.oldNumber)
             number(line.newNumber)
             Text(marker(line.kind))
                 .foregroundStyle(markerColor(line.kind))
                 .frame(width: 16)
-            Text(AttributedString.highlightedCode(line.text, language: language, palette: palette))
+            Text(text)
                 .lineLimit(1)
                 .fixedSize()
             if line.missingNewline {
@@ -98,3 +94,4 @@ struct ReviewDiffBody: View, ThemedView {
         }
     }
 }
+#endif

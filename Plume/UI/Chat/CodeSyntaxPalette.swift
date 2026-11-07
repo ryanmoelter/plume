@@ -7,7 +7,7 @@ import SwiftUI
 /// surface as the terminal beside it. A theme that supplies no palette falls
 /// through to `Palette`'s own system-color fallbacks, so light and dark both
 /// work without a hardcoded scheme.
-struct CodeSyntaxPalette {
+nonisolated struct CodeSyntaxPalette: Hashable, Sendable {
     let keyword: Color
     let string: Color
     let comment: Color
@@ -15,6 +15,7 @@ struct CodeSyntaxPalette {
     let type: Color
     let plain: Color
 
+    @MainActor
     init(palette: Palette) {
         keyword = palette.warning
         string = palette.success
@@ -38,7 +39,7 @@ struct CodeSyntaxPalette {
     }
 }
 
-extension AttributedString {
+nonisolated extension AttributedString {
     /// `code` with each token colored, or plain text when the language is
     /// unknown, absent, or has nothing to mark.
     static func highlightedCode(
@@ -69,7 +70,7 @@ extension AttributedString {
 
 /// Walks an `AttributedString`'s unicode scalars, translating the tokenizer's
 /// UTF-16 offsets into indices.
-private struct Cursor {
+private nonisolated struct Cursor {
     private let scalars: AttributedString.UnicodeScalarView
     private var index: AttributedString.Index
     private var offset = 0

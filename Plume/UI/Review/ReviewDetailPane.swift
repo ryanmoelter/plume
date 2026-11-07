@@ -1,3 +1,4 @@
+#if DEBUG
 import Observation
 import SwiftData
 import SwiftUI
@@ -153,3 +154,4 @@ private struct ReviewDetailPaneContent: View, ThemedView {
         }
     }
 }
+#endif

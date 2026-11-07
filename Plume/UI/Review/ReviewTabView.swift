@@ -1,3 +1,4 @@
+#if DEBUG
 import SwiftData
 import SwiftUI
 
@@ -52,10 +53,14 @@ private struct ReviewTabContent: View, ThemedView {
             return .handled
         }
         .onAppear {
+            model.setPalette(CodeSyntaxPalette(palette: colors))
             model.retain()
             if isFocused { hasKeyFocus = true }
         }
         .onDisappear { model.release() }
+        .onChange(of: CodeSyntaxPalette(palette: colors)) { _, palette in
+            model.setPalette(palette)
+        }
         .onChange(of: isFocused) { _, focused in
             if focused { hasKeyFocus = true }
         }
@@ -207,8 +212,8 @@ struct ReviewLineCounts: View, ThemedView {
     let file: DiffFileSummary
 
     var body: some View {
-        if file.isBinary {
-            Text("bin")
+        if file.isBinary || file.isUncounted {
+            Text(file.isBinary ? "bin" : "large")
                 .font(typography.caption.mono)
                 .emphasis(.subtle)
         } else {
@@ -248,7 +253,7 @@ private struct ReviewDiffPane: View, ThemedView {
     private func loaded(_ content: DiffFileContent, rows: [ReviewDiffRow], file: DiffFileSummary) -> some View {
         switch content {
         case .text:
-            ReviewDiffBody(rows: rows, language: (file.path as NSString).pathExtension)
+            ReviewDiffBody(rows: rows)
                 .id(file.path)
         case .binary:
             message("Binary file")
@@ -256,7 +261,8 @@ private struct ReviewDiffPane: View, ThemedView {
             message("No line changes")
         case .tooLarge(let changedLines):
             VStack(spacing: 8) {
-                message("\(changedLines) changed lines — too large to show by default")
+                message(changedLines.map { "\($0) changed lines — too large to show by default" }
+                    ?? "Too large to count — not shown by default")
                 Button("Load Anyway") { model.loadContent(for: file.path, liftingCap: true) }
                     .plumeID(AccessibilityID.reviewLoadAnywayButton, invoke: {
                         model.loadContent(for: file.path, liftingCap: true)
@@ -271,3 +277,4 @@ private struct ReviewDiffPane: View, ThemedView {
             .frame(maxWidth: .infinity, maxHeight: .infinity)
     }
 }
+#endif

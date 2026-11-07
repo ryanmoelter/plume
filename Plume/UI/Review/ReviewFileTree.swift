@@ -1,3 +1,4 @@
+#if DEBUG
 import Foundation
 
 /// A folder's files as a tree, with each changed file's kind and a count of
@@ -84,3 +85,4 @@ nonisolated struct ReviewFileTree: Sendable, Equatable {
         return rows
     }
 }
+#endif

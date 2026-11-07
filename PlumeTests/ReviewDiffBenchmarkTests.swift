@@ -12,6 +12,8 @@ import Testing
 @MainActor
 @Suite(.serialized, .enabled(if: ProcessInfo.processInfo.environment["PLUME_REVIEW_BENCH"] == "1"))
 struct ReviewDiffBenchmarkTests {
+    static let palette = CodeSyntaxPalette(palette: Palette(colorScheme: .light, definitions: nil))
+
     /// The test host's stdout never reaches the xcodebuild console.
     private static func report(_ line: String) {
         let url = FileManager.default.temporaryDirectory.appending(path: "plume-review-bench.txt")
@@ -64,7 +66,7 @@ struct ReviewDiffBenchmarkTests {
         let resolve = try Self.time { range = try GitDiffEngine.resolve(.workingTree(baseRef: "main"), in: root) }
         let list = try Self.time { files = try GitDiffEngine.files(in: range!) }
         let load = try Self.time { content = try GitDiffEngine.content(for: files[0], in: range!, lineCap: nil) }
-        let flatten = Self.time { rows = ReviewDiffRow.rows(for: content) }
+        let flatten = Self.time { rows = ReviewDiffRow.rows(for: content, language: "swift", palette: Self.palette) }
         Self.report("REVIEW-BENCH engine: \(files[0].changedLines) changed lines, \(rows.count) rows; resolve \(resolve)ms, list \(list)ms, load+parse \(load)ms, flatten \(flatten)ms")
     }
 
@@ -78,7 +80,7 @@ struct ReviewDiffBenchmarkTests {
             }
         }
         let hunk = DiffHunk(header: "@@ -1,\(count) +1,\(count) @@", oldStart: 1, oldCount: count, newStart: 1, newCount: count, lines: lines)
-        return ReviewDiffRow.rows(for: .text([hunk]))
+        return ReviewDiffRow.rows(for: .text([hunk]), language: "swift", palette: Self.palette)
     }
 
     private static func settle(_ window: NSWindow) {
@@ -105,7 +107,7 @@ struct ReviewDiffBenchmarkTests {
 
         let mount = Self.time {
             window.contentView = NSHostingView(rootView:
-                ReviewDiffBody(rows: rows, language: "swift")
+                ReviewDiffBody(rows: rows)
                     .plumeTheme(bodySize: 13, setsAmbientFont: false)
                     .frame(width: 1000, height: 800)
             )
@@ -191,7 +193,6 @@ struct ReviewDiffBenchmarkTests {
 
     private final class TableSource: NSObject, NSTableViewDataSource, NSTableViewDelegate {
         let rows: [ReviewDiffRow]
-        let palette = CodeSyntaxPalette(palette: Palette(colorScheme: .light, definitions: nil))
 
         init(rows: [ReviewDiffRow]) {
             self.rows = rows
@@ -211,9 +212,8 @@ struct ReviewDiffBenchmarkTests {
             switch rows[row].kind {
             case .hunk(let header):
                 field.stringValue = header
-            case .line(let line):
+            case .line(let line, let code):
                 let prefix = "\(line.oldNumber.map(String.init) ?? "")\t\(line.newNumber.map(String.init) ?? "")\t"
-                let code = AttributedString.highlightedCode(line.text, language: "swift", palette: palette)
                 field.attributedStringValue = NSAttributedString(AttributedString(prefix) + code)
             }
             return field

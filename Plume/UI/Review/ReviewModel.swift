@@ -1,3 +1,4 @@
+#if DEBUG
 import Foundation
 import Observation
 import os
@@ -6,20 +7,32 @@ import os
 nonisolated struct ReviewDiffRow: Identifiable, Hashable, Sendable {
     enum Kind: Hashable, Sendable {
         case hunk(String)
-        case line(DiffLine)
+        /// The line and its text, highlighted.
+        case line(DiffLine, AttributedString)
     }
 
     let id: Int
     let kind: Kind
 
-    static func rows(for content: DiffFileContent) -> [ReviewDiffRow] {
+    /// Past this a line renders plain: it is a minified dump, not code to
+    /// read, and the tokenize would dominate the load.
+    static let maxHighlightedLength = 2_000
+
+    /// Highlights every line, so build rows off the main actor.
+    static func rows(for content: DiffFileContent, language: String?, palette: CodeSyntaxPalette) -> [ReviewDiffRow] {
         guard case .text(let hunks) = content else { return [] }
         var rows: [ReviewDiffRow] = []
         rows.reserveCapacity(hunks.reduce(0) { $0 + $1.lines.count + 1 })
         for hunk in hunks {
             rows.append(ReviewDiffRow(id: rows.count, kind: .hunk(hunk.header)))
             for line in hunk.lines {
-                rows.append(ReviewDiffRow(id: rows.count, kind: .line(line)))
+                let text: AttributedString
+                if line.text.utf16.count <= maxHighlightedLength {
+                    text = AttributedString.highlightedCode(line.text, language: language, palette: palette)
+                } else {
+                    text = AttributedString.highlightedCode(line.text, language: nil, palette: palette)
+                }
+                rows.append(ReviewDiffRow(id: rows.count, kind: .line(line, text)))
             }
         }
         return rows
@@ -37,7 +50,7 @@ enum ReviewContentState {
 ///
 /// Shared by every view of that folder, so the detail pane and the review tab
 /// agree on the selected file. All `git` work runs detached; only results land
-/// here.
+/// here. With no view left, it drops everything but the selection.
 @MainActor
 @Observable
 final class ReviewModel {
@@ -67,10 +80,24 @@ final class ReviewModel {
     }
 
     @ObservationIgnored private var watcher: DirectoryTreeWatcher?
+    @ObservationIgnored private var scope: RepositoryWatchScope?
     @ObservationIgnored private var viewers = 0
     @ObservationIgnored private var isListing = false
     @ObservationIgnored private var needsRelist = false
-    @ObservationIgnored private var contentInFlight: Set<String> = []
+    @ObservationIgnored private var repositoryRoot: String?
+    @ObservationIgnored private var baseRefIsStale = true
+    /// Listed and changed paths, relative to the root: a change to one of
+    /// these always relists.
+    @ObservationIgnored private var knownPaths: Set<String> = []
+    /// Bumped by every listing and teardown; a load started under an older
+    /// one read a file list that no longer holds.
+    @ObservationIgnored private var listGeneration = 0
+    /// The newest load per path. Only its result lands.
+    @ObservationIgnored private var loadTokens: [String: Int] = [:]
+    @ObservationIgnored private var nextLoadToken = 0
+    /// Paths the reader asked to load past the line cap.
+    @ObservationIgnored private var liftedCaps: Set<String> = []
+    @ObservationIgnored private var palette: CodeSyntaxPalette?
 
     init(directory: String) {
         self.directory = directory
@@ -84,9 +111,7 @@ final class ReviewModel {
     func retain() {
         viewers += 1
         guard viewers == 1 else { return }
-        let watcher = DirectoryTreeWatcher(path: directory) { [weak self] in self?.refresh() }
-        watcher.start()
-        self.watcher = watcher
+        startWatching()
         refresh()
     }
 
@@ -96,6 +121,26 @@ final class ReviewModel {
         viewers = 0
         watcher?.stop()
         watcher = nil
+        scope = nil
+        baseRefIsStale = true
+        listGeneration += 1
+        loadTokens = [:]
+        knownPaths = []
+        contents = [:]
+        files = []
+        tree = .empty
+        changedTree = .empty
+        range = nil
+        phase = .idle
+    }
+
+    /// Highlighting colors rows as they load, so a new palette reloads them.
+    func setPalette(_ palette: CodeSyntaxPalette) {
+        guard palette != self.palette else { return }
+        self.palette = palette
+        contents = [:]
+        loadTokens = [:]
+        if let selectedPath { loadContent(for: selectedPath) }
     }
 
     func selectFile(offset: Int) {
@@ -105,15 +150,74 @@ final class ReviewModel {
         selectedPath = files[next].path
     }
 
+    private func startWatching() {
+        let directory = directory
+        Task {
+            let scope = await Task.detached(priority: .utility) {
+                try? RepositoryWatchScope.resolve(in: directory)
+            }.value
+            guard viewers > 0, watcher == nil, let scope else { return }
+            self.scope = scope
+            let watcher = DirectoryTreeWatcher(paths: scope.watchedPaths) { [weak self] batch in
+                self?.handle(batch)
+            }
+            watcher.start()
+            self.watcher = watcher
+        }
+    }
+
+    private func handle(_ batch: DirectoryTreeWatcher.Batch) {
+        guard let scope, !batch.mustRescan else {
+            baseRefIsStale = true
+            refresh()
+            return
+        }
+        var unknown: [String] = []
+        var relists = false
+        for path in batch.paths {
+            switch scope.classify(path) {
+            case .refs:
+                baseRefIsStale = true
+                relists = true
+            case .index:
+                relists = true
+            case .workingTree(let relative):
+                if knownPaths.contains(relative) {
+                    relists = true
+                } else {
+                    unknown.append(relative)
+                }
+            case .irrelevant:
+                break
+            }
+        }
+        if relists {
+            refresh()
+            return
+        }
+        guard !unknown.isEmpty else { return }
+        // Anything not ignored is a new file, or a directory holding some.
+        let root = scope.root
+        Task {
+            let relevant = await Task.detached(priority: .utility) {
+                (try? GitDiffEngine.unignoredPaths(unknown, in: root)) ?? unknown
+            }.value
+            if !relevant.isEmpty { refresh() }
+        }
+    }
+
     private struct Listing: Sendable {
+        let root: String
         let baseRef: String
         let range: ResolvedDiffRange
         let files: [DiffFileSummary]
         let tree: ReviewFileTree
         let changedTree: ReviewFileTree
+        let knownPaths: Set<String>
     }
 
     func refresh() {
+        guard viewers > 0 else { return }
         guard !isListing else {
             needsRelist = true
             return
@@ -121,28 +225,34 @@ final class ReviewModel {
         isListing = true
         if files.isEmpty { phase = .loading }
         let directory = directory
+        let cachedRoot = repositoryRoot
+        let cachedBaseRef = baseRefIsStale ? nil : baseRef
+        baseRefIsStale = false
         Task {
             let signpost = Log.reviewSignposter.beginInterval("ReviewList")
             let started = ContinuousClock.now
             let result = await Task.detached(priority: .userInitiated) {
                 Result { () throws -> Listing in
-                    let baseRef = GitDiffEngine.defaultBaseRef(in: directory)
-                    let range = try GitDiffEngine.resolve(.workingTree(baseRef: baseRef), in: directory)
-                    let files = try GitDiffEngine.files(in: range)
-                    let listed = (try? GitDiffEngine.listedPaths(in: range.repositoryRoot)) ?? []
+                    let root = try cachedRoot ?? GitDiffEngine.repositoryRoot(of: directory)
+                    let baseRef = cachedBaseRef ?? GitDiffEngine.defaultBaseRef(in: root)
+                    let range = try GitDiffEngine.resolveWorkingTree(baseRef: baseRef, root: root)
+                    let snapshot = try GitDiffEngine.snapshot(in: range)
+                    let files = snapshot.files
                     return Listing(
+                        root: root,
                         baseRef: baseRef,
                         range: range,
                         files: files,
-                        tree: ReviewFileTree(paths: listed, files: files),
-                        changedTree: ReviewFileTree(paths: [], files: files)
+                        tree: ReviewFileTree(paths: snapshot.listedPaths, files: files),
+                        changedTree: ReviewFileTree(paths: [], files: files),
+                        knownPaths: Set(snapshot.listedPaths + files.flatMap { [$0.path, $0.oldPath].compactMap { $0 } })
                     )
                 }
             }.value
             let elapsed = ContinuousClock.now - started
             Log.reviewSignposter.endInterval("ReviewList", signpost)
-            apply(result, elapsed: elapsed)
             isListing = false
+            apply(result, elapsed: elapsed)
             if needsRelist {
                 needsRelist = false
                 refresh()
@@ -151,17 +261,24 @@ final class ReviewModel {
     }
 
     private func apply(_ result: Result<Listing, any Error>, elapsed: Duration) {
+        guard viewers > 0 else { return }
         switch result {
         case .failure(let error):
+            baseRefIsStale = true
             phase = .failed(error.localizedDescription)
         case .success(let listing):
             lastListDuration = elapsed
             Log.review.info("Listed \(listing.files.count) files in \(String(describing: elapsed), privacy: .public)")
+            listGeneration += 1
+            loadTokens = [:]
+            repositoryRoot = listing.root
             baseRef = listing.baseRef
             range = listing.range
+            knownPaths = listing.knownPaths
             if files != listing.files { files = listing.files }
             if tree != listing.tree { tree = listing.tree }
             if changedTree != listing.changedTree { changedTree = listing.changedTree }
+            liftedCaps.formIntersection(listing.files.map(\.path))
             phase = .loaded
             // A file's lines can change without its counts changing, so every
             // cached diff is stale. The selected one reloads in place.
@@ -175,24 +292,29 @@ final class ReviewModel {
     }
 
     func loadContent(for path: String, liftingCap: Bool = false, reloading: Bool = false) {
-        guard let range, let file = files.first(where: { $0.path == path }) else { return }
+        if liftingCap { liftedCaps.insert(path) }
+        guard let range, let palette, let file = files.first(where: { $0.path == path }) else { return }
         if !liftingCap, !reloading, contents[path] != nil { return }
-        guard !contentInFlight.contains(path) else { return }
-        contentInFlight.insert(path)
+        nextLoadToken += 1
+        let token = nextLoadToken
+        let generation = listGeneration
+        loadTokens[path] = token
         if contents[path] == nil { contents[path] = .loading }
-        let lineCap = liftingCap ? nil : GitDiffEngine.defaultLineCap
+        let lineCap = liftedCaps.contains(path) ? nil : GitDiffEngine.defaultLineCap
+        let language = (path as NSString).pathExtension
         Task {
             let signpost = Log.reviewSignposter.beginInterval("ReviewFile")
             let started = ContinuousClock.now
             let result = await Task.detached(priority: .userInitiated) {
                 Result { () throws -> (DiffFileContent, [ReviewDiffRow]) in
                     let content = try GitDiffEngine.content(for: file, in: range, lineCap: lineCap)
-                    return (content, ReviewDiffRow.rows(for: content))
+                    return (content, ReviewDiffRow.rows(for: content, language: language, palette: palette))
                 }
             }.value
             let elapsed = ContinuousClock.now - started
             Log.reviewSignposter.endInterval("ReviewFile", signpost)
-            contentInFlight.remove(path)
+            guard loadTokens[path] == token, generation == listGeneration else { return }
+            loadTokens[path] = nil
             switch result {
             case .success(let (content, rows)):
                 lastContentDuration = elapsed
@@ -221,3 +343,4 @@ final class ReviewStore {
         return model
     }
 }
+#endif
