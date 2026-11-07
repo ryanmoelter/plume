@@ -65,7 +65,7 @@ c clear
 
 **Never drive a repro with `CGEventPostToPid`, `cliclick`, or by exec'ing the binary from a shell.** All three activate the app and take over the user's pointer and frontmost window. For a click the control server can't express, synthesize it *inside* the process: post `NSEvent`s through `NSApp.postEvent` after `window.makeKey()`. Post mouse-down and mouse-up about 150 ms apart, so AppKit's tracking loop pumps the run loop. `LinkClickHarness` is the shipped example and `docs/selectable-text-link-hang.md` has the recipe.
 
-**Only one agent may screenshot at a time.** Parallel screenshot attempts fail, so when several agents run at once, give screenshot duty to at most one or run visual checks as a single pass afterwards.
+**Screenshots can run in parallel.** Each one captures its own window from the window server, so four `screenshot` calls fired at once against one app all succeed, each in under a quarter of a second. Parallel captures against two apps at once are not yet measured.
 
 ## When a control is missing
 
