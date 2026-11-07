@@ -31,7 +31,17 @@ nonisolated enum GitDiffEngine {
         let files: [DiffFileSummary]
         /// Every tracked and untracked, non-ignored file under the root.
         let listedPaths: [String]
+        /// Submodules and untracked nested repositories, without a trailing
+        /// slash. `ls-files` lists neither one's contents.
+        let nestedRepositories: Set<String>
     }
+
+    static let remoteDefaultBaseRef = "refs/remotes/origin/HEAD"
+    /// Probed in order when `remoteDefaultBaseRef` names nothing.
+    static let fallbackBaseRefs = [
+        "refs/remotes/origin/main", "refs/heads/main",
+        "refs/remotes/origin/master", "refs/heads/master",
+    ]
 
     static func repositoryRoot(of directory: String) throws -> String {
         try GitRunner.run(["rev-parse", "--show-toplevel"], in: directory)
@@ -91,16 +101,11 @@ nonisolated enum GitDiffEngine {
         func exists(_ ref: String) -> Bool {
             (try? GitRunner.run(["rev-parse", "--verify", "--quiet", ref], in: directory)) != nil
         }
-        if let target = try? GitRunner.run(["symbolic-ref", "-q", "refs/remotes/origin/HEAD"], in: directory),
+        if let target = try? GitRunner.run(["symbolic-ref", "-q", remoteDefaultBaseRef], in: directory),
            target.hasPrefix("refs/"), exists(target) {
             return BaseRef(ref: target)
         }
-        for name in ["main", "master"] {
-            for ref in ["refs/remotes/origin/\(name)", "refs/heads/\(name)"] where exists(ref) {
-                return BaseRef(ref: ref)
-            }
-        }
-        return BaseRef(ref: "HEAD")
+        return BaseRef(ref: fallbackBaseRefs.first(where: exists) ?? "HEAD")
     }
 
     static func files(
@@ -127,20 +132,31 @@ nonisolated enum GitDiffEngine {
         var files = GitDiffParser.summaries(nameStatus: parsed.nameStatus, numstat: parsed.numstat)
 
         let listing = try GitRunner.run(
-            ["ls-files", "-z", "-t", "--cached", "--others", "--exclude-standard"],
+            ["ls-files", "-z", "-t", "-s", "--cached", "--others", "--exclude-standard"],
             in: root,
             trimsOutput: false
         )
         var listed: [String] = []
         var untracked: [String] = []
+        var nested: Set<String> = []
         var seen: Set<String> = []
         for entry in listing.split(separator: "\0") {
-            // `<tag> <path>`, where `?` tags an untracked file.
+            // `? <path>` for an untracked file, `<tag> <mode> <sha> <stage>\t<path>`
+            // for a tracked one.
             guard entry.count > 2 else { continue }
-            let path = String(entry.dropFirst(2))
+            let isUntracked = entry.first == "?"
+            let path: String
+            if isUntracked {
+                path = String(entry.dropFirst(2))
+                if path.hasSuffix("/") { nested.insert(String(path.dropLast())) }
+            } else {
+                guard let tab = entry.firstIndex(of: "\t") else { continue }
+                path = String(entry[entry.index(after: tab)...])
+                if entry.dropFirst(2).hasPrefix("160000 ") { nested.insert(path) }
+            }
             guard seen.insert(path).inserted else { continue }
             listed.append(path)
-            if entry.first == "?" { untracked.append(path) }
+            if isUntracked { untracked.append(path) }
         }
 
         if range.includesUntracked {
@@ -166,7 +182,7 @@ nonisolated enum GitDiffEngine {
             cache?.keepOnly(Set(untracked))
         }
         files.sort { $0.path.localizedStandardCompare($1.path) == .orderedAscending }
-        return Snapshot(files: files, listedPaths: listed)
+        return Snapshot(files: files, listedPaths: listed, nestedRepositories: nested)
     }
 
     /// Pass a nil `lineCap` to load a file however large it is.

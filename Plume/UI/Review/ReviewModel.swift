@@ -215,6 +215,7 @@ final class ReviewModel {
         let tree: ReviewFileTree
         let changedTree: ReviewFileTree
         let knownPaths: Set<String>
+        let nestedRepositories: Set<String>
     }
 
     /// Pass `reloadingSelection: false` when only the files the watcher
@@ -258,7 +259,8 @@ final class ReviewModel {
                         files: files,
                         tree: ReviewFileTree(paths: snapshot.listedPaths, files: files),
                         changedTree: ReviewFileTree(paths: [], files: files),
-                        knownPaths: Set(snapshot.listedPaths + files.flatMap { [$0.path, $0.oldPath].compactMap { $0 } })
+                        knownPaths: Set(snapshot.listedPaths + files.flatMap { [$0.path, $0.oldPath].compactMap { $0 } }),
+                        nestedRepositories: snapshot.nestedRepositories
                     )
                 }
             }.value
@@ -297,6 +299,7 @@ final class ReviewModel {
             range = listing.range
             triage = ReviewChangeTriage(
                 knownPaths: listing.knownPaths,
+                nestedRepositories: listing.nestedRepositories,
                 headRef: listing.headRef,
                 baseRef: listing.baseRef.ref
             )

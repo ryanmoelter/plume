@@ -446,19 +446,25 @@ struct GitDiffEngineTests {
         #expect(recounted?.addedLines == 1)
     }
 
-    @Test func nestedRepositoryListsAsADirectoryAndItsWritesAreIgnored() throws {
+    @Test func nestedRepositoriesAndSubmodulesAreListedAndTheirWritesIgnored() throws {
         let repository = try makeRepository()
         defer { try? FileManager.default.removeItem(atPath: repository) }
         try git(["init", "-b", "main", "nested"], in: repository)
         try write("inner\n", to: "nested/inner.txt", in: repository)
+        let head = try git(["rev-parse", "HEAD"], in: repository).trimmingCharacters(in: .whitespacesAndNewlines)
+        try git(["update-index", "--add", "--cacheinfo", "160000,\(head),sub"], in: repository)
 
         let range = try GitDiffEngine.resolve(.workingTree(baseRef: "main"), in: repository)
         let snapshot = try GitDiffEngine.snapshot(in: range)
         #expect(snapshot.listedPaths.contains("nested/"))
         #expect(!snapshot.files.contains { $0.path.hasPrefix("nested") })
+        #expect(snapshot.nestedRepositories == ["nested", "sub"])
 
-        let triage = ReviewChangeTriage(knownPaths: Set(snapshot.listedPaths))
-        let outcome = triage.triage([.workingTree("nested/inner.txt"), .workingTree("nested/deep/x.txt")])
+        let triage = ReviewChangeTriage(
+            knownPaths: Set(snapshot.listedPaths),
+            nestedRepositories: snapshot.nestedRepositories
+        )
+        let outcome = triage.triage([.workingTree("nested/inner.txt"), .workingTree("sub/x.txt")])
         #expect(outcome == .init())
     }
 }

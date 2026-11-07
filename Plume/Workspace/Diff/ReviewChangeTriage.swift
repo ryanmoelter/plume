@@ -3,19 +3,16 @@ import Foundation
 /// Decides which watched changes alter a working-tree review, against what
 /// the last listing knew.
 nonisolated struct ReviewChangeTriage: Sendable {
-    /// Every listed and changed path, relative to the root. A nested
-    /// repository lists as `name/`, a submodule as its bare path.
+    /// Every listed and changed path, relative to the root.
     var knownPaths: Set<String> = []
+    /// Submodules and nested repositories, whose contents are never listed.
+    var nestedRepositories: Set<String> = []
     /// The checked-out branch's full ref; nil when `HEAD` is detached.
     var headRef: String?
     var baseRef: String?
 
     /// The refs `defaultBaseRef` would weigh, so creating one re-resolves.
-    private static let baseRefCandidates: Set<String> = [
-        "refs/remotes/origin/HEAD",
-        "refs/remotes/origin/main", "refs/remotes/origin/master",
-        "refs/heads/main", "refs/heads/master",
-    ]
+    private static let baseRefCandidates = Set([GitDiffEngine.remoteDefaultBaseRef] + GitDiffEngine.fallbackBaseRefs)
 
     struct Outcome: Equatable {
         var relists = false
@@ -60,14 +57,11 @@ nonisolated struct ReviewChangeTriage: Sendable {
         return outcome
     }
 
-    /// A listed ancestor means a repository of its own: `ls-files` lists an
-    /// untracked nested repository as `name/` and a submodule as `name`,
-    /// and never lists what is inside either.
     private func isInsideNestedRepository(_ path: String) -> Bool {
         var ancestor = Substring(path)
         while let slash = ancestor.lastIndex(of: "/") {
             ancestor = ancestor[..<slash]
-            if knownPaths.contains(String(ancestor)) || knownPaths.contains(ancestor + "/") { return true }
+            if nestedRepositories.contains(String(ancestor)) { return true }
         }
         return false
     }

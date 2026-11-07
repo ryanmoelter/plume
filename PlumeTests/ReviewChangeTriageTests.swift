@@ -3,7 +3,8 @@ import Testing
 
 struct ReviewChangeTriageTests {
     private let triage = ReviewChangeTriage(
-        knownPaths: ["src/a.swift", "vendor/", "sub"],
+        knownPaths: ["src/a.swift", "vendor/", "sub", "docs"],
+        nestedRepositories: ["vendor", "sub"],
         headRef: "refs/heads/topic",
         baseRef: "refs/remotes/origin/release/2.0"
     )
@@ -21,6 +22,11 @@ struct ReviewChangeTriageTests {
     @Test func writesInsideNestedRepositoriesAndSubmodulesAreIgnored() {
         let outcome = triage.triage([.workingTree("vendor/lib/x.c"), .workingTree("sub/y.c")])
         #expect(outcome == .init())
+    }
+
+    @Test func aFileReplacedByADirectoryIsNotANestedRepository() {
+        let outcome = triage.triage([.workingTree("docs/guide.md")])
+        #expect(outcome == .init(touched: ["docs/guide.md"], unknown: ["docs/guide.md"]))
     }
 
     @Test func onlyHeadTheBranchTheBaseAndPackedRefsRelist() {
