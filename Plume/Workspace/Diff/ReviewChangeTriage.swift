@@ -9,6 +9,7 @@ nonisolated struct ReviewChangeTriage: Sendable {
     var nestedRepositories: Set<String> = []
     /// The checked-out branch's full ref; nil when `HEAD` is detached.
     var headRef: String?
+    /// The selected base's ref, when one besides `HEAD` anchors it.
     var baseRef: String?
 
     /// The refs `defaultBaseRef` would weigh, so creating one re-resolves.
@@ -32,6 +33,9 @@ nonisolated struct ReviewChangeTriage: Sendable {
             switch change {
             case .index:
                 outcome.relists = true
+            case .baseSettings:
+                outcome.relists = true
+                outcome.baseRefChanged = true
             case .ref(let name):
                 if name == "HEAD" {
                     outcome.relists = true

@@ -73,7 +73,13 @@ private struct ReviewDetailPaneContent: View, ThemedView {
                     )
             }
             .padding(.horizontal, 10)
-            .padding(.vertical, 6)
+            .padding(.top, 6)
+            HStack {
+                ReviewBasePicker(model: model)
+                Spacer()
+            }
+            .padding(.horizontal, 10)
+            .padding(.bottom, 6)
             Divider()
             ScrollView {
                 LazyVStack(alignment: .leading, spacing: 0) {

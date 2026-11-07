@@ -18,6 +18,9 @@ nonisolated struct RepositoryWatchScope: Hashable, Sendable {
         case index
         /// `HEAD`, `packed-refs` or a ref under `refs/`, by its name there.
         case ref(String)
+        /// The repository's `config` or `stack`'s state, either of which can
+        /// change a branch's upstream or stack parent.
+        case baseSettings
         case irrelevant
     }
 
@@ -53,13 +56,18 @@ nonisolated struct RepositoryWatchScope: Hashable, Sendable {
     func classify(_ path: String) -> Change {
         if let relative = Self.relative(path, to: gitDirectory) {
             if relative == "index" { return .index }
-            return relative == "HEAD" || Self.isRef(relative) ? .ref(relative) : .irrelevant
+            if relative == "HEAD" || Self.isRef(relative) { return .ref(relative) }
         }
         // The common directory's own index and `HEAD` belong to the main
         // checkout, not to a linked worktree.
         if let relative = Self.relative(path, to: commonDirectory) {
-            return Self.isRef(relative) ? .ref(relative) : .irrelevant
+            if Self.isRef(relative) { return .ref(relative) }
+            if relative == "config" || (relative.hasPrefix("stack/") && relative.hasSuffix(".json")) {
+                return .baseSettings
+            }
+            return .irrelevant
         }
+        if Self.relative(path, to: gitDirectory) != nil { return .irrelevant }
         guard let relative = Self.relative(path, to: root), !relative.isEmpty else { return .irrelevant }
         // Another repository's internals, such as a nested checkout's.
         if relative.split(separator: "/").contains(".git") { return .irrelevant }

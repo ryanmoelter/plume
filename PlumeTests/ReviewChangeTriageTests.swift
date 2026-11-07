@@ -40,6 +40,10 @@ struct ReviewChangeTriageTests {
         #expect(triage.triage([.ref("refs/remotes/origin/HEAD")]) == .init(relists: true, baseRefChanged: true))
     }
 
+    @Test func configOrStackStateReResolvesTheBase() {
+        #expect(triage.triage([.baseSettings]) == .init(relists: true, baseRefChanged: true))
+    }
+
     @Test func indexChangesRelistWithoutTouchingAnything() {
         #expect(triage.triage([.index]) == .init(relists: true))
     }

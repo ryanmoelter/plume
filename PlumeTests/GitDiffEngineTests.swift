@@ -396,6 +396,52 @@ struct GitDiffEngineTests {
         #expect(scope.classify(common + "/index") == .irrelevant)
         #expect(scope.classify(scope.root + "/src/a.swift") == .workingTree("src/a.swift"))
         #expect(scope.classify(scope.root + "/vendor/.git/index") == .irrelevant)
+        #expect(scope.classify(common + "/config") == .baseSettings)
+        #expect(scope.classify(common + "/stack/branches.json") == .baseSettings)
+        #expect(scope.classify(scope.gitDirectory + "/config.worktree") == .irrelevant)
+    }
+
+    @Test func baseOptionsReadTheStackParentAndUpstream() throws {
+        let repository = try makeRepository()
+        defer { try? FileManager.default.removeItem(atPath: repository) }
+        try git(["branch", "parent"], in: repository)
+        try git(["branch", "child"], in: repository)
+        try git(["config", "branch.child.remote", "."], in: repository)
+        try git(["config", "branch.child.merge", "refs/heads/main"], in: repository)
+        try write(
+            #"{"version": 2, "branches": {"parent": {"parent": "main", "base": "x"}, "child": {"parent": "parent", "base": "y"}}}"#,
+            to: ".git/stack/branches.json",
+            in: repository
+        )
+
+        let child = GitDiffEngine.baseOptions(in: repository, headRef: "refs/heads/child")
+        #expect(child.stackParent == "refs/heads/parent")
+        #expect(child.upstream == "refs/heads/main")
+        #expect(child.defaultBase == .stackParent)
+        #expect(child.available == [.stackParent, .originDefault, .upstream, .head])
+
+        let parent = GitDiffEngine.baseOptions(in: repository, headRef: "refs/heads/parent")
+        #expect(parent.stackParent == nil)
+        #expect(parent.defaultBase == .originDefault)
+    }
+
+    @Test func headAndPreviousCommitBasesReadNoMergeBase() throws {
+        let repository = try makeRepository()
+        defer { try? FileManager.default.removeItem(atPath: repository) }
+        try write("one\ntwo\nthree\nfour\n", to: "kept.txt", in: repository)
+        try git(["commit", "-am", "next"], in: repository)
+        let options = GitDiffEngine.baseOptions(in: repository, headRef: "refs/heads/main")
+        let head = try git(["rev-parse", "HEAD"], in: repository)
+        let previous = try git(["rev-parse", "HEAD~1"], in: repository)
+
+        let headRange = try GitDiffEngine.resolveWorkingTree(base: .head, options: options, root: repository)
+        #expect(headRange.baseCommit == head)
+        #expect(try GitDiffEngine.files(in: headRange).isEmpty)
+
+        let previousRange = try GitDiffEngine.resolveWorkingTree(base: .previousCommit, options: options, root: repository)
+        #expect(previousRange.baseCommit == previous)
+        let files = try GitDiffEngine.files(in: previousRange)
+        #expect(files.map(\.path) == ["kept.txt"])
     }
 
     @Test func watchScopeOfAPlainCheckoutWatchesOnlyTheRoot() throws {

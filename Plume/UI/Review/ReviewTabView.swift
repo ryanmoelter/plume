@@ -68,6 +68,7 @@ private struct ReviewTabContent: View, ThemedView {
 
     private var header: some View {
         HStack(spacing: 8) {
+            ReviewBasePicker(model: model)
             Text(summary)
                 .font(typography.caption.font)
                 .emphasis(.secondary)
@@ -106,7 +107,7 @@ private struct ReviewTabContent: View, ThemedView {
             let added = model.files.reduce(0) { $0 + $1.addedLines }
             let removed = model.files.reduce(0) { $0 + $1.removedLines }
             let base = model.range.map { String($0.baseCommit.prefix(8)) } ?? "?"
-            return "\(model.files.count) files  +\(added) −\(removed)  vs \(model.baseRef?.displayName ?? "?") (merge base \(base))"
+            return "\(model.files.count) files  +\(added) −\(removed)  at \(base)"
         }
     }
 
@@ -182,6 +183,34 @@ private struct ReviewFileList: View, ThemedView {
             value: isSelected ? "selected" : nil,
             invoke: { model.selectedPath = file.path }
         )
+    }
+}
+
+/// Picks what the folder's review compares against. The tab and the pane
+/// share one model, so they share the pick.
+struct ReviewBasePicker: View, ThemedView {
+    @Environment(\.theme) var theme
+    let model: ReviewModel
+
+    var body: some View {
+        let options = model.baseOptions
+        let current = model.base
+        Menu {
+            ForEach(options?.available ?? [], id: \.self) { base in
+                Toggle(
+                    options?.menuTitle(for: base) ?? base.rawValue,
+                    isOn: Binding(get: { base == current }, set: { if $0 { model.selectBase(base) } })
+                )
+            }
+        } label: {
+            Text("vs \(options?.title(for: current) ?? "…")")
+                .font(typography.caption.font)
+        }
+        .menuStyle(.borderlessButton)
+        .fixedSize()
+        .disabled(options == nil)
+        .help("Compare against")
+        .plumeID(AccessibilityID.reviewBasePicker, value: current.rawValue)
     }
 }
 

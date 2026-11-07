@@ -569,4 +569,5 @@ enum AccessibilityID {
     static let reviewDetailPane = "review-detail-pane"
     static let reviewChangedOnlyToggle = "review-changed-only-toggle"
     static let reviewTreeRow = "review-tree-row"
+    static let reviewBasePicker = "review-base-picker"
 }

@@ -68,7 +68,11 @@ final class ReviewModel {
 
     let directory: String
     private(set) var phase: Phase = .idle
-    private(set) var baseRef: GitDiffEngine.BaseRef?
+    /// Nil until the first listing resolves them.
+    private(set) var baseOptions: ReviewBaseOptions?
+    /// The reader's pick, held in memory for the folder. Nil follows
+    /// `baseOptions.defaultBase`.
+    private(set) var chosenBase: ReviewBase?
     private(set) var range: ResolvedDiffRange?
     private(set) var files: [DiffFileSummary] = []
     /// Every tracked and untracked file under the repository root.
@@ -116,6 +120,24 @@ final class ReviewModel {
 
     var selectedFile: DiffFileSummary? {
         files.first { $0.path == selectedPath }
+    }
+
+    /// The base the review compares against. A pick no longer on offer, such
+    /// as an upstream since removed, falls back to the default.
+    var base: ReviewBase {
+        Self.effectiveBase(chosen: chosenBase, options: baseOptions)
+    }
+
+    nonisolated static func effectiveBase(chosen: ReviewBase?, options: ReviewBaseOptions?) -> ReviewBase {
+        guard let options else { return chosen ?? .originDefault }
+        if let chosen, options.available.contains(chosen) { return chosen }
+        return options.defaultBase
+    }
+
+    func selectBase(_ base: ReviewBase) {
+        guard base != self.base else { return }
+        chosenBase = base
+        refresh()
     }
 
     /// Takes a view's reference. The first starts watching the folder.
@@ -214,7 +236,8 @@ final class ReviewModel {
 
     private struct Listing: Sendable {
         let root: String
-        let baseRef: GitDiffEngine.BaseRef
+        let baseOptions: ReviewBaseOptions
+        let base: ReviewBase
         let headRef: String?
         let range: ResolvedDiffRange
         let files: [DiffFileSummary]
@@ -241,8 +264,11 @@ final class ReviewModel {
         let directory = directory
         let untrackedCounts = untrackedCounts
         let cachedRoot = repositoryRoot
-        let cachedBaseRef = baseRefIsStale ? nil : baseRef
         let cachedHeadRef: String?? = headRefIsStale ? nil : .some(headRef)
+        // A moved `HEAD` can change the branch, and with it the stack parent
+        // and upstream.
+        let cachedOptions = baseRefIsStale || headRefIsStale ? nil : baseOptions
+        let chosenBase = chosenBase
         baseRefIsStale = false
         headRefIsStale = false
         let reload = SelectionReload(touched: pendingTouched, forced: pendingForcesReload)
@@ -254,15 +280,17 @@ final class ReviewModel {
             let result = await Task.detached(priority: .userInitiated) {
                 Result { () throws -> Listing in
                     let root = try cachedRoot ?? GitDiffEngine.repositoryRoot(of: directory)
-                    let baseRef = cachedBaseRef ?? GitDiffEngine.defaultBaseRef(in: root)
                     // Exit 1 means a detached `HEAD`.
                     let headRef = cachedHeadRef ?? (try? GitRunner.run(["symbolic-ref", "-q", "HEAD"], in: root))
-                    let range = try GitDiffEngine.resolveWorkingTree(baseRef: baseRef.ref, root: root)
+                    let options = cachedOptions ?? GitDiffEngine.baseOptions(in: root, headRef: headRef)
+                    let base = ReviewModel.effectiveBase(chosen: chosenBase, options: options)
+                    let range = try GitDiffEngine.resolveWorkingTree(base: base, options: options, root: root)
                     let snapshot = try GitDiffEngine.snapshot(in: range, cache: untrackedCounts)
                     let files = snapshot.files
                     return Listing(
                         root: root,
-                        baseRef: baseRef,
+                        baseOptions: options,
+                        base: base,
                         headRef: headRef,
                         range: range,
                         files: files,
@@ -303,14 +331,14 @@ final class ReviewModel {
             listGeneration += 1
             loadTokens = [:]
             repositoryRoot = listing.root
-            baseRef = listing.baseRef
+            baseOptions = listing.baseOptions
             headRef = listing.headRef
             range = listing.range
             triage = ReviewChangeTriage(
                 knownPaths: listing.knownPaths,
                 nestedRepositories: listing.nestedRepositories,
                 headRef: listing.headRef,
-                baseRef: listing.baseRef.ref
+                baseRef: listing.baseOptions.watchedRef(for: listing.base)
             )
             if files != listing.files { files = listing.files }
             if tree != listing.tree { tree = listing.tree }
