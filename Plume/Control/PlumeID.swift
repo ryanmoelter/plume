@@ -62,7 +62,9 @@ private struct PlumeIDModifier: ViewModifier {
     @Environment(\.plumeControlsHidden) private var isHidden
 
     func body(content: Content) -> some View {
-        content
+        registration.invoke = invoke
+        registration.setValue = setValue
+        return content
             .accessibilityIdentifier(id)
             .background {
                 WindowProbe { window in
@@ -84,7 +86,7 @@ private struct PlumeIDModifier: ViewModifier {
                 registration.isMounted = false
                 ControlRegistry.shared.remove(token: registration.token)
             }
-            .onChange(of: [id, label ?? "", value ?? "", String(isEnabled), String(isHidden)]) { sync() }
+            .onChange(of: [id, label ?? "", value ?? "", String(isEnabled), String(isHidden), String(invoke != nil), String(setValue != nil)]) { sync() }
     }
 
     /// Geometry and window arrive before `onAppear`, and in either order, so
@@ -94,21 +96,33 @@ private struct PlumeIDModifier: ViewModifier {
             ControlRegistry.shared.remove(token: registration.token)
             return
         }
+        let registration = registration
         ControlRegistry.shared.register(ControlEntry(
             token: registration.token, id: id, label: label, value: value, isEnabled: isEnabled,
-            frame: WindowGeometry.contentRect(fromGlobal: registration.frame, in: registration.window), window: registration.window, invoke: invoke, setValue: setValue
+            frame: WindowGeometry.contentRect(fromGlobal: registration.frame, in: registration.window), window: registration.window,
+            invoke: invoke == nil ? nil : { registration.invoke?() },
+            setValue: setValue == nil ? nil : { registration.setValue?($0) }
         ))
     }
 }
 
 /// What a self-registering modifier knows about its view so far. Geometry
 /// and window arrive before `onAppear`, and in either order.
+///
+/// `invoke`, `setValue` and `hover` are rewritten on every body evaluation,
+/// and the registered entry calls through them, because a view can re-render
+/// with new captured state (another task's tab strip, say) without any
+/// `sync()` trigger firing. Not observable, so writing them during `body`
+/// invalidates nothing.
 @MainActor
 final class ViewRegistration {
     let token = UUID()
     var frame = CGRect.zero
     weak var window: NSWindow?
     var isMounted = false
+    var invoke: (() -> Void)?
+    var setValue: ((String) -> Void)?
+    var hover: ((Bool) -> Void)?
 }
 #endif
 
