@@ -156,7 +156,8 @@ struct AndroidDeviceView: View, ThemedView {
             .plumeID(AccessibilityID.deviceMoreMenu)
             .plumeMenuItem(
                 AccessibilityID.emulatorShutDownMenuItem,
-                isEnabled: !session.isPhysical && session.canShutDownEmulator
+                isPresent: !session.isPhysical,
+                isEnabled: session.canShutDownEmulator
             ) { confirmingShutDown = true }
         }
     }
