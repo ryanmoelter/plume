@@ -1,5 +1,4 @@
 import Foundation
-import Synchronization
 
 nonisolated struct GitError: LocalizedError {
     let command: String
@@ -21,73 +20,48 @@ nonisolated struct GitError: LocalizedError {
 /// window to freeze. `FileMentionIndex` calls it from a detached task, so a
 /// file listing never queues behind the serial `GitService`.
 nonisolated enum GitRunner {
+    /// `git` leads its own process group, so a `timeout` reaches everything
+    /// it started, not just `/usr/bin/git`, which on a machine without a
+    /// Homebrew git is an `xcrun` shim whose real `git` child would otherwise
+    /// outlive the kill. The run ends when `git` exits, even if something it
+    /// started still holds its pipes.
     @discardableResult
-    /// A `timeout` SIGKILLs `git` itself, so it bounds only commands that
-    /// spawn no children holding its pipes.
     static func run(
         _ arguments: [String],
         in directory: String? = nil,
         timeout: Duration? = nil,
         trimsOutput: Bool = true
     ) throws -> String {
-        let process = Process()
-        process.executableURL = URL(fileURLWithPath: "/usr/bin/env")
-        process.arguments = ["git"] + arguments
-        if let directory {
-            process.currentDirectoryURL = URL(fileURLWithPath: directory)
-        }
         // Never take the optional index lock: `status` would otherwise rewrite
         // `.git/index` and re-fire the `.git` watcher that asked for it.
-        process.environment = ProcessInfo.processInfo.environment
+        let environment = ProcessInfo.processInfo.environment
             .merging(["GIT_OPTIONAL_LOCKS": "0"]) { _, override in override }
+        let command = "git " + arguments.joined(separator: " ")
 
-        let output = Pipe()
-        let error = Pipe()
-        process.standardOutput = output
-        process.standardError = error
-
-        try process.run()
-
-        let timedOut = Mutex(false)
-        let deadline = DispatchWorkItem { [processIdentifier = process.processIdentifier] in
-            timedOut.withLock { $0 = true }
-            kill(processIdentifier, SIGKILL)
-        }
-        if let timeout {
-            let (seconds, attoseconds) = timeout.components
-            DispatchQueue.global().asyncAfter(
-                deadline: .now() + Double(seconds) + Double(attoseconds) / 1e18,
-                execute: deadline
+        let result: ChildProcessResult
+        do {
+            result = try ChildProcess.run(
+                executable: "/usr/bin/env",
+                arguments: ["git"] + arguments,
+                environment: environment,
+                workingDirectory: directory,
+                timeout: timeout
             )
+        } catch {
+            throw GitError(command: command, status: -1, stderr: error.localizedDescription)
         }
-        defer { deadline.cancel() }
 
-        // Read before waiting: a pipe that fills up would deadlock the child.
-        let outputData = output.fileHandleForReading.readDataToEndOfFile()
-        let errorData = error.fileHandleForReading.readDataToEndOfFile()
-        process.waitUntilExit()
-
-        if timedOut.withLock({ $0 }) {
+        if result.timedOut {
+            throw GitError(command: command, status: result.status, stderr: "", timedOut: true)
+        }
+        guard result.status == 0 else {
             throw GitError(
-                command: "git " + arguments.joined(separator: " "),
-                status: process.terminationStatus,
-                stderr: "",
-                timedOut: true
+                command: command,
+                status: result.status,
+                stderr: result.stderr.trimmingCharacters(in: .whitespacesAndNewlines)
             )
         }
-
-        let rawOutput = String(decoding: outputData, as: UTF8.self)
-        let stdout = trimsOutput ? rawOutput.trimmingCharacters(in: .whitespacesAndNewlines) : rawOutput
-
-        guard process.terminationStatus == 0 else {
-            throw GitError(
-                command: "git " + arguments.joined(separator: " "),
-                status: process.terminationStatus,
-                stderr: String(decoding: errorData, as: UTF8.self)
-                    .trimmingCharacters(in: .whitespacesAndNewlines)
-            )
-        }
-        return stdout
+        return trimsOutput ? result.stdout.trimmingCharacters(in: .whitespacesAndNewlines) : result.stdout
     }
 
     /// Absolute path of the repository containing `path`, or nil if untracked.
