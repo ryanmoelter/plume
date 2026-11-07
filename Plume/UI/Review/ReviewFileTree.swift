@@ -21,32 +21,62 @@ nonisolated struct ReviewFileTree: Sendable, Equatable {
 
     init() {}
 
-    init(paths: [String], files: [DiffFileSummary]) {
+    /// The node that holds changed files outside `scope`.
+    static let outsideScope = ".."
+
+    /// `scope` is the folder the tree is rooted at, relative to the
+    /// repository root, or empty for the root itself. Every node keeps its
+    /// repository-relative path. Changed files outside `scope` sit under one
+    /// `..` folder, which lists nothing else.
+    init(paths: [String], files: [DiffFileSummary], scope: String = "") {
         for file in files { changes[file.path] = file.kind }
+        let scopePrefix = scope.isEmpty ? "" : scope + "/"
         var folders: [String: Set<String>] = [:]
         var leaves: [String: [String]] = [:]
 
-        for path in Set(paths).union(changes.keys) {
-            let components = path.split(separator: "/").map(String.init)
+        /// The children key a folder's nodes are filed under: the scope is
+        /// the root, and outside it the repository root is `..`.
+        func key(_ folder: String, inScope: Bool) -> String {
+            if inScope { return folder == scope ? "" : folder }
+            return folder.isEmpty ? Self.outsideScope : folder
+        }
+
+        func insert(_ path: String, inScope: Bool) {
+            let relative = inScope ? String(path.dropFirst(scopePrefix.count)) : path
+            let components = relative.split(separator: "/").map(String.init)
             // `ls-files` lists a nested repository as `name/`.
             let endsInFile = !path.hasSuffix("/")
-            var parent = ""
+            var parent = inScope ? scope : ""
             for (index, component) in components.enumerated() {
                 let current = parent.isEmpty ? component : "\(parent)/\(component)"
                 if endsInFile, index == components.count - 1 {
-                    leaves[parent, default: []].append(current)
+                    leaves[key(parent, inScope: inScope), default: []].append(current)
                 } else {
-                    folders[parent, default: []].insert(current)
+                    folders[key(parent, inScope: inScope), default: []].insert(current)
                 }
                 parent = current
             }
         }
 
+        for path in Set(paths).union(changes.keys) {
+            if path.hasPrefix(scopePrefix) {
+                insert(path, inScope: true)
+            } else if changes[path] != nil {
+                insert(path, inScope: false)
+            }
+        }
+
         for path in changes.keys {
+            let inScope = path.hasPrefix(scopePrefix)
             var folder = (path as NSString).deletingLastPathComponent
             while true {
-                changedDescendants[folder, default: 0] += 1
-                if folder.isEmpty { break }
+                let key = key(folder, inScope: inScope)
+                changedDescendants[key, default: 0] += 1
+                if key == "" { break }
+                if key == Self.outsideScope {
+                    changedDescendants["", default: 0] += 1
+                    break
+                }
                 folder = (folder as NSString).deletingLastPathComponent
             }
         }
@@ -59,6 +89,9 @@ nonisolated struct ReviewFileTree: Sendable, Equatable {
                 Node(path: $0, name: ($0 as NSString).lastPathComponent, isDirectory: false)
             }
             children[parent] = directories + files
+        }
+        if children[Self.outsideScope] != nil {
+            children["", default: []].append(Node(path: Self.outsideScope, name: Self.outsideScope, isDirectory: true))
         }
     }
 

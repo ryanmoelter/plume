@@ -134,6 +134,14 @@ final class ReviewModel {
         return options.defaultBase
     }
 
+    /// The task folder relative to the repository root, or empty when it is
+    /// the root.
+    nonisolated static func scope(of directory: String, under root: String) -> String {
+        let folder = RepositoryWatchScope.realPath(directory)
+        let prefix = RepositoryWatchScope.realPath(root) + "/"
+        return folder.hasPrefix(prefix) ? String(folder.dropFirst(prefix.count)) : ""
+    }
+
     func selectBase(_ base: ReviewBase) {
         guard base != self.base else { return }
         chosenBase = base
@@ -287,6 +295,7 @@ final class ReviewModel {
                     let range = try GitDiffEngine.resolveWorkingTree(base: base, options: options, root: root)
                     let snapshot = try GitDiffEngine.snapshot(in: range, cache: untrackedCounts)
                     let files = snapshot.files
+                    let scope = ReviewModel.scope(of: directory, under: root)
                     return Listing(
                         root: root,
                         baseOptions: options,
@@ -294,8 +303,8 @@ final class ReviewModel {
                         headRef: headRef,
                         range: range,
                         files: files,
-                        tree: ReviewFileTree(paths: snapshot.listedPaths, files: files),
-                        changedTree: ReviewFileTree(paths: [], files: files),
+                        tree: ReviewFileTree(paths: snapshot.listedPaths, files: files, scope: scope),
+                        changedTree: ReviewFileTree(paths: [], files: files, scope: scope),
                         knownPaths: Set(snapshot.listedPaths + files.flatMap { [$0.path, $0.oldPath].compactMap { $0 } }),
                         nestedRepositories: snapshot.nestedRepositories
                     )
