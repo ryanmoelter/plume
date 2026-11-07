@@ -419,4 +419,29 @@ struct GitDiffEngineTests {
             timeout: .seconds(10)
         )
     }
+
+    @Test func untrackedCountsComeFromTheCacheUntilSizeOrTimeMoves() throws {
+        let repository = try makeRepository()
+        defer { try? FileManager.default.removeItem(atPath: repository) }
+        let path = "\(repository)/notes.txt"
+        let fixed = Date(timeIntervalSince1970: 1_000_000)
+        try write("a\nb\n", to: "notes.txt", in: repository)
+        try FileManager.default.setAttributes([.modificationDate: fixed], ofItemAtPath: path)
+
+        let range = try GitDiffEngine.resolve(.workingTree(baseRef: "main"), in: repository)
+        let cache = UntrackedCountCache()
+        let first = try GitDiffEngine.files(in: range, cache: cache).first { $0.path == "notes.txt" }
+
+        // Same size and time with different lines, so only a cache hit says 2.
+        try write("abcd", to: "notes.txt", in: repository)
+        try FileManager.default.setAttributes([.modificationDate: fixed], ofItemAtPath: path)
+        let cached = try GitDiffEngine.files(in: range, cache: cache).first { $0.path == "notes.txt" }
+
+        try FileManager.default.setAttributes([.modificationDate: fixed.addingTimeInterval(1)], ofItemAtPath: path)
+        let recounted = try GitDiffEngine.files(in: range, cache: cache).first { $0.path == "notes.txt" }
+
+        #expect(first?.addedLines == 2)
+        #expect(cached?.addedLines == 2)
+        #expect(recounted?.addedLines == 1)
+    }
 }

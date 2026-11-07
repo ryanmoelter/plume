@@ -105,15 +105,17 @@ nonisolated enum GitDiffEngine {
 
     static func files(
         in range: ResolvedDiffRange,
-        countingLimit: Int = untrackedCountingLimit
+        countingLimit: Int = untrackedCountingLimit,
+        cache: UntrackedCountCache? = nil
     ) throws -> [DiffFileSummary] {
-        try snapshot(in: range, countingLimit: countingLimit).files
+        try snapshot(in: range, countingLimit: countingLimit, cache: cache).files
     }
 
     /// The changed files and the listed paths, from two `git` processes.
     static func snapshot(
         in range: ResolvedDiffRange,
-        countingLimit: Int = untrackedCountingLimit
+        countingLimit: Int = untrackedCountingLimit,
+        cache: UntrackedCountCache? = nil
     ) throws -> Snapshot {
         let root = range.repositoryRoot
         let diff = try GitRunner.run(
@@ -152,10 +154,16 @@ nonisolated enum GitDiffEngine {
             for path in untracked {
                 if let index = deletedIndex[path] {
                     files[index] = overBaseSummary(path: path, in: range)
-                } else if let summary = untrackedSummary(path: path, root: root, countingLimit: countingLimit) {
+                } else if let summary = untrackedSummary(
+                    path: path,
+                    root: root,
+                    countingLimit: countingLimit,
+                    cache: cache
+                ) {
                     files.append(summary)
                 }
             }
+            cache?.keepOnly(Set(untracked))
         }
         files.sort { $0.path.localizedStandardCompare($1.path) == .orderedAscending }
         return Snapshot(files: files, listedPaths: listed)
@@ -214,7 +222,8 @@ nonisolated enum GitDiffEngine {
     static func untrackedSummary(
         path: String,
         root: String,
-        countingLimit: Int = untrackedCountingLimit
+        countingLimit: Int = untrackedCountingLimit,
+        cache: UntrackedCountCache? = nil
     ) -> DiffFileSummary? {
         let url = URL(fileURLWithPath: root).appending(path: path)
         var info = stat()
@@ -228,8 +237,16 @@ nonisolated enum GitDiffEngine {
         default:
             return nil
         }
+        let stamp = UntrackedCountCache.Stamp(info)
+        if let cached = cache?.summary(for: path, stamp: stamp) { return cached }
+        let summary = countedSummary(path: path, url: url, size: Int(info.st_size), countingLimit: countingLimit)
+        cache?.store(summary, for: path, stamp: stamp)
+        return summary
+    }
+
+    private static func countedSummary(path: String, url: URL, size: Int, countingLimit: Int) -> DiffFileSummary {
         let uncounted = DiffFileSummary(path: path, kind: .added, origin: .untracked, isUncounted: true)
-        guard Int(info.st_size) <= countingLimit,
+        guard size <= countingLimit,
               let data = try? Data(contentsOf: url, options: .mappedIfSafe)
         else { return uncounted }
         // git's own heuristic: a NUL in the first 8000 bytes means binary.

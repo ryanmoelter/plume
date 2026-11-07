@@ -98,6 +98,7 @@ final class ReviewModel {
     /// Paths the reader asked to load past the line cap.
     @ObservationIgnored private var liftedCaps: Set<String> = []
     @ObservationIgnored private var palette: CodeSyntaxPalette?
+    @ObservationIgnored private let untrackedCounts = UntrackedCountCache()
 
     init(directory: String) {
         self.directory = directory
@@ -225,6 +226,7 @@ final class ReviewModel {
         isListing = true
         if files.isEmpty { phase = .loading }
         let directory = directory
+        let untrackedCounts = untrackedCounts
         let cachedRoot = repositoryRoot
         let cachedBaseRef = baseRefIsStale ? nil : baseRef
         baseRefIsStale = false
@@ -236,7 +238,7 @@ final class ReviewModel {
                     let root = try cachedRoot ?? GitDiffEngine.repositoryRoot(of: directory)
                     let baseRef = cachedBaseRef ?? GitDiffEngine.defaultBaseRef(in: root)
                     let range = try GitDiffEngine.resolveWorkingTree(baseRef: baseRef.ref, root: root)
-                    let snapshot = try GitDiffEngine.snapshot(in: range)
+                    let snapshot = try GitDiffEngine.snapshot(in: range, cache: untrackedCounts)
                     let files = snapshot.files
                     return Listing(
                         root: root,
