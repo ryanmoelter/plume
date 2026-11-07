@@ -59,7 +59,7 @@ struct GitDiffEngineTests {
         #expect(files["new name.txt"] == DiffFileSummary(path: "new name.txt", oldPath: "old name.txt", kind: .renamed))
         #expect(files["doomed.txt"] == DiffFileSummary(path: "doomed.txt", kind: .deleted, removedLines: 1))
         #expect(files["dir with space/untracked file.txt"] == DiffFileSummary(
-            path: "dir with space/untracked file.txt", kind: .added, addedLines: 2, isUntracked: true
+            path: "dir with space/untracked file.txt", kind: .added, addedLines: 2, origin: .untracked
         ))
         #expect(files.count == 4)
     }
@@ -233,5 +233,164 @@ struct GitDiffEngineTests {
         let repository = try makeRepository()
         defer { try? FileManager.default.removeItem(atPath: repository) }
         #expect(GitDiffEngine.defaultBaseRef(in: repository) == "main")
+    }
+
+    @Test func untrackedFileTooLargeToCountLoadsTooLargeUntilLifted() throws {
+        let repository = try makeRepository()
+        defer { try? FileManager.default.removeItem(atPath: repository) }
+        try write("one\ntwo\nthree\n", to: "huge.log", in: repository)
+
+        let range = try GitDiffEngine.resolve(.workingTree(baseRef: "main"), in: repository)
+        let files = try GitDiffEngine.files(in: range, countingLimit: 4)
+        let file = try #require(files.first { $0.path == "huge.log" })
+        #expect(file.isUncounted)
+        #expect(file.changedLines == 0)
+
+        let capped = try GitDiffEngine.content(for: file, in: range)
+        let lifted = try GitDiffEngine.content(for: file, in: range, lineCap: nil)
+        #expect(capped == .tooLarge(changedLines: nil))
+        #expect(lifted.lineCount == 3)
+    }
+
+    @Test func untrackedSymlinkCountsAsOneLine() throws {
+        let repository = try makeRepository()
+        defer { try? FileManager.default.removeItem(atPath: repository) }
+        try FileManager.default.createSymbolicLink(atPath: "\(repository)/link", withDestinationPath: "kept.txt")
+
+        let (range, files) = try workingTreeFiles(in: repository)
+        let file = try #require(files["link"])
+        #expect(file.addedLines == 1)
+        let content = try GitDiffEngine.content(for: file, in: range)
+        #expect(content.lineCount == 1)
+    }
+
+    @Test func untrackedFIFOIsSkippedWithoutReading() throws {
+        let repository = try makeRepository()
+        defer { try? FileManager.default.removeItem(atPath: repository) }
+        #expect(mkfifo("\(repository)/pipe", 0o644) == 0)
+
+        #expect(GitDiffEngine.untrackedSummary(path: "pipe", root: repository) == nil)
+        let (_, files) = try workingTreeFiles(in: repository)
+        #expect(files["pipe"] == nil)
+    }
+
+    @Test func removedFromTheIndexButOnDiskIsOneModification() throws {
+        let repository = try makeRepository()
+        defer { try? FileManager.default.removeItem(atPath: repository) }
+        try git(["rm", "--cached", "kept.txt"], in: repository)
+        try write("one\nTWO\nthree\n", to: "kept.txt", in: repository)
+
+        let range = try GitDiffEngine.resolve(.workingTree(baseRef: "main"), in: repository)
+        let all = try GitDiffEngine.files(in: range)
+        #expect(all.filter { $0.path == "kept.txt" }.count == 1)
+        let file = try #require(all.first { $0.path == "kept.txt" })
+        #expect(file == DiffFileSummary(
+            path: "kept.txt", kind: .modified, addedLines: 1, removedLines: 1, origin: .untrackedOverBase
+        ))
+
+        let content = try GitDiffEngine.content(for: file, in: range)
+        guard case .text(let hunks) = content else {
+            Issue.record("expected text, got \(content)")
+            return
+        }
+        let changed = hunks.flatMap(\.lines).filter { $0.kind != .context }
+        #expect(changed == [
+            DiffLine(kind: .removed, text: "two", oldNumber: 2, newNumber: nil),
+            DiffLine(kind: .added, text: "TWO", oldNumber: nil, newNumber: 2),
+        ])
+    }
+
+    @Test func crlfLinesLoadWithoutTheCarriageReturn() throws {
+        let repository = try makeRepository()
+        defer { try? FileManager.default.removeItem(atPath: repository) }
+        try write("a\r\nb\r\n", to: "dos.txt", in: repository)
+        try git(["add", "dos.txt"], in: repository)
+        try git(["commit", "-m", "dos"], in: repository)
+        try write("a\r\nc\r\n", to: "dos.txt", in: repository)
+
+        let (range, files) = try workingTreeFiles(in: repository)
+        let file = try #require(files["dos.txt"])
+        let content = try GitDiffEngine.content(for: file, in: range)
+        guard case .text(let hunks) = content else {
+            Issue.record("expected text, got \(content)")
+            return
+        }
+        #expect(hunks.flatMap(\.lines).map(\.text) == ["a", "b", "c"])
+    }
+
+    @Test func snapshotListsTrackedAndUntrackedButNotIgnored() throws {
+        let repository = try makeRepository()
+        defer { try? FileManager.default.removeItem(atPath: repository) }
+        try write("build/\n", to: ".gitignore", in: repository)
+        try write("x\n", to: "build/out.o", in: repository)
+        try write("y\n", to: "fresh.txt", in: repository)
+
+        let range = try GitDiffEngine.resolve(.workingTree(baseRef: "main"), in: repository)
+        let snapshot = try GitDiffEngine.snapshot(in: range)
+        #expect(Set(snapshot.listedPaths) == [
+            ".gitignore", "doomed.txt", "fresh.txt", "kept.txt", "old name.txt", "tail.txt",
+        ])
+        #expect(snapshot.listedPaths.count == Set(snapshot.listedPaths).count)
+    }
+
+    @Test func unignoredPathsDropIgnoredButKeepTrackedOnes() throws {
+        let repository = try makeRepository()
+        defer { try? FileManager.default.removeItem(atPath: repository) }
+        try write("build/\n*.txt\n", to: ".gitignore", in: repository)
+
+        let kept = try GitDiffEngine.unignoredPaths(
+            ["build/out.o", "src/a.swift", "kept.txt", "new.txt"],
+            in: repository
+        )
+        let noneIgnored = try GitDiffEngine.unignoredPaths(["src/a.swift"], in: repository)
+        #expect(kept == ["src/a.swift", "kept.txt"])
+        #expect(noneIgnored == ["src/a.swift"])
+    }
+
+    @Test func watchScopeFindsALinkedWorktreesGitDirectories() throws {
+        let repository = try makeRepository()
+        defer { try? FileManager.default.removeItem(atPath: repository) }
+        let worktree = repository + "-wt"
+        defer { try? FileManager.default.removeItem(atPath: worktree) }
+        try git(["worktree", "add", "-b", "topic", worktree], in: repository)
+
+        let scope = try RepositoryWatchScope.resolve(in: worktree)
+        let common = RepositoryWatchScope.realPath(repository) + "/.git"
+        #expect(scope.root == RepositoryWatchScope.realPath(worktree))
+        #expect(scope.commonDirectory == common)
+        #expect(scope.gitDirectory.hasPrefix(common + "/worktrees/"))
+        #expect(scope.watchedPaths == [scope.root, common])
+
+        #expect(scope.classify(scope.gitDirectory + "/index") == .index)
+        #expect(scope.classify(scope.gitDirectory + "/HEAD") == .refs)
+        #expect(scope.classify(common + "/refs/remotes/origin/main") == .refs)
+        #expect(scope.classify(common + "/packed-refs") == .refs)
+        #expect(scope.classify(common + "/objects/ab/cdef") == .irrelevant)
+        #expect(scope.classify(common + "/index") == .irrelevant)
+        #expect(scope.classify(scope.root + "/src/a.swift") == .workingTree("src/a.swift"))
+        #expect(scope.classify(scope.root + "/vendor/.git/index") == .irrelevant)
+    }
+
+    @Test func watchScopeOfAPlainCheckoutWatchesOnlyTheRoot() throws {
+        let repository = try makeRepository()
+        defer { try? FileManager.default.removeItem(atPath: repository) }
+
+        let scope = try RepositoryWatchScope.resolve(in: repository)
+        #expect(scope.watchedPaths == [scope.root])
+        #expect(scope.classify(scope.root + "/.git/index") == .index)
+        #expect(scope.classify(scope.root + "/.git/refs/heads/main") == .refs)
+        #expect(scope.classify(scope.root + "/.git/objects/ab/cdef") == .irrelevant)
+    }
+
+    /// The alias's shell holds stderr after git closes stdout, so a runner that
+    /// read stderr only after stdout would block until the timeout.
+    @Test func stderrFloodDoesNotDeadlock() throws {
+        let repository = try makeRepository()
+        defer { try? FileManager.default.removeItem(atPath: repository) }
+        try GitRunner.run(
+            ["-c", "alias.spam=!exec >/dev/null; yes x | head -c 400000 >&2", "spam"],
+            in: repository,
+            timeout: .seconds(10)
+        )
     }
 }

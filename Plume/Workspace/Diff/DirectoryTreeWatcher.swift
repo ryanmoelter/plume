@@ -1,19 +1,23 @@
 import CoreServices
 import Foundation
 
-/// Reports changes anywhere under a directory, through FSEvents.
-///
-/// Events inside any `.git` directory are dropped: an agent's `git status`
-/// rewrites the index constantly, and none of it changes what a review shows.
+/// Reports the files that change under a set of directories, through
+/// FSEvents. Deciding which changes matter is the caller's job.
 nonisolated final class DirectoryTreeWatcher {
-    private let path: String
+    struct Batch: Sendable {
+        let paths: [String]
+        /// FSEvents dropped events, so `paths` is incomplete.
+        let mustRescan: Bool
+    }
+
+    private let paths: [String]
     private let latency: TimeInterval
-    private let onChange: @MainActor () -> Void
+    private let onChange: @MainActor (Batch) -> Void
     private var stream: FSEventStreamRef?
 
     /// `onChange` runs on the main queue.
-    init(path: String, latency: TimeInterval = 0.5, onChange: @escaping @MainActor () -> Void) {
-        self.path = path
+    init(paths: [String], latency: TimeInterval = 0.5, onChange: @escaping @MainActor (Batch) -> Void) {
+        self.paths = paths
         self.latency = latency
         self.onChange = onChange
     }
@@ -31,12 +35,14 @@ nonisolated final class DirectoryTreeWatcher {
             release: nil,
             copyDescription: nil
         )
-        let flags = UInt32(kFSEventStreamCreateFlagUseCFTypes | kFSEventStreamCreateFlagNoDefer)
+        let flags = UInt32(
+            kFSEventStreamCreateFlagUseCFTypes | kFSEventStreamCreateFlagNoDefer | kFSEventStreamCreateFlagFileEvents
+        )
         guard let stream = FSEventStreamCreate(
             nil,
             Self.callback,
             &context,
-            [path] as CFArray,
+            paths as CFArray,
             FSEventStreamEventId(kFSEventStreamEventIdSinceNow),
             latency,
             FSEventStreamCreateFlags(flags)
@@ -54,15 +60,15 @@ nonisolated final class DirectoryTreeWatcher {
         self.stream = nil
     }
 
-    nonisolated static func isRelevant(_ path: String) -> Bool {
-        !path.contains("/.git/") && !path.hasSuffix("/.git")
-    }
-
-    private static let callback: FSEventStreamCallback = { _, info, count, paths, _, _ in
+    private static let callback: FSEventStreamCallback = { _, info, count, paths, flags, _ in
         guard let info else { return }
-        let changed = unsafeBitCast(paths, to: NSArray.self) as? [String] ?? []
-        guard changed.prefix(count).contains(where: isRelevant) else { return }
+        let changed = Array((unsafeBitCast(paths, to: NSArray.self) as? [String] ?? []).prefix(count))
+        let rescanFlags = FSEventStreamEventFlags(
+            kFSEventStreamEventFlagMustScanSubDirs | kFSEventStreamEventFlagUserDropped
+                | kFSEventStreamEventFlagKernelDropped
+        )
+        let mustRescan = (0 ..< count).contains { flags[$0] & rescanFlags != 0 }
         let onChange = Unmanaged<DirectoryTreeWatcher>.fromOpaque(info).takeUnretainedValue().onChange
-        MainActor.assumeIsolated { onChange() }
+        MainActor.assumeIsolated { onChange(Batch(paths: changed, mustRescan: mustRescan)) }
     }
 }

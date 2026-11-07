@@ -30,8 +30,30 @@ nonisolated enum GitRunner {
         timeout: Duration? = nil,
         trimsOutput: Bool = true,
         environment: [String: String] = [:],
-        successStatuses: Set<Int32> = [0]
+        successStatuses: Set<Int32> = [0],
+        input: Data? = nil
     ) throws -> String {
+        let outputData = try runData(
+            arguments,
+            in: directory,
+            timeout: timeout,
+            environment: environment,
+            successStatuses: successStatuses,
+            input: input
+        )
+        let rawOutput = String(decoding: outputData, as: UTF8.self)
+        return trimsOutput ? rawOutput.trimmingCharacters(in: .whitespacesAndNewlines) : rawOutput
+    }
+
+    /// `run`, returning stdout's bytes undecoded.
+    static func runData(
+        _ arguments: [String],
+        in directory: String? = nil,
+        timeout: Duration? = nil,
+        environment: [String: String] = [:],
+        successStatuses: Set<Int32> = [0],
+        input: Data? = nil
+    ) throws -> Data {
         let process = Process()
         process.executableURL = URL(fileURLWithPath: "/usr/bin/env")
         process.arguments = ["git"] + arguments
@@ -48,8 +70,24 @@ nonisolated enum GitRunner {
         let error = Pipe.closeOnExec()
         process.standardOutput = output
         process.standardError = error
+        let inputPipe = input.map { _ in Pipe.closeOnExec() }
+        if let inputPipe {
+            process.standardInput = inputPipe
+            // A git that exits without reading would otherwise kill this
+            // process with SIGPIPE.
+            _ = fcntl(inputPipe.fileHandleForWriting.fileDescriptor, F_SETNOSIGPIPE, 1)
+        }
 
         try process.run()
+
+        if let input, let inputPipe {
+            // Written from its own thread: git may fill stdout before it has
+            // read all of stdin.
+            Thread {
+                try? inputPipe.fileHandleForWriting.write(contentsOf: input)
+                try? inputPipe.fileHandleForWriting.close()
+            }.start()
+        }
 
         let timedOut = Mutex(false)
         let deadline = DispatchWorkItem { [processIdentifier = process.processIdentifier] in
@@ -66,8 +104,11 @@ nonisolated enum GitRunner {
         defer { deadline.cancel() }
 
         // Read before waiting: a pipe that fills up would deadlock the child.
+        // stderr drains on its own thread, since git blocks on whichever pipe
+        // fills first while this one waits for the other's EOF.
+        let errorReader = PipeDrain(error.fileHandleForReading)
         let outputData = output.fileHandleForReading.readDataToEndOfFile()
-        let errorData = error.fileHandleForReading.readDataToEndOfFile()
+        let errorData = errorReader.wait()
         process.waitUntilExit()
 
         if timedOut.withLock({ $0 }) {
@@ -79,9 +120,6 @@ nonisolated enum GitRunner {
             )
         }
 
-        let rawOutput = String(decoding: outputData, as: UTF8.self)
-        let stdout = trimsOutput ? rawOutput.trimmingCharacters(in: .whitespacesAndNewlines) : rawOutput
-
         guard successStatuses.contains(process.terminationStatus) else {
             throw GitError(
                 command: "git " + arguments.joined(separator: " "),
@@ -90,7 +128,7 @@ nonisolated enum GitRunner {
                     .trimmingCharacters(in: .whitespacesAndNewlines)
             )
         }
-        return stdout
+        return outputData
     }
 
     /// Absolute path of the repository containing `path`, or nil if untracked.
@@ -107,6 +145,26 @@ nonisolated enum GitRunner {
     /// worktree's own `.git`, which is a pointer file nothing ever rewrites.
     static func gitDirectory(containing path: String) -> String? {
         try? run(["rev-parse", "--absolute-git-dir"], in: path)
+    }
+}
+
+/// Reads a pipe to EOF on a thread of its own. Not a dispatch queue: callers
+/// already block pool threads, and enough of them would starve the reader.
+private nonisolated final class PipeDrain: @unchecked Sendable {
+    private let done = DispatchSemaphore(value: 0)
+    // Written once before `done` signals, read only after `wait()`.
+    private var data = Data()
+
+    init(_ handle: FileHandle) {
+        Thread { [self] in
+            data = handle.readDataToEndOfFile()
+            done.signal()
+        }.start()
+    }
+
+    func wait() -> Data {
+        done.wait()
+        return data
     }
 }
 

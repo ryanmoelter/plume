@@ -52,6 +52,39 @@ nonisolated enum GitDiffParser {
         return counts
     }
 
+    /// Parses `git diff -z --raw --numstat`, which prints every raw record
+    /// and then every numstat record. Read positionally, so a path that starts
+    /// with `:` or holds a tab is never taken for a record.
+    static func rawAndNumstat(_ output: String) -> (nameStatus: [NameStatus], numstat: [String: LineCounts]) {
+        var tokens = output.split(separator: "\0", omittingEmptySubsequences: false).makeIterator()
+        var entries: [NameStatus] = []
+        var counts: [String: LineCounts] = [:]
+        while let token = tokens.next() {
+            if token.hasPrefix(":") {
+                guard let status = token.split(separator: " ").last?.first,
+                      let first = tokens.next()
+                else { break }
+                if status == "R" || status == "C" {
+                    guard let second = tokens.next() else { break }
+                    entries.append(NameStatus(status: status, path: String(second), oldPath: String(first)))
+                } else {
+                    entries.append(NameStatus(status: status, path: String(first), oldPath: nil))
+                }
+                continue
+            }
+            let fields = token.split(separator: "\t", maxSplits: 2, omittingEmptySubsequences: false)
+            guard fields.count == 3 else { continue }
+            let entry = LineCounts(added: Int(fields[0]), removed: Int(fields[1]))
+            if fields[2].isEmpty {
+                guard tokens.next() != nil, let newPath = tokens.next() else { break }
+                counts[String(newPath)] = entry
+            } else {
+                counts[String(fields[2])] = entry
+            }
+        }
+        return (entries, counts)
+    }
+
     static func summaries(nameStatus: [NameStatus], numstat: [String: LineCounts]) -> [DiffFileSummary] {
         nameStatus.map { entry in
             let counts = numstat[entry.path]
@@ -90,11 +123,15 @@ nonisolated enum GitDiffParser {
             current = nil
         }
 
-        for raw in patch.split(separator: "\n", omittingEmptySubsequences: false) {
+        // Split on scalars: as a `Character`, `\r\n` is one grapheme, so a
+        // CRLF file would never split at all.
+        for raw in patch.unicodeScalars.split(separator: "\n", omittingEmptySubsequences: false) {
             let line = Substring(raw)
             if current != nil, oldRemaining > 0 || newRemaining > 0 {
                 let marker = line.first
-                let text = line.isEmpty ? "" : String(line.dropFirst())
+                // A CRLF file's `\r` would otherwise draw as a stray glyph.
+                var text = line.isEmpty ? "" : String(line.dropFirst())
+                if text.hasSuffix("\r") { text.removeLast() }
                 switch marker {
                 case "+":
                     current?.lines.append(DiffLine(kind: .added, text: text, oldNumber: nil, newNumber: newLine))

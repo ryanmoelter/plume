@@ -18,6 +18,16 @@ nonisolated enum DiffChangeKind: String, Hashable, Sendable {
 
 /// One file in a range's file list. Paths are relative to the repository root.
 nonisolated struct DiffFileSummary: Hashable, Sendable, Identifiable {
+    /// Where the new side of the file comes from, which decides how its diff
+    /// is loaded.
+    enum Origin: Hashable, Sendable {
+        case tracked
+        case untracked
+        /// Untracked on disk but present at the base, as after
+        /// `git rm --cached`: it diffs against the base's copy.
+        case untrackedOverBase
+    }
+
     let path: String
     /// Set only for a rename.
     let oldPath: String?
@@ -25,7 +35,9 @@ nonisolated struct DiffFileSummary: Hashable, Sendable, Identifiable {
     let isBinary: Bool
     let addedLines: Int
     let removedLines: Int
-    let isUntracked: Bool
+    let origin: Origin
+    /// The file was too large to count, so its line counts are zero.
+    let isUncounted: Bool
 
     var id: String { path }
 
@@ -36,7 +48,8 @@ nonisolated struct DiffFileSummary: Hashable, Sendable, Identifiable {
         isBinary: Bool = false,
         addedLines: Int = 0,
         removedLines: Int = 0,
-        isUntracked: Bool = false
+        origin: Origin = .tracked,
+        isUncounted: Bool = false
     ) {
         self.path = path
         self.oldPath = oldPath
@@ -44,8 +57,11 @@ nonisolated struct DiffFileSummary: Hashable, Sendable, Identifiable {
         self.isBinary = isBinary
         self.addedLines = addedLines
         self.removedLines = removedLines
-        self.isUntracked = isUntracked
+        self.origin = origin
+        self.isUncounted = isUncounted
     }
+
+    var isUntracked: Bool { origin != .tracked }
 
     var changedLines: Int { addedLines + removedLines }
 }
@@ -72,8 +88,9 @@ nonisolated struct DiffHunk: Hashable, Sendable {
 nonisolated enum DiffFileContent: Hashable, Sendable {
     case text([DiffHunk])
     case binary
-    /// Not loaded, because the change exceeds the line cap.
-    case tooLarge(changedLines: Int)
+    /// Not loaded, because the change exceeds the line cap. Nil when the
+    /// file was too large to count at all.
+    case tooLarge(changedLines: Int?)
     /// A change with no line content, like a mode change or an empty file.
     case empty
 

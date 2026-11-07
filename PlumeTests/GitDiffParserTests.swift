@@ -121,4 +121,42 @@ struct GitDiffParserTests {
         """
         #expect(GitDiffParser.patch(patch) == .empty)
     }
+
+    @Test func rawAndNumstatReadsBothSectionsPositionally() {
+        let output = [
+            ":100644 100644 aaa bbb M", "src/a.swift",
+            ":100644 100644 ccc ddd R087", "old.txt", "new.txt",
+            ":000000 100644 000 eee A", ":odd\tname",
+            "3\t1\tsrc/a.swift",
+            "0\t2\t", "old.txt", "new.txt",
+            "-\t-\t:odd\tname",
+            "",
+        ].joined(separator: "\0")
+
+        let parsed = GitDiffParser.rawAndNumstat(output)
+        #expect(parsed.nameStatus == [
+            .init(status: "M", path: "src/a.swift", oldPath: nil),
+            .init(status: "R", path: "new.txt", oldPath: "old.txt"),
+            .init(status: "A", path: ":odd\tname", oldPath: nil),
+        ])
+        #expect(parsed.numstat == [
+            "src/a.swift": .init(added: 3, removed: 1),
+            "new.txt": .init(added: 0, removed: 2),
+            ":odd\tname": .init(added: nil, removed: nil),
+        ])
+    }
+
+    @Test func crlfPatchSplitsLinesAndDropsTheCarriageReturn() {
+        let patch = "@@ -1,2 +1,2 @@\n a\r\n-b\r\n+c\r\n"
+        guard case .text(let hunks) = GitDiffParser.patch(patch) else {
+            Issue.record("expected text")
+            return
+        }
+        #expect(hunks.flatMap(\.lines) == [
+            DiffLine(kind: .context, text: "a", oldNumber: 1, newNumber: 1),
+            DiffLine(kind: .removed, text: "b", oldNumber: 2, newNumber: nil),
+            DiffLine(kind: .added, text: "c", oldNumber: nil, newNumber: 2),
+        ])
+    }
 }
+
