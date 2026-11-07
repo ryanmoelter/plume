@@ -106,7 +106,7 @@ private struct ReviewTabContent: View, ThemedView {
             let added = model.files.reduce(0) { $0 + $1.addedLines }
             let removed = model.files.reduce(0) { $0 + $1.removedLines }
             let base = model.range.map { String($0.baseCommit.prefix(8)) } ?? "?"
-            return "\(model.files.count) files  +\(added) −\(removed)  vs \(model.baseRef ?? "?") (merge base \(base))"
+            return "\(model.files.count) files  +\(added) −\(removed)  vs \(model.baseRef?.displayName ?? "?") (merge base \(base))"
         }
     }
 

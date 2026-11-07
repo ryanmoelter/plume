@@ -70,19 +70,37 @@ nonisolated enum GitDiffEngine {
         return ResolvedDiffRange(repositoryRoot: root, revisions: [base], includesUntracked: true, baseCommit: base)
     }
 
-    /// The ref a working-tree review compares against: the remote's default
-    /// branch where it exists, else a local branch of the same name, else
-    /// `HEAD`, which narrows the review to uncommitted work.
-    static func defaultBaseRef(in directory: String) -> String {
-        let candidates = [GitRunner.defaultBranch(in: directory)].compactMap { $0 } + ["main", "master"]
-        for name in candidates {
-            for ref in ["refs/remotes/origin/\(name)", "refs/heads/\(name)"] {
-                if (try? GitRunner.run(["rev-parse", "--verify", "--quiet", ref], in: directory)) != nil {
-                    return ref.hasPrefix("refs/remotes/") ? "origin/\(name)" : name
-                }
+    /// The ref a working-tree review compares against, kept whole so a branch
+    /// name with a slash survives.
+    struct BaseRef: Hashable, Sendable {
+        /// A full ref such as `refs/remotes/origin/release/2.0`, or `HEAD`.
+        let ref: String
+
+        var displayName: String {
+            for prefix in ["refs/remotes/", "refs/heads/"] where ref.hasPrefix(prefix) {
+                return String(ref.dropFirst(prefix.count))
+            }
+            return ref
+        }
+    }
+
+    /// The remote's default branch where `origin/HEAD` names one, else
+    /// `main` or `master`, remote before local, else `HEAD`, which narrows
+    /// the review to uncommitted work.
+    static func defaultBaseRef(in directory: String) -> BaseRef {
+        func exists(_ ref: String) -> Bool {
+            (try? GitRunner.run(["rev-parse", "--verify", "--quiet", ref], in: directory)) != nil
+        }
+        if let target = try? GitRunner.run(["symbolic-ref", "-q", "refs/remotes/origin/HEAD"], in: directory),
+           target.hasPrefix("refs/"), exists(target) {
+            return BaseRef(ref: target)
+        }
+        for name in ["main", "master"] {
+            for ref in ["refs/remotes/origin/\(name)", "refs/heads/\(name)"] where exists(ref) {
+                return BaseRef(ref: ref)
             }
         }
-        return "HEAD"
+        return BaseRef(ref: "HEAD")
     }
 
     static func files(

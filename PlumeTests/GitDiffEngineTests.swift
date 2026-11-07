@@ -237,7 +237,28 @@ struct GitDiffEngineTests {
     @Test func defaultBaseRefFallsBackToALocalBranch() throws {
         let repository = try makeRepository()
         defer { try? FileManager.default.removeItem(atPath: repository) }
-        #expect(GitDiffEngine.defaultBaseRef(in: repository) == "main")
+        #expect(GitDiffEngine.defaultBaseRef(in: repository) == .init(ref: "refs/heads/main"))
+    }
+
+    @Test func defaultBaseRefKeepsASlashInTheRemoteDefaultBranch() throws {
+        let repository = try makeRepository()
+        defer { try? FileManager.default.removeItem(atPath: repository) }
+        try git(["update-ref", "refs/remotes/origin/release/2.0", "HEAD"], in: repository)
+        try git(["update-ref", "refs/remotes/origin/main", "HEAD"], in: repository)
+        try git(["symbolic-ref", "refs/remotes/origin/HEAD", "refs/remotes/origin/release/2.0"], in: repository)
+
+        let base = GitDiffEngine.defaultBaseRef(in: repository)
+        #expect(base.ref == "refs/remotes/origin/release/2.0")
+        #expect(base.displayName == "origin/release/2.0")
+    }
+
+    @Test func defaultBaseRefSkipsADanglingOriginHead() throws {
+        let repository = try makeRepository()
+        defer { try? FileManager.default.removeItem(atPath: repository) }
+        try git(["update-ref", "refs/remotes/origin/main", "HEAD"], in: repository)
+        try git(["symbolic-ref", "refs/remotes/origin/HEAD", "refs/remotes/origin/gone"], in: repository)
+
+        #expect(GitDiffEngine.defaultBaseRef(in: repository) == .init(ref: "refs/remotes/origin/main"))
     }
 
     @Test func untrackedFileTooLargeToCountLoadsTooLargeUntilLifted() throws {

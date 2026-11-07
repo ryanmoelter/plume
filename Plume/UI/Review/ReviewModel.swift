@@ -63,7 +63,7 @@ final class ReviewModel {
 
     let directory: String
     private(set) var phase: Phase = .idle
-    private(set) var baseRef: String?
+    private(set) var baseRef: GitDiffEngine.BaseRef?
     private(set) var range: ResolvedDiffRange?
     private(set) var files: [DiffFileSummary] = []
     /// Every tracked and untracked file under the repository root.
@@ -208,7 +208,7 @@ final class ReviewModel {
 
     private struct Listing: Sendable {
         let root: String
-        let baseRef: String
+        let baseRef: GitDiffEngine.BaseRef
         let range: ResolvedDiffRange
         let files: [DiffFileSummary]
         let tree: ReviewFileTree
@@ -235,7 +235,7 @@ final class ReviewModel {
                 Result { () throws -> Listing in
                     let root = try cachedRoot ?? GitDiffEngine.repositoryRoot(of: directory)
                     let baseRef = cachedBaseRef ?? GitDiffEngine.defaultBaseRef(in: root)
-                    let range = try GitDiffEngine.resolveWorkingTree(baseRef: baseRef, root: root)
+                    let range = try GitDiffEngine.resolveWorkingTree(baseRef: baseRef.ref, root: root)
                     let snapshot = try GitDiffEngine.snapshot(in: range)
                     let files = snapshot.files
                     return Listing(
