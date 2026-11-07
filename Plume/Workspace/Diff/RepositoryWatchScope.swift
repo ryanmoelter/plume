@@ -16,9 +16,8 @@ nonisolated struct RepositoryWatchScope: Hashable, Sendable {
         case workingTree(String)
         /// Which files are tracked may have changed.
         case index
-        /// `HEAD` or a ref, which can move the merge base or the default
-        /// branch.
-        case refs
+        /// `HEAD`, `packed-refs` or a ref under `refs/`, by its name there.
+        case ref(String)
         case irrelevant
     }
 
@@ -54,12 +53,12 @@ nonisolated struct RepositoryWatchScope: Hashable, Sendable {
     func classify(_ path: String) -> Change {
         if let relative = Self.relative(path, to: gitDirectory) {
             if relative == "index" { return .index }
-            return relative == "HEAD" || Self.isRef(relative) ? .refs : .irrelevant
+            return relative == "HEAD" || Self.isRef(relative) ? .ref(relative) : .irrelevant
         }
         // The common directory's own index and `HEAD` belong to the main
         // checkout, not to a linked worktree.
         if let relative = Self.relative(path, to: commonDirectory) {
-            return Self.isRef(relative) ? .refs : .irrelevant
+            return Self.isRef(relative) ? .ref(relative) : .irrelevant
         }
         guard let relative = Self.relative(path, to: root), !relative.isEmpty else { return .irrelevant }
         // Another repository's internals, such as a nested checkout's.
@@ -68,7 +67,7 @@ nonisolated struct RepositoryWatchScope: Hashable, Sendable {
     }
 
     private static func isRef(_ relative: String) -> Bool {
-        relative == "packed-refs" || relative == "refs" || relative.hasPrefix("refs/")
+        relative == "packed-refs" || relative.hasPrefix("refs/")
     }
 
     private static func relative(_ path: String, to directory: String) -> String? {

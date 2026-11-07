@@ -388,9 +388,10 @@ struct GitDiffEngineTests {
         #expect(scope.watchedPaths == [scope.root, common])
 
         #expect(scope.classify(scope.gitDirectory + "/index") == .index)
-        #expect(scope.classify(scope.gitDirectory + "/HEAD") == .refs)
-        #expect(scope.classify(common + "/refs/remotes/origin/main") == .refs)
-        #expect(scope.classify(common + "/packed-refs") == .refs)
+        #expect(scope.classify(scope.gitDirectory + "/HEAD") == .ref("HEAD"))
+        #expect(scope.classify(common + "/refs/remotes/origin/main") == .ref("refs/remotes/origin/main"))
+        #expect(scope.classify(common + "/packed-refs") == .ref("packed-refs"))
+        #expect(scope.classify(common + "/HEAD") == .irrelevant)
         #expect(scope.classify(common + "/objects/ab/cdef") == .irrelevant)
         #expect(scope.classify(common + "/index") == .irrelevant)
         #expect(scope.classify(scope.root + "/src/a.swift") == .workingTree("src/a.swift"))
@@ -404,7 +405,7 @@ struct GitDiffEngineTests {
         let scope = try RepositoryWatchScope.resolve(in: repository)
         #expect(scope.watchedPaths == [scope.root])
         #expect(scope.classify(scope.root + "/.git/index") == .index)
-        #expect(scope.classify(scope.root + "/.git/refs/heads/main") == .refs)
+        #expect(scope.classify(scope.root + "/.git/refs/heads/main") == .ref("refs/heads/main"))
         #expect(scope.classify(scope.root + "/.git/objects/ab/cdef") == .irrelevant)
     }
 
@@ -444,4 +445,21 @@ struct GitDiffEngineTests {
         #expect(cached?.addedLines == 2)
         #expect(recounted?.addedLines == 1)
     }
+
+    @Test func nestedRepositoryListsAsADirectoryAndItsWritesAreIgnored() throws {
+        let repository = try makeRepository()
+        defer { try? FileManager.default.removeItem(atPath: repository) }
+        try git(["init", "-b", "main", "nested"], in: repository)
+        try write("inner\n", to: "nested/inner.txt", in: repository)
+
+        let range = try GitDiffEngine.resolve(.workingTree(baseRef: "main"), in: repository)
+        let snapshot = try GitDiffEngine.snapshot(in: range)
+        #expect(snapshot.listedPaths.contains("nested/"))
+        #expect(!snapshot.files.contains { $0.path.hasPrefix("nested") })
+
+        let triage = ReviewChangeTriage(knownPaths: Set(snapshot.listedPaths))
+        let outcome = triage.triage([.workingTree("nested/inner.txt"), .workingTree("nested/deep/x.txt")])
+        #expect(outcome == .init())
+    }
 }
+

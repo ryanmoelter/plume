@@ -43,6 +43,11 @@ enum ReviewContentState {
     case loading
     case loaded(DiffFileContent, rows: [ReviewDiffRow])
     case failed(String)
+
+    var isLoaded: Bool {
+        if case .loaded = self { return true }
+        return false
+    }
 }
 
 /// The review of one task folder: the working tree against its merge base
@@ -86,9 +91,14 @@ final class ReviewModel {
     @ObservationIgnored private var needsRelist = false
     @ObservationIgnored private var repositoryRoot: String?
     @ObservationIgnored private var baseRefIsStale = true
-    /// Listed and changed paths, relative to the root: a change to one of
-    /// these always relists.
-    @ObservationIgnored private var knownPaths: Set<String> = []
+    @ObservationIgnored private var headRef: String?
+    @ObservationIgnored private var headRefIsStale = true
+    @ObservationIgnored private var triage = ReviewChangeTriage()
+    /// Working-tree paths changed since the last listing started.
+    @ObservationIgnored private var pendingTouched: Set<String> = []
+    /// Something other than a file edit asked for the relist, such as a
+    /// moved base, so the selected diff reloads whatever changed.
+    @ObservationIgnored private var pendingForcesReload = false
     /// Bumped by every listing and teardown; a load started under an older
     /// one read a file list that no longer holds.
     @ObservationIgnored private var listGeneration = 0
@@ -124,9 +134,11 @@ final class ReviewModel {
         watcher = nil
         scope = nil
         baseRefIsStale = true
+        headRefIsStale = true
         listGeneration += 1
         loadTokens = [:]
-        knownPaths = []
+        triage = ReviewChangeTriage()
+        pendingTouched = []
         contents = [:]
         files = []
         tree = .empty
@@ -170,32 +182,19 @@ final class ReviewModel {
     private func handle(_ batch: DirectoryTreeWatcher.Batch) {
         guard let scope, !batch.mustRescan else {
             baseRefIsStale = true
+            headRefIsStale = true
             refresh()
             return
         }
-        var unknown: [String] = []
-        var relists = false
-        for path in batch.paths {
-            switch scope.classify(path) {
-            case .refs:
-                baseRefIsStale = true
-                relists = true
-            case .index:
-                relists = true
-            case .workingTree(let relative):
-                if knownPaths.contains(relative) {
-                    relists = true
-                } else {
-                    unknown.append(relative)
-                }
-            case .irrelevant:
-                break
-            }
-        }
-        if relists {
-            refresh()
+        let outcome = triage.triage(batch.paths.map(scope.classify))
+        pendingTouched.formUnion(outcome.touched)
+        if outcome.headMoved { headRefIsStale = true }
+        if outcome.baseRefChanged { baseRefIsStale = true }
+        if outcome.relists {
+            refresh(reloadingSelection: outcome.headMoved || outcome.baseRefChanged)
             return
         }
+        let unknown = outcome.unknown
         guard !unknown.isEmpty else { return }
         // Anything not ignored is a new file, or a directory holding some.
         let root = scope.root
@@ -203,13 +202,14 @@ final class ReviewModel {
             let relevant = await Task.detached(priority: .utility) {
                 (try? GitDiffEngine.unignoredPaths(unknown, in: root)) ?? unknown
             }.value
-            if !relevant.isEmpty { refresh() }
+            if !relevant.isEmpty { refresh(reloadingSelection: false) }
         }
     }
 
     private struct Listing: Sendable {
         let root: String
         let baseRef: GitDiffEngine.BaseRef
+        let headRef: String?
         let range: ResolvedDiffRange
         let files: [DiffFileSummary]
         let tree: ReviewFileTree
@@ -217,8 +217,11 @@ final class ReviewModel {
         let knownPaths: Set<String>
     }
 
-    func refresh() {
+    /// Pass `reloadingSelection: false` when only the files the watcher
+    /// named should reload the selected diff.
+    func refresh(reloadingSelection: Bool = true) {
         guard viewers > 0 else { return }
+        if reloadingSelection { pendingForcesReload = true }
         guard !isListing else {
             needsRelist = true
             return
@@ -229,7 +232,12 @@ final class ReviewModel {
         let untrackedCounts = untrackedCounts
         let cachedRoot = repositoryRoot
         let cachedBaseRef = baseRefIsStale ? nil : baseRef
+        let cachedHeadRef: String?? = headRefIsStale ? nil : .some(headRef)
         baseRefIsStale = false
+        headRefIsStale = false
+        let reload = SelectionReload(touched: pendingTouched, forced: pendingForcesReload)
+        pendingTouched = []
+        pendingForcesReload = false
         Task {
             let signpost = Log.reviewSignposter.beginInterval("ReviewList")
             let started = ContinuousClock.now
@@ -237,12 +245,15 @@ final class ReviewModel {
                 Result { () throws -> Listing in
                     let root = try cachedRoot ?? GitDiffEngine.repositoryRoot(of: directory)
                     let baseRef = cachedBaseRef ?? GitDiffEngine.defaultBaseRef(in: root)
+                    // Exit 1 means a detached `HEAD`.
+                    let headRef = cachedHeadRef ?? (try? GitRunner.run(["symbolic-ref", "-q", "HEAD"], in: root))
                     let range = try GitDiffEngine.resolveWorkingTree(baseRef: baseRef.ref, root: root)
                     let snapshot = try GitDiffEngine.snapshot(in: range, cache: untrackedCounts)
                     let files = snapshot.files
                     return Listing(
                         root: root,
                         baseRef: baseRef,
+                        headRef: headRef,
                         range: range,
                         files: files,
                         tree: ReviewFileTree(paths: snapshot.listedPaths, files: files),
@@ -254,39 +265,56 @@ final class ReviewModel {
             let elapsed = ContinuousClock.now - started
             Log.reviewSignposter.endInterval("ReviewList", signpost)
             isListing = false
-            apply(result, elapsed: elapsed)
+            apply(result, reload: reload, elapsed: elapsed)
             if needsRelist {
                 needsRelist = false
-                refresh()
+                refresh(reloadingSelection: false)
             }
         }
     }
 
-    private func apply(_ result: Result<Listing, any Error>, elapsed: Duration) {
+    private struct SelectionReload {
+        let touched: Set<String>
+        let forced: Bool
+    }
+
+    private func apply(_ result: Result<Listing, any Error>, reload: SelectionReload, elapsed: Duration) {
         guard viewers > 0 else { return }
         switch result {
         case .failure(let error):
             baseRefIsStale = true
+            headRefIsStale = true
             phase = .failed(error.localizedDescription)
         case .success(let listing):
             lastListDuration = elapsed
             Log.review.info("Listed \(listing.files.count) files in \(String(describing: elapsed), privacy: .public)")
+            let previousSelection = selectedFile
             listGeneration += 1
             loadTokens = [:]
             repositoryRoot = listing.root
             baseRef = listing.baseRef
+            headRef = listing.headRef
             range = listing.range
-            knownPaths = listing.knownPaths
+            triage = ReviewChangeTriage(
+                knownPaths: listing.knownPaths,
+                headRef: listing.headRef,
+                baseRef: listing.baseRef.ref
+            )
             if files != listing.files { files = listing.files }
             if tree != listing.tree { tree = listing.tree }
             if changedTree != listing.changedTree { changedTree = listing.changedTree }
             liftedCaps.formIntersection(listing.files.map(\.path))
             phase = .loaded
             // A file's lines can change without its counts changing, so every
-            // cached diff is stale. The selected one reloads in place.
+            // other cached diff is stale. The selected one reloads in place
+            // only if this relist could have changed it.
             contents = contents.filter { $0.key == selectedPath }
-            if let selectedPath, files.contains(where: { $0.path == selectedPath }) {
-                loadContent(for: selectedPath, reloading: true)
+            if let selectedPath, let selected = files.first(where: { $0.path == selectedPath }) {
+                let touched = ([selected.path] + [selected.oldPath].compactMap { $0 }).contains(where: reload.touched.contains)
+                let isCurrent = contents[selectedPath]?.isLoaded == true
+                if reload.forced || touched || selected != previousSelection || !isCurrent {
+                    loadContent(for: selectedPath, reloading: true)
+                }
             } else {
                 selectedPath = files.first?.path
             }
