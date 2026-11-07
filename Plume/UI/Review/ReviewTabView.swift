@@ -268,8 +268,8 @@ private struct ReviewDiffPane: View, ThemedView {
                     ProgressView().controlSize(.small)
                 case .failed(let error):
                     message(error)
-                case .loaded(let content, let rows):
-                    loaded(content, rows: rows, file: file)
+                case .loaded(let content, let rows, let columns):
+                    loaded(content, rows: rows, columns: columns, file: file)
                 }
             } else {
                 message(model.files.isEmpty ? "" : "Select a file")
@@ -279,10 +279,10 @@ private struct ReviewDiffPane: View, ThemedView {
     }
 
     @ViewBuilder
-    private func loaded(_ content: DiffFileContent, rows: [ReviewDiffRow], file: DiffFileSummary) -> some View {
+    private func loaded(_ content: DiffFileContent, rows: [ReviewDiffRow], columns: Int, file: DiffFileSummary) -> some View {
         switch content {
         case .text:
-            ReviewDiffBody(rows: rows)
+            ReviewDiffBody(rows: rows, columns: columns, wraps: ReviewDiffBody.wraps(file.path))
                 .id(file.path)
         case .binary:
             message("Binary file")

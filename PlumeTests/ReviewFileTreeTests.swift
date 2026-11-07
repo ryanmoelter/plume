@@ -1,3 +1,4 @@
+import Foundation
 import Testing
 @testable import Plume
 
@@ -32,5 +33,17 @@ struct ReviewFileTreeTests {
 
         let changed = ReviewFileTree(paths: [], files: files, scope: "app")
         #expect(changed.children[""]?.map(\.path) == ["app/src", ".."])
+    }
+}
+
+struct ReviewDiffLayoutTests {
+    @Test func columnsCountTheWidestRowWithTabsAtTheirWidest() {
+        let rows = [
+            ReviewDiffRow(id: 0, kind: .hunk("@@ -1 +1 @@")),
+            ReviewDiffRow(id: 1, kind: .line(DiffLine(kind: .added, text: "\tab", oldNumber: nil, newNumber: 1), "")),
+        ]
+        #expect(ReviewDiffRow.columns(of: rows) == 11)
+        #expect(ReviewDiffBody.wraps("docs/README.MD"))
+        #expect(!ReviewDiffBody.wraps("Sources/a.swift"))
     }
 }

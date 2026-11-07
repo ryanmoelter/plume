@@ -107,7 +107,7 @@ struct ReviewDiffBenchmarkTests {
 
         let mount = Self.time {
             window.contentView = NSHostingView(rootView:
-                ReviewDiffBody(rows: rows)
+                ReviewDiffBody(rows: rows, columns: ReviewDiffRow.columns(of: rows), wraps: false)
                     .plumeTheme(bodySize: 13, setsAmbientFont: false)
                     .frame(width: 1000, height: 800)
             )

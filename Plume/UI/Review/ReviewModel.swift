@@ -18,6 +18,20 @@ nonisolated struct ReviewDiffRow: Identifiable, Hashable, Sendable {
     /// read, and the tokenize would dominate the load.
     static let maxHighlightedLength = 2_000
 
+    /// The widest row in characters, a tab counted at its widest stop, so the
+    /// diff can be laid out at its full width before any row is realized.
+    static func columns(of rows: [ReviewDiffRow]) -> Int {
+        rows.reduce(0) { widest, row in
+            let text: String
+            switch row.kind {
+            case .hunk(let header): text = header
+            case .line(let line, _): text = line.text
+            }
+            let tabs = text.utf8.reduce(0) { $1 == 0x09 ? $0 + 1 : $0 }
+            return max(widest, text.count + tabs * 7)
+        }
+    }
+
     /// Highlights every line, so build rows off the main actor.
     static func rows(for content: DiffFileContent, language: String?, palette: CodeSyntaxPalette) -> [ReviewDiffRow] {
         guard case .text(let hunks) = content else { return [] }
@@ -41,7 +55,8 @@ nonisolated struct ReviewDiffRow: Identifiable, Hashable, Sendable {
 
 enum ReviewContentState {
     case loading
-    case loaded(DiffFileContent, rows: [ReviewDiffRow])
+    /// `columns` is the widest row's width in characters.
+    case loaded(DiffFileContent, rows: [ReviewDiffRow], columns: Int)
     case failed(String)
 
     var isLoaded: Bool {
@@ -420,9 +435,10 @@ final class ReviewModel {
             let signpost = Log.reviewSignposter.beginInterval("ReviewFile")
             let started = ContinuousClock.now
             let result = await Task.detached(priority: .userInitiated) {
-                Result { () throws -> (DiffFileContent, [ReviewDiffRow]) in
+                Result { () throws -> (DiffFileContent, [ReviewDiffRow], Int) in
                     let content = try GitDiffEngine.content(for: file, in: range, lineCap: lineCap)
-                    return (content, ReviewDiffRow.rows(for: content, language: language, palette: palette))
+                    let rows = ReviewDiffRow.rows(for: content, language: language, palette: palette)
+                    return (content, rows, ReviewDiffRow.columns(of: rows))
                 }
             }.value
             let elapsed = ContinuousClock.now - started
@@ -430,10 +446,10 @@ final class ReviewModel {
             guard loadTokens[path] == token, generation == listGeneration else { return }
             loadTokens[path] = nil
             switch result {
-            case .success(let (content, rows)):
+            case .success(let (content, rows, columns)):
                 lastContentDuration = elapsed
                 Log.review.info("Loaded \(rows.count) rows of \(path, privacy: .public) in \(String(describing: elapsed), privacy: .public)")
-                contents[path] = .loaded(content, rows: rows)
+                contents[path] = .loaded(content, rows: rows, columns: columns)
             case .failure(let error):
                 contents[path] = .failed(error.localizedDescription)
             }
