@@ -139,6 +139,9 @@ final class ReviewModel {
         loadTokens = [:]
         triage = ReviewChangeTriage()
         pendingTouched = []
+        pendingForcesReload = false
+        liftedCaps = []
+        untrackedCounts.keepOnly([])
         contents = [:]
         files = []
         tree = .empty
@@ -176,6 +179,9 @@ final class ReviewModel {
             }
             watcher.start()
             self.watcher = watcher
+            // The stream reports only from now on; the first listing may
+            // have read the tree before it started.
+            refresh(reloadingSelection: false)
         }
     }
 
@@ -228,7 +234,10 @@ final class ReviewModel {
             return
         }
         isListing = true
-        if files.isEmpty { phase = .loading }
+        switch phase {
+        case .idle, .failed: phase = .loading
+        case .loading, .loaded: break
+        }
         let directory = directory
         let untrackedCounts = untrackedCounts
         let cachedRoot = repositoryRoot
