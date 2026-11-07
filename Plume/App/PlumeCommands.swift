@@ -256,7 +256,10 @@ struct PlumeCommands: Commands {
             #if DEBUG
             Divider()
 
-            Button("New Review Tab") { task?.addTab(.review) }
+            Button("New Review Tab") {
+                task?.addTab(.review)
+                ReviewPaneVisibility.shared.isShown = false
+            }
                 .keyboardShortcut(PlumeShortcuts.newReviewTab)
                 .plumeID(AccessibilityID.newReviewTabCommand)
                 .disabled(task == nil)

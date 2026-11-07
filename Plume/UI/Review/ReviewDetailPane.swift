@@ -14,8 +14,9 @@ final class ReviewPaneVisibility {
 
 enum ReviewNavigation {
     /// Selects the task's review tab, adding one if it has none, and shows
-    /// `path` in it.
+    /// `path` in it. The tab replaces the pane, which shows the same review.
     static func open(path: String, in task: WorkTask, context: ModelContext) {
+        ReviewPaneVisibility.shared.isShown = false
         if let directory = task.workingDirectoryPath {
             ReviewStore.shared.model(for: directory).selectedPath = path
         }
