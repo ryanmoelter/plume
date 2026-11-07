@@ -25,7 +25,10 @@ struct AndroidDeviceView: View, ThemedView {
             isPresented: $confirmingShutDown
         ) {
             Button("Shut Down", role: .destructive) { session.shutDownEmulator() }
-                .plumeID(AccessibilityID.emulatorShutDownConfirmButton, invoke: { session.shutDownEmulator() })
+                .plumeID(AccessibilityID.emulatorShutDownConfirmButton, invoke: {
+                    confirmingShutDown = false
+                    session.shutDownEmulator()
+                })
         } message: {
             Text("Anything else using it, such as an agent's adb connection, loses it too.")
         }
