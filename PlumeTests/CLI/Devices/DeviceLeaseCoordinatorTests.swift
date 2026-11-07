@@ -410,12 +410,14 @@ struct DeviceLeaseCoordinatorTests {
     @Test func aClaimantForgottenWhileItsClaimIsWrittenStopsTheClaim() async throws {
         let (locked, unlock) = (DispatchSemaphore(value: 0), DispatchSemaphore(value: 0))
         let store = store
-        DispatchQueue.global().async {
+        // A thread of its own, since `locked.wait()` blocks the main thread
+        // and a busy machine may give a global queue's work no thread at all.
+        Thread {
             try? store.withLock {
                 locked.signal()
                 unlock.wait()
             }
-        }
+        }.start()
         locked.wait()
         let coordinator = coordinator
         let claim = claim()
