@@ -28,10 +28,12 @@ nonisolated struct ReviewFileTree: Sendable, Equatable {
 
         for path in Set(paths).union(changes.keys) {
             let components = path.split(separator: "/").map(String.init)
+            // `ls-files` lists a nested repository as `name/`.
+            let endsInFile = !path.hasSuffix("/")
             var parent = ""
             for (index, component) in components.enumerated() {
                 let current = parent.isEmpty ? component : "\(parent)/\(component)"
-                if index == components.count - 1 {
+                if endsInFile, index == components.count - 1 {
                     leaves[parent, default: []].append(current)
                 } else {
                     folders[parent, default: []].insert(current)
