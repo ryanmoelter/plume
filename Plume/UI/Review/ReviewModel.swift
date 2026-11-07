@@ -161,6 +161,46 @@ final class ReviewModel {
         return folder.hasPrefix(prefix) ? String(folder.dropFirst(prefix.count)) : ""
     }
 
+    // MARK: Comments
+
+    /// Drafts for the agent, kept for the session whether or not a view
+    /// shows the review.
+    private(set) var comments: [ReviewComment] = []
+    /// The batch waiting in the agent's queue, while it waits.
+    private(set) var queuedBatch: SentBatch?
+
+    struct SentBatch: Equatable {
+        let tabID: UUID
+        let blocks: [UserContentBlock]
+    }
+
+    var writtenComments: [ReviewComment] {
+        comments.filter { !$0.body.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty }
+    }
+
+    func addComment(path: String, lines: [DiffLine]) {
+        guard let comment = ReviewComment(path: path, lines: lines) else { return }
+        comments.append(comment)
+    }
+
+    func updateComment(_ id: UUID, body: String) {
+        guard let index = comments.firstIndex(where: { $0.id == id }) else { return }
+        comments[index].body = body
+    }
+
+    func deleteComment(_ id: UUID) {
+        comments.removeAll { $0.id == id }
+    }
+
+    func markQueued(_ batch: SentBatch?) {
+        queuedBatch = batch
+    }
+
+    func clearComments() {
+        comments = []
+        queuedBatch = nil
+    }
+
     func selectBase(_ base: ReviewBase) {
         guard base != self.base else { return }
         chosenBase = base

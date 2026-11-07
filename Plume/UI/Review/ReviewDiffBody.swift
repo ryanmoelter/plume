@@ -1,4 +1,5 @@
 #if DEBUG
+import AppKit
 import SwiftUI
 
 /// A file's unified diff as a lazy SwiftUI list: line numbers, a marker, and
@@ -12,13 +13,18 @@ struct ReviewDiffBody: View, ThemedView {
     let rows: [ReviewDiffRow]
     let columns: Int
     let wraps: Bool
+    /// Where comments are drafted; nil shows the diff alone.
+    var model: ReviewModel?
+    var path = ""
 
     @State private var viewportWidth: CGFloat = 0
     @State private var characterWidth: CGFloat = 8
+    /// The row a shift-click extends a comment from.
+    @State private var anchorRow: Int?
 
     static let numberWidth: CGFloat = 44
     private static let markerWidth: CGFloat = 16
-    private static let gutterWidth = (numberWidth + 4) * 2 + markerWidth
+    static let gutterWidth = (numberWidth + 4) * 2 + markerWidth
 
     static func wraps(_ path: String) -> Bool {
         ["md", "markdown"].contains((path as NSString).pathExtension.lowercased())
@@ -41,7 +47,13 @@ struct ReviewDiffBody: View, ThemedView {
                     case .hunk(let header):
                         hunk(header)
                     case .line(let line, let text):
-                        self.line(line, text: text)
+                        self.line(line, text: text, row: row.id)
+                        if let model {
+                            ForEach(model.comments.filter { $0.path == path && $0.endsAt(line) }) { comment in
+                                ReviewCommentEditor(model: model, comment: comment)
+                                    .frame(width: wraps ? viewportWidth : min(rowWidth, max(viewportWidth, 1)), alignment: .leading)
+                            }
+                        }
                     }
                 }
             }
@@ -69,13 +81,23 @@ struct ReviewDiffBody: View, ThemedView {
             .background(colors.attention.opacity(0.08))
     }
 
-    private func line(_ line: DiffLine, text: AttributedString) -> some View {
+    private func line(_ line: DiffLine, text: AttributedString, row: Int) -> some View {
         HStack(alignment: .firstTextBaseline, spacing: 0) {
-            number(line.oldNumber)
-            number(line.newNumber)
-            Text(marker(line.kind))
-                .foregroundStyle(markerColor(line.kind))
-                .frame(width: Self.markerWidth)
+            HStack(alignment: .firstTextBaseline, spacing: 0) {
+                number(line.oldNumber)
+                number(line.newNumber)
+                Text(marker(line.kind))
+                    .foregroundStyle(markerColor(line.kind))
+                    .frame(width: Self.markerWidth)
+            }
+            .contentShape(.rect)
+            .onTapGesture { comment(at: row, extending: NSEvent.modifierFlags.contains(.shift)) }
+            .help(model == nil ? "" : "Comment on this line; shift-click to comment on a range")
+            .plumeID(
+                AccessibilityID.reviewDiffGutter,
+                label: "\(line.oldNumber.map(String.init) ?? "-"):\(line.newNumber.map(String.init) ?? "-")",
+                invoke: { comment(at: row, extending: false) }
+            )
             Text(text)
                 .lineLimit(wraps ? nil : 1)
                 .fixedSize(horizontal: !wraps, vertical: true)
@@ -90,6 +112,22 @@ struct ReviewDiffBody: View, ThemedView {
         .padding(.vertical, 1)
         .frame(width: rowWidth, alignment: .leading)
         .background(background(line.kind))
+    }
+
+    /// Drafts a comment on one line, or from the last clicked line to this
+    /// one when extending.
+    private func comment(at row: Int, extending: Bool) {
+        guard let model else { return }
+        let bounds = extending ? anchorRow.map { (min($0, row), max($0, row)) } ?? (row, row) : (row, row)
+        let lines: [DiffLine] = rows[bounds.0...bounds.1].compactMap { row in
+            if case .line(let line, _) = row.kind { return line }
+            return nil
+        }
+        if extending, let previous = model.comments.last, previous.path == path, previous.body.isEmpty {
+            model.deleteComment(previous.id)
+        }
+        model.addComment(path: path, lines: lines)
+        anchorRow = row
     }
 
     private func number(_ value: Int?) -> some View {

@@ -11,7 +11,7 @@ struct ReviewTabView: View {
     var body: some View {
         Group {
             if let directory = task.workingDirectoryPath {
-                ReviewTabContent(model: ReviewStore.shared.model(for: directory), isFocused: isFocused)
+                ReviewTabContent(task: task, model: ReviewStore.shared.model(for: directory), isFocused: isFocused)
                     .id(directory)
             } else {
                 ContentUnavailableView("No Folder", systemImage: "folder", description: Text("This task has no folder to review."))
@@ -24,6 +24,7 @@ struct ReviewTabView: View {
 
 private struct ReviewTabContent: View, ThemedView {
     @Environment(\.theme) var theme
+    let task: WorkTask
     let model: ReviewModel
     let isFocused: Bool
 
@@ -74,6 +75,7 @@ private struct ReviewTabContent: View, ThemedView {
                 .emphasis(.secondary)
                 .lineLimit(1)
             Spacer()
+            ReviewCommentBar(task: task, model: model)
             if let duration = model.lastListDuration {
                 Text("list \(Self.milliseconds(duration))")
                     .font(typography.caption.mono)
@@ -282,7 +284,13 @@ private struct ReviewDiffPane: View, ThemedView {
     private func loaded(_ content: DiffFileContent, rows: [ReviewDiffRow], columns: Int, file: DiffFileSummary) -> some View {
         switch content {
         case .text:
-            ReviewDiffBody(rows: rows, columns: columns, wraps: ReviewDiffBody.wraps(file.path))
+            ReviewDiffBody(
+                rows: rows,
+                columns: columns,
+                wraps: ReviewDiffBody.wraps(file.path),
+                model: model,
+                path: file.path
+            )
                 .id(file.path)
         case .binary:
             message("Binary file")

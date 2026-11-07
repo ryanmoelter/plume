@@ -570,4 +570,10 @@ enum AccessibilityID {
     static let reviewChangedOnlyToggle = "review-changed-only-toggle"
     static let reviewTreeRow = "review-tree-row"
     static let reviewBasePicker = "review-base-picker"
+    static let reviewCommentCount = "review-comment-count"
+    static let reviewCommentSendButton = "review-comment-send-button"
+    static let reviewCommentCancelButton = "review-comment-cancel-button"
+    static let reviewCommentDeleteButton = "review-comment-delete-button"
+    static let reviewCommentField = "review-comment-field"
+    static let reviewDiffGutter = "review-diff-gutter"
 }
