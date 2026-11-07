@@ -34,6 +34,11 @@ struct GitDiffEngineTests {
         try text.write(to: url, atomically: true, encoding: .utf8)
     }
 
+    private func lineCount(_ content: DiffFileContent) -> Int {
+        guard case .text(let hunks) = content else { return 0 }
+        return hunks.reduce(0) { $0 + $1.lines.count }
+    }
+
     private func workingTreeFiles(in repository: String) throws -> (ResolvedDiffRange, [String: DiffFileSummary]) {
         let range = try GitDiffEngine.resolve(.workingTree(baseRef: "main"), in: repository)
         let files = try GitDiffEngine.files(in: range)
@@ -173,7 +178,7 @@ struct GitDiffEngineTests {
         let capped = try GitDiffEngine.content(for: file, in: range, lineCap: 10)
         let uncapped = try GitDiffEngine.content(for: file, in: range, lineCap: nil)
         #expect(capped == .tooLarge(changedLines: 50))
-        #expect(uncapped.lineCount == 50)
+        #expect(lineCount(uncapped) == 50)
     }
 
     @Test func pathsThatLookLikePathspecMagicLoadLiterally() throws {
@@ -190,7 +195,7 @@ struct GitDiffEngineTests {
         let glob = try #require(files["*.txt"])
 
         let content = try GitDiffEngine.content(for: glob, in: range)
-        #expect(content.lineCount == 2)
+        #expect(lineCount(content) == 2)
     }
 
     @Test func singleCommitRangeDiffsAgainstItsParent() throws {
@@ -249,7 +254,7 @@ struct GitDiffEngineTests {
         let capped = try GitDiffEngine.content(for: file, in: range)
         let lifted = try GitDiffEngine.content(for: file, in: range, lineCap: nil)
         #expect(capped == .tooLarge(changedLines: nil))
-        #expect(lifted.lineCount == 3)
+        #expect(lineCount(lifted) == 3)
     }
 
     @Test func untrackedSymlinkCountsAsOneLine() throws {
@@ -261,7 +266,7 @@ struct GitDiffEngineTests {
         let file = try #require(files["link"])
         #expect(file.addedLines == 1)
         let content = try GitDiffEngine.content(for: file, in: range)
-        #expect(content.lineCount == 1)
+        #expect(lineCount(content) == 1)
     }
 
     @Test func untrackedFIFOIsSkippedWithoutReading() throws {

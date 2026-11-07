@@ -61,8 +61,6 @@ nonisolated struct DiffFileSummary: Hashable, Sendable, Identifiable {
         self.isUncounted = isUncounted
     }
 
-    var isUntracked: Bool { origin != .tracked }
-
     var changedLines: Int { addedLines + removedLines }
 }
 
@@ -93,9 +91,4 @@ nonisolated enum DiffFileContent: Hashable, Sendable {
     case tooLarge(changedLines: Int?)
     /// A change with no line content, like a mode change or an empty file.
     case empty
-
-    var lineCount: Int {
-        guard case .text(let hunks) = self else { return 0 }
-        return hunks.reduce(0) { $0 + $1.lines.count }
-    }
 }

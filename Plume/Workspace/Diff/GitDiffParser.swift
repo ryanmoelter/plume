@@ -15,43 +15,6 @@ nonisolated enum GitDiffParser {
         let removed: Int?
     }
 
-    /// Parses `git diff -z --name-status`. A rename or copy carries a score
-    /// (`R087`) and two paths, old then new.
-    static func nameStatus(_ output: String) -> [NameStatus] {
-        var tokens = output.split(separator: "\0", omittingEmptySubsequences: false).makeIterator()
-        var entries: [NameStatus] = []
-        while let token = tokens.next() {
-            guard let status = token.first else { continue }
-            guard let first = tokens.next() else { break }
-            if status == "R" || status == "C" {
-                guard let second = tokens.next() else { break }
-                entries.append(NameStatus(status: status, path: String(second), oldPath: String(first)))
-            } else {
-                entries.append(NameStatus(status: status, path: String(first), oldPath: nil))
-            }
-        }
-        return entries
-    }
-
-    /// Parses `git diff -z --numstat`, keyed by the new path. A rename leaves
-    /// the path field empty and puts old and new paths in the next two fields.
-    static func numstat(_ output: String) -> [String: LineCounts] {
-        var tokens = output.split(separator: "\0", omittingEmptySubsequences: false).makeIterator()
-        var counts: [String: LineCounts] = [:]
-        while let token = tokens.next() {
-            let fields = token.split(separator: "\t", maxSplits: 2, omittingEmptySubsequences: false)
-            guard fields.count == 3 else { continue }
-            let entry = LineCounts(added: Int(fields[0]), removed: Int(fields[1]))
-            if fields[2].isEmpty {
-                guard tokens.next() != nil, let newPath = tokens.next() else { break }
-                counts[String(newPath)] = entry
-            } else {
-                counts[String(fields[2])] = entry
-            }
-        }
-        return counts
-    }
-
     /// Parses `git diff -z --raw --numstat`, which prints every raw record
     /// and then every numstat record. Read positionally, so a path that starts
     /// with `:` or holds a tab is never taken for a record.
@@ -61,28 +24,41 @@ nonisolated enum GitDiffParser {
         var counts: [String: LineCounts] = [:]
         while let token = tokens.next() {
             if token.hasPrefix(":") {
-                guard let status = token.split(separator: " ").last?.first,
-                      let first = tokens.next()
-                else { break }
-                if status == "R" || status == "C" {
-                    guard let second = tokens.next() else { break }
-                    entries.append(NameStatus(status: status, path: String(second), oldPath: String(first)))
-                } else {
-                    entries.append(NameStatus(status: status, path: String(first), oldPath: nil))
-                }
-                continue
-            }
-            let fields = token.split(separator: "\t", maxSplits: 2, omittingEmptySubsequences: false)
-            guard fields.count == 3 else { continue }
-            let entry = LineCounts(added: Int(fields[0]), removed: Int(fields[1]))
-            if fields[2].isEmpty {
-                guard tokens.next() != nil, let newPath = tokens.next() else { break }
-                counts[String(newPath)] = entry
-            } else {
-                counts[String(fields[2])] = entry
+                guard let entry = rawRecord(token, rest: &tokens) else { break }
+                entries.append(entry)
+            } else if let (path, entry) = numstatRecord(token, rest: &tokens) {
+                counts[path] = entry
             }
         }
         return (entries, counts)
+    }
+
+    /// `:mode mode sha sha STATUS`, then the path. A rename or copy carries a
+    /// score (`R087`) and two paths, old then new.
+    private static func rawRecord(
+        _ header: Substring,
+        rest tokens: inout IndexingIterator<[Substring]>
+    ) -> NameStatus? {
+        guard let status = header.split(separator: " ").last?.first, let first = tokens.next() else { return nil }
+        guard status == "R" || status == "C" else {
+            return NameStatus(status: status, path: String(first), oldPath: nil)
+        }
+        guard let second = tokens.next() else { return nil }
+        return NameStatus(status: status, path: String(second), oldPath: String(first))
+    }
+
+    /// `added\tremoved\tpath`, keyed by the new path. A rename leaves the path
+    /// field empty and puts old and new paths in the next two tokens.
+    private static func numstatRecord(
+        _ token: Substring,
+        rest tokens: inout IndexingIterator<[Substring]>
+    ) -> (String, LineCounts)? {
+        let fields = token.split(separator: "\t", maxSplits: 2, omittingEmptySubsequences: false)
+        guard fields.count == 3 else { return nil }
+        let entry = LineCounts(added: Int(fields[0]), removed: Int(fields[1]))
+        guard fields[2].isEmpty else { return (String(fields[2]), entry) }
+        guard tokens.next() != nil, let newPath = tokens.next() else { return nil }
+        return (String(newPath), entry)
     }
 
     static func summaries(nameStatus: [NameStatus], numstat: [String: LineCounts]) -> [DiffFileSummary] {

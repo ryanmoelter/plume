@@ -3,9 +3,15 @@ import Testing
 @testable import Plume
 
 struct GitDiffParserTests {
-    @Test func nameStatusReadsRenamesAsOldThenNew() {
-        let output = "M\0a.txt\0R087\0old name.txt\0new name.txt\0D\0gone.txt\0A\0fresh.txt\0"
-        let entries = GitDiffParser.nameStatus(output)
+    @Test func rawRecordsReadRenamesAsOldThenNew() {
+        let output = [
+            ":100644 100644 aaa bbb M", "a.txt",
+            ":100644 100644 aaa bbb R087", "old name.txt", "new name.txt",
+            ":100644 000000 aaa 000 D", "gone.txt",
+            ":000000 100644 000 bbb A", "fresh.txt",
+            "",
+        ].joined(separator: "\0")
+        let entries = GitDiffParser.rawAndNumstat(output).nameStatus
         #expect(entries == [
             .init(status: "M", path: "a.txt", oldPath: nil),
             .init(status: "R", path: "new name.txt", oldPath: "old name.txt"),
@@ -14,9 +20,9 @@ struct GitDiffParserTests {
         ])
     }
 
-    @Test func numstatKeysRenamesByNewPathAndBinaryAsNil() {
+    @Test func numstatRecordsKeyRenamesByNewPathAndBinaryAsNil() {
         let output = "3\t1\ta.txt\0" + "0\t0\t\0old name.txt\0new name.txt\0" + "-\t-\timage.png\0"
-        let counts = GitDiffParser.numstat(output)
+        let counts = GitDiffParser.rawAndNumstat(output).numstat
         #expect(counts["a.txt"] == .init(added: 3, removed: 1))
         #expect(counts["new name.txt"] == .init(added: 0, removed: 0))
         #expect(counts["image.png"] == .init(added: nil, removed: nil))

@@ -173,17 +173,6 @@ nonisolated enum GitDiffEngine {
         return GitDiffParser.patch(patch)
     }
 
-    /// Every tracked and untracked, non-ignored file under the root, for a
-    /// file tree.
-    static func listedPaths(in repositoryRoot: String) throws -> [String] {
-        let output = try GitRunner.run(
-            ["ls-files", "-z", "--cached", "--others", "--exclude-standard"],
-            in: repositoryRoot,
-            trimsOutput: false
-        )
-        return output.split(separator: "\0").map(String.init)
-    }
-
     /// The paths, relative to the root, that `.gitignore` and friends don't
     /// exclude. A tracked file is never ignored, whatever the patterns say.
     static func unignoredPaths(_ paths: [String], in root: String) throws -> [String] {
