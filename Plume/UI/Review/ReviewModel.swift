@@ -322,14 +322,23 @@ final class ReviewModel {
     }
 
     func loadContent(for path: String, liftingCap: Bool = false, reloading: Bool = false) {
-        if liftingCap { liftedCaps.insert(path) }
+        if liftingCap {
+            // Every load after the lift is uncapped, so one in flight already
+            // answers a repeated click.
+            if liftedCaps.contains(path), loadTokens[path] != nil { return }
+            liftedCaps.insert(path)
+        }
         guard let range, let palette, let file = files.first(where: { $0.path == path }) else { return }
-        if !liftingCap, !reloading, contents[path] != nil { return }
+        let isCached = switch contents[path] {
+        case .loading, .loaded: true
+        case .failed, nil: false
+        }
+        if !liftingCap, !reloading, isCached { return }
         nextLoadToken += 1
         let token = nextLoadToken
         let generation = listGeneration
         loadTokens[path] = token
-        if contents[path] == nil { contents[path] = .loading }
+        if liftingCap || !isCached { contents[path] = .loading }
         let lineCap = liftedCaps.contains(path) ? nil : GitDiffEngine.defaultLineCap
         let language = (path as NSString).pathExtension
         Task {
