@@ -32,7 +32,19 @@ while kill -0 "$pid" 2>/dev/null; do
         lsof -p "$c" -a -d 0-20 2>/dev/null | tail -n +2
       done
       echo "::endgroup::"
+      # A pipe's other end can be held by a process that is no longer a
+      # descendant, once its parent exits and it is reparented to launchd.
+      echo "::group::holders of $host's pipes"
+      lsof -n -P > "$out/lsof.txt" 2>/dev/null
+      lsof -n -P -p "$host" 2>/dev/null | grep PIPE
+      for address in $(lsof -n -P -p "$host" 2>/dev/null | grep PIPE | grep -o '0x[0-9a-f]*' | sort -u); do
+        awk -v a="$address" -v h="$host" '$2 != h && index($0, a)' "$out/lsof.txt"
+      done | sort -u
+      echo "::endgroup::"
     done
+    echo "::group::processes that look related"
+    grep -iE 'plume|git|xcrun' "$out/ps.txt" | grep -v grep
+    echo "::endgroup::"
     for f in "$out"/sample-*.txt; do
       [ -f "$f" ] || continue
       echo "::group::$(basename "$f")"; sed '/^Binary Images:/,$d' "$f"; echo "::endgroup::"
