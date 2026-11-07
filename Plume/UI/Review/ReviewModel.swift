@@ -113,6 +113,10 @@ final class ReviewModel {
     @ObservationIgnored private var liftedCaps: Set<String> = []
     @ObservationIgnored private var palette: CodeSyntaxPalette?
     @ObservationIgnored private let untrackedCounts = UntrackedCountCache()
+    @ObservationIgnored private var ignoredDirectories = IgnoredDirectories()
+    /// Bumped by `release()`, which empties the lists a listing in flight
+    /// compared its own against.
+    @ObservationIgnored private var releaseCount = 0
 
     init(directory: String) {
         self.directory = directory
@@ -172,6 +176,8 @@ final class ReviewModel {
         pendingForcesReload = false
         liftedCaps = []
         untrackedCounts.keepOnly([])
+        ignoredDirectories.removeAll()
+        releaseCount += 1
         contents = [:]
         files = []
         tree = .empty
@@ -219,25 +225,31 @@ final class ReviewModel {
         guard let scope, !batch.mustRescan else {
             baseRefIsStale = true
             headRefIsStale = true
+            ignoredDirectories.removeAll()
             refresh()
             return
         }
         let outcome = triage.triage(batch.paths.map(scope.classify))
         pendingTouched.formUnion(outcome.touched)
+        if outcome.touched.contains(where: { ($0 as NSString).lastPathComponent == ".gitignore" }) {
+            ignoredDirectories.removeAll()
+        }
         if outcome.headMoved { headRefIsStale = true }
         if outcome.baseRefChanged { baseRefIsStale = true }
         if outcome.relists {
             refresh(reloadingSelection: outcome.headMoved || outcome.baseRefChanged)
             return
         }
-        let unknown = outcome.unknown
+        let unknown = outcome.unknown.filter { !ignoredDirectories.covers($0) }
         guard !unknown.isEmpty else { return }
         // Anything not ignored is a new file, or a directory holding some.
         let root = scope.root
         Task {
-            let relevant = await Task.detached(priority: .utility) {
-                (try? GitDiffEngine.unignoredPaths(unknown, in: root)) ?? unknown
+            let ignored = await Task.detached(priority: .utility) {
+                (try? GitDiffEngine.ignoredPaths(IgnoredDirectories.queries(for: unknown), in: root)) ?? []
             }.value
+            ignoredDirectories.record(ignored: ignored, above: unknown)
+            let relevant = unknown.filter { !ignored.contains($0) && !ignoredDirectories.covers($0) }
             if !relevant.isEmpty { refresh(reloadingSelection: false) }
         }
     }
@@ -253,6 +265,12 @@ final class ReviewModel {
         let changedTree: ReviewFileTree
         let knownPaths: Set<String>
         let nestedRepositories: Set<String>
+        /// Compared off the main actor against what the model showed when the
+        /// listing started; a large tree costs real time to compare.
+        let filesUnchanged: Bool
+        let treeUnchanged: Bool
+        let changedTreeUnchanged: Bool
+        let releaseCount: Int
     }
 
     /// Pass `reloadingSelection: false` when only the files the watcher
@@ -277,6 +295,7 @@ final class ReviewModel {
         // and upstream.
         let cachedOptions = baseRefIsStale || headRefIsStale ? nil : baseOptions
         let chosenBase = chosenBase
+        let shown = (files: files, tree: tree, changedTree: changedTree, releaseCount: releaseCount)
         baseRefIsStale = false
         headRefIsStale = false
         let reload = SelectionReload(touched: pendingTouched, forced: pendingForcesReload)
@@ -296,6 +315,8 @@ final class ReviewModel {
                     let snapshot = try GitDiffEngine.snapshot(in: range, cache: untrackedCounts)
                     let files = snapshot.files
                     let scope = ReviewModel.scope(of: directory, under: root)
+                    let tree = ReviewFileTree(paths: snapshot.listedPaths, files: files, scope: scope)
+                    let changedTree = ReviewFileTree(paths: [], files: files, scope: scope)
                     return Listing(
                         root: root,
                         baseOptions: options,
@@ -303,10 +324,14 @@ final class ReviewModel {
                         headRef: headRef,
                         range: range,
                         files: files,
-                        tree: ReviewFileTree(paths: snapshot.listedPaths, files: files, scope: scope),
-                        changedTree: ReviewFileTree(paths: [], files: files, scope: scope),
+                        tree: tree,
+                        changedTree: changedTree,
                         knownPaths: Set(snapshot.listedPaths + files.flatMap { [$0.path, $0.oldPath].compactMap { $0 } }),
-                        nestedRepositories: snapshot.nestedRepositories
+                        nestedRepositories: snapshot.nestedRepositories,
+                        filesUnchanged: files == shown.files,
+                        treeUnchanged: tree == shown.tree,
+                        changedTreeUnchanged: changedTree == shown.changedTree,
+                        releaseCount: shown.releaseCount
                     )
                 }
             }.value
@@ -349,9 +374,10 @@ final class ReviewModel {
                 headRef: listing.headRef,
                 baseRef: listing.baseOptions.watchedRef(for: listing.base)
             )
-            if files != listing.files { files = listing.files }
-            if tree != listing.tree { tree = listing.tree }
-            if changedTree != listing.changedTree { changedTree = listing.changedTree }
+            let compared = listing.releaseCount == releaseCount
+            if !(compared && listing.filesUnchanged) { files = listing.files }
+            if !(compared && listing.treeUnchanged) { tree = listing.tree }
+            if !(compared && listing.changedTreeUnchanged) { changedTree = listing.changedTree }
             liftedCaps.formIntersection(listing.files.map(\.path))
             phase = .loaded
             // A file's lines can change without its counts changing, so every

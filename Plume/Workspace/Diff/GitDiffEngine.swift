@@ -218,6 +218,11 @@ nonisolated enum GitDiffEngine {
     /// The paths, relative to the root, that `.gitignore` and friends don't
     /// exclude. A tracked file is never ignored, whatever the patterns say.
     static func unignoredPaths(_ paths: [String], in root: String) throws -> [String] {
+        let ignored = try ignoredPaths(paths, in: root)
+        return paths.filter { !ignored.contains($0) }
+    }
+
+    static func ignoredPaths(_ paths: [String], in root: String) throws -> Set<String> {
         guard !paths.isEmpty else { return [] }
         let input = Data(paths.joined(separator: "\0").utf8 + [0])
         // Exit 1 means none of them is ignored.
@@ -228,8 +233,7 @@ nonisolated enum GitDiffEngine {
             successStatuses: [0, 1],
             input: input
         )
-        let ignored = Set(output.split(separator: "\0").map(String.init))
-        return paths.filter { !ignored.contains($0) }
+        return Set(output.split(separator: "\0").map(String.init))
     }
 
     /// Counted here rather than by `git diff --no-index --numstat`, which
