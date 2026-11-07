@@ -39,7 +39,7 @@ Each step is cheaper than the next to read. Stop at the first one that answers t
 1. `hierarchy` — the whole window as an indented outline: every text view with its text, every control with its enabled state and frame. Pass `target=` to scope it.
 2. `readText target='{"kind":"composer"}'` or `'{"kind":"chatList"}'` — one surface's text, row by row.
 3. `list plumeID=<id>` / `describe` — one control's frame, label, value and enabled state.
-4. `screenshot` — only for a question about layout or rendering that text cannot answer. Pass `target=` to crop to one control. Read the PNG in a sub-agent, never in the main conversation.
+4. `screenshot` — only for a question about layout or rendering that text cannot answer, or for the media an `implement` or `release-cycle` verifier captures of new behavior. Pass `target=` to crop to one control. Read the PNG in a sub-agent, never in the main conversation.
 
 ## Act
 

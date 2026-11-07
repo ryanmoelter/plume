@@ -60,8 +60,8 @@ Read CLAUDE.md at your worktree root first and follow it. Your assigned Linear i
   `screenshot` (`drive-plume` skill), into `~/Library/Caches/Plume-agent-media/<issue>/`, with
   names that say what each shows. Use a before-and-after pair for a change in motion; a screenshot
   sequence stands in for a recording until the control server can record (PLUME-383). Never take
-  a full-screen capture: the control server captures only your build's window, so agents don't
-  collide.
+  a full-screen capture; the control server captures only your build's window. It can't capture
+  a hidden window, so launch with `open -g`, not `-j`.
 
 Report back: branch name, worktree absolute path, commit SHAs, a one-paragraph summary, test
 results, the media files with one line each on what they show, and anything left unverified.
@@ -116,9 +116,9 @@ Delegate to a Sonnet verifier, on the release branch in the primary checkout:
 - A verifier that starts chats must start them on Haiku. When it is done, it archives every chat it created. Leftover test tasks crowd the sidebar and slow down the next verifier.
 - Drive each package's behavior with the `drive-plume` skill and read back the result. If a step can't be reached, a targeted agent adds the missing hook on the release branch, and the verifier runs again before the user's checklist.
 
-Publish a review page with the `Artifact` tool before telling the user (load `artifact-design` first). It has one section per package: the issue identifier and title, its checklist, and that package's screenshots and recordings from `~/Library/Caches/Plume-agent-media/<issue>/`, each captioned with what it shows. Publish the media through `files`, and republish the same file path as later packages land, so the user keeps one link for the release.
+Publish a review page with the `Artifact` tool before telling the user (load `artifact-design` first). It has one section per package: the issue identifier and title, its checklist, and that package's screenshots and recordings from `~/Library/Caches/Plume-agent-media/<issue>/`, each captioned with what it shows. `files` accepts only paths under the working directory or the scratchpad, so copy each package's media into a folder in the scratchpad and publish from there. Republish the same page path as later packages land, so the user keeps one link for the release.
 
-Tell the user the app is running, give the review page's link, and give a per-package checklist of what to try. Each round of feedback becomes targeted agents on the release branch (Sonnet for tweaks, Opus for behavior bugs), then rebuild and relaunch through the verifier.
+Tell the user the app is running, give the review page's link, and give a per-package checklist of what to try. Each round of feedback becomes targeted agents on the release branch (Sonnet for tweaks, Opus for behavior bugs), then rebuild and relaunch through the verifier. The verifier recaptures the media a fix changed, and the coordinator republishes the review page.
 
 ## 5. Release
 
