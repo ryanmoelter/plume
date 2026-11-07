@@ -64,10 +64,13 @@ struct PlumeToolLaunchTests {
         let exited = DispatchSemaphore(value: 0)
         process.terminationHandler = { _ in exited.signal() }
         try process.run()
-        DispatchQueue.global().async {
+        // A thread of its own, not a global queue: the waits below block this
+        // test's thread, and on a small machine every parallel case blocking
+        // at once leaves a queued read no thread to run on.
+        Thread {
             collected.append(output.fileHandleForReading.readDataToEndOfFile())
             drained.signal()
-        }
+        }.start()
 
         let timedOut = exited.wait(timeout: .now() + 5) == .timedOut
         if timedOut {
