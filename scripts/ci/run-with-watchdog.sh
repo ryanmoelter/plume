@@ -3,6 +3,10 @@
 # screenshot, the process tree and samples of the test processes to
 # $DIAGNOSTICS_DIR before killing it. CI uses it so a hung test run leaves
 # evidence instead of a bare timeout.
+#
+# $WATCHDOG_SAMPLE_AT, a list of seconds, also samples the test host at each of
+# those points in a run that is still going, so a run that is only slow shows
+# what its threads are waiting on.
 set -u
 minutes=${WATCHDOG_MINUTES:-25}
 out=${DIAGNOSTICS_DIR:-.build/diagnostics}/${WATCHDOG_LABEL:-run}
@@ -10,8 +14,18 @@ mkdir -p "$out"
 
 "$@" &
 pid=$!
-deadline=$(( $(date +%s) + minutes * 60 ))
+started=$(date +%s)
+deadline=$(( started + minutes * 60 ))
+pending_samples=${WATCHDOG_SAMPLE_AT:-}
 while kill -0 "$pid" 2>/dev/null; do
+  for at in $pending_samples; do
+    [ $(( $(date +%s) - started )) -ge "$at" ] || continue
+    pending_samples=$(echo " $pending_samples " | sed "s/ $at / /")
+    for host in $(pgrep -f 'Plume.app/Contents/MacOS/Plume'); do
+      sample "$host" 3 -file "$out/sample-at-$at.txt" >/dev/null 2>&1 || continue
+      echo "::group::sample of $host at ${at}s"; sed '/^Binary Images:/,$d' "$out/sample-at-$at.txt"; echo "::endgroup::"
+    done
+  done
   if [ "$(date +%s)" -ge "$deadline" ]; then
     echo "::error::Still running after $minutes minutes; saving diagnostics and stopping"
     screencapture -x "$out/screen.png" 2>"$out/screencapture.err" || true
@@ -54,6 +68,6 @@ while kill -0 "$pid" 2>/dev/null; do
     wait "$pid" 2>/dev/null
     exit 124
   fi
-  sleep 15
+  sleep 5
 done
 wait "$pid"
