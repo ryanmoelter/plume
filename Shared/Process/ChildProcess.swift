@@ -76,7 +76,7 @@ nonisolated enum ChildProcess {
         let cancelled = Mutex(false)
         return try await withTaskCancellationHandler {
             try await withCheckedThrowingContinuation { continuation in
-                DispatchQueue.global(qos: .userInitiated).async {
+                BlockingWork.start {
                     continuation.resume(with: Result {
                         let result = try run(
                             executable: executable, arguments: arguments, environment: environment,
