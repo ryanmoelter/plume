@@ -50,7 +50,7 @@ struct GitHubForgeClientProcessTests {
         let started = Date()
         try process.run()
         let pid = process.processIdentifier
-        DispatchQueue.global().asyncAfter(deadline: .now() + 0.3) {
+        BlockingWork.timers.asyncAfter(deadline: .now() + 0.3) {
             kill(-pid, SIGKILL)
         }
         _ = read(output)
@@ -82,7 +82,7 @@ struct GitHubForgeClientProcessTests {
         let (process, output) = launch("sleep 30 # \(marker)")
         try process.run()
         let pid = process.processIdentifier
-        DispatchQueue.global().asyncAfter(deadline: .now() + 0.3) {
+        BlockingWork.timers.asyncAfter(deadline: .now() + 0.3) {
             kill(-pid, SIGKILL)
         }
         _ = read(output)
