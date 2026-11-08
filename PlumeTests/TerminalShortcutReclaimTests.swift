@@ -45,6 +45,18 @@ import Testing
             window.makeKey()
         }
 
+        /// Focuses the terminal's view once the surface has put one in the
+        /// window, which a loaded machine can take seconds to do. Nil if none
+        /// appears by the deadline.
+        func waitForFocus() async throws -> NSView? {
+            let deadline = ContinuousClock.now + .seconds(20)
+            while true {
+                if let view = focusTerminalView(), window.firstResponder === view { return view }
+                if ContinuousClock.now >= deadline { return focusTerminalView() }
+                try await Task.sleep(for: .milliseconds(100))
+            }
+        }
+
         /// The deepest view that accepts first responder — the terminal's own
         /// key-handling view.
         func focusTerminalView() -> NSView? {
@@ -122,8 +134,7 @@ import Testing
         let terminal = FocusedTerminal()
         defer { terminal.close() }
 
-        try await Task.sleep(for: .seconds(3))
-        _ = terminal.focusTerminalView()
+        _ = try await terminal.waitForFocus()
 
         let shortcuts = PlumeShortcuts.all(
             with: ShortcutBindings(overrides: [.nextTab: MenuShortcut("j", modifiers: [.option])])
@@ -147,18 +158,27 @@ import Testing
         let terminal = FocusedTerminal()
         defer { terminal.close() }
 
-        try await Task.sleep(for: .seconds(3))
-        let focused = terminal.focusTerminalView()
+        let focused = try await terminal.waitForFocus()
         #expect(focused != nil, "no view in the terminal hierarchy accepted first responder")
 
+        // Offered until the surface takes it or the deadline passes, since a
+        // surface that has not finished coming up declines every chord.
         let event = keyDown("j", flags: [.option], in: terminal.window)
-        let consumedBySurface = terminal.window.contentView?.performKeyEquivalent(with: event) ?? false
+        var consumedBySurface = false
+        let deadline = ContinuousClock.now + .seconds(10)
+        while !consumedBySurface, ContinuousClock.now < deadline {
+            consumedBySurface = terminal.window.contentView?.performKeyEquivalent(with: event) ?? false
+            if !consumedBySurface { try await Task.sleep(for: .milliseconds(200)) }
+        }
 
         // The surface claims ⌥J for itself, which is exactly why the binding
         // cannot rely on menu dispatch alone: by the time
         // `performKeyEquivalent` runs, the chord is gone. The local key-down
         // monitor runs ahead of this, and that is the whole reason an Option
         // binding works.
-        #expect(consumedBySurface, "surface no longer claims ⌥J; the monitor may be redundant")
+        #expect(
+            consumedBySurface,
+            "surface no longer claims ⌥J; the monitor may be redundant (key window: \(terminal.window.isKeyWindow), app active: \(NSApp.isActive), first responder: \(String(describing: terminal.window.firstResponder.map { type(of: $0) })))"
+        )
     }
 }

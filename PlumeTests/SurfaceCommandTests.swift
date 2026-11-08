@@ -17,9 +17,7 @@ import Testing
         let first = Probe()
         let second = Probe()
 
-        try await Task.sleep(for: .seconds(4))
-
-        let running = try runningCommands()
+        let running = try await runningCommands(containing: [first.marker, second.marker])
         #expect(running.contains(first.marker), "first surface did not run its command")
         #expect(running.contains(second.marker), "second surface did not run its command")
 
@@ -53,7 +51,10 @@ import Testing
         let window: NSWindow
         let session: TerminalSession
 
-        init(script: String = "sleep 30") {
+        /// The `; true` keeps the shell alive: a lone simple command is
+        /// `exec`ed in its place, and the marker in the shell's arguments goes
+        /// with it.
+        init(script: String = "sleep 30; true") {
             session = TerminalSession(
                 id: UUID(),
                 options: TerminalSurfaceOptions(
@@ -80,6 +81,18 @@ import Testing
         }
     }
 
+    /// The process list once it names every marker, or at the deadline. A
+    /// surface spawns when it is first laid out, which a loaded machine can
+    /// take seconds to reach, so this waits on the list rather than a clock.
+    private func runningCommands(containing markers: [String]) async throws -> String {
+        let deadline = ContinuousClock.now + .seconds(20)
+        while true {
+            let running = try runningCommands()
+            if markers.allSatisfy({ running.contains($0) }) || ContinuousClock.now >= deadline { return running }
+            try await Task.sleep(for: .milliseconds(200))
+        }
+    }
+
     private func runningCommands() throws -> String {
         let listing = Process()
         listing.executableURL = URL(fileURLWithPath: "/bin/ps")
@@ -94,8 +107,8 @@ import Testing
 
     @Test func oneSurfaceAloneRunsItsCommand() async throws {
         let only = Probe()
-        try await Task.sleep(for: .seconds(4))
-        #expect(try runningCommands().contains(only.marker), "lone surface did not run its command")
+        let running = try await runningCommands(containing: [only.marker])
+        #expect(running.contains(only.marker), "lone surface did not run its command")
         only.close()
     }
 }
