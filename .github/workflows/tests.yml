@@ -55,6 +55,15 @@ jobs:
           set -o pipefail
           xcodebuild build-for-testing $XCODEBUILD_FLAGS
 
+      # Temporary: GHCommand times out `gh` with kill(-pid), which needs the
+      # login shell to lead its own process group. Shows whether it does with
+      # no controlling terminal, as here and in a Finder-launched app.
+      - name: Probe process groups without a terminal
+        run: |
+          echo "step shell: pid $$ pgid $(ps -o pgid= -p $$)"
+          /bin/sh -mc "/bin/zsh -lic 'exec ps -o pid=,pgid=,tpgid=,command= -p \$\$'" </dev/null 2>&1 || true
+          ls -l /bin/sh /private/var/select/sh 2>&1 || true
+
       # One small suite first, so a run that can't start any test fails
       # in minutes and is told apart from one stuck test.
       - name: Smoke test
