@@ -20,10 +20,16 @@ pending_samples=${WATCHDOG_SAMPLE_AT:-}
 while kill -0 "$pid" 2>/dev/null; do
   for at in $pending_samples; do
     [ $(( $(date +%s) - started )) -ge "$at" ] || continue
+    pgrep -f 'Plume.app/Contents/MacOS/Plume' >/dev/null || { echo "no test host to sample at ${at}s"; }
     pending_samples=$(echo " $pending_samples " | sed "s/ $at / /")
     for host in $(pgrep -f 'Plume.app/Contents/MacOS/Plume'); do
-      sample "$host" 3 -file "$out/sample-at-$at.txt" >/dev/null 2>&1 || continue
-      echo "::group::sample of $host at ${at}s"; sed '/^Binary Images:/,$d' "$out/sample-at-$at.txt"; echo "::endgroup::"
+      echo "::group::sample of $host at ${at}s"
+      if sample "$host" 3 -file "$out/sample-at-$at.txt" >"$out/sample-at-$at.err" 2>&1; then
+        sed '/^Binary Images:/,$d' "$out/sample-at-$at.txt"
+      else
+        cat "$out/sample-at-$at.err"
+      fi
+      echo "::endgroup::"
     done
   done
   if [ "$(date +%s)" -ge "$deadline" ]; then

@@ -74,6 +74,11 @@ jobs:
           WATCHDOG_MINUTES: "10"
           WATCHDOG_LABEL: full
           WATCHDOG_SAMPLE_AT: "35 50 65 80"
+          # Swift Testing runs every test at once by default, so on a 3-core
+          # runner a test waiting on the main actor queues behind hundreds of
+          # others. xcodebuild hands TEST_RUNNER_ variables to the test host
+          # with the prefix removed.
+          TEST_RUNNER_SWT_EXPERIMENTAL_MAXIMUM_PARALLELIZATION_WIDTH: "3"
           DIAGNOSTICS_DIR: .build/diagnostics
         run: |
           set -o pipefail
