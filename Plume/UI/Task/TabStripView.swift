@@ -22,6 +22,10 @@ struct TabStripView: View {
     private static let chipSpacing: CGFloat = 6
     private static let coordinateSpace = "tabStrip"
 
+    private func addTab(_ kind: TabKind) {
+        TaskStore.addTab(to: task, kind: kind, pane: pane, in: context)
+    }
+
     var body: some View {
         let paneLabel = paneCount > 1 ? "pane \(pane + 1)" : nil
         HStack(spacing: Self.chipSpacing) {
@@ -52,16 +56,13 @@ struct TabStripView: View {
             }
 
             Menu {
-                Button("Chat Tab") {
-                    TaskStore.addTab(to: task, kind: .agent, pane: pane, in: context)
-                }
-                Button("Terminal Tab") { TaskStore.addTab(to: task, kind: .terminal, pane: pane, in: context) }
+                Button("Chat Tab") { addTab(.agent) }
+                Button("Terminal Tab") { addTab(.terminal) }
                 Button {
-                    TaskStore.addTab(to: task, kind: .device, pane: pane, in: context)
+                    addTab(.device)
                 } label: {
                     Label("Android Device Tab", systemImage: "ipad.landscape.and.iphone")
                 }
-                .plumeID(AccessibilityID.newAndroidDeviceTabMenuItem)
             } label: {
                 Image(systemName: "plus")
                     .frame(width: 22, height: 22)
@@ -72,6 +73,9 @@ struct TabStripView: View {
             .help("New tab")
             .accessibilityLabel("New tab")
             .plumeID(AccessibilityID.newTabButton, label: paneLabel)
+            .plumeMenuItem(AccessibilityID.newChatTabMenuItem, label: paneLabel) { addTab(.agent) }
+            .plumeMenuItem(AccessibilityID.newTerminalTabMenuItem, label: paneLabel) { addTab(.terminal) }
+            .plumeMenuItem(AccessibilityID.newAndroidDeviceTabMenuItem, label: paneLabel) { addTab(.device) }
 
             Spacer()
         }

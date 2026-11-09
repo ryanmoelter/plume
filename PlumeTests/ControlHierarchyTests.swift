@@ -51,6 +51,22 @@ struct ControlHierarchyTests {
         #expect(rendered.contains("control probe-button#0") && rendered.contains("disabled"))
     }
 
+    /// A re-render that changes only what a closure captures, as switching
+    /// tasks does for the tab strip, must still reach the registered entry.
+    @Test func invokeRunsTheClosureFromTheLatestRender() async throws {
+        let registry = ControlRegistry.shared
+        let model = InvokeTarget()
+        let host = NSHostingView(rootView: InvokeProbe(model: model).frame(width: 100, height: 40))
+        let window = makeWindow(content: host, size: CGSize(width: 100, height: 40))
+        defer { window.close() }
+        try await settle { registry.entries(id: "probe-latest-invoke").contains { $0.entry.window === window } }
+
+        model.target = "B"
+        try await settle()
+        _ = try await InProcessControlBackend(registry: registry).invoke(.control(id: "probe-latest-invoke", index: nil, label: nil))
+        #expect(model.hits == ["B"])
+    }
+
     @Test func dumpReadsTextAndSkipsHiddenViews() throws {
         let root = NSView(frame: CGRect(x: 0, y: 0, width: 300, height: 200))
         let label = NSTextField(labelWithString: "hello")
@@ -148,6 +164,21 @@ struct ControlHierarchyTests {
         #expect(window.childWindows?.isEmpty ?? true)
         #expect(ControlOverlay.existing(for: window) == nil)
         #expect(NSWorkspace.shared.frontmostApplication?.processIdentifier == before)
+    }
+
+    @MainActor @Observable
+    final class InvokeTarget {
+        var target = "A"
+        var hits: [String] = []
+    }
+
+    private struct InvokeProbe: View {
+        let model: InvokeTarget
+
+        var body: some View {
+            let target = model.target
+            Color.clear.frame(width: 50, height: 20).plumeID("probe-latest-invoke", invoke: { model.hits.append(target) })
+        }
     }
 
     @MainActor

@@ -178,6 +178,8 @@ enum AccessibilityID {
     /// One per on-screen tab; `value` is "focused" on the focused one.
     static let tabPane = "tab-pane"
     static let splitDivider = "split-divider"
+    static let newChatTabMenuItem = "new-chat-tab-menu-item"
+    static let newTerminalTabMenuItem = "new-terminal-tab-menu-item"
     static let newAndroidDeviceTabMenuItem = "new-android-device-tab-menu-item"
     static let newAndroidDeviceTabCommand = "new-android-device-tab-command"
     static let shutDownEmulatorMenuItem = "shut-down-emulator-menu-item"
@@ -194,6 +196,7 @@ enum AccessibilityID {
     static let deviceMoreMenu = "device-more-menu"
     static let deviceChangeDeviceMenuItem = "device-change-device-menu-item"
     static let emulatorShutDownMenuItem = "emulator-shut-down-menu-item"
+    static let emulatorShutDownConfirmButton = "emulator-shut-down-confirm-button"
     static let deviceChangeDeviceButton = "device-change-device-button"
     static let emulatorBootButton = "emulator-boot-button"
     static let deviceReconnectButton = "device-reconnect-button"

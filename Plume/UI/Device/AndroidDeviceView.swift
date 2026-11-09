@@ -25,6 +25,10 @@ struct AndroidDeviceView: View, ThemedView {
             isPresented: $confirmingShutDown
         ) {
             Button("Shut Down", role: .destructive) { session.shutDownEmulator() }
+                .plumeID(AccessibilityID.emulatorShutDownConfirmButton, invoke: {
+                    confirmingShutDown = false
+                    session.shutDownEmulator()
+                })
         } message: {
             Text("Anything else using it, such as an agent's adb connection, loses it too.")
         }
@@ -140,7 +144,6 @@ struct AndroidDeviceView: View, ThemedView {
                 }
                 if !session.isPhysical {
                     Button("Shut Down Emulator…") { confirmingShutDown = true }
-                        .plumeID(AccessibilityID.emulatorShutDownMenuItem)
                         .disabled(!session.canShutDownEmulator)
                 }
             } label: {
@@ -151,6 +154,11 @@ struct AndroidDeviceView: View, ThemedView {
             .fixedSize()
             .padding(.horizontal, 6)
             .plumeID(AccessibilityID.deviceMoreMenu)
+            .plumeMenuItem(
+                AccessibilityID.emulatorShutDownMenuItem,
+                isPresent: !session.isPhysical,
+                isEnabled: session.canShutDownEmulator
+            ) { confirmingShutDown = true }
         }
     }
 
@@ -254,7 +262,7 @@ struct AndroidDeviceView: View, ThemedView {
         case .notRunning:
             status("\(session.displayName ?? "This emulator") isn't running.") {
                 Button("Boot") { session.bootChosenDevice() }
-                    .plumeID(AccessibilityID.emulatorBootButton)
+                    .plumeID(AccessibilityID.emulatorBootButton, invoke: { session.bootChosenDevice() })
             }
         case .disconnected(let reason):
             status("Lost the connection to the \(session.isPhysical ? "device" : "emulator").", detail: reason) {
@@ -264,7 +272,7 @@ struct AndroidDeviceView: View, ThemedView {
         case .failed(let reason):
             status("The emulator could not start.", detail: reason) {
                 Button("Try Again") { session.bootChosenDevice() }
-                    .plumeID(AccessibilityID.emulatorBootButton)
+                    .plumeID(AccessibilityID.emulatorBootButton, invoke: { session.bootChosenDevice() })
             }
         case .reserving:
             status(

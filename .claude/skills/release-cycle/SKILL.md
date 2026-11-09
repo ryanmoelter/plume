@@ -47,14 +47,24 @@ Read CLAUDE.md at your worktree root first and follow it. Your assigned Linear i
   Confirm test names scroll past. Two suites fail in ANY worktree for environmental reasons:
   `SessionJSONLReaderTests.encodingResolvesADirectoryClaudeCodeHasUsed` and `SurfaceCommandTests`.
   Report those as environmental; anything else is yours to fix. Add tests for pure logic.
+- Build what an agent needs to drive your change in a running debug build, as part of the change:
+  `plumeID` on every new or touched control, `invoke:` where a click can't reach (hidden windows,
+  `List` rows, menu items via `plumeMenuItem`), and any control-server command or `SmokeHarness`
+  hook the check needs. See `docs/control-server.md`. A step only a human can perform is a gap
+  to close, not a hand-off.
 - Roadmap: do NOT touch Linear. Report which issue identifiers you completed; the coordinator moves
   them to Done.
 - Comments: terse, why-only, per CLAUDE.md. No changelog-style comments.
 - If you hit a decision only the user can make, stop and report it rather than guessing.
-- Do not take screenshots. (Only one agent may screenshot at a time; the coordinator runs any visual check as a single serial pass after the merge.)
+- Capture each new or changed behavior from your own debug build with the control server's
+  `screenshot` (`drive-plume` skill), into `~/Library/Caches/Plume-agent-media/<issue>/`, with
+  names that say what each shows. Use a before-and-after pair for a change in motion; a screenshot
+  sequence stands in for a recording until the control server can record (PLUME-383). Never take
+  a full-screen capture; the control server captures only your build's window. It can't capture
+  a hidden window, so launch with `open -g`, not `-j`.
 
 Report back: branch name, worktree absolute path, commit SHAs, a one-paragraph summary, test
-results, and anything left unverified.
+results, the media files with one line each on what they show, and anything left unverified.
 ```
 
 As soon as the agents launch, move every issue they own to **In Progress** through the `roadmap` skill. Do the same for an issue whose package launches later, at its launch, and for one already running in another agent that will fold into this release.
@@ -76,7 +86,7 @@ When a package merges into the release branch, move its issues to **In Review**.
 
 ### Hand-offs from implement agents
 
-An agent running the `implement` skill may send a branch with `SendMessage` once the user approves it. The message names the issue, branch, worktree, commits, base, signing state and changelog bullets. Merge it like a package, re-signing any unsigned commit. Then reply to the sender with `SendMessage`, naming the merge SHA, so it can clean up its worktree. Its issue stays open until the release reaches `main`.
+An agent running the `implement` skill may send a branch with `SendMessage` once the user approves it. The message names the issue, branch, worktree, commits, base, signing state, changelog bullets and media folder. Merge it like a package, re-signing any unsigned commit. Then reply to the sender with `SendMessage`, naming the merge SHA, so it can clean up its worktree. Its issue stays open until the release reaches `main`.
 
 ### Clean up as each package lands
 
@@ -104,8 +114,11 @@ Delegate to a Sonnet verifier, on the release branch in the primary checkout:
 - **Launch it with `env -u CLAUDE_CODE_CHILD_SESSION -u CLAUDECODE`.** The app inherits the shell that started it and passes that to every terminal tab it spawns, so launching from an agent's shell leaves each tab's `claude` reading itself as a nested session and skipping its transcript — the chat UI then shows nothing.
 - Walk the process tree from Plume's own PID and read the unified log for errors. Never `pgrep -x Plume` or global-grep `claude`.
 - A verifier that starts chats must start them on Haiku. When it is done, it archives every chat it created. Leftover test tasks crowd the sidebar and slow down the next verifier.
+- Drive each package's behavior with the `drive-plume` skill and read back the result. If a step can't be reached, a targeted agent adds the missing hook on the release branch, and the verifier runs again before the user's checklist.
 
-Tell the user the app is running and give a per-package checklist of what to try. Each round of feedback becomes targeted agents on the release branch (Sonnet for tweaks, Opus for behavior bugs), then rebuild and relaunch through the verifier.
+Publish a review page with the `Artifact` tool before telling the user (load `artifact-design` first). It has one section per package: the issue identifier and title, its checklist, and that package's screenshots and recordings from `~/Library/Caches/Plume-agent-media/<issue>/`, each captioned with what it shows. `files` accepts only paths under the working directory or the scratchpad, so copy each package's media into a folder in the scratchpad and publish from there. Republish the same page path as later packages land, so the user keeps one link for the release.
+
+Tell the user the app is running, give the review page's link, and give a per-package checklist of what to try. Each round of feedback becomes targeted agents on the release branch (Sonnet for tweaks, Opus for behavior bugs), then rebuild and relaunch through the verifier. The verifier recaptures the media a fix changed, and the coordinator republishes the review page.
 
 ## 5. Release
 

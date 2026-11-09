@@ -39,7 +39,7 @@ Each step is cheaper than the next to read. Stop at the first one that answers t
 1. `hierarchy` — the whole window as an indented outline: every text view with its text, every control with its enabled state and frame. Pass `target=` to scope it.
 2. `readText target='{"kind":"composer"}'` or `'{"kind":"chatList"}'` — one surface's text, row by row.
 3. `list plumeID=<id>` / `describe` — one control's frame, label, value and enabled state.
-4. `screenshot` — only for a question about layout or rendering that text cannot answer. Pass `target=` to crop to one control. Read the PNG in a sub-agent, never in the main conversation.
+4. `screenshot` — only for a question about layout or rendering that text cannot answer, or for the media an `implement` or `release-cycle` verifier captures of new behavior. Pass `target=` to crop to one control. Read the PNG in a sub-agent, never in the main conversation.
 
 ## Act
 
@@ -65,7 +65,7 @@ c clear
 
 **Never drive a repro with `CGEventPostToPid`, `cliclick`, or by exec'ing the binary from a shell.** All three activate the app and take over the user's pointer and frontmost window. For a click the control server can't express, synthesize it *inside* the process: post `NSEvent`s through `NSApp.postEvent` after `window.makeKey()`. Post mouse-down and mouse-up about 150 ms apart, so AppKit's tracking loop pumps the run loop. `LinkClickHarness` is the shipped example and `docs/selectable-text-link-hang.md` has the recipe.
 
-**Only one agent may screenshot at a time.** Parallel screenshot attempts fail, so when several agents run at once, give screenshot duty to at most one or run visual checks as a single pass afterwards.
+**Screenshots can run in parallel.** Each one captures its own window from the window server, so four `screenshot` calls fired at once against one app all succeed, each in under a quarter of a second. Parallel captures against two apps at once are not yet measured.
 
 ## When a control is missing
 
