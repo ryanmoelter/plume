@@ -98,55 +98,7 @@ struct MainWindow: View {
             hostWindow?.makeKeyAndOrderFront(nil)
             importSource = source
         }
-        .focusedSceneValue(\.showHomeAction) { choose(.home) }
-        .focusedSceneValue(\.selectAdjacentTask) { offset in
-            let destination = SidebarKeyboardNavigation.destination(
-                from: selection,
-                in: SidebarKeyboardNavigation.entries(taskIDs: navigableTasks.map(\.id)),
-                offset: offset
-            )
-            if let destination { choose(destination) }
-        }
-        .focusedSceneValue(\.newTaskAction) {
-            let group = selectedTask?.group
-            let siblings = tasks.filter { $0.group?.id == group?.id }
-            let task = TaskStore.createTask(
-                in: context,
-                group: group,
-                siblings: siblings,
-                defaultsToRecentFolder: true,
-                inheritingFrom: selectedTask
-            )
-            choose(.task(task.id))
-        }
-        .focusedSceneValue(\.taskCommands, selectedTask.map { task in
-            TaskCommands(
-                addTab: { kind in TaskStore.addTab(to: task, kind: kind, in: context) },
-                selectTab: { index in TaskStore.selectTab(atIndex: index, in: task) },
-                cycleTab: { offset in TaskStore.cycleTab(by: offset, in: task) },
-                closeSelectedTab: {
-                    if KeyboardRemoval.deletesTaskOnClose(tabCount: task.tabs.count) {
-                        requestRemoval(of: task, verb: .delete)
-                        return true
-                    }
-                    guard let tab = task.orderedTabs.first(where: { $0.id == task.selectedTabID })
-                    else { return false }
-                    TaskStore.closeTab(tab, in: context)
-                    return true
-                },
-                archiveSelectedTask: {
-                    requestRemoval(of: task, verb: .archive)
-                },
-                startFreshSelectedTab: tabWithResumableSession(in: task).map { tab in
-                    { tabPendingStartFresh = tab }
-                },
-                isSplit: task.isSplit,
-                toggleSplit: task.isSplit
-                    ? { TaskStore.closeSplit(in: task) }
-                    : TaskStore.canSplitRight(in: task) ? { TaskStore.splitRight(in: task) } : nil,
-                focusOtherPane: task.isSplit ? { TaskStore.focusOtherPane(in: task) } : nil
-            )
-        })
+        .modifier(SceneCommands(window: self))
         .modifier(StartFreshDialogModifier(pendingTab: $tabPendingStartFresh))
         .modifier(worktreeRemovalDialog)
         .modifier(liveAgentRemovalDialog)
@@ -258,6 +210,65 @@ struct MainWindow: View {
             requestDelete: { requestRemoval(of: $0, verb: .delete) }
         )
         .modifier(SidebarColumnWidth(task: selectedTask, widths: columnWidths))
+    }
+
+    /// Its own `ViewModifier` so `body`'s modifier chain stays within a
+    /// Release build's type-checking budget.
+    private struct SceneCommands: ViewModifier {
+        let window: MainWindow
+
+        func body(content: Content) -> some View {
+            content
+                .focusedSceneValue(\.showHomeAction) { window.choose(.home) }
+                .focusedSceneValue(\.selectAdjacentTask) { offset in
+                    let destination = SidebarKeyboardNavigation.destination(
+                        from: window.selection,
+                        in: SidebarKeyboardNavigation.entries(taskIDs: window.navigableTasks.map(\.id)),
+                        offset: offset
+                    )
+                    if let destination { window.choose(destination) }
+                }
+                .focusedSceneValue(\.newTaskAction) {
+                    let group = window.selectedTask?.group
+                    let siblings = window.tasks.filter { $0.group?.id == group?.id }
+                    let task = TaskStore.createTask(
+                        in: window.context,
+                        group: group,
+                        siblings: siblings,
+                        defaultsToRecentFolder: true,
+                        inheritingFrom: window.selectedTask
+                    )
+                    window.choose(.task(task.id))
+                }
+                .focusedSceneValue(\.taskCommands, window.selectedTask.map { task in
+                    TaskCommands(
+                        addTab: { kind in TaskStore.addTab(to: task, kind: kind, in: window.context) },
+                        selectTab: { index in TaskStore.selectTab(atIndex: index, in: task) },
+                        cycleTab: { offset in TaskStore.cycleTab(by: offset, in: task) },
+                        closeSelectedTab: {
+                            if KeyboardRemoval.deletesTaskOnClose(tabCount: task.tabs.count) {
+                                window.requestRemoval(of: task, verb: .delete)
+                                return true
+                            }
+                            guard let tab = task.orderedTabs.first(where: { $0.id == task.selectedTabID })
+                            else { return false }
+                            TaskStore.closeTab(tab, in: window.context)
+                            return true
+                        },
+                        archiveSelectedTask: {
+                            window.requestRemoval(of: task, verb: .archive)
+                        },
+                        startFreshSelectedTab: window.tabWithResumableSession(in: task).map { tab in
+                            { window.tabPendingStartFresh = tab }
+                        },
+                        isSplit: task.isSplit,
+                        toggleSplit: task.isSplit
+                            ? { TaskStore.closeSplit(in: task) }
+                            : TaskStore.canSplitRight(in: task) ? { TaskStore.splitRight(in: task) } : nil,
+                        focusOtherPane: task.isSplit ? { TaskStore.focusOtherPane(in: task) } : nil
+                    )
+                })
+        }
     }
 
     /// Broken out of `body` for the same reason as `sidebar`: another
