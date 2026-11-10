@@ -61,6 +61,11 @@ ensure_auto_updates() {
   local cask="$1"
   grep -qE '^[[:space:]]*auto_updates true[[:space:]]*$' "$cask" && return 0
   local out="$cask.new"
+  if grep -qE '^[[:space:]]*auto_updates([[:space:]]|$)' "$cask"; then
+    sed -E 's/^([[:space:]]*)auto_updates([[:space:]].*)?$/\1auto_updates true/' "$cask" >"$out" || { rm -f "$out"; return 1; }
+    mv "$out" "$cask"
+    return 0
+  fi
   awk '
     !done && /^  (depends_on|app) / { print "  auto_updates true"; print ""; done=1 }
     { print }

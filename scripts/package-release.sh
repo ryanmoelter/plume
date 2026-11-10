@@ -140,6 +140,7 @@ case "$BETA:$VERSION" in
 esac
 if [ "$BETA" = true ] && [ "$ALLOW_BRANCH" = false ]; then
   BRANCH="$(git rev-parse --abbrev-ref HEAD 2>/dev/null)"
+  [ "$BRANCH" != "HEAD" ] || BRANCH=""
   [ "$BRANCH" = "main" ] \
     || fail "betas release from main, and this is ${BRANCH:-a detached HEAD}. Releasing a beta from
   another branch needs the maintainer's explicit approval; with it, pass --allow-branch"
@@ -418,7 +419,7 @@ if [ "$UPDATES_BETA_FEED" = true ]; then
   xmllint --noout "$BETA_APPCAST" || fail "the beta feed at $BETA_APPCAST is not well-formed XML"
   echo "beta feed: $BETA_APPCAST ($(grep -c '<item>' "$BETA_APPCAST") items)"
 else
-  rmdir "$(dirname "$BETA_APPCAST")"
+  rm -rf "$(dirname "$BETA_APPCAST")"
   BETA_FEED_NOTE="the beta feed stays as it is: its newest item, $live_beta_short_version, is ahead of
   $CFBUNDLE_SHORT_VERSION, and this release's higher build would replace it and downgrade beta users"
   echo "note: $BETA_FEED_NOTE"
@@ -468,7 +469,7 @@ if ! git rev-parse "$TAG" >/dev/null 2>&1; then
   else
     echo "  git push origin $PUSH_BRANCH $TAG"
   fi
-  echo "  scripts/package-release.sh$([ "$BETA" = true ] && echo " --beta")"
+  echo "  scripts/package-release.sh$([ "$BETA" = true ] && echo " --beta")$([ "$ALLOW_BRANCH" = true ] && echo " --allow-branch")"
   exit 0
 fi
 
