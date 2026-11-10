@@ -113,9 +113,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     }
 
     func applicationShouldTerminate(_ sender: NSApplication) -> NSApplication.TerminateReply {
-        if HomebrewUpgrade.isQuitConfirmed {
-            return .terminateNow
-        }
         let shouldConfirm = Self.shouldConfirmQuit(
             statuses: statusEngine.effectiveTabStatuses,
             isSystemInitiated: isSystemInitiatedQuit,

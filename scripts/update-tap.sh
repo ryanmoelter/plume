@@ -18,6 +18,9 @@ fail() { echo "FAILED: $*" >&2; exit 1; }
 
 [ $# -eq 1 ] || fail "usage: $0 <version>  (e.g. $0 0.12.0)"
 VERSION="$1"
+case "$VERSION" in
+  *-*) fail "$VERSION is a beta — the cask only ever installs stable releases" ;;
+esac
 TAG="v$VERSION"
 DMG_URL="https://github.com/$PLUME_REPO/releases/download/$TAG/Plume-$VERSION.dmg"
 
@@ -50,6 +53,28 @@ CASK="$TAP/Casks/plume.rb"
 BINARY_STANZA='binary "#{appdir}/Plume.app/Contents/Helpers/plume"'
 grep -qF "$BINARY_STANZA" "$CASK" \
   || fail "cask no longer contains the line: $BINARY_STANZA — Homebrew installs would lose the plume command. Restore it in $TAP_REPO before bumping."
+
+# Sparkle updates Homebrew installs, so without auto_updates true `brew upgrade`
+# would fight it. Homebrew's stanza order puts it after livecheck and before
+# depends_on (or app, when there is no depends_on).
+ensure_auto_updates() {
+  local cask="$1"
+  grep -qE '^[[:space:]]*auto_updates true[[:space:]]*$' "$cask" && return 0
+  local out="$cask.new"
+  if grep -qE '^[[:space:]]*auto_updates([[:space:]]|$)' "$cask"; then
+    sed -E 's/^([[:space:]]*)auto_updates([[:space:]].*)?$/\1auto_updates true/' "$cask" >"$out" || { rm -f "$out"; return 1; }
+    mv "$out" "$cask"
+    return 0
+  fi
+  awk '
+    !done && /^  (depends_on|app) / { print "  auto_updates true"; print ""; done=1 }
+    { print }
+    END { exit done ? 0 : 1 }
+  ' "$cask" >"$out" || { rm -f "$out"; return 1; }
+  mv "$out" "$cask"
+}
+
+ensure_auto_updates "$CASK" || fail "could not place auto_updates true — the cask has no depends_on or app stanza"
 
 # version and sha256 are each declared once, near the top of the cask.
 sed -i '' \

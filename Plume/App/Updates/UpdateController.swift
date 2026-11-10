@@ -8,8 +8,7 @@ import Sparkle
 /// Product rule: an available update must never interrupt. No dialog at
 /// launch, no system notification, nothing modal, nothing that has to be
 /// dismissed. It only ever shows as a row in the sidebar footer, and the
-/// user opens details — Sparkle's install window, or the Homebrew panel —
-/// only when they choose to.
+/// user opens Sparkle's install window only when they choose to.
 ///
 /// Plume schedules its own background checks with
 /// `checkForUpdateInformation()` rather than letting Sparkle schedule them.
@@ -23,24 +22,12 @@ final class UpdateController: NSObject {
 
     private static let feedURLOverrideKey = "PlumeUpdateFeedURLOverride"
     private static let lastUpdateCheckDateKey = "PlumeLastUpdateCheckDate"
-    static let homebrewUpgradeCommand = "brew upgrade --cask ryanmoelter/tap/plume"
 
     private static let checkInterval: TimeInterval = 60 * 60
-
-    /// Detected once at launch: the Homebrew prefix whose Caskroom holds
-    /// Plume, if any. `installSource` prefers an explicit `AppSettings`
-    /// override over this.
-    let homebrewPrefix: URL?
-    var isHomebrewInstall: Bool { homebrewPrefix != nil }
 
     private var controller: SPUStandardUpdaterController!
     @ObservationIgnored private var cancellables: Set<AnyCancellable> = []
     @ObservationIgnored private var checkTimer: Timer?
-
-    /// Set before a user-initiated Homebrew check with no update already
-    /// known, so the completing callback knows to surface a result instead
-    /// of staying silent like a background check.
-    private var pendingUserBrewCheck = false
 
     private(set) var isRunning = false
     var availableUpdate: AvailableUpdate?
@@ -57,17 +44,29 @@ final class UpdateController: NSObject {
         }
     }
 
-    /// `.plume` unless `AppSettings` overrides it or this bundle was
-    /// detected as a Homebrew install.
-    var installSource: UpdateInstallSource {
-        UpdateInstallSource.resolve(
-            override: AppSettings.shared.updateInstallSourceOverride,
-            isHomebrewInstall: isHomebrewInstall
-        )
+    var updateChannel: UpdateChannel {
+        get { AppSettings.shared.updateChannel }
+        set {
+            guard newValue != AppSettings.shared.updateChannel else { return }
+            AppSettings.shared.updateChannel = newValue
+            // The row may show an update the other feed doesn't carry, so
+            // recheck against the new feed even with automatic checks off.
+            pendingFeedRecheck = true
+            runPendingFeedRecheck()
+        }
+    }
+
+    @ObservationIgnored private var pendingFeedRecheck = false
+
+    private func runPendingFeedRecheck() {
+        guard pendingFeedRecheck, isRunning else { return }
+        if checkInBackground() {
+            pendingFeedRecheck = false
+            availableUpdate = nil
+        }
     }
 
     private override init() {
-        homebrewPrefix = HomebrewCaskDetector.caskPrefix()
         lastUpdateCheckDate = UserDefaults.standard.object(forKey: Self.lastUpdateCheckDateKey) as? Date
         super.init()
 
@@ -83,7 +82,10 @@ final class UpdateController: NSObject {
         canCheckForUpdates = controller.updater.canCheckForUpdates
         controller.updater
             .publisher(for: \.canCheckForUpdates)
-            .sink { [weak self] in self?.canCheckForUpdates = $0 }
+            .sink { [weak self] in
+                self?.canCheckForUpdates = $0
+                self?.runPendingFeedRecheck()
+            }
             .store(in: &cancellables)
     }
 
@@ -131,40 +133,26 @@ final class UpdateController: NSObject {
         checkInBackground()
     }
 
-    /// A silent check: it updates the sidebar row and nothing else.
-    private func checkInBackground() {
+    /// A silent check: it updates the sidebar row and nothing else. Returns
+    /// whether the check started.
+    @discardableResult
+    private func checkInBackground() -> Bool {
         // While a session is open — Sparkle's window, say —
-        // checkForUpdateInformation() does nothing and never calls back.
-        guard isRunning, canCheckForUpdates else { return }
+        // checkForUpdateInformation() does nothing and never calls back, and
+        // canCheckForUpdates stays true so the menu item can raise the window.
+        guard isRunning, canCheckForUpdates, !controller.updater.sessionInProgress else { return false }
         controller.updater.checkForUpdateInformation()
+        return true
     }
 
-    /// Opens details on an already-known update, for the sidebar row (which
-    /// only shows while `availableUpdate` is set). A Plume-managed install
-    /// opens Sparkle's own window; a Homebrew install opens `UpdatePanelWindow`.
+    /// Opens Sparkle's window on an already-known update, for the sidebar
+    /// row (which only shows while `availableUpdate` is set).
     func showAvailableUpdate() {
-        switch installSource {
-        case .plume:
-            controller.updater.checkForUpdates()
-        case .homebrew:
-            if let availableUpdate {
-                showHomebrewWindow(update: availableUpdate)
-            }
-        }
+        controller.updater.checkForUpdates()
     }
 
-    /// Refreshes behind the window, since the update it shows may be hours
-    /// old. The window follows `availableUpdate`, so a newer release
-    /// replaces it in place.
-    private func showHomebrewWindow(update: AvailableUpdate) {
-        UpdatePanelWindow.show(update: update)
-        checkInBackground()
-    }
-
-    /// A user-initiated check, from the menu or Settings. Unlike a
-    /// background check, this may report a result — a standalone window for
-    /// a found Homebrew update, or an "up to date" `NSAlert` — since the
-    /// user asked, so neither is an interruption.
+    /// A user-initiated check, from the menu or Settings. Sparkle's window
+    /// reports the result, which is no interruption since the user asked.
     func checkForUpdates() {
         guard isRunning else {
             #if DEBUG
@@ -172,35 +160,7 @@ final class UpdateController: NSObject {
             #endif
             return
         }
-        switch installSource {
-        case .plume:
-            controller.updater.checkForUpdates()
-        case .homebrew:
-            if let availableUpdate {
-                showHomebrewWindow(update: availableUpdate)
-            } else if canCheckForUpdates {
-                pendingUserBrewCheck = true
-                controller.updater.checkForUpdateInformation()
-            }
-            // Else a session is already in progress: checkForUpdateInformation()
-            // would no-op with no callback to ever clear the flag, so leave
-            // it unset rather than getting stuck pending.
-        }
-    }
-
-    private func presentUpToDateAlert() {
-        let version = Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String ?? "the current version"
-        let alert = NSAlert()
-        alert.messageText = "Plume is up to date"
-        alert.informativeText = "You have the latest version, \(version)."
-        alert.runModal()
-    }
-
-    private func presentCheckFailedAlert(_ error: Error) {
-        let alert = NSAlert()
-        alert.messageText = "Can't check for updates right now"
-        alert.informativeText = error.localizedDescription
-        alert.runModal()
+        controller.updater.checkForUpdates()
     }
 
     #if DEBUG
@@ -264,24 +224,15 @@ extension UpdateController {
 
 extension UpdateController: SPUUpdaterDelegate {
     func feedURLString(for updater: SPUUpdater) -> String? {
-        feedURLOverride
+        UpdateFeed.urlString(override: feedURLOverride, channel: updateChannel)
     }
 
     func updater(_ updater: SPUUpdater, didFindValidUpdate item: SUAppcastItem) {
-        let update = AvailableUpdate(item: item)
-        availableUpdate = update
-        if pendingUserBrewCheck, installSource == .homebrew {
-            UpdatePanelWindow.show(update: update)
-        }
-        pendingUserBrewCheck = false
+        availableUpdate = AvailableUpdate(item: item)
     }
 
     func updaterDidNotFindUpdate(_ updater: SPUUpdater) {
         availableUpdate = nil
-        if pendingUserBrewCheck, installSource == .homebrew {
-            presentUpToDateAlert()
-        }
-        pendingUserBrewCheck = false
     }
 
     func updater(
@@ -303,88 +254,30 @@ extension UpdateController: SPUUpdaterDelegate {
         if error == nil || foundNoUpdate {
             lastUpdateCheckDate = .now
         }
-        // A safety net for a check that failed outright (e.g. no network):
-        // neither `didFindValidUpdate` nor `updaterDidNotFindUpdate` fires to
-        // clear the flag in that case.
-        if pendingUserBrewCheck, installSource == .homebrew, let error, !foundNoUpdate {
-            presentCheckFailedAlert(error)
-        }
-        pendingUserBrewCheck = false
     }
 }
 
-/// An update Sparkle found, trimmed to what the sidebar row and
-/// `UpdatePanel` need.
+/// Which appcast Sparkle reads. Nil means the Info.plist `SUFeedURL`, the
+/// stable feed.
+enum UpdateFeed {
+    /// A fixed prerelease, so GitHub never marks it `latest` and the stable
+    /// feed never sees it. It carries the newest beta and the newest stable
+    /// release, and Sparkle offers whichever build is higher.
+    static let betaURLString = "https://github.com/ryanmoelter/plume/releases/download/beta-feed/appcast.xml"
+
+    static func urlString(override: String?, channel: UpdateChannel) -> String? {
+        if let override, !override.isEmpty {
+            return override
+        }
+        return channel == .beta ? betaURLString : nil
+    }
+}
+
+/// An update Sparkle found, trimmed to what the sidebar row needs.
 struct AvailableUpdate: Equatable {
     let displayVersion: String
-    let fullReleaseNotesURL: URL?
-    let releaseNotes: String?
-    let releaseNotesFormat: ReleaseNotesFormat
 
     init(item: SUAppcastItem) {
         displayVersion = item.displayVersionString
-        fullReleaseNotesURL = item.fullReleaseNotesURL
-        releaseNotes = item.itemDescription
-        releaseNotesFormat = ReleaseNotesFormat(sparkleFormat: item.itemDescriptionFormat)
-    }
-}
-
-/// Sparkle's three release-notes formats (`SUAppcastItem.m`), plus how an
-/// absent or unrecognized `sparkle:format` resolves: to `html`, the format
-/// from before `plain-text`/`markdown` existed — not to markdown.
-enum ReleaseNotesFormat: Equatable {
-    case markdown
-    case plainText
-    case html
-
-    init(sparkleFormat: String?) {
-        switch sparkleFormat?.lowercased() {
-        case "markdown": self = .markdown
-        case "plain-text": self = .plainText
-        default: self = .html
-        }
-    }
-}
-
-/// Where an update installs from, for the sidebar row's action and the
-/// Settings picker.
-enum UpdateInstallSource: String, CaseIterable, Identifiable, Sendable {
-    case plume
-    case homebrew
-
-    var id: String { rawValue }
-
-    var label: String {
-        switch self {
-        case .plume: "Plume"
-        case .homebrew: "Homebrew"
-        }
-    }
-
-    /// Pure so it's testable without touching Sparkle: an explicit override
-    /// always wins, otherwise it follows detection.
-    static func resolve(override: UpdateInstallSource?, isHomebrewInstall: Bool) -> UpdateInstallSource {
-        override ?? (isHomebrewInstall ? .homebrew : .plume)
-    }
-}
-
-/// Whether this app bundle was installed by Homebrew, detected by the
-/// Caskroom directory it leaves behind rather than anything Sparkle reports.
-enum HomebrewCaskDetector {
-    static let defaultPrefixes: [URL] = [
-        URL(fileURLWithPath: "/opt/homebrew"),
-        URL(fileURLWithPath: "/usr/local"),
-    ]
-
-    static func isCaskInstall(prefixes: [URL] = defaultPrefixes, fileManager: FileManager = .default) -> Bool {
-        caskPrefix(prefixes: prefixes, fileManager: fileManager) != nil
-    }
-
-    static func caskPrefix(prefixes: [URL] = defaultPrefixes, fileManager: FileManager = .default) -> URL? {
-        prefixes.first { prefix in
-            var isDirectory: ObjCBool = false
-            let path = prefix.appendingPathComponent("Caskroom/plume").path
-            return fileManager.fileExists(atPath: path, isDirectory: &isDirectory) && isDirectory.boolValue
-        }
     }
 }

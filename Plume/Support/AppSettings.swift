@@ -76,8 +76,8 @@ final class AppSettings {
         static let shortcutBindings = "shortcutBindings"
         static let hasPromptedForFullDiskAccess = "hasPromptedForFullDiskAccess"
         static let bundledSkillsPromptDismissed = "bundledSkillsPromptDismissed"
-        static let updateInstallSourceOverrideRaw = "updateInstallSourceOverrideRaw"
         static let automaticallyChecksForUpdates = "automaticallyChecksForUpdates"
+        static let updateChannelRaw = "updateChannelRaw"
         static let remoteDeviceProjectID = "remoteDeviceProjectID"
         static let remoteDeviceSignInTaskID = "remoteDeviceSignInTaskID"
     }
@@ -310,12 +310,10 @@ final class AppSettings {
             defaults.set(legacyNerdFontMode.rawValue, forKey: NerdFontMode.userDefaultsKey)
         }
 
-        self.updateInstallSourceOverride = defaults.string(forKey: Key.updateInstallSourceOverrideRaw)
-            .flatMap(UpdateInstallSource.init(rawValue:))
-
         self.automaticallyChecksForUpdates = defaults.object(forKey: Key.automaticallyChecksForUpdates) == nil
             ? true
             : defaults.bool(forKey: Key.automaticallyChecksForUpdates)
+        self.updateChannel = defaults.string(forKey: Key.updateChannelRaw).flatMap(UpdateChannel.init(rawValue:)) ?? .stable
     }
 
     /// Overrides where worktrees are created. Nil (the default) means
@@ -952,17 +950,29 @@ final class AppSettings {
         }
     }
 
-    /// Overrides `UpdateController.isHomebrewInstall` detection. Nil (the
-    /// default) means "use whatever was detected".
-    var updateInstallSourceOverride: UpdateInstallSource? {
-        didSet {
-            defaults.set(updateInstallSourceOverride?.rawValue, forKey: Key.updateInstallSourceOverrideRaw)
-        }
-    }
-
     var automaticallyChecksForUpdates: Bool {
         didSet {
             defaults.set(automaticallyChecksForUpdates, forKey: Key.automaticallyChecksForUpdates)
+        }
+    }
+
+    var updateChannel: UpdateChannel {
+        didSet {
+            defaults.set(updateChannel.rawValue, forKey: Key.updateChannelRaw)
+        }
+    }
+}
+
+enum UpdateChannel: String, CaseIterable, Identifiable {
+    case stable
+    case beta
+
+    var id: String { rawValue }
+
+    var displayName: String {
+        switch self {
+        case .stable: "Stable (default)"
+        case .beta: "Beta"
         }
     }
 }

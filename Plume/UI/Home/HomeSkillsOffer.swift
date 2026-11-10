@@ -123,7 +123,7 @@ struct HomeSkillsOffer: View, ThemedView {
     }
 
     private var isHomebrewInstall: Bool {
-        UpdateController.shared.installSource == .homebrew
+        HomebrewCaskDetector.isInstalledByHomebrew
     }
 
     private func install() {
