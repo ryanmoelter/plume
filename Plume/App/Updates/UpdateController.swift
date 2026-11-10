@@ -137,8 +137,9 @@ final class UpdateController: NSObject {
     @discardableResult
     private func checkInBackground() -> Bool {
         // While a session is open — Sparkle's window, say —
-        // checkForUpdateInformation() does nothing and never calls back.
-        guard isRunning, canCheckForUpdates else { return false }
+        // checkForUpdateInformation() does nothing and never calls back, and
+        // canCheckForUpdates stays true so the menu item can raise the window.
+        guard isRunning, canCheckForUpdates, !controller.updater.sessionInProgress else { return false }
         controller.updater.checkForUpdateInformation()
         return true
     }
@@ -252,6 +253,9 @@ extension UpdateController: SPUUpdaterDelegate {
         if error == nil || foundNoUpdate {
             lastUpdateCheckDate = .now
         }
+        // canCheckForUpdates publishes no change when it was already true
+        // during the session, so retry a pending recheck once the cycle ends.
+        Task { @MainActor in self.runPendingFeedRecheck() }
     }
 }
 
