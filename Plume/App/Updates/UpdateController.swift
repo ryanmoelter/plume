@@ -48,9 +48,11 @@ final class UpdateController: NSObject {
         get { AppSettings.shared.receivesBetaUpdates }
         set {
             AppSettings.shared.receivesBetaUpdates = newValue
-            // The row may show an update the other feed doesn't carry.
-            availableUpdate = nil
-            checkAutomatically()
+            // The row may show an update the other feed doesn't carry, so
+            // recheck against the new feed even with automatic checks off.
+            if checkInBackground() {
+                availableUpdate = nil
+            }
         }
     }
 
@@ -118,12 +120,15 @@ final class UpdateController: NSObject {
         checkInBackground()
     }
 
-    /// A silent check: it updates the sidebar row and nothing else.
-    private func checkInBackground() {
+    /// A silent check: it updates the sidebar row and nothing else. Returns
+    /// whether the check started.
+    @discardableResult
+    private func checkInBackground() -> Bool {
         // While a session is open — Sparkle's window, say —
         // checkForUpdateInformation() does nothing and never calls back.
-        guard isRunning, canCheckForUpdates else { return }
+        guard isRunning, canCheckForUpdates else { return false }
         controller.updater.checkForUpdateInformation()
+        return true
     }
 
     /// Opens Sparkle's window on an already-known update, for the sidebar
