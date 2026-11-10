@@ -47,8 +47,8 @@ struct PullRequestRowContentTests {
 
     @Test func anAssignedReviewerWithNoDecisionReadsAsWaiting() {
         let waiting = PullRequestRowContent.leading(pull(hasReviewers: true))
-        #expect(waiting.symbol == "person.fill.questionmark")
-        #expect(waiting.isDim)
+        #expect(waiting.symbol == "person.badge.clock")
+        #expect(!waiting.isDim)
         #expect(PullRequestRowContent.leading(pull()).label == "open")
     }
 
