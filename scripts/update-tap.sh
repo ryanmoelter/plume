@@ -18,6 +18,9 @@ fail() { echo "FAILED: $*" >&2; exit 1; }
 
 [ $# -eq 1 ] || fail "usage: $0 <version>  (e.g. $0 0.12.0)"
 VERSION="$1"
+case "$VERSION" in
+  *-*) fail "$VERSION is a beta — the cask only ever installs stable releases" ;;
+esac
 TAG="v$VERSION"
 DMG_URL="https://github.com/$PLUME_REPO/releases/download/$TAG/Plume-$VERSION.dmg"
 
