@@ -10,8 +10,8 @@ nonisolated enum GitHubMentionQuery {
     private static let statusFields = "reviewDecision "
         + "reviewRequests(first: 1) { totalCount } latestReviews(first: 1) { totalCount } "
         + "commits(last: 1) { nodes { commit { statusCheckRollup { contexts(first: 100) "
-        + "{ nodes { __typename ... on StatusContext { context state } "
-        + "... on CheckRun { name conclusion status } } } } } } }"
+        + "{ nodes { __typename ... on StatusContext { context state createdAt } "
+        + "... on CheckRun { name conclusion status startedAt } } } } } } }"
 
     /// A query and its variables. What the user typed travels only as a
     /// variable, sent with `-f`, which gh passes through as a plain string.
@@ -119,9 +119,9 @@ nonisolated enum GitHubMentionQuery {
 
         var entry: MentionCandidate.PullRequestEntry? {
             guard let number, let url, let state = PullRequestState(rawValue: state ?? "") else { return nil }
-            let contexts = (commits?.nodes?.first?.commit?.statusCheckRollup?.contexts?.nodes ?? []).map {
-                CheckContext(context: $0.context, state: $0.state, name: $0.name, conclusion: $0.conclusion, status: $0.status)
-            }
+            let contexts = CheckContext.latestRuns(
+                (commits?.nodes?.first?.commit?.statusCheckRollup?.contexts?.nodes ?? []).map(\.checkContext)
+            )
             return .init(
                 number: number,
                 title: title ?? "",
