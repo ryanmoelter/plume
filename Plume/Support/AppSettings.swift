@@ -76,7 +76,6 @@ final class AppSettings {
         static let shortcutBindings = "shortcutBindings"
         static let hasPromptedForFullDiskAccess = "hasPromptedForFullDiskAccess"
         static let bundledSkillsPromptDismissed = "bundledSkillsPromptDismissed"
-        static let updateInstallSourceOverrideRaw = "updateInstallSourceOverrideRaw"
         static let automaticallyChecksForUpdates = "automaticallyChecksForUpdates"
         static let remoteDeviceProjectID = "remoteDeviceProjectID"
         static let remoteDeviceSignInTaskID = "remoteDeviceSignInTaskID"
@@ -309,9 +308,6 @@ final class AppSettings {
         if storedNerdFontMode == nil, let legacyNerdFontMode {
             defaults.set(legacyNerdFontMode.rawValue, forKey: NerdFontMode.userDefaultsKey)
         }
-
-        self.updateInstallSourceOverride = defaults.string(forKey: Key.updateInstallSourceOverrideRaw)
-            .flatMap(UpdateInstallSource.init(rawValue:))
 
         self.automaticallyChecksForUpdates = defaults.object(forKey: Key.automaticallyChecksForUpdates) == nil
             ? true
@@ -949,14 +945,6 @@ final class AppSettings {
     var showsCodexFullAccess: Bool {
         didSet {
             defaults.set(showsCodexFullAccess, forKey: Key.showsCodexFullAccess)
-        }
-    }
-
-    /// Overrides `UpdateController.isHomebrewInstall` detection. Nil (the
-    /// default) means "use whatever was detected".
-    var updateInstallSourceOverride: UpdateInstallSource? {
-        didSet {
-            defaults.set(updateInstallSourceOverride?.rawValue, forKey: Key.updateInstallSourceOverrideRaw)
         }
     }
 
