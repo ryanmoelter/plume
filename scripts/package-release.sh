@@ -15,7 +15,10 @@
 #   - the Sparkle EdDSA private key in 1Password at SPARKLE_KEY_REF, and `op`
 #     signed in (op signin)
 #
-# Usage: scripts/package-release.sh [--beta]
+# Usage: scripts/package-release.sh [--beta [--allow-branch]]
+#
+# Betas release from main. --beta on any other branch fails unless
+# --allow-branch is passed, which needs the maintainer's explicit approval.
 #
 # --beta packages a beta: MARKETING_VERSION must carry a suffix (0.20.0-beta.1),
 # and the draft is a prerelease, which GitHub's releases/latest never points at.
@@ -33,10 +36,12 @@
 set -uo pipefail
 
 BETA=false
+ALLOW_BRANCH=false
 for arg in "$@"; do
   case "$arg" in
     --beta) BETA=true ;;
-    *) echo "usage: $0 [--beta]" >&2; exit 2 ;;
+    --allow-branch) ALLOW_BRANCH=true ;;
+    *) echo "usage: $0 [--beta [--allow-branch]]" >&2; exit 2 ;;
   esac
 done
 
@@ -133,6 +138,12 @@ case "$BETA:$VERSION" in
   true:*-*|false:*) ;;
   true:*) fail "--beta needs a prerelease MARKETING_VERSION like $VERSION-beta.1 (found $VERSION)" ;;
 esac
+if [ "$BETA" = true ] && [ "$ALLOW_BRANCH" = false ]; then
+  BRANCH="$(git rev-parse --abbrev-ref HEAD 2>/dev/null)"
+  [ "$BRANCH" = "main" ] \
+    || fail "betas release from main, and this is ${BRANCH:-a detached HEAD}. Releasing a beta from
+  another branch needs the maintainer's explicit approval; with it, pass --allow-branch"
+fi
 case "$BETA:$VERSION" in
   false:*-*) fail "MARKETING_VERSION $VERSION is a prerelease — package it with --beta" ;;
 esac
