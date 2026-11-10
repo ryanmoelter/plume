@@ -16,8 +16,8 @@ nonisolated enum GitHubQuery {
         reviewRequests(first: 1) { totalCount } latestReviews(first: 1) { totalCount } \
         headRepositoryOwner { login } \
         commits(last: 1) { nodes { commit { statusCheckRollup { contexts(first: 100) \
-        { nodes { __typename ... on StatusContext { context state } \
-        ... on CheckRun { name conclusion status } } } } } } }
+        { nodes { __typename ... on StatusContext { context state createdAt } \
+        ... on CheckRun { name conclusion status startedAt } } } } } } }
         """
 
     private static let stackFields = "stack { number size } stackEntry { position }"
@@ -88,6 +88,21 @@ nonisolated struct GitHubPRNode: Decodable, Sendable {
         let name: String?
         let conclusion: String?
         let status: String?
+        /// A `StatusContext`'s.
+        let createdAt: String?
+        /// A `CheckRun`'s.
+        let startedAt: String?
+
+        var checkContext: CheckContext {
+            CheckContext(
+                context: context,
+                state: state,
+                name: name,
+                conclusion: conclusion,
+                status: status,
+                startedAt: startedAt ?? createdAt
+            )
+        }
     }
     struct Contexts: Decodable, Sendable { let nodes: [RollupContext]? }
     struct Rollup: Decodable, Sendable { let contexts: Contexts? }
@@ -153,16 +168,9 @@ nonisolated extension PullRequest {
     /// nil for a node whose `state` isn't one GitHub documents.
     init?(node: GitHubPRNode) {
         guard let state = PullRequestState(rawValue: node.state ?? "") else { return nil }
-        let contexts = (node.commits?.nodes?.first?.commit?.statusCheckRollup?.contexts?.nodes ?? [])
-            .map {
-                CheckContext(
-                    context: $0.context,
-                    state: $0.state,
-                    name: $0.name,
-                    conclusion: $0.conclusion,
-                    status: $0.status
-                )
-            }
+        let contexts = CheckContext.latestRuns(
+            (node.commits?.nodes?.first?.commit?.statusCheckRollup?.contexts?.nodes ?? []).map(\.checkContext)
+        )
         self.init(
             number: node.number,
             state: state,

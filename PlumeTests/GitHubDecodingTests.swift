@@ -35,9 +35,12 @@ struct GitHubDecodingTests {
         #expect(try decodeFixture().reviewDecision == .none)
     }
 
-    @Test func everyRollupContextDecodes() throws {
+    /// The capture's 50 contexts carry 27 names: label-triggered workflows
+    /// ran the same checks up to five times on one commit.
+    @Test func everyRollupContextDecodesOncePerName() throws {
         let pr = try decodeFixture()
-        #expect(pr.checkContexts.count == 50)
+        #expect(pr.checkContexts.count == 27)
+        #expect(Set(pr.checkContexts.map(\.name)).count == 27)
         #expect(pr.checkContexts.allSatisfy { !$0.name.isEmpty })
         #expect(pr.checkContexts.allSatisfy { !$0.status.isEmpty })
     }
@@ -74,6 +77,24 @@ struct GitHubDecodingTests {
         )
         #expect(!unsettled.isEmpty)
         #expect(pr.checkRollup(ignoredWhenPending: unsettled) == .success)
+    }
+
+    @Test func aRerunReplacesTheRunBeforeIt() throws {
+        let json = """
+        {"data":{"repository":{"owner":{"login":"me"},"b0":{"nodes":[
+        {"number":7,"state":"OPEN","isDraft":false,
+         "commits":{"nodes":[{"commit":{"statusCheckRollup":{"contexts":{"nodes":[
+          {"__typename":"CheckRun","name":"build","conclusion":"SUCCESS","status":"COMPLETED","startedAt":"2026-11-10T10:05:00Z"},
+          {"__typename":"CheckRun","name":"build","conclusion":"FAILURE","status":"COMPLETED","startedAt":"2026-11-10T10:00:00Z"},
+          {"__typename":"StatusContext","context":"ci/lint","state":"SUCCESS","createdAt":"2026-11-10T10:00:00Z"}
+         ]}}}}]}}]}}}}
+        """
+        let decoded = try GitHubQuery.decode(Data(json.utf8), aliasToBranch: ["b0": "main"])
+        let pr = try #require(decoded["main"] ?? nil)
+        #expect(pr.checkContexts.map(\.name) == ["build", "ci/lint"])
+        #expect(pr.checkContexts.first?.status == "SUCCESS")
+        #expect(pr.checkContexts.last?.startedAt != nil)
+        #expect(pr.checkRollup() == .success)
     }
 
     // MARK: - Null shapes
