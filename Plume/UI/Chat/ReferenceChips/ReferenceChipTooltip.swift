@@ -20,7 +20,7 @@ nonisolated enum ReferenceChipTooltip {
         case (.pullRequest(let owner, let repo, let number), _):
             return lines([title, "\(owner)/\(repo) #\(number)"])
         case (.file(let path), _):
-            return relativePath(path, to: directory)
+            return (path as NSString).standardizingPath
         }
     }
 
@@ -31,7 +31,7 @@ nonisolated enum ReferenceChipTooltip {
             issue.assigneeName.flatMap { $0.isEmpty ? nil : $0 } ?? "Unassigned",
             issue.dueDate.flatMap(formattedDueDate).map { "Due \($0)" },
         ]
-        return lines([issue.title, issue.summary, joined(facts)])
+        return lines([issue.title, joined(facts)])
     }
 
     static func pullRequest(_ entry: PullRequestLinkSource.Entry, owner: String, repo: String) -> String {
@@ -60,21 +60,6 @@ nonisolated enum ReferenceChipTooltip {
         case .changesRequested: return "Changes requested"
         case .none: return nil
         }
-    }
-
-    /// `path` relative to `directory` when it lies inside it, with `~` for
-    /// the home folder otherwise.
-    static func relativePath(_ path: String, to directory: String?, home: String = NSHomeDirectory()) -> String {
-        let path = (path as NSString).standardizingPath
-        if let directory {
-            let base = (directory as NSString).standardizingPath
-            let prefix = base.hasSuffix("/") ? base : base + "/"
-            if path.hasPrefix(prefix) { return String(path.dropFirst(prefix.count)) }
-            if path == base { return "." }
-        }
-        let homePrefix = home.hasSuffix("/") ? home : home + "/"
-        if path.hasPrefix(homePrefix) { return "~/" + path.dropFirst(homePrefix.count) }
-        return path
     }
 
     /// Linear's due date is a calendar day with no time zone, so it is read

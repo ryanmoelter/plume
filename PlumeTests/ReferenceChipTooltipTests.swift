@@ -5,7 +5,7 @@ import Testing
 @testable import Plume
 
 /// A chip's tooltip leads with the full title, then the facts the chip has
-/// no room for; a file shows its path relative to the tab directory.
+/// no room for; a file shows its full path.
 struct ReferenceChipTooltipTests {
     private func issue(summary: String? = nil, assignee: String? = "Ryan", dueDate: String? = nil) -> LinearIssue {
         LinearIssue(
@@ -22,7 +22,7 @@ struct ReferenceChipTooltipTests {
         )
     }
 
-    @Test func aLinearIssueShowsTitleSummaryAndFacts() {
+    @Test func aLinearIssueShowsTitleAndFactsWithoutItsDescription() {
         let text = ReferenceChipTooltip.text(
             for: .linear(identifier: "PLUME-330"),
             detail: .linear(issue(summary: "Hovering a chip shows more.", dueDate: "2026-11-05")),
@@ -30,7 +30,7 @@ struct ReferenceChipTooltipTests {
             directory: nil
         )
         let due = ReferenceChipTooltip.formattedDueDate("2026-11-05")!
-        #expect(text == "Tooltips on reference chips\nHovering a chip shows more.\nPLUME-330 · In Progress · Ryan · Due \(due)")
+        #expect(text == "Tooltips on reference chips\nPLUME-330 · In Progress · Ryan · Due \(due)")
     }
 
     @Test func anUnassignedIssueSaysSo() {
@@ -71,11 +71,9 @@ struct ReferenceChipTooltipTests {
         #expect(ReferenceChipTooltip.text(for: .pullRequest(owner: "o", repo: "r", number: 4), detail: nil, title: nil, directory: nil) == "o/r #4")
     }
 
-    @Test func aFileIsRelativeToTheTabDirectory() {
-        #expect(ReferenceChipTooltip.relativePath("/repo/Plume/App/X.swift", to: "/repo", home: "/Users/me") == "Plume/App/X.swift")
-        #expect(ReferenceChipTooltip.relativePath("/repo/", to: "/repo", home: "/Users/me") == ".")
-        #expect(ReferenceChipTooltip.relativePath("/repository/X", to: "/repo", home: "/Users/me") == "/repository/X")
-        #expect(ReferenceChipTooltip.relativePath("/Users/me/notes.md", to: "/repo", home: "/Users/me") == "~/notes.md")
+    @Test func aFileShowsItsFullPath() {
+        let text = ReferenceChipTooltip.text(for: .file(path: "/repo/Plume/App/X.swift"), detail: nil, title: nil, directory: "/repo")
+        #expect(text == "/repo/Plume/App/X.swift")
     }
 
     @Test func aSummaryTakesTheFirstProseLinesWithoutMarkers() {
@@ -114,7 +112,7 @@ struct ComposerReferenceToolTipTests {
         let resolved = ResolvedMention(target: "Plume/App/X.swift", title: nil, state: .file(isDirectory: false))
         let toolTip = ComposerReferenceChip.toolTip(of: .file(path: "Plume/App/X.swift", isDirectory: false), resolved, directory: "/repo")
         #expect(toolTip?.target == .file(path: "/repo/Plume/App/X.swift"))
-        #expect(toolTip?.text == "Plume/App/X.swift")
+        #expect(toolTip?.text == "/repo/Plume/App/X.swift")
     }
 
     @Test func eachLineOfAChipGetsATooltipRect() {
@@ -128,8 +126,8 @@ struct ComposerReferenceToolTipTests {
         owner.update([chip], in: view)
         let first = UnsafeMutableRawPointer(bitPattern: 1)
         let second = UnsafeMutableRawPointer(bitPattern: 2)
-        #expect(owner.view(view, stringForToolTip: 0, point: .zero, userData: first) == "a")
-        #expect(owner.view(view, stringForToolTip: 0, point: .zero, userData: second) == "a")
+        #expect(owner.view(view, stringForToolTip: 0, point: .zero, userData: first) == "/repo/a")
+        #expect(owner.view(view, stringForToolTip: 0, point: .zero, userData: second) == "/repo/a")
         #expect(owner.view(view, stringForToolTip: 0, point: .zero, userData: UnsafeMutableRawPointer(bitPattern: 3)) == "")
     }
 }
