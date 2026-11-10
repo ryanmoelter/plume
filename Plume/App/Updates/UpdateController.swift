@@ -47,6 +47,7 @@ final class UpdateController: NSObject {
     var updateChannel: UpdateChannel {
         get { AppSettings.shared.updateChannel }
         set {
+            guard newValue != AppSettings.shared.updateChannel else { return }
             AppSettings.shared.updateChannel = newValue
             // The row may show an update the other feed doesn't carry, so
             // recheck against the new feed even with automatic checks off.
@@ -253,9 +254,6 @@ extension UpdateController: SPUUpdaterDelegate {
         if error == nil || foundNoUpdate {
             lastUpdateCheckDate = .now
         }
-        // canCheckForUpdates publishes no change when it was already true
-        // during the session, so retry a pending recheck once the cycle ends.
-        Task { @MainActor in self.runPendingFeedRecheck() }
     }
 }
 
