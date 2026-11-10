@@ -343,12 +343,14 @@ The beta feed holds two items: the newest beta and the newest stable release. Sp
 
 A user who switches the update source back to Stable keeps their build and reads the stable feed again. Sparkle offers them any stable release with a higher build. Usually that is the stable release the beta leads up to. But a hotfix shipped mid-cycle also has a higher build, so a user who opts out during a `0.20.0` beta can be offered `0.19.1`, a downgrade in marketing version.
 
+Betas are tagged and released on `main`. `package-release.sh --beta` fails on any other branch. Another branch needs the maintainer's explicit approval, and only then may the run pass `--allow-branch`. Agents must never pass `--allow-branch` without that approval.
+
 To cut a beta:
 
 1. Set `MARKETING_VERSION` to the coming release with a suffix: `0.20.0-beta.1`, then `0.20.0-beta.2`. Xcode quotes it in the project file; leave the quotes.
 2. Bump `CURRENT_PROJECT_VERSION` as for any release. Build numbers keep rising across betas and stable releases alike. The stable `0.20.0` takes a higher build than its last beta, or beta users never get it.
 3. Head the `CHANGELOG.md` section `## 0.20.0-beta.1 (<build>)`. The stable release gets its own `## 0.20.0 (<build>)` section later.
-4. Run `scripts/package-release.sh --beta`. It refuses a version without a suffix, and the plain script refuses one with a suffix. The draft is a prerelease tagged `v0.20.0-beta.1`.
+4. Run `scripts/package-release.sh --beta` on `main`. It refuses a version without a suffix, and the plain script refuses one with a suffix. The draft is a prerelease tagged `v0.20.0-beta.1`.
 5. Publish and refresh the beta feed with the command the script prints.
 
 The script writes `out/beta-feed/appcast.xml` from the new item plus the newest item of the other feed (`scripts/lib/appcast.sh`). A beta takes the stable feed's item. A stable release carries no beta item: it takes only its own item, and the preflight fails a run whose build is behind the live beta's. A beta must also outrun the beta feed's build, and the script checks that before signing.
@@ -395,19 +397,17 @@ Existing DMG installs have no updater yet, so the release that adds Sparkle reac
 
 `ryanmoelter/homebrew-tap` carries a cask, `Casks/plume.rb`, that installs the DMG built above: `brew install ryanmoelter/tap/plume`. Casks and formulae coexist in that one repo.
 
-**Homebrew installs Plume; Sparkle updates it.** The cask declares `auto_updates true`, so `brew upgrade` skips Plume, and the app updates itself in place like a DMG install. Sparkle can write over `/Applications/Plume.app` even though Homebrew put it there. The Caskroom's recorded version goes stale, which matters only to `brew upgrade --greedy`. The cask keeps `uninstall quit:` and its `launchctl` step, because `brew uninstall` still needs them.
+**Homebrew installs Plume; Sparkle updates it.** The cask declares `auto_updates true` (the 0.19.0 tap bump adds it), so `brew upgrade` skips Plume, and the app updates itself in place like a DMG install. Sparkle can write over `/Applications/Plume.app` even though Homebrew put it there. The Caskroom's recorded version goes stale, which matters only to `brew upgrade --greedy`. The cask keeps `uninstall quit:` and its `launchctl` step, because `brew uninstall` still needs them.
 
 An older Homebrew install still has its own update window, which runs `brew upgrade --cask ryanmoelter/tap/plume`. Naming the cask upgrades it even with `auto_updates true`, so that last brew-driven upgrade installs a Sparkle-only build, and Sparkle updates it from then on.
 
-**For the first Sparkle-only release, the tap bump is mandatory.** Those older builds upgrade only through the tap, so if the cask still names an older version, `brew upgrade` finds nothing and they stay stranded. In the same change, add `auto_updates true` to the cask. `update-tap.sh` refuses to bump a cask that lacks it.
-
-After that, bumping the cask is optional per release. It keeps a fresh `brew install` close to current, so that a new user's first Sparkle update is small. After a stable release is public (not a draft), bump it:
+**The tap bump is mandatory for every stable release.** New downloads get the newest version, and `brew upgrade --greedy` works. Older builds that still update through Homebrew upgrade only through the tap, so if the cask names an older version, `brew upgrade` finds nothing and they stay stranded. The 0.19.0 bump is the one that adds `auto_updates true` to the cask: `update-tap.sh` inserts the line when it is missing and commits it with the version bump. After a stable release is public (not a draft), bump it:
 
 ```
 scripts/update-tap.sh <version>   # e.g. scripts/update-tap.sh 0.12.0
 ```
 
-It clones `ryanmoelter/homebrew-tap` into `mktemp -d`, downloads that version's DMG, computes its sha256, edits `version`/`sha256` in the cask, commits, and pushes — then deletes the temp clone. It refuses if the release for that version is still a draft, since the DMG URL 404s until publication and hashing then would hash bytes nobody can download.
+It clones `ryanmoelter/homebrew-tap` into `mktemp -d`, downloads that version's DMG, computes its sha256, edits `version`/`sha256` in the cask (and adds `auto_updates true` if absent), commits, and pushes — then deletes the temp clone. It refuses if the release for that version is still a draft, since the DMG URL 404s until publication and hashing then would hash bytes nobody can download.
 
 Homebrew links the `plume` tool through the cask's `binary "#{appdir}/Plume.app/Contents/Helpers/plume"` stanza, so `update-tap.sh` fails the bump if that line is missing. The Settings ▸ Command line switch is for DMG installs, and Home's skills install skips linking the tool on a Homebrew install.
 
