@@ -280,7 +280,7 @@ The second run reuses nothing — it rebuilds and re-notarizes, which takes the 
 Then review the draft on GitHub, publish it, and refresh the beta feed:
 
 ```
-gh release edit v0.5.1 --draft=false && gh release upload beta-feed out/beta-feed/appcast.xml --clobber
+gh release edit v0.5.1 --draft=false && { gh release view beta-feed >/dev/null 2>&1 || gh release create beta-feed --prerelease --title "Beta feed" --notes "Sparkle feed for Plume's beta channel. Not a release."; } && gh release upload beta-feed out/beta-feed/appcast.xml --clobber
 ```
 
 The script prints this command with the real paths. A release refreshes the beta feed, a stable one included, so beta users see the stable build once it overtakes their beta. The exception is a stable release behind a live beta, which leaves the beta feed alone; the script then prints only the publish command. Upload only after publishing: until then the DMG URL in the feed 404s. *Beta releases* covers the feed.
@@ -337,7 +337,7 @@ The appcast goes live when the draft is published, same as the DMG — a draft o
 
 ### Beta releases
 
-Betas reach only users who turn on Settings ▸ Updates ▸ **Receive beta updates**. That switch points Sparkle at a second feed, `https://github.com/ryanmoelter/plume/releases/download/beta-feed/appcast.xml`. The feed is the one asset of a fixed prerelease tagged `beta-feed`. GitHub never marks a prerelease `latest`, so the stable feed never sees it. `package-release.sh` creates the `beta-feed` release the first time it runs.
+Betas reach only users who turn on Settings ▸ Updates ▸ **Receive beta updates**. That switch points Sparkle at a second feed, `https://github.com/ryanmoelter/plume/releases/download/beta-feed/appcast.xml`. The feed is the one asset of a fixed prerelease tagged `beta-feed`. GitHub never marks a prerelease `latest`, so the stable feed never sees it. The publish command that `package-release.sh` prints creates the `beta-feed` release the first time it runs, so the release never exists empty. Always run that printed command, not GitHub's Publish button alone, or the beta feed goes stale.
 
 The beta feed holds two items: the newest beta and the newest stable release. Sparkle offers whichever has the higher `sparkle:version`. So a beta user moves onto the stable release once it overtakes their beta.
 

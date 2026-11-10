@@ -217,8 +217,15 @@ if [ "$BETA" = true ]; then
   check_outruns "beta" "$FEEDS_DIR/beta.xml"
 else
   beta_version="$(appcast_newest_version "$FEEDS_DIR/beta.xml")"
-  if [ -n "$beta_version" ] && [ "$beta_version" -gt "$BUILT_CFBUNDLE_VERSION" ] 2>/dev/null; then
-    echo "note: the beta feed's build $beta_version is newer, so beta users stay on it"
+  beta_short_version="$(appcast_newest_short_version "$FEEDS_DIR/beta.xml")"
+  built_short_version="$(/usr/libexec/PlistBuddy -c 'Print :CFBundleShortVersionString' "$SRC/Contents/Info.plist")"
+  if [ -n "$beta_version" ] && [ "$beta_version" -ge "$BUILT_CFBUNDLE_VERSION" ] 2>/dev/null \
+    && ! { [ -n "$beta_short_version" ] \
+      && marketing_version_greater "$beta_short_version" "$built_short_version"; }; then
+    fail "the built CFBundleVersion ($BUILT_CFBUNDLE_VERSION) is not greater than the live beta
+  feed's sparkle:version ($beta_version) — the stable would sit behind the beta in the beta feed,
+  so give the stable a higher build number than the beta (CURRENT_PROJECT_VERSION in
+  Plume.xcodeproj/project.pbxproj)"
   fi
 fi
 
@@ -442,7 +449,7 @@ if ! git rev-parse "$TAG" >/dev/null 2>&1; then
   echo
   echo "Tag this commit, push it, then re-run to attach the DMG to a draft:"
   echo "  git tag -a $TAG -m \"$TAG\""
-  echo "  git push origin main $TAG"
+  echo "  git push origin $([ "$BETA" = true ] && git rev-parse --abbrev-ref HEAD || echo main) $TAG"
   echo "  scripts/package-release.sh$([ "$BETA" = true ] && echo " --beta")"
   exit 0
 fi
@@ -475,14 +482,6 @@ else
     --notes-file "$NOTES_FILE" || fail "could not create the draft release"
 fi
 
-# The beta feed's release only ever holds appcast.xml. Created here rather
-# than at publish time so the printed publish command can't fail on it.
-if ! gh release view "$BETA_FEED_TAG" >/dev/null 2>&1; then
-  gh release create "$BETA_FEED_TAG" --prerelease --title "Beta feed" \
-    --notes "Sparkle feed for Plume's beta channel. Not a release." \
-    || fail "could not create the $BETA_FEED_TAG prerelease"
-fi
-
 URL="$(gh release view "$TAG" --json url --jq .url 2>/dev/null)"
 
 echo
@@ -496,7 +495,7 @@ echo "Draft:   ${URL:-<none>}"
 echo
 if [ "$UPDATES_BETA_FEED" = true ]; then
   echo "Review it, then publish it and refresh the beta feed with:"
-  echo "  gh release edit $TAG --draft=false && gh release upload $BETA_FEED_TAG $BETA_APPCAST --clobber"
+  echo "  gh release edit $TAG --draft=false && { gh release view $BETA_FEED_TAG >/dev/null 2>&1 || gh release create $BETA_FEED_TAG --prerelease --title \"Beta feed\" --notes \"Sparkle feed for Plume's beta channel. Not a release.\"; } && gh release upload $BETA_FEED_TAG $BETA_APPCAST --clobber"
 else
   echo "Review it, then publish it with:"
   echo "  gh release edit $TAG --draft=false"
