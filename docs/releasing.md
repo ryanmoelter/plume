@@ -337,11 +337,11 @@ The appcast goes live when the draft is published, same as the DMG — a draft o
 
 ### Beta releases
 
-Betas reach only users who turn on Settings ▸ Updates ▸ **Receive beta updates**. That switch points Sparkle at a second feed, `https://github.com/ryanmoelter/plume/releases/download/beta-feed/appcast.xml`. The feed is the one asset of a fixed prerelease tagged `beta-feed`. GitHub never marks a prerelease `latest`, so the stable feed never sees it. The publish command that `package-release.sh` prints creates the `beta-feed` release the first time it runs, so the release never exists empty. Always run that printed command, not GitHub's Publish button alone, or the beta feed goes stale.
+Betas reach only users who set Settings ▸ Updates ▸ **Update source** to **Beta** (the default is **Stable**). That picker points Sparkle at a second feed, `https://github.com/ryanmoelter/plume/releases/download/beta-feed/appcast.xml`. The feed is the one asset of a fixed prerelease tagged `beta-feed`. GitHub never marks a prerelease `latest`, so the stable feed never sees it. The publish command that `package-release.sh` prints creates the `beta-feed` release the first time it runs, so the release never exists empty. Always run that printed command, not GitHub's Publish button alone, or the beta feed goes stale.
 
 The beta feed holds two items: the newest beta and the newest stable release. Sparkle offers whichever has the higher `sparkle:version`. So a beta user moves onto the stable release once it overtakes their beta.
 
-A user who turns betas off keeps their build and reads the stable feed again. Sparkle offers them any stable release with a higher build. Usually that is the stable release the beta leads up to. But a hotfix shipped mid-cycle also has a higher build, so a user who opts out during a `0.20.0` beta can be offered `0.19.1`, a downgrade in marketing version.
+A user who switches the update source back to Stable keeps their build and reads the stable feed again. Sparkle offers them any stable release with a higher build. Usually that is the stable release the beta leads up to. But a hotfix shipped mid-cycle also has a higher build, so a user who opts out during a `0.20.0` beta can be offered `0.19.1`, a downgrade in marketing version.
 
 To cut a beta:
 

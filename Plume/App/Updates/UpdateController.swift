@@ -44,10 +44,10 @@ final class UpdateController: NSObject {
         }
     }
 
-    var receivesBetaUpdates: Bool {
-        get { AppSettings.shared.receivesBetaUpdates }
+    var updateChannel: UpdateChannel {
+        get { AppSettings.shared.updateChannel }
         set {
-            AppSettings.shared.receivesBetaUpdates = newValue
+            AppSettings.shared.updateChannel = newValue
             // The row may show an update the other feed doesn't carry, so
             // recheck against the new feed even with automatic checks off.
             pendingFeedRecheck = true
@@ -223,7 +223,7 @@ extension UpdateController {
 
 extension UpdateController: SPUUpdaterDelegate {
     func feedURLString(for updater: SPUUpdater) -> String? {
-        UpdateFeed.urlString(override: feedURLOverride, receivesBetaUpdates: receivesBetaUpdates)
+        UpdateFeed.urlString(override: feedURLOverride, channel: updateChannel)
     }
 
     func updater(_ updater: SPUUpdater, didFindValidUpdate item: SUAppcastItem) {
@@ -267,11 +267,11 @@ enum UpdateFeed {
     /// release, and Sparkle offers whichever build is higher.
     static let betaURLString = "https://github.com/ryanmoelter/plume/releases/download/beta-feed/appcast.xml"
 
-    static func urlString(override: String?, receivesBetaUpdates: Bool) -> String? {
+    static func urlString(override: String?, channel: UpdateChannel) -> String? {
         if let override, !override.isEmpty {
             return override
         }
-        return receivesBetaUpdates ? betaURLString : nil
+        return channel == .beta ? betaURLString : nil
     }
 }
 

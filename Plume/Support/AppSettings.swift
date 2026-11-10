@@ -77,7 +77,7 @@ final class AppSettings {
         static let hasPromptedForFullDiskAccess = "hasPromptedForFullDiskAccess"
         static let bundledSkillsPromptDismissed = "bundledSkillsPromptDismissed"
         static let automaticallyChecksForUpdates = "automaticallyChecksForUpdates"
-        static let receivesBetaUpdates = "receivesBetaUpdates"
+        static let updateChannelRaw = "updateChannelRaw"
         static let remoteDeviceProjectID = "remoteDeviceProjectID"
         static let remoteDeviceSignInTaskID = "remoteDeviceSignInTaskID"
     }
@@ -313,7 +313,7 @@ final class AppSettings {
         self.automaticallyChecksForUpdates = defaults.object(forKey: Key.automaticallyChecksForUpdates) == nil
             ? true
             : defaults.bool(forKey: Key.automaticallyChecksForUpdates)
-        self.receivesBetaUpdates = defaults.bool(forKey: Key.receivesBetaUpdates)
+        self.updateChannel = defaults.string(forKey: Key.updateChannelRaw).flatMap(UpdateChannel.init(rawValue:)) ?? .stable
     }
 
     /// Overrides where worktrees are created. Nil (the default) means
@@ -956,9 +956,23 @@ final class AppSettings {
         }
     }
 
-    var receivesBetaUpdates: Bool {
+    var updateChannel: UpdateChannel {
         didSet {
-            defaults.set(receivesBetaUpdates, forKey: Key.receivesBetaUpdates)
+            defaults.set(updateChannel.rawValue, forKey: Key.updateChannelRaw)
+        }
+    }
+}
+
+enum UpdateChannel: String, CaseIterable, Identifiable {
+    case stable
+    case beta
+
+    var id: String { rawValue }
+
+    var displayName: String {
+        switch self {
+        case .stable: "Stable (default)"
+        case .beta: "Beta"
         }
     }
 }

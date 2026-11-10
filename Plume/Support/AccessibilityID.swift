@@ -154,7 +154,7 @@ enum AccessibilityID {
     static let fullDiskAccessManageButton = "full-disk-access-manage-button"
     static let updatesAutoCheckToggle = "updates-auto-check-toggle"
     static let updatesCheckNowButton = "updates-check-now-button"
-    static let updatesBetaToggle = "updates-beta-toggle"
+    static let updatesChannelPicker = "updates-channel-picker"
     static let debugUpdatesFeedURLField = "debug-updates-feed-url-field"
     static let debugUpdatesCheckBackgroundButton = "debug-updates-check-background-button"
     static let debugUpdatesResetStateButton = "debug-updates-reset-state-button"
