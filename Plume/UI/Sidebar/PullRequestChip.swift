@@ -112,7 +112,7 @@ nonisolated enum PullRequestChipContent {
         case .changesRequested: PullRequestGlyph(symbol: "person.fill.xmark", tint: .danger, label: "changes requested")
         case .none:
             hasReviewers
-                ? PullRequestGlyph(symbol: "person.fill.questionmark", tint: .neutral, label: "awaiting review", isDim: true)
+                ? PullRequestGlyph(symbol: "person.badge.clock", tint: .neutral, label: "awaiting review")
                 : nil
         }
     }
