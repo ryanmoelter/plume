@@ -54,6 +54,9 @@ BINARY_STANZA='binary "#{appdir}/Plume.app/Contents/Helpers/plume"'
 grep -qF "$BINARY_STANZA" "$CASK" \
   || fail "cask no longer contains the line: $BINARY_STANZA — Homebrew installs would lose the plume command. Restore it in $TAP_REPO before bumping."
 
+grep -qE '^[[:space:]]*auto_updates true[[:space:]]*$' "$CASK" \
+  || fail "cask does not declare auto_updates true — Sparkle updates Homebrew installs, so without it brew upgrade would fight Sparkle. Add it to $TAP_REPO's Casks/plume.rb before bumping."
+
 # version and sha256 are each declared once, near the top of the cask.
 sed -i '' \
   -e "s/^  version \".*\"/  version \"$VERSION\"/" \
