@@ -185,6 +185,32 @@ struct ComposerMarkdownEditingTests {
         )
     }
 
+    @Test func contentColumnFollowsTheMarkerWidth() {
+        #expect(run(ComposerMarkdownEditing.indent, "- a\n- |b") == "- a\n  - |b")
+        #expect(run(ComposerMarkdownEditing.indent, "* a\n* |b") == "* a\n  * |b")
+        #expect(run(ComposerMarkdownEditing.indent, "1. a\n2. |b") == "1. a\n   1. |b")
+        #expect(run(ComposerMarkdownEditing.indent, "10. a\n11. |b") == "10. a\n    1. |b")
+        #expect(run(ComposerMarkdownEditing.indent, "- [ ] a\n- [ ] |b") == "- [ ] a\n  - [ ] |b")
+    }
+
+    @Test func nestedLevelsAddTheirContentColumns() {
+        #expect(run(ComposerMarkdownEditing.indent, "1. a\n   - b\n   - |c") == "1. a\n   - b\n     - |c")
+        #expect(run(ComposerMarkdownEditing.indent, "- a\n  1. b\n  2. |c") == "- a\n  1. b\n     1. |c")
+    }
+
+    @Test func anOrderedItemsCodeKeepsItsContentColumn() {
+        #expect(run(ComposerMarkdownEditing.newline, "1. a\n   ```\n   x|\n   ```") == "1. a\n   ```\n   x\n   |\n   ```")
+        #expect(run(ComposerMarkdownEditing.newline, "10. a\n    ```\n    x|\n    ```") == "10. a\n    ```\n    x\n    |\n    ```")
+        #expect(
+            run(ComposerMarkdownEditing.indent, "1. a\n2. |b\n   ```\n   x\n   ```")
+                == "1. a\n   1. |b\n      ```\n      x\n      ```"
+        )
+        #expect(
+            run(ComposerMarkdownEditing.indent, "10. a\n11. |b\n    ```\n    x\n    ```")
+                == "10. a\n    1. |b\n        ```\n        x\n        ```"
+        )
+    }
+
     @Test func deleteIsOrdinaryElsewhere() {
         #expect(run(ComposerMarkdownEditing.deleteBackward, "- it|em") == nil)
         #expect(run(ComposerMarkdownEditing.deleteBackward, "# |Title") == nil)

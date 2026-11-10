@@ -30,8 +30,7 @@ private struct HomeSideWorkChip: View, ThemedView {
 
     var body: some View {
         HStack(spacing: 4) {
-            StatusBadge(status: item.status, showsElapsed: false)
-                .imageScale(.small)
+            icon
             Text(item.typeName)
                 .emphasis(.secondary)
                 .truncationMode(.tail)
@@ -44,6 +43,18 @@ private struct HomeSideWorkChip: View, ThemedView {
         }
         .help(description)
         .plumeID(AccessibilityID.homeSideWorkChip, label: description, value: item.status.rawValue)
+    }
+
+    @ViewBuilder private var icon: some View {
+        switch item.kind {
+        case .subagent:
+            StatusBadge(status: item.status, showsElapsed: false)
+                .imageScale(.small)
+        case .backgroundTask:
+            Image(systemName: StatusSymbol.backgroundTasks.name)
+                .imageScale(.small)
+                .emphasis(.secondary)
+        }
     }
 
     private var description: String {
