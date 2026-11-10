@@ -95,8 +95,8 @@ struct PullRequestsSection: View, ThemedView {
     @State private var settings = AppSettings.shared
     @State private var showsPinPopover = false
     @State private var isHoveringAdd = false
-    /// Item IDs whose check list is open. Every list starts closed.
-    @State private var expandedChecks: Set<String> = []
+    /// The item whose check list popover is showing.
+    @State private var checksPopoverItemID: String?
 
     private static let title = "Pull Requests"
     private static let symbol = "arrow.triangle.pull"
@@ -119,9 +119,12 @@ struct PullRequestsSection: View, ThemedView {
         .popover(isPresented: $showsPinPopover, arrowEdge: .bottom) {
             PinPullRequestPopover(actions: actions, isPresented: $showsPinPopover)
         }
-        .preference(key: InfoPaneHoldsOpenKey.self, value: showsPinPopover)
+        .preference(key: InfoPaneHoldsOpenKey.self, value: showsPinPopover || checksPopoverItemID != nil)
         .onChange(of: isPaneOpen) { _, isOpen in
-            if !isOpen { showsPinPopover = false }
+            if !isOpen {
+                showsPinPopover = false
+                checksPopoverItemID = nil
+            }
         }
         .task(id: linkedReferences) {
             LinkedPullRequestStore.shared.refresh(linkedReferences)
@@ -154,11 +157,13 @@ struct PullRequestsSection: View, ThemedView {
             PullRequestChecksRow(
                 item: item,
                 summary: summary,
-                isExpanded: Binding(
-                    get: { expandedChecks.contains(item.id) },
-                    set: { isExpanded in
-                        withAnimation(InfoPaneLayout.sectionAnimation) {
-                            if isExpanded { expandedChecks.insert(item.id) } else { expandedChecks.remove(item.id) }
+                showsPopover: Binding(
+                    get: { checksPopoverItemID == item.id },
+                    set: { shows in
+                        if shows {
+                            checksPopoverItemID = item.id
+                        } else if checksPopoverItemID == item.id {
+                            checksPopoverItemID = nil
                         }
                     }
                 )
@@ -379,55 +384,83 @@ private struct PullRequestRow: View, ThemedView {
     }
 }
 
-/// A pull request's checks under its row: folded to the rollup until opened,
-/// then one line per check.
+/// A pull request's checks under its row, folded to the rollup. Clicking
+/// lists them one per line in a popover.
 private struct PullRequestChecksRow: View, ThemedView {
     @Environment(\.theme) var theme
 
     let item: InfoPanePullRequestItem
     let summary: PullRequestSummary
-    @Binding var isExpanded: Bool
+    @Binding var showsPopover: Bool
 
     private var label: String { "#\(item.number)" }
 
     var body: some View {
         let entries = CheckListContent.entries(summary.checkContexts, ignored: summary.ignoredChecks)
-        VStack(alignment: .leading, spacing: 0) {
-            Button { isExpanded.toggle() } label: {
-                HStack(spacing: InfoPaneLayout.columnSpacing) {
-                    InfoPaneIcon { Image(systemName: "checklist").hidden() }
-                    if let rollup = PullRequestChipContent.checkGlyph(summary.checkRollup) {
-                        PullRequestGlyphImage(glyph: rollup)
-                    }
-                    Text("Checks")
-                    Text(CheckListContent.summary(entries))
-                        .lineLimit(1)
-                        .truncationMode(.tail)
-                        .emphasis(.subtle)
-                    DisclosureChevron(isExpanded: isExpanded)
-                    Spacer(minLength: 0)
+        Button { showsPopover.toggle() } label: {
+            HStack(spacing: InfoPaneLayout.columnSpacing) {
+                InfoPaneIcon { Image(systemName: "checklist").hidden() }
+                if let rollup = PullRequestChipContent.checkGlyph(summary.checkRollup) {
+                    PullRequestGlyphImage(glyph: rollup)
                 }
-                .emphasis(.secondary)
+                Text("Checks")
+                Text(CheckListContent.summary(entries))
+                    .lineLimit(1)
+                    .truncationMode(.tail)
+                    .emphasis(.subtle)
+                Spacer(minLength: 0)
             }
-            .buttonStyle(InfoPaneRowButtonStyle())
-            .plumeID(
-                AccessibilityID.infoPanePullRequestChecksToggle,
-                label: label,
-                value: isExpanded ? "expanded" : "collapsed"
-            )
-
-            if isExpanded {
-                ForEach(Array(entries.enumerated()), id: \.offset) { _, entry in
-                    checkLine(entry)
-                }
-            }
+            .emphasis(.secondary)
         }
+        .buttonStyle(InfoPaneRowButtonStyle())
+        .help("Show every check")
+        .plumeID(
+            AccessibilityID.infoPanePullRequestChecksToggle,
+            label: label,
+            value: showsPopover ? "open" : "closed",
+            invoke: { showsPopover.toggle() }
+        )
+        .popover(isPresented: $showsPopover, arrowEdge: .bottom) {
+            PullRequestChecksPopover(title: "Checks on \(label)", entries: entries)
+        }
+    }
+}
+
+private struct PullRequestChecksPopover: View, ThemedView {
+    @Environment(\.theme) var theme
+
+    let title: String
+    let entries: [CheckListEntry]
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 6) {
+            HStack(spacing: 6) {
+                Text(title)
+                    .emphasis(.primary)
+                Text(CheckListContent.summary(entries))
+                    .lineLimit(1)
+                    .truncationMode(.tail)
+                    .emphasis(.subtle)
+            }
+            Divider()
+            ScrollView {
+                VStack(alignment: .leading, spacing: 0) {
+                    ForEach(Array(entries.enumerated()), id: \.offset) { _, entry in
+                        checkLine(entry)
+                    }
+                }
+            }
+            .scrollBounceBehavior(.basedOnSize)
+            .frame(maxHeight: 360)
+            .fixedSize(horizontal: false, vertical: true)
+        }
+        .padding(12)
+        .frame(width: 320, alignment: .leading)
     }
 
     private func checkLine(_ entry: CheckListEntry) -> some View {
         let glyph = CheckListContent.glyph(for: entry)
-        return HStack(spacing: InfoPaneLayout.columnSpacing) {
-            InfoPaneIcon { Image(systemName: "checklist").hidden() }
+        return HStack(spacing: 6) {
             PullRequestGlyphImage(glyph: glyph)
             Text(entry.name)
                 .lineLimit(1)
