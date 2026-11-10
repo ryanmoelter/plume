@@ -36,7 +36,7 @@ The Xcode project uses **file-system synchronized groups**: files added under `P
 ```
 Plume/
   App/        PlumeApp, MainWindow, PlumeCommands, AppDelegate
-  App/Updates/  UpdateController (Sparkle wiring, Homebrew-vs-DMG detection)
+  App/Updates/  UpdateController (Sparkle wiring, stable and beta feeds)
   Models/     SwiftData models, TaskStore (CRUD/ordering), TitleStore, enums
   Ghostty/    GhosttyRuntime, GhosttyConfigLoader, GhosttyThemeResolver, TerminalSession, TerminalTabView, ThemeChrome
   Sessions/   SurfaceManager, LoginShellCommand
@@ -155,12 +155,13 @@ The config reaches libghostty as **generated contents with every `theme` directi
 
 ## Updates
 
-Sparkle checks for updates in the background, and **an available update never interrupts** — no launch dialog, no system notification, nothing modal. It shows only as an "Update Available" row in the sidebar footer. Clicking it opens Sparkle's window on a DMG install, or Plume's own update window on a Homebrew install (detected via a `Caskroom/plume` directory; Settings can override). `UpdateController` (`Plume/App/Updates/`) owns this. **Plume schedules the background checks itself, with `checkForUpdateInformation()`; Sparkle's own automatic checks stay off.** A Sparkle-scheduled check holds the first update it found until relaunch, so the row would never show a newer release. A Debug build doesn't start the updater unless the `PlumeUpdateFeedURLOverride` user default is set.
+Sparkle checks for updates in the background, and **an available update never interrupts** — no launch dialog, no system notification, nothing modal. It shows only as an "Update Available" row in the sidebar footer. Clicking it opens Sparkle's window. Every install updates through Sparkle, a Homebrew install included: Homebrew only installs Plume, and the cask's `auto_updates true` keeps `brew upgrade` away from it. `UpdateController` (`Plume/App/Updates/`) owns this. **Plume schedules the background checks itself, with `checkForUpdateInformation()`; Sparkle's own automatic checks stay off.** A Sparkle-scheduled check holds the first update it found until relaunch, so the row would never show a newer release. A Debug build doesn't start the updater unless the `PlumeUpdateFeedURLOverride` user default is set.
 
-- **Sparkle's Info.plist keys (`SUFeedURL`, `SUPublicEDKey`, `SUEnableAutomaticChecks`, `SUAllowsAutomaticUpdates`) live in `Configuration/Info.plist`**. `SUAllowsAutomaticUpdates` is `false` so Sparkle never offers or performs a silent install-on-quit, which would bypass both the Homebrew path and the no-interruption rule.
-- **Never run `brew upgrade` inside Plume.** The cask's `uninstall quit:` quits Plume mid-upgrade, and its `launchctl` step for the sleep helper can prompt for a sudo password. `HomebrewUpgrade` opens a temporary `.command` script in Terminal.app instead, which upgrades and then reopens Plume.
+- **Betas come from a second feed, not Sparkle channels.** Settings ▸ Updates ▸ "Receive beta updates" (`AppSettings.receivesBetaUpdates`) points `feedURLString(for:)` at the `beta-feed` prerelease's `appcast.xml`. `UpdateFeed.urlString` picks the feed: the debug override, then the beta feed, then nil for `SUFeedURL`. The beta feed holds the newest beta and the newest stable release, and Sparkle offers the higher build. `docs/releasing.md`'s "Beta releases" is the reference.
+- **Sparkle's Info.plist keys (`SUFeedURL`, `SUPublicEDKey`, `SUEnableAutomaticChecks`, `SUAllowsAutomaticUpdates`) live in `Configuration/Info.plist`**. `SUAllowsAutomaticUpdates` is `false` so Sparkle never offers or performs a silent install-on-quit, which would bypass the no-interruption rule.
+- **Never run `brew upgrade` inside Plume.** The cask's `uninstall quit:` quits Plume mid-upgrade, and its `launchctl` step for the sleep helper can prompt for a sudo password.
 - **Never add a manual "Embed Frameworks" phase for Sparkle.** Xcode already auto-embeds and signs its XCFramework into `Contents/Frameworks`; a hand-written phase breaks the build with "Sparkle-product couldn't be opened".
-- **Test both update paths without reinstalling** via Settings ▸ Debug (`Plume/UI/Settings/UpdatesDebugSection.swift`, `#if DEBUG` only) plus `scripts/debug/serve-test-appcast.sh`, which serves a version-bumped, re-signed copy of the Debug build over a local appcast. `docs/releasing.md`'s "Testing an update end-to-end" is the reference.
+- **Test the installer swap and the background check without reinstalling** via Settings ▸ Debug (`Plume/UI/Settings/UpdatesDebugSection.swift`, `#if DEBUG` only) plus `scripts/debug/serve-test-appcast.sh`, which serves a version-bumped, re-signed copy of the Debug build over a local appcast. `docs/releasing.md`'s "Testing an update end-to-end" is the reference.
 
 ## Commits
 
