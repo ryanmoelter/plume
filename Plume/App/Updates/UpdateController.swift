@@ -50,9 +50,18 @@ final class UpdateController: NSObject {
             AppSettings.shared.receivesBetaUpdates = newValue
             // The row may show an update the other feed doesn't carry, so
             // recheck against the new feed even with automatic checks off.
-            if checkInBackground() {
-                availableUpdate = nil
-            }
+            pendingFeedRecheck = true
+            runPendingFeedRecheck()
+        }
+    }
+
+    @ObservationIgnored private var pendingFeedRecheck = false
+
+    private func runPendingFeedRecheck() {
+        guard pendingFeedRecheck, isRunning else { return }
+        if checkInBackground() {
+            pendingFeedRecheck = false
+            availableUpdate = nil
         }
     }
 
@@ -72,7 +81,10 @@ final class UpdateController: NSObject {
         canCheckForUpdates = controller.updater.canCheckForUpdates
         controller.updater
             .publisher(for: \.canCheckForUpdates)
-            .sink { [weak self] in self?.canCheckForUpdates = $0 }
+            .sink { [weak self] in
+                self?.canCheckForUpdates = $0
+                self?.runPendingFeedRecheck()
+            }
             .store(in: &cancellables)
     }
 
