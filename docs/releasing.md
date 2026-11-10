@@ -283,7 +283,7 @@ Then review the draft on GitHub, publish it, and refresh the beta feed:
 gh release edit v0.5.1 --draft=false && gh release upload beta-feed out/beta-feed/appcast.xml --clobber
 ```
 
-The script prints this command with the real paths. Every release refreshes the beta feed, a stable one included, so beta users see the stable build once it overtakes their beta. Upload only after publishing: until then the DMG URL in the feed 404s. *Beta releases* covers the feed.
+The script prints this command with the real paths. A release refreshes the beta feed, a stable one included, so beta users see the stable build once it overtakes their beta. The exception is a stable release behind a live beta, which leaves the beta feed alone; the script then prints only the publish command. Upload only after publishing: until then the DMG URL in the feed 404s. *Beta releases* covers the feed.
 
 ### The DMG is built with `hdiutil`, not `create-dmg`
 
@@ -339,7 +339,9 @@ The appcast goes live when the draft is published, same as the DMG — a draft o
 
 Betas reach only users who turn on Settings ▸ Updates ▸ **Receive beta updates**. That switch points Sparkle at a second feed, `https://github.com/ryanmoelter/plume/releases/download/beta-feed/appcast.xml`. The feed is the one asset of a fixed prerelease tagged `beta-feed`. GitHub never marks a prerelease `latest`, so the stable feed never sees it. `package-release.sh` creates the `beta-feed` release the first time it runs.
 
-The beta feed holds two items: the newest beta and the newest stable release. Sparkle offers whichever has the higher `sparkle:version`. So a beta user moves onto the stable release once it overtakes their beta. A user who turns betas off keeps their build and waits for the next stable release, which is never a downgrade.
+The beta feed holds two items: the newest beta and the newest stable release. Sparkle offers whichever has the higher `sparkle:version`. So a beta user moves onto the stable release once it overtakes their beta.
+
+A user who turns betas off keeps their build and reads the stable feed again. Sparkle offers them any stable release with a higher build. Usually that is the stable release the beta leads up to. But a hotfix shipped mid-cycle also has a higher build, so a user who opts out during a `0.20.0` beta can be offered `0.19.1`, a downgrade in marketing version.
 
 To cut a beta:
 
@@ -350,6 +352,8 @@ To cut a beta:
 5. Publish and refresh the beta feed with the command the script prints.
 
 The script writes `out/beta-feed/appcast.xml` from the new item plus the newest item of the other feed (`scripts/lib/appcast.sh`). A beta takes the stable feed's item. A stable release takes the beta feed's newest item only if that beta's build is higher. A beta must also outrun the beta feed's build, and the script checks that before signing.
+
+A stable release behind the live beta's marketing version, such as a `0.19.1` hotfix during the `0.20.0` betas, leaves the beta feed alone. Its build is higher than the beta's, so a refreshed feed would offer it to beta users, a downgrade. The script compares the numeric part of each `sparkle:shortVersionString` and ignores the suffix. In that case it writes no beta feed, prints why, and prints only the publish command. Beta users stay on the beta and get the hotfix's changes with the next beta or the stable `0.20.0`.
 
 Betas never reach Homebrew. `update-tap.sh` refuses a version with a suffix.
 
@@ -393,9 +397,11 @@ Existing DMG installs have no updater yet, so the release that adds Sparkle reac
 
 **Homebrew installs Plume; Sparkle updates it.** The cask declares `auto_updates true`, so `brew upgrade` skips Plume, and the app updates itself in place like a DMG install. Sparkle can write over `/Applications/Plume.app` even though Homebrew put it there. The Caskroom's recorded version goes stale, which matters only to `brew upgrade --greedy`. The cask keeps `uninstall quit:` and its `launchctl` step, because `brew uninstall` still needs them.
 
-An older Homebrew install still has its own update window, which runs `brew upgrade --cask ryanmoelter/tap/plume`. Naming the cask upgrades it even with `auto_updates true`, so that last brew-driven upgrade installs a Sparkle-only build, and Sparkle updates it from then on. Ship the cask's `auto_updates true` with the first Sparkle-only release.
+An older Homebrew install still has its own update window, which runs `brew upgrade --cask ryanmoelter/tap/plume`. Naming the cask upgrades it even with `auto_updates true`, so that last brew-driven upgrade installs a Sparkle-only build, and Sparkle updates it from then on.
 
-Bumping the cask is optional per release. It keeps a fresh `brew install` close to current, so that a new user's first Sparkle update is small. After a stable release is public (not a draft), bump it:
+**For the first Sparkle-only release, the tap bump is mandatory.** Those older builds upgrade only through the tap, so if the cask still names an older version, `brew upgrade` finds nothing and they stay stranded. In the same change, add `auto_updates true` to the cask. `update-tap.sh` refuses to bump a cask that lacks it.
+
+After that, bumping the cask is optional per release. It keeps a fresh `brew install` close to current, so that a new user's first Sparkle update is small. After a stable release is public (not a draft), bump it:
 
 ```
 scripts/update-tap.sh <version>   # e.g. scripts/update-tap.sh 0.12.0

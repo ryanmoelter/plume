@@ -20,11 +20,12 @@
 # --beta packages a beta: MARKETING_VERSION must carry a suffix (0.20.0-beta.1),
 # and the draft is a prerelease, which GitHub's releases/latest never points at.
 #
-# Every release also writes out/beta-feed/appcast.xml for the beta feed, a fixed
+# A release also writes out/beta-feed/appcast.xml for the beta feed, a fixed
 # prerelease tagged beta-feed. It holds the newest beta and the newest stable
 # release, so Sparkle offers a beta user whichever build is higher. Upload it
 # only after publishing the draft, since the enclosure URL 404s until then; the
-# script prints the command.
+# script prints the command. A stable release behind the live beta's version
+# writes none and leaves the beta feed alone.
 #
 # Release notes come from CHANGELOG.md. Its top section must be this release
 # (`## <MARKETING_VERSION> (<CURRENT_PROJECT_VERSION>)`); it becomes the
@@ -175,15 +176,27 @@ SU_PUBLIC_KEY="$(/usr/libexec/PlistBuddy -c 'Print :SUPublicEDKey' "$SRC/Content
 
 # Sparkle decides an update exists by comparing sparkle:version, so a build
 # that doesn't outrun the live appcast would ship and never reach anyone. A
-# beta must outrun the beta feed too. `curl -f` fails on a 404, which is
-# expected before the first release of each feed. Step 7 reuses both files to
-# build the beta feed.
+# beta must outrun the beta feed too. Step 7 reuses both files to build the
+# beta feed.
 echo "--- checking live appcast versions ---"
 BUILT_CFBUNDLE_VERSION="$(/usr/libexec/PlistBuddy -c 'Print :CFBundleVersion' "$SRC/Contents/Info.plist")"
 FEEDS_DIR="$OUT/feeds"
 mkdir -p "$FEEDS_DIR"
-curl -fsSL "$STABLE_FEED_URL" -o "$FEEDS_DIR/stable.xml" 2>/dev/null || rm -f "$FEEDS_DIR/stable.xml"
-curl -fsSL "$BETA_FEED_URL" -o "$FEEDS_DIR/beta.xml" 2>/dev/null || rm -f "$FEEDS_DIR/beta.xml"
+
+# A 404 means the feed has no release yet, which is expected before the first
+# of each. Any other failure would silently skip the checks, so it stops here.
+fetch_feed() {
+  local url="$1" dest="$2" status
+  status="$(curl -sSL -o "$dest" -w '%{http_code}' "$url")" \
+    || fail "could not fetch $url (curl exit $?)"
+  case "$status" in
+    200) ;;
+    404) rm -f "$dest" ;;
+    *) fail "fetching $url returned HTTP $status" ;;
+  esac
+}
+fetch_feed "$STABLE_FEED_URL" "$FEEDS_DIR/stable.xml"
+fetch_feed "$BETA_FEED_URL" "$FEEDS_DIR/beta.xml"
 
 check_outruns() {
   local label="$1" live_version
@@ -364,17 +377,33 @@ APPCAST="$OUT/appcast.xml"
 echo "appcast: $APPCAST"
 
 # A stable release replaces the beta feed's stable item and keeps its beta
-# only while that beta is the newer build.
+# only while that beta is the newer build. A stable release behind the live
+# beta's marketing version, a hotfix say, leaves the beta feed alone: its
+# higher build would otherwise replace the beta and downgrade beta users.
 echo "--- building beta feed ---"
 BETA_APPCAST="$OUT/beta-feed/appcast.xml"
 mkdir -p "$(dirname "$BETA_APPCAST")"
+UPDATES_BETA_FEED=true
 if [ "$BETA" = true ]; then
   appcast_merge "$APPCAST" "$FEEDS_DIR/stable.xml" >"$BETA_APPCAST"
 else
-  appcast_merge "$APPCAST" "$FEEDS_DIR/beta.xml" "$CFBUNDLE_VERSION" >"$BETA_APPCAST"
+  live_beta_short_version="$(appcast_newest_short_version "$FEEDS_DIR/beta.xml")"
+  if [ -n "$live_beta_short_version" ] \
+    && marketing_version_greater "$live_beta_short_version" "$CFBUNDLE_SHORT_VERSION"; then
+    UPDATES_BETA_FEED=false
+  else
+    appcast_merge "$APPCAST" "$FEEDS_DIR/beta.xml" "$CFBUNDLE_VERSION" >"$BETA_APPCAST"
+  fi
 fi
-xmllint --noout "$BETA_APPCAST" || fail "the beta feed at $BETA_APPCAST is not well-formed XML"
-echo "beta feed: $BETA_APPCAST ($(grep -c '<item>' "$BETA_APPCAST") items)"
+if [ "$UPDATES_BETA_FEED" = true ]; then
+  xmllint --noout "$BETA_APPCAST" || fail "the beta feed at $BETA_APPCAST is not well-formed XML"
+  echo "beta feed: $BETA_APPCAST ($(grep -c '<item>' "$BETA_APPCAST") items)"
+else
+  rmdir "$(dirname "$BETA_APPCAST")"
+  BETA_FEED_NOTE="the beta feed stays as it is: its newest item, $live_beta_short_version, is ahead of
+  $CFBUNDLE_SHORT_VERSION, and this release's higher build would replace it and downgrade beta users"
+  echo "note: $BETA_FEED_NOTE"
+fi
 
 # --- 8. verify --------------------------------------------------------------
 # The only local checks that answer "will this launch on someone else's Mac".
@@ -409,7 +438,7 @@ if ! git rev-parse "$TAG" >/dev/null 2>&1; then
   echo "Artifacts are built, notarized and verified:"
   echo "  $DMG"
   echo "  $APPCAST"
-  echo "  $BETA_APPCAST"
+  [ "$UPDATES_BETA_FEED" = true ] && echo "  $BETA_APPCAST"
   echo
   echo "Tag this commit, push it, then re-run to attach the DMG to a draft:"
   echo "  git tag -a $TAG -m \"$TAG\""
@@ -460,8 +489,17 @@ echo
 echo "=== done $(date) ==="
 echo "DMG:     $DMG"
 echo "Appcast: $APPCAST"
-echo "Beta:    $BETA_APPCAST"
+if [ "$UPDATES_BETA_FEED" = true ]; then
+  echo "Beta:    $BETA_APPCAST"
+fi
 echo "Draft:   ${URL:-<none>}"
 echo
-echo "Review it, then publish it and refresh the beta feed with:"
-echo "  gh release edit $TAG --draft=false && gh release upload $BETA_FEED_TAG $BETA_APPCAST --clobber"
+if [ "$UPDATES_BETA_FEED" = true ]; then
+  echo "Review it, then publish it and refresh the beta feed with:"
+  echo "  gh release edit $TAG --draft=false && gh release upload $BETA_FEED_TAG $BETA_APPCAST --clobber"
+else
+  echo "Review it, then publish it with:"
+  echo "  gh release edit $TAG --draft=false"
+  echo
+  echo "Don't upload a beta feed: $BETA_FEED_NOTE"
+fi
