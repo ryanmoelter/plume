@@ -383,10 +383,11 @@ APPCAST="$OUT/appcast.xml"
 [ -s "$APPCAST" ] || fail "appcast.xml was not written"
 echo "appcast: $APPCAST"
 
-# A stable release replaces the beta feed's stable item and keeps its beta
-# only while that beta is the newer build. A stable release behind the live
-# beta's marketing version, a hotfix say, leaves the beta feed alone: its
-# higher build would otherwise replace the beta and downgrade beta users.
+# A stable release replaces the beta feed's stable item and carries no beta
+# item; the preflight fails a run whose build is behind the live beta's. A
+# stable release behind the live beta's marketing version, a hotfix say,
+# leaves the beta feed alone: its higher build would otherwise replace the
+# beta and downgrade beta users.
 echo "--- building beta feed ---"
 BETA_APPCAST="$OUT/beta-feed/appcast.xml"
 mkdir -p "$(dirname "$BETA_APPCAST")"
@@ -449,7 +450,13 @@ if ! git rev-parse "$TAG" >/dev/null 2>&1; then
   echo
   echo "Tag this commit, push it, then re-run to attach the DMG to a draft:"
   echo "  git tag -a $TAG -m \"$TAG\""
-  echo "  git push origin $([ "$BETA" = true ] && git rev-parse --abbrev-ref HEAD || echo main) $TAG"
+  PUSH_BRANCH=main
+  [ "$BETA" = true ] && PUSH_BRANCH=$(git rev-parse --abbrev-ref HEAD)
+  if [ "$PUSH_BRANCH" = HEAD ]; then
+    echo "  git push origin $TAG"
+  else
+    echo "  git push origin $PUSH_BRANCH $TAG"
+  fi
   echo "  scripts/package-release.sh$([ "$BETA" = true ] && echo " --beta")"
   exit 0
 fi

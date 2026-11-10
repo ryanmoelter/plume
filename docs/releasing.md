@@ -351,9 +351,9 @@ To cut a beta:
 4. Run `scripts/package-release.sh --beta`. It refuses a version without a suffix, and the plain script refuses one with a suffix. The draft is a prerelease tagged `v0.20.0-beta.1`.
 5. Publish and refresh the beta feed with the command the script prints.
 
-The script writes `out/beta-feed/appcast.xml` from the new item plus the newest item of the other feed (`scripts/lib/appcast.sh`). A beta takes the stable feed's item. A stable release takes the beta feed's newest item only if that beta's build is higher. A beta must also outrun the beta feed's build, and the script checks that before signing.
+The script writes `out/beta-feed/appcast.xml` from the new item plus the newest item of the other feed (`scripts/lib/appcast.sh`). A beta takes the stable feed's item. A stable release carries no beta item: it takes only its own item, and the preflight fails a run whose build is behind the live beta's. A beta must also outrun the beta feed's build, and the script checks that before signing.
 
-A stable release behind the live beta's marketing version, such as a `0.19.1` hotfix during the `0.20.0` betas, leaves the beta feed alone. Its build is higher than the beta's, so a refreshed feed would offer it to beta users, a downgrade. The script compares the numeric part of each `sparkle:shortVersionString` and ignores the suffix. In that case it writes no beta feed, prints why, and prints only the publish command. Beta users stay on the beta and get the hotfix's changes with the next beta or the stable `0.20.0`.
+A stable release behind the live beta's marketing version, such as a `0.19.1` hotfix during the `0.20.0` betas, leaves the beta feed alone. Its build is higher than the beta's, so a refreshed feed would offer it to beta users, a downgrade. The script compares the numeric part of each `sparkle:shortVersionString` and ignores the suffix. In that case it writes no beta feed, prints why, and prints only the publish command. Beta users stay on the beta and get the hotfix's changes with the next beta or the stable `0.20.0`. After a hotfix, the beta feed's stable item stays the older release until the next beta or stable that refreshes it.
 
 Betas never reach Homebrew. `update-tap.sh` refuses a version with a suffix.
 
