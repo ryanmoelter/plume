@@ -18,7 +18,9 @@ If `plume` is not on PATH, run `"$PLUME_CLI"` instead.
 5. Exit code 2 means another owner holds the lease: tell the user who. Never `release --force` someone else's lease unless the user says so. Exit code 3 means nothing free matches: list the leases, then wait or ask.
 6. Leases expire after an hour. Run `plume devices renew <serial>` in a long session, and `plume devices release <serial>` (or `--mine`) when you are done.
 7. Inside a Plume tab, the tab owns the lease. Plume releases it when the tab closes, and `claim` shows the device in a device tab of your task. Elsewhere the git worktree owns it, or the `--owner` label.
-8. Remote devices are billed. `claim --kind=remote [--model=<codename/api>]` reserves a Device Streaming device, and works only from a Plume tab. Use it only when the user asks for a remote device, and release it afterwards; releasing ends the reservation.
+8. Remote devices are billed. `claim --kind=remote [--model=<codename/api> | --form=phone|tablet|foldable]` reserves a Device Streaming device, and works only from a Plume tab. Use it only when the user asks for a remote device, and release it afterwards; releasing ends the reservation.
+   - `--form` lets Plume choose the model: the one last reserved if it has that form, else that form's highest API level. It doesn't combine with `--model`.
+   - `--owner=<tab id>` claims or renews the remote device that tab already holds, from any shell. It never reserves one, and exits 1 if the tab holds none.
 
 ## Common commands
 
