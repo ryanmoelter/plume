@@ -44,6 +44,16 @@ final class UpdateController: NSObject {
         }
     }
 
+    var receivesBetaUpdates: Bool {
+        get { AppSettings.shared.receivesBetaUpdates }
+        set {
+            AppSettings.shared.receivesBetaUpdates = newValue
+            // The row may show an update the other feed doesn't carry.
+            availableUpdate = nil
+            checkAutomatically()
+        }
+    }
+
     private override init() {
         lastUpdateCheckDate = UserDefaults.standard.object(forKey: Self.lastUpdateCheckDateKey) as? Date
         super.init()
@@ -195,7 +205,7 @@ extension UpdateController {
 
 extension UpdateController: SPUUpdaterDelegate {
     func feedURLString(for updater: SPUUpdater) -> String? {
-        feedURLOverride
+        UpdateFeed.urlString(override: feedURLOverride, receivesBetaUpdates: receivesBetaUpdates)
     }
 
     func updater(_ updater: SPUUpdater, didFindValidUpdate item: SUAppcastItem) {
@@ -225,6 +235,22 @@ extension UpdateController: SPUUpdaterDelegate {
         if error == nil || foundNoUpdate {
             lastUpdateCheckDate = .now
         }
+    }
+}
+
+/// Which appcast Sparkle reads. Nil means the Info.plist `SUFeedURL`, the
+/// stable feed.
+enum UpdateFeed {
+    /// A fixed prerelease, so GitHub never marks it `latest` and the stable
+    /// feed never sees it. It carries the newest beta and the newest stable
+    /// release, and Sparkle offers whichever build is higher.
+    static let betaURLString = "https://github.com/ryanmoelter/plume/releases/download/beta-feed/appcast.xml"
+
+    static func urlString(override: String?, receivesBetaUpdates: Bool) -> String? {
+        if let override, !override.isEmpty {
+            return override
+        }
+        return receivesBetaUpdates ? betaURLString : nil
     }
 }
 

@@ -13,6 +13,13 @@ struct UpdatesSettingsPane: View {
                         setValue: { updates.automaticallyChecksForUpdates = ($0 == "true" || $0 == "1") }
                     )
 
+                Toggle("Receive beta updates", isOn: $updates.receivesBetaUpdates)
+                    .plumeID(
+                        AccessibilityID.updatesBetaToggle,
+                        value: String(updates.receivesBetaUpdates),
+                        setValue: { updates.receivesBetaUpdates = ($0 == "true" || $0 == "1") }
+                    )
+
                 LabeledContent(lastCheckedText) {
                     Button("Check now", action: updates.checkForUpdates)
                         .plumeID(AccessibilityID.updatesCheckNowButton)

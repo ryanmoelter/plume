@@ -77,6 +77,7 @@ final class AppSettings {
         static let hasPromptedForFullDiskAccess = "hasPromptedForFullDiskAccess"
         static let bundledSkillsPromptDismissed = "bundledSkillsPromptDismissed"
         static let automaticallyChecksForUpdates = "automaticallyChecksForUpdates"
+        static let receivesBetaUpdates = "receivesBetaUpdates"
         static let remoteDeviceProjectID = "remoteDeviceProjectID"
         static let remoteDeviceSignInTaskID = "remoteDeviceSignInTaskID"
     }
@@ -312,6 +313,7 @@ final class AppSettings {
         self.automaticallyChecksForUpdates = defaults.object(forKey: Key.automaticallyChecksForUpdates) == nil
             ? true
             : defaults.bool(forKey: Key.automaticallyChecksForUpdates)
+        self.receivesBetaUpdates = defaults.bool(forKey: Key.receivesBetaUpdates)
     }
 
     /// Overrides where worktrees are created. Nil (the default) means
@@ -951,6 +953,12 @@ final class AppSettings {
     var automaticallyChecksForUpdates: Bool {
         didSet {
             defaults.set(automaticallyChecksForUpdates, forKey: Key.automaticallyChecksForUpdates)
+        }
+    }
+
+    var receivesBetaUpdates: Bool {
+        didSet {
+            defaults.set(receivesBetaUpdates, forKey: Key.receivesBetaUpdates)
         }
     }
 }
