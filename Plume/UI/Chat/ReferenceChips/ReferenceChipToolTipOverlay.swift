@@ -38,7 +38,6 @@ private struct ReferenceChipToolTipOverlay: ViewModifier {
                             .contentShape(Rectangle())
                             .frame(width: region.rect.width, height: region.rect.height)
                             .help(toolTip(for: region.url))
-                            .pointerStyle(.link)
                             .onTapGesture { openURL(region.url) }
                             .offset(x: origin.x + region.rect.minX, y: origin.y + region.rect.minY)
                     }
