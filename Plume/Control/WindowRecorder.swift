@@ -29,6 +29,9 @@ final class WindowRecorder {
         let source: () -> RecordingFrameRequest?
         let maxSeconds: Double
         let timer: DispatchSourceTimer
+        /// A driven instance is never frontmost, and App Nap would otherwise
+        /// stretch the timer to a few frames a second.
+        let activity: NSObjectProtocol
         var inFlight = 0
         var dropped = 0
 
@@ -37,6 +40,7 @@ final class WindowRecorder {
             self.source = source
             self.maxSeconds = maxSeconds
             self.timer = timer
+            activity = ProcessInfo.processInfo.beginActivity(options: [.userInitiated, .latencyCritical], reason: "control server recording")
         }
     }
 
@@ -50,7 +54,7 @@ final class WindowRecorder {
         let size = RecordingEncoder.outputSize(width: firstFrame.width, height: firstFrame.height)
         try FileManager.default.createDirectory(at: url.deletingLastPathComponent(), withIntermediateDirectories: true)
         try? FileManager.default.removeItem(at: url)
-        let encoder = try RecordingEncoder(url: url, width: size.width, height: size.height, fps: fps)
+        let encoder = try RecordingEncoder(url: url, width: size.width, height: size.height, fps: fps, colorSpace: firstFrame.colorSpace)
         encoder.queue.sync { _ = encoder.append(firstFrame) }
 
         let timer = DispatchSource.makeTimerSource(queue: .main)
@@ -102,6 +106,7 @@ final class WindowRecorder {
         guard let session = active else { return }
         active = nil
         session.timer.cancel()
+        ProcessInfo.processInfo.endActivity(session.activity)
         let encoder = session.encoder
         last = Task { @MainActor in
             let summary = try await encoder.finish()
@@ -126,6 +131,7 @@ nonisolated final class RecordingEncoder: @unchecked Sendable {
     private let writer: AVAssetWriter
     private let input: AVAssetWriterInput
     private let adaptor: AVAssetWriterInputPixelBufferAdaptor
+    private let colorSpace: CGColorSpace
     private let startTime = CACurrentMediaTime()
     private var lastTime: Double = -1
     private var frames = 0
@@ -143,7 +149,12 @@ nonisolated final class RecordingEncoder: @unchecked Sendable {
         url.pathExtension.lowercased() == "mov" ? .mov : .mp4
     }
 
-    init(url: URL, width: Int, height: Int, fps: Int) throws {
+    /// Frames are drawn in the capture's own color space, because converting
+    /// each one to another costs more than the whole rest of a frame; the
+    /// video is tagged with primaries to match.
+    init(url: URL, width: Int, height: Int, fps: Int, colorSpace: CGColorSpace? = nil) throws {
+        let colorSpace = colorSpace ?? CGColorSpace(name: CGColorSpace.sRGB)!
+        self.colorSpace = colorSpace
         self.url = url
         self.width = width
         self.height = height
@@ -153,7 +164,7 @@ nonisolated final class RecordingEncoder: @unchecked Sendable {
             AVVideoWidthKey: width,
             AVVideoHeightKey: height,
             AVVideoColorPropertiesKey: [
-                AVVideoColorPrimariesKey: AVVideoColorPrimaries_ITU_R_709_2,
+                AVVideoColorPrimariesKey: Self.isP3(colorSpace) ? AVVideoColorPrimaries_P3_D65 : AVVideoColorPrimaries_ITU_R_709_2,
                 AVVideoTransferFunctionKey: AVVideoTransferFunction_ITU_R_709_2,
                 AVVideoYCbCrMatrixKey: AVVideoYCbCrMatrix_ITU_R_709_2,
             ],
@@ -240,7 +251,7 @@ nonisolated final class RecordingEncoder: @unchecked Sendable {
         defer { CVPixelBufferUnlockBaseAddress(buffer, []) }
         guard let context = CGContext(
             data: CVPixelBufferGetBaseAddress(buffer), width: width, height: height, bitsPerComponent: 8,
-            bytesPerRow: CVPixelBufferGetBytesPerRow(buffer), space: CGColorSpace(name: CGColorSpace.sRGB)!,
+            bytesPerRow: CVPixelBufferGetBytesPerRow(buffer), space: colorSpace,
             bitmapInfo: CGImageAlphaInfo.premultipliedFirst.rawValue | CGBitmapInfo.byteOrder32Little.rawValue
         ) else { return nil }
         context.setFillColor(CGColor(gray: 0, alpha: 1))
@@ -248,6 +259,11 @@ nonisolated final class RecordingEncoder: @unchecked Sendable {
         context.interpolationQuality = .high
         context.draw(image, in: Self.aspectFit(CGSize(width: image.width, height: image.height), in: CGSize(width: width, height: height)))
         return buffer
+    }
+
+    static func isP3(_ colorSpace: CGColorSpace) -> Bool {
+        guard let name = colorSpace.name as String? else { return false }
+        return name.localizedCaseInsensitiveContains("P3")
     }
 
     static func aspectFit(_ size: CGSize, in bounds: CGSize) -> CGRect {
