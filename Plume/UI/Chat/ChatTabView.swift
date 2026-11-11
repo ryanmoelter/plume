@@ -169,6 +169,20 @@ struct ChatTabView: View, ThemedView {
         }
     }
 
+    private var subagentOpener: ChatSubagentOpener {
+        let tab = tab
+        return ChatSubagentOpener(
+            tabID: tab.id,
+            subagents: {
+                switch tab.provider {
+                case .claudeCode: TranscriptStore.shared.subagents(forTab: tab.id)
+                case .codex: CodexSubagentStore.shared.subagents(forTab: tab.id)
+                }
+            },
+            open: { openSubagentID = $0.id }
+        )
+    }
+
     private var openSubagent: SubagentTranscript? {
         guard let openSubagentID else { return nil }
         return subagents.first { $0.id == openSubagentID }
@@ -1107,6 +1121,7 @@ struct ChatTabView: View, ThemedView {
             sidePane: sideInfoPane(geometry: geometry, linearLinks: linearLinks)
         )
         .onGeometryChange(for: CGFloat.self) { $0.size.height } action: { chatHeight = $0 }
+        .environment(\.chatSubagentOpener, subagentOpener)
         .overlay(alignment: .bottom) {
             let reserve = geometry.chatTrailingReserve
             // Moves with the chat's own horizontal shift.

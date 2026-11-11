@@ -75,6 +75,15 @@ final class ChatListController: NSObject {
             documentView.needsLayout = true
         }
     }
+    /// Like `onOpenPlan`, a change between nil and non-nil refreshes mounted
+    /// rows, which otherwise draw an `Agent` call without its subagent.
+    var subagentOpener: ChatSubagentOpener? {
+        didSet {
+            guard (oldValue == nil) != (subagentOpener == nil) else { return }
+            refreshRoots(Set(hosts.keys))
+            documentView.needsLayout = true
+        }
+    }
     var onVisiblePieceIDs: (Set<String>) -> Void = { _ in }
     var onDetachedChange: (Bool) -> Void = { _ in }
     var revealModel: ChatRevealModel?
@@ -964,6 +973,7 @@ final class ChatListController: NSObject {
             workStartedAt: inputs.workStartedAt,
             linkDirectory: inputs.linkDirectory,
             redoContext: redoContext,
+            subagentOpener: subagentOpener,
             selectionSpan: selection.isSelectable(id)
                 ? ChatSelectionSpan(store: selection, pieceID: id, piece: selection.box(for: id))
                 : nil
@@ -1374,6 +1384,7 @@ struct ChatListItemEnvironment {
     /// What a user message's redo and fork buttons act on. Nil where the tab
     /// has no live session to rewind.
     var redoContext: MessageRedoContext?
+    var subagentOpener: ChatSubagentOpener?
     /// Set only on a piece whose text joins the transcript's selection.
     var selectionSpan: ChatSelectionSpan?
 }
@@ -1393,6 +1404,7 @@ struct ChatListItemRoot<Content: View>: View {
             .environment(\.paneFocus, environment.paneFocus)
             .environment(\.workStartedAt, environment.workStartedAt)
             .environment(\.messageRedoContext, environment.redoContext)
+            .environment(\.chatSubagentOpener, environment.subagentOpener)
             .environment(\.chatSelectionSpan, environment.selectionSpan)
             .chatLinkHandling(directory: environment.linkDirectory)
             .plumeTheme(bodySize: environment.chatFontSize)
