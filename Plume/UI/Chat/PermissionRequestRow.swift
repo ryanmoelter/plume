@@ -42,7 +42,7 @@ struct PermissionRequestRow: View, ThemedView {
                 HStack(spacing: DecisionCard.nestedPadding) {
                     Spacer()
                     Button("Deny") { deny(denialReason) }
-                        .plumeID(AccessibilityID.permissionDenyButton, label: permission.id) { deny(denialReason) }
+                        .plumeID(AccessibilityID.permissionDenyButton, label: permission.id, invoke: { deny(denialReason) })
                     Button("Allow", action: allow)
                         .buttonStyle(.borderedProminent)
                         .paneKeyboardShortcut(.defaultAction)

@@ -320,6 +320,15 @@ private struct TabChip: View {
             isPresent: offersRefresh,
             invoke: requestRefresh
         )
+        // The dialog's buttons live in a sheet the control server cannot
+        // reach, so these stand in for them while it is up.
+        .plumeMenuItem(AccessibilityID.refreshConversationConfirm, label: chipTitle, isPresent: isConfirmingRefresh) {
+            isConfirmingRefresh = false
+            AgentLauncher.refresh(task: task, tab: tab)
+        }
+        .plumeMenuItem(AccessibilityID.refreshConversationCancel, label: chipTitle, isPresent: isConfirmingRefresh) {
+            isConfirmingRefresh = false
+        }
         .confirmationDialog(
             "Refresh this conversation?",
             isPresented: $isConfirmingRefresh
