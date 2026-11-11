@@ -692,8 +692,11 @@ final class ComposerNSTextView: NSTextView {
 
     override func performKeyEquivalent(with event: NSEvent) -> Bool {
         guard editsMarkdown, window?.firstResponder === self,
-              event.modifierFlags.intersection(.deviceIndependentFlagsMask) == .command,
-              let style = event.charactersIgnoringModifiers.flatMap(ComposerInlineFormatting.Style.init(characters:)),
+              let style = ComposerInlineFormatting.Style(
+                  characters: event.charactersIgnoringModifiers,
+                  flags: event.modifierFlags,
+                  bindings: AppSettings.shared.shortcutBindings
+              ),
               let result = ComposerInlineFormatting.apply(style, in: string, selection: selectedRange())
         else { return super.performKeyEquivalent(with: event) }
         apply(result)

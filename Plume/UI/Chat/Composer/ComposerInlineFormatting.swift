@@ -1,3 +1,4 @@
+import AppKit
 import Foundation
 
 /// The composer's ⌘B, ⌘I, ⌘E and ⌘K, as pure text transforms. The text stays
@@ -25,14 +26,12 @@ nonisolated enum ComposerInlineFormatting {
             }
         }
 
-        init?(characters: String) {
-            switch characters {
-            case "b": self = .bold
-            case "i": self = .italic
-            case "e": self = .code
-            case "k": self = .link
-            default: return nil
-            }
+        /// The style whose chord in `bindings` is this key event.
+        init?(characters: String?, flags: NSEvent.ModifierFlags, bindings: ShortcutBindings) {
+            guard let style = ShortcutAction.composerFormattingActions.first(where: {
+                bindings[$0]?.matches(characters: characters, flags: flags) == true
+            })?.composerStyle else { return nil }
+            self = style
         }
     }
 
