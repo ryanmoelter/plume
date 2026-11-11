@@ -333,11 +333,13 @@ The private key that signs each update lives only in 1Password, at `op://Plume/P
 
 One appcast serves every install, stable and beta. Its URL is `SUFeedURL` in `Configuration/Info.plist`, and that is the only place it lives: `package-release.sh` and `publish-feed.sh` read it from there (`appcast_feed_url` in `scripts/lib/appcast.sh`). The feed is hosted at a URL the project controls, not on a GitHub release, because a release's assets can never change once immutable releases are on.
 
-**The host is not chosen yet.** `SUFeedURL` holds the placeholder `https://plume-feed.invalid/appcast.xml`, `package-release.sh` refuses to package while it does, and `scripts/publish-feed.sh` fails with "hosting not configured yet". To finish the move, set `SUFeedURL` to the hosted URL and implement the upload in `publish-feed.sh`.
+**The feed is `site/appcast.xml` on `main`, served by GitHub Pages at `https://plumeformac.com/appcast.xml`.** `.github/workflows/pages.yml` deploys `site/` whenever `main` changes it. `scripts/publish-feed.sh` copies the new appcast there byte for byte, commits `Publish the <version> appcast`, pushes `main`, and waits until the URL serves the same bytes. It runs only on `main` with no uncommitted tracked changes, and it refuses an appcast whose newest build is below the published one. An agent sets `CO_AUTHOR="<model> <noreply@anthropic.com>"` so the commit carries its trailer. A bad feed rolls back with `git revert` of that commit and a push.
+
+The domain's DNS lives at DigitalOcean: four `A` records on the apex point at GitHub Pages (`185.199.108.153` through `185.199.111.153`). The repository's Pages settings hold the custom domain and use the GitHub Actions source.
 
 `package-release.sh` builds the appcast in three steps:
 
-1. It fetches the published appcast from `SUFeedURL`. If that 404s, which it does until the first publish, it falls back to the latest stable release's `appcast.xml` asset.
+1. It fetches the published appcast from `SUFeedURL`. If that 404s, it falls back to the latest stable release's `appcast.xml` asset.
 2. It fails unless the new build's `CFBundleVersion` is above every `sparkle:version` in it, beta or stable. Sparkle compares that number to decide an update exists.
 3. It adds the new item and writes `out/feed/appcast.xml` (`appcast_compose`). The file keeps the newest stable item and the newest beta item above it. Sparkle offers the highest build among the channels an install allows, so no install would ever pick an older item.
 
