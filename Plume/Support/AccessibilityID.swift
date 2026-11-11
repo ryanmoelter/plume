@@ -326,6 +326,10 @@ enum AccessibilityID {
     // MARK: Tool calls
 
     static let toolCallArtifactLink = "tool-call-artifact-link"
+    static let toolCallSubagentRow = "tool-call-subagent-row"
+    static let sentFileImage = "sent-file-image"
+    static let sentFileCard = "sent-file-card"
+    static let sentFileReveal = "sent-file-reveal"
 
     // MARK: Subagents
 

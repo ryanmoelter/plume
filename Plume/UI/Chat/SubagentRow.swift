@@ -13,6 +13,8 @@ struct SubagentRow: View, ThemedView {
     let onOverride: (SubagentStatusOverrides.Override?) -> Void
     let currentOverride: SubagentStatusOverrides.Override?
     let columns: Columns
+    /// Separate in the chat, so a driver can tell its row from the info pane's.
+    let controlID: String
 
     /// Where the badge and the text start, so a host with its own icon column
     /// can line the row up with it.
@@ -32,9 +34,16 @@ struct SubagentRow: View, ThemedView {
     }
 
     /// Routes a status override to the store that owns this subagent.
-    init(subagent: SubagentTranscript, tabID: UUID, columns: Columns = Columns(), onOpen: @escaping () -> Void) {
+    init(
+        subagent: SubagentTranscript,
+        tabID: UUID,
+        columns: Columns = Columns(),
+        controlID: String = AccessibilityID.subagentRow,
+        onOpen: @escaping () -> Void
+    ) {
         self.subagent = subagent
         self.columns = columns
+        self.controlID = controlID
         self.onOpen = onOpen
         self.onOverride = { override in
             switch subagent.provider {
@@ -90,7 +99,7 @@ struct SubagentRow: View, ThemedView {
         .buttonStyle(.plain)
         .plumeHover { isHovering = $0 }
         .help(subagent.descriptor?.description ?? subagent.id)
-        .plumeID(AccessibilityID.subagentRow, label: subagent.title)
+        .plumeID(controlID, label: subagent.title, value: subagent.status.rawValue, invoke: onOpen)
         .contextMenu { menu }
     }
 

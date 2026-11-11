@@ -331,7 +331,8 @@ nonisolated enum TranscriptParser {
                             ),
                             interactive: InteractiveToolPayload.decoding(name: name, input: input),
                             result: nil,
-                            artifact: ArtifactToolCall(name: name, input: input)
+                            artifact: ArtifactToolCall(name: name, input: input),
+                            sentFiles: SentUserFiles(name: name, input: input)
                         )
                         pendingAssistantBlocks.append(.toolCall(call))
                         pendingToolCalls[id] = .pendingAssistant(blockIndex: pendingAssistantBlocks.count - 1)
