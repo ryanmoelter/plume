@@ -975,6 +975,15 @@ enum UpdateChannel: String, CaseIterable, Identifiable {
         case .beta: "Beta"
         }
     }
+
+    /// The `<sparkle:channel>` names Sparkle may offer. An item with no
+    /// channel tag is always allowed, which is every stable release.
+    var sparkleChannels: Set<String> {
+        switch self {
+        case .stable: []
+        case .beta: ["beta"]
+        }
+    }
 }
 
 enum ComposerSendKey: String {
