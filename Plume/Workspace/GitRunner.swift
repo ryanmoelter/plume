@@ -41,8 +41,8 @@ nonisolated enum GitRunner {
         process.environment = ProcessInfo.processInfo.environment
             .merging(["GIT_OPTIONAL_LOCKS": "0"]) { _, override in override }
 
-        let output = Pipe()
-        let error = Pipe()
+        let output = Pipe.closeOnExec()
+        let error = Pipe.closeOnExec()
         process.standardOutput = output
         process.standardError = error
 

@@ -21,7 +21,7 @@ enum ClaudeProcessScanner {
         process.executableURL = URL(fileURLWithPath: "/bin/ps")
         process.arguments = ["-Ao", "pid=,command="]
 
-        let output = Pipe()
+        let output = Pipe.closeOnExec()
         process.standardOutput = output
         process.standardError = FileHandle.nullDevice
 
