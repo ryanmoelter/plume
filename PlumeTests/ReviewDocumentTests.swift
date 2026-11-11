@@ -141,6 +141,21 @@ struct ReviewDocumentControllerTests {
         return window
     }
 
+    /// Lays out and turns the run loop until the table has a view for every
+    /// visible row, which it makes a pass or two after it lays out.
+    static func settle(_ window: NSWindow, _ controller: ReviewDocumentController) {
+        let table = controller.tableView
+        let deadline = Date(timeIntervalSinceNow: 5)
+        repeat {
+            window.contentView?.layoutSubtreeIfNeeded()
+            window.displayIfNeeded()
+            RunLoop.main.run(until: Date(timeIntervalSinceNow: 0.02))
+            let visible = table.rows(in: table.visibleRect)
+            let made = (visible.lowerBound..<visible.upperBound).allSatisfy { table.view(atColumn: 0, row: $0, makeIfNecessary: false) != nil }
+            if made { return }
+        } while Date() < deadline
+    }
+
     static var appearance: ReviewDocumentAppearance {
         ReviewDocumentAppearance(
             palette: Palette(colorScheme: .light, definitions: nil),
@@ -180,5 +195,46 @@ struct ReviewDocumentControllerTests {
         #expect(controller.tableView.rect(ofRow: moved).minY == clip.bounds.minY)
         // The estimate was 61 rows; a hunk and five lines replaced it.
         #expect(clip.bounds.minY < before)
+    }
+
+    /// The registry lists a gutter only for a line row the table shows: not a
+    /// collapsed file's lines, and not a row the table prepared beyond the
+    /// visible rect while scrolling.
+    @Test func onlyShownLinesKeepAGutterInTheRegistry() throws {
+        let controller = ReviewDocumentController(appearance: Self.appearance)
+        let window = Self.makeWindow(controller)
+        defer {
+            window.contentView = nil
+            window.close()
+        }
+        window.orderFrontRegardless()
+        let table = controller.tableView
+        func labels() -> [String] {
+            ControlRegistry.shared.entries(id: AccessibilityID.reviewDiffGutter)
+                .filter { $0.entry.window === window }
+                .compactMap(\.entry.label)
+        }
+        func shownLines() -> [String] {
+            let visible = table.rows(in: table.visibleRect)
+            return (visible.lowerBound..<visible.upperBound).compactMap { row -> String? in
+                let item = controller.rows[row]
+                guard case .line(let line, _, _) = item.kind else { return nil }
+                return "\(item.path):\(line.oldNumber.map(String.init) ?? "-"):\(line.newNumber.map(String.init) ?? "-")"
+            }
+        }
+        let long = (1...200).map { "line \($0)" }
+        controller.setSegments([ReviewDocumentTests.segment("a", lines: ["one", "two", "three"]), ReviewDocumentTests.segment("b", lines: long)])
+        Self.settle(window, controller)
+        #expect(labels().contains { $0.hasPrefix("a:") })
+        #expect(Set(labels()) == Set(shownLines()))
+
+        controller.setSegments([ReviewDocumentTests.segment("a", lines: ["one", "two", "three"], collapsed: true), ReviewDocumentTests.segment("b", lines: long)])
+        Self.settle(window, controller)
+        #expect(!labels().contains { $0.hasPrefix("a:") })
+        #expect(Set(labels()) == Set(shownLines()))
+
+        table.scroll(NSPoint(x: 0, y: 2000))
+        Self.settle(window, controller)
+        #expect(Set(labels()) == Set(shownLines()), "registered \(labels().count), shown \(shownLines().count)")
     }
 }

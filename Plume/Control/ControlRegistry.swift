@@ -17,8 +17,10 @@ struct ControlEntry {
     var invoke: (() -> Void)?
     var setValue: ((String) -> Void)?
     /// Reads `frame` afresh at every lookup, for an AppKit view that moves
-    /// without telling anyone, such as a row in a scrolling table.
-    var liveFrame: (@MainActor () -> CGRect)?
+    /// without telling anyone, such as a row in a scrolling table. Nil leaves
+    /// the entry out of that lookup: the view is in the window but not shown,
+    /// like a row a table prepared beyond the visible rect.
+    var liveFrame: (@MainActor () -> CGRect?)?
 
     var currentValue: String? { valueProvider?() ?? value }
 }
@@ -59,7 +61,10 @@ final class ControlRegistry {
         var byID: [String: [ControlEntry]] = [:]
         for var entry in entries.values where id == nil || entry.id == id {
             if let windowNumber, entry.window?.windowNumber != windowNumber { continue }
-            if let liveFrame = entry.liveFrame { entry.frame = liveFrame() }
+            if let liveFrame = entry.liveFrame {
+                guard let frame = liveFrame() else { continue }
+                entry.frame = frame
+            }
             byID[entry.id, default: []].append(entry)
         }
         var out: [(index: Int, entry: ControlEntry)] = []

@@ -37,17 +37,17 @@ final class AppKitControlRegistration {
         }
         ControlRegistry.shared.register(ControlEntry(
             token: token, id: id, label: label, value: value, isEnabled: true,
-            frame: Self.contentFrame(of: view), window: window, invoke: invoke, setValue: nil,
-            liveFrame: { [weak view] in view.map(Self.contentFrame(of:)) ?? .zero }
+            frame: Self.contentFrame(of: view) ?? .zero, window: window, invoke: invoke, setValue: nil,
+            liveFrame: { [weak view] in view.flatMap(Self.contentFrame(of:)) }
         ))
     }
 
     /// The part of `view` its scroll view shows, in top-left content-view
-    /// coordinates.
-    static func contentFrame(of view: NSView) -> CGRect {
-        guard let content = view.window?.contentView else { return .zero }
+    /// coordinates, or nil when none of it shows.
+    static func contentFrame(of view: NSView) -> CGRect? {
+        guard let content = view.window?.contentView, !view.isHiddenOrHasHiddenAncestor else { return nil }
         let visible = view.visibleRect
-        guard !visible.isEmpty else { return .zero }
+        guard !visible.isEmpty else { return nil }
         let rect = view.convert(visible, to: content)
         return content.isFlipped ? rect : WindowGeometry.topLeftRect(fromAppKit: rect, contentHeight: content.bounds.height)
     }
