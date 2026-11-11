@@ -24,12 +24,14 @@ struct ControlDispatcherTests {
             #"{"id":"11","command":"clear"}"#,
             #"{"id":"12","command":"selection"}"#,
             #"{"id":"13","command":"selectText","matching":"m"}"#,
+            #"{"id":"14","command":"recordStart","fps":10}"#,
+            #"{"id":"15","command":"recordStop"}"#,
         ]
         for line in lines {
             let response = await ControlDispatcher.handle(line: line, backend: backend)
             #expect(response.ok, "\(line) → \(response.error ?? "")")
         }
-        #expect(backend.calls == ["list", "describe", "invoke", "setValue", "readText", "clickSpan", "click", "screenshot", "hierarchy", "hover", "clear", "selection", "selectText"])
+        #expect(backend.calls == ["list", "describe", "invoke", "setValue", "readText", "clickSpan", "click", "screenshot", "hierarchy", "hover", "clear", "selection", "selectText", "recordStart", "recordStop"])
         #expect(backend.lastValue == "v")
     }
 
@@ -118,6 +120,16 @@ final class FakeControlBackend: ControlBackend {
     func screenshot(_ params: ScreenshotParams) throws -> ScreenshotResult {
         try record("screenshot")
         return ScreenshotResult(path: "/dev/null", width: 0, height: 0, scale: 1)
+    }
+
+    func recordStart(_ params: RecordStartParams) throws -> RecordStartResult {
+        try record("recordStart")
+        return RecordStartResult(path: "/dev/null", width: 0, height: 0, scale: 1, fps: params.fps, maxSeconds: params.maxSeconds)
+    }
+
+    func recordStop() async throws -> RecordStopResult {
+        try record("recordStop")
+        return RecordStopResult(path: "/dev/null", width: 0, height: 0, frames: 0, dropped: 0, duration: 0, stoppedBy: .request)
     }
 
     func hierarchy(_ params: HierarchyParams) throws -> HierarchyResult {

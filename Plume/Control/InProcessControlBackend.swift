@@ -335,33 +335,74 @@ final class InProcessControlBackend: ControlBackend {
 
     func screenshot(_ params: ScreenshotParams) throws -> ScreenshotResult {
         let window = try window(for: params.windowNumber, target: params.target)
-        guard let content = window.contentView else { throw ControlError.noWindow }
-        guard let captured = WindowCapture.image(of: window) else {
-            throw ControlError.io("the window server has no image of this window; a hidden app (open -j) cannot be captured, relaunch without -j (\(WindowCapture.displayState))")
-        }
-        let scale = Double(captured.width) / Double(window.frame.width)
-        let contentInWindow = content.convert(content.bounds, to: nil)
-        let contentRect = CGRect(
-            x: contentInWindow.minX * scale, y: (window.frame.height - contentInWindow.maxY) * scale,
-            width: contentInWindow.width * scale, height: contentInWindow.height * scale
-        ).integral
-        guard var image = captured.cropping(to: contentRect) else { throw ControlError.io("could not crop to the content view") }
-        if WindowCapture.isUniform(image) {
-            throw ControlError.io("captured a blank window (\(WindowCapture.displayState))")
-        }
-        if let overlay = ControlOverlay.existing(for: window), let cursor = WindowCapture.image(of: overlay.panel) {
-            image = WindowCapture.composite(cursor, over: image) ?? image
-        }
-        if let target = params.target, let crop = try cropRect(for: target, scale: scale) {
-            guard let cropped = image.cropping(to: crop) else { throw ControlError.io("could not crop to \(target)") }
-            image = cropped
-        }
+        let (image, scale, _) = try captureContent(of: window, target: params.target)
         let out = NSBitmapImageRep(cgImage: image)
         guard let png = out.representation(using: .png, properties: [:]) else { throw ControlError.io("could not encode PNG") }
         let path = params.path ?? defaultScreenshotPath()
         try FileManager.default.createDirectory(atPath: (path as NSString).deletingLastPathComponent, withIntermediateDirectories: true)
         try png.write(to: URL(fileURLWithPath: path))
         return ScreenshotResult(path: path, width: image.width, height: image.height, scale: scale)
+    }
+
+    /// The content view's pixels with the overlay pointer on top, cropped to
+    /// `target` when given; refuses a blank capture.
+    private func captureContent(of window: NSWindow, target: ControlTarget?) throws -> (image: CGImage, scale: Double, request: RecordingFrameRequest) {
+        guard let captured = WindowCapture.image(of: window) else {
+            throw ControlError.io("the window server has no image of this window; a hidden app (open -j) cannot be captured, relaunch without -j (\(WindowCapture.displayState))")
+        }
+        let scale = Double(captured.width) / Double(window.frame.width)
+        guard var request = Self.frameRequest(for: window, scale: scale) else { throw ControlError.noWindow }
+        guard var image = captured.cropping(to: request.contentRect) else { throw ControlError.io("could not crop to the content view") }
+        if WindowCapture.isUniform(image) {
+            throw ControlError.io("captured a blank window (\(WindowCapture.displayState))")
+        }
+        if let overlayID = request.overlayID, let cursor = WindowCapture.image(windowID: overlayID) {
+            image = WindowCapture.composite(cursor, over: image) ?? image
+        }
+        if let target, let crop = try cropRect(for: target, scale: scale) {
+            guard let cropped = image.cropping(to: crop) else { throw ControlError.io("could not crop to \(target)") }
+            image = cropped
+            request.targetRect = crop
+        }
+        return (image, scale, request)
+    }
+
+    private static func frameRequest(for window: NSWindow, scale: Double) -> RecordingFrameRequest? {
+        guard let content = window.contentView else { return nil }
+        let contentInWindow = content.convert(content.bounds, to: nil)
+        let contentRect = CGRect(
+            x: contentInWindow.minX * scale, y: (window.frame.height - contentInWindow.maxY) * scale,
+            width: contentInWindow.width * scale, height: contentInWindow.height * scale
+        ).integral
+        let overlay = ControlOverlay.existing(for: window).map { UInt32($0.panel.windowNumber) }
+        return RecordingFrameRequest(windowID: UInt32(window.windowNumber), overlayID: overlay, contentRect: contentRect, targetRect: nil)
+    }
+
+    // MARK: Recording
+
+    /// The target's crop is fixed at the start; the window's own frame and
+    /// the overlay are re-read every frame.
+    func recordStart(_ params: RecordStartParams) throws -> RecordStartResult {
+        let window = try window(for: params.windowNumber, target: params.target)
+        let (first, scale, request) = try captureContent(of: window, target: params.target)
+        let url = URL(fileURLWithPath: params.path ?? defaultCapturePath(folder: "recordings", extension: "mp4"))
+        let targetRect = request.targetRect
+        let size = try WindowRecorder.shared.start(
+            url: url, firstFrame: first, fps: params.fps, maxSeconds: params.maxSeconds
+        ) { [weak window] in
+            guard let window else { return nil }
+            var next = Self.frameRequest(for: window, scale: window.backingScaleFactor)
+            next?.targetRect = targetRect
+            return next
+        }
+        return RecordStartResult(
+            path: url.path(percentEncoded: false), width: size.width, height: size.height, scale: scale,
+            fps: params.fps, maxSeconds: params.maxSeconds
+        )
+    }
+
+    func recordStop() async throws -> RecordStopResult {
+        try await WindowRecorder.shared.stop()
     }
 
     private func cropRect(for target: ControlTarget, scale: Double) throws -> CGRect? {
@@ -371,10 +412,14 @@ final class InProcessControlBackend: ControlBackend {
 
     /// Fractional seconds, so two shots in one second do not overwrite each other.
     private func defaultScreenshotPath() -> String {
+        defaultCapturePath(folder: "screenshots", extension: "png")
+    }
+
+    private func defaultCapturePath(folder: String, extension ext: String) -> String {
         let formatter = ISO8601DateFormatter()
         formatter.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
         let stamp = formatter.string(from: Date()).replacingOccurrences(of: ":", with: "-")
-        return AppPaths.controlDirectory.appending(path: "screenshots/\(stamp).png").path(percentEncoded: false)
+        return AppPaths.controlDirectory.appending(path: "\(folder)/\(stamp).\(ext)").path(percentEncoded: false)
     }
 
     // MARK: Hierarchy
