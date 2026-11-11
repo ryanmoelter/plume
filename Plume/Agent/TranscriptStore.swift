@@ -366,26 +366,27 @@ final class TranscriptStore {
         transcriptPath: String,
         parent: inout ParentParse,
         cache: inout SubagentTranscriptCache
-    ) -> (subagents: [SubagentTranscript], intact: Bool) {
+    ) -> (subagents: [SubagentTranscript], evidence: [LinearEvidence], intact: Bool) {
         let listed = SessionJSONLReader.listedSubagentTranscriptPaths(forTranscriptPath: transcriptPath)
         cache.beginRead(paths: listed)
         defer { cache.endRead() }
-        guard let paths = listed else { return ([], false) }
-        guard !paths.isEmpty else { return ([], true) }
+        guard let paths = listed else { return ([], [], false) }
+        guard !paths.isEmpty else { return ([], [], true) }
 
         var subagents: [SubagentTranscript] = []
+        var evidence: [LinearEvidence] = []
         for subagentPath in paths {
             // Parsing nothing would show it as not started.
             guard let (transcript, modifiedAt) = cache.transcript(atPath: subagentPath) else { continue }
             let id = Self.subagentID(forPath: subagentPath)
 
-            var descriptor = SubagentMetadataReader.read(forSubagentPath: subagentPath)
+            var descriptor = cache.descriptor(forSubagentPath: subagentPath)
             if descriptor == nil {
                 descriptor = parent.spawnDescriptors(transcriptPath: transcriptPath)[id]
             }
 
             let parentSignal = parent.spawnResults.signal(forAgentID: id)
-            subagents.append(SubagentTranscript(
+            let subagent = SubagentTranscript(
                 id: id,
                 transcript: transcript,
                 modifiedAt: modifiedAt,
@@ -396,18 +397,14 @@ final class TranscriptStore {
                     parentSignal: parentSignal,
                     stoppedByUser: descriptor?.stoppedByUser ?? false
                 )
-            ))
-        }
-        return (subagents, subagents.count == paths.count)
-    }
-
-    private nonisolated static func linearEvidence(subagents: [SubagentTranscript]) -> [LinearEvidence] {
-        subagents.flatMap { sub in
-            LinearActivityScanner.scan(
-                sub.transcript.messages,
-                subagent: LinearSubagentRef(id: sub.id, label: sub.title)
+            )
+            subagents.append(subagent)
+            evidence += cache.linearEvidence(
+                atPath: subagentPath,
+                subagent: LinearSubagentRef(id: id, label: subagent.title)
             )
         }
+        return (subagents, evidence, subagents.count == paths.count)
     }
 
     /// Everything a read derives from the main transcript's bytes alone.
@@ -524,7 +521,7 @@ final class TranscriptStore {
             let parsed = parentParse.map { parentParse in
                 var parent = parentParse
                 var subagentCache = subagentCache
-                let (subagents, intact) = Self.readSubagents(
+                let (subagents, evidence, intact) = Self.readSubagents(
                     transcriptPath: path,
                     parent: &parent,
                     cache: &subagentCache
@@ -533,7 +530,7 @@ final class TranscriptStore {
                     parent: parent.releasingData(),
                     subagents: subagents,
                     subagentsIntact: intact,
-                    subagentEvidence: Self.linearEvidence(subagents: subagents),
+                    subagentEvidence: evidence,
                     subagentCache: subagentCache,
                     reusedParent: reusable != nil
                 )

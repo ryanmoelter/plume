@@ -7,11 +7,17 @@ nonisolated struct FileFingerprint: Equatable, Sendable {
     let modifiedAt: Date?
     let fileNumber: UInt64
 
+    /// `stat` rather than `attributesOfItem`, which also reads extended
+    /// attributes and costs several times as much across hundreds of files.
     init?(path: String) {
-        guard let attributes = try? FileManager.default.attributesOfItem(atPath: path) else { return nil }
-        size = (attributes[.size] as? NSNumber)?.uint64Value ?? 0
-        modifiedAt = attributes[.modificationDate] as? Date
-        fileNumber = (attributes[.systemFileNumber] as? NSNumber)?.uint64Value ?? 0
+        var info = stat()
+        guard stat(path, &info) == 0 else { return nil }
+        size = UInt64(info.st_size)
+        modifiedAt = Date(
+            timeIntervalSince1970: TimeInterval(info.st_mtimespec.tv_sec)
+                + TimeInterval(info.st_mtimespec.tv_nsec) / 1_000_000_000
+        )
+        fileNumber = UInt64(info.st_ino)
     }
 }
 
@@ -39,6 +45,12 @@ nonisolated struct SubagentTranscriptCache {
         /// The bytes just before `consumed`, compared on the next read to
         /// tell an append from a rewrite of the same file.
         let seam: Data
+        var evidence: (subagent: LinearSubagentRef, value: [LinearEvidence])?
+    }
+
+    private struct Sidecar {
+        let fingerprint: FileFingerprint
+        let descriptor: SubagentDescriptor?
     }
 
     /// How long after its last write a file keeps its decoded lines.
@@ -50,6 +62,8 @@ nonisolated struct SubagentTranscriptCache {
     private static let seamLength = 64
 
     private var entries: [String: Entry] = [:]
+    /// Keyed by the subagent transcript's path, like `entries`.
+    private var sidecars: [String: Sidecar] = [:]
     private(set) var stats = Stats()
 
     init() {}
@@ -61,6 +75,30 @@ nonisolated struct SubagentTranscriptCache {
         guard let paths else { return }
         let listed = Set(paths)
         entries = entries.filter { listed.contains($0.key) }
+        sidecars = sidecars.filter { listed.contains($0.key) }
+    }
+
+    /// The `.meta.json` sidecar's descriptor, decoded again only when the
+    /// sidecar changed.
+    mutating func descriptor(forSubagentPath path: String) -> SubagentDescriptor? {
+        guard let fingerprint = FileFingerprint(path: SubagentMetadataReader.metadataPath(forSubagentPath: path)) else {
+            sidecars[path] = nil
+            return nil
+        }
+        if let cached = sidecars[path], cached.fingerprint == fingerprint { return cached.descriptor }
+        let descriptor = SubagentMetadataReader.read(forSubagentPath: path)
+        sidecars[path] = Sidecar(fingerprint: fingerprint, descriptor: descriptor)
+        return descriptor
+    }
+
+    /// The Linear evidence in the transcript last returned for `path`,
+    /// scanned again only when that transcript or `subagent` changed.
+    mutating func linearEvidence(atPath path: String, subagent: LinearSubagentRef) -> [LinearEvidence] {
+        guard let entry = entries[path] else { return [] }
+        if let cached = entry.evidence, cached.subagent == subagent { return cached.value }
+        let evidence = LinearActivityScanner.scan(entry.transcript.messages, subagent: subagent)
+        entries[path]?.evidence = (subagent, evidence)
+        return evidence
     }
 
     /// Ends a read: only the most recently written files within

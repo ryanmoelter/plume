@@ -165,6 +165,20 @@ struct SubagentTranscriptCacheTests {
         #expect(cache.stats == .init(reused: 0, appended: 1, fullParses: 1))
     }
 
+    @Test func aRewrittenSidecarIsDecodedAgain() throws {
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let sidecar = SubagentMetadataReader.metadataPath(forSubagentPath: path)
+        try "{\"description\":\"Find the leak\"}".write(toFile: sidecar, atomically: true, encoding: .utf8)
+        var cache = SubagentTranscriptCache()
+        #expect(cache.descriptor(forSubagentPath: path)?.stoppedByUser == false)
+
+        try "{\"description\":\"Find the leak\",\"stoppedByUser\":true}".write(toFile: sidecar, atomically: true, encoding: .utf8)
+        #expect(cache.descriptor(forSubagentPath: path)?.stoppedByUser == true)
+
+        try FileManager.default.removeItem(atPath: sidecar)
+        #expect(cache.descriptor(forSubagentPath: path) == nil)
+    }
+
     @Test func aMissingFileReadsAsNil() throws {
         defer { try? FileManager.default.removeItem(at: directory) }
         try write(line("one"))
