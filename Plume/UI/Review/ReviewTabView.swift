@@ -3,7 +3,7 @@ import SwiftData
 import SwiftUI
 
 /// A review tab: the task folder's changes against its merge base with the
-/// default branch, as a file list beside the selected file's diff.
+/// default branch, as a file list beside every file's diff.
 struct ReviewTabView: View {
     let task: WorkTask
     let isFocused: Bool
@@ -35,9 +35,11 @@ private struct ReviewTabContent: View, ThemedView {
             header
             Divider()
             HStack(spacing: 0) {
-                ReviewFileList(model: model)
-                    .frame(width: 280)
-                Divider()
+                if model.showsFileList {
+                    ReviewFileList(model: model)
+                        .frame(width: 280)
+                    Divider()
+                }
                 ReviewDiffPane(model: model)
                     .frame(maxWidth: .infinity, maxHeight: .infinity)
             }
@@ -54,14 +56,10 @@ private struct ReviewTabContent: View, ThemedView {
             return .handled
         }
         .onAppear {
-            model.setPalette(CodeSyntaxPalette(palette: colors))
             model.retain()
             if isFocused { hasKeyFocus = true }
         }
         .onDisappear { model.release() }
-        .onChange(of: CodeSyntaxPalette(palette: colors)) { _, palette in
-            model.setPalette(palette)
-        }
         .onChange(of: isFocused) { _, focused in
             if focused { hasKeyFocus = true }
         }
@@ -69,6 +67,18 @@ private struct ReviewTabContent: View, ThemedView {
 
     private var header: some View {
         HStack(spacing: 8) {
+            Button {
+                model.showsFileList.toggle()
+            } label: {
+                Image(systemName: "sidebar.left")
+            }
+            .buttonStyle(.borderless)
+            .help(model.showsFileList ? "Hide File List" : "Show File List")
+            .plumeID(
+                AccessibilityID.reviewFileListToggle,
+                value: model.showsFileList ? "shown" : "hidden",
+                invoke: { model.showsFileList.toggle() }
+            )
             ReviewBasePicker(model: model)
             Text(summary)
                 .font(typography.caption.font)
@@ -152,7 +162,7 @@ private struct ReviewFileList: View, ThemedView {
         let name = (file.path as NSString).lastPathComponent
         let folder = (file.path as NSString).deletingLastPathComponent
         return Button {
-            model.selectedPath = file.path
+            model.reveal(file.path)
         } label: {
             HStack(spacing: 6) {
                 ReviewChangeBadge(kind: file.kind)
@@ -184,7 +194,7 @@ private struct ReviewFileList: View, ThemedView {
             AccessibilityID.reviewFileRow,
             label: file.path,
             value: isSelected ? "selected" : nil,
-            invoke: { model.selectedPath = file.path }
+            invoke: { model.reveal(file.path) }
         )
     }
 }
@@ -258,79 +268,24 @@ struct ReviewLineCounts: View, ThemedView {
     }
 }
 
-/// The selected file's diff, or why there is none.
+/// Every file's diff, or why there is none yet.
 private struct ReviewDiffPane: View, ThemedView {
     @Environment(\.theme) var theme
     let model: ReviewModel
 
     var body: some View {
-        Group {
-            if let file = model.selectedFile {
-                switch model.contents[file.path] {
-                case nil, .loading:
+        ReviewDocumentView(model: model)
+            .overlay {
+                switch model.phase {
+                case .idle, .loading where model.files.isEmpty:
                     ProgressView().controlSize(.small)
-                case .failed(let error):
-                    message(error)
-                case .loaded(let content, let rows, let columns):
-                    VStack(spacing: 0) {
-                        header(file)
-                        Divider()
-                        loaded(content, rows: rows, columns: columns, file: file)
-                    }
+                case .loaded where model.files.isEmpty:
+                    Text("No changes").emphasis(.secondary)
+                default:
+                    EmptyView()
                 }
-            } else {
-                message(model.files.isEmpty ? "" : "Select a file")
             }
-        }
-        .plumeID(AccessibilityID.reviewDiffBody, label: model.selectedPath)
-    }
-
-    @ViewBuilder
-    private func loaded(_ content: DiffFileContent, rows: [ReviewDiffRow], columns: Int, file: DiffFileSummary) -> some View {
-        switch content {
-        case .text:
-            ReviewDiffBody(
-                rows: rows,
-                columns: columns,
-                wraps: ReviewDiffBody.wraps(file.path),
-                model: model,
-                path: file.path
-            )
-                .id(file.path)
-        case .binary:
-            message("Binary file")
-        case .empty:
-            message("No line changes")
-        case .tooLarge(let changedLines):
-            VStack(spacing: 8) {
-                message(changedLines.map { "\($0) changed lines — too large to show by default" }
-                    ?? "Too large to count — not shown by default")
-                Button("Load Anyway") { model.loadContent(for: file.path, liftingCap: true) }
-                    .plumeID(AccessibilityID.reviewLoadAnywayButton, invoke: {
-                        model.loadContent(for: file.path, liftingCap: true)
-                    })
-            }
-        }
-    }
-
-    private func header(_ file: DiffFileSummary) -> some View {
-        HStack(spacing: 8) {
-            Text(file.oldPath.map { "\($0) → \(file.path)" } ?? file.path)
-                .font(typography.caption.mono)
-                .lineLimit(1)
-                .truncationMode(.head)
-            Spacer(minLength: 4)
-            ReviewChangeMagnitudeView(file: file)
-            ReviewLineCounts(file: file)
-        }
-        .padding(.horizontal, 12)
-        .padding(.vertical, 6)
-    }
-
-    private func message(_ text: String) -> some View {
-        Text(text)
-            .emphasis(.secondary)
-            .frame(maxWidth: .infinity, maxHeight: .infinity)
+            .plumeID(AccessibilityID.reviewDiffBody, label: model.selectedPath)
     }
 }
 #endif

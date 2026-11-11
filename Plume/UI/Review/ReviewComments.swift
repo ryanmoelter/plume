@@ -236,12 +236,12 @@ struct ReviewCommentEditor: View, ThemedView {
                 .font(typography.body.font)
                 .lineLimit(1...8)
                 .focused($isEditing)
-                .plumeID(AccessibilityID.reviewCommentField, label: label)
+                .plumeID(AccessibilityID.reviewCommentField, label: label, setValue: { model.updateComment(comment.id, body: $0) })
         }
         .padding(8)
         .background(colors.attention.opacity(0.08), in: .rect(cornerRadius: 6))
         .overlay(RoundedRectangle(cornerRadius: 6).stroke(colors.attention.opacity(0.3)))
-        .padding(.leading, ReviewDiffBody.gutterWidth)
+        .padding(.leading, ReviewDocumentMetrics.gutterWidth)
         .padding(.trailing, 12)
         .padding(.vertical, 4)
         .onAppear { if comment.body.isEmpty { isEditing = true } }

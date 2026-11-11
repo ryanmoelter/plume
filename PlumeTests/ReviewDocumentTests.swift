@@ -1,0 +1,184 @@
+import AppKit
+import Foundation
+import SwiftUI
+import Testing
+
+@testable import Plume
+
+struct ReviewDocumentTests {
+    static func file(_ path: String, added: Int = 2, removed: Int = 1, kind: DiffChangeKind = .modified) -> DiffFileSummary {
+        DiffFileSummary(path: path, kind: kind, addedLines: added, removedLines: removed)
+    }
+
+    static func body(_ path: String, lines: [String], startingAt start: Int = 1) -> ReviewFileBody {
+        let diffLines = lines.enumerated().map { offset, text in
+            DiffLine(kind: .added, text: text, oldNumber: nil, newNumber: start + offset)
+        }
+        let hunk = DiffHunk(header: "@@ -0,0 +\(start),\(lines.count) @@", oldStart: 0, oldCount: 0, newStart: start, newCount: lines.count, lines: diffLines)
+        return ReviewDocument.body(for: .text([hunk]), path: path)
+    }
+
+    static func loaded(_ path: String, lines: [String], version: Int = 1) -> ReviewContentState {
+        .loaded(body(path, lines: lines), version: version)
+    }
+
+    @Test func estimatesAddedFilesAsOneHunkAndModifiedOnesWithContext() {
+        #expect(ReviewDocument.estimatedRows(for: Self.file("a", added: 0, removed: 0)) == 1)
+        #expect(ReviewDocument.estimatedRows(for: Self.file("a", added: 30, removed: 0, kind: .added)) == 31)
+        // 24 changed lines read as two hunks of seven rows each.
+        #expect(ReviewDocument.estimatedRows(for: Self.file("a", added: 20, removed: 4)) == 24 + 2 * 7)
+    }
+
+    @Test func segmentPlacesADraftAfterTheLineItEndsAt() throws {
+        let comment = try #require(ReviewComment(path: "a.swift", lines: [
+            DiffLine(kind: .added, text: "one", oldNumber: nil, newNumber: 1),
+            DiffLine(kind: .added, text: "two", oldNumber: nil, newNumber: 2),
+        ]))
+        let segment = ReviewDocument.segment(
+            file: Self.file("a.swift"),
+            state: Self.loaded("a.swift", lines: ["one", "two", "three"]),
+            collapsed: false,
+            comments: [comment]
+        )
+        let kinds = segment.rows.map(\.identity)
+        #expect(kinds == [
+            .fileHeader("a.swift"),
+            .hunk("a.swift", "@@ -0,0 +1,3 @@"),
+            .line("a.swift", old: nil, new: 1, "one"),
+            .line("a.swift", old: nil, new: 2, "two"),
+            .comment(comment.id),
+            .line("a.swift", old: nil, new: 3, "three"),
+        ])
+    }
+
+    @Test func collapsedAndPendingFilesShowOnlyTheirHeaderAndEstimate() {
+        let file = Self.file("a.swift")
+        let collapsed = ReviewDocument.segment(file: file, state: Self.loaded("a.swift", lines: ["x"]), collapsed: true, comments: [])
+        #expect(collapsed.rows.map(\.identity) == [.fileHeader("a.swift")])
+        let pending = ReviewDocument.segment(file: file, state: nil, collapsed: false, comments: [])
+        #expect(pending.rows.last?.kind == .placeholder(.pending(estimatedRows: ReviewDocument.estimatedRows(for: file))))
+    }
+
+    @Test func proseWrapsAndHasNoColumns() {
+        guard case .rows(let rows, let columns) = Self.body("README.md", lines: ["a long line of prose"]) else {
+            Issue.record("expected rows")
+            return
+        }
+        #expect(columns == 0)
+        #expect(rows.allSatisfy { row in
+            if case .line(_, _, let wraps) = row.kind { return wraps }
+            return true
+        })
+    }
+
+    // MARK: Changes
+
+    static func segment(_ path: String, lines: [String]?, collapsed: Bool = false) -> ReviewDocumentSegment {
+        ReviewDocument.segment(
+            file: file(path),
+            state: lines.map { loaded(path, lines: $0) },
+            collapsed: collapsed,
+            comments: []
+        )
+    }
+
+    @Test func anEditInPlaceReloadsOnlyThatRow() {
+        let old = [Self.segment("a", lines: ["one", "two", "three"])]
+        let new = [Self.segment("a", lines: ["one", "TWO", "three"])]
+        // A changed text is a new identity, so the middle run is the same
+        // length and reloads.
+        #expect(ReviewDocumentChanges.between(old, new) == ReviewDocumentChanges(reloaded: [3]))
+    }
+
+    @Test func anInsertedLineReplacesTheRunItShifted() {
+        let old = [Self.segment("a", lines: ["one", "three"]), Self.segment("b", lines: ["x"])]
+        let new = [Self.segment("a", lines: ["one", "two", "three"]), Self.segment("b", lines: ["x"])]
+        let changes = ReviewDocumentChanges.between(old, new)
+        // The hunk header's counts and the later new numbers changed, so
+        // only the file header survives the prefix.
+        #expect(changes.removed == IndexSet(1...3))
+        #expect(changes.inserted == IndexSet(1...4))
+        #expect(changes.reloaded.isEmpty)
+    }
+
+    @Test func filesComingAndGoingInsertAndRemoveTheirRows() {
+        let a = Self.segment("a", lines: ["one"])
+        let b = Self.segment("b", lines: ["two", "three"])
+        let c = Self.segment("c", lines: ["four"])
+        let changes = ReviewDocumentChanges.between([a, b], [a, c])
+        #expect(changes.removed == IndexSet(3..<7))
+        #expect(changes.inserted == IndexSet(3..<6))
+    }
+
+    @Test func collapsingReloadsTheHeaderAndRemovesTheBody() {
+        let open = Self.segment("a", lines: ["one", "two"])
+        let closed = Self.segment("a", lines: ["one", "two"], collapsed: true)
+        let changes = ReviewDocumentChanges.between([open], [closed])
+        #expect(changes.reloaded == [0])
+        #expect(changes.removed == IndexSet(1...3))
+        #expect(changes.inserted.isEmpty)
+    }
+
+    @Test func aLoadReplacesTheEstimateWithLines() {
+        let pending = Self.segment("a", lines: nil)
+        let loaded = Self.segment("a", lines: ["one", "two"])
+        let changes = ReviewDocumentChanges.between([pending], [loaded])
+        #expect(changes.removed == [1])
+        #expect(changes.inserted == IndexSet(1...3))
+    }
+}
+
+/// The document mounted in an offscreen window: a load above the viewport
+/// must not move the line the reader is looking at.
+@MainActor
+struct ReviewDocumentControllerTests {
+    static func makeWindow(_ controller: ReviewDocumentController) -> NSWindow {
+        let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 800, height: 400), styleMask: [.titled], backing: .buffered, defer: false)
+        window.isReleasedWhenClosed = false
+        controller.scrollView.frame = NSRect(x: 0, y: 0, width: 800, height: 400)
+        window.contentView = controller.scrollView
+        window.contentView?.layoutSubtreeIfNeeded()
+        return window
+    }
+
+    static var appearance: ReviewDocumentAppearance {
+        ReviewDocumentAppearance(
+            palette: Palette(colorScheme: .light, definitions: nil),
+            font: .monospacedSystemFont(ofSize: 12, weight: .regular)
+        )
+    }
+
+    @Test func aLoadAboveTheViewportKeepsTheTopLineInPlace() throws {
+        let controller = ReviewDocumentController(appearance: Self.appearance)
+        let window = Self.makeWindow(controller)
+        defer {
+            window.contentView = nil
+            window.close()
+        }
+        let lines = (1...200).map { "line \($0)" }
+        let above = ReviewDocumentTests.file("a", added: 40, removed: 0)
+        let pending = ReviewDocument.segment(file: above, state: nil, collapsed: false, comments: [])
+        let below = ReviewDocumentTests.segment("b", lines: lines)
+        controller.setSegments([pending, below])
+        window.contentView?.layoutSubtreeIfNeeded()
+
+        let target = try #require(controller.index(of: .line("b", old: nil, new: 100, "line 100"), in: "b"))
+        let clip = controller.scrollView.contentView
+        clip.scroll(to: NSPoint(x: 0, y: controller.tableView.rect(ofRow: target).minY))
+        controller.scrollView.reflectScrolledClipView(clip)
+        let before = clip.bounds.minY
+
+        let loaded = ReviewDocument.segment(
+            file: above,
+            state: ReviewDocumentTests.loaded("a", lines: (1...5).map { "short \($0)" }),
+            collapsed: false,
+            comments: []
+        )
+        controller.setSegments([loaded, below])
+
+        let moved = try #require(controller.index(of: .line("b", old: nil, new: 100, "line 100"), in: "b"))
+        #expect(controller.tableView.rect(ofRow: moved).minY == clip.bounds.minY)
+        // The estimate was 61 rows; a hunk and five lines replaced it.
+        #expect(clip.bounds.minY < before)
+    }
+}

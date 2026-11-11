@@ -3,66 +3,11 @@ import Foundation
 import Observation
 import os
 
-/// One row of a file's rendered diff: a hunk header or a line.
-nonisolated struct ReviewDiffRow: Identifiable, Hashable, Sendable {
-    enum Kind: Hashable, Sendable {
-        case hunk(String)
-        /// The line and its text, highlighted.
-        case line(DiffLine, AttributedString)
-    }
-
-    let id: Int
-    let kind: Kind
-
-    /// Past this a line renders plain: it is a minified dump, not code to
-    /// read, and the tokenize would dominate the load.
-    static let maxHighlightedLength = 2_000
-
-    /// The widest row in characters, a tab counted at its widest stop, so the
-    /// diff can be laid out at its full width before any row is realized.
-    static func columns(of rows: [ReviewDiffRow]) -> Int {
-        rows.reduce(0) { widest, row in
-            let text: String
-            switch row.kind {
-            case .hunk(let header): text = header
-            case .line(let line, _): text = line.text
-            }
-            let tabs = text.utf8.reduce(0) { $1 == 0x09 ? $0 + 1 : $0 }
-            return max(widest, text.count + tabs * 7)
-        }
-    }
-
-    /// Highlights every line, so build rows off the main actor.
-    static func rows(for content: DiffFileContent, language: String?, palette: CodeSyntaxPalette) -> [ReviewDiffRow] {
-        guard case .text(let hunks) = content else { return [] }
-        var rows: [ReviewDiffRow] = []
-        rows.reserveCapacity(hunks.reduce(0) { $0 + $1.lines.count + 1 })
-        for hunk in hunks {
-            rows.append(ReviewDiffRow(id: rows.count, kind: .hunk(hunk.header)))
-            for line in hunk.lines {
-                let text: AttributedString
-                if line.text.utf16.count <= maxHighlightedLength {
-                    text = AttributedString.highlightedCode(line.text, language: language, palette: palette)
-                } else {
-                    text = AttributedString.highlightedCode(line.text, language: nil, palette: palette)
-                }
-                rows.append(ReviewDiffRow(id: rows.count, kind: .line(line, text)))
-            }
-        }
-        return rows
-    }
-}
-
-enum ReviewContentState {
+nonisolated enum ReviewContentState: Sendable {
     case loading
-    /// `columns` is the widest row's width in characters.
-    case loaded(DiffFileContent, rows: [ReviewDiffRow], columns: Int)
+    /// `version` changes with every load that lands.
+    case loaded(ReviewFileBody, version: Int)
     case failed(String)
-
-    var isLoaded: Bool {
-        if case .loaded = self { return true }
-        return false
-    }
 }
 
 /// The review of one task folder: the working tree against its merge base
@@ -96,11 +41,19 @@ final class ReviewModel {
     private(set) var contents: [String: ReviewContentState] = [:]
     private(set) var lastListDuration: Duration?
     private(set) var lastContentDuration: Duration?
-    var selectedPath: String? {
-        didSet {
-            guard selectedPath != oldValue, let selectedPath else { return }
-            loadContent(for: selectedPath)
-        }
+    /// The file the reader is at: the one at the top of the diff, or the one
+    /// they last picked.
+    private(set) var selectedPath: String?
+    /// A pick the diff has yet to scroll to.
+    private(set) var revealRequest: RevealRequest?
+    /// Folded to their headers in the diff, kept for the session.
+    private(set) var collapsedPaths: Set<String> = []
+    /// Whether the review tab shows its file list, kept for the session.
+    var showsFileList = true
+
+    struct RevealRequest: Equatable {
+        let path: String
+        let serial: Int
     }
 
     @ObservationIgnored private var watcher: DirectoryTreeWatcher?
@@ -126,7 +79,13 @@ final class ReviewModel {
     @ObservationIgnored private var nextLoadToken = 0
     /// Paths the reader asked to load past the line cap.
     @ObservationIgnored private var liftedCaps: Set<String> = []
-    @ObservationIgnored private var palette: CodeSyntaxPalette?
+    /// Files near the diff's viewport, nearest first. Only these load.
+    @ObservationIgnored private var wantedPaths: [String] = []
+    /// Loaded files a relist may have changed. They keep showing until
+    /// their reload lands.
+    @ObservationIgnored private var staleContents: Set<String> = []
+    @ObservationIgnored private var nextContentVersion = 0
+    @ObservationIgnored private var revealSerial = 0
     @ObservationIgnored private let untrackedCounts = UntrackedCountCache()
     @ObservationIgnored private var ignoredDirectories = IgnoredDirectories()
     /// Bumped by `release()`, which empties the lists a listing in flight
@@ -135,10 +94,6 @@ final class ReviewModel {
 
     init(directory: String) {
         self.directory = directory
-    }
-
-    var selectedFile: DiffFileSummary? {
-        files.first { $0.path == selectedPath }
     }
 
     /// The base the review compares against. A pick no longer on offer, such
@@ -230,6 +185,8 @@ final class ReviewModel {
         pendingTouched = []
         pendingForcesReload = false
         liftedCaps = []
+        staleContents = []
+        wantedPaths = []
         untrackedCounts.keepOnly([])
         ignoredDirectories.removeAll()
         releaseCount += 1
@@ -241,20 +198,38 @@ final class ReviewModel {
         phase = .idle
     }
 
-    /// Highlighting colors rows as they load, so a new palette reloads them.
-    func setPalette(_ palette: CodeSyntaxPalette) {
-        guard palette != self.palette else { return }
-        self.palette = palette
-        contents = [:]
-        loadTokens = [:]
-        if let selectedPath { loadContent(for: selectedPath) }
-    }
-
     func selectFile(offset: Int) {
         guard !files.isEmpty else { return }
         let current = files.firstIndex { $0.path == selectedPath } ?? (offset > 0 ? -1 : files.count)
         let next = min(max(current + offset, 0), files.count - 1)
-        selectedPath = files[next].path
+        reveal(files[next].path)
+    }
+
+    /// Selects `path` and asks the diff to scroll to it.
+    func reveal(_ path: String) {
+        selectedPath = path
+        revealSerial += 1
+        revealRequest = RevealRequest(path: path, serial: revealSerial)
+    }
+
+    func consumeReveal(_ request: RevealRequest) {
+        if revealRequest == request { revealRequest = nil }
+    }
+
+    /// The diff scrolled `path` to its top.
+    func noteTopFile(_ path: String) {
+        if selectedPath != path { selectedPath = path }
+    }
+
+    func toggleCollapsed(_ path: String) {
+        if collapsedPaths.contains(path) { collapsedPaths.remove(path) } else { collapsedPaths.insert(path) }
+    }
+
+    /// The diff's files near its viewport, nearest first.
+    func want(_ paths: [String]) {
+        guard paths != wantedPaths else { return }
+        wantedPaths = paths
+        loadWanted()
     }
 
     private func startWatching() {
@@ -353,7 +328,7 @@ final class ReviewModel {
         let shown = (files: files, tree: tree, changedTree: changedTree, releaseCount: releaseCount)
         baseRefIsStale = false
         headRefIsStale = false
-        let reload = SelectionReload(touched: pendingTouched, forced: pendingForcesReload)
+        let reload = ContentReload(touched: pendingTouched, forced: pendingForcesReload)
         pendingTouched = []
         pendingForcesReload = false
         Task {
@@ -401,12 +376,12 @@ final class ReviewModel {
         }
     }
 
-    private struct SelectionReload {
+    private struct ContentReload {
         let touched: Set<String>
         let forced: Bool
     }
 
-    private func apply(_ result: Result<Listing, any Error>, reload: SelectionReload, elapsed: Duration) {
+    private func apply(_ result: Result<Listing, any Error>, reload: ContentReload, elapsed: Duration) {
         guard viewers > 0 else { return }
         switch result {
         case .failure(let error):
@@ -416,7 +391,7 @@ final class ReviewModel {
         case .success(let listing):
             lastListDuration = elapsed
             Log.review.info("Listed \(listing.files.count) files in \(String(describing: elapsed), privacy: .public)")
-            let previousSelection = selectedFile
+            let previous = Dictionary(files.map { ($0.path, $0) }, uniquingKeysWith: { first, _ in first })
             listGeneration += 1
             loadTokens = [:]
             repositoryRoot = listing.root
@@ -435,18 +410,34 @@ final class ReviewModel {
             if !(compared && listing.changedTreeUnchanged) { changedTree = listing.changedTree }
             liftedCaps.formIntersection(listing.files.map(\.path))
             phase = .loaded
-            // A file's lines can change without its counts changing, so every
-            // other cached diff is stale. The selected one reloads in place
+            // A loaded diff keeps showing until its reload lands, and reloads
             // only if this relist could have changed it.
-            contents = contents.filter { $0.key == selectedPath }
-            if let selectedPath, let selected = files.first(where: { $0.path == selectedPath }) {
-                let touched = ([selected.path] + [selected.oldPath].compactMap { $0 }).contains(where: reload.touched.contains)
-                let isCurrent = contents[selectedPath]?.isLoaded == true
-                if reload.forced || touched || selected != previousSelection || !isCurrent {
-                    loadContent(for: selectedPath, reloading: true)
-                }
-            } else {
+            let listed = Dictionary(files.map { ($0.path, $0) }, uniquingKeysWith: { first, _ in first })
+            contents = contents.filter { listed[$0.key] != nil }
+            staleContents.formIntersection(contents.keys)
+            for path in contents.keys {
+                guard let file = listed[path] else { continue }
+                let touched = ([file.path] + [file.oldPath].compactMap { $0 }).contains(where: reload.touched.contains)
+                if reload.forced || touched || file != previous[path] { staleContents.insert(path) }
+            }
+            if selectedPath.flatMap({ listed[$0] }) == nil {
                 selectedPath = files.first?.path
+            }
+            loadWanted()
+        }
+    }
+
+    /// Wanted files load a few at a time, nearest first.
+    private static let maxConcurrentLoads = 4
+
+    private func loadWanted() {
+        for path in wantedPaths where loadTokens.count < Self.maxConcurrentLoads {
+            guard loadTokens[path] == nil else { continue }
+            switch contents[path] {
+            case nil, .failed: loadContent(for: path)
+            // A relist dropped its load.
+            case .loading: loadContent(for: path, reloading: true)
+            case .loaded: if staleContents.contains(path) { loadContent(for: path, reloading: true) }
             }
         }
     }
@@ -458,7 +449,7 @@ final class ReviewModel {
             if liftedCaps.contains(path), loadTokens[path] != nil { return }
             liftedCaps.insert(path)
         }
-        guard let range, let palette, let file = files.first(where: { $0.path == path }) else { return }
+        guard let range, let file = files.first(where: { $0.path == path }) else { return }
         let isCached = switch contents[path] {
         case .loading, .loaded: true
         case .failed, nil: false
@@ -470,29 +461,29 @@ final class ReviewModel {
         loadTokens[path] = token
         if liftingCap || !isCached { contents[path] = .loading }
         let lineCap = liftedCaps.contains(path) ? nil : GitDiffEngine.defaultLineCap
-        let language = (path as NSString).pathExtension
         Task {
             let signpost = Log.reviewSignposter.beginInterval("ReviewFile")
             let started = ContinuousClock.now
             let result = await Task.detached(priority: .userInitiated) {
-                Result { () throws -> (DiffFileContent, [ReviewDiffRow], Int) in
-                    let content = try GitDiffEngine.content(for: file, in: range, lineCap: lineCap)
-                    let rows = ReviewDiffRow.rows(for: content, language: language, palette: palette)
-                    return (content, rows, ReviewDiffRow.columns(of: rows))
+                Result { () throws -> ReviewFileBody in
+                    ReviewDocument.body(for: try GitDiffEngine.content(for: file, in: range, lineCap: lineCap), path: path)
                 }
             }.value
             let elapsed = ContinuousClock.now - started
             Log.reviewSignposter.endInterval("ReviewFile", signpost)
             guard loadTokens[path] == token, generation == listGeneration else { return }
             loadTokens[path] = nil
+            staleContents.remove(path)
             switch result {
-            case .success(let (content, rows, columns)):
+            case .success(let body):
                 lastContentDuration = elapsed
-                Log.review.info("Loaded \(rows.count) rows of \(path, privacy: .public) in \(String(describing: elapsed), privacy: .public)")
-                contents[path] = .loaded(content, rows: rows, columns: columns)
+                Log.review.info("Loaded \(path, privacy: .public) in \(String(describing: elapsed), privacy: .public)")
+                nextContentVersion += 1
+                contents[path] = .loaded(body, version: nextContentVersion)
             case .failure(let error):
                 contents[path] = .failed(error.localizedDescription)
             }
+            loadWanted()
         }
     }
 }

@@ -576,4 +576,6 @@ enum AccessibilityID {
     static let reviewCommentDeleteButton = "review-comment-delete-button"
     static let reviewCommentField = "review-comment-field"
     static let reviewDiffGutter = "review-diff-gutter"
+    static let reviewFileHeader = "review-file-header"
+    static let reviewFileListToggle = "review-file-list-toggle"
 }

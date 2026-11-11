@@ -18,7 +18,7 @@ enum ReviewNavigation {
     static func open(path: String, in task: WorkTask, context: ModelContext) {
         ReviewPaneVisibility.shared.isShown = false
         if let directory = task.workingDirectoryPath {
-            ReviewStore.shared.model(for: directory).selectedPath = path
+            ReviewStore.shared.model(for: directory).reveal(path)
         }
         if let tab = task.orderedTabs.first(where: { $0.kind == .review }) {
             TaskStore.selectTab(tab, in: task)
