@@ -49,19 +49,19 @@ final class UpdateController: NSObject {
         set {
             guard newValue != AppSettings.shared.updateChannel else { return }
             AppSettings.shared.updateChannel = newValue
-            // The row may show an update the other feed doesn't carry, so
-            // recheck against the new feed even with automatic checks off.
-            pendingFeedRecheck = true
-            runPendingFeedRecheck()
+            // The row may show a beta the new channel doesn't allow, so
+            // recheck even with automatic checks off.
+            pendingChannelRecheck = true
+            runPendingChannelRecheck()
         }
     }
 
-    @ObservationIgnored private var pendingFeedRecheck = false
+    @ObservationIgnored private var pendingChannelRecheck = false
 
-    private func runPendingFeedRecheck() {
-        guard pendingFeedRecheck, isRunning else { return }
+    private func runPendingChannelRecheck() {
+        guard pendingChannelRecheck, isRunning else { return }
         if checkInBackground() {
-            pendingFeedRecheck = false
+            pendingChannelRecheck = false
             availableUpdate = nil
         }
     }
@@ -84,7 +84,7 @@ final class UpdateController: NSObject {
             .publisher(for: \.canCheckForUpdates)
             .sink { [weak self] in
                 self?.canCheckForUpdates = $0
-                self?.runPendingFeedRecheck()
+                self?.runPendingChannelRecheck()
             }
             .store(in: &cancellables)
     }
@@ -224,7 +224,11 @@ extension UpdateController {
 
 extension UpdateController: SPUUpdaterDelegate {
     func feedURLString(for updater: SPUUpdater) -> String? {
-        UpdateFeed.urlString(override: feedURLOverride, channel: updateChannel)
+        feedURLOverride
+    }
+
+    func allowedChannels(for updater: SPUUpdater) -> Set<String> {
+        updateChannel.sparkleChannels
     }
 
     func updater(_ updater: SPUUpdater, didFindValidUpdate item: SUAppcastItem) {
@@ -254,22 +258,6 @@ extension UpdateController: SPUUpdaterDelegate {
         if error == nil || foundNoUpdate {
             lastUpdateCheckDate = .now
         }
-    }
-}
-
-/// Which appcast Sparkle reads. Nil means the Info.plist `SUFeedURL`, the
-/// stable feed.
-enum UpdateFeed {
-    /// A fixed prerelease, so GitHub never marks it `latest` and the stable
-    /// feed never sees it. It carries the newest beta and the newest stable
-    /// release, and Sparkle offers whichever build is higher.
-    static let betaURLString = "https://github.com/ryanmoelter/plume/releases/download/beta-feed/appcast.xml"
-
-    static func urlString(override: String?, channel: UpdateChannel) -> String? {
-        if let override, !override.isEmpty {
-            return override
-        }
-        return channel == .beta ? betaURLString : nil
     }
 }
 

@@ -41,7 +41,7 @@
     <key>SUEnableAutomaticChecks</key>
     <false/>
     <key>SUFeedURL</key>
-    <string>https://github.com/ryanmoelter/plume/releases/latest/download/appcast.xml</string>
+    <string>https://plumeformac.com/appcast.xml</string>
     <key>SUPublicEDKey</key>
     <string>qCYsGkswzFHTl66oPl+dPgbuvBaMw38MlmdFtPpl0O0=</string>
 </dict>

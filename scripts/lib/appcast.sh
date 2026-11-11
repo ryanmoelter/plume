@@ -1,19 +1,47 @@
-# Reads and merges the appcasts package-release.sh writes: one <item> per
-# release, each tag alone on its own line. Sourced by package-release.sh.
+# Writes and reads Plume's appcast: one file holding stable and beta items,
+# each tag alone on its own line. A beta item carries
+# <sparkle:channel>beta</sparkle:channel>; a stable item carries no channel.
+# Sourced by package-release.sh and scripts/test-appcast.sh.
 #
 # Release notes sit in a CDATA section that opens at the end of the
 # <description> line and closes on a line that is exactly
-# "]]></description>". cdata_escape rewrites every "]]>" in the notes, so no
-# notes line can equal that closing line. Lines between the two are notes,
-# never structure, however much they look like tags.
+# "]]></description>". appcast_cdata_escape rewrites every "]]>" in the notes,
+# so no notes line can equal that closing line. Lines between the two are
+# notes, never structure, however much they look like tags.
 _APPCAST_AWK_NOTES='
   { structural = !in_notes }
   structural && /^[ \t]*<description[^>]*><!\[CDATA\[$/ { in_notes = 1 }
   in_notes && /^\]\]><\/description>$/ { in_notes = 0 }
 '
 
+APPCAST_BETA_CHANNEL="beta"
+
+# SUFeedURL is the one place the feed's URL lives; the scripts read it here.
+APPCAST_INFO_PLIST="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)/Configuration/Info.plist"
+APPCAST_PLACEHOLDER_HOST="plume-feed.invalid"
+
+appcast_feed_url() {
+  /usr/libexec/PlistBuddy -c 'Print :SUFeedURL' "$APPCAST_INFO_PLIST" 2>/dev/null
+}
+
+appcast_feed_url_is_placeholder() {
+  case "$1" in
+    *"://$APPCAST_PLACEHOLDER_HOST/"*) return 0 ;;
+    *) return 1 ;;
+  esac
+}
+
+# A "]]>" inside release notes would close the CDATA section early, so split
+# any occurrence across two sections — the standard CDATA-escaping trick.
+appcast_cdata_escape() { sed 's/]]>/]]]]><![CDATA[>/g'; }
+
+appcast_xml_escape() {
+  sed -e 's/&/\&amp;/g' -e 's/</\&lt;/g' -e 's/>/\&gt;/g' -e 's/"/\&quot;/g'
+}
+
 # appcast_newest_version <appcast>: prints the highest sparkle:version in
-# <appcast>, or nothing when it has none or the file is missing.
+# <appcast> across every channel, or nothing when it has none or the file is
+# missing.
 appcast_newest_version() {
   [ -s "$1" ] || return 0
   awk "$_APPCAST_AWK_NOTES"'
@@ -23,59 +51,73 @@ appcast_newest_version() {
   ' "$1" | sort -n | tail -1
 }
 
-# appcast_newest_item <appcast> [<above>]: prints the <item> block with the
-# highest sparkle:version, or nothing unless that version is above <above>.
-appcast_newest_item() {
-  [ -s "$1" ] || return 0
-  awk -v above="${2:-0}" "$_APPCAST_AWK_NOTES"'
-    structural && /^[ \t]*<item>[ \t]*$/ { in_item = 1; buf = ""; version = "" }
+# appcast_item <channel> <title> <pub-date> <version> <short-version>
+#   <minimum-system-version> <notes-link> <notes-file> <enclosure-url>
+#   <ed-signature> <length>
+# Prints one <item>. An empty <channel> posts it to the default channel.
+# The notes go in as plain CDATA, not XML-escaped, so the markdown reaches
+# Sparkle unchanged.
+appcast_item() {
+  local channel="$1" title="$2" pub_date="$3" version="$4" short_version="$5" \
+    min_system="$6" notes_link="$7" notes_file="$8" enclosure_url="$9" \
+    signature="${10}" length="${11}"
+  printf '    <item>\n'
+  printf '      <title>%s</title>\n' "$(appcast_xml_escape <<<"$title")"
+  printf '      <pubDate>%s</pubDate>\n' "$pub_date"
+  [ -z "$channel" ] || printf '      <sparkle:channel>%s</sparkle:channel>\n' "$channel"
+  printf '      <sparkle:version>%s</sparkle:version>\n' "$version"
+  printf '      <sparkle:shortVersionString>%s</sparkle:shortVersionString>\n' "$short_version"
+  printf '      <sparkle:minimumSystemVersion>%s</sparkle:minimumSystemVersion>\n' "$min_system"
+  printf '      <sparkle:fullReleaseNotesLink>%s</sparkle:fullReleaseNotesLink>\n' \
+    "$(appcast_xml_escape <<<"$notes_link")"
+  printf '      <description sparkle:format="markdown"><![CDATA[\n'
+  appcast_cdata_escape <"$notes_file"
+  printf '\n]]></description>\n'
+  printf '      <enclosure url="%s" sparkle:edSignature="%s" length="%s" type="application/octet-stream" />\n' \
+    "$(appcast_xml_escape <<<"$enclosure_url")" "$signature" "$length"
+  printf '    </item>\n'
+}
+
+# appcast_compose <new-item> [<published>]: prints a whole appcast holding
+# the item in <new-item> and the items of the <published> appcast, trimmed to
+# the newest stable item and the newest beta item above it, newest first.
+#
+# Sparkle offers the highest sparkle:version among the channels an install
+# allows, so an older item of either channel is never chosen, and a beta at or
+# below the newest stable is chosen by no one. Of two items with the same
+# sparkle:version, <new-item>'s wins.
+appcast_compose() {
+  local new_item="$1" published="${2:-/dev/null}"
+  [ -e "$published" ] || published=/dev/null
+  awk -v beta="$APPCAST_BETA_CHANNEL" "$_APPCAST_AWK_NOTES"'
+    structural && /^[ \t]*<item>[ \t]*$/ { in_item = 1; buf = ""; version = ""; channel = "" }
     in_item { buf = buf $0 "\n" }
     in_item && structural && /^[ \t]*<sparkle:version>[0-9]+<\/sparkle:version>[ \t]*$/ {
       version = $0; gsub(/[^0-9]/, "", version)
     }
+    in_item && structural && /^[ \t]*<sparkle:channel>[^<]*<\/sparkle:channel>[ \t]*$/ {
+      channel = $0
+      sub(/^[ \t]*<sparkle:channel>/, "", channel); sub(/<\/sparkle:channel>[ \t]*$/, "", channel)
+    }
     in_item && structural && /^[ \t]*<\/item>[ \t]*$/ {
       in_item = 0
-      if (version + 0 > above + 0 && version + 0 > best + 0) { best = version; newest = buf }
+      if (version == "") next
+      if (channel == "") {
+        if (stable_buf == "" || version + 0 > stable + 0) { stable = version; stable_buf = buf }
+      } else if (channel == beta) {
+        if (beta_buf == "" || version + 0 > beta_version + 0) { beta_version = version; beta_buf = buf }
+      }
     }
-    END { printf "%s", newest }
-  ' "$1"
-}
-
-# appcast_newest_short_version <appcast>: prints the sparkle:shortVersionString
-# of the item with the highest sparkle:version, or nothing.
-appcast_newest_short_version() {
-  appcast_newest_item "$1" | awk "$_APPCAST_AWK_NOTES"'
-    structural && /^[ \t]*<sparkle:shortVersionString>[^<]*<\/sparkle:shortVersionString>[ \t]*$/ {
-      sub(/^[ \t]*<sparkle:shortVersionString>/, ""); sub(/<\/sparkle:shortVersionString>[ \t]*$/, "")
-      print; exit
+    END {
+      if (beta_buf != "" && stable_buf != "" && beta_version + 0 <= stable + 0) beta_buf = ""
+      print "<?xml version=\"1.0\" encoding=\"utf-8\"?>"
+      print "<rss version=\"2.0\" xmlns:sparkle=\"http://www.andymatuschak.org/xml-namespaces/sparkle\">"
+      print "  <channel>"
+      print "    <title>Plume</title>"
+      if (beta_buf != "") printf "%s", beta_buf
+      if (stable_buf != "") printf "%s", stable_buf
+      print "  </channel>"
+      print "</rss>"
     }
-  '
-}
-
-# marketing_version_greater <a> <b>: succeeds when <a>'s numeric part is
-# higher than <b>'s. A prerelease suffix is ignored, so 0.20.0-beta.1 > 0.19.1
-# and 0.20.0-beta.1 is not greater than 0.20.0.
-marketing_version_greater() {
-  awk -v a="${1%%-*}" -v b="${2%%-*}" 'BEGIN {
-    na = split(a, x, "."); nb = split(b, y, ".")
-    n = na > nb ? na : nb
-    for (i = 1; i <= n; i++) {
-      if (x[i] + 0 > y[i] + 0) exit 0
-      if (x[i] + 0 < y[i] + 0) exit 1
-    }
-    exit 1
-  }'
-}
-
-# appcast_merge <appcast> <other> [<above>]: prints <appcast> with <other>'s
-# newest item added after its own, when that item is above <above>.
-appcast_merge() {
-  local appcast="$1" other="$2" above="${3:-0}" extra
-  extra="$(mktemp)"
-  appcast_newest_item "$other" "$above" >"$extra"
-  awk -v extra="$extra" "$_APPCAST_AWK_NOTES"'
-    structural && /^[ \t]*<\/channel>[ \t]*$/ { while ((getline line < extra) > 0) print line }
-    { print }
-  ' "$appcast"
-  rm -f "$extra"
+  ' "$new_item" "$published"
 }
