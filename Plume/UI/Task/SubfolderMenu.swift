@@ -13,15 +13,12 @@ struct SubfolderMenuItems: View {
     let chooseFolder: (String) -> Void
 
     var body: some View {
+        Button("Choose Folder…", action: runPanel)
+        Divider()
         Button(ProjectSubfolder.rootTitle) { choose(nil) }
-        if !choices.isEmpty {
-            Divider()
-        }
         ForEach(choices, id: \.self) { name in
             Button(name) { choose(name) }
         }
-        Divider()
-        Button("Choose Folder…", action: runPanel)
     }
 
     private func runPanel() {
