@@ -137,8 +137,7 @@ struct AgentProcessCloseOnExecTests {
     }
 
     @Test func marksBothEndsOfAPipe() {
-        let pipe = Pipe()
-        AgentProcess.closeOnExec(pipe)
+        let pipe = Pipe.closeOnExec()
         for descriptor in [pipe.fileHandleForReading.fileDescriptor, pipe.fileHandleForWriting.fileDescriptor] {
             #expect(fcntl(descriptor, F_GETFD) & FD_CLOEXEC != 0)
         }

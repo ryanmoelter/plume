@@ -83,8 +83,8 @@ nonisolated enum GHCommand {
         process.arguments = ["-mc", LoginShellCommand.wrap("exec " + command)]
         process.currentDirectoryURL = URL(fileURLWithPath: directory)
 
-        let output = Pipe()
-        let error = Pipe()
+        let output = Pipe.closeOnExec()
+        let error = Pipe.closeOnExec()
         process.standardOutput = output
         process.standardError = error
 
