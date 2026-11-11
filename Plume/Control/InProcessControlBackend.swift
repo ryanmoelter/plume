@@ -273,8 +273,8 @@ final class InProcessControlBackend: ControlBackend {
     }
 
     private static func shortcut(from params: KeyParams) throws -> MenuShortcut {
-        guard params.key.count == 1, let key = params.key.first else {
-            throw ControlError.badParams("key must be a single character, got \"\(params.key)\"")
+        guard let key = SyntheticKey.character(named: params.key) ?? (params.key.count == 1 ? params.key.first : nil) else {
+            throw ControlError.badParams("key must be a single character or one of pageup, pagedown, delete, got \"\(params.key)\"")
         }
         var modifiers: EventModifiers = []
         for name in params.modifiers {
