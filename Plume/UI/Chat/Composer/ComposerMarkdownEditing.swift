@@ -8,6 +8,8 @@ import Foundation
 /// | --- | --- | --- |
 /// | Return | non-empty list item | a new item at the same indent, the next number for an ordered list |
 /// | Return | empty list item | one level out, or out of the list at the top level |
+/// | Return | text indented under a list item | continues at the same indent |
+/// | Return | empty line indented under a list item | moves out to that item's indent |
 /// | Return | quote line | continues the quote; an empty one leaves a level, unless it is code |
 /// | Return | code block inside a list item | continues at the block's indent |
 /// | Tab | start of a list item | indents under the item above, to its text column |
@@ -55,6 +57,15 @@ nonisolated enum ComposerMarkdownEditing {
             let continuation = "\n" + quotePrefix(of: line, in: ns) + ns.substring(with: line.indent) + nextMarker(after: line, in: ns)
             let caretAfter = caret + (continuation as NSString).length
             return edit(text, replacing: NSRange(location: caret, length: 0), with: continuation, caret: caretAfter, renumbering: [index + 1])
+        }
+
+        if line.kind == .plain || line.kind == .blank, let owner = owningItem(of: index, in: lines, ns: ns) {
+            if isEmpty {
+                let outdented = ns.substring(with: owner.indent)
+                return edit(text, replacing: line.indent, with: outdented, caret: line.indent.location + (outdented as NSString).length)
+            }
+            let continuation = "\n" + quotePrefix(of: line, in: ns) + ns.substring(with: line.indent)
+            return edit(text, replacing: NSRange(location: caret, length: 0), with: continuation, caret: caret + (continuation as NSString).length)
         }
 
         if line.quoteLevel > 0 {
@@ -435,6 +446,27 @@ nonisolated enum ComposerMarkdownEditing {
                 if line.depth == depth { return line }
                 if line.depth < depth { return nil }
             } else if line.kind != .blank, line.indent.length == 0, line.listContainer == nil {
+                return nil
+            }
+            cursor -= 1
+        }
+        return nil
+    }
+
+    /// The item an indented line continues: the nearest earlier item whose
+    /// text column the line's indent reaches, within the same list.
+    private static func owningItem(of index: Int, in lines: [MarkdownLine], ns: NSString) -> MarkdownLine? {
+        let line = lines[index]
+        let indent = columns(of: line.indent, in: ns)
+        guard indent > 0 else { return nil }
+        var cursor = index - 1
+        while cursor >= 0 {
+            let candidate = lines[cursor]
+            guard candidate.quoteLevel == line.quoteLevel else { return nil }
+            if candidate.isListItem {
+                if columns(of: candidate.indent, in: ns) + markerWidth(of: candidate) <= indent { return candidate }
+            } else if candidate.listContainer == nil, candidate.kind != .blank,
+                      candidate.kind != .plain || candidate.indent.length == 0 {
                 return nil
             }
             cursor -= 1
