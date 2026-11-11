@@ -3,15 +3,19 @@
   <channel>
     <title>Plume</title>
     <item>
-      <title>Plume 0.19.0</title>
-      <pubDate>Wed, 11 Nov 2026 01:25:22 +0000</pubDate>
-      <sparkle:version>39</sparkle:version>
-      <sparkle:shortVersionString>0.19.0</sparkle:shortVersionString>
+      <title>Plume 0.19.1</title>
+      <pubDate>Wed, 11 Nov 2026 10:28:13 +0000</pubDate>
+      <sparkle:version>40</sparkle:version>
+      <sparkle:shortVersionString>0.19.1</sparkle:shortVersionString>
       <sparkle:minimumSystemVersion>26.2</sparkle:minimumSystemVersion>
-      <sparkle:fullReleaseNotesLink>https://github.com/ryanmoelter/plume/releases/tag/v0.19.0</sparkle:fullReleaseNotesLink>
+      <sparkle:fullReleaseNotesLink>https://github.com/ryanmoelter/plume/releases/tag/v0.19.1</sparkle:fullReleaseNotesLink>
       <description sparkle:format="markdown"><![CDATA[
 
-### New
+### Fixed
+
+- Fix Beta updates
+
+### 0.19.0
 
 - Bundle Plume's agent skills, and offer to install them from Home
   - Teach agents to use `plume`, `plume devices`, `plume wt`, and `plume stack`
@@ -55,7 +59,7 @@
 
 
 ]]></description>
-      <enclosure url="https://github.com/ryanmoelter/plume/releases/download/v0.19.0/Plume-0.19.0.dmg" sparkle:edSignature="fEthf8Uo5klSzaHVRK0+txUt6xR/bfeq08P8R4DYjSFd3Lgn0CDOg/3z0UOur/15rC5eJfGUTfAwGbjwZG1PAQ==" length="36007532" type="application/octet-stream" />
+      <enclosure url="https://github.com/ryanmoelter/plume/releases/download/v0.19.1/Plume-0.19.1.dmg" sparkle:edSignature="3yW75rnHghJ6MYm6t/CnW29J3e3JyKpcMjO/GmAQ+NcLUMrlnX4EyeJrWZmwsF8SbutwmTqFexI2CZC1OFZ8DQ==" length="36007420" type="application/octet-stream" />
     </item>
   </channel>
 </rss>
