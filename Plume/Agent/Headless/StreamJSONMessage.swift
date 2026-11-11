@@ -177,6 +177,7 @@ struct ControlRequest {
     /// True for tools that reach the host even when an allow rule matches —
     /// `AskUserQuestion` and `ExitPlanMode`. No allowlist can route past one.
     let requiresUserInteraction: Bool
+    var permissionSuggestions: [PermissionSuggestion] = []
 }
 
 struct ControlResponse {

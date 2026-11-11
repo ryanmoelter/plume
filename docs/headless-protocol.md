@@ -160,6 +160,28 @@ Answer it:
 
 An auto-denial that never reaches the host (a deny rule, `dontAsk` mode, the auto-mode classifier) is reported afterwards in the `result` event's `permission_denials`, which the CLI calls the authoritative record.
 
+### Permission suggestions — `updatedPermissions`
+
+`permission_suggestions` lists the grants the CLI would apply with an allow, the same ones its TUI offers as "Yes, and don't ask again". Measured on **2.1.321** in `default` mode:
+
+| call | suggestion |
+|---|---|
+| `Bash` `npm --version` | `{"type":"addRules","rules":[{"toolName":"Bash","ruleContent":"npm --version"}],"behavior":"allow","destination":"localSettings"}` |
+| `Write` inside the cwd | `{"type":"setMode","mode":"acceptEdits","destination":"session"}` |
+| `Write` to `/tmp/…` | `{"type":"addDirectories","directories":["/tmp","/private/tmp"],"destination":"session"}` |
+
+`destination` is `session`, `localSettings` (`.claude/settings.local.json`), `projectSettings` (`.claude/settings.json`), `userSettings` (`~/.claude/settings.json`) or `cliArg`. The schema also has `replaceRules`, `removeRules` and `removeDirectories`.
+
+Accept one by echoing it unchanged in `updatedPermissions` beside `updatedInput`:
+
+```json
+{"behavior":"allow","updatedInput":{…},"updatedPermissions":[{"type":"addRules", …}]}
+```
+
+Verified: the `localSettings` rule wrote `"Bash(npm --version)"` to `.claude/settings.local.json`, and the same command ran again with no request. The `setMode` turned the next `init`'s `permissionMode` into `acceptEdits`, and a second `Write` ran unasked. The CLI accepted the `addDirectories` grant without error; whether it lists the folders in the next `init` is untested.
+
+**What Plume does with this.** `PermissionSuggestion` decodes `addRules` with `behavior: "allow"`, `setMode` and `addDirectories`, and drops the rest. `suppress_always_allow_rule: true` drops the rules too. Each becomes a button on the permission row that allows the call with that one suggestion. The CLI reports neither a mode nor a folder change until the next `init`, so `HeadlessSession` records both itself: the mode shows in the composer at once, and granted folders join the tab's folder list and `launchAdditionalDirectories`. Without that, a later restart would drop them, because `--resume` restores no directories.
+
 ### Tools that always ask
 
 `requires_user_interaction: true` marks a call that reaches the host **even when an allow rule matches**, so `--allowedTools` cannot route around it. `AskUserQuestion` and `ExitPlanMode` are both in this class.

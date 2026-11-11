@@ -78,6 +78,7 @@ protocol AgentSession: AnyObject, Observable {
     func setEffort(_ newEffort: AgentEffort)
     func resolve(_ permission: PendingPermission, with decision: PermissionDecision)
     func resolve(_ permission: PendingPermission, with option: PermissionDecisionOption)
+    func resolve(_ permission: PendingPermission, accepting suggestion: PermissionSuggestion)
     func approvePlan(_ permission: PendingPermission)
     func approvePlan(_ permission: PendingPermission, feedback: String)
     func answer(_ permission: PendingPermission, answers: [String: String])
@@ -103,5 +104,9 @@ extension AgentSession {
         } else {
             resolve(permission, with: .deny(message: PlanResolution.denialMessage(reason: "")))
         }
+    }
+
+    func resolve(_ permission: PendingPermission, accepting suggestion: PermissionSuggestion) {
+        resolve(permission, with: .allow(updatedInput: permission.input, updatedPermissions: [suggestion.raw]))
     }
 }

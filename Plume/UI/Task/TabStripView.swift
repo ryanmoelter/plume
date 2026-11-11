@@ -158,6 +158,7 @@ private struct TabChip: View {
     @State private var isHovering = false
     @State private var isConfirmingStartFresh = false
     @State private var isConfirmingTransportSwitch = false
+    @State private var isConfirmingRefresh = false
     @State private var isConfirmingEmulatorShutDown = false
     @State private var isConfirmingEndReservation = false
 
@@ -267,6 +268,9 @@ private struct TabChip: View {
                 Button(AgentTabMenu.transportSwitchLabel(for: tab.transport, provider: tab.provider)) {
                     isConfirmingTransportSwitch = true
                 }
+                if offersRefresh {
+                    Button(AgentTabMenu.refreshLabel, action: requestRefresh)
+                }
                 if let sessionID = tab.agentSessionID, !sessionID.isEmpty {
                     Button("Start Fresh Conversation") { isConfirmingStartFresh = true }
                 }
@@ -310,6 +314,30 @@ private struct TabChip: View {
         } message: {
             Text("This discards \(AppIdentity.displayName)'s link to the previous conversation. The transcript stays on disk, but \(AppIdentity.displayName) won't be able to resume it.")
         }
+        .plumeMenuItem(
+            AccessibilityID.refreshConversationMenuItem,
+            label: chipTitle,
+            isPresent: offersRefresh,
+            invoke: requestRefresh
+        )
+        // The dialog's buttons live in a sheet the control server cannot
+        // reach, so these stand in for them while it is up.
+        .plumeMenuItem(AccessibilityID.refreshConversationConfirm, label: chipTitle, isPresent: isConfirmingRefresh) {
+            isConfirmingRefresh = false
+            AgentLauncher.refresh(task: task, tab: tab)
+        }
+        .plumeMenuItem(AccessibilityID.refreshConversationCancel, label: chipTitle, isPresent: isConfirmingRefresh) {
+            isConfirmingRefresh = false
+        }
+        .confirmationDialog(
+            "Refresh this conversation?",
+            isPresented: $isConfirmingRefresh
+        ) {
+            Button("Refresh", role: .destructive) { AgentLauncher.refresh(task: task, tab: tab) }
+            Button("Cancel", role: .cancel) {}
+        } message: {
+            Text("The agent is still working. Refreshing ends its process, which stops that work, and starts it again on the same conversation.")
+        }
         .confirmationDialog(
             "Switch how this agent runs?",
             isPresented: $isConfirmingTransportSwitch
@@ -318,6 +346,28 @@ private struct TabChip: View {
             Button("Cancel", role: .cancel) {}
         } message: {
             Text("This ends the running agent and starts it again on the other transport. \(AppIdentity.displayName) will resume the same conversation if it can.")
+        }
+    }
+
+    private var offersRefresh: Bool {
+        tab.kind == .agent && AgentTabMenu.offersRefresh(
+            provider: tab.provider,
+            transport: tab.transport,
+            hasConversation: !(tab.agentSessionID ?? "").isEmpty
+        )
+    }
+
+    private func requestRefresh() {
+        let session = AgentSessionManager.shared.existingSession(for: tab.id)
+        let interrupts = AgentTabMenu.refreshInterruptsWork(
+            status: StatusEngine.shared.status(forTab: tab.id),
+            backgroundTaskCount: BackgroundTaskTracker.shared.inFlight(tabID: tab.id).count,
+            sessionIsBusy: (session as? HeadlessSession).map { !$0.hasExited && $0.isBusy } ?? (session?.isWorking ?? false)
+        )
+        if interrupts {
+            isConfirmingRefresh = true
+        } else {
+            AgentLauncher.refresh(task: task, tab: tab)
         }
     }
 

@@ -18,6 +18,8 @@ struct PendingPermission: Identifiable, Equatable {
     /// Empty for Claude, whose control protocol always exposes Allow/Deny.
     /// Codex supplies the exact closed decision vocabulary per request.
     var decisions: [PermissionDecisionOption] = []
+    /// Claude's "always allow" offers, each accepted on its own with an allow.
+    var suggestions: [PermissionSuggestion] = []
 
     static func == (lhs: PendingPermission, rhs: PendingPermission) -> Bool { lhs.id == rhs.id }
 }
@@ -77,6 +79,9 @@ final class HeadlessSession: AgentSession {
     /// tab adopts as its own. The process already reaches them, so they join
     /// `launchAdditionalDirectories` too and need no restart.
     @ObservationIgnored var onAdoptDirectories: (([String]) -> Void)?
+    /// Handed the folders an accepted `addDirectories` suggestion granted.
+    /// They join `launchAdditionalDirectories` too, so they take no restart.
+    @ObservationIgnored var onGrantDirectories: (([String]) -> Void)?
     /// True while a restart waits for the session to go idle, and after one
     /// failed to launch, until a later idle moment retries it.
     private(set) var isRestartPending = false
@@ -950,6 +955,24 @@ final class HeadlessSession: AgentSession {
         reportPendingPermissions()
     }
 
+    /// Allows the call and applies `suggestion`. The CLI applies a mode or
+    /// folder grant without reporting it until the next `init`, so the
+    /// session records both here: the composer shows the new mode at once,
+    /// and a granted folder joins the tab's list so a restart keeps it.
+    func resolve(_ permission: PendingPermission, accepting suggestion: PermissionSuggestion) {
+        resolve(permission, with: .allow(updatedInput: permission.input, updatedPermissions: [suggestion.raw]))
+        switch suggestion.kind {
+        case .setMode(let token):
+            guard let mode = PermissionMode.recognizing(token) else { return }
+            permissionMode = mode
+            permissionModeRequests.confirm(mode)
+        case .addDirectories(let directories):
+            grantDirectories(directories)
+        case .allowRules:
+            break
+        }
+    }
+
     /// Approves an `ExitPlanMode` call. Allowing the call only answers the
     /// tool; the CLI has no field on that response for changing mode
     /// (`docs/headless-protocol.md`), so leaving plan mode takes the separate
@@ -1106,7 +1129,8 @@ final class HeadlessSession: AgentSession {
             decisionReason: request.decisionReason,
             toolUseID: request.toolUseID,
             agentID: request.agentID,
-            interactive: InteractiveToolPayload.decoding(name: name, input: request.input)
+            interactive: InteractiveToolPayload.decoding(name: name, input: request.input),
+            suggestions: request.permissionSuggestions
         ))
         reportPendingPermissions()
     }
@@ -1320,6 +1344,25 @@ final class HeadlessSession: AgentSession {
         guard !adopted.isEmpty else { return }
         launchAdditionalDirectories += adopted
         onAdoptDirectories?(adopted)
+    }
+
+    /// Unlike an adoption, a grant is the user's own choice, so it reaches
+    /// folders they once removed from the tab.
+    private func grantDirectories(_ paths: [String]) {
+        let known = Set(
+            (launchAdditionalDirectories + [launchDirectory].compactMap { $0 })
+                .compactMap { AdditionalDirectories.normalized($0) }
+        )
+        var granted: [String] = []
+        for path in paths {
+            guard let normalized = AdditionalDirectories.normalized(path),
+                  !known.contains(normalized), !granted.contains(normalized)
+            else { continue }
+            granted.append(normalized)
+        }
+        guard !granted.isEmpty else { return }
+        launchAdditionalDirectories += granted
+        onGrantDirectories?(granted)
     }
 
     /// Puts messages back in the queue without sending them, for a restart
