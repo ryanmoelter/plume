@@ -169,6 +169,7 @@ private struct ReviewFileList: View, ThemedView {
                     }
                 }
                 Spacer(minLength: 4)
+                ReviewChangeMagnitudeView(file: file)
                 ReviewLineCounts(file: file)
             }
             .padding(.horizontal, 8)
@@ -271,7 +272,11 @@ private struct ReviewDiffPane: View, ThemedView {
                 case .failed(let error):
                     message(error)
                 case .loaded(let content, let rows, let columns):
-                    loaded(content, rows: rows, columns: columns, file: file)
+                    VStack(spacing: 0) {
+                        header(file)
+                        Divider()
+                        loaded(content, rows: rows, columns: columns, file: file)
+                    }
                 }
             } else {
                 message(model.files.isEmpty ? "" : "Select a file")
@@ -306,6 +311,20 @@ private struct ReviewDiffPane: View, ThemedView {
                     })
             }
         }
+    }
+
+    private func header(_ file: DiffFileSummary) -> some View {
+        HStack(spacing: 8) {
+            Text(file.oldPath.map { "\($0) → \(file.path)" } ?? file.path)
+                .font(typography.caption.mono)
+                .lineLimit(1)
+                .truncationMode(.head)
+            Spacer(minLength: 4)
+            ReviewChangeMagnitudeView(file: file)
+            ReviewLineCounts(file: file)
+        }
+        .padding(.horizontal, 12)
+        .padding(.vertical, 6)
     }
 
     private func message(_ text: String) -> some View {

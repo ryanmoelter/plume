@@ -84,8 +84,9 @@ private struct ReviewDetailPaneContent: View, ThemedView {
             Divider()
             ScrollView {
                 LazyVStack(alignment: .leading, spacing: 0) {
+                    let summaries = Dictionary(model.files.map { ($0.path, $0) }, uniquingKeysWith: { first, _ in first })
                     ForEach(rows) { row in
-                        self.row(row)
+                        self.row(row, summary: summaries[row.node.path])
                     }
                 }
                 .padding(.vertical, 4)
@@ -107,7 +108,7 @@ private struct ReviewDetailPaneContent: View, ThemedView {
         }
     }
 
-    private func row(_ row: ReviewFileTree.Row) -> some View {
+    private func row(_ row: ReviewFileTree.Row, summary: DiffFileSummary?) -> some View {
         let node = row.node
         let change = tree.changes[node.path]
         let changedBelow = tree.changedDescendants[node.path]
@@ -129,6 +130,7 @@ private struct ReviewDetailPaneContent: View, ThemedView {
                     .foregroundStyle(change.map { ReviewChangeBadge.color(for: $0, in: colors) } ?? (changedBelow != nil ? colors.foreground : colors.foreground.opacity(0.6)))
                 Spacer(minLength: 4)
                 if let change {
+                    if let summary { ReviewChangeMagnitudeView(file: summary) }
                     ReviewChangeBadge(kind: change)
                 } else if let changedBelow {
                     Text("\(changedBelow)")
