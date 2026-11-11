@@ -70,13 +70,13 @@ private struct SentFileImage: View, ThemedView {
                 Image(nsImage: image)
                     .resizable()
                     .scaledToFit()
-                    .frame(maxWidth: .infinity, maxHeight: maxHeight, alignment: .topLeading)
                     .clipShape(.rect(cornerRadius: 8))
                     .overlay {
                         RoundedRectangle(cornerRadius: 8)
                             .strokeBorder(colors.divider, lineWidth: 1)
                     }
                     .contentShape(.rect)
+                    .frame(maxWidth: .infinity, maxHeight: maxHeight, alignment: .topLeading)
                     .onTapGesture { SentFileActions.open(file) }
                     .help("Open \(file.lastPathComponent)")
                     .contextMenu { SentFileActions.menu(for: file) }
@@ -140,13 +140,13 @@ private struct SentFileCard: View, ThemedView {
                 .contentShape(.rect)
             }
             .buttonStyle(.plain)
-            .disabled(isMissing)
             .plumeID(
                 AccessibilityID.sentFileCard,
                 label: file.lastPathComponent,
                 value: file.path,
                 invoke: { SentFileActions.open(file) }
             )
+            .disabled(isMissing)
 
             Button { SentFileActions.reveal(file) } label: {
                 Image(systemName: "folder")
@@ -154,12 +154,12 @@ private struct SentFileCard: View, ThemedView {
             }
             .buttonStyle(.plain)
             .help("Show in Finder")
-            .disabled(isMissing)
             .plumeID(
                 AccessibilityID.sentFileReveal,
                 label: file.lastPathComponent,
                 invoke: { SentFileActions.reveal(file) }
             )
+            .disabled(isMissing)
         }
         .padding(.horizontal, 12)
         .padding(.vertical, 8)
