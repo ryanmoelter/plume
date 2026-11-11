@@ -9,16 +9,44 @@ struct AndroidDeviceView: View, ThemedView {
     @State private var confirmingShutDown = false
     @State private var confirmingEndReservation = false
 
+    /// A live reservation's identity row and buttons need the width of a top bar.
+    private func placement(for size: CGSize) -> DeviceToolbarPlacement {
+        guard !session.hasLiveReservation else { return .top }
+        return DeviceToolbarPlacement.choose(
+            tabSize: size,
+            deviceAspect: DeviceToolbarPlacement.aspect(of: session.deviceSize, rotation: session.rotation)
+        )
+    }
+
+    private var viewport: some View {
+        ZStack {
+            (ThemeChrome.background(for: colorScheme) ?? Color(nsColor: .windowBackgroundColor))
+            DeviceSurface(session: session, background: ThemeChrome.background(for: colorScheme))
+                .plumeID(AccessibilityID.deviceSurface, value: stateDescription)
+            overlay
+        }
+    }
+
     var body: some View {
-        VStack(spacing: 0) {
-            toolbar
-            Divider()
-            ZStack {
-                (ThemeChrome.background(for: colorScheme) ?? Color(nsColor: .windowBackgroundColor))
-                DeviceSurface(session: session, background: ThemeChrome.background(for: colorScheme))
-                    .plumeID(AccessibilityID.deviceSurface, value: stateDescription)
-                overlay
+        GeometryReader { proxy in
+            let placement = placement(for: proxy.size)
+            Group {
+                switch placement {
+                case .top:
+                    VStack(spacing: 0) {
+                        toolbar
+                        Divider()
+                        viewport
+                    }
+                case .leading:
+                    HStack(spacing: 0) {
+                        sideToolbar
+                        Divider()
+                        viewport
+                    }
+                }
             }
+            .plumeID(AccessibilityID.deviceToolbarPlacement, value: placement == .top ? "top" : "leading")
         }
         .confirmationDialog(
             "Shut down \(session.displayName ?? "this emulator")?",
@@ -59,7 +87,7 @@ struct AndroidDeviceView: View, ThemedView {
             HStack(spacing: 2) {
                 identity
                 Spacer(minLength: 8)
-                controls
+                controls(vertical: false)
             }
             VStack(spacing: 2) {
                 HStack(spacing: 2) {
@@ -68,10 +96,19 @@ struct AndroidDeviceView: View, ThemedView {
                 }
                 HStack(spacing: 2) {
                     Spacer(minLength: 8)
-                    controls
+                    controls(vertical: false)
                 }
             }
         }
+        .padding(.vertical, 4)
+    }
+
+    private var sideToolbar: some View {
+        VStack(spacing: 2) {
+            controls(vertical: true)
+            Spacer(minLength: 0)
+        }
+        .frame(width: DeviceToolbarPlacement.leadingThickness)
         .padding(.vertical, 4)
     }
 
@@ -87,24 +124,25 @@ struct AndroidDeviceView: View, ThemedView {
         }
     }
 
-    private var controls: some View {
-        HStack(spacing: 2) {
+    private func controls(vertical: Bool) -> some View {
+        let axis = vertical ? AnyLayout(VStackLayout(spacing: 2)) : AnyLayout(HStackLayout(spacing: 2))
+        return axis {
             Group {
                 button("arrow.uturn.backward", "Back", AccessibilityID.deviceBackButton) { session.press(.back) }
                 button("circle", "Home", AccessibilityID.deviceHomeButton) { session.press(.home) }
                 button("square.on.square", "Overview", AccessibilityID.deviceOverviewButton) { session.press(.overview) }
-                Divider().frame(height: 14).padding(.horizontal, 4)
+                separator(vertical: vertical)
                 // A phone's orientation follows its own sensor and auto-rotate setting, but nobody
                 // can turn a lab device. scrcpy's rotate only toggles, so it has no direction.
                 if session.isRemote {
                     button("rotate.right", "Rotate", AccessibilityID.deviceRotateButton) { session.rotate(clockwise: true) }
-                    Divider().frame(height: 14).padding(.horizontal, 4)
+                    separator(vertical: vertical)
                 } else if !session.isPhysical {
                     button("rotate.left", "Rotate Left", AccessibilityID.deviceRotateLeftButton) { session.rotate(clockwise: false) }
                     button("rotate.right", "Rotate Right", AccessibilityID.deviceRotateRightButton) { session.rotate(clockwise: true) }
-                    Divider().frame(height: 14).padding(.horizontal, 4)
+                    separator(vertical: vertical)
                 }
-                DeviceFoldControls(session: session)
+                DeviceFoldControls(session: session, vertical: vertical)
                 button("speaker.minus", "Volume Down", AccessibilityID.deviceVolumeDownButton) { session.press(.volumeDown) }
                 button("speaker.plus", "Volume Up", AccessibilityID.deviceVolumeUpButton) { session.press(.volumeUp) }
                 button("power", "Power", AccessibilityID.devicePowerButton) { session.press(.power) }
@@ -159,6 +197,15 @@ struct AndroidDeviceView: View, ThemedView {
                 isPresent: !session.isPhysical,
                 isEnabled: session.canShutDownEmulator
             ) { confirmingShutDown = true }
+        }
+    }
+
+    @ViewBuilder
+    private func separator(vertical: Bool) -> some View {
+        if vertical {
+            Divider().frame(width: 14).padding(.vertical, 4)
+        } else {
+            Divider().frame(height: 14).padding(.horizontal, 4)
         }
     }
 

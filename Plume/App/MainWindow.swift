@@ -105,6 +105,11 @@ struct MainWindow: View {
         .onChange(of: tasks.map(\.id)) { _, ids in
             if let id = selection?.taskID, !ids.contains(id) { selection = .home }
         }
+        .onChange(of: selection) { old, new in
+            for id in [old?.taskID, new?.taskID].compactMap({ $0 }) {
+                tasks.first { $0.id == id }?.lastOpenedAt = Date()
+            }
+        }
         .clearsUnreadOnView(of: selectedTask)
         .onChange(of: Notifier.shared.pendingRoute) { _, route in
             guard let route else { return }

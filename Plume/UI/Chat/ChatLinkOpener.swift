@@ -86,7 +86,8 @@ enum ChatLinkOpener {
     @MainActor
     static func open(_ target: Target) {
         switch target {
-        case .web(let url):
+        case .web(let rawURL):
+            let url = AppSettings.shared.pullRequestDestination.openingURL(for: rawURL)
             Task.detached(priority: .userInitiated) {
                 NSWorkspace.shared.open(url)
             }
