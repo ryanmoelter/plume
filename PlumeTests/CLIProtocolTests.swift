@@ -21,6 +21,8 @@ struct CLIProtocolTests {
         .reserveDevice(.init(tabID: UUID())),
         .releaseDevice(.init(key: "remote:abc")),
         .extendDevice(.init(key: "remote:abc", ttl: 7200)),
+        .linkIssue(.init(issue: "PLUME-287", tabID: UUID())),
+        .unlinkIssue(.init(issue: "https://linear.app/x/issue/PLUME-287/title", taskID: UUID())),
     ])
     func requestsRoundTrip(_ request: CLIRequest) throws {
         let line = try CLILineCodec.encode(request)
@@ -53,6 +55,16 @@ struct CLIProtocolTests {
         }
     }
 
+    @Test func linkAndUnlinkAreIssueCommands() throws {
+        for (request, name) in [
+            (CLIRequest.linkIssue(.init(issue: "A-1")), "issue.link"),
+            (.unlinkIssue(.init(issue: "A-1")), "issue.unlink"),
+        ] {
+            let json = try JSONSerialization.jsonObject(with: CLILineCodec.encode(request)) as? [String: Any]
+            #expect(json?["command"] as? String == name)
+        }
+    }
+
     @Test func anUnknownCommandFailsToDecode() {
         #expect(throws: DecodingError.self) {
             try CLILineCodec.decode(CLIRequest.self, from: Data(#"{"command":"launch"}"#.utf8))
@@ -64,6 +76,7 @@ struct CLIProtocolTests {
         response.tabID = UUID()
         response.created = true
         response.claimID = UUID()
+        response.issue = "PLUME-287"
         let line = try CLILineCodec.encode(response)
         #expect(try CLILineCodec.decode(CLIResponse.self, from: line.dropLast()) == response)
 

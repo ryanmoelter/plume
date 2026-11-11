@@ -36,6 +36,16 @@ nonisolated enum ShellIntegration {
                 '--select[Select the new tab]'
             fi
             """),
+        Command(name: "issue", summary: "Link a Linear issue to this task", completion: """
+            if (( CURRENT == 2 )); then
+              local -a issue_commands=('link:Link a Linear issue to this task' 'unlink:Unlink a Linear issue from this task')
+              _describe -t commands 'issue command' issue_commands
+            else
+              shift words
+              (( CURRENT-- ))
+              _arguments '--task[Task ID]:task ID:' '1:issue identifier or URL:'
+            fi
+            """),
         Command(name: "wt", summary: "Manage worktrees", completion: wtCompletion),
         Command(name: "stack", summary: "Manage stacked branches", completion: stackCompletion),
         Command(name: "devices", summary: "Lease Android devices between agents", completion: devicesCompletion),
