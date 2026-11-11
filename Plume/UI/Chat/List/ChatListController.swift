@@ -46,6 +46,10 @@ final class ChatListCommands {
         controller?.pin(pieceID: pieceID)
     }
 
+    func page(up: Bool) {
+        controller?.scrollPage(up: up)
+    }
+
     /// Keeps the piece where it is on screen through the next change, if
     /// the reader can see it. See `ChatListController.hold`.
     func hold(pieceID: String, overridingFollow: Bool) {
@@ -435,6 +439,10 @@ final class ChatListController: NSObject {
             switch target {
             case .bottom: return .bottom
             case let .item(id): return .anchor(id: id, distance: -inputs.leadingInset)
+            case .offset:
+                let destination = resolve(target)
+                guard destination < model.maxOffset, let anchor = model.readerAnchor(offset: destination) else { return .bottom }
+                return .anchor(id: anchor.id, distance: anchor.distance)
             }
         }
         if let pendingRestore { return pendingRestore }
@@ -489,6 +497,18 @@ final class ChatListController: NSObject {
         documentView.needsLayout = true
     }
 
+    /// Scrolls by the visible height less the floating insets and a line of
+    /// overlap. Aimed from where an in-flight scroll is headed, so a held key
+    /// keeps paging.
+    func scrollPage(up: Bool) {
+        let visible = model.viewportHeight - inputs.leadingInset - inputs.trailingInset
+        let page = max(visible - Self.pageOverlap, Self.pageOverlap)
+        let origin = animator.scroll.map { resolve($0.target) } ?? scrollView.contentView.bounds.origin.y
+        scroll(to: .offset(origin + (up ? -page : page)), animated: true)
+    }
+
+    private static let pageOverlap: CGFloat = 20
+
     func pin(pieceID: String) {
         pendingPin = pieceID
         model.setAnchor(pieceID, inset: pinTopInset)
@@ -526,6 +546,15 @@ final class ChatListController: NSObject {
             isFollowing = false
             // Lands below whatever floats over the list's top edge.
             readerAnchor = (id: id, distance: -inputs.leadingInset)
+        case .offset:
+            let destination = resolve(target)
+            if destination >= model.maxOffset {
+                land(.bottom)
+                return
+            }
+            isFollowing = false
+            followDistance = 0
+            readerAnchor = model.readerAnchor(offset: destination)
         }
         Log.chatList.info("landed \(String(describing: target), privacy: .public) at \(Int(self.scrollView.contentView.bounds.origin.y)) follow=\(Int(self.model.maxOffset))")
     }
@@ -698,6 +727,7 @@ final class ChatListController: NSObject {
         switch target {
         case .bottom: model.maxOffset
         case let .item(id): max(0, min(model.slotTop(of: id) - inputs.leadingInset, model.maxOffset))
+        case let .offset(value): max(0, min(value, model.maxOffset))
         }
     }
 
@@ -1077,6 +1107,14 @@ final class ChatListDocumentView: NSView {
 
     override func selectAll(_ sender: Any?) {
         controller?.selectAllText()
+    }
+
+    override func scrollPageUp(_ sender: Any?) {
+        controller?.scrollPage(up: true)
+    }
+
+    override func scrollPageDown(_ sender: Any?) {
+        controller?.scrollPage(up: false)
     }
 
 }

@@ -52,6 +52,9 @@ struct MarkdownComposerTextView: NSViewRepresentable {
     /// Called on Up when the composer is empty, to recall a queued message
     /// for editing. Nil when there's nothing queued.
     var onEditQueuedMessage: (() -> Void)?
+    /// Called on Page Up (true) and Page Down (false), to page the transcript
+    /// above the composer. Nil leaves the keys scrolling the composer.
+    var onPageScroll: ((_ up: Bool) -> Void)?
     /// Called on Esc the slash-command list didn't take, with its modifiers.
     /// Returns whether it consumed the key; false leaves Esc to `NSTextView`.
     var onEscape: ((NSEvent.ModifierFlags) -> Bool)?
@@ -117,6 +120,7 @@ struct MarkdownComposerTextView: NSViewRepresentable {
         textView.sendKey = sendKey
         textView.autocompleteHandler = autocompleteHandler
         textView.onEditQueuedMessage = onEditQueuedMessage
+        textView.onPageScroll = onPageScroll
         textView.onEscape = onEscape
         textView.onTogglePlanMode = onTogglePlanMode
         textView.onOptionReturn = onOptionReturn
@@ -499,6 +503,16 @@ final class ComposerNSTextView: NSTextView {
     /// shell-history-style recall of the most recently queued send.
     var onEditQueuedMessage: (() -> Void)?
 
+    var onPageScroll: ((_ up: Bool) -> Void)?
+
+    override func scrollPageUp(_ sender: Any?) {
+        if let onPageScroll { onPageScroll(true) } else { super.scrollPageUp(sender) }
+    }
+
+    override func scrollPageDown(_ sender: Any?) {
+        if let onPageScroll { onPageScroll(false) } else { super.scrollPageDown(sender) }
+    }
+
     var onEscape: ((NSEvent.ModifierFlags) -> Bool)?
 
     var onTogglePlanMode: (() -> Void)?
@@ -678,8 +692,11 @@ final class ComposerNSTextView: NSTextView {
 
     override func performKeyEquivalent(with event: NSEvent) -> Bool {
         guard editsMarkdown, window?.firstResponder === self,
-              event.modifierFlags.intersection(.deviceIndependentFlagsMask) == .command,
-              let style = event.charactersIgnoringModifiers.flatMap(ComposerInlineFormatting.Style.init(characters:)),
+              let style = ComposerInlineFormatting.Style(
+                  characters: event.charactersIgnoringModifiers,
+                  flags: event.modifierFlags,
+                  bindings: AppSettings.shared.shortcutBindings
+              ),
               let result = ComposerInlineFormatting.apply(style, in: string, selection: selectedRange())
         else { return super.performKeyEquivalent(with: event) }
         apply(result)

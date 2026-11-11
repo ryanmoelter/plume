@@ -34,6 +34,8 @@ struct ChatComposer: View, ThemedView {
     /// Set by `ChatTabView`'s queued rows to run `sendNow`, which takes the
     /// draft along.
     var sendNowRequested: Binding<Bool> = .constant(false)
+    /// Pages the transcript above the composer on Page Up and Page Down.
+    var onPageScroll: ((_ up: Bool) -> Void)?
     /// The message that just launched the agent, so the caller can open the
     /// conversation on it rather than waiting for the transcript. Fires only
     /// on the launch path, which is a tab's first message.
@@ -389,9 +391,8 @@ struct ChatComposer: View, ThemedView {
                     },
                     pendingCaretLocation: $pendingCaretLocation,
                     autocompleteHandler: autocomplete,
-                    onEditQueuedMessage: headlessSession.flatMap { session in
-                        session.queuedMessages.isEmpty ? nil : { editQueuedMessage(at: session.queuedMessages.count - 1) }
-                    },
+                    onEditQueuedMessage: editQueuedHandler,
+                    onPageScroll: pageScrollHandler,
                     onEscape: interruptOnEscape,
                     onTogglePlanMode: togglePlanModeHandler,
                     recognizedSlashCommandNames: Set(availableSlashCommands.map(\.name)),
@@ -612,6 +613,13 @@ struct ChatComposer: View, ThemedView {
         headlessSession.interrupt()
         return true
     }
+
+    private var editQueuedHandler: (() -> Void)? {
+        guard let session = headlessSession, !session.queuedMessages.isEmpty else { return nil }
+        return { editQueuedMessage(at: session.queuedMessages.count - 1) }
+    }
+
+    private var pageScrollHandler: ((Bool) -> Void)? { onPageScroll }
 
     private var togglePlanModeHandler: (() -> Void)? {
         isCommandMode ? nil : { togglePlanMode() }
