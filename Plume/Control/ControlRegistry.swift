@@ -16,6 +16,9 @@ struct ControlEntry {
     weak var window: NSWindow?
     var invoke: (() -> Void)?
     var setValue: ((String) -> Void)?
+    /// Reads `frame` afresh at every lookup, for an AppKit view that moves
+    /// without telling anyone, such as a row in a scrolling table.
+    var liveFrame: (@MainActor () -> CGRect)?
 
     var currentValue: String? { valueProvider?() ?? value }
 }
@@ -54,8 +57,9 @@ final class ControlRegistry {
     /// a `label` filter so a caller can name "the second row titled X".
     func entries(id: String? = nil, label: String? = nil, windowNumber: Int? = nil) -> [(index: Int, entry: ControlEntry)] {
         var byID: [String: [ControlEntry]] = [:]
-        for entry in entries.values where id == nil || entry.id == id {
+        for var entry in entries.values where id == nil || entry.id == id {
             if let windowNumber, entry.window?.windowNumber != windowNumber { continue }
+            if let liveFrame = entry.liveFrame { entry.frame = liveFrame() }
             byID[entry.id, default: []].append(entry)
         }
         var out: [(index: Int, entry: ControlEntry)] = []
