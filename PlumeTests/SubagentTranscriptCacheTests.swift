@@ -140,11 +140,10 @@ struct SubagentTranscriptCacheTests {
 
     @Test func onlyTheMostRecentlyWrittenFilesKeepTheirLines() throws {
         defer { try? FileManager.default.removeItem(at: directory) }
-        let paths = (0...SubagentTranscriptCache.filesKeepingLines).map {
-            directory.appending(path: "agent-\($0).jsonl").path
-        }
+        let paths = (0..<4).map { directory.appending(path: "agent-\($0).jsonl").path }
+        let first = line("one", uuid: "u1")
         for (index, path) in paths.enumerated() {
-            try line("one", uuid: "u1").write(toFile: path, atomically: true, encoding: .utf8)
+            try first.write(toFile: path, atomically: true, encoding: .utf8)
             // The first file is the oldest, so it is the one released.
             let modified = Date().addingTimeInterval(Double(index - paths.count))
             try FileManager.default.setAttributes([.modificationDate: modified], ofItemAtPath: path)
@@ -152,7 +151,7 @@ struct SubagentTranscriptCacheTests {
         var cache = SubagentTranscriptCache()
         cache.beginRead(paths: paths)
         for path in paths { _ = cache.transcript(atPath: path) }
-        cache.endRead()
+        cache.endRead(byteBudget: UInt64(first.utf8.count * 3))
 
         for path in paths[0...1] {
             let handle = try #require(FileHandle(forWritingAtPath: path))

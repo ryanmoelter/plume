@@ -43,10 +43,10 @@ nonisolated struct SubagentTranscriptCache {
 
     /// How long after its last write a file keeps its decoded lines.
     static let lineRetention: TimeInterval = 300
-    /// How many files keep their decoded lines at once. A tab that goes idle
-    /// reads no more, so the age limit alone would never release the lines
-    /// of every subagent that was writing when it stopped.
-    static let filesKeepingLines = 16
+    /// How many bytes of file, newest files first, keep their decoded lines.
+    /// A tab that goes idle reads no more, so the age limit alone would never
+    /// release the lines of every subagent that was writing when it stopped.
+    static let linesByteBudget: UInt64 = 64 << 20
     private static let seamLength = 64
 
     private var entries: [String: Entry] = [:]
@@ -63,15 +63,16 @@ nonisolated struct SubagentTranscriptCache {
         entries = entries.filter { listed.contains($0.key) }
     }
 
-    /// Ends a read: only the most recently written files keep their lines.
-    mutating func endRead() {
-        let keeping = entries.filter { $0.value.lines != nil }
-        guard keeping.count > Self.filesKeepingLines else { return }
-        let released = keeping
+    /// Ends a read: only the most recently written files within
+    /// `linesByteBudget` keep their lines.
+    mutating func endRead(byteBudget: UInt64 = linesByteBudget) {
+        let newestFirst = entries
+            .filter { $0.value.lines != nil }
             .sorted { ($0.value.fingerprint.modifiedAt ?? .distantPast) > ($1.value.fingerprint.modifiedAt ?? .distantPast) }
-            .dropFirst(Self.filesKeepingLines)
-        for (path, _) in released {
-            entries[path]?.lines = nil
+        var kept: UInt64 = 0
+        for (path, entry) in newestFirst {
+            kept += entry.consumed
+            if kept > byteBudget { entries[path]?.lines = nil }
         }
     }
 
