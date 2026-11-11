@@ -105,6 +105,8 @@ git branch -D <prefix>/<slug> worktree-agent-<id>
 
 **Keep the worktree of any package whose work is not finished**, even if some of it merged. A package that was partly cherry-picked still holds the dropped commits, and they are the starting point for the follow-up agent.
 
+**Keep a worktree while anything the package started still runs.** An implementer's report can mention a verification agent it handed off to, and that agent keeps driving the worktree's build after the implementer's turn ends. In the 0.20.0 run, removing the worktree mid-check stranded a debug instance and left a test binding in the shared debug defaults. Wait for that agent's report, and look for a running app with `pgrep -f "<DerivedData dir>"` as well as the worktree path, since the app runs from DerivedData.
+
 ## 4. Debug build for manual evaluation
 
 Delegate to a Sonnet verifier, on the release branch in the primary checkout:
