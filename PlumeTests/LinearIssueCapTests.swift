@@ -1,6 +1,7 @@
 import Testing
 @testable import Plume
 
+@MainActor
 struct LinearIssueCapTests {
     @Test func showsEverythingAtOrBelowTheLimit() {
         for total in [0, 1, 6] {

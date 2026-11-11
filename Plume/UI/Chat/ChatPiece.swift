@@ -106,7 +106,7 @@ struct ChatPiece: Identifiable, Equatable {
         var isBubble: Bool { self == .bubble || self == .agentBubble }
     }
 
-    enum Segment: Equatable {
+    nonisolated enum Segment: Equatable {
         case single
         case first
         case middle

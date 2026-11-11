@@ -2,6 +2,7 @@ import Foundation
 import Testing
 @testable import Plume
 
+@MainActor
 struct StatuslineMeterMathTests {
     @Test func fractionScalesPercentTo0To1() {
         #expect(StatuslineMeterMath.fraction(percent: 0) == 0)

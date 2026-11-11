@@ -4,6 +4,7 @@ import Testing
 
 /// Which pieces grow into place when the chat list rebuilds: the ones that
 /// were not there before, and none at all on a first build.
+@MainActor
 struct ChatListMotionTests {
     private func arrivals(previous: [String], current: [String]) -> Set<String> {
         ChatListMotion.arrivals(previous: previous, current: current)

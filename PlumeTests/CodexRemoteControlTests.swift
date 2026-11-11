@@ -7,7 +7,11 @@ struct CodexRemoteControlTests {
     private func status(_ value: String, environment: String = "environment") -> JSONValue {
         .object(["status": .string(value), "environmentId": .string(environment), "serverName": .string("Plume test"), "installationId": .string("installation")])
     }
-    private final class Deferred {
+    @MainActor private final class Flag {
+        var isSet: Bool
+        init(_ isSet: Bool) { self.isSet = isSet }
+    }
+    @MainActor private final class Deferred {
         var calls: [(String, JSONValue)] = []
         var replies: [String: CheckedContinuation<JSONValue, Error>] = [:]
         func request(_ method: String, _ params: JSONValue) async throws -> JSONValue {
@@ -104,9 +108,9 @@ struct CodexRemoteControlTests {
     @Test func failedDisableRetainsLeaseButFailedEnableReleasesIt() async {
         struct Failure: Error {}
         let lease = CodexRemoteControlLease()
-        var rejectDisable = true
+        let rejectDisable = Flag(true)
         let first = CodexRemoteControl(lease: lease) { method, _ in
-            if method == "remoteControl/disable", rejectDisable { throw Failure() }
+            if method == "remoteControl/disable", rejectDisable.isSet { throw Failure() }
             return self.status("connected")
         }
         var secondEnables = 0
@@ -122,7 +126,7 @@ struct CodexRemoteControlTests {
         first.stop()
         await second.setEnabled(true)
         #expect(secondEnables == 1)
-        rejectDisable = false
+        rejectDisable.isSet = false
         let third = CodexRemoteControl(lease: lease) { _, _ in self.status("connected") }
         await third.setEnabled(true)
         #expect(third.status == .connected)
@@ -286,14 +290,14 @@ struct CodexRemoteControlTests {
     }
 
     @Test func refreshSuccessClearsOnlyTheErrorFromThatOperation() async {
-        var failsStatus = true
-        var failsClients = false
+        let failsStatus = Flag(true)
+        let failsClients = Flag(false)
         let controller = CodexRemoteControl { method, _ in
             if method == "remoteControl/status/read" {
-                if failsStatus { throw CodexAppServerClient.Failure.server(code: -1, message: "Status unavailable") }
+                if failsStatus.isSet { throw CodexAppServerClient.Failure.server(code: -1, message: "Status unavailable") }
                 return self.status("connected")
             }
-            if failsClients { throw CodexAppServerClient.Failure.server(code: -1, message: "Devices unavailable") }
+            if failsClients.isSet { throw CodexAppServerClient.Failure.server(code: -1, message: "Devices unavailable") }
             return .object(["data": .array([])])
         }
         controller.receive(status("connected"))
@@ -301,15 +305,15 @@ struct CodexRemoteControlTests {
         #expect(controller.operationError == "Status unavailable")
         await controller.refreshClients()
         #expect(controller.operationError == "Status unavailable")
-        failsStatus = false
+        failsStatus.isSet = false
         await controller.refresh()
         #expect(controller.operationError == nil)
-        failsClients = true
+        failsClients.isSet = true
         await controller.refreshClients()
         #expect(controller.operationError == "Devices unavailable")
         await controller.refresh()
         #expect(controller.operationError == "Devices unavailable")
-        failsClients = false
+        failsClients.isSet = false
         await controller.refreshClients()
         #expect(controller.operationError == nil)
         #expect(controller.status == .connected)

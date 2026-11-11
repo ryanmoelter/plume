@@ -68,7 +68,7 @@ final class ChatListAnimator: NSObject {
         super.init()
     }
 
-    deinit {
+    isolated deinit {
         displayLink?.invalidate()
         fallback?.invalidate()
     }

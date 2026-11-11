@@ -2,7 +2,7 @@
 import Darwin
 import Foundation
 
-enum BuildInfo {
+nonisolated enum BuildInfo {
     static var sourceRoot: URL? {
         guard let raw = Bundle.main.object(forInfoDictionaryKey: "PlumeBuildSourceRoot") as? String,
               !raw.isEmpty

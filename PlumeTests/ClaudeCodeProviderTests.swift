@@ -2,6 +2,7 @@ import Testing
 import Foundation
 @testable import Plume
 
+@MainActor
 struct ClaudeCodeProviderTests {
     private let provider = ClaudeCodeProvider()
 

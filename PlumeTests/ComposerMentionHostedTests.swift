@@ -53,7 +53,7 @@ struct ComposerMentionHostedTests {
         }
     }
 
-    private struct Harness {
+    @MainActor private struct Harness {
         let window: NSWindow
         let view: ComposerNSTextView
         let state: State

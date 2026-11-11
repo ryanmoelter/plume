@@ -3,6 +3,7 @@ import Foundation
 import Testing
 @testable import Plume
 
+@MainActor
 struct TypographyTests {
     @Test func rolesStepByTheRatio() {
         let typography = Typography(bodySize: 16)

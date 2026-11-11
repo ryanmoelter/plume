@@ -3,6 +3,7 @@ import Testing
 
 /// The plan overlay's footer, which must follow the last proposal's answer
 /// rather than the presence of a plan file.
+@MainActor
 struct PlanApprovalStateTests {
     @Test func noProposalIsNotApprovedYet() {
         #expect(PlanApprovalState.derive(latestProposal: nil) == .notApprovedYet)
@@ -48,6 +49,7 @@ struct PlanApprovalStateTests {
 }
 
 /// The one-line stand-in the inline row shows in place of the whole plan.
+@MainActor
 struct PlanSummaryTests {
     @Test func takesTheFirstLine() {
         #expect(PlanSummary.firstLine(of: "Rewrite the parser\n\nThen the tests.")
@@ -74,6 +76,7 @@ struct PlanSummaryTests {
 
 /// The plan's own name, which the dock bar shows beside the file
 /// name.
+@MainActor
 struct PlanTitleTests {
     @Test func takesTheTopLevelHeading() {
         #expect(PlanSummary.title(of: "# Rewrite the parser\n\nThen the tests.")
@@ -101,6 +104,7 @@ struct PlanTitleTests {
 
 /// Which form a not-shown plan takes, which is the whole of what the plan's
 /// state decides about its presentation.
+@MainActor
 struct PlanPresentationTests {
     /// The approval options live nowhere else, so hiding a live proposal must
     /// leave the dock bar behind rather than dismissing it.

@@ -126,7 +126,7 @@ nonisolated enum GitConfigSettingsImport {
     }
 }
 
-extension GitConfigSettingsImport {
+nonisolated extension GitConfigSettingsImport {
     /// Runs the import once per install, at launch: before the New Worktree
     /// sheet or a `wt` from a Plume tab could want the values. The retired
     /// Integrations list migrates after it, since the import never fills a

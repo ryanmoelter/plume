@@ -80,7 +80,7 @@ nonisolated struct CompactMetadata: Decodable, Equatable {
     let postTokens: Int?
 }
 
-private extension String {
+nonisolated private extension String {
     var nonEmpty: String? {
         let trimmed = trimmingCharacters(in: .whitespacesAndNewlines)
         return trimmed.isEmpty ? nil : trimmed

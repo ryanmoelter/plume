@@ -226,7 +226,7 @@ nonisolated final class RecordingEncoder: @unchecked Sendable {
                 input.markAsFinished()
                 writer.endSession(atSourceTime: Self.cmTime(end))
                 let count = frames
-                writer.finishWriting { [writer] in
+                writer.finishWriting { [self] in
                     if writer.status == .completed {
                         continuation.resume(returning: (count, end))
                     } else {

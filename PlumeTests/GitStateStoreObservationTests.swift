@@ -1,6 +1,7 @@
 import Testing
 import Foundation
 import Observation
+import Synchronization
 @testable import Plume
 
 /// Every sidebar row and chat tab reads `state(for:)`, so a write that leaves
@@ -11,14 +12,14 @@ struct GitStateStoreObservationTests {
     private static let main = GitState(branch: "main", upstream: "origin/main", ahead: 0, behind: 0, isDirty: false)
 
     private func changes(in store: GitStateStore, reading directory: String, during work: () -> Void) -> Int {
-        var count = 0
+        let count = Mutex(0)
         withObservationTracking {
             _ = store.state(for: directory)
         } onChange: {
-            count += 1
+            count.withLock { $0 += 1 }
         }
         work()
-        return count
+        return count.withLock { $0 }
     }
 
     @Test func refcountChangesDoNotInvalidateReaders() {

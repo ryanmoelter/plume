@@ -1,6 +1,7 @@
 import Testing
 import Foundation
 import SwiftData
+import Synchronization
 @testable import Plume
 
 /// Routing, batching, delta sync and failure handling across several fake
@@ -139,17 +140,17 @@ struct LinearStoreTests {
         harness.store.setWanted(["PLUME-1"], owner: UUID())
         await harness.store.settle()
 
-        var publishes = 0
+        let publishes = Mutex(0)
         withObservationTracking {
             _ = harness.store.state(for: "PLUME-1")
         } onChange: {
-            publishes += 1
+            publishes.withLock { $0 += 1 }
         }
         harness.store.sync()
         await harness.store.settle()
 
         #expect(await a.deltaCalls.count == 1)
-        #expect(publishes == 0)
+        #expect(publishes.withLock { $0 } == 0)
     }
 
     @Test func aFailureKeepsTheLastGoodIssueAsStale() async throws {
@@ -420,11 +421,11 @@ struct LinearStoreTests {
         harness.store.setWanted(["PLUME-1", "PLUME-2"], owner: UUID())
         await harness.store.settle()
 
-        var invalidations = 0
+        let invalidations = Mutex(0)
         withObservationTracking {
             _ = harness.store.state(for: "PLUME-1")
         } onChange: {
-            invalidations += 1
+            invalidations.withLock { $0 += 1 }
         }
         let renamed = LinearTestFixtures.issue("PLUME-2", title: "Renamed")
         await a.set(issues: ["PLUME-1": LinearTestFixtures.issue("PLUME-1"), "PLUME-2": renamed])
@@ -432,7 +433,7 @@ struct LinearStoreTests {
         await harness.store.settle()
 
         #expect(harness.store.state(for: "PLUME-2") == .issue(renamed))
-        #expect(invalidations == 0)
+        #expect(invalidations.withLock { $0 } == 0)
     }
 
     @Test func aTeamKeyNoCatalogHasIsNoWorkspaceAndNeverFetched() async throws {

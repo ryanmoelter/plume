@@ -24,19 +24,19 @@ nonisolated let sleepHelperLeaseTimeout: TimeInterval = 90
 ///
 /// Every reply carries the value actually in the registry afterwards, so the
 /// app never has to trust its own bookkeeping about root-owned state.
-@objc protocol SleepHelperProtocol {
-    func setSleepDisabled(_ disabled: Bool, reply: @escaping (Bool, String?) -> Void)
+@objc nonisolated protocol SleepHelperProtocol {
+    func setSleepDisabled(_ disabled: Bool, reply: @escaping @Sendable (Bool, String?) -> Void)
     /// Clears the override and, when `sleepIfLidClosed` is set and the lid is
     /// shut, sleeps the Mac: powerd does not revisit a lid that closed while
     /// sleep was disabled. The app passes false when an external display is
     /// attached, because a shut lid is then clamshell mode, not a bag.
-    func releaseOverride(sleepIfLidClosed: Bool, reply: @escaping (Bool, String?) -> Void)
-    func currentState(reply: @escaping (Bool) -> Void)
-    func heartbeat(reply: @escaping (Bool) -> Void)
+    func releaseOverride(sleepIfLidClosed: Bool, reply: @escaping @Sendable (Bool, String?) -> Void)
+    func currentState(reply: @escaping @Sendable (Bool) -> Void)
+    func heartbeat(reply: @escaping @Sendable (Bool) -> Void)
     /// The `CFBundleVersion` and path of the app bundle the helper launched
     /// from, each empty if it could not be read. Helpers through 0.13.0 lack
     /// this method and drop the connection that asks.
-    func helperBuild(reply: @escaping (_ build: String, _ bundlePath: String) -> Void)
+    func helperBuild(reply: @escaping @Sendable (_ build: String, _ bundlePath: String) -> Void)
 }
 
 /// The app bundle whose `Contents/MacOS` holds `executable`.

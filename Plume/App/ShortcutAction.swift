@@ -7,7 +7,7 @@ import SwiftUI
 /// keys are rebindable. Every other chord
 /// `PlumeCommands` binds stays fixed, because it either matches a macOS-wide
 /// convention (⌘N, ⌘T, ⌘W) or is positional (⌘1…⌘9).
-enum ShortcutAction: String, CaseIterable, Identifiable, Codable {
+nonisolated enum ShortcutAction: String, CaseIterable, Identifiable, Codable {
     case nextTab
     case previousTab
     case nextTask
@@ -79,7 +79,7 @@ enum ShortcutAction: String, CaseIterable, Identifiable, Codable {
 /// as one JSON blob, rather than a key per action: the set is small and always
 /// read together, and one blob keeps a partial write from leaving half the
 /// bindings stale.
-struct ShortcutBindings: Equatable, Codable {
+nonisolated struct ShortcutBindings: Equatable, Codable {
     /// An action present here with a nil value is deliberately unbound: its
     /// chord went to another action, and falling back to its default would
     /// hand it a chord that action now owns.
@@ -127,7 +127,7 @@ struct ShortcutBindings: Equatable, Codable {
 /// Encoded as an object keyed by action, whose value is the chord or `null`
 /// for a deliberately unbound action. Written by hand because a dictionary of
 /// optionals keyed by a non-`String` type encodes as a flat array otherwise.
-extension ShortcutBindings {
+nonisolated extension ShortcutBindings {
     private struct ActionKey: CodingKey {
         let stringValue: String
         var intValue: Int? { nil }

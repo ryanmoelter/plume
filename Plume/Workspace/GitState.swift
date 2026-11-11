@@ -71,7 +71,7 @@ nonisolated struct GitState: Equatable {
     }
 }
 
-extension GitRunner {
+nonisolated extension GitRunner {
     /// One call answers branch, ahead/behind and dirty — about 30ms on a
     /// repository this size.
     static func state(in directory: String) -> GitState? {

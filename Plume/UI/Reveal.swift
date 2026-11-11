@@ -27,7 +27,7 @@ struct Reveal<Content: View>: View, Animatable {
     }
 }
 
-enum RevealMath {
+nonisolated enum RevealMath {
     static func height(natural: CGFloat, progress: Double) -> CGFloat {
         natural * CGFloat(min(max(progress, 0), 1))
     }

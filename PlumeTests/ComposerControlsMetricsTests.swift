@@ -4,6 +4,7 @@ import Foundation
 
 /// The collapse decision for the composer's controls row, which is pure
 /// arithmetic over the labels it would draw.
+@MainActor
 struct ComposerControlsMetricsTests {
     private let labels = ["Default (Opus)", "Medium", "Accept Edits"]
     private let spacing: CGFloat = 8
@@ -59,6 +60,7 @@ struct ComposerControlsMetricsTests {
 
 /// Every mode and effort level draws its own icon, which is the only thing
 /// naming the control once the row collapses.
+@MainActor
 struct ComposerControlSymbolsTests {
     @Test func everyPermissionModeHasItsOwnSymbol() {
         let symbols = PermissionMode.allCases.map(\.symbol)

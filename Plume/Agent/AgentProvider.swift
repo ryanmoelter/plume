@@ -30,6 +30,6 @@ protocol AgentProvider {
 }
 
 /// Quotes a string for safe use as a single shell word.
-func shellQuoted(_ value: String) -> String {
+nonisolated func shellQuoted(_ value: String) -> String {
     "'" + value.replacingOccurrences(of: "'", with: #"'\''"#) + "'"
 }

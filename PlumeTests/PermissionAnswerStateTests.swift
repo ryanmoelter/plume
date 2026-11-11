@@ -122,6 +122,7 @@ struct PermissionAnswerStateTests {
     }
 }
 
+@MainActor
 struct PlanResolutionTests {
     @Test func aBlankReasonBuildsJustThePrefix() {
         let message = PlanResolution.denialMessage(reason: "  ")
@@ -148,6 +149,7 @@ struct PlanResolutionTests {
     }
 }
 
+@MainActor
 struct PlanRejectionLabelTests {
     /// Blank is a plain rejection on the wire, so the label must not promise
     /// feedback that `PlanResolution.denialMessage` will drop.
@@ -165,6 +167,7 @@ struct PlanRejectionLabelTests {
     }
 }
 
+@MainActor
 struct QuestionPagingTests {
     @Test func previousStopsAtZero() {
         #expect(QuestionPaging.previous(2) == 1)

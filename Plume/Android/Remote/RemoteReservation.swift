@@ -71,20 +71,14 @@ final class RemoteReservation {
         let cli = cli
         let arguments = ["device", "remote", "create", model, projectArgument]
         let lines = Mutex(LineSplitter())
-        @Sendable func record(_ lines: [String]) {
-            guard knownReservationID == nil,
-                  let created = lines.lazy.compactMap({ RemoteDeviceParsers.createdReservation($0) }).first
-            else { return }
-            recordCreated(created.id)
-        }
-        let run = Task.detached {
+        let run = Task.detached { [self] in
             do {
                 return try await cli.run(arguments, timeout: Self.createTimeout) { text in
-                    record(lines.withLock { $0.completeLines(appending: text) })
+                    self.recordCreated(fromOutput: lines.withLock { $0.completeLines(appending: text) })
                 }
             } catch {
                 // A cancel kills the tool, so an unterminated last line is all it will ever print.
-                record([lines.withLock { $0.remainder }])
+                recordCreated(fromOutput: [lines.withLock { $0.remainder }])
                 throw error
             }
         }
@@ -170,6 +164,13 @@ final class RemoteReservation {
 
     /// The id as soon as `create` printed it, which a release ends even before `create` returns.
     nonisolated var knownReservationID: String? { createdID.withLock { $0 } }
+
+    private nonisolated func recordCreated(fromOutput lines: [String]) {
+        guard knownReservationID == nil,
+              let created = lines.lazy.compactMap({ RemoteDeviceParsers.createdReservation($0) }).first
+        else { return }
+        recordCreated(created.id)
+    }
 
     /// Adds the id to the ledger the first time it is seen.
     private nonisolated func recordCreated(_ id: String) {

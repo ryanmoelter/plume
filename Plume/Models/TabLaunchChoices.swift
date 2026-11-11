@@ -14,7 +14,7 @@ nonisolated struct TabLaunchChoices: Equatable, Sendable {
     var codexCollaborationModeRaw = "default"
 }
 
-extension TabLaunchChoices {
+nonisolated extension TabLaunchChoices {
     @MainActor
     init(_ tab: TaskTab) {
         self.init(

@@ -4,6 +4,7 @@ import Testing
 
 /// A Running item's chips: unsettled subagents in store order, then
 /// background tasks, and none at all on an item that isn't running.
+@MainActor
 struct HomeSideWorkTests {
     private func subagent(_ id: String, type: String?, status: TaskStatus) -> SubagentTranscript {
         SubagentTranscript(

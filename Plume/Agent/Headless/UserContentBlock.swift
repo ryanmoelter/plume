@@ -27,7 +27,7 @@ nonisolated enum UserContentBlock: Equatable {
     }
 }
 
-extension [UserContentBlock] {
+nonisolated extension [UserContentBlock] {
     /// The text of these blocks, for the places that still describe a turn as
     /// a single string — a queued-message row, a launch message, a draft.
     var plainText: String {
@@ -57,7 +57,7 @@ extension [UserContentBlock] {
     }
 }
 
-extension [[UserContentBlock]] {
+nonisolated extension [[UserContentBlock]] {
     /// These messages as one turn, in order. Text that meets across a message
     /// boundary joins with a blank line, so the model reads the messages as
     /// paragraphs of one turn rather than as fragments.

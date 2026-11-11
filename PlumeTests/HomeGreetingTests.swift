@@ -6,6 +6,7 @@ import Testing
 
 /// Each greeting covers [start, end): morning 5–12, afternoon 12–17, evening 17–21,
 /// night 21–5.
+@MainActor
 struct HomeGreetingTests {
     @Test(arguments: [
         (4, HomeGreeting.night),

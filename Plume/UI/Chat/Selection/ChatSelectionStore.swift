@@ -247,7 +247,7 @@ enum ChatTextGeometry {
 enum ChatSelectionGeometry {
     /// The coordinate space every row's root names, which the registry's
     /// frames are measured in and which matches the hosting view's own.
-    static let rowSpace = "plume.chat.row"
+    nonisolated static let rowSpace = "plume.chat.row"
 }
 
 /// What a selectable `Text` needs to take part in the transcript's selection:

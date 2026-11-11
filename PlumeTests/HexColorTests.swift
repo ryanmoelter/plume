@@ -2,6 +2,7 @@ import Testing
 import SwiftUI
 @testable import Plume
 
+@MainActor
 struct HexColorTests {
     @Test func parsesSixDigitHex() {
         #expect(Color(hex: "ccc2ba") != nil)
@@ -34,6 +35,7 @@ struct HexColorTests {
 
 /// The component parse behind `Color(hex:)`, and the contrast math the theme
 /// accents use to reject a hue that would be unreadable.
+@MainActor
 struct HexRGBTests {
     @Test func parsesComponents() throws {
         let color = try #require(HexRGB(hex: "#4080c0"))

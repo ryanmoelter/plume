@@ -4,6 +4,7 @@ import Testing
 /// The context line under a Home row: project, branch, then the first Linear
 /// issue and pull request with a count of the rest. A segment with no data is
 /// left out, and a context with none has no segments at all.
+@MainActor
 struct HomeRowContextTests {
     private typealias Reference = HomeRowContext.Reference
 

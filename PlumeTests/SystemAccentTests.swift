@@ -1,6 +1,7 @@
 import Testing
 @testable import Plume
 
+@MainActor
 struct SystemAccentTests {
     @Test func eachSystemAccentMapsToTheClosestANSIHue() {
         let expected: [Int?: Int?] = [

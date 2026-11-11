@@ -109,7 +109,7 @@ nonisolated struct LinearIssue: Sendable, Equatable, Codable {
     var dueDate: String? = nil
 }
 
-extension LinearIssue {
+nonisolated extension LinearIssue {
     static let summaryLineLimit = 2
     static let summaryLengthLimit = 240
 
@@ -199,7 +199,7 @@ nonisolated enum LinearError: LocalizedError, Equatable {
     }
 }
 
-extension LinearIssueFetchState {
+nonisolated extension LinearIssueFetchState {
     static func failing(_ error: any Error) -> LinearIssueFetchState {
         switch error as? LinearError {
         case .unauthorized: .unauthorized

@@ -136,7 +136,7 @@ nonisolated final class PhysicalDeviceConnection: DeviceConnecting {
     }
 }
 
-private extension DeviceKeyPhase {
+private nonisolated extension DeviceKeyPhase {
     nonisolated var androidAction: UInt8 {
         switch self {
         case .down: Android.KeyAction.down

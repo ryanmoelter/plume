@@ -2,6 +2,7 @@ import Foundation
 import Testing
 @testable import Plume
 
+@MainActor
 struct CommandModeMatcherTests {
     @Test func aLeadingBangEntersCommandModeWithoutItself() {
         #expect(CommandModeMatcher.enteringCommandMode("!") == "")

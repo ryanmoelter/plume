@@ -9,7 +9,7 @@ import SwiftUI
 /// bypasses both and can fail contrast outright. Fills, borders and washes
 /// resolve to literal alpha over the terminal theme's foreground, because
 /// there is no semantic equivalent for "10% of the chat surface".
-enum Emphasis: CaseIterable {
+nonisolated enum Emphasis: CaseIterable {
     /// Body text and anything the reader is meant to act on.
     case primary
     /// Supporting text: captions, descriptions, metadata.

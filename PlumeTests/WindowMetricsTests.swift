@@ -2,6 +2,7 @@ import Foundation
 import Testing
 @testable import Plume
 
+@MainActor
 struct WindowMetricsTests {
     @Test func sidebarMaximumWidthLeavesRoomForTheDetailFloor() {
         let width = WindowMetrics.sidebarMaximumWidth(windowWidth: 1200, paneCount: 1)

@@ -75,7 +75,7 @@ final class Lease: @unchecked Sendable {
     private var holder: ObjectIdentifier?
     private var watchdog: DispatchSourceTimer?
 
-    func engage(for client: ObjectIdentifier, reply: @escaping (Bool, String?) -> Void) {
+    func engage(for client: ObjectIdentifier, reply: @escaping @Sendable (Bool, String?) -> Void) {
         queue.async {
             let kr = RootDomain.write(true)
             let now = RootDomain.read() ?? false
@@ -94,7 +94,7 @@ final class Lease: @unchecked Sendable {
         for client: ObjectIdentifier?,
         reason: String,
         sleepIfLidClosed: Bool? = nil,
-        reply: ((Bool, String?) -> Void)? = nil
+        reply: (@Sendable (Bool, String?) -> Void)? = nil
     ) {
         queue.async {
             // A client may only release its own lease, but the helper itself
@@ -128,7 +128,7 @@ final class Lease: @unchecked Sendable {
         }
     }
 
-    func heartbeat(from client: ObjectIdentifier, reply: @escaping (Bool) -> Void) {
+    func heartbeat(from client: ObjectIdentifier, reply: @escaping @Sendable (Bool) -> Void) {
         queue.async {
             guard self.holder == client else {
                 reply(false)
@@ -160,7 +160,7 @@ final class ClientSession: NSObject, SleepHelperProtocol {
         id = ObjectIdentifier(connection)
     }
 
-    func setSleepDisabled(_ disabled: Bool, reply: @escaping (Bool, String?) -> Void) {
+    func setSleepDisabled(_ disabled: Bool, reply: @escaping @Sendable (Bool, String?) -> Void) {
         if disabled {
             Lease.shared.engage(for: id, reply: reply)
         } else {
@@ -168,19 +168,19 @@ final class ClientSession: NSObject, SleepHelperProtocol {
         }
     }
 
-    func releaseOverride(sleepIfLidClosed: Bool, reply: @escaping (Bool, String?) -> Void) {
+    func releaseOverride(sleepIfLidClosed: Bool, reply: @escaping @Sendable (Bool, String?) -> Void) {
         Lease.shared.release(for: id, reason: "client asked", sleepIfLidClosed: sleepIfLidClosed, reply: reply)
     }
 
-    func currentState(reply: @escaping (Bool) -> Void) {
+    func currentState(reply: @escaping @Sendable (Bool) -> Void) {
         reply(RootDomain.read() ?? false)
     }
 
-    func heartbeat(reply: @escaping (Bool) -> Void) {
+    func heartbeat(reply: @escaping @Sendable (Bool) -> Void) {
         Lease.shared.heartbeat(from: id, reply: reply)
     }
 
-    func helperBuild(reply: @escaping (String, String) -> Void) {
+    func helperBuild(reply: @escaping @Sendable (String, String) -> Void) {
         reply(launchedFrom.build, launchedFrom.bundlePath)
     }
 }
@@ -195,7 +195,8 @@ let launchedFrom: (build: String, bundlePath: String) = {
     )
 }()
 
-final class ListenerDelegate: NSObject, NSXPCListenerDelegate {
+// `lock` guards `liveConnections`, the only mutable state.
+final class ListenerDelegate: NSObject, NSXPCListenerDelegate, @unchecked Sendable {
     private let lock = NSLock()
     private var liveConnections = 0
 

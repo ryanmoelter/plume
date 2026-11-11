@@ -4,6 +4,7 @@ import AppKit
 import GhosttyTheme
 @testable import Plume
 
+@MainActor
 struct ThemeChromeTests {
     private let definitions = GhosttyThemeResolver.ResolvedDefinitions(
         light: GhosttyThemeDefinition(name: "Lum light", background: "fffbf7", foreground: "4e463f"),

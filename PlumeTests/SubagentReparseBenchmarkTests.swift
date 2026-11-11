@@ -6,7 +6,7 @@ import Foundation
 /// pass `TEST_RUNNER_PLUME_SUBAGENT_BENCH=<results file>` to `xcodebuild test`.
 @MainActor
 struct SubagentReparseBenchmarkTests {
-    private static let output = ProcessInfo.processInfo.environment["PLUME_SUBAGENT_BENCH"]
+    private nonisolated static let output = ProcessInfo.processInfo.environment["PLUME_SUBAGENT_BENCH"]
 
     @Test(.enabled(if: output != nil))
     func appendingToOneSubagentOfHundreds() async throws {

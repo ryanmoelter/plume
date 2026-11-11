@@ -1,7 +1,7 @@
 import Foundation
 import os
 
-enum AppPaths {
+nonisolated enum AppPaths {
     /// `Plume.debug` for the debug build, whose bundle ID carries that
     /// suffix, and `Plume` otherwise — so a debug run never writes the store,
     /// hooks and events the installed app reads. A debug build from a

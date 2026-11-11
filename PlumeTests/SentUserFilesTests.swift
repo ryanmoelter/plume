@@ -4,6 +4,7 @@ import Testing
 
 /// A `SendUserFile` call draws its images inline and every other file as a
 /// card, unless the call asks to attach, which makes every file a card.
+@MainActor
 struct SentUserFilesTests {
     private let screenshot = "/tmp/shots/A1-home.png"
     private let report = "/tmp/shots/report.pdf"
@@ -69,6 +70,7 @@ struct SentUserFilesTests {
 }
 
 /// An `Agent` call links to the subagent whose descriptor names its tool use.
+@MainActor
 struct ChatSubagentOpenerTests {
     private func subagent(_ id: String, toolUseID: String?) -> SubagentTranscript {
         SubagentTranscript(

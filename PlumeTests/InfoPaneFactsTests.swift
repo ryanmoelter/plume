@@ -277,6 +277,7 @@ struct InfoPaneFactsTests {
     }
 }
 
+@MainActor
 struct InfoPaneLayoutTests {
     private let chatColumn: CGFloat = 672
     private let comfortable: CGFloat = 400

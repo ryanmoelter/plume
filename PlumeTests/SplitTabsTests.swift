@@ -397,6 +397,7 @@ struct SplitTabsTests {
     }
 }
 
+@MainActor
 struct SplitLayoutTests {
     @Test func onePaneFillsTheWidth() {
         let layout = SplitLayout(paneCount: 1, fraction: 0.3, width: 1000, minimumPaneWidth: 360)

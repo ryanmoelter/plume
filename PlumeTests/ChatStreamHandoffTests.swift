@@ -6,6 +6,7 @@ import Testing
 /// The seam between the live stream and the transcript that replaces it.
 /// Both a gap (nothing rendered) and a duplicate (both rendered) are bugs, so
 /// each case here pins one side of that.
+@MainActor
 struct ChatStreamHandoffTests {
     private func message(
         _ id: String,

@@ -107,7 +107,7 @@ final class TranscriptStore {
     /// mid-turn) is not dormant — it was never restored from disk — so
     /// `settlingDormant` needs this in addition to `StatusEngine.isDormant`
     /// to catch a subagent left reading `working` with nothing behind it.
-    private let isTabLive: (UUID) -> Bool
+    private let isTabLive: @MainActor (UUID) -> Bool
 
     /// Fires after every read settles, whether or not it published anything.
     /// Tests await this instead of polling a clock, which a parallel run's
@@ -134,7 +134,7 @@ final class TranscriptStore {
         statusOverrides: SubagentStatusOverrides = .shared,
         projectsDirectory: URL = SessionJSONLReader.projectsDirectory,
         carriedSubagentExpiry: Duration = .seconds(60),
-        isTabLive: @escaping (UUID) -> Bool = TranscriptStore.hasLiveSession
+        isTabLive: @escaping @MainActor (UUID) -> Bool = TranscriptStore.hasLiveSession
     ) {
         self.debounce = debounce
         self.statusEngine = statusEngine
@@ -408,7 +408,7 @@ final class TranscriptStore {
     }
 
     /// Everything a read derives from the main transcript's bytes alone.
-    private nonisolated struct ParentParse {
+    private nonisolated struct ParentParse: Sendable {
         let fingerprint: FileFingerprint?
         let transcript: Transcript
         let backgroundTasks: [BackgroundTaskTracker.Entry]
@@ -451,7 +451,7 @@ final class TranscriptStore {
         }
     }
 
-    private nonisolated struct ParsedRead {
+    private nonisolated struct ParsedRead: Sendable {
         let parent: ParentParse
         var transcript: Transcript { parent.transcript }
         let subagents: [SubagentTranscript]

@@ -42,5 +42,5 @@ final class TaskGroup {
 
 extension PersistentModel {
     /// False once the model is deleted, when writing to it can trap.
-    var isLive: Bool { modelContext != nil && !isDeleted }
+    nonisolated var isLive: Bool { modelContext != nil && !isDeleted }
 }

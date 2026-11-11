@@ -4,6 +4,7 @@ import SwiftUI
 import Testing
 @testable import Plume
 
+@MainActor
 struct SidebarDragItemTests {
     @Test(arguments: [
         SidebarDragItem.tab(UUID()), .task(UUID()), .group(UUID()),
@@ -24,6 +25,7 @@ struct SidebarDragItemTests {
     }
 }
 
+@MainActor
 struct SidebarDropRulesTests {
     private let a = UUID(), b = UUID(), c = UUID()
 

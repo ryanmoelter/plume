@@ -52,7 +52,7 @@ struct InlineChips {
     var lineGap: CGFloat = 1
     var radius: CGFloat = 4
 
-    static let defaultVerticalPad: CGFloat = 2
+    nonisolated static let defaultVerticalPad: CGFloat = 2
 
     enum Chip: Equatable {
         case code(Int)
