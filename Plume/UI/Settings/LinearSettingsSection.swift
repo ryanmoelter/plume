@@ -49,6 +49,19 @@ struct LinearSettingsSection: View {
             }
             .plumeID(AccessibilityID.linearStateColorsPicker, value: settings.linearStateColors.rawValue)
 
+            Picker("Open pull requests in", selection: $settings.pullRequestDestination) {
+                ForEach(PullRequestDestination.allCases) { Text($0.displayName).tag($0) }
+            }
+            .plumeID(
+                AccessibilityID.pullRequestDestinationPicker,
+                value: settings.pullRequestDestination.rawValue,
+                setValue: { value in
+                    if let destination = PullRequestDestination(rawValue: value) {
+                        settings.pullRequestDestination = destination
+                    }
+                }
+            )
+
         } header: {
             Text("Linear")
         }

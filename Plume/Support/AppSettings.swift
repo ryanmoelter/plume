@@ -78,6 +78,7 @@ final class AppSettings {
         static let bundledSkillsPromptDismissed = "bundledSkillsPromptDismissed"
         static let automaticallyChecksForUpdates = "automaticallyChecksForUpdates"
         static let updateChannelRaw = "updateChannelRaw"
+        static let pullRequestDestinationRaw = "pullRequestDestinationRaw"
         static let remoteDeviceProjectID = "remoteDeviceProjectID"
         static let remoteDeviceSignInTaskID = "remoteDeviceSignInTaskID"
     }
@@ -314,6 +315,7 @@ final class AppSettings {
             ? true
             : defaults.bool(forKey: Key.automaticallyChecksForUpdates)
         self.updateChannel = defaults.string(forKey: Key.updateChannelRaw).flatMap(UpdateChannel.init(rawValue:)) ?? .stable
+        self.pullRequestDestination = defaults.string(forKey: Key.pullRequestDestinationRaw).flatMap(PullRequestDestination.init(rawValue:)) ?? .github
     }
 
     /// Overrides where worktrees are created. Nil (the default) means
@@ -959,6 +961,12 @@ final class AppSettings {
     var updateChannel: UpdateChannel {
         didSet {
             defaults.set(updateChannel.rawValue, forKey: Key.updateChannelRaw)
+        }
+    }
+
+    var pullRequestDestination: PullRequestDestination {
+        didSet {
+            defaults.set(pullRequestDestination.rawValue, forKey: Key.pullRequestDestinationRaw)
         }
     }
 }

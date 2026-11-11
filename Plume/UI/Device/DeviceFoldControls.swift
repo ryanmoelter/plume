@@ -3,14 +3,20 @@ import SwiftUI
 /// The fold postures of a device with a hinge, as one toolbar button each. Shows nothing for a device without one.
 struct DeviceFoldControls: View {
     let session: DeviceSession
+    var vertical = false
 
     var body: some View {
         if !session.postures.isEmpty {
-            HStack(spacing: 2) {
+            let layout = vertical ? AnyLayout(VStackLayout(spacing: 2)) : AnyLayout(HStackLayout(spacing: 2))
+            layout {
                 ForEach(session.postures, id: \.self) { posture in
                     button(for: posture)
                 }
-                Divider().frame(height: 14).padding(.horizontal, 4)
+                if vertical {
+                    Divider().frame(width: 14).padding(.vertical, 4)
+                } else {
+                    Divider().frame(height: 14).padding(.horizontal, 4)
+                }
             }
         }
     }
