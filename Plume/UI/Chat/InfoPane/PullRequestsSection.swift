@@ -260,11 +260,6 @@ private struct PullRequestRow: View, ThemedView {
                             .lineLimit(1)
                             .truncationMode(.tail)
                             .emphasis(item.role == .mentioned ? .secondary : .primary)
-                        if let summary = item.summary {
-                            ForEach(Array(PullRequestRowContent.trailing(summary).enumerated()), id: \.offset) {
-                                PullRequestGlyphImage(glyph: $0.element)
-                            }
-                        }
                     }
                     Text(item.summary.map(PullRequestRowContent.detail) ?? label)
                         .lineLimit(1)
@@ -294,7 +289,7 @@ private struct PullRequestRow: View, ThemedView {
     @ViewBuilder
     private var leadingGlyph: some View {
         if let summary = item.summary {
-            PullRequestGlyphImage(glyph: PullRequestRowContent.leading(summary))
+            PullRequestGlyphImage(glyph: PullRequestRowContent.leadingWithoutChecks(summary))
         } else {
             Image(systemName: "arrow.triangle.pull")
                 .emphasis(.secondary)
@@ -313,9 +308,7 @@ private struct PullRequestRow: View, ThemedView {
     }
 
     private var help: String {
-        let url = item.url?.absoluteString ?? label
-        let status = item.summary.map(PullRequestRowContent.accessibilityText).map { "\($0) " } ?? ""
-        return item.role == .mentioned ? "Mentioned in the conversation: \(status)\(url)" : "\(status)\(url)"
+        PullRequestRowContent.tooltip(item.summary, number: item.number, forgeName: forgeName)
     }
 
     private var forgeName: String {
@@ -403,12 +396,14 @@ private struct PullRequestChecksRow: View, ThemedView {
                 if let rollup = PullRequestChipContent.checkGlyph(summary.checkRollup) {
                     PullRequestGlyphImage(glyph: rollup)
                 }
-                Text("Checks")
                 Text(CheckListContent.summary(entries))
                     .lineLimit(1)
                     .truncationMode(.tail)
                     .emphasis(.subtle)
-                Spacer(minLength: 0)
+                Spacer(minLength: 4)
+                Image(systemName: "info.circle")
+                    .foregroundStyle(colors.selection)
+                    .frame(width: InfoPaneLayout.iconColumnWidth)
             }
             .emphasis(.secondary)
         }
@@ -434,13 +429,12 @@ private struct PullRequestChecksPopover: View, ThemedView {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 6) {
-            HStack(spacing: 6) {
+            VStack(alignment: .leading, spacing: 2) {
                 Text(title)
                     .emphasis(.primary)
                 Text(CheckListContent.summary(entries))
-                    .lineLimit(1)
-                    .truncationMode(.tail)
                     .emphasis(.subtle)
+                    .fixedSize(horizontal: false, vertical: true)
             }
             Divider()
             ScrollView {
