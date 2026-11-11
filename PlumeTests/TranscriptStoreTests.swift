@@ -327,6 +327,33 @@ struct TranscriptStoreTests {
         )
     }
 
+    @Test func aSubagentsWriteReparsesOnlyThatSubagent() async throws {
+        let dir = makeTempDirectory()
+        defer { try? FileManager.default.removeItem(at: dir) }
+        let fixture = SubagentFixture(directory: dir, subagentCount: 20, linesPerSubagent: 6, parentLines: 6)
+        try fixture.write()
+
+        let store = TranscriptStore(debounce: .milliseconds(10), isTabLive: { _ in true })
+        let tab = UUID()
+        var reads: [(stats: SubagentTranscriptCache.Stats, reusedParent: Bool)] = []
+        store.didParseSubagents = { _, stats, reusedParent in reads.append((stats, reusedParent)) }
+        store.watch(tabID: tab, transcriptPath: fixture.parentPath.path)
+        await waitUntil(store) { store.subagents(forTab: tab).count == 20 }
+        #expect(reads.first?.stats.fullParses == 20)
+
+        reads.removeAll()
+        try fixture.append(SubagentFixture.assistantText("fresh"), to: fixture.subagentPath(7))
+        await waitUntil(store) {
+            store.subagents(forTab: tab).first { $0.id == "a00007" }?.transcript.messages.last?.blocks
+                .contains(.markdown("fresh")) ?? false
+        }
+
+        let read = try #require(reads.last)
+        #expect(read.stats == .init(reused: 19, appended: 1, fullParses: 0))
+        #expect(read.reusedParent)
+        store.stopAll()
+    }
+
     /// Without a sidecar the description comes from the parent's spawning
     /// tool call, matched to the agent id its result reports.
     @Test func aSubagentWithNoSidecarIsDescribedFromTheParent() async {

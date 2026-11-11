@@ -90,7 +90,19 @@ nonisolated enum TranscriptParser {
     /// A subagent's own transcript file marks every line `isSidechain`, so
     /// parsing one needs `includeSidechain` or it yields nothing at all.
     static func parse(_ data: Data, includeSidechain: Bool = false) -> Transcript {
+        parse(entries: decodedEntries(in: data), includeSidechain: includeSidechain)
+    }
+
+    /// Every line of `data` that decodes, in file order. Lazy, so `parse`
+    /// never holds a whole file decoded at once.
+    static func decodedEntries(in data: Data) -> some Sequence<TranscriptEntry> {
         let decoder = JSONDecoder()
+        return data.split(separator: UInt8(ascii: "\n")).lazy.compactMap { line in
+            try? decoder.decode(TranscriptEntry.self, from: Data(line))
+        }
+    }
+
+    static func parse(entries: some Sequence<TranscriptEntry>, includeSidechain: Bool = false) -> Transcript {
         var transcript = Transcript()
 
         // A pending, still-open run of assistant lines, folded into one
@@ -195,10 +207,7 @@ nonisolated enum TranscriptParser {
         var lastSlashCommand: String?
         var handbackID: String?
 
-        for line in data.split(separator: UInt8(ascii: "\n")) {
-            guard !line.isEmpty, let entry = try? decoder.decode(TranscriptEntry.self, from: Data(line)) else {
-                continue
-            }
+        for entry in entries {
             if entry.isSidechain, !includeSidechain { continue }
 
             // One real transcript carries 1,339 byte-identical duplicate
