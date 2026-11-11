@@ -59,9 +59,31 @@ struct PullRequestRowContentTests {
         #expect(PullRequestRowContent.detail(merged) == "#66032 · merged")
     }
 
-    @Test func theDetailLineNamesNumberStateAndChecks() {
-        #expect(PullRequestRowContent.detail(pull(isDraft: true, checks: passing)) == "#66032 · draft · checks pass")
+    @Test func theDetailLineNamesNumberStateAndReview() {
+        #expect(PullRequestRowContent.detail(pull(isDraft: true, hasReviewers: true, checks: passing)) == "#66032 · draft · awaiting review")
+        #expect(PullRequestRowContent.detail(pull(review: .approved)) == "#66032 · open · approved")
+        #expect(PullRequestRowContent.detail(pull(review: .changesRequested)) == "#66032 · open · changes requested")
         #expect(PullRequestRowContent.detail(pull()) == "#66032 · open")
+        #expect(PullRequestRowContent.detail(pull(state: .merged, review: .approved)) == "#66032 · merged")
+    }
+
+    @Test func theInfoPaneLeadingGlyphIgnoresChecks() {
+        #expect(PullRequestRowContent.leadingWithoutChecks(pull(checks: passing)).label == "open")
+        #expect(PullRequestRowContent.leadingWithoutChecks(pull(isDraft: true, checks: passing)).label == "draft")
+        #expect(PullRequestRowContent.leadingWithoutChecks(pull(review: .approved, checks: passing)).label == "approved")
+    }
+
+    @Test func theTooltipNamesForgeTitleStateAndReview() {
+        var draft = pull(isDraft: true, hasReviewers: true)
+        draft.title = "Make Sparkle the only updater"
+        #expect(
+            PullRequestRowContent.tooltip(draft, number: 12, forgeName: "GitHub")
+                == "PR #12 on GitHub, Make Sparkle the only updater. Draft, awaiting review"
+        )
+        var merged = pull(state: .merged, review: .approved)
+        merged.title = "Done"
+        #expect(PullRequestRowContent.tooltip(merged, number: 3, forgeName: "GitLab") == "PR #3 on GitLab, Done. Merged")
+        #expect(PullRequestRowContent.tooltip(nil, number: 3, forgeName: "GitHub") == "PR #3 on GitHub")
     }
 
     @Test func anIgnoredPendingCheckDoesNotHoldUpTheRollup() {

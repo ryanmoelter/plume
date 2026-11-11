@@ -92,14 +92,38 @@ nonisolated enum PullRequestRowContent {
         ].compactMap { $0 }
     }
 
-    /// `#123 · draft · checks pending`. Checks on a finished pull request
-    /// are history, so only an open one names them.
+    /// The info pane's status glyph: checks have their own row there, so it
+    /// takes draft, else review, else plain open.
+    static func leadingWithoutChecks(_ pull: PullRequestSummary) -> PullRequestGlyph {
+        if let finished = PullRequestChipContent.finishedGlyph(pull.state) { return finished }
+        if pull.isDraft { return PullRequestChipContent.draft }
+        return PullRequestChipContent.reviewGlyph(pull.reviewDecision, hasReviewers: pull.hasReviewers)
+            ?? PullRequestChipContent.open
+    }
+
+    /// Nil for a finished pull request, whose review no longer matters, and
+    /// for one nobody was asked to review.
+    static func reviewStatus(_ pull: PullRequestSummary) -> String? {
+        guard pull.state == .open else { return nil }
+        return PullRequestChipContent.reviewGlyph(pull.reviewDecision, hasReviewers: pull.hasReviewers)?.label
+    }
+
+    /// `#123 · draft · awaiting review`.
     static func detail(_ pull: PullRequestSummary) -> String {
-        var parts = ["#\(pull.number)", stateWord(pull)]
-        if pull.state == .open, let checks = PullRequestChipContent.checkGlyph(pull.checkRollup) {
-            parts.append(checks.label)
-        }
-        return parts.joined(separator: " · ")
+        ["#\(pull.number)", stateWord(pull), reviewStatus(pull)].compactMap { $0 }.joined(separator: " · ")
+    }
+
+    /// `PR #12 on GitHub, Make Sparkle the only updater. Draft, awaiting review`
+    static func tooltip(_ pull: PullRequestSummary?, number: Int, forgeName: String) -> String {
+        let head = "PR #\(number) on \(forgeName)"
+        guard let pull else { return head }
+        var text = head
+        if let title = pull.title, !title.isEmpty { text += ", \(title)." } else { text += "." }
+        let facts = [
+            ReferenceChipTooltip.stateLabel(pull.state, isDraft: pull.isDraft),
+            reviewStatus(pull),
+        ].compactMap { $0 }
+        return text + " " + facts.joined(separator: ", ")
     }
 
     static func stateWord(_ pull: PullRequestSummary) -> String {
