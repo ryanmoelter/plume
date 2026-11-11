@@ -61,7 +61,7 @@ nonisolated final class RemoteReservationLedger: @unchecked Sendable {
     }
 }
 
-extension RemoteReservationLedger {
+nonisolated extension RemoteReservationLedger {
     /// A quit ends every reservation, so whatever is left at launch was leaked by a crash or a
     /// release that failed. A remote tab never reconnects; it offers Reserve Again.
     static func sweepAtLaunch() {

@@ -48,7 +48,7 @@ nonisolated struct RemoteDeviceModel: Hashable, Sendable, Identifiable {
     }
 }
 
-extension RemoteDeviceModel.FormFactor {
+nonisolated extension RemoteDeviceModel.FormFactor {
     /// Guessed from the model name, since the service reports no form factor.
     init(modelName name: String) {
         if name.range(of: #"\b(Tab|Tablet|Pad)\b"#, options: [.regularExpression, .caseInsensitive]) != nil {
