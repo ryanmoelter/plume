@@ -3,7 +3,7 @@ import Foundation
 @testable import Plume
 
 /// Times a store read after one subagent of hundreds appends a line. Opt-in:
-/// set `TEST_RUNNER_PLUME_SUBAGENT_BENCH` to a file path to write results to.
+/// pass `TEST_RUNNER_PLUME_SUBAGENT_BENCH=<results file>` to `xcodebuild test`.
 @MainActor
 struct SubagentReparseBenchmarkTests {
     private static let output = ProcessInfo.processInfo.environment["PLUME_SUBAGENT_BENCH"]
@@ -22,6 +22,10 @@ struct SubagentReparseBenchmarkTests {
         await waitUntil(store) { store.subagents(forTab: tab).count == fixture.subagentCount }
         let firstRead = ContinuousClock.now - firstStart
 
+        var parsesPerRead: [String] = []
+        store.didParseSubagents = { _, stats, reusedParent in
+            parsesPerRead.append("full=\(stats.fullParses) appended=\(stats.appended) reused=\(stats.reused) parentReused=\(reusedParent)")
+        }
         var samples: [Duration] = []
         for round in 0..<8 {
             let target = fixture.subagentPath(round * 37 % fixture.subagentCount)
@@ -44,6 +48,8 @@ struct SubagentReparseBenchmarkTests {
             subagents=\(fixture.subagentCount) bytes=\(fixture.totalSubagentBytes()) parentBytes=\(fixture.parentBytes())
             firstRead=\(firstRead)
             appendRead median=\(sorted[sorted.count / 2]) min=\(sorted.first!) max=\(sorted.last!)
+            reads after appends:
+            \(parsesPerRead.joined(separator: "\n"))
             """
         if let output = Self.output {
             try report.write(toFile: output, atomically: true, encoding: .utf8)
