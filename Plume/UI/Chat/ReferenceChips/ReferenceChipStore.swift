@@ -43,7 +43,7 @@ final class ReferenceChipStore {
     /// How long a missing file or a failed pull request lookup waits before
     /// it is asked about again.
     static let retryInterval: TimeInterval = 30
-    static let coalescing: Duration = .milliseconds(250)
+    nonisolated static let coalescing: Duration = .milliseconds(250)
     static let pullRequestDebounce: Duration = .milliseconds(100)
 
     @Observable

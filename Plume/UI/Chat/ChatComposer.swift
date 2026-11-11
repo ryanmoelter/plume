@@ -539,7 +539,7 @@ struct ChatComposer: View, ThemedView {
     /// `NSTextView` draws its first glyph one line-fragment padding in from
     /// its frame, which the composer's own inset has to account for.
     private static let lineFragmentPadding: CGFloat = 5
-    private static let rootSpace = "ChatComposer.root"
+    private nonisolated static let rootSpace = "ChatComposer.root"
     private static let suggestionPanelAnimation = Animation.easeOut(duration: 0.18)
 
     private var sendButtonHelp: String {

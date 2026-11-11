@@ -20,7 +20,7 @@ struct TabStripView: View {
     @State private var chipFrames: [UUID: CGRect] = [:]
 
     private static let chipSpacing: CGFloat = 6
-    private static let coordinateSpace = "tabStrip"
+    private nonisolated static let coordinateSpace = "tabStrip"
 
     private func addTab(_ kind: TabKind) {
         TaskStore.addTab(to: task, kind: kind, pane: pane, in: context)

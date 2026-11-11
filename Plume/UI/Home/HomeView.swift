@@ -132,7 +132,7 @@ private struct HomeContent: View, ThemedView {
         } action: { _, snapshot in
             scrollGeometry.latest = snapshot
         }
-        .onGeometryChange(for: Bool.self) { proxy in
+        .onGeometryChange(for: Bool.self) { [dimensions] proxy in
             (proxy.size.width - dimensions.contentWidth) / 2
                 >= HomeRow.gutterWidth + dimensions.horizontalEdgePadding
         } action: { hangsMarkers = $0 }
@@ -250,7 +250,7 @@ private struct HomeSectionStyle {
 /// Where the page is scrolled to. Not observable, so scrolling never
 /// re-renders the page.
 private final class HomeScrollGeometry {
-    static let contentSpace = "homeScrollContent"
+    nonisolated static let contentSpace = "homeScrollContent"
 
     struct Snapshot: Equatable {
         var offset: CGFloat
@@ -485,12 +485,12 @@ private struct HomeGreetingHeader: View, ThemedView {
 
 private struct HomeRow: View, ThemedView {
     static let horizontalPadding: CGFloat = 10
-    private static let markerWidth: CGFloat = 18
-    private static let markerSpacing: CGFloat = 8
-    private static let barWidth: CGFloat = 3
-    private static let barTextGap: CGFloat = 8
+    private nonisolated static let markerWidth: CGFloat = 18
+    private nonisolated static let markerSpacing: CGFloat = 8
+    private nonisolated static let barWidth: CGFloat = 3
+    private nonisolated static let barTextGap: CGFloat = 8
     /// What sits left of the keyline: the status marker and the color bar.
-    static let gutterWidth = markerWidth + markerSpacing + barWidth + barTextGap
+    nonisolated static let gutterWidth = markerWidth + markerSpacing + barWidth + barTextGap
     private static let contextSeparator = "  •  "
 
     let item: HomeFeed.Item

@@ -95,7 +95,7 @@ nonisolated enum ReferenceChipText {
     }
 }
 
-extension MarkdownBlock {
+nonisolated extension MarkdownBlock {
     /// The block with `transform` applied to each run of inline markdown it
     /// holds. Code blocks and rules have none.
     nonisolated func mappingInline(_ transform: (String) -> String) -> MarkdownBlock {

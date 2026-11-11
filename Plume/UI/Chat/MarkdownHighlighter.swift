@@ -342,6 +342,6 @@ nonisolated enum MarkdownHighlighter {
     }
 }
 
-private func unicharAscii(_ scalar: Unicode.Scalar) -> unichar {
+private nonisolated func unicharAscii(_ scalar: Unicode.Scalar) -> unichar {
     unichar(scalar.value)
 }

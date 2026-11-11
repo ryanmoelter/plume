@@ -70,5 +70,5 @@ enum WindowCapture {
 }
 
 @_silgen_name("CGWindowListCreateImage")
-private func cgWindowListCreateImage(_ screenBounds: CGRect, _ listOption: UInt32, _ windowID: UInt32, _ imageOption: UInt32) -> Unmanaged<CGImage>?
+nonisolated private func cgWindowListCreateImage(_ screenBounds: CGRect, _ listOption: UInt32, _ windowID: UInt32, _ imageOption: UInt32) -> Unmanaged<CGImage>?
 #endif

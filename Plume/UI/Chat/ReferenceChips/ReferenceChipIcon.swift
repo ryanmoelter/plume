@@ -50,7 +50,7 @@ nonisolated struct ReferenceChipIcon: Hashable, Sendable {
     }
 }
 
-extension ResolvedMention.State {
+nonisolated extension ResolvedMention.State {
     nonisolated func chipIcon(number: Int?) -> ReferenceChipIcon {
         switch self {
         case let .linear(stateType, colorHex): .linear(stateType, colorHex: colorHex)

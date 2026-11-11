@@ -103,13 +103,16 @@ final class OverlayView: NSView {
         needsDisplay = true
         timer?.invalidate()
         timer = Timer.scheduledTimer(withTimeInterval: 1 / 60, repeats: true) { [weak self] timer in
-            MainActor.assumeIsolated {
-                guard let self else { timer.invalidate(); return }
+            let isFinished = MainActor.assumeIsolated { () -> Bool in
+                guard let self else { return true }
                 let now = Date.timeIntervalSinceReferenceDate
                 self.rings.removeAll { now - $0.started > Self.ringDuration }
                 self.needsDisplay = true
-                if self.rings.isEmpty { timer.invalidate(); self.timer = nil }
+                guard self.rings.isEmpty else { return false }
+                self.timer = nil
+                return true
             }
+            if isFinished { timer.invalidate() }
         }
     }
 

@@ -243,7 +243,7 @@ enum SentFileImageCache {
 
     private static let limit = 24
     /// Twice the widest the chat column draws an image, for a Retina screen.
-    private static let maxPixelSize = 1600
+    private nonisolated static let maxPixelSize = 1600
 
     private static var cache: [URL: Entry] = [:]
 
