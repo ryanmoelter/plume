@@ -71,6 +71,17 @@ struct CLICommandLineTests {
         #expect(throws: CLIUsageError.self) { try parse(["tab", "new", "--bogus"]) }
     }
 
+    @Test func issueParsesItsActionIdentifierAndTask() throws {
+        #expect(try parse(["issue", "link", "PLUME-287"]) == .issue(.link, issue: "PLUME-287", taskID: nil))
+        #expect(try parse(["issue", "unlink", "--task", "T", "plume-287"]) == .issue(.unlink, issue: "plume-287", taskID: "T"))
+        #expect(throws: CLIUsageError.self) { try parse(["issue"]) }
+        #expect(throws: CLIUsageError.self) { try parse(["issue", "add", "A-1"]) }
+        #expect(throws: CLIUsageError.self) { try parse(["issue", "link"]) }
+        #expect(throws: CLIUsageError.self) { try parse(["issue", "link", "A-1", "B-2"]) }
+        #expect(throws: CLIUsageError.self) { try parse(["issue", "link", "--task"]) }
+        #expect(throws: CLIUsageError.self) { try parse(["issue", "link", "--bogus", "A-1"]) }
+    }
+
     @Test func presenceAndInitParse() throws {
         #expect(try parse(["presence"]) == .presence(json: false))
         #expect(try parse(["presence", "--json"]) == .presence(json: true))

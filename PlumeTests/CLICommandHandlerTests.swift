@@ -165,6 +165,56 @@ struct CLICommandHandlerTests {
         #expect(await !handler.handle(.notify(.init(tabID: UUID(), title: "t", body: ""))).ok)
     }
 
+    // MARK: issue.link
+
+    @Test func linkingAnIssueFromATabLinksItToThatTabsCurrentTask() async throws {
+        let original = TaskStore.createTask(in: context, siblings: [])
+        let destination = TaskStore.createTask(in: context, siblings: [original])
+        let caller = TaskStore.addTab(to: original, kind: .terminal, in: context)
+        TaskStore.moveTab(caller, to: destination)
+        let handler = CLICommandHandler()
+        handler.orderedWindows = { [] }
+        var refreshed: [String] = []
+        handler.refreshLinearTeam = { refreshed.append($0) }
+        handler.registerWindow(UUID(), registration(tasks: [original, destination]))
+
+        let response = await handler.handle(
+            .linkIssue(.init(issue: "https://linear.app/team/issue/plume-287/title", tabID: caller.id))
+        )
+
+        #expect(response.ok)
+        #expect(response.issue == "PLUME-287")
+        #expect(response.taskID == destination.id)
+        #expect(TaskStore.linearLinks(for: destination).manual.map(\.identifier) == ["PLUME-287"])
+        #expect(TaskStore.linearLinks(for: original).isEmpty)
+        #expect(refreshed == ["PLUME"])
+    }
+
+    @Test func unlinkingAnIssueDemotesIt() async throws {
+        let task = TaskStore.createTask(in: context, siblings: [])
+        TaskStore.linkLinearIssue("PLUME-287", to: task)
+        let handler = makeHandler(task: task)
+
+        let response = await handler.handle(.unlinkIssue(.init(issue: "plume-287", taskID: task.id)))
+
+        #expect(response.ok)
+        let links = TaskStore.linearLinks(for: task)
+        #expect(links.manual.isEmpty)
+        #expect(links.unlinked == ["PLUME-287"])
+    }
+
+    @Test func linkingNeedsAnIdentifierAndAKnownCaller() async throws {
+        let task = TaskStore.createTask(in: context, siblings: [])
+        let handler = makeHandler(task: task)
+        handler.refreshLinearTeam = { _ in }
+
+        #expect(await !handler.handle(.linkIssue(.init(issue: "not an issue", taskID: task.id))).ok)
+        #expect(await !handler.handle(.linkIssue(.init(issue: "A-1", taskID: UUID()))).ok)
+        #expect(await !handler.handle(.linkIssue(.init(issue: "A-1", tabID: UUID()))).ok)
+        #expect(await !handler.handle(.linkIssue(.init(issue: "A-1"))).ok)
+        #expect(TaskStore.linearLinks(for: task).isEmpty)
+    }
+
     // MARK: devices.show
 
     private func show(_ handler: CLICommandHandler, caller: TaskTab, avd: String = "Pixel_8") async -> CLIResponse {

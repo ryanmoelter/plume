@@ -26,6 +26,8 @@ func run(_ invocation: CLIInvocation) -> Int32 {
         }
     case .newTab(let directory, let taskID, let select):
         return NewTab.run(directory: directory, taskID: taskID, select: select)
+    case .issue(let action, let issue, let taskID):
+        return IssueLink.run(action, issue: issue, taskID: taskID)
     case .shellInit(let aliasNames):
         print(ShellIntegration.zsh(aliasNames: aliasNames), terminator: "")
     case .wt(let arguments):
@@ -118,6 +120,48 @@ enum NewTab {
         let expanded = (path as NSString).expandingTildeInPath
         let base = URL(fileURLWithPath: FileManager.default.currentDirectoryPath, isDirectory: true)
         return URL(fileURLWithPath: expanded, relativeTo: base).standardizedFileURL.path
+    }
+}
+
+enum IssueLink {
+    /// Names the task the way `tab new` does: `--task`, else the calling tab's current task, else
+    /// `PLUME_TASK_ID`. Prints the identifier the app linked.
+    static func run(_ action: IssueAction, issue: String, taskID: String?) -> Int32 {
+        var params = CLIRequest.LinkIssue(issue: issue)
+        if let taskID {
+            guard let taskUUID = UUID(uuidString: taskID) else {
+                printError("plume: '\(taskID)' is not a task ID")
+                return CLIExitCode.usage
+            }
+            params.taskID = taskUUID
+        } else if let tabID = environment[CLISocket.tabIDEnvironmentKey].flatMap(UUID.init(uuidString:)) {
+            params.tabID = tabID
+        } else if let taskUUID = environment[CLISocket.taskIDEnvironmentKey].flatMap(UUID.init(uuidString:)) {
+            params.taskID = taskUUID
+        } else {
+            printError("plume: not inside a Plume task; pass --task ID")
+            return CLIExitCode.failure
+        }
+        guard let path = CLISocket.resolvedPath(environment: environment) else {
+            printError("plume: this tab's Plume exported no \(CLISocket.pathEnvironmentKey), so it can't be reached")
+            return CLIExitCode.failure
+        }
+        let request: CLIRequest = action == .link ? .linkIssue(params) : .unlinkIssue(params)
+        do {
+            let response = try CLISocket.send(request, to: path, replyTimeout: 30)
+            guard response.ok, let identifier = response.issue else {
+                printError("plume: \(response.error ?? "Plume could not \(action.rawValue) the issue")")
+                return CLIExitCode.failure
+            }
+            print(identifier)
+            return CLIExitCode.success
+        } catch CLISocket.ClientError.unreachable {
+            printError("plume: Plume isn't running")
+            return CLIExitCode.failure
+        } catch {
+            printError("plume: \(error.localizedDescription)")
+            return CLIExitCode.failure
+        }
     }
 }
 

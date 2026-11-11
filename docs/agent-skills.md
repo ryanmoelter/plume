@@ -8,7 +8,7 @@ Plume teaches Claude Code about itself in two ways: skills it copies into `~/.cl
 
 | Skill | Teaches |
 |---|---|
-| `plume-cli` | `plume notify`, `presence`, `tab new` and `init` |
+| `plume-cli` | `plume notify`, `presence`, `tab new`, `issue` and `init` |
 | `plume-worktrees` | `plume wt` |
 | `plume-stack` | `plume stack` |
 | `plume-devices` | `plume devices` |
