@@ -15,6 +15,13 @@ struct ReviewDocumentActions {
     var moveFile: (Int) -> Void = { _ in }
 }
 
+enum ReviewLineHighlight: Equatable {
+    /// Under a gutter drag.
+    case selecting
+    /// Covered by a draft.
+    case drafted
+}
+
 /// Every changed file as one view-based table: rows recycle, line rows draw
 /// with Core Text, and only comment drafts host SwiftUI.
 ///
@@ -36,6 +43,8 @@ final class ReviewDocumentController: NSObject, NSTableViewDataSource, NSTableVi
     private(set) var segments: [ReviewDocumentSegment] = []
     private(set) var rows: [ReviewDocumentRow] = []
     private var segmentStarts: [String: Int] = [:]
+    private var draftedRows = IndexSet()
+    private(set) var selectingRows: ClosedRange<Int>?
     private var hasLoaded = false
     private var maxColumns = 0
 
@@ -153,9 +162,47 @@ final class ReviewDocumentController: NSObject, NSTableViewDataSource, NSTableVi
         return nil
     }
 
-    func row(at event: NSEvent) -> Int? {
-        let row = tableView.row(at: tableView.convert(event.locationInWindow, from: nil))
-        return row >= 0 ? row : nil
+    /// The row under `windowPoint`. A point above or below the document
+    /// gives the first or last row, so a drag past either end still lands.
+    func row(atWindowPoint windowPoint: NSPoint) -> Int? {
+        guard !rows.isEmpty else { return nil }
+        let point = tableView.convert(windowPoint, from: nil)
+        if point.y < 0 { return 0 }
+        let row = tableView.row(at: NSPoint(x: 0, y: point.y))
+        return row >= 0 ? row : rows.count - 1
+    }
+
+    func highlight(ofRow row: Int) -> ReviewLineHighlight? {
+        if let selectingRows, selectingRows.contains(row) { return .selecting }
+        return draftedRows.contains(row) ? .drafted : nil
+    }
+
+    func setSelectingRows(_ range: ClosedRange<Int>?) {
+        guard range != selectingRows else { return }
+        selectingRows = range
+        refreshHighlights()
+    }
+
+    private func refreshHighlights() {
+        tableView.enumerateAvailableRowViews { rowView, row in
+            (rowView.view(atColumn: 0) as? ReviewLineCell)?.refreshHighlight(row: row)
+        }
+    }
+
+    /// How far a point lies above or below the viewport, for a drag to
+    /// scroll by.
+    func autoscrollDelta(for windowPoint: NSPoint) -> CGFloat {
+        let clip = scrollView.contentView
+        let y = clip.convert(windowPoint, from: nil).y
+        if y < clip.bounds.minY { return y - clip.bounds.minY }
+        if y > clip.bounds.maxY { return y - clip.bounds.maxY }
+        return 0
+    }
+
+    func autoscroll(by delta: CGFloat) {
+        guard delta != 0 else { return }
+        let step = max(-40, min(40, delta / 2))
+        scroll(toY: scrollView.contentView.bounds.minY + step)
     }
 
     private func adopt(_ new: [ReviewDocumentSegment]) {
@@ -163,14 +210,17 @@ final class ReviewDocumentController: NSObject, NSTableViewDataSource, NSTableVi
         var rows: [ReviewDocumentRow] = []
         rows.reserveCapacity(new.reduce(0) { $0 + $1.rows.count })
         var starts: [String: Int] = [:]
+        var drafted = IndexSet()
         var columns = 0
         for segment in new {
             starts[segment.path] = rows.count
+            for offset in segment.draftedRows { drafted.insert(rows.count + offset) }
             rows.append(contentsOf: segment.rows)
             columns = max(columns, segment.columns)
         }
         self.rows = rows
         segmentStarts = starts
+        draftedRows = drafted
         if columns != maxColumns {
             maxColumns = columns
             updateDocumentWidth()
@@ -178,6 +228,8 @@ final class ReviewDocumentController: NSObject, NSTableViewDataSource, NSTableVi
     }
 
     private func didUpdate() {
+        gutter.rowsChanged()
+        refreshHighlights()
         measureWraps()
         resolveReveal()
         scheduleViewportReport()
@@ -433,45 +485,148 @@ final class ReviewDocumentController: NSObject, NSTableViewDataSource, NSTableVi
     }
 }
 
-/// Gutter clicks, in rows. A click drafts a comment on its line; a
-/// shift-click drafts one from the last clicked line to this one, within a
-/// file. A drag-select range belongs in `mouseDragged`.
+/// Gutter presses, in rows. A press drafts a comment on its line, and a
+/// drag drafts one on every line it covers, within the file it started in.
+/// A shift-press starts from where the last comment started instead, so a
+/// shift-click extends that comment to this line.
+///
+/// The drag follows window events through a local monitor rather than the
+/// gutter view, because the view it started in can scroll away and be
+/// reused mid-drag.
 @MainActor
 final class ReviewGutterInteraction {
     private unowned let controller: ReviewDocumentController
     private var anchor: (path: String, identity: ReviewDocumentRow.Identity)?
-    private var press: (row: Int, extending: Bool)?
+    private var drag: Drag?
+    private var monitor: Any?
+    private var autoscrollTimer: Timer?
+
+    private struct Drag {
+        let path: String
+        let start: ReviewDocumentRow.Identity
+        let extending: Bool
+        var point: NSPoint
+    }
 
     init(controller: ReviewDocumentController) {
         self.controller = controller
     }
 
+    var isDragging: Bool { drag != nil }
+
     func mouseDown(row: Int, event: NSEvent) {
-        press = (row, event.modifierFlags.contains(.shift))
+        guard begin(row: row, extending: event.modifierFlags.contains(.shift), at: event.locationInWindow) else { return }
+        monitor = NSEvent.addLocalMonitorForEvents(matching: [.leftMouseDragged, .leftMouseUp, .keyDown]) { [weak self] event in
+            guard let self else { return event }
+            return handle(event)
+        }
     }
 
-    func mouseDragged(row: Int, event: NSEvent) {}
-
-    func mouseUp(row: Int?, event: NSEvent) {
-        guard let press else { return }
-        self.press = nil
-        click(row: press.row, extending: press.extending)
-    }
-
+    /// A press and release on `row`, as a click without a pointer.
     func click(row: Int, extending: Bool) {
+        let point = controller.tableView.convert(NSPoint(x: 0, y: controller.tableView.rect(ofRow: row).midY), to: nil)
+        guard begin(row: row, extending: extending, at: point) else { return }
+        finish()
+    }
+
+    /// Re-resolves the drag's rows after the document changes under it.
+    func rowsChanged() {
+        if drag != nil { update() }
+    }
+
+    private func begin(row: Int, extending: Bool, at point: NSPoint) -> Bool {
+        cancel()
         let rows = controller.rows
-        guard rows.indices.contains(row), case .line = rows[row].kind else { return }
+        guard rows.indices.contains(row), case .line = rows[row].kind else { return false }
         let path = rows[row].path
-        var bounds = row ... row
-        if extending, let anchor, anchor.path == path, let start = controller.index(of: anchor.identity, in: path) {
-            bounds = min(start, row) ... max(start, row)
+        var start = rows[row].identity
+        var extends = false
+        if extending, let anchor, anchor.path == path, controller.index(of: anchor.identity, in: path) != nil {
+            start = anchor.identity
+            extends = true
         }
-        let lines = rows[bounds].compactMap { item -> DiffLine? in
-            if case .line(let line, _, _) = item.kind { return line }
+        drag = Drag(path: path, start: start, extending: extends, point: point)
+        update()
+        return true
+    }
+
+    private func handle(_ event: NSEvent) -> NSEvent? {
+        guard drag != nil else { return event }
+        switch event.type {
+        case .leftMouseDragged:
+            drag?.point = event.locationInWindow
+            update()
+            updateAutoscroll()
             return nil
+        case .leftMouseUp:
+            drag?.point = event.locationInWindow
+            update()
+            finish()
+            return nil
+        case .keyDown where event.keyCode == 53:
+            cancel()
+            return nil
+        default:
+            return event
         }
-        anchor = (path, rows[row].identity)
-        controller.actions.comment(path, lines, extending)
+    }
+
+    private var selection: (path: String, rows: ClosedRange<Int>)? {
+        guard let drag,
+              let start = controller.index(of: drag.start, in: drag.path),
+              let current = controller.row(atWindowPoint: drag.point),
+              let rows = ReviewLineSelection.rows(from: start, to: current, in: controller.rows)
+        else { return nil }
+        return (drag.path, rows)
+    }
+
+    private func update() {
+        guard drag != nil else { return }
+        guard let selection else { return cancel() }
+        controller.setSelectingRows(selection.rows)
+    }
+
+    private func finish() {
+        guard let drag, let selection else { return cancel() }
+        let lines = ReviewLineSelection.lines(in: selection.rows, of: controller.rows)
+        anchor = (drag.path, drag.start)
+        end()
+        controller.actions.comment(drag.path, lines, drag.extending)
+    }
+
+    private func cancel() {
+        guard drag != nil else { return }
+        end()
+    }
+
+    private func end() {
+        drag = nil
+        if let monitor { NSEvent.removeMonitor(monitor) }
+        monitor = nil
+        autoscrollTimer?.invalidate()
+        autoscrollTimer = nil
+        controller.setSelectingRows(nil)
+    }
+
+    private func updateAutoscroll() {
+        guard let drag, controller.autoscrollDelta(for: drag.point) != 0 else {
+            autoscrollTimer?.invalidate()
+            autoscrollTimer = nil
+            return
+        }
+        guard autoscrollTimer == nil else { return }
+        let timer = Timer(timeInterval: 1.0 / 60, repeats: true) { [weak self] _ in
+            MainActor.assumeIsolated { self?.autoscroll() }
+        }
+        RunLoop.main.add(timer, forMode: .common)
+        autoscrollTimer = timer
+    }
+
+    private func autoscroll() {
+        guard let drag else { return }
+        controller.autoscroll(by: controller.autoscrollDelta(for: drag.point))
+        update()
+        updateAutoscroll()
     }
 }
 

@@ -16,6 +16,8 @@ struct ReviewDocumentAppearance: Equatable {
     var addedTint: NSColor
     var removedTint: NSColor
     var hunkTint: NSColor
+    var selectingTint: NSColor
+    var draftedTint: NSColor
     var headerTint: NSColor
     var divider: NSColor
     var keyword: NSColor
@@ -37,6 +39,8 @@ struct ReviewDocumentAppearance: Equatable {
         addedTint = NSColor(colors.success.emphasized(.backgroundTint, in: colors))
         removedTint = NSColor(colors.danger.emphasized(.backgroundTint, in: colors))
         hunkTint = NSColor(colors.attention.opacity(0.08))
+        selectingTint = NSColor(colors.selection.opacity(0.28))
+        draftedTint = NSColor(colors.selection.opacity(0.12))
         headerTint = NSColor(colors.surfaceTint)
         divider = NSColor(colors.divider)
         let syntax = CodeSyntaxPalette(palette: colors)
@@ -64,6 +68,13 @@ struct ReviewDocumentAppearance: Equatable {
         case .modified: warning
         case .deleted: danger
         case .renamed: attention
+        }
+    }
+
+    func tint(for highlight: ReviewLineHighlight) -> NSColor {
+        switch highlight {
+        case .selecting: selectingTint
+        case .drafted: draftedTint
         }
     }
 

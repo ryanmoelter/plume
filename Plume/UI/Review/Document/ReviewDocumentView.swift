@@ -69,7 +69,7 @@ final class ReviewDocumentBridge {
     private struct Anchor: Equatable {
         let id: UUID
         let side: ReviewComment.Side
-        let line: Int
+        let lines: ClosedRange<Int>
     }
 
     init(model: ReviewModel) {
@@ -129,7 +129,7 @@ final class ReviewDocumentBridge {
                 file: file,
                 collapsed: collapsed.contains(file.path),
                 state: State(contents[file.path]),
-                comments: drafts.map { Anchor(id: $0.id, side: $0.side, line: $0.lines.upperBound) }
+                comments: drafts.map { Anchor(id: $0.id, side: $0.side, lines: $0.lines) }
             )
             let cached = cache[file.path].flatMap { $0.key == key ? $0 : nil } ?? Cached(
                 key: key,

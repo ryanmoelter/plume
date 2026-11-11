@@ -66,6 +66,37 @@ nonisolated struct ReviewDocumentSegment: Equatable, Sendable {
     let rows: [ReviewDocumentRow]
     /// Zero unless the file shows code that scrolls sideways.
     let columns: Int
+    /// The line rows a draft covers, as offsets into `rows`.
+    var draftedRows = IndexSet()
+}
+
+/// A drag in the gutter, from the line it started on to the row under the
+/// pointer.
+nonisolated enum ReviewLineSelection {
+    /// The rows from `anchor` toward `current`, stopping at the last line of
+    /// the anchor's file in that direction. Nil unless `anchor` is a line.
+    /// Hunk headers and drafts inside the range stay in it.
+    static func rows(from anchor: Int, to current: Int, in rows: [ReviewDocumentRow]) -> ClosedRange<Int>? {
+        guard rows.indices.contains(anchor), case .line = rows[anchor].kind else { return nil }
+        let path = rows[anchor].path
+        let target = min(max(current, 0), rows.count - 1)
+        let step = target < anchor ? -1 : 1
+        var end = anchor
+        var index = anchor
+        while index != target {
+            index += step
+            guard rows[index].path == path else { break }
+            if case .line = rows[index].kind { end = index }
+        }
+        return min(anchor, end) ... max(anchor, end)
+    }
+
+    static func lines(in range: ClosedRange<Int>, of rows: [ReviewDocumentRow]) -> [DiffLine] {
+        rows[range].compactMap { row in
+            if case .line(let line, _, _) = row.kind { return line }
+            return nil
+        }
+    }
 }
 
 nonisolated enum ReviewDocument {
@@ -124,6 +155,11 @@ nonisolated enum ReviewDocument {
 
     /// A file's rows: its header, then its lines or what stands in for them,
     /// with each comment's draft after the line it ends at.
+    ///
+    /// A draft covers the line rows from the one it starts at to the one it
+    /// ends at. On the new side that leaves out removed lines selected ahead
+    /// of the first added or context line, since the comment keeps only
+    /// numbers.
     static func segment(
         file: DiffFileSummary,
         state: ReviewContentState?,
@@ -134,6 +170,7 @@ nonisolated enum ReviewDocument {
         guard !collapsed else { return ReviewDocumentSegment(path: file.path, rows: [header], columns: 0) }
         var rows = [header]
         var columns = 0
+        var drafted = IndexSet()
         switch state {
         case nil, .loading:
             rows.append(ReviewDocumentRow(path: file.path, kind: .placeholder(.pending(estimatedRows: estimatedRows(for: file)))))
@@ -148,16 +185,22 @@ nonisolated enum ReviewDocument {
                 rows.append(contentsOf: body)
             } else {
                 rows.reserveCapacity(body.count + drafts.count + 1)
+                var open = Set<UUID>()
                 for row in body {
                     rows.append(row)
                     guard case .line(let line, _, _) = row.kind else { continue }
+                    for draft in drafts where draft.startsAt(line) {
+                        open.insert(draft.id)
+                    }
+                    if !open.isEmpty { drafted.insert(rows.count - 1) }
                     for draft in drafts where draft.endsAt(line) {
+                        open.remove(draft.id)
                         rows.append(ReviewDocumentRow(path: file.path, kind: .comment(draft.id)))
                     }
                 }
             }
         }
-        return ReviewDocumentSegment(path: file.path, rows: rows, columns: columns)
+        return ReviewDocumentSegment(path: file.path, rows: rows, columns: columns, draftedRows: drafted)
     }
 }
 

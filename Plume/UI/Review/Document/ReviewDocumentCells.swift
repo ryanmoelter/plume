@@ -91,10 +91,15 @@ final class ReviewLineCell: ReviewDocumentCell {
     private var oldNumber: CTLine?
     private var newNumber: CTLine?
     private var marker: CTLine?
+    private var drawnHighlight: ReviewLineHighlight?
 
     init() {
         super.init(identifier: Self.reuseIdentifier, draws: true)
         addSubview(gutter)
+    }
+
+    func refreshHighlight(row: Int) {
+        if controller?.highlight(ofRow: row) != drawnHighlight { redraw() }
     }
 
     func configure(path: String, line: DiffLine, spans: [CodeSyntax.Span], wraps: Bool, controller: ReviewDocumentController) {
@@ -141,9 +146,11 @@ final class ReviewLineCell: ReviewDocumentCell {
     }
 
     override func drawContent(_ rect: CGRect, in context: CGContext) {
-        guard let line, let appearance = appearanceValues, let metrics else { return }
-        let tint = appearance.tint(for: line.kind)
-        if let tint {
+        guard let line, let controller, let appearance = appearanceValues, let metrics else { return }
+        let highlight = controller.highlight(ofRow: controller.tableView.row(for: self))
+        drawnHighlight = highlight
+        let tints = [appearance.tint(for: line.kind), highlight.map { appearance.tint(for: $0) }].compactMap { $0 }
+        for tint in tints {
             tint.setFill()
             rect.fill(using: .sourceOver)
         }
@@ -160,14 +167,14 @@ final class ReviewLineCell: ReviewDocumentCell {
                 )
             }
         }
-        drawGutter(tint: tint, appearance: appearance, metrics: metrics, in: context)
+        drawGutter(tints: tints, appearance: appearance, metrics: metrics, in: context)
     }
 
-    private func drawGutter(tint: NSColor?, appearance: ReviewDocumentAppearance, metrics: ReviewDocumentMetrics, in context: CGContext) {
+    private func drawGutter(tints: [NSColor], appearance: ReviewDocumentAppearance, metrics: ReviewDocumentMetrics, in context: CGContext) {
         let gutter = CGRect(x: pinX, y: 0, width: ReviewDocumentMetrics.gutterWidth, height: bounds.height)
         appearance.background.setFill()
         gutter.fill()
-        if let tint {
+        for tint in tints {
             tint.setFill()
             gutter.fill(using: .sourceOver)
         }
@@ -186,9 +193,10 @@ final class ReviewLineCell: ReviewDocumentCell {
     }
 }
 
-/// Where a click drafts a comment. It draws nothing — the row draws the
-/// numbers — and hands every mouse event to the controller's
-/// `ReviewGutterInteraction`, which sees rows rather than views.
+/// Where a click or drag drafts a comment. It draws nothing — the row draws
+/// the numbers — and hands the press to the controller's
+/// `ReviewGutterInteraction`, which follows the drag in rows rather than
+/// views, since this view's row can scroll away and be reused mid-drag.
 final class ReviewGutterView: NSView {
     private weak var controller: ReviewDocumentController?
     private lazy var registration = AppKitControlRegistration(view: self)
@@ -197,7 +205,7 @@ final class ReviewGutterView: NSView {
 
     init() {
         super.init(frame: .zero)
-        toolTip = "Comment on this line; shift-click to comment on a range"
+        toolTip = "Comment on this line; drag or shift-click to comment on a range"
     }
 
     @available(*, unavailable)
@@ -230,16 +238,6 @@ final class ReviewGutterView: NSView {
     override func mouseDown(with event: NSEvent) {
         guard let row else { return }
         controller?.gutter.mouseDown(row: row, event: event)
-    }
-
-    override func mouseDragged(with event: NSEvent) {
-        guard let controller, let row = controller.row(at: event) else { return }
-        controller.gutter.mouseDragged(row: row, event: event)
-    }
-
-    override func mouseUp(with event: NSEvent) {
-        guard let controller else { return }
-        controller.gutter.mouseUp(row: controller.row(at: event), event: event)
     }
 }
 

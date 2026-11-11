@@ -237,4 +237,52 @@ struct ReviewDocumentControllerTests {
         Self.settle(window, controller)
         #expect(Set(labels()) == Set(shownLines()), "registered \(labels().count), shown \(shownLines().count)")
     }
+
+    /// A press, drag and release in the gutter: the rows under the drag tint
+    /// while it lasts, the release drafts a comment on every line it covered
+    /// in the file it started in, and Esc drafts nothing.
+    @Test func aGutterDragDraftsACommentOnItsLines() throws {
+        let controller = ReviewDocumentController(appearance: Self.appearance)
+        var drafted: [(String, [Int])] = []
+        controller.actions.comment = { path, lines, _ in drafted.append((path, lines.compactMap(\.newNumber))) }
+        let window = Self.makeWindow(controller)
+        defer {
+            window.contentView = nil
+            window.close()
+        }
+        window.orderFrontRegardless()
+        controller.setSegments([ReviewDocumentTests.segment("a", lines: ["one", "two", "three"]), ReviewDocumentTests.segment("b", lines: ["four"])])
+        Self.settle(window, controller)
+        let table = controller.tableView
+        func point(ofRow row: Int) -> NSPoint {
+            table.convert(NSPoint(x: 10, y: table.rect(ofRow: row).midY), to: nil)
+        }
+        func event(_ type: NSEvent.EventType, row: Int) throws -> NSEvent {
+            try #require(NSEvent.mouseEvent(
+                with: type, location: point(ofRow: row), modifierFlags: [], timestamp: 0,
+                windowNumber: window.windowNumber, context: nil, eventNumber: 0, clickCount: 1, pressure: 1
+            ))
+        }
+        // header a, hunk, one, two, three, header b, hunk, four
+        controller.gutter.mouseDown(row: 2, event: try event(.leftMouseDown, row: 2))
+        NSApp.sendEvent(try event(.leftMouseDragged, row: 7))
+        #expect(controller.selectingRows == 2...4)
+        #expect(controller.highlight(ofRow: 3) == .selecting)
+        NSApp.sendEvent(try event(.leftMouseUp, row: 7))
+        #expect(controller.selectingRows == nil)
+        #expect(drafted.count == 1)
+        #expect(drafted.first?.0 == "a" && drafted.first?.1 == [1, 2, 3])
+
+        controller.gutter.mouseDown(row: 3, event: try event(.leftMouseDown, row: 3))
+        NSApp.sendEvent(try #require(NSEvent.keyEvent(
+            with: .keyDown, location: .zero, modifierFlags: [], timestamp: 0, windowNumber: window.windowNumber,
+            context: nil, characters: "\u{1b}", charactersIgnoringModifiers: "\u{1b}", isARepeat: false, keyCode: 53
+        )))
+        #expect(controller.selectingRows == nil)
+        NSApp.sendEvent(try event(.leftMouseUp, row: 3))
+        #expect(drafted.count == 1)
+
+        controller.gutter.click(row: 7, extending: false)
+        #expect(drafted.last?.0 == "b" && drafted.last?.1 == [1])
+    }
 }

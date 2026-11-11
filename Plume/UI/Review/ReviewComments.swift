@@ -47,9 +47,17 @@ nonisolated struct ReviewComment: Identifiable, Equatable, Sendable {
 
     /// Whether `line` is the last one the comment covers, where it shows.
     func endsAt(_ line: DiffLine) -> Bool {
+        isOnSide(line, at: lines.upperBound)
+    }
+
+    func startsAt(_ line: DiffLine) -> Bool {
+        isOnSide(line, at: lines.lowerBound)
+    }
+
+    private func isOnSide(_ line: DiffLine, at number: Int) -> Bool {
         switch side {
-        case .new: line.newNumber == lines.upperBound
-        case .old: line.newNumber == nil && line.oldNumber == lines.upperBound
+        case .new: line.newNumber == number
+        case .old: line.newNumber == nil && line.oldNumber == number
         }
     }
 }
