@@ -149,6 +149,34 @@ struct ComposerMarkdownPresentationTests {
         #expect(decorations.codeBoxes.allSatisfy { $0.minX >= 5 })
     }
 
+    @Test func aListItemsCodeBoxSitsUnderItsText() throws {
+        let text = "- a\n  ```\n  x\n  ```"
+        let view = styledView(text)
+        let decorations = ComposerDecorations.rects(in: view, metrics: metrics)
+        let box = try #require(decorations.codeBoxes.first)
+        let bullet = try #require(decorations.bullets.first)
+        let item = try #require(segmentMinX(of: 2, in: view))
+        let code = try #require(segmentMinX(of: (text as NSString).range(of: "x").location, in: view))
+        #expect(box.minX > bullet.baselineOrigin.x)
+        #expect(abs(box.minX - item) < 1)
+        #expect(abs(code - (box.minX + metrics.codeInset)) < 1)
+    }
+
+    private func segmentMinX(of location: Int, in view: NSTextView) -> CGFloat? {
+        guard let layoutManager = view.textLayoutManager,
+              let contentStorage = layoutManager.textContentManager as? NSTextContentStorage,
+              let start = contentStorage.location(contentStorage.documentRange.location, offsetBy: location),
+              let range = NSTextRange(location: start, end: contentStorage.location(start, offsetBy: 1))
+        else { return nil }
+        layoutManager.ensureLayout(for: layoutManager.documentRange)
+        var minX: CGFloat?
+        layoutManager.enumerateTextSegments(in: range, type: .standard, options: []) { _, frame, _, _ in
+            minX = frame.minX + view.textContainerOrigin.x
+            return false
+        }
+        return minX
+    }
+
     @Test func chipPaddingIsEvenOnBothSides() throws {
         let text = "a `code` b"
         let view = styledView(text)

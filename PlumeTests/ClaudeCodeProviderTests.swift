@@ -28,6 +28,11 @@ struct ClaudeCodeProviderTests {
         #expect(launch.command == loginWrapped("claude --resume 'abc-123' 'continue'"))
     }
 
+    @Test func neverAppendsTheSystemPromptRuleFile() {
+        let launch = provider.launchCommand(firstMessage: "hi", resumeSessionID: "abc")
+        #expect(!launch.command.contains("--append-system-prompt-file"))
+    }
+
     @Test func noArgumentsStartsAPlainSession() {
         #expect(provider.launchCommand(firstMessage: nil, resumeSessionID: nil).command == loginWrapped("claude"))
     }

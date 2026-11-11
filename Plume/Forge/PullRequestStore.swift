@@ -83,9 +83,12 @@ final class PullRequestStore {
     /// The rollup a row should draw, with this repository's ignored checks
     /// already suppressed.
     func checkRollup(for directory: String?, of pullRequest: PullRequest) -> CheckRollup {
+        pullRequest.checkRollup(ignoredWhenPending: ignoredPendingChecks(for: directory))
+    }
+
+    func ignoredPendingChecks(for directory: String?) -> Set<String> {
         let repository = directory.flatMap { watches[$0]?.repository }
-        let ignored = repository.flatMap { ignoredPendingChecks[$0] } ?? []
-        return pullRequest.checkRollup(ignoredWhenPending: ignored)
+        return repository.flatMap { ignoredPendingChecks[$0] } ?? []
     }
 
     /// Begins watching a directory, or takes another reference to one already

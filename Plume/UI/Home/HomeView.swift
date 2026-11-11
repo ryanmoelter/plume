@@ -58,6 +58,11 @@ private struct HomeContent: View, ThemedView {
     @State private var scrollPosition = ScrollPosition()
     @State private var scrollGeometry = HomeScrollGeometry()
     @State private var scrollReserve: CGFloat = 0
+    @State private var skills = BundledSkillsStatus.shared
+
+    private var claudeCodeInstalled: Bool {
+        AgentCLIInstallation.displayedProviders(AgentCLIAvailability.shared.providers ?? []).contains(.claudeCode)
+    }
 
     private var bleed: CGFloat {
         hangsMarkers ? HomeRow.gutterWidth : 0
@@ -73,9 +78,13 @@ private struct HomeContent: View, ThemedView {
             VStack(alignment: .leading, spacing: 32) {
                 HomeGreetingHeader()
                 composer
+                HomeSkillsOfferSlot(
+                    status: skills,
+                    isWanted: (skills.needsInstallPrompt || skills.error(for: .home) != nil) && claudeCodeInstalled
+                )
                 needsYouSection
                 if !feed.running.isEmpty {
-                    quietSection("Running", items: feed.running)
+                    quietSection("Running", items: feed.running, plainEmphasis: .primary)
                 }
                 if !feed.idle.isEmpty {
                     quietSection(
@@ -195,11 +204,12 @@ private struct HomeContent: View, ThemedView {
     private func quietSection(
         _ title: String,
         items: [HomeFeed.Item],
+        plainEmphasis: Emphasis = .secondary,
         collapse: HomeSectionCollapse? = nil
     ) -> some View {
         HomeSection(
             title: title,
-            header: collapse.map(HomeSectionHeader.collapsible) ?? .plain(emphasis: .secondary),
+            header: collapse.map(HomeSectionHeader.collapsible) ?? .plain(emphasis: plainEmphasis),
             style: sectionStyle,
             count: items.count
         ) { transition in
@@ -491,6 +501,7 @@ private struct HomeRow: View, ThemedView {
     let action: () -> Void
     @Environment(\.theme) var theme
     @Environment(\.colorScheme) private var colorScheme
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @State private var isHovered = false
 
     var body: some View {
@@ -510,7 +521,13 @@ private struct HomeRow: View, ThemedView {
                             .truncationMode(.tail)
                     }
                     contextLine
+                    if !item.sideWork.isEmpty {
+                        HomeSideWorkRow(items: item.sideWork)
+                            .padding(.top, 2)
+                            .transition(.opacity)
+                    }
                 }
+                .animation(reduceMotion ? nil : .default, value: item.sideWork.map(\.id))
                 .padding(.leading, Self.barWidth + Self.barTextGap)
                 .overlay(alignment: .leading) { colorBar }
                 Spacer(minLength: 8)

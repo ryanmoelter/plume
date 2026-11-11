@@ -360,6 +360,13 @@ struct DevicePoolTests {
         #expect(try pool.acquire(claimant: other, ttl: hour, kind: .emulator, form: nil).serial == "emulator-5554")
     }
 
+    @Test func aWifiDeviceIsClaimedAsPhysical() throws {
+        env.connect("192.168.1.20:41234")
+        let claimed = try pool.acquire(claimant: me, ttl: hour, kind: .physical, form: nil)
+        #expect(claimed.serial == "192.168.1.20:41234")
+        #expect(claimed.lease.kind == .physical)
+    }
+
     @Test func offlineDevicesAreNotReused() throws {
         env.connect("R5", state: .offline)
         #expect(exhausted { _ = try pool.acquire(claimant: me, ttl: hour, kind: .physical, form: nil) })

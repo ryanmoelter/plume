@@ -103,6 +103,36 @@ nonisolated struct LinearIssue: Sendable, Equatable, Codable {
     let stateColor: String
     let assigneeName: String?
     let teamKey: String
+    /// The description's opening lines, from `LinearIssue.summary(ofDescription:)`.
+    var summary: String? = nil
+    /// Linear's `TimelessDate`, `yyyy-MM-dd`.
+    var dueDate: String? = nil
+}
+
+extension LinearIssue {
+    static let summaryLineLimit = 2
+    static let summaryLengthLimit = 240
+
+    /// The first lines of a markdown description that carry prose, with their
+    /// block markers dropped. Nil when there are none.
+    static func summary(ofDescription description: String?) -> String? {
+        guard let description else { return nil }
+        var lines: [String] = []
+        for raw in description.split(whereSeparator: \.isNewline) {
+            var line = raw.trimmingCharacters(in: .whitespaces)
+            if line.hasPrefix("```") || line.hasPrefix("---") || line.hasPrefix("+++") || line.hasPrefix("![") { continue }
+            while let marker = ["#", ">", "- [ ] ", "- [x] ", "- ", "* "].first(where: { line.hasPrefix($0) }) {
+                line = String(line.dropFirst(marker.count)).trimmingCharacters(in: .whitespaces)
+            }
+            guard !line.isEmpty else { continue }
+            lines.append(line)
+            if lines.count == summaryLineLimit { break }
+        }
+        guard !lines.isEmpty else { return nil }
+        let joined = lines.joined(separator: "\n")
+        guard joined.count > summaryLengthLimit else { return joined }
+        return String(joined.prefix(summaryLengthLimit)).trimmingCharacters(in: .whitespaces) + "…"
+    }
 }
 
 nonisolated struct LinearUser: Sendable, Equatable, Codable {

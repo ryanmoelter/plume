@@ -3,8 +3,12 @@ import Foundation
 
 var arguments = CommandLine.arguments.dropFirst().makeIterator()
 var iniPath: String?
+var postureName: String?
+var tap: [Int32]?
 while let argument = arguments.next() {
     if argument == "--ini" { iniPath = arguments.next() }
+    if argument == "--posture" { postureName = arguments.next() }
+    if argument == "--tap" { tap = arguments.next()?.split(separator: ",").compactMap { Int32($0) } }
 }
 guard let iniPath else {
     FileHandle.standardError.write(Data("usage: EmulatorProbe --ini <path>\n".utf8))
@@ -28,7 +32,25 @@ let connection = EmulatorConnection(
 )
 do {
     print(try await connection.status())
+    print("posture: \(String(describing: try await connection.posture()))")
+    if let postureName, let posture = EmulatorPosture.allCases.first(where: { "\($0)" == postureName }) {
+        try await connection.setPosture(posture)
+        try await Task.sleep(for: .seconds(2))
+        print("posture after set: \(String(describing: try await connection.posture()))")
+        print(try await connection.status())
+    }
+    if let tap, tap.count == 2 {
+        try await connection.connect()
+        connection.send(.touch([TouchPoint(x: tap[0], y: tap[1], identifier: 0, pressure: 1)]))
+        try await Task.sleep(for: .milliseconds(100))
+        connection.send(.touch([TouchPoint(x: tap[0], y: tap[1], identifier: 0, pressure: 0)]))
+        try await Task.sleep(for: .milliseconds(500))
+    }
+    for try await frame in connection.frames(maxPixelSize: CGSize(width: 4000, height: 4000)) {
+        print("frame \(frame.pixelSize) rotation \(frame.rotation)")
+        break
+    }
 } catch {
-    print("status failed: \(error)")
+    print("probe failed: \(error)")
 }
 await connection.close()

@@ -36,11 +36,11 @@ The Xcode project uses **file-system synchronized groups**: files added under `P
 ```
 Plume/
   App/        PlumeApp, MainWindow, PlumeCommands, AppDelegate
-  App/Updates/  UpdateController (Sparkle wiring, Homebrew-vs-DMG detection)
+  App/Updates/  UpdateController (Sparkle wiring, stable and beta feeds)
   Models/     SwiftData models, TaskStore (CRUD/ordering), TitleStore, enums
   Ghostty/    GhosttyRuntime, GhosttyConfigLoader, GhosttyThemeResolver, TerminalSession, TerminalTabView, ThemeChrome
   Sessions/   SurfaceManager, LoginShellCommand
-  Agent/      AgentProvider, ClaudeCodeProvider, AgentLauncher, hook plumbing, SessionJSONLReader
+  Agent/      AgentProvider, ClaudeCodeProvider, AgentLauncher, hook plumbing, SessionJSONLReader, Skills/ (BundledSkills, AgentPromptRule)
   Status/     StatusEngine, StatusPersistence
   Workspace/  WorkspaceProvisioner, GitRunner, ProjectRoot (the key Settings ▸ Projects shares with `plume wt`)
   Linear/     LinearStore, LinearSyncCache (delta-synced disk cache; docs/linear-sync.md), LinearClient, LinearAccounts
@@ -48,7 +48,7 @@ Plume/
   Support/    Log, AppPaths, AppSettings, FileWatcher, HexColor, CommandLineHelper, SmokeHarness (DEBUG)
   CLI/        CLIServer (the socket the `plume` tool talks to), CLICommandHandler
   Control/    The debug control server: PlumeID, ControlRegistry, ControlServer, InProcessControlBackend (DEBUG)
-  Resources/  Fonts, Themes, Mermaid, Skills
+  Resources/  Fonts, Themes, Mermaid, Skills (flat `<name>.skill.md` files plus the formatting rule; docs/agent-skills.md)
   UI/         Sidebar/, Task/, Settings/, Device/
 PlumeCLI/     The `plume` tool's entry point and command dispatch (target PlumeCLI)
 Shared/CLI/   Compiled into both the app and PlumeCLI: wire types, socket path, Presence, argument parsing
@@ -95,6 +95,8 @@ An agent tab runs one of two CLIs, recorded in `TaskTab.providerID` (`AgentProvi
 **Terminal (`.terminal`).** The Claude Code TUI hosted in a real PTY, kept as an escape hatch. Input reaches it as a paste plus a synthetic Enter, so it cannot answer a running `AskUserQuestion` — that ceiling is why the headless transport exists. `docs/agent-transport.md` records it.
 
 Both transports launch through `AgentLauncher` and report through `StatusEngine`, which is transport-agnostic.
+
+**Headless Claude launches append Plume's formatting rule with `--append-system-prompt-file` (`AgentPromptRule`)**, a path into the bundle rather than the text. The terminal transport doesn't pass it. A missing resource drops the flag, since the CLI refuses to start on an unreadable file. The skills Plume copies into `~/.claude/skills` are separate (`BundledSkills`). **`docs/agent-skills.md` is the reference** for both.
 
 ### Hook instrumentation (terminal transport)
 
@@ -153,12 +155,13 @@ The config reaches libghostty as **generated contents with every `theme` directi
 
 ## Updates
 
-Sparkle checks for updates in the background, and **an available update never interrupts** — no launch dialog, no system notification, nothing modal. It shows only as an "Update Available" row in the sidebar footer. Clicking it opens Sparkle's window on a DMG install, or Plume's own update window on a Homebrew install (detected via a `Caskroom/plume` directory; Settings can override). `UpdateController` (`Plume/App/Updates/`) owns this. **Plume schedules the background checks itself, with `checkForUpdateInformation()`; Sparkle's own automatic checks stay off.** A Sparkle-scheduled check holds the first update it found until relaunch, so the row would never show a newer release. A Debug build doesn't start the updater unless the `PlumeUpdateFeedURLOverride` user default is set.
+Sparkle checks for updates in the background, and **an available update never interrupts** — no launch dialog, no system notification, nothing modal. It shows only as an "Update Available" row in the sidebar footer. Clicking it opens Sparkle's window. Every install updates through Sparkle, a Homebrew install included: Homebrew only installs Plume, and the cask's `auto_updates true` keeps `brew upgrade` away from it. Every stable release bumps the tap with `scripts/update-tap.sh`, which adds `auto_updates true` if the cask lacks it. `UpdateController` (`Plume/App/Updates/`) owns this. **Plume schedules the background checks itself, with `checkForUpdateInformation()`; Sparkle's own automatic checks stay off.** A Sparkle-scheduled check holds the first update it found until relaunch, so the row would never show a newer release. A Debug build doesn't start the updater unless the `PlumeUpdateFeedURLOverride` user default is set.
 
-- **Sparkle's Info.plist keys (`SUFeedURL`, `SUPublicEDKey`, `SUEnableAutomaticChecks`, `SUAllowsAutomaticUpdates`) live in `Configuration/Info.plist`**. `SUAllowsAutomaticUpdates` is `false` so Sparkle never offers or performs a silent install-on-quit, which would bypass both the Homebrew path and the no-interruption rule.
-- **Never run `brew upgrade` inside Plume.** The cask's `uninstall quit:` quits Plume mid-upgrade, and its `launchctl` step for the sleep helper can prompt for a sudo password. `HomebrewUpgrade` opens a temporary `.command` script in Terminal.app instead, which upgrades and then reopens Plume.
+- **Betas come from a second feed, not Sparkle channels.** Settings ▸ Updates ▸ "Update source" (`AppSettings.updateChannel`, an `UpdateChannel`: `stable` or `beta`) points `feedURLString(for:)` at the `beta-feed` prerelease's `appcast.xml`. `UpdateFeed.urlString` picks the feed: the debug override, then the beta feed for the `beta` channel, then nil for `SUFeedURL`. The beta feed holds the newest beta and the newest stable release, and Sparkle offers the higher build. Betas are tagged and released on `main`; `package-release.sh --beta` refuses another branch unless `--allow-branch` is passed, which agents never do without the maintainer's explicit approval. `docs/releasing.md`'s "Beta releases" is the reference.
+- **Sparkle's Info.plist keys (`SUFeedURL`, `SUPublicEDKey`, `SUEnableAutomaticChecks`, `SUAllowsAutomaticUpdates`) live in `Configuration/Info.plist`**. `SUAllowsAutomaticUpdates` is `false` so Sparkle never offers or performs a silent install-on-quit, which would bypass the no-interruption rule.
+- **Never run `brew upgrade` inside Plume.** The cask's `uninstall quit:` quits Plume mid-upgrade, and its `launchctl` step for the sleep helper can prompt for a sudo password.
 - **Never add a manual "Embed Frameworks" phase for Sparkle.** Xcode already auto-embeds and signs its XCFramework into `Contents/Frameworks`; a hand-written phase breaks the build with "Sparkle-product couldn't be opened".
-- **Test both update paths without reinstalling** via Settings ▸ Debug (`Plume/UI/Settings/UpdatesDebugSection.swift`, `#if DEBUG` only) plus `scripts/debug/serve-test-appcast.sh`, which serves a version-bumped, re-signed copy of the Debug build over a local appcast. `docs/releasing.md`'s "Testing an update end-to-end" is the reference.
+- **Test the installer swap and the background check without reinstalling** via Settings ▸ Debug (`Plume/UI/Settings/UpdatesDebugSection.swift`, `#if DEBUG` only) plus `scripts/debug/serve-test-appcast.sh`, which serves a version-bumped, re-signed copy of the Debug build over a local appcast. `docs/releasing.md`'s "Testing an update end-to-end" is the reference.
 
 ## Commits
 
@@ -218,7 +221,7 @@ For performance, measure first. `scripts/profile-chat-scroll.sh <seconds>` recor
 - Swift Testing runs suites in parallel in one process, so tests sharing libghostty state can contaminate each other's results.
 - **A test that waits on a file watcher must await the store's own read signal, never a wall clock.** `RealTranscriptCorpusTests` parses every transcript on the machine — hundreds of files, tens of seconds — and Swift Testing runs it in parallel with everything else, so a deadline generous enough to look safe still expires under that load. `TranscriptStore.didRead` and `MarkdownFileStore.didRead` exist for this; the `waitUntil` helpers in their suites resume on the signal and finish instantly. Lengthening a timeout only moves the threshold.
 - Swift Testing's `#expect` cannot wrap a throwing call. `allSatisfy(\.isHexDigit)` counts as throwing (the closure is `rethrows`), so write `allSatisfy { $0.isHexDigit }`. The failure names a generated macro file, but `…MX45…` in that name is the **line number** in the real source.
-- **Never embed anything named `plume` in `Contents/MacOS`.** The volume is case-insensitive, so it is the same file as the app's `Plume` executable, and the copy phase silently replaces the app; the test host then runs the tool and exits 2 before connecting. The tool lives in `Contents/Helpers`. For the same reason no terminal may get `Contents/MacOS` on its PATH: libghostty appends it to every child's PATH, where a shell finds the app as `plume` and `eval "$(plume init zsh)"` launches a second copy that never exits. `TerminalSession.pinningPath` replaces that PATH with the app's own. A tool target named `plume` also needs `PRODUCT_MODULE_NAME` set to something else, or its `plume.swiftmodule` collides with `Plume.swiftmodule` and PlumeTests fails with "Unable to resolve module dependency: 'Plume'".
+- **Never embed anything named `plume` in `Contents/MacOS`.** The volume is case-insensitive, so it is the same file as the app's `Plume` executable, and the copy phase silently replaces the app; the test host then runs the tool and exits 2 before connecting. The tool lives in `Contents/Helpers`. For the same reason no terminal may get `Contents/MacOS` on its PATH: libghostty appends it to every child's PATH, where a shell finds the app as `plume` and `eval "$(plume init zsh)"` launches a second copy that never exits. `TerminalSession.pinningPath` replaces that PATH with the app's own and appends `Contents/Helpers`, last so a user's own `plume` link wins; `LoginShellCommand.childEnvironment` appends it too, and `PLUME_CLI` names the tool. Never put PATH in `sharedPlumeEnvironment`: `pinningPath` skips its filter when the options carry a PATH. A tool target named `plume` also needs `PRODUCT_MODULE_NAME` set to something else, or its `plume.swiftmodule` collides with `Plume.swiftmodule` and PlumeTests fails with "Unable to resolve module dependency: 'Plume'".
 - **Writable `/dev/tty` doesn't mean a controlling terminal exists.** `[ -w /dev/tty ]` is true without one, so code that must reach the real terminal has to *attempt* the open and treat failure as "no terminal". `plume notify` does that with `open(2)` and stays silent when it fails.
 - Adding a *source file* needs no project edit, but adding a *SwiftPM package* means hand-editing `project.pbxproj` (build file, package reference, product dependency, and the Frameworks phase).
 - **A GUI-launched app does not inherit your shell PATH.** Launched from Xcode or a terminal it does, so a PATH bug hides completely until the app is opened from Finder or the Dock — `claude` at `~/.local/bin` then fails with `No such file or directory`. Both transports run through `LoginShellCommand.wrap` for this reason. Test PATH-sensitive changes by opening the installed bundle, not from a terminal.

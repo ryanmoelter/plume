@@ -14,10 +14,12 @@ nonisolated enum Devices {
                 [--owner=<label>] [--ttl=<sec>] [--json]
                   Claim that device, or a free one, booting an AVD when none is free.
                   Prints only the serial on stdout; progress goes to stderr.
-          claim --kind=remote [--model=<codename/api>] [--ttl=<sec>] [--json]
+          claim --kind=remote [--model=<codename/api> | --form=phone|tablet|foldable]
+                [--owner=<tab id>] [--ttl=<sec>] [--json]
                   Reserve a Device Streaming device in a device tab, and wait until it connects.
                   Only from a Plume tab: the reservation is billed, and ends with the lease.
-                  The model defaults to the one last reserved.
+                  The model defaults to the one last reserved. --owner names the tab that
+                  holds a remote device, to claim it again from anywhere.
           release <serial> | --mine [--owner=<label>] [--force]
                   Release a lease. Another owner's lease needs --force. Releasing a remote
                   device ends its reservation.
@@ -38,7 +40,7 @@ nonisolated enum Devices {
 
     enum Command: Equatable {
         case claim(serial: String?, kind: DeviceKindFilter, form: DeviceForm?, owner: String?, ttl: TimeInterval, json: Bool)
-        case claimRemote(model: String?, owner: String?, ttl: TimeInterval, json: Bool)
+        case claimRemote(model: String?, form: DeviceForm?, owner: String?, ttl: TimeInterval, json: Bool)
         case release(serial: String?, mine: Bool, owner: String?, force: Bool)
         case renew(serial: String, owner: String?, ttl: TimeInterval)
         case installed(serial: String, branch: String?)
@@ -150,10 +152,13 @@ nonisolated enum Devices {
                 }
             }
             if remote {
-                guard serial == nil, form == nil else {
-                    throw UsageError(message: "--kind=remote takes no <serial> or --form; pick the device with --model")
+                guard serial == nil else {
+                    throw UsageError(message: "--kind=remote takes no <serial>; pick the device with --model or --form")
                 }
-                return .claimRemote(model: model, owner: owner, ttl: ttl, json: json)
+                guard model == nil || form == nil else {
+                    throw UsageError(message: "--kind=remote takes --model or --form, not both")
+                }
+                return .claimRemote(model: model, form: form, owner: owner, ttl: ttl, json: json)
             }
             guard model == nil else { throw UsageError(message: "--model needs --kind=remote") }
             return .claim(serial: serial, kind: kind, form: form, owner: owner, ttl: ttl, json: json)
@@ -322,8 +327,10 @@ nonisolated enum Devices {
                 showDeviceTab(key: claimed.key, lease: claimed.lease, callerTab: tabID, socket: socket, pool: pool, app: app, console: console)
             }
             try printClaim(serial: claimed.serial, lease: claimed.lease, reused: claimed.reused, json: json, console: console)
-        case .claimRemote(let model, let owner, let ttl, let json):
-            let claimed = try claimRemote(model: model, ownerFlag: owner, ttl: ttl, pool: pool, environment: environment, app: app)
+        case .claimRemote(let model, let form, let owner, let ttl, let json):
+            let claimed = try claimRemote(
+                model: model, form: form, ownerFlag: owner, ttl: ttl, pool: pool, environment: environment, app: app
+            )
             try printClaim(serial: claimed.lease.serial ?? claimed.key, lease: claimed.lease, reused: claimed.reused, json: json, console: console)
         case .release(let serial, let mine, let owner, let force):
             let claimant = try claimant(ownerFlag: owner, environment: environment, devices: devices)
@@ -401,11 +408,51 @@ nonisolated enum Devices {
 
     static let remoteNeedsATab = "a remote device is billed and must belong to a Plume tab"
 
+    /// The tab ID an `--owner` names: a bare UUID, or the `Plume tab <uuid>` that lease listings print.
+    static func ownerTabID(_ ownerFlag: String) -> UUID? {
+        let prefix = "Plume tab "
+        let id = ownerFlag.hasPrefix(prefix) ? String(ownerFlag.dropFirst(prefix.count)) : ownerFlag
+        return UUID(uuidString: id.trimmingCharacters(in: .whitespaces))
+    }
+
+    /// Who a remote claim is for. Only a tab can hold a remote device, so `--owner` must name one:
+    /// the calling tab, which may reserve, or a tab elsewhere that already holds a device, which is
+    /// claimed again but never reserved for.
+    static func remoteClaimant(
+        ownerFlag: String?,
+        environment: [String: String],
+        pool: DevicePool
+    ) throws -> (claimant: DeviceClaimant, mayReserve: Bool) {
+        let devices = pool.environment
+        guard let ownerFlag else {
+            let claimant = try claimant(ownerFlag: nil, environment: environment, devices: devices)
+            guard case .tab = claimant.owner else { throw CLIFailure(remoteNeedsATab) }
+            return (claimant, true)
+        }
+        guard let tabID = ownerTabID(ownerFlag) else {
+            throw CLIFailure("\(remoteNeedsATab), so --owner must name one by its tab ID, not \(ownerFlag)")
+        }
+        let info = devices.ownerInfo()
+        if environment[CLISocket.tabIDEnvironmentKey].flatMap(UUID.init(uuidString:)) == tabID,
+           let socket = environment[CLISocket.pathEnvironmentKey], !socket.isEmpty {
+            return (DeviceClaimant(owner: .tab(id: tabID, app: socket), worktree: info?.worktree, branch: info?.branch), true)
+        }
+        guard let owner = try pool.remoteOwner(ofTab: tabID) else {
+            throw CLIFailure(holdsNoRemoteDevice(tabID))
+        }
+        return (DeviceClaimant(owner: owner, worktree: info?.worktree, branch: info?.branch), false)
+    }
+
+    static func holdsNoRemoteDevice(_ tabID: UUID) -> String {
+        "Plume tab \(tabID.uuidString) holds no remote device; only that tab can reserve one"
+    }
+
     /// Asks the tab's app to reserve a device, then waits for the lease it writes once the device
     /// connects. A device this tab already holds is renewed, and a reservation still starting is
     /// waited on again rather than doubled.
     static func claimRemote(
         model: String?,
+        form: DeviceForm?,
         ownerFlag: String?,
         ttl: TimeInterval,
         pool: DevicePool,
@@ -413,7 +460,7 @@ nonisolated enum Devices {
         app: any DeviceAppClient
     ) throws -> (key: String, lease: DeviceLease, reused: Bool) {
         let devices = pool.environment
-        let claimant = try claimant(ownerFlag: ownerFlag, environment: environment, devices: devices)
+        let (claimant, mayReserve) = try remoteClaimant(ownerFlag: ownerFlag, environment: environment, pool: pool)
         guard case .tab(let tabID, let socket) = claimant.owner else { throw CLIFailure(remoteNeedsATab) }
         do {
             _ = try app.send(.ping, to: socket)
@@ -422,23 +469,28 @@ nonisolated enum Devices {
         }
         let waiter = RemoteClaimWaiter(store: pool.store, app: app, socket: socket, now: devices.now, sleep: devices.sleep, log: pool.log)
         if let (key, lease) = try pool.heldRemoteLease(owner: claimant.owner) {
+            let held = "\(lease.serial ?? key) (\(lease.model ?? "another model"))"
             if let model, lease.model != model {
-                throw CLIFailure(
-                    "this tab already holds \(lease.serial ?? key) (\(lease.model ?? "another model")); release it before reserving \(model)"
-                )
+                throw CLIFailure("this tab already holds \(held); release it before reserving \(model)")
+            }
+            // A lease with no form named a model the catalog didn't classify, so it can't conflict.
+            if let form, let heldForm = lease.form, heldForm != form {
+                throw CLIFailure("this tab already holds \(held), a \(heldForm.rawValue); release it before reserving a \(form.rawValue)")
             }
             try extendRemote(key: key, lease: lease, ttl: ttl, app: app)
             return (key, try pool.renew(key, owner: claimant.owner, ttl: ttl), true)
         }
+        guard mayReserve else { throw CLIFailure(holdsNoRemoteDevice(tabID)) }
         // A claim still reserving for this tab is joined by the app, which writes its pending
         // entry again, so a wait that outlasts the entry's expiry never fails falsely.
         let response = try app.send(.reserveDevice(.init(
-            tabID: tabID, model: model, ttl: ttl, worktree: claimant.worktree, branch: claimant.branch
+            tabID: tabID, model: model, form: form, ttl: ttl, worktree: claimant.worktree, branch: claimant.branch
         )), to: socket)
         guard response.ok, let claimID = response.claimID else {
             throw CLIFailure("couldn't reserve a remote device: \(response.error ?? "Plume started no reservation")")
         }
-        pool.log("reserving \(model ?? "the model last reserved") in a device tab; Device Streaming can take a few minutes")
+        let wanted = model ?? form.map { "a \($0.rawValue)" } ?? "the model last reserved"
+        pool.log("reserving \(wanted) in a device tab; Device Streaming can take a few minutes")
         let leased = try waiter.wait(for: claimID)
         return (leased.key, leased.lease, false)
     }

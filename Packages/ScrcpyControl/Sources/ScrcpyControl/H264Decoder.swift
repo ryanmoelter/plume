@@ -14,26 +14,32 @@ public enum AnnexB {
 
     /// Splits an Annex B byte stream on 3- and 4-byte start codes. The returned units carry no start code.
     public static func split(_ data: Data) -> [Data] {
-        let bytes = [UInt8](data)
-        var starts: [(codeStart: Int, payloadStart: Int)] = []
-        var index = 0
-        while index + 2 < bytes.count {
-            if bytes[index] == 0, bytes[index + 1] == 0, bytes[index + 2] == 1 {
-                let codeStart = index > 0 && bytes[index - 1] == 0 ? index - 1 : index
-                starts.append((codeStart, index + 3))
-                index += 3
-            } else {
-                index += 1
+        data.withUnsafeBytes { bytes in unitRanges(in: bytes).map { Data(bytes[$0]) } }
+    }
+
+    /// Each unit's payload range in `bytes`, without its start code. Empty units are left out.
+    static func unitRanges(in bytes: UnsafeRawBufferPointer) -> [Range<Int>] {
+        guard bytes.count >= 3, let base = bytes.baseAddress else { return [] }
+        var ranges: [Range<Int>] = []
+        var payloadStart: Int?
+        var searchFrom = 2
+        // A start code ends in a 0x01 after two zeros, so a memchr for 0x01 skips most of the
+        // packet without a byte-by-byte scan.
+        while searchFrom < bytes.count, let hit = memchr(base + searchFrom, 1, bytes.count - searchFrom) {
+            let one = base.distance(to: UnsafeRawPointer(hit))
+            searchFrom = one + 1
+            guard bytes[one - 1] == 0, bytes[one - 2] == 0 else { continue }
+            let codeStart = one >= 3 && bytes[one - 3] == 0 ? one - 3 : one - 2
+            if let payloadStart, codeStart > payloadStart {
+                ranges.append(payloadStart..<codeStart)
             }
+            payloadStart = one + 1
+            searchFrom = one + 3
         }
-        var units: [Data] = []
-        for (position, start) in starts.enumerated() {
-            let end = position + 1 < starts.count ? starts[position + 1].codeStart : bytes.count
-            if end > start.payloadStart {
-                units.append(Data(bytes[start.payloadStart..<end]))
-            }
+        if let payloadStart, bytes.count > payloadStart {
+            ranges.append(payloadStart..<bytes.count)
         }
-        return units
+        return ranges
     }
 
     public static func type(of unit: Data) -> UInt8 {
@@ -41,14 +47,24 @@ public enum AnnexB {
         return first & 0x1F
     }
 
-    /// Each unit prefixed with its 4-byte big-endian length, as `CMSampleBuffer`s for H.264 expect.
-    public static func avcc(_ units: [Data]) -> Data {
-        var out = ByteWriter()
+    static func type(of unit: Range<Int>, in bytes: UnsafeRawBufferPointer) -> UInt8 {
+        bytes[unit.lowerBound] & 0x1F
+    }
+
+    static func avccLength(of units: [Range<Int>]) -> Int {
+        units.reduce(0) { $0 + 4 + $1.count }
+    }
+
+    /// Writes each unit prefixed with its 4-byte big-endian length, as `CMSampleBuffer`s for H.264
+    /// expect. `destination` holds exactly `avccLength(of: units)` bytes.
+    static func writeAVCC(_ units: [Range<Int>], from bytes: UnsafeRawBufferPointer, to destination: UnsafeMutableRawPointer) {
+        var offset = 0
         for unit in units {
-            out.u32(UInt32(unit.count))
-            out.data.append(unit)
+            destination.storeBytes(of: UInt32(unit.count).bigEndian, toByteOffset: offset, as: UInt32.self)
+            offset += 4
+            destination.advanced(by: offset).copyMemory(from: bytes.baseAddress! + unit.lowerBound, byteCount: unit.count)
+            offset += unit.count
         }
-        return out.data
     }
 }
 
@@ -115,19 +131,24 @@ public final class H264Decoder {
     /// non-key frame while waiting for a key frame. Throws for a frame that should have decoded
     /// and didn't, so the caller can ask for a key frame.
     public func decode(_ packet: Data, pts: UInt64, isKeyFrame: Bool) throws -> DecodedFrame? {
-        var units = AnnexB.split(packet)
-        try absorbParameterSets(from: units)
-        units.removeAll { [AnnexB.NALType.sps, AnnexB.NALType.pps, AnnexB.NALType.accessUnitDelimiter].contains(AnnexB.type(of: $0)) }
-        guard !units.isEmpty, let formatDescription else { return nil }
+        let sample: CMSampleBuffer? = try packet.withUnsafeBytes { bytes in
+            var units = AnnexB.unitRanges(in: bytes)
+            try absorbParameterSets(from: units.compactMap { unit in
+                Self.isParameterSet(AnnexB.type(of: unit, in: bytes)) ? Data(bytes[unit]) : nil
+            })
+            units.removeAll { Self.isOutOfBand(AnnexB.type(of: $0, in: bytes)) }
+            guard !units.isEmpty, let formatDescription else { return nil }
 
-        let isKey = isKeyFrame || units.contains { AnnexB.type(of: $0) == AnnexB.NALType.idr }
-        if awaitingKeyFrame {
-            guard isKey else { return nil }
-            awaitingKeyFrame = false
+            let isKey = isKeyFrame || units.contains { AnnexB.type(of: $0, in: bytes) == AnnexB.NALType.idr }
+            if awaitingKeyFrame {
+                guard isKey else { return nil }
+                awaitingKeyFrame = false
+            }
+            return try Self.sampleBuffer(units, in: bytes, format: formatDescription, pts: pts)
         }
+        guard let sample, let formatDescription else { return nil }
 
         let session = try currentSession(for: formatDescription)
-        let sample = try Self.sampleBuffer(AnnexB.avcc(units), format: formatDescription, pts: pts)
         let box = OutputBox()
         let status = VTDecompressionSessionDecodeFrame(
             session,
@@ -153,6 +174,15 @@ public final class H264Decoder {
         }
         let size = CGSize(width: CVPixelBufferGetWidth(imageBuffer), height: CVPixelBufferGetHeight(imageBuffer))
         return DecodedFrame(pixelBuffer: imageBuffer, pixelSize: size, pts: pts)
+    }
+
+    private static func isParameterSet(_ type: UInt8) -> Bool {
+        type == AnnexB.NALType.sps || type == AnnexB.NALType.pps
+    }
+
+    /// Units the format description carries, or that a sample must not.
+    private static func isOutOfBand(_ type: UInt8) -> Bool {
+        isParameterSet(type) || type == AnnexB.NALType.accessUnitDelimiter
     }
 
     private func absorbParameterSets(from units: [Data]) throws {
@@ -226,31 +256,33 @@ public final class H264Decoder {
         return format
     }
 
-    static func sampleBuffer(_ avcc: Data, format: CMVideoFormatDescription, pts: UInt64) throws -> CMSampleBuffer {
+    /// Copies the units straight into the block buffer as AVCC, the packet's only copy.
+    static func sampleBuffer(_ units: [Range<Int>], in bytes: UnsafeRawBufferPointer, format: CMVideoFormatDescription, pts: UInt64) throws -> CMSampleBuffer {
+        let length = AnnexB.avccLength(of: units)
         var block: CMBlockBuffer?
         var status = CMBlockBufferCreateWithMemoryBlock(
             allocator: nil,
             memoryBlock: nil,
-            blockLength: avcc.count,
+            blockLength: length,
             blockAllocator: nil,
             customBlockSource: nil,
             offsetToData: 0,
-            dataLength: avcc.count,
+            dataLength: length,
             flags: kCMBlockBufferAssureMemoryNowFlag,
             blockBufferOut: &block
         )
         guard status == noErr, let block else { throw H264DecoderError.sampleBuffer(status) }
-        status = avcc.withUnsafeBytes { bytes in
-            CMBlockBufferReplaceDataBytes(with: bytes.baseAddress!, blockBuffer: block, offsetIntoDestination: 0, dataLength: avcc.count)
-        }
-        guard status == noErr else { throw H264DecoderError.sampleBuffer(status) }
+        var destination: UnsafeMutablePointer<CChar>?
+        status = CMBlockBufferGetDataPointer(block, atOffset: 0, lengthAtOffsetOut: nil, totalLengthOut: nil, dataPointerOut: &destination)
+        guard status == noErr, let destination else { throw H264DecoderError.sampleBuffer(status) }
+        AnnexB.writeAVCC(units, from: bytes, to: UnsafeMutableRawPointer(destination))
 
         var timing = CMSampleTimingInfo(
             duration: .invalid,
             presentationTimeStamp: CMTime(value: CMTimeValue(pts), timescale: 1_000_000),
             decodeTimeStamp: .invalid
         )
-        var sampleSize = avcc.count
+        var sampleSize = length
         var sample: CMSampleBuffer?
         status = CMSampleBufferCreateReady(
             allocator: nil,

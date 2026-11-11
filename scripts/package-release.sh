@@ -15,12 +15,35 @@
 #   - the Sparkle EdDSA private key in 1Password at SPARKLE_KEY_REF, and `op`
 #     signed in (op signin)
 #
-# Usage: scripts/package-release.sh
+# Usage: scripts/package-release.sh [--beta [--allow-branch]]
+#
+# Betas release from main. --beta on any other branch fails unless
+# --allow-branch is passed, which needs the maintainer's explicit approval.
+#
+# --beta packages a beta: MARKETING_VERSION must carry a suffix (0.20.0-beta.1),
+# and the draft is a prerelease, which GitHub's releases/latest never points at.
+#
+# A release also writes out/beta-feed/appcast.xml for the beta feed, a fixed
+# prerelease tagged beta-feed. It holds the newest beta and the newest stable
+# release, so Sparkle offers a beta user whichever build is higher. Upload it
+# only after publishing the draft, since the enclosure URL 404s until then; the
+# script prints the command. A stable release behind the live beta's version
+# writes none and leaves the beta feed alone.
 #
 # Release notes come from CHANGELOG.md. Its top section must be this release
 # (`## <MARKETING_VERSION> (<CURRENT_PROJECT_VERSION>)`); it becomes the
 # GitHub release body and, unchanged, the appcast's markdown notes.
 set -uo pipefail
+
+BETA=false
+ALLOW_BRANCH=false
+for arg in "$@"; do
+  case "$arg" in
+    --beta) BETA=true ;;
+    --allow-branch) ALLOW_BRANCH=true ;;
+    *) echo "usage: $0 [--beta [--allow-branch]]" >&2; exit 2 ;;
+  esac
+done
 
 # shellcheck source=lib/sign-bundle.sh
 source "$(dirname "${BASH_SOURCE[0]}")/lib/sign-bundle.sh"
@@ -28,6 +51,8 @@ source "$(dirname "${BASH_SOURCE[0]}")/lib/sign-bundle.sh"
 source "$(dirname "${BASH_SOURCE[0]}")/lib/scrcpy-server.sh"
 # shellcheck source=lib/changelog.sh
 source "$(dirname "${BASH_SOURCE[0]}")/lib/changelog.sh"
+# shellcheck source=lib/appcast.sh
+source "$(dirname "${BASH_SOURCE[0]}")/lib/appcast.sh"
 
 LOG="${LOG:-/tmp/plume-package.log}"
 NOTARY_PROFILE="${NOTARY_PROFILE:-plume-notary}"
@@ -37,6 +62,9 @@ OUT="${OUT:-$PWD/out}"
 # 1Password, never in the keychain and never on disk — read on stdin only.
 SPARKLE_KEY_REF="${SPARKLE_KEY_REF:-op://Plume/Plume Sparkle EdDSA/private key}"
 CHANGELOG="CHANGELOG.md"
+STABLE_FEED_URL="https://github.com/ryanmoelter/plume/releases/latest/download/appcast.xml"
+BETA_FEED_TAG="beta-feed"
+BETA_FEED_URL="https://github.com/ryanmoelter/plume/releases/download/$BETA_FEED_TAG/appcast.xml"
 
 exec > >(tee -a "$LOG") 2>&1
 echo "=== $(date) packaging ==="
@@ -91,9 +119,10 @@ op read "$SPARKLE_KEY_REF" >/dev/null \
 # MARKETING_VERSION sorts before PRODUCT_BUNDLE_IDENTIFIER inside each config
 # block, so buffer it and emit only when the block proves to be the app
 # target's. The trailing semicolon rules out .debug and the test targets, which
-# carry their own MARKETING_VERSION of 1.0.
+# carry their own MARKETING_VERSION of 1.0. Xcode quotes a beta's version
+# ("0.20.0-beta.1"), so the quotes go too.
 VERSION="$(awk '
-  /MARKETING_VERSION/ { v=$3; gsub(/;/,"",v) }
+  /MARKETING_VERSION/ { v=$3; gsub(/[;"]/,"",v) }
   /PRODUCT_BUNDLE_IDENTIFIER = com\.ryanmoelter\.Plume;/ { print v; exit }
 ' Plume.xcodeproj/project.pbxproj)"
 [ -n "$VERSION" ] || fail "could not read MARKETING_VERSION"
@@ -102,6 +131,23 @@ BUILD_NUMBER="$(awk '
   /PRODUCT_BUNDLE_IDENTIFIER = com\.ryanmoelter\.Plume;/ { print v; exit }
 ' Plume.xcodeproj/project.pbxproj)"
 [ -n "$BUILD_NUMBER" ] || fail "could not read CURRENT_PROJECT_VERSION"
+
+# The suffix is what keeps a beta's tag and DMG name apart from the stable
+# release it leads up to.
+case "$BETA:$VERSION" in
+  true:*-*|false:*) ;;
+  true:*) fail "--beta needs a prerelease MARKETING_VERSION like $VERSION-beta.1 (found $VERSION)" ;;
+esac
+if [ "$BETA" = true ] && [ "$ALLOW_BRANCH" = false ]; then
+  BRANCH="$(git rev-parse --abbrev-ref HEAD 2>/dev/null)"
+  [ "$BRANCH" != "HEAD" ] || BRANCH=""
+  [ "$BRANCH" = "main" ] \
+    || fail "betas release from main, and this is ${BRANCH:-a detached HEAD}. Releasing a beta from
+  another branch needs the maintainer's explicit approval; with it, pass --allow-branch"
+fi
+case "$BETA:$VERSION" in
+  false:*-*) fail "MARKETING_VERSION $VERSION is a prerelease — package it with --beta" ;;
+esac
 
 # Checked before the build, so missing notes don't cost a build and a
 # notarization round trip.
@@ -118,7 +164,7 @@ changelog_split "$CHANGELOG" "$(mktemp -d)" >/dev/null \
 
 TAG="v$VERSION"
 DMG="$OUT/Plume-$VERSION.dmg"
-echo "version: $VERSION  tag: $TAG"
+echo "version: $VERSION  tag: $TAG  beta: $BETA"
 
 git rev-parse "$TAG" >/dev/null 2>&1 \
   && echo "note: tag $TAG already exists" \
@@ -141,24 +187,57 @@ SU_PUBLIC_KEY="$(/usr/libexec/PlistBuddy -c 'Print :SUPublicEDKey' "$SRC/Content
 [ -n "$SU_PUBLIC_KEY" ] || fail "no SUPublicEDKey in the built Info.plist — Configuration/Info.plist must carry it"
 
 # Sparkle decides an update exists by comparing sparkle:version, so a build
-# that doesn't outrun the live appcast would ship and never reach anyone.
-# `curl -f` fails on a 404, which is expected for the very first
-# Sparkle-enabled release — there's no appcast yet to compare against.
-echo "--- checking live appcast version ---"
+# that doesn't outrun the live appcast would ship and never reach anyone. A
+# beta must outrun the beta feed too. Step 7 reuses both files to build the
+# beta feed.
+echo "--- checking live appcast versions ---"
 BUILT_CFBUNDLE_VERSION="$(/usr/libexec/PlistBuddy -c 'Print :CFBundleVersion' "$SRC/Contents/Info.plist")"
-live_appcast="$(curl -fsSL https://github.com/ryanmoelter/plume/releases/latest/download/appcast.xml 2>/dev/null)"
-if [ -z "$live_appcast" ]; then
-  echo "note: no live appcast found (first Sparkle-enabled release?) — skipping version check"
-else
-  live_version="$(sed -n 's#.*<sparkle:version>\([^<]*\)</sparkle:version>.*#\1#p' <<<"$live_appcast" | head -1)"
+FEEDS_DIR="$OUT/feeds"
+mkdir -p "$FEEDS_DIR"
+
+# A 404 means the feed has no release yet, which is expected before the first
+# of each. Any other failure would silently skip the checks, so it stops here.
+fetch_feed() {
+  local url="$1" dest="$2" status
+  status="$(curl -sSL -o "$dest" -w '%{http_code}' "$url")" \
+    || fail "could not fetch $url (curl exit $?)"
+  case "$status" in
+    200) ;;
+    404) rm -f "$dest" ;;
+    *) fail "fetching $url returned HTTP $status" ;;
+  esac
+}
+fetch_feed "$STABLE_FEED_URL" "$FEEDS_DIR/stable.xml"
+fetch_feed "$BETA_FEED_URL" "$FEEDS_DIR/beta.xml"
+
+check_outruns() {
+  local label="$1" live_version
+  live_version="$(appcast_newest_version "$2")"
   if [ -z "$live_version" ]; then
-    echo "note: could not parse sparkle:version from the live appcast — skipping version check"
+    echo "note: no $label appcast version found — skipping that check"
   elif ! [ "$BUILT_CFBUNDLE_VERSION" -gt "$live_version" ] 2>/dev/null; then
-    fail "the built CFBundleVersion ($BUILT_CFBUNDLE_VERSION) is not greater than the live
+    fail "the built CFBundleVersion ($BUILT_CFBUNDLE_VERSION) is not greater than the $label
   appcast's sparkle:version ($live_version) — Sparkle compares this to decide an update
   exists, so bump CURRENT_PROJECT_VERSION in Plume.xcodeproj/project.pbxproj"
   else
-    echo "ok: $BUILT_CFBUNDLE_VERSION > $live_version"
+    echo "ok: $BUILT_CFBUNDLE_VERSION > $live_version ($label)"
+  fi
+}
+
+check_outruns "stable" "$FEEDS_DIR/stable.xml"
+if [ "$BETA" = true ]; then
+  check_outruns "beta" "$FEEDS_DIR/beta.xml"
+else
+  beta_version="$(appcast_newest_version "$FEEDS_DIR/beta.xml")"
+  beta_short_version="$(appcast_newest_short_version "$FEEDS_DIR/beta.xml")"
+  built_short_version="$(/usr/libexec/PlistBuddy -c 'Print :CFBundleShortVersionString' "$SRC/Contents/Info.plist")"
+  if [ -n "$beta_version" ] && [ "$beta_version" -ge "$BUILT_CFBUNDLE_VERSION" ] 2>/dev/null \
+    && ! { [ -n "$beta_short_version" ] \
+      && marketing_version_greater "$beta_short_version" "$built_short_version"; }; then
+    fail "the built CFBundleVersion ($BUILT_CFBUNDLE_VERSION) is not greater than the live beta
+  feed's sparkle:version ($beta_version) — the stable would sit behind the beta in the beta feed,
+  so give the stable a higher build number than the beta (CURRENT_PROJECT_VERSION in
+  Plume.xcodeproj/project.pbxproj)"
   fi
 fi
 
@@ -316,6 +395,36 @@ APPCAST="$OUT/appcast.xml"
 [ -s "$APPCAST" ] || fail "appcast.xml was not written"
 echo "appcast: $APPCAST"
 
+# A stable release replaces the beta feed's stable item and carries no beta
+# item; the preflight fails a run whose build is behind the live beta's. A
+# stable release behind the live beta's marketing version, a hotfix say,
+# leaves the beta feed alone: its higher build would otherwise replace the
+# beta and downgrade beta users.
+echo "--- building beta feed ---"
+BETA_APPCAST="$OUT/beta-feed/appcast.xml"
+mkdir -p "$(dirname "$BETA_APPCAST")"
+UPDATES_BETA_FEED=true
+if [ "$BETA" = true ]; then
+  appcast_merge "$APPCAST" "$FEEDS_DIR/stable.xml" >"$BETA_APPCAST"
+else
+  live_beta_short_version="$(appcast_newest_short_version "$FEEDS_DIR/beta.xml")"
+  if [ -n "$live_beta_short_version" ] \
+    && marketing_version_greater "$live_beta_short_version" "$CFBUNDLE_SHORT_VERSION"; then
+    UPDATES_BETA_FEED=false
+  else
+    appcast_merge "$APPCAST" "$FEEDS_DIR/beta.xml" "$CFBUNDLE_VERSION" >"$BETA_APPCAST"
+  fi
+fi
+if [ "$UPDATES_BETA_FEED" = true ]; then
+  xmllint --noout "$BETA_APPCAST" || fail "the beta feed at $BETA_APPCAST is not well-formed XML"
+  echo "beta feed: $BETA_APPCAST ($(grep -c '<item>' "$BETA_APPCAST") items)"
+else
+  rm -rf "$(dirname "$BETA_APPCAST")"
+  BETA_FEED_NOTE="the beta feed stays as it is: its newest item, $live_beta_short_version, is ahead of
+  $CFBUNDLE_SHORT_VERSION, and this release's higher build would replace it and downgrade beta users"
+  echo "note: $BETA_FEED_NOTE"
+fi
+
 # --- 8. verify --------------------------------------------------------------
 # The only local checks that answer "will this launch on someone else's Mac".
 echo "--- verifying ---"
@@ -349,11 +458,18 @@ if ! git rev-parse "$TAG" >/dev/null 2>&1; then
   echo "Artifacts are built, notarized and verified:"
   echo "  $DMG"
   echo "  $APPCAST"
+  [ "$UPDATES_BETA_FEED" = true ] && echo "  $BETA_APPCAST"
   echo
   echo "Tag this commit, push it, then re-run to attach the DMG to a draft:"
   echo "  git tag -a $TAG -m \"$TAG\""
-  echo "  git push origin main $TAG"
-  echo "  scripts/package-release.sh"
+  PUSH_BRANCH=main
+  [ "$BETA" = true ] && PUSH_BRANCH=$(git rev-parse --abbrev-ref HEAD)
+  if [ "$PUSH_BRANCH" = HEAD ]; then
+    echo "  git push origin $TAG"
+  else
+    echo "  git push origin $PUSH_BRANCH $TAG"
+  fi
+  echo "  scripts/package-release.sh$([ "$BETA" = true ] && echo " --beta")$([ "$ALLOW_BRANCH" = true ] && echo " --allow-branch")"
   exit 0
 fi
 
@@ -372,6 +488,8 @@ if gh release view "$TAG" >/dev/null 2>&1; then
   fi
   gh release upload "$TAG" "$DMG" "$APPCAST" --clobber \
     || fail "could not attach the DMG and appcast"
+  gh release edit "$TAG" --prerelease="$BETA" \
+    || fail "could not set the prerelease flag"
   # Keeps the release body in step with the appcast's notes on a re-run,
   # since --clobber only replaces the attached files.
   gh release edit "$TAG" --notes-file "$NOTES_FILE" \
@@ -379,7 +497,7 @@ if gh release view "$TAG" >/dev/null 2>&1; then
   echo "attached to the existing draft $TAG"
 else
   gh release create "$TAG" "$DMG" "$APPCAST" \
-    --draft --title "$TAG" --verify-tag \
+    --draft --prerelease="$BETA" --title "$TAG" --verify-tag \
     --notes-file "$NOTES_FILE" || fail "could not create the draft release"
 fi
 
@@ -389,7 +507,17 @@ echo
 echo "=== done $(date) ==="
 echo "DMG:     $DMG"
 echo "Appcast: $APPCAST"
+if [ "$UPDATES_BETA_FEED" = true ]; then
+  echo "Beta:    $BETA_APPCAST"
+fi
 echo "Draft:   ${URL:-<none>}"
 echo
-echo "Review it, then publish with:"
-echo "  gh release edit $TAG --draft=false"
+if [ "$UPDATES_BETA_FEED" = true ]; then
+  echo "Review it, then publish it and refresh the beta feed with:"
+  echo "  gh release edit $TAG --draft=false && { gh release view $BETA_FEED_TAG >/dev/null 2>&1 || gh release create $BETA_FEED_TAG --prerelease --title \"Beta feed\" --notes \"Sparkle feed for Plume's beta channel. Not a release.\"; } && gh release upload $BETA_FEED_TAG $BETA_APPCAST --clobber"
+else
+  echo "Review it, then publish it with:"
+  echo "  gh release edit $TAG --draft=false"
+  echo
+  echo "Don't upload a beta feed: $BETA_FEED_NOTE"
+fi

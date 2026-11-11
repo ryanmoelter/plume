@@ -68,6 +68,22 @@ struct HeadlessCommandTests {
         #expect(!arguments.contains("--dangerously-skip-permissions"))
     }
 
+    @Test func appendsTheSystemPromptRuleFile() throws {
+        let arguments = HeadlessCommand.arguments(
+            resumeSessionID: nil,
+            permissionMode: nil,
+            settingsPath: nil,
+            systemPromptRulePath: "/rules/plume.md"
+        )
+        let flag = try #require(arguments.firstIndex(of: "--append-system-prompt-file"))
+        #expect(arguments[flag + 1] == "/rules/plume.md")
+    }
+
+    @Test func omitsTheSystemPromptRuleWithoutAFile() {
+        let arguments = HeadlessCommand.arguments(resumeSessionID: nil, permissionMode: nil, settingsPath: nil)
+        #expect(!arguments.contains("--append-system-prompt-file"))
+    }
+
     @Test func environmentOptsIntoArtifactsAndKeepsThePlumeMarker() {
         #expect(HeadlessCommand.environment["CLAUDE_CODE_ARTIFACT"] == "1")
         #expect(HeadlessCommand.environment["PLUME"] == "1")

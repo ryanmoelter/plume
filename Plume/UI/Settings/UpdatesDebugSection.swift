@@ -7,23 +7,11 @@ import SwiftUI
 /// nothing in Release. `scripts/debug/serve-test-appcast.sh` builds the test
 /// feed this section points at.
 struct UpdatesDebugSection: View {
-    @State private var settings = AppSettings.shared
     @State private var updates = UpdateController.shared
     @State private var feedURLText = UpdateController.shared.debugFeedURLOverride
 
     var body: some View {
         Section {
-            Picker("Install source", selection: installSourceOverrideBinding) {
-                Text("Auto (detected: \(updates.isHomebrewInstall ? "Homebrew" : "Plume"))")
-                    .tag(UpdateInstallSource?.none)
-                Text("Plume").tag(UpdateInstallSource?.some(.plume))
-                Text("Homebrew").tag(UpdateInstallSource?.some(.homebrew))
-            }
-            .plumeID(
-                AccessibilityID.debugUpdatesInstallSourcePicker,
-                value: settings.updateInstallSourceOverride?.rawValue ?? "auto"
-            )
-
             HStack {
                 TextField("Feed URL override", text: $feedURLText)
                     .textFieldStyle(.roundedBorder)
@@ -48,13 +36,6 @@ struct UpdatesDebugSection: View {
             Text(footerText)
                 .foregroundStyle(.secondary)
         }
-    }
-
-    private var installSourceOverrideBinding: Binding<UpdateInstallSource?> {
-        Binding(
-            get: { settings.updateInstallSourceOverride },
-            set: { settings.updateInstallSourceOverride = $0 }
-        )
     }
 
     private var footerText: String {

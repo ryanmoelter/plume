@@ -25,6 +25,10 @@ struct AndroidDeviceView: View, ThemedView {
             isPresented: $confirmingShutDown
         ) {
             Button("Shut Down", role: .destructive) { session.shutDownEmulator() }
+                .plumeID(AccessibilityID.emulatorShutDownConfirmButton, invoke: {
+                    confirmingShutDown = false
+                    session.shutDownEmulator()
+                })
         } message: {
             Text("Anything else using it, such as an agent's adb connection, loses it too.")
         }
@@ -47,7 +51,7 @@ struct AndroidDeviceView: View, ThemedView {
     }
 
     private var deviceName: String {
-        session.displayName ?? session.target?.identifier ?? "Device"
+        session.displayName ?? session.target?.fallbackName ?? "Device"
     }
 
     private var toolbar: some View {
@@ -100,6 +104,7 @@ struct AndroidDeviceView: View, ThemedView {
                     button("rotate.right", "Rotate Right", AccessibilityID.deviceRotateRightButton) { session.rotate(clockwise: true) }
                     Divider().frame(height: 14).padding(.horizontal, 4)
                 }
+                DeviceFoldControls(session: session)
                 button("speaker.minus", "Volume Down", AccessibilityID.deviceVolumeDownButton) { session.press(.volumeDown) }
                 button("speaker.plus", "Volume Up", AccessibilityID.deviceVolumeUpButton) { session.press(.volumeUp) }
                 button("power", "Power", AccessibilityID.devicePowerButton) { session.press(.power) }
@@ -129,6 +134,9 @@ struct AndroidDeviceView: View, ThemedView {
                             .disabled(!session.canPauseStreaming)
                             .plumeID(AccessibilityID.deviceStreamingMenuItem, value: "on")
                     }
+                    if !session.videoQualityLevels.isEmpty {
+                        videoQualityPicker
+                    }
                 }
                 if session.canEndReservation {
                     Button("End Reservation…") { confirmingEndReservation = true }
@@ -136,7 +144,6 @@ struct AndroidDeviceView: View, ThemedView {
                 }
                 if !session.isPhysical {
                     Button("Shut Down Emulator…") { confirmingShutDown = true }
-                        .plumeID(AccessibilityID.emulatorShutDownMenuItem)
                         .disabled(!session.canShutDownEmulator)
                 }
             } label: {
@@ -147,7 +154,31 @@ struct AndroidDeviceView: View, ThemedView {
             .fixedSize()
             .padding(.horizontal, 6)
             .plumeID(AccessibilityID.deviceMoreMenu)
+            .plumeMenuItem(
+                AccessibilityID.emulatorShutDownMenuItem,
+                isPresent: !session.isPhysical,
+                isEnabled: session.canShutDownEmulator
+            ) { confirmingShutDown = true }
         }
+    }
+
+    /// "Automatic" names the level it is at, since that level changes with the connection.
+    private var videoQualityPicker: some View {
+        let levels = session.videoQualityLevels
+        return Picker("Video Quality", selection: Binding(get: { session.videoQualityChoice }, set: { session.setVideoQuality($0) })) {
+            Text("Automatic (\(levels[min(session.videoQualityLevel, levels.count - 1)]))").tag(VideoQualityChoice.automatic)
+            ForEach(levels.indices, id: \.self) { level in
+                Text(levels[level]).tag(VideoQualityChoice.fixed(level))
+            }
+        }
+        .pickerStyle(.menu)
+        .plumeID(
+            AccessibilityID.deviceVideoQualityMenu,
+            value: session.videoQualityChoice == .automatic ? "automatic" : String(session.videoQualityLevel),
+            setValue: { value in
+                session.setVideoQuality(Int(value).map(VideoQualityChoice.fixed) ?? .automatic)
+            }
+        )
     }
 
     private var reservationControls: some View {
@@ -217,7 +248,13 @@ struct AndroidDeviceView: View, ThemedView {
         case .notRunning where session.isPhysical:
             status(
                 "\(session.displayName ?? "This device") isn't connected.",
-                detail: "Connect it over USB and allow USB debugging on the device."
+                detail: !session.adbFound
+                    ? "adb wasn't found. Install Android SDK Platform-Tools with Android Studio's SDK Manager."
+                    : !session.isWifi
+                    ? "Connect it over USB and allow USB debugging on the device."
+                    : session.wifiReconnectsByItself
+                    ? "Turn on Wireless debugging on the device, on the same network as this Mac."
+                    : "adb can't discover devices on this network, so it won't reconnect by itself. Choose Change Device… and pair or connect it again over Wi-Fi."
             ) {
                 Button("Try Again") { session.locate() }
                     .plumeID(AccessibilityID.deviceRetryButton)
@@ -225,7 +262,7 @@ struct AndroidDeviceView: View, ThemedView {
         case .notRunning:
             status("\(session.displayName ?? "This emulator") isn't running.") {
                 Button("Boot") { session.bootChosenDevice() }
-                    .plumeID(AccessibilityID.emulatorBootButton)
+                    .plumeID(AccessibilityID.emulatorBootButton, invoke: { session.bootChosenDevice() })
             }
         case .disconnected(let reason):
             status("Lost the connection to the \(session.isPhysical ? "device" : "emulator").", detail: reason) {
@@ -235,7 +272,7 @@ struct AndroidDeviceView: View, ThemedView {
         case .failed(let reason):
             status("The emulator could not start.", detail: reason) {
                 Button("Try Again") { session.bootChosenDevice() }
-                    .plumeID(AccessibilityID.emulatorBootButton)
+                    .plumeID(AccessibilityID.emulatorBootButton, invoke: { session.bootChosenDevice() })
             }
         case .reserving:
             status(

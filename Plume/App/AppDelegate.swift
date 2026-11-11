@@ -39,12 +39,17 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         // App-lifetime, so it cannot leak or double-install the way a
         // per-tab monitor would across tab and task switches.
         TerminalShortcutMonitor.shared.install()
+        TerminalInteractionMonitor.shared.install()
 
         startApplyingShortcutBindings()
 
         UpdateController.shared.start()
 
         CommandLineHelper.repointLegacyLinks()
+
+        OrphanedAgentReaper.shared.start()
+
+        BundledSkillsStatus.shared.start()
 
         #if DEBUG
         LinkClickHarness.runIfRequested()
@@ -108,9 +113,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     }
 
     func applicationShouldTerminate(_ sender: NSApplication) -> NSApplication.TerminateReply {
-        if HomebrewUpgrade.isQuitConfirmed {
-            return .terminateNow
-        }
         let shouldConfirm = Self.shouldConfirmQuit(
             statuses: statusEngine.effectiveTabStatuses,
             isSystemInitiated: isSystemInitiatedQuit,

@@ -12,7 +12,8 @@ nonisolated final class EmulatorDeviceConnection: DeviceConnecting {
     }
 
     func connect() async throws -> DeviceConnectionInfo {
-        DeviceConnectionInfo(deviceSize: try await connection.status().displaySize)
+        let status = try await connection.status()
+        return DeviceConnectionInfo(deviceSize: status.displaySize, postures: status.postures.compactMap(DevicePosture.init))
     }
 
     func frames(maxPixelSize: CGSize) -> AsyncThrowingStream<DeviceFrame, Error> {
@@ -90,6 +91,19 @@ nonisolated final class EmulatorDeviceConnection: DeviceConnecting {
         try await connection.rotate(to: rotation.emulatorRotation)
     }
 
+    func posture() async -> DevicePosture? {
+        do {
+            return try await connection.posture().flatMap(DevicePosture.init)
+        } catch {
+            EmulatorLog.error("reading the emulator's posture failed: \(error)")
+            return nil
+        }
+    }
+
+    func setPosture(_ posture: DevicePosture) async throws {
+        try await connection.setPosture(posture.emulatorPosture)
+    }
+
     func autoRotate() async -> Bool? { nil }
     func setAutoRotate(_ enabled: Bool) async -> Bool { false }
 
@@ -114,6 +128,26 @@ private extension DeviceButton {
         case .power: .power
         case .volumeUp: .volumeUp
         case .volumeDown: .volumeDown
+        }
+    }
+}
+
+extension DevicePosture {
+    /// Nil for the postures Plume offers no control for, such as tent.
+    nonisolated init?(_ posture: EmulatorPosture) {
+        switch posture {
+        case .closed: self = .closed
+        case .halfOpen: self = .halfOpen
+        case .open: self = .open
+        case .flipped, .tent: return nil
+        }
+    }
+
+    nonisolated var emulatorPosture: EmulatorPosture {
+        switch self {
+        case .closed: .closed
+        case .halfOpen: .halfOpen
+        case .open: .open
         }
     }
 }

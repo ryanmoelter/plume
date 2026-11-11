@@ -50,8 +50,9 @@ nonisolated enum EmulatorLauncher {
         logDirectory.appending(path: "\(avdID).log")
     }
 
+    /// `-no-window` would force the headless binary, which renders in software.
     static func arguments(avdID: String) -> [String] {
-        ["-avd", avdID, "-no-window", "-grpc-use-token", "-no-boot-anim"]
+        ["-avd", avdID, "-qt-hide-window", "-grpc-use-token", "-no-boot-anim"]
     }
 
     /// A tab's identity would make the emulator's own children look like they belong to that tab.

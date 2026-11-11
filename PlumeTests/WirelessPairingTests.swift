@@ -1,0 +1,551 @@
+import Foundation
+import Testing
+@testable import Plume
+
+private let adbURL = URL(fileURLWithPath: "/sdk/platform-tools/adb")
+private let phoneAddress = "192.168.1.20:41234"
+
+/// Scripts adb: what mDNS shows, how pair and connect answer, and what each does to `adb devices`.
+private nonisolated final class FakeWireless: ADBWirelessRunning, @unchecked Sendable {
+    private let lock = NSLock()
+    let listing: ListingBox
+    private var _mdns = true
+    private var _services: [ADBMDNSService] = []
+    private var _servicesCalls = 0
+    private var _pairs: [(address: String, code: String)] = []
+    private var _connects: [String] = []
+    private var _pairOutcome = ADBCommandOutcome.succeeded
+    private var _connectOutcome = ADBCommandOutcome.succeeded
+    /// Listed after a successful pair, as adb's mDNS auto-connect would.
+    private var _autoConnected: PhysicalDevice?
+    /// Listed after a successful connect.
+    private var _connected: PhysicalDevice?
+
+    init(devices: [PhysicalDevice] = []) {
+        listing = ListingBox(ADBListing(adbURL: adbURL, devices: devices))
+    }
+
+    var mdns: Bool { get { lock.withLock { _mdns } } set { lock.withLock { _mdns = newValue } } }
+    var servicesShown: [ADBMDNSService] { get { lock.withLock { _services } } set { lock.withLock { _services = newValue } } }
+    var servicesCalls: Int { lock.withLock { _servicesCalls } }
+    var pairs: [(address: String, code: String)] { lock.withLock { _pairs } }
+    var connects: [String] { lock.withLock { _connects } }
+    var pairOutcome: ADBCommandOutcome { get { lock.withLock { _pairOutcome } } set { lock.withLock { _pairOutcome = newValue } } }
+    var autoConnected: PhysicalDevice? { get { lock.withLock { _autoConnected } } set { lock.withLock { _autoConnected = newValue } } }
+    var connected: PhysicalDevice? { get { lock.withLock { _connected } } set { lock.withLock { _connected = newValue } } }
+    var connectOutcome: ADBCommandOutcome { get { lock.withLock { _connectOutcome } } set { lock.withLock { _connectOutcome = newValue } } }
+
+    func mdnsAvailable(adb: URL) async -> Bool { mdns }
+
+    func services(adb: URL) async -> [ADBMDNSService] {
+        lock.withLock {
+            _servicesCalls += 1
+            return _services
+        }
+    }
+
+    func pair(adb: URL, address: String, code: String) async -> ADBCommandOutcome {
+        let (outcome, device) = lock.withLock {
+            _pairs.append((address, code))
+            return (_pairOutcome, _autoConnected)
+        }
+        if outcome == .succeeded, let device { listing.listing.devices.append(device) }
+        return outcome
+    }
+
+    func connect(adb: URL, address: String) async -> ADBCommandOutcome {
+        let (outcome, device) = lock.withLock {
+            _connects.append(address)
+            return (_connectOutcome, _connected)
+        }
+        if outcome == .succeeded, let device { listing.listing.devices.append(device) }
+        return outcome
+    }
+}
+
+/// Time that passes only when the coordinator sleeps.
+private nonisolated final class FakeTime: @unchecked Sendable {
+    private let lock = NSLock()
+    private var instant = ContinuousClock.now
+    var now: ContinuousClock.Instant { lock.withLock { instant } }
+    func advance(_ duration: Duration) { lock.withLock { instant += duration } }
+}
+
+@MainActor
+private func makePairing(_ fake: FakeWireless, time: FakeTime = FakeTime()) -> WirelessPairing {
+    let listing = fake.listing
+    return WirelessPairing(
+        adb: fake,
+        discovery: PhysicalDeviceDiscovery(list: { listing.list() }, serialNumber: { _, _ in nil }),
+        sleep: { duration in
+            time.advance(duration)
+            await Task.yield()
+        },
+        now: { time.now }
+    )
+}
+
+@MainActor
+private func waitUntil(_ condition: () -> Bool) async {
+    for _ in 0..<2000 where !condition() {
+        try? await Task.sleep(for: .milliseconds(5))
+    }
+}
+
+@MainActor
+private func failure(of pairing: WirelessPairing) async -> String? {
+    await waitUntil { if case .failed = pairing.phase { true } else { false } }
+    guard case .failed(let message) = pairing.phase else { return nil }
+    return message
+}
+
+@MainActor
+private func pairedNotConnected(_ pairing: WirelessPairing) async -> String? {
+    await waitUntil { if case .pairedNotConnected = pairing.phase { true } else { false } }
+    guard case .pairedNotConnected(let message) = pairing.phase else { return nil }
+    return message
+}
+
+private let mdnsPhone = PhysicalDevice(serial: "adb-2B021FDH200A2K-OkOQKV._adb-tls-connect._tcp", state: .ready, model: "Pixel_9")
+private let phoneConnectService = ADBMDNSService(instance: "adb-2B021FDH200A2K-OkOQKV", kind: .connect, address: phoneAddress)
+
+/// Covers both pairing flows end to end against scripted adb: finding the scanned QR service,
+/// adb's mDNS auto-connect, Plume's own `adb connect` fallback, and the readable failures.
+@MainActor
+struct WirelessPairingTests {
+    @Test func aScannedQRCodePairsWithItsPasswordAndConnects() async {
+        let fake = FakeWireless()
+        fake.autoConnected = mdnsPhone
+        let pairing = makePairing(fake)
+        pairing.startQRCode()
+        #expect(pairing.phase == .waitingForScan)
+        fake.servicesShown = [
+            ADBMDNSService(instance: "plume-someoneelse", kind: .pairing, address: "192.168.1.30:37000"),
+            ADBMDNSService(instance: pairing.qr.name, kind: .pairing, address: "192.168.1.20:37123"),
+            phoneConnectService,
+        ]
+        await waitUntil { pairing.phase == .connected(mdnsPhone) }
+        #expect(pairing.phase == .connected(mdnsPhone))
+        #expect(fake.pairs.map(\.address) == ["192.168.1.20:37123"])
+        #expect(fake.pairs.map(\.code) == [pairing.qr.password])
+        #expect(fake.connects.isEmpty)
+    }
+
+    @Test func anotherPhonesPairingServiceIsIgnored() async {
+        let fake = FakeWireless()
+        fake.servicesShown = [ADBMDNSService(instance: "studio-abc", kind: .pairing, address: "192.168.1.30:37000")]
+        let pairing = makePairing(fake)
+        pairing.startQRCode()
+        await waitUntil { fake.servicesCalls >= 5 }
+        #expect(pairing.phase == .waitingForScan)
+        #expect(fake.pairs.isEmpty)
+        pairing.cancel()
+        #expect(pairing.phase == .idle)
+    }
+
+    @Test func withoutMDNSTheQRCodeSaysSo() async {
+        let fake = FakeWireless()
+        fake.mdns = false
+        let pairing = makePairing(fake)
+        pairing.startQRCode()
+        await waitUntil { pairing.phase == .mdnsUnavailable }
+        #expect(pairing.phase == .mdnsUnavailable)
+    }
+
+    @Test func eachQRCodeIsFresh() {
+        let pairing = makePairing(FakeWireless())
+        pairing.startQRCode()
+        let first = pairing.qr
+        pairing.startQRCode()
+        #expect(pairing.qr != first)
+        pairing.cancel()
+    }
+
+    @Test func aPairingCodeNeedsAnAddressAndDigits() {
+        let pairing = makePairing(FakeWireless())
+        pairing.pair(address: "192.168.1.20", code: "123456")
+        guard case .failed = pairing.phase else { Issue.record("expected a failure, got \(pairing.phase)"); return }
+        pairing.pair(address: "192.168.1.20:37123", code: "12a456")
+        guard case .failed = pairing.phase else { Issue.record("expected a failure, got \(pairing.phase)"); return }
+    }
+
+    @Test func aRejectedPairShowsAdbsReason() async {
+        let fake = FakeWireless()
+        fake.pairOutcome = .failed("Wrong password or connection was dropped.")
+        let pairing = makePairing(fake)
+        pairing.pair(address: " 192.168.1.20:37123 ", code: "123456")
+        #expect(await failure(of: pairing) == "Wrong password or connection was dropped.")
+        #expect(fake.pairs.map(\.address) == ["192.168.1.20:37123"])
+    }
+
+    @Test func withoutAutoConnectPlumeConnectsToThePhonesConnectServiceNearTheEnd() async {
+        let fake = FakeWireless()
+        let phone = PhysicalDevice(serial: phoneAddress, state: .ready, model: "Pixel_9")
+        fake.connected = phone
+        fake.servicesShown = [
+            ADBMDNSService(instance: "adb-OTHER-x", kind: .connect, address: "192.168.1.99:40000"),
+            phoneConnectService,
+        ]
+        let time = FakeTime()
+        let started = time.now
+        let pairing = makePairing(fake, time: time)
+        pairing.pair(address: "192.168.1.20:37123", code: "123456")
+        await waitUntil { pairing.phase == .connected(phone) }
+        #expect(pairing.phase == .connected(phone))
+        #expect(fake.connects == [phoneAddress])
+        #expect(time.now - started >= WirelessPairing.autoConnectWindow)
+    }
+
+    @Test func aPhoneAdbConnectsWithinTheWindowGetsNoConnectOfPlumesOwn() async {
+        let fake = FakeWireless()
+        fake.servicesShown = [phoneConnectService]
+        let time = FakeTime()
+        let started = time.now
+        let listing = fake.listing
+        let pairing = WirelessPairing(
+            adb: fake,
+            discovery: PhysicalDeviceDiscovery(list: { listing.list() }, serialNumber: { _, _ in nil }),
+            sleep: { duration in
+                time.advance(duration)
+                if time.now - started >= .seconds(5), !listing.list().devices.contains(mdnsPhone) {
+                    listing.listing.devices.append(mdnsPhone)
+                }
+                await Task.yield()
+            },
+            now: { time.now }
+        )
+        pairing.pair(address: "192.168.1.20:37123", code: "123456")
+        await waitUntil { pairing.phase == .connected(mdnsPhone) }
+        #expect(pairing.phase == .connected(mdnsPhone))
+        #expect(fake.connects.isEmpty)
+    }
+
+    @Test func withoutMDNSOrAnAddressPairingAsksForTheAddressThenConnects() async {
+        let fake = FakeWireless()
+        let phone = PhysicalDevice(serial: phoneAddress, state: .ready, model: "Pixel_9")
+        fake.connected = phone
+        let pairing = makePairing(fake)
+        pairing.pair(address: "192.168.1.20:37123", code: "123456")
+        let message = await pairedNotConnected(pairing)
+        #expect(message?.contains("Wireless debugging screen") == true)
+        #expect(fake.connects.isEmpty)
+
+        pairing.connect(address: phoneAddress)
+        await waitUntil { pairing.phase == .connected(phone) }
+        #expect(pairing.phase == .connected(phone))
+        #expect(fake.connects == [phoneAddress])
+    }
+
+    @Test func aTypedAddressIsConnectedAtOnceEvenWithAConnectService() async {
+        let fake = FakeWireless()
+        let phone = PhysicalDevice(serial: phoneAddress, state: .ready, model: "Pixel_9")
+        fake.connected = phone
+        fake.servicesShown = [phoneConnectService]
+        let time = FakeTime()
+        let started = time.now
+        let pairing = makePairing(fake, time: time)
+        pairing.connect(address: phoneAddress)
+        await waitUntil { pairing.phase == .connected(phone) }
+        #expect(pairing.phase == .connected(phone))
+        #expect(fake.connects == [phoneAddress])
+        #expect(time.now - started < WirelessPairing.autoConnectWindow)
+    }
+
+    @Test func returnConnectsOncePairedAndPairsOtherwise() async {
+        let fake = FakeWireless()
+        let pairing = makePairing(fake)
+        #expect(pairing.returnKeyAction == .pair)
+        pairing.pair(address: "192.168.1.20:37123", code: "123456")
+        _ = await pairedNotConnected(pairing)
+        #expect(pairing.returnKeyAction == .connect)
+        pairing.cancel()
+        #expect(pairing.returnKeyAction == .pair)
+    }
+
+    @Test func aPairCancelledWhileFindingAdbNeverPairs() async {
+        let fake = FakeWireless()
+        let gate = PairingGate()
+        let listing = fake.listing
+        let pairing = WirelessPairing(
+            adb: fake,
+            discovery: PhysicalDeviceDiscovery(
+                list: {
+                    await gate.wait()
+                    return listing.list()
+                },
+                serialNumber: { _, _ in nil }
+            ),
+            sleep: { _ in await Task.yield() }
+        )
+        pairing.pair(address: "192.168.1.20:37123", code: "123456")
+        pairing.cancel()
+        await gate.open()
+        try? await Task.sleep(for: .milliseconds(100))
+        #expect(pairing.phase == .idle)
+        #expect(fake.pairs.isEmpty)
+    }
+
+    @Test func browsingListsPhonesShowingAPairingCodeAndPicksALoneOne() async {
+        let fake = FakeWireless()
+        let codePhone = ADBMDNSService(instance: "adb-2B021FDH200A2K-OkOQKV", kind: .pairing, address: "192.168.1.20:37123")
+        fake.servicesShown = [
+            ADBMDNSService(instance: "plume-abc", kind: .pairing, address: "192.168.1.30:37000"),
+            ADBMDNSService(instance: "studio-abc", kind: .pairing, address: "192.168.1.31:37000"),
+            phoneConnectService,
+            codePhone,
+        ]
+        let pairing = makePairing(fake)
+        pairing.startBrowsing()
+        await waitUntil { pairing.browsing == .found }
+        #expect(pairing.pairingServices == [codePhone])
+        #expect(pairing.pairingAddress == codePhone.address)
+        #expect(pairing.displayName(of: codePhone) == "2B021FDH200A2K")
+        pairing.cancel()
+        #expect(pairing.browsing == .stopped)
+    }
+
+    @Test func twoPhonesWaitForAPick() async {
+        let fake = FakeWireless()
+        let first = ADBMDNSService(instance: "adb-AAA-x", kind: .pairing, address: "192.168.1.20:37123")
+        let second = ADBMDNSService(instance: "adb-BBB-y", kind: .pairing, address: "192.168.1.21:37123")
+        fake.servicesShown = [first, second]
+        let pairing = makePairing(fake)
+        pairing.startBrowsing()
+        await waitUntil { pairing.browsing == .found }
+        #expect(pairing.pairingAddress.isEmpty)
+        pairing.select(second)
+        #expect(pairing.pairingAddress == second.address)
+        pairing.stopBrowsing()
+    }
+
+    @Test func aPhoneAdbListsOverUSBIsNamedByItsModel() async {
+        let usb = PhysicalDevice(serial: "2B021FDH200A2K", state: .ready, model: "Pixel_9")
+        let fake = FakeWireless(devices: [usb])
+        let codePhone = ADBMDNSService(instance: "adb-2B021FDH200A2K-OkOQKV", kind: .pairing, address: "192.168.1.20:37123")
+        fake.servicesShown = [codePhone]
+        let pairing = makePairing(fake)
+        pairing.startBrowsing()
+        await waitUntil { pairing.browsing == .found }
+        #expect(pairing.displayName(of: codePhone) == "Pixel 9")
+        pairing.stopBrowsing()
+    }
+
+    @Test func browsingWithoutMDNSFallsBackToTyping() async {
+        let fake = FakeWireless()
+        fake.mdns = false
+        let pairing = makePairing(fake)
+        pairing.startBrowsing()
+        await waitUntil { pairing.browsing == .unavailable }
+        #expect(pairing.browsing == .unavailable)
+        #expect(fake.servicesCalls == 0)
+    }
+
+    @Test func browsingThatFindsNothingOffersTypingButKeepsLooking() async {
+        let fake = FakeWireless()
+        let time = FakeTime()
+        let pairing = makePairing(fake, time: time)
+        pairing.startBrowsing()
+        await waitUntil { pairing.browsing == .nothingFound }
+        #expect(pairing.browsing == .nothingFound)
+        let codePhone = ADBMDNSService(instance: "adb-AAA-x", kind: .pairing, address: "192.168.1.20:37123")
+        fake.servicesShown = [codePhone]
+        await waitUntil { pairing.browsing == .found }
+        #expect(pairing.pairingServices == [codePhone])
+        pairing.stopBrowsing()
+    }
+
+    @Test func pairingStopsBrowsing() async {
+        let fake = FakeWireless()
+        fake.pairOutcome = .failed("Wrong password or connection was dropped.")
+        fake.servicesShown = [ADBMDNSService(instance: "adb-AAA-x", kind: .pairing, address: "192.168.1.20:37123")]
+        let pairing = makePairing(fake)
+        pairing.startBrowsing()
+        await waitUntil { pairing.browsing == .found }
+        pairing.pair(address: pairing.pairingAddress, code: "123456")
+        #expect(pairing.browsing == .stopped)
+        _ = await failure(of: pairing)
+        let calls = fake.servicesCalls
+        try? await Task.sleep(for: .milliseconds(100))
+        #expect(fake.servicesCalls == calls)
+        #expect(fake.pairs.map(\.address) == ["192.168.1.20:37123"])
+    }
+
+    @Test func aNewWifiDeviceOnAnotherHostIsNotThePairedPhone() async {
+        let fake = FakeWireless()
+        fake.autoConnected = PhysicalDevice(serial: "192.168.1.50:5555", state: .ready, model: nil)
+        fake.servicesShown = [ADBMDNSService(instance: "adb-OTHER-x", kind: .connect, address: "192.168.1.50:5555")]
+        let pairing = makePairing(fake)
+        pairing.pair(address: "192.168.1.20:37123", code: "123456")
+        let message = await pairedNotConnected(pairing)
+        #expect(message?.hasPrefix("Paired, but adb didn't connect the device by itself.") == true)
+        #expect(fake.connects.isEmpty)
+    }
+
+    @Test func aPhoneAlreadyConnectedUnderItsMDNSNameCountsWhenPairedAgain() async {
+        let fake = FakeWireless(devices: [mdnsPhone])
+        fake.servicesShown = [phoneConnectService]
+        let pairing = makePairing(fake)
+        pairing.pair(address: "192.168.1.20:37123", code: "123456")
+        await waitUntil { pairing.phase == .connected(mdnsPhone) }
+        #expect(pairing.phase == .connected(mdnsPhone))
+        #expect(fake.connects.isEmpty)
+    }
+
+    @Test func aFailedConnectIsTriedOnceAndTheWaitEndsOnTime() async {
+        let fake = FakeWireless()
+        fake.connectOutcome = .failed("Failed to connect to '192.168.1.20:41234': Connection refused")
+        fake.servicesShown = [phoneConnectService]
+        let time = FakeTime()
+        let started = time.now
+        let pairing = makePairing(fake, time: time)
+        pairing.pair(address: "192.168.1.20:37123", code: "123456")
+        let message = await pairedNotConnected(pairing)
+        #expect(message?.contains("Connection refused") == true)
+        #expect(fake.connects == [phoneAddress])
+        #expect(time.now - started <= WirelessPairing.connectDeadline + WirelessPairing.pollInterval)
+    }
+
+    @Test func aPickedPhoneFollowsItsServiceToANewPort() async {
+        let fake = FakeWireless()
+        let first = ADBMDNSService(instance: "adb-AAA-x", kind: .pairing, address: "192.168.1.20:37123")
+        fake.servicesShown = [first]
+        let pairing = makePairing(fake)
+        pairing.startBrowsing()
+        await waitUntil { pairing.pairingAddress == first.address }
+        let reopened = ADBMDNSService(instance: "adb-AAA-x", kind: .pairing, address: "192.168.1.20:38000")
+        fake.servicesShown = [reopened, ADBMDNSService(instance: "adb-BBB-y", kind: .pairing, address: "192.168.1.21:37123")]
+        await waitUntil { pairing.pairingAddress == reopened.address }
+        #expect(pairing.pairingAddress == reopened.address)
+        pairing.stopBrowsing()
+    }
+
+    @Test func aPickedPhoneThatDisappearsClearsTheAddress() async {
+        let fake = FakeWireless()
+        let first = ADBMDNSService(instance: "adb-AAA-x", kind: .pairing, address: "192.168.1.20:37123")
+        let second = ADBMDNSService(instance: "adb-BBB-y", kind: .pairing, address: "192.168.1.21:37123")
+        let third = ADBMDNSService(instance: "adb-CCC-z", kind: .pairing, address: "192.168.1.22:37123")
+        fake.servicesShown = [first, second]
+        let pairing = makePairing(fake)
+        pairing.startBrowsing()
+        await waitUntil { pairing.browsing == .found }
+        pairing.select(first)
+        fake.servicesShown = [second, third]
+        await waitUntil { pairing.pairingAddress.isEmpty }
+        #expect(pairing.pairingAddress.isEmpty)
+
+        pairing.select(second)
+        fake.servicesShown = []
+        await waitUntil { pairing.pairingAddress.isEmpty }
+        #expect(pairing.pairingAddress.isEmpty)
+        pairing.stopBrowsing()
+    }
+
+    @Test func aPickedPhoneThatDisappearsFollowsALoneOther() async {
+        let fake = FakeWireless()
+        let first = ADBMDNSService(instance: "adb-AAA-x", kind: .pairing, address: "192.168.1.20:37123")
+        let second = ADBMDNSService(instance: "adb-BBB-y", kind: .pairing, address: "192.168.1.21:37123")
+        fake.servicesShown = [first, second]
+        let pairing = makePairing(fake)
+        pairing.startBrowsing()
+        await waitUntil { pairing.browsing == .found }
+        pairing.select(first)
+        fake.servicesShown = [second]
+        await waitUntil { pairing.pairingAddress == second.address }
+        #expect(pairing.pairingAddress == second.address)
+        pairing.stopBrowsing()
+    }
+
+    @Test func aTypedAddressIsNeverReplacedByBrowsing() async {
+        let fake = FakeWireless()
+        let first = ADBMDNSService(instance: "adb-AAA-x", kind: .pairing, address: "192.168.1.20:37123")
+        fake.servicesShown = [first]
+        let pairing = makePairing(fake)
+        pairing.pairingAddress = "192.168.1.99:37000"
+        pairing.startBrowsing()
+        await waitUntil { fake.servicesCalls >= 2 }
+        #expect(pairing.pairingAddress == "192.168.1.99:37000")
+
+        pairing.select(first)
+        pairing.pairingAddress = "192.168.1.98:37000"
+        fake.servicesShown = []
+        let calls = fake.servicesCalls
+        await waitUntil { fake.servicesCalls >= calls + 2 }
+        #expect(pairing.pairingAddress == "192.168.1.98:37000")
+        pairing.stopBrowsing()
+    }
+
+    @Test func aPhoneWhoseConnectServiceWentAwayBeforeAdbListedItCounts() async {
+        let fake = FakeWireless()
+        fake.servicesShown = [phoneConnectService]
+        let fakeListing = fake.listing
+        let polls = SerialCounter()
+        let pairing = WirelessPairing(
+            adb: fake,
+            discovery: PhysicalDeviceDiscovery(
+                list: {
+                    guard !fake.pairs.isEmpty else { return fakeListing.list() }
+                    polls.increment()
+                    guard polls.value >= 2 else { return fakeListing.list() }
+                    fake.servicesShown = []
+                    return ADBListing(adbURL: adbURL, devices: [mdnsPhone])
+                },
+                serialNumber: { _, _ in nil }
+            ),
+            sleep: { _ in await Task.yield() }
+        )
+        pairing.pair(address: "192.168.1.20:37123", code: "123456")
+        await waitUntil { pairing.phase == .connected(mdnsPhone) }
+        #expect(pairing.phase == .connected(mdnsPhone))
+        #expect(fake.connects.isEmpty)
+    }
+
+    @Test func aPhoneNamedLikeThePickedPairingServiceCounts() async {
+        let fake = FakeWireless()
+        let codePhone = ADBMDNSService(instance: "adb-2B021FDH200A2K-pair01", kind: .pairing, address: "192.168.1.20:37123")
+        fake.servicesShown = [codePhone]
+        fake.autoConnected = mdnsPhone
+        let pairing = makePairing(fake)
+        pairing.startBrowsing()
+        await waitUntil { pairing.pairingAddress == codePhone.address }
+        pairing.pair(address: pairing.pairingAddress, code: "123456")
+        await waitUntil { pairing.phase == .connected(mdnsPhone) }
+        #expect(pairing.phase == .connected(mdnsPhone))
+        #expect(fake.connects.isEmpty)
+    }
+
+    @Test func anMDNSPhoneWithAnotherSerialIsNotThePickedPhone() async {
+        let fake = FakeWireless()
+        let codePhone = ADBMDNSService(instance: "adb-OTHER-pair01", kind: .pairing, address: "192.168.1.20:37123")
+        fake.servicesShown = [codePhone]
+        fake.autoConnected = mdnsPhone
+        let pairing = makePairing(fake)
+        pairing.startBrowsing()
+        await waitUntil { pairing.pairingAddress == codePhone.address }
+        pairing.pair(address: pairing.pairingAddress, code: "123456")
+        _ = await pairedNotConnected(pairing)
+        #expect(pairing.phase != .connected(mdnsPhone))
+    }
+}
+
+private nonisolated final class SerialCounter: @unchecked Sendable {
+    private let lock = NSLock()
+    private var count = 0
+    var value: Int { lock.withLock { count } }
+    func increment() { lock.withLock { count += 1 } }
+}
+
+private actor PairingGate {
+    private var isOpen = false
+    private var waiters: [CheckedContinuation<Void, Never>] = []
+
+    func wait() async {
+        guard !isOpen else { return }
+        await withCheckedContinuation { waiters.append($0) }
+    }
+
+    func open() {
+        isOpen = true
+        waiters.forEach { $0.resume() }
+        waiters.removeAll()
+    }
+}

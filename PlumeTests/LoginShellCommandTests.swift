@@ -65,13 +65,21 @@ struct LoginShellCommandTests {
         let environment = LoginShellCommand.plumeEnvironment(taskID: UUID(), tabID: UUID(), socketPath: nil, bundleID: nil)
         #expect(environment["PLUME_SOCKET"] == nil)
         #expect(environment["PLUME_TAB_ID"] != nil)
-        #expect(LoginShellCommand.sharedPlumeEnvironment(socketPath: nil, bundleID: nil) == ["PLUME": "1"])
+        #expect(LoginShellCommand.sharedPlumeEnvironment(socketPath: nil, bundleID: nil, cliURL: nil) == ["PLUME": "1"])
+    }
+
+    @Test func theSharedEnvironmentNamesTheBundledTool() {
+        let tool = URL(fileURLWithPath: "/Apps/Plume.app/Contents/Helpers/plume")
+        let environment = LoginShellCommand.sharedPlumeEnvironment(socketPath: nil, bundleID: nil, cliURL: tool)
+        #expect(environment["PLUME_CLI"] == tool.path)
+        #expect(environment["PATH"] == nil)
+        #expect(LoginShellCommand.instanceKeys.contains("PLUME_CLI"))
     }
 
     /// A process serving many tabs still names the app, so `plume wt` reads
     /// this build's Projects settings.
     @Test func theSharedEnvironmentNamesTheBundleWithoutASocket() {
-        let environment = LoginShellCommand.sharedPlumeEnvironment(socketPath: nil, bundleID: "com.example.Plume")
+        let environment = LoginShellCommand.sharedPlumeEnvironment(socketPath: nil, bundleID: "com.example.Plume", cliURL: nil)
         #expect(environment == ["PLUME": "1", "PLUME_BUNDLE_ID": "com.example.Plume"])
         #expect(UserDefaultsProjectSettingsSource(environment: environment).suiteName == "com.example.Plume")
     }
@@ -95,5 +103,26 @@ struct LoginShellCommandTests {
         #expect(environment["PLUME_BUNDLE_ID"] == nil)
         #expect(LoginShellCommand.instanceKeys.contains("PLUME_BUNDLE_ID"))
         #expect(environment["PATH"] != nil)
+    }
+
+    @Test func aChildPathEndsWithTheBundledToolsDirectoryOnce() {
+        let helpers = URL(fileURLWithPath: "/Apps/Plume.app/Contents/Helpers")
+        let path = LoginShellCommand.childEnvironment(overrides: [:], helpersDirectory: helpers)["PATH"]
+        #expect(path?.hasSuffix(":/Apps/Plume.app/Contents/Helpers") == true)
+        #expect(path?.components(separatedBy: "/Apps/Plume.app/Contents/Helpers").count == 2)
+    }
+
+    @Test func aChildPathHasNoInheritedAppToolDirectories() {
+        let helpers = URL(fileURLWithPath: "/Apps/Plume.app/Contents/Helpers")
+        let path = LoginShellCommand.childEnvironment(overrides: [:], helpersDirectory: helpers)["PATH"] ?? ""
+        let appEntries = path.split(separator: ":").map(String.init)
+            .filter { $0.hasSuffix(".app/Contents/Helpers") || $0.hasSuffix(".app/Contents/MacOS") }
+        #expect(appEntries == [helpers.path])
+    }
+
+    @Test func anExplicitChildPathIsLeftAlone() {
+        let helpers = URL(fileURLWithPath: "/Apps/Plume.app/Contents/Helpers")
+        let environment = LoginShellCommand.childEnvironment(overrides: ["PATH": "/opt/bin"], helpersDirectory: helpers)
+        #expect(environment["PATH"] == "/opt/bin")
     }
 }

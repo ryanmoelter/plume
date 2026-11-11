@@ -24,7 +24,7 @@ struct InfoPaneFactsTests {
 
         var facts = InfoPaneFacts(tabID: UUID())
         facts.linkedPullRequests = linked
-        #expect(facts.sections == [.linkedPullRequests])
+        #expect(facts.sections == [.pullRequests])
         #expect(facts.collapsedSections.isEmpty)
     }
 
@@ -57,7 +57,7 @@ struct InfoPaneFactsTests {
     @Test func thePinButtonKeepsAnEmptyPullRequestSection() {
         var facts = InfoPaneFacts(tabID: UUID())
         facts.canPinPullRequests = true
-        #expect(facts.sections == [.linkedPullRequests])
+        #expect(facts.sections == [.pullRequests])
         #expect(facts.collapsedSections.isEmpty)
     }
 
@@ -75,7 +75,7 @@ struct InfoPaneFactsTests {
             branch: .init(name: "main", isWorktree: false, ahead: nil, behind: nil, isDirty: false),
             pullRequest: .init(state: .pullRequest(PullRequest(number: 7, state: .open, isDraft: false)), checkRollup: nil)
         )
-        #expect(facts.sections == [.subagents, .backgroundTasks, .pullRequest, .plan, .folder, .branch])
+        #expect(facts.sections == [.subagents, .backgroundTasks, .pullRequests, .plan, .folder, .branch])
     }
 
     @Test func sideChatsShowOnceAQuestionIsAskedButNotWhenCollapsed() {
@@ -144,7 +144,7 @@ struct InfoPaneFactsTests {
     @Test func aPullRequestRowNeedsAPullRequest() {
         let open = PullRequest(number: 7, state: .open, isDraft: false)
         let withPR = InfoPaneFacts(tabID: UUID(), pullRequest: .init(state: .pullRequest(open), checkRollup: .success))
-        #expect(withPR.collapsedSections == [.pullRequest])
+        #expect(withPR.collapsedSections == [.pullRequests])
         for state in [PullRequestFetchState.noPR, .localOnly, .loading] {
             let facts = InfoPaneFacts(tabID: UUID(), pullRequest: .init(state: state, checkRollup: nil))
             #expect(facts.sections.isEmpty)

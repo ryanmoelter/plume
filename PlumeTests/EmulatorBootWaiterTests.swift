@@ -126,4 +126,11 @@ struct AndroidSDKQuickLookupTests {
         )
         #expect(child == ["HOME": "/h", "ANDROID_HOME": "/sdk"])
     }
+
+    @Test func theEmulatorBootsWithExactlyTheHiddenWindowArguments() {
+        #expect(
+            EmulatorLauncher.arguments(avdID: "Pixel_8")
+                == ["-avd", "Pixel_8", "-qt-hide-window", "-grpc-use-token", "-no-boot-anim"]
+        )
+    }
 }

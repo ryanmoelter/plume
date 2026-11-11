@@ -10,6 +10,10 @@ public struct ScrcpyFrame: @unchecked Sendable {
     /// The size input positions must be expressed against (`ScrcpyPosition.screenWidth/Height`).
     public let videoSize: CGSize
     public let seq: UInt64
+    /// The device's presentation time, in microseconds.
+    public let pts: UInt64
+    /// When the frame's bytes were read off the socket, before decoding.
+    public let arrival: ContinuousClock.Instant
 }
 
 public enum ScrcpyConnectionError: Error, Equatable, CustomStringConvertible {
@@ -187,10 +191,11 @@ public actor ScrcpyConnection {
             let decoder = H264Decoder()
             var recovery = KeyFrameRecovery { control.yield(ScrcpyControlMessage.resetVideo.encoded()) }
             do {
-                try Self.handle(pending, decoder: decoder, hub: hub, recovery: &recovery)
+                try Self.handle(pending, arrival: .now, decoder: decoder, hub: hub, recovery: &recovery)
                 while !Task.isCancelled {
                     guard let chunk = try await video.receive() else { break }
-                    try Self.handle(try demuxer.feed(chunk), decoder: decoder, hub: hub, recovery: &recovery)
+                    let arrival = ContinuousClock.now
+                    try Self.handle(try demuxer.feed(chunk), arrival: arrival, decoder: decoder, hub: hub, recovery: &recovery)
                 }
                 await self?.streamEnded(nil)
             } catch {
@@ -201,7 +206,7 @@ public actor ScrcpyConnection {
 
     /// A rejected config or a corrupt frame costs frames, not the session: the decoder waits for
     /// the next key frame and the server is asked for one. Throws once recovery gives up.
-    private static func handle(_ events: [ScrcpyDemuxerEvent], decoder: H264Decoder, hub: FrameHub, recovery: inout KeyFrameRecovery) throws {
+    private static func handle(_ events: [ScrcpyDemuxerEvent], arrival: ContinuousClock.Instant, decoder: H264Decoder, hub: FrameHub, recovery: inout KeyFrameRecovery) throws {
         for event in events {
             switch event {
             case let .session(width, height):
@@ -227,7 +232,7 @@ public actor ScrcpyConnection {
                 }
                 if let decoded {
                     recovery.reset()
-                    hub.publish(decoded)
+                    hub.publish(decoded, arrival: arrival)
                 } else {
                     try recovery.frameDropped()
                 }
@@ -378,7 +383,7 @@ private final class FrameHub: @unchecked Sendable {
         }
     }
 
-    func publish(_ frame: DecodedFrame) {
+    func publish(_ frame: DecodedFrame, arrival: ContinuousClock.Instant) {
         let target = lock.withLock { () -> (AsyncThrowingStream<ScrcpyFrame, Error>.Continuation, ScrcpyFrame)? in
             guard let continuation else { return nil }
             seq &+= 1
@@ -388,7 +393,9 @@ private final class FrameHub: @unchecked Sendable {
                 surface: CVPixelBufferGetIOSurface(frame.pixelBuffer)?.takeUnretainedValue(),
                 pixelSize: frame.pixelSize,
                 videoSize: videoSize,
-                seq: seq
+                seq: seq,
+                pts: frame.pts,
+                arrival: arrival
             )
             return (continuation, out)
         }

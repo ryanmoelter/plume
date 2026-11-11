@@ -276,7 +276,8 @@ struct DeviceLeaseCoordinatorTests {
     }
 
     @Test func aClaimIsPendingUntilItsDeviceConnectsAndThenLeased() async throws {
-        let claim = claim()
+        var claim = claim()
+        claim.form = .tablet
         try await coordinator.beginClaim(claim)
         let pending = try #require(try registry().pending[DeviceRegistry.pendingKey(claim: claim.id)])
         #expect(pending.owner == claim.owner)
@@ -288,7 +289,7 @@ struct DeviceLeaseCoordinatorTests {
         let after = try registry()
         #expect(after.pending.isEmpty)
         #expect(after.devices["remote:r1"] == DeviceLease(
-            kind: .remote, serial: "localhost:40001", model: "akita/34", owner: claim.owner, worktree: "/w", branch: "b",
+            kind: .remote, serial: "localhost:40001", form: .tablet, model: "akita/34", owner: claim.owner, worktree: "/w", branch: "b",
             claimedAt: now, expiresAt: now.addingTimeInterval(600), deviceTabID: deviceTab, deviceTabCreatedByClaim: true,
             remote: .init(reservationID: "r1", projectID: "p", claimID: claim.id)
         ))

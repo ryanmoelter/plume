@@ -21,12 +21,15 @@ nonisolated struct PullRequestGlyph: Equatable {
     let tint: Tint
     /// What the mark contributes to the row's accessibility label.
     let label: String
+    /// A neutral mark with less to say than the text beside it.
+    let isDim: Bool
 
-    init(symbol: String? = nil, text: String? = nil, tint: Tint, label: String) {
+    init(symbol: String? = nil, text: String? = nil, tint: Tint, label: String, isDim: Bool = false) {
         self.symbol = symbol
         self.text = text
         self.tint = tint
         self.label = label
+        self.isDim = isDim
     }
 }
 
@@ -66,43 +69,52 @@ nonisolated enum PullRequestChipContent {
             tint: .neutral,
             label: "PR #\(pullRequest.number)"
         )
-        switch pullRequest.state {
-        case .merged:
-            return [number, PullRequestGlyph(symbol: "arrow.trianglehead.pull", tint: .merged, label: "merged")]
-        case .closed:
-            return [number, PullRequestGlyph(symbol: "nosign", tint: .danger, label: "closed")]
-        case .open:
-            break
-        }
+        if let finished = finishedGlyph(pullRequest.state) { return [number, finished] }
 
         var glyphs = [number]
-        if pullRequest.isDraft {
-            glyphs.append(PullRequestGlyph(symbol: "circle.dashed", tint: .neutral, label: "draft"))
-        }
-        switch checkRollup(pullRequest) {
-        case .success:
-            glyphs.append(PullRequestGlyph(symbol: "checkmark.circle.fill", tint: .success, label: "checks pass"))
-        case .failure:
-            glyphs.append(PullRequestGlyph(symbol: "xmark.circle.fill", tint: .danger, label: "checks fail"))
-        case .pending:
-            glyphs.append(PullRequestGlyph(symbol: "circle.fill", tint: .attention, label: "checks pending"))
-        case .none:
-            break
-        }
-        switch pullRequest.reviewDecision {
-        case .approved:
-            glyphs.append(PullRequestGlyph(symbol: "person.fill.checkmark", tint: .success, label: "approved"))
-        case .changesRequested:
-            glyphs.append(PullRequestGlyph(symbol: "person.fill.xmark", tint: .danger, label: "changes requested"))
-        case .none:
-            break
+        if pullRequest.isDraft { glyphs.append(draft) }
+        if let checks = checkGlyph(checkRollup(pullRequest)) { glyphs.append(checks) }
+        if let review = reviewGlyph(pullRequest.reviewDecision, hasReviewers: pullRequest.hasReviewers) {
+            glyphs.append(review)
         }
         // Nothing but the number to say, so the chip still reads as an open
         // pull request rather than a bare number.
-        if glyphs.count == 1 {
-            glyphs.append(PullRequestGlyph(symbol: "inset.filled.circle", tint: .neutral, label: "open"))
-        }
+        if glyphs.count == 1 { glyphs.append(open) }
         return glyphs
+    }
+
+    static let draft = PullRequestGlyph(symbol: "circle.dashed", tint: .neutral, label: "draft")
+    static let open = PullRequestGlyph(symbol: "inset.filled.circle", tint: .neutral, label: "open")
+
+    /// Nil for an open pull request.
+    static func finishedGlyph(_ state: PullRequestState) -> PullRequestGlyph? {
+        switch state {
+        case .merged: PullRequestGlyph(symbol: "arrow.trianglehead.pull", tint: .merged, label: "merged")
+        case .closed: PullRequestGlyph(symbol: "nosign", tint: .danger, label: "closed")
+        case .open: nil
+        }
+    }
+
+    static func checkGlyph(_ rollup: CheckRollup) -> PullRequestGlyph? {
+        switch rollup {
+        case .success: PullRequestGlyph(symbol: "checkmark.circle.fill", tint: .success, label: "checks pass")
+        case .failure: PullRequestGlyph(symbol: "xmark.circle.fill", tint: .danger, label: "checks fail")
+        case .pending: PullRequestGlyph(symbol: "circle.fill", tint: .attention, label: "checks pending")
+        case .none: nil
+        }
+    }
+
+    /// A pull request with a reviewer but no decision is waiting on them, and
+    /// says so; one nobody was asked to review shows nothing.
+    static func reviewGlyph(_ decision: ReviewDecision, hasReviewers: Bool) -> PullRequestGlyph? {
+        switch decision {
+        case .approved: PullRequestGlyph(symbol: "person.fill.checkmark", tint: .success, label: "approved")
+        case .changesRequested: PullRequestGlyph(symbol: "person.fill.xmark", tint: .danger, label: "changes requested")
+        case .none:
+            hasReviewers
+                ? PullRequestGlyph(symbol: "person.badge.clock", tint: .neutral, label: "awaiting review")
+                : nil
+        }
     }
 
     static func accessibilityText(for state: PullRequestFetchState) -> String? {
@@ -138,8 +150,6 @@ struct PullRequestChip: View {
     /// Symbols carry little ink at the sidebar's size, so it asks for bold.
     var symbolWeight: Font.Weight = .regular
 
-    @Environment(\.colorScheme) private var colorScheme
-
     var body: some View {
         let glyphs = PullRequestChipContent.glyphs(for: state, checkRollup: checkRollup)
             .filter { showsNumber || $0.text == nil }
@@ -153,21 +163,19 @@ struct PullRequestChip: View {
             }
             HStack(spacing: 3) {
                 ForEach(Array(glyphs.enumerated()), id: \.offset) { _, glyph in
-                    Group {
-                        if let symbol = glyph.symbol {
-                            Image(systemName: symbol)
-                                .fontWeight(symbolWeight)
-                        } else if let text = glyph.text {
-                            // The number is digits and a pound sign, with
-                            // nothing below the baseline, so it centers on its
-                            // cap height rather than its line box.
-                            Text(text)
-                                .alignmentGuide(VerticalAlignment.center) {
-                                    $0[.firstTextBaseline] - capHeight / 2
-                                }
-                        }
+                    if let text = glyph.text {
+                        // The number is digits and a pound sign, with
+                        // nothing below the baseline, so it centers on its
+                        // cap height rather than its line box.
+                        Text(text)
+                            .alignmentGuide(VerticalAlignment.center) {
+                                $0[.firstTextBaseline] - capHeight / 2
+                            }
+                            .foregroundStyle(emphasis.textHierarchy)
+                    } else {
+                        PullRequestGlyphImage(glyph: glyph, emphasis: emphasis)
+                            .fontWeight(symbolWeight)
                     }
-                    .foregroundStyle(color(for: glyph.tint))
                 }
             }
         }
@@ -178,17 +186,32 @@ struct PullRequestChip: View {
     private var capHeight: CGFloat {
         NSFont.systemFont(ofSize: fontSize).capHeight
     }
+}
 
-    /// Verdicts take a `ChatRole` hue. The marks that carry none still read at
-    /// full strength: the pull request is the line the row exists to surface,
-    /// so it sits above the directory and branch that locate it.
-    private func color(for tint: PullRequestGlyph.Tint) -> AnyShapeStyle {
-        switch tint {
+/// A glyph's symbol in its tint. Verdicts take a `ChatRole` hue; the marks
+/// that carry none read at `emphasis`, which is full strength wherever the
+/// pull request is the thing its line exists to surface.
+struct PullRequestGlyphImage: View {
+    let glyph: PullRequestGlyph
+    var emphasis: Emphasis = .primary
+
+    @Environment(\.colorScheme) private var colorScheme
+
+    var body: some View {
+        if let symbol = glyph.symbol {
+            Image(systemName: symbol)
+                .foregroundStyle(color)
+                .help(glyph.label)
+        }
+    }
+
+    private var color: AnyShapeStyle {
+        switch glyph.tint {
         case .success: AnyShapeStyle(ChatRole.success(for: colorScheme))
         case .danger: AnyShapeStyle(ChatRole.danger(for: colorScheme))
         case .attention: AnyShapeStyle(ChatRole.warning(for: colorScheme))
         case .merged: AnyShapeStyle(ChatRole.merged(for: colorScheme))
-        case .neutral: AnyShapeStyle(emphasis.textHierarchy)
+        case .neutral: AnyShapeStyle((glyph.isDim ? Emphasis.subtle : emphasis).textHierarchy)
         }
     }
 }

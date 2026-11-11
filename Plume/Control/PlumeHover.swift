@@ -23,7 +23,8 @@ private struct PlumeHoverModifier: ViewModifier {
     @Environment(\.plumeControlsHidden) private var isHidden
 
     func body(content: Content) -> some View {
-        content
+        registration.hover = action
+        return content
             .onHover(perform: action)
             .background {
                 WindowProbe { window in
@@ -53,8 +54,10 @@ private struct PlumeHoverModifier: ViewModifier {
             HoverRegistry.shared.remove(token: registration.token)
             return
         }
+        let registration = registration
         HoverRegistry.shared.register(HoverRegion(
-            token: registration.token, frame: WindowGeometry.contentRect(fromGlobal: registration.frame, in: registration.window), window: registration.window, setHovering: action
+            token: registration.token, frame: WindowGeometry.contentRect(fromGlobal: registration.frame, in: registration.window), window: registration.window,
+            setHovering: { registration.hover?($0) }
         ))
     }
 }

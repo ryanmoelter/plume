@@ -16,6 +16,7 @@ final class ReferenceChipStore {
     struct Resolution: Equatable {
         let title: String
         let icon: ReferenceChipIcon
+        var detail: ReferenceChipDetail? = nil
     }
 
     struct Dependencies {
@@ -90,6 +91,12 @@ final class ReferenceChipStore {
         box(for: target).resolution?.icon
     }
 
+    /// What the chip's tooltip shows beyond its title. Nil for a file, and
+    /// for a target nothing has vouched for yet.
+    func detail(for target: ReferenceTarget) -> ReferenceChipDetail? {
+        box(for: target).resolution?.detail
+    }
+
     func revision(for owner: UUID) -> Int {
         revisionBox(for: owner).value
     }
@@ -113,7 +120,17 @@ final class ReferenceChipStore {
             refreshLinear()
         }
         if targets.isEmpty { return }
+        lookUp(targets)
+    }
 
+    /// Looks up a pull request no owner shows, for a tooltip that wants its
+    /// author and review. Anything else is left alone.
+    func lookUpDetail(of target: ReferenceTarget) {
+        guard case .pullRequest = target else { return }
+        lookUp([target])
+    }
+
+    private func lookUp(_ targets: Set<ReferenceTarget>) {
         let now = dependencies.now()
         var files: [String] = []
         for target in targets where !inFlight.contains(target) && nextLookups[target].map({ now >= $0 }) ?? true {
@@ -205,7 +222,8 @@ final class ReferenceChipStore {
                     nextLookups[target] = now.addingTimeInterval(lifetime)
                     publish(Resolution(
                         title: entry.title,
-                        icon: .pullRequest(number: entry.number, state: entry.state, isDraft: entry.isDraft)
+                        icon: .pullRequest(number: entry.number, state: entry.state, isDraft: entry.isDraft),
+                        detail: .pullRequest(entry)
                     ), for: target)
                 case .missing:
                     nextLookups[target] = now.addingTimeInterval(PullRequestLinkSource.missLifetime)
@@ -236,7 +254,7 @@ final class ReferenceChipStore {
         }
         for (identifier, issue) in issues {
             let resolution = issue.map {
-                Resolution(title: $0.title, icon: .linear($0.stateType, colorHex: $0.stateColor))
+                Resolution(title: $0.title, icon: .linear($0.stateType, colorHex: $0.stateColor), detail: .linear($0))
             }
             publish(resolution, for: .linear(identifier: identifier))
         }

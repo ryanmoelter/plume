@@ -35,6 +35,7 @@ final class CLICommandHandler {
     var directories: TabDirectoryStore = .shared
     var deviceSessions: DeviceSessionManager = .shared
     var deviceLeases: DeviceLeaseCoordinator = .shared
+    var physicalDiscovery: PhysicalDeviceDiscovery = .shared
     var remoteDevices = RemoteDeviceDefaults()
     var clock: () -> Date = Date.init
 
@@ -110,7 +111,7 @@ final class CLICommandHandler {
         case .openSettings(let params):
             return openSettings(params)
         case .showDevice(let params):
-            return showDevice(params)
+            return await showDevice(params)
         case .reserveDevice(let params):
             return await reserveDevice(params)
         case .releaseDevice(let params):
@@ -129,8 +130,8 @@ final class CLICommandHandler {
 
     /// Prefers a device tab already on the device, then one with no device, then a new tab
     /// opposite the caller's pane, behind the selection. A tab on another device is never repointed.
-    private func showDevice(_ params: CLIRequest.ShowDevice) -> CLIResponse {
-        guard let target = Self.deviceTarget(params) else {
+    private func showDevice(_ params: CLIRequest.ShowDevice) async -> CLIResponse {
+        guard let target = await deviceTarget(params) else {
             return .failure("devices.show needs an avdID for an emulator, a serial for a physical device, or a reservationID for a remote one")
         }
         guard let (task, context) = currentTask(ofTab: params.tabID) else {
@@ -139,7 +140,7 @@ final class CLICommandHandler {
         let deviceTabs = task.orderedTabs.filter { $0.kind == .device }
         let tab: TaskTab
         var created = false
-        if let showing = deviceTabs.first(where: { $0.deviceTarget == target }) {
+        if let showing = deviceTabs.first(where: { $0.deviceTarget.map { physicalDiscovery.namesSameDevice($0, target) } ?? false }) {
             tab = showing
         } else if case .remote(let reservationID) = target {
             return .failure("no device tab holds reservation \(reservationID)")
@@ -148,9 +149,9 @@ final class CLICommandHandler {
             tab = empty.tab
             created = empty.created
         }
-        let displayName = params.displayName ?? Self.defaultDisplayName(target)
+        let displayName = params.displayName ?? target.fallbackName
         if tab.deviceTarget == nil { tab.setDevice(target, displayName: displayName) }
-        deviceSessions.existingSession(for: tab.id)?.point(at: target, displayName: displayName)
+        deviceSessions.existingSession(for: tab.id)?.point(at: tab.deviceTarget ?? target, displayName: displayName)
         var response = CLIResponse.success
         response.tabID = tab.id
         response.created = created
@@ -190,13 +191,25 @@ final class CLICommandHandler {
             return .failure("no Device Streaming project: sign in and pick one in a device tab's Remote section")
         }
         let modelID: String
-        if let given = params.model ?? remoteDevices.recentModel() {
+        var catalog = RemoteDeviceCatalog.shared.models
+        if let given = params.model {
             modelID = given
+        } else if let form = params.form {
+            catalog = await remoteDevices.models()
+            guard let chosen = RemoteDeviceModel.choose(form: form, from: catalog, recent: remoteDevices.recentModel()) else {
+                let options = catalog.isEmpty ? "" : ", one of: " + catalog.map(\.id).joined(separator: ", ")
+                return .failure("Device Streaming offers no \(form.rawValue); pass --model=<codename/api>\(options)")
+            }
+            modelID = chosen.id
+        } else if let recent = remoteDevices.recentModel() {
+            modelID = recent
         } else {
             let offered = await remoteDevices.models().map(\.id)
             let options = offered.isEmpty ? "" : ", one of: " + offered.joined(separator: ", ")
-            return .failure("no device model given and none reserved before; pass --model=<codename/api>\(options)")
+            return .failure("no device model given and none reserved before; pass --model=<codename/api> or --form\(options)")
         }
+        let model = catalog.first { $0.id == modelID }
+        let form = params.form ?? model?.formFactor.deviceForm
         // The awaits above can outlast the caller or move it to another task.
         guard clock().timeIntervalSince(started) < Self.reserveDeadline else {
             return .failure("loading the Device Streaming catalog took too long; try again")
@@ -209,6 +222,11 @@ final class CLICommandHandler {
         if let existing = deviceLeases.claim(ownedBy: owner) {
             if let model = params.model, model != existing.model {
                 return .failure("this tab is already reserving \(existing.model); release it before reserving \(model)")
+            }
+            if let wanted = params.form, let reserving = existing.form, wanted != reserving {
+                return .failure(
+                    "this tab is already reserving \(existing.model), a \(reserving.rawValue); release it before reserving a \(wanted.rawValue)"
+                )
             }
             do {
                 try await deviceLeases.rejoin(existing)
@@ -229,6 +247,7 @@ final class CLICommandHandler {
             deviceTabID: tab.id,
             deviceTabCreated: created,
             model: modelID,
+            form: form,
             projectID: projectID,
             ttl: params.ttl ?? DevicePool.defaultTTL,
             worktree: params.worktree,
@@ -240,7 +259,7 @@ final class CLICommandHandler {
             if created { closeTab(tab.id) }
             return .failure("couldn't record the claim: \(Devices.describe(error))")
         }
-        let displayName = RemoteDeviceCatalog.shared.models.first { $0.id == modelID }?.name ?? modelID
+        let displayName = model?.name ?? modelID
         remoteDevices.reserve(tab, modelID, displayName, projectID)
         var response = CLIResponse.success
         response.tabID = tab.id
@@ -269,17 +288,16 @@ final class CLICommandHandler {
         }
     }
 
-    private static func deviceTarget(_ params: CLIRequest.ShowDevice) -> DeviceTarget? {
+    /// A Wi-Fi serial becomes the `wifi:` identifier a picked tab persists, so a tab already
+    /// showing the phone is found.
+    private func deviceTarget(_ params: CLIRequest.ShowDevice) async -> DeviceTarget? {
         switch params.kind {
-        case .emulator: params.avdID.map { .emulator(avdID: $0) }
-        case .physical: params.serial.map { .physical(serial: $0) }
-        case .remote: params.reservationID.map { .remote(reservationID: $0) }
+        case .emulator: return params.avdID.map { .emulator(avdID: $0) }
+        case .physical:
+            guard let serial = params.serial else { return nil }
+            return .physical(serial: await physicalDiscovery.resolvedIdentifier(forSerial: serial))
+        case .remote: return params.reservationID.map { .remote(reservationID: $0) }
         }
-    }
-
-    /// What the picker would show when it has nothing better.
-    private static func defaultDisplayName(_ target: DeviceTarget) -> String {
-        target.identifier.replacingOccurrences(of: "_", with: " ")
     }
 
     /// The worktree already exists, since `wt` made it; this only opens a

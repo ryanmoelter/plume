@@ -13,6 +13,10 @@ struct ShowImportActionKey: FocusedValueKey {
     typealias Value = (ImportSource) -> Void
 }
 
+struct ShowHomeActionKey: FocusedValueKey {
+    typealias Value = () -> Void
+}
+
 /// Moves the sidebar selection by `offset` tasks, following sidebar order.
 /// Unlike `TaskCommands`, this stays available with nothing selected, so it
 /// can select the first task the same way an arrow key does.
@@ -64,6 +68,11 @@ extension FocusedValues {
     var showImportAction: ((ImportSource) -> Void)? {
         get { self[ShowImportActionKey.self] }
         set { self[ShowImportActionKey.self] = newValue }
+    }
+
+    var showHomeAction: (() -> Void)? {
+        get { self[ShowHomeActionKey.self] }
+        set { self[ShowHomeActionKey.self] = newValue }
     }
 
     var selectAdjacentTask: ((Int) -> Void)? {
@@ -118,6 +127,7 @@ enum PlumeShortcuts {
 struct PlumeCommands: Commands {
     @FocusedValue(\.newTaskAction) private var newTask
     @FocusedValue(\.showArchiveAction) private var showArchive
+    @FocusedValue(\.showHomeAction) private var showHome
     @FocusedValue(\.showImportAction) private var showImport
     @FocusedValue(\.taskCommands) private var task
     @FocusedValue(\.selectAdjacentTask) private var selectAdjacentTask
@@ -163,6 +173,10 @@ struct PlumeCommands: Commands {
         }
 
         CommandGroup(after: .toolbar) {
+            Button(ShortcutAction.showHome.label) { showHome?() }
+                .keyboardShortcut(shortcut(for: .showHome))
+                .disabled(showHome == nil)
+
             Button("Show Archive…") { showArchive?() }
                 .keyboardShortcut(PlumeShortcuts.showArchive)
                 .disabled(showArchive == nil)

@@ -34,6 +34,9 @@ actor PullRequestLinkSource {
         let title: String
         let state: PullRequestState
         let isDraft: Bool
+        /// The author's login.
+        var author: String? = nil
+        var reviewDecision: ReviewDecision = .none
     }
 
     enum Lookup: Equatable, Sendable {
@@ -131,7 +134,7 @@ actor PullRequestLinkSource {
     }
 
     static func arguments(for keys: [Key]) -> [String] {
-        let fields = keys.map { "p\($0.number): pullRequest(number: \($0.number)) { number title url state isDraft }" }
+        let fields = keys.map { "p\($0.number): pullRequest(number: \($0.number)) { number title url state isDraft author { login } reviewDecision }" }
         let query = "query($owner: String!, $name: String!) { repository(owner: $owner, name: $name) { \(fields.joined(separator: " ")) } }"
         // `-f`, not `-F`: `-F` would read a numeric repository name as a
         // number.
@@ -156,7 +159,14 @@ actor PullRequestLinkSource {
                 lookups[number] = .missing
                 continue
             }
-            lookups[number] = .found(Entry(number: number, title: title, state: state, isDraft: pull["isDraft"] as? Bool ?? false))
+            lookups[number] = .found(Entry(
+                number: number,
+                title: title,
+                state: state,
+                isDraft: pull["isDraft"] as? Bool ?? false,
+                author: (pull["author"] as? [String: Any])?["login"] as? String,
+                reviewDecision: ReviewDecision(rawValue: pull["reviewDecision"] as? String)
+            ))
         }
         return lookups
     }

@@ -15,6 +15,35 @@ struct ComposerReferenceChip: Equatable {
     /// chat shows a Linear issue's or a pull request's title. Nil shows the
     /// token's own text.
     var title: String?
+    var toolTip: ToolTip?
+
+    /// What the chip's tooltip names. Its text is read when the tooltip
+    /// shows, so it carries whatever the stores have learned since.
+    struct ToolTip: Equatable {
+        var target: ReferenceTarget
+        /// Shown until the stores know more.
+        var fallback: ReferenceChipDetail?
+        var title: String?
+        var directory: String?
+
+        @MainActor
+        var text: String {
+            var detail = fallback
+            switch target {
+            case .linear(let identifier):
+                if let issue = LinearStore.shared.knownIssue(identifier: identifier) { detail = .linear(issue) }
+            case .pullRequest:
+                if let known = ReferenceChipStore.shared.detail(for: target) {
+                    detail = known
+                } else {
+                    ReferenceChipStore.shared.lookUpDetail(of: target)
+                }
+            case .file:
+                break
+            }
+            return ReferenceChipTooltip.text(for: target, detail: detail, title: title, directory: directory)
+        }
+    }
 }
 
 /// Where the composer learns what its references name: `MentionResolver`,
@@ -67,6 +96,7 @@ extension ComposerReferenceChip {
         caret: NSRange,
         palette: ReferenceChipPalette,
         textTint: NSColor = ThemeChrome.accentNSColor(),
+        directory: String? = nil,
         resolution: (MentionReference.Kind) -> ResolvedMention?
     ) -> (chips: [ComposerReferenceChip], misses: [MentionReference.Kind]) {
         var chips: [ComposerReferenceChip] = []
@@ -88,7 +118,8 @@ extension ComposerReferenceChip {
                 wash: wash,
                 brand: reference.kind.brand,
                 textTint: textTint,
-                title: title(of: reference.kind, resolved)
+                title: title(of: reference.kind, resolved),
+                toolTip: toolTip(of: reference.kind, resolved, directory: directory)
             ))
         }
         return (chips, misses)
@@ -100,6 +131,26 @@ extension ComposerReferenceChip {
         if case .file = kind { return nil }
         guard let title = resolved.title.map(ReferenceChipText.truncatedTitle), !title.isEmpty else { return nil }
         return title
+    }
+
+    static func toolTip(of kind: MentionReference.Kind, _ resolved: ResolvedMention, directory: String?) -> ToolTip? {
+        switch kind {
+        case .linear(let identifier):
+            return ToolTip(target: .linear(identifier: identifier.uppercased()), title: resolved.title)
+        case .pullRequest(let number):
+            guard let url = URL(string: resolved.target),
+                  let target = ReferenceTarget.classify(url, base: nil),
+                  case .pullRequest = target else { return nil }
+            var fallback: ReferenceChipDetail?
+            if case let .pullRequest(state, isDraft) = resolved.state {
+                fallback = .pullRequest(.init(number: number, title: resolved.title ?? "", state: state, isDraft: isDraft))
+            }
+            return ToolTip(target: target, fallback: fallback, title: resolved.title)
+        case .file:
+            let path = resolved.target
+            let absolute = path.hasPrefix("/") || directory == nil ? path : (directory! as NSString).appendingPathComponent(path)
+            return ToolTip(target: .file(path: absolute), directory: directory)
+        }
     }
 
     /// The parts of `proposed` that land among a titled chip's hidden
@@ -118,5 +169,44 @@ extension ComposerReferenceChip {
         let start = snap(proposed.location, from: previous?.location) { $0.location }
         let end = snap(NSMaxRange(proposed), from: previous.map(NSMaxRange)) { NSMaxRange($0) }
         return NSRange(location: start, length: max(0, end - start))
+    }
+}
+
+/// Registers a tooltip rect over each line of each composer chip, and answers
+/// with the chip's text when AppKit asks for it.
+@MainActor
+final class ComposerReferenceToolTips: NSObject, NSViewToolTipOwner {
+    private struct Region: Equatable {
+        var rect: NSRect
+        var toolTip: ComposerReferenceChip.ToolTip
+    }
+
+    private var regions: [Region] = []
+    private var tags: [NSView.ToolTipTag] = []
+
+    /// Re-registers only when a chip moved or changed, since this runs on
+    /// every draw.
+    func update(_ chips: [ComposerDecorations.ReferenceChip], in view: NSView) {
+        let regions = chips.flatMap { chip in
+            chip.toolTip.map { toolTip in chip.rects.map { Region(rect: $0, toolTip: toolTip) } } ?? []
+        }
+        guard regions != self.regions else { return }
+        for tag in tags { view.removeToolTip(tag) }
+        self.regions = regions
+        tags = regions.indices.map { index in
+            view.addToolTip(regions[index].rect, owner: self, userData: UnsafeMutableRawPointer(bitPattern: index + 1))
+        }
+    }
+
+    nonisolated func view(
+        _ view: NSView,
+        stringForToolTip tag: NSView.ToolTipTag,
+        point: NSPoint,
+        userData data: UnsafeMutableRawPointer?
+    ) -> String {
+        let index = Int(bitPattern: data) - 1
+        return MainActor.assumeIsolated {
+            regions.indices.contains(index) ? regions[index].toolTip.text : ""
+        }
     }
 }

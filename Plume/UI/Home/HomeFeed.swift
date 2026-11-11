@@ -27,6 +27,7 @@ struct HomeFeed: Equatable {
         var iconTint: SidebarTint?
         var barTint: SidebarTint?
         var context = HomeRowContext()
+        var sideWork: [HomeSideWork] = []
     }
 
     struct Item: Identifiable, Equatable {
@@ -47,6 +48,8 @@ struct HomeFeed: Equatable {
         /// Listed under "Not started", which the sidebar's rule dims: never
         /// messaged, or resumed mid-turn.
         let isInactive: Bool
+        /// Empty unless the tab is running.
+        let sideWork: [HomeSideWork]
 
         var id: UUID { tabID }
 
@@ -85,7 +88,8 @@ struct HomeFeed: Equatable {
                 iconTint: entry.iconTint,
                 barTint: entry.barTint,
                 context: entry.context,
-                isInactive: isUnstarted
+                isInactive: isUnstarted,
+                sideWork: entry.sideWork
             )
             if entry.status.isActive {
                 running.append(item)

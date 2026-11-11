@@ -39,6 +39,12 @@ nonisolated enum DeviceTarget: Hashable, Sendable {
 
     /// A remote device is a physical phone too, mirrored the same way.
     var isPhysical: Bool { platform != .androidEmulator }
+
+    /// What to call the device when nothing named it, without the `wifi:` prefix.
+    var fallbackName: String {
+        let name = if case .physical(let identifier) = self { PhysicalDeviceIdentity.hardwareSerial(of: identifier) } else { identifier }
+        return name.replacingOccurrences(of: "_", with: " ")
+    }
 }
 
 /// What a remote tab persists beside its reservation id.
@@ -67,6 +73,8 @@ nonisolated struct DeviceFrame: @unchecked Sendable {
     let rotation: DeviceRotation
     /// The natural-orientation size touches are sent in, when the frame defines it.
     let deviceSize: CGSize?
+    /// Only a scrcpy stream carries it; it drives `VideoQualityGovernor`.
+    var timing: DeviceFrameTiming? = nil
 
     var layerContents: Any {
         switch contents {
@@ -79,6 +87,14 @@ nonisolated struct DeviceFrame: @unchecked Sendable {
 nonisolated struct DeviceConnectionInfo: Sendable {
     /// Natural-orientation device pixels.
     var deviceSize: CGSize?
+    /// Empty for a device without a hinge.
+    var postures: [DevicePosture] = []
+}
+
+nonisolated enum DevicePosture: Sendable, Hashable, CaseIterable {
+    case closed
+    case halfOpen
+    case open
 }
 
 /// A point in device pixels, with the device size it was mapped against.
@@ -132,6 +148,16 @@ nonisolated protocol DeviceConnecting: AnyObject, Sendable {
     /// Starts releasing anything that would outlive the app, without waiting, so a quit right after
     /// can wait for it. `close()` still tears down the rest.
     func terminate()
+    /// Nil when the device reports none or it can't be read.
+    func posture() async -> DevicePosture?
+    func setPosture(_ posture: DevicePosture) async throws
+}
+
+extension DeviceConnecting {
+    func posture() async -> DevicePosture? { nil }
+    func setPosture(_ posture: DevicePosture) async throws {
+        throw DeviceConnectionError(message: "This device has no hinge.")
+    }
 }
 
 extension AsyncThrowingStream where Failure == Error {

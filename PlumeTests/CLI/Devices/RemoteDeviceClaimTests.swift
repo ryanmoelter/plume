@@ -48,13 +48,19 @@ struct RemoteDeviceClaimTests {
     // MARK: Parsing
 
     @Test func parsesARemoteClaim() throws {
-        #expect(try Devices.parse(["claim", "--kind=remote"]) == .claimRemote(model: nil, owner: nil, ttl: 3600, json: false))
+        #expect(try Devices.parse(["claim", "--kind=remote"]) == .claimRemote(model: nil, form: nil, owner: nil, ttl: 3600, json: false))
         #expect(try Devices.parse(["claim", "--kind", "remote", "--model", "akita/34", "--ttl=60", "--json"])
-            == .claimRemote(model: "akita/34", owner: nil, ttl: 60, json: true))
+            == .claimRemote(model: "akita/34", form: nil, owner: nil, ttl: 60, json: true))
+        #expect(try Devices.parse(["claim", "--kind=remote", "--form=tablet", "--owner", caller.uuidString])
+            == .claimRemote(model: nil, form: .tablet, owner: caller.uuidString, ttl: 3600, json: false))
     }
 
     @Test func rejectsRemoteFlagsThatDontApply() {
-        for arguments in [["claim", "--kind=remote", "R5"], ["claim", "--kind=remote", "--form=phone"], ["claim", "--model=akita/34"]] {
+        for arguments in [
+            ["claim", "--kind=remote", "R5"],
+            ["claim", "--kind=remote", "--form=phone", "--model=akita/34"],
+            ["claim", "--model=akita/34"],
+        ] {
             #expect(throws: Devices.UsageError.self, "\(arguments)") { try Devices.parse(arguments) }
         }
     }
@@ -243,6 +249,104 @@ struct RemoteDeviceClaimTests {
         #expect(devices["remote:r1"]?.expiresAt == run.env.clock.addingTimeInterval(7200))
         #expect(devices["remote:r1"]?.deviceTabID == deviceTab)
         #expect(devices["localhost:40001"] == nil)
+    }
+
+    // MARK: Form factors
+
+    @Test func aClaimByFormAsksTheAppForThatForm() throws {
+        let run = try Run()
+        let claimID = reserving(run)
+        let (store, owner) = (run.store, owner)
+        run.env.duringSleep = {
+            update(store) { $0.devices["remote:r1"] = remoteLease(owner: owner, claimID: claimID, at: run.env.clock) }
+        }
+
+        let (code, console) = run(["claim", "--kind=remote", "--form=tablet"], environment: inTab)
+
+        #expect(code == 0)
+        #expect(console.stderr.contains("==> reserving a tablet in a device tab"))
+        let reserve = run.app.sent.compactMap { if case .reserveDevice(let params) = $0.request { params } else { nil } }
+        #expect(reserve.map(\.form) == [.tablet])
+        #expect(reserve.map(\.model) == [nil])
+    }
+
+    @Test func claimingAnotherFormWhileHoldingOneFails() throws {
+        let run = try Run()
+        let store = run.store
+        var lease = remoteLease(owner: owner, at: run.env.clock)
+        lease.form = .phone
+        update(store) { [lease] in $0.devices["remote:r1"] = lease }
+
+        let (code, console) = run(["claim", "--kind=remote", "--form=tablet"], environment: inTab)
+
+        #expect(code == 1)
+        #expect(console.stderr.contains("already holds localhost:40001 (akita/34), a phone; release it before reserving a tablet"))
+        #expect(try store.load().devices["remote:r1"] == lease)
+    }
+
+    @Test func claimingTheHeldFormRenewsIt() throws {
+        let run = try Run()
+        let store = run.store
+        var lease = remoteLease(owner: owner, at: run.env.clock)
+        lease.form = .tablet
+        update(store) { [lease] in $0.devices["remote:r1"] = lease }
+
+        let (code, console) = run(["claim", "--kind=remote", "--form=tablet"], environment: inTab)
+
+        #expect(code == 0)
+        #expect(console.stderr.contains("renewed lease on localhost:40001"))
+        #expect(!run.app.sent.contains { if case .reserveDevice = $0.request { true } else { false } })
+    }
+
+    // MARK: --owner
+
+    @Test func ownerNamingTheCallingTabRenewsItsDevice() throws {
+        let run = try Run()
+        let (store, owner) = (run.store, owner)
+        update(store) { $0.devices["remote:r1"] = remoteLease(owner: owner, at: run.env.clock) }
+
+        let (code, console) = run(["claim", "--kind=remote", "--owner=\(caller.uuidString)", "--ttl=7200"], environment: inTab)
+
+        #expect(code == 0)
+        #expect(console.stdout == "localhost:40001\n")
+        #expect(run.app.sent.map(\.request) == [.ping, .extendDevice(.init(key: "remote:r1", ttl: 7200))])
+        #expect(try store.load().devices["remote:r1"]?.expiresAt == run.env.clock.addingTimeInterval(7200))
+    }
+
+    /// `Plume tab <uuid>` is how a conflict or a listing names the holder.
+    @Test func ownerNamingAHoldingTabReclaimsItsDeviceFromAnywhere() throws {
+        let run = try Run()
+        let store = run.store
+        let holder = UUID()
+        update(store) { $0.devices["remote:r1"] = remoteLease(owner: .tab(id: holder, app: "/other.sock"), at: run.env.clock) }
+
+        let (code, console) = run(["claim", "--kind=remote", "--owner=Plume tab \(holder.uuidString)", "--json"])
+
+        #expect(code == 0)
+        #expect(console.stdout.contains("\"reused\":true"))
+        #expect(run.app.sent.map(\.request) == [.ping, .extendDevice(.init(key: "remote:r1", ttl: 3600))])
+        #expect(run.app.sent.allSatisfy { $0.socket == "/other.sock" })
+    }
+
+    @Test func ownerNamingATabWithNoRemoteDeviceNeverReserves() throws {
+        let run = try Run()
+        let other = UUID()
+
+        let (code, console) = run(["claim", "--kind=remote", "--owner=\(other.uuidString)"], environment: inTab)
+
+        #expect(code == 1)
+        #expect(console.stderr.contains(Devices.holdsNoRemoteDevice(other)))
+        #expect(run.app.sent.isEmpty)
+    }
+
+    @Test func aLabelOwnerCantHoldARemoteDevice() throws {
+        let run = try Run()
+
+        let (code, console) = run(["claim", "--kind=remote", "--owner=ci"], environment: inTab)
+
+        #expect(code == 1)
+        #expect(console.stderr.contains("--owner must name one by its tab ID, not ci"))
+        #expect(run.app.sent.isEmpty)
     }
 
     // MARK: Releasing

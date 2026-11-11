@@ -66,6 +66,40 @@ struct ComposerMarkdownEditingTests {
         #expect(run(ComposerMarkdownEditing.newline, "```\n- code|") == nil)
     }
 
+    @Test func returnInAnItemsTextKeepsItsIndent() {
+        #expect(run(ComposerMarkdownEditing.newline, "- a\n  more|") == "- a\n  more\n  |")
+        #expect(run(ComposerMarkdownEditing.newline, "- a\n  mo|re") == "- a\n  mo\n  |re")
+        #expect(run(ComposerMarkdownEditing.newline, "- a\n  |more") == "- a\n  \n  |more")
+        #expect(run(ComposerMarkdownEditing.newline, "1. a\n   more|") == "1. a\n   more\n   |")
+        #expect(run(ComposerMarkdownEditing.newline, "10. a\n    more|") == "10. a\n    more\n    |")
+        #expect(run(ComposerMarkdownEditing.newline, "- [ ] a\n  more|") == "- [ ] a\n  more\n  |")
+        #expect(run(ComposerMarkdownEditing.newline, "> - a\n>   more|") == "> - a\n>   more\n>   |")
+    }
+
+    @Test func returnInANestedItemsTextKeepsItsIndent() {
+        #expect(run(ComposerMarkdownEditing.newline, "- a\n  1. b\n     more|") == "- a\n  1. b\n     more\n     |")
+        #expect(run(ComposerMarkdownEditing.newline, "- a\n  - b\n  more|") == "- a\n  - b\n  more\n  |")
+    }
+
+    @Test func returnFindsTheItemPastBlankAndCodeLines() {
+        #expect(run(ComposerMarkdownEditing.newline, "- a\n\n  one\n  two|") == "- a\n\n  one\n  two\n  |")
+        #expect(run(ComposerMarkdownEditing.newline, "- a\n  ```\n  x\n  ```\n  more|") == "- a\n  ```\n  x\n  ```\n  more\n  |")
+    }
+
+    @Test func returnOnAnEmptyLineInAnItemsTextLeavesTheItem() {
+        #expect(run(ComposerMarkdownEditing.newline, "- a\n  more\n  |") == "- a\n  more\n|")
+        #expect(run(ComposerMarkdownEditing.newline, "10. a\n    |") == "10. a\n|")
+        #expect(run(ComposerMarkdownEditing.newline, "- a\n  - b\n    |") == "- a\n  - b\n  |")
+        #expect(run(ComposerMarkdownEditing.newline, "- a\n  - b\n  |") == "- a\n  - b\n|")
+        #expect(run(ComposerMarkdownEditing.newline, "> - a\n>   |") == "> - a\n> |")
+    }
+
+    @Test func returnOnIndentedTextOutsideAListIsOrdinary() {
+        #expect(run(ComposerMarkdownEditing.newline, "    indented|") == nil)
+        #expect(run(ComposerMarkdownEditing.newline, "- a\nlazy\n  more|") == nil)
+        #expect(run(ComposerMarkdownEditing.newline, "1. a\n  short|") == nil)
+    }
+
     // MARK: - Tab
 
     @Test func tabIndentsToTheItemAbove() {
@@ -141,6 +175,74 @@ struct ComposerMarkdownEditingTests {
 
     @Test func deleteRenumbersTheRest() {
         #expect(run(ComposerMarkdownEditing.deleteBackward, "1. a\n2. |b\n3. c\n4. d") == "1. a\n|b\n3. c\n4. d")
+    }
+
+    // MARK: - Code inside a list item
+
+    @Test func returnInsideAListItemsCodeKeepsItsIndent() {
+        #expect(run(ComposerMarkdownEditing.newline, "- a\n  ```\n  x|\n  ```") == "- a\n  ```\n  x\n  |\n  ```")
+        #expect(run(ComposerMarkdownEditing.newline, "- a\n  ```|\n  ```") == "- a\n  ```\n  |\n  ```")
+        #expect(run(ComposerMarkdownEditing.newline, "- a\n  ```\n  x\n  ```|") == "- a\n  ```\n  x\n  ```\n  |")
+        #expect(run(ComposerMarkdownEditing.newline, "> - a\n>   ```\n>   x|") == "> - a\n>   ```\n>   x\n>   |")
+    }
+
+    @Test func returnAfterAListItemsCodeContinuesTheList() {
+        #expect(run(ComposerMarkdownEditing.newline, "- a\n  - b\n  ```\n  x\n  ```\n  - c|") == "- a\n  - b\n  ```\n  x\n  ```\n  - c\n  - |")
+    }
+
+    @Test func tabAndShiftTabAfterAListItemsCode() {
+        let block = "- a\n  - b\n  ```\n  x\n  ```\n"
+        #expect(run(ComposerMarkdownEditing.indent, block + "  - |c") == block + "    - |c")
+        #expect(run(ComposerMarkdownEditing.outdent, block + "  - |c") == block + "- |c")
+    }
+
+    @Test func tabCarriesAnItemsCodeWithIt() {
+        #expect(
+            run(ComposerMarkdownEditing.indent, "- a\n- |b\n  ```\n  x\n\n  ```\n- c")
+                == "- a\n  - |b\n    ```\n    x\n\n    ```\n- c"
+        )
+    }
+
+    @Test func deleteAfterAListItemsCodeOutdents() {
+        #expect(run(ComposerMarkdownEditing.deleteBackward, "- a\n  ```\n  x\n  ```\n  - |c") == "- a\n  ```\n  x\n  ```\n- |c")
+    }
+
+    @Test func deleteAtACodeLinesIndentJoinsTheLineAbove() {
+        #expect(run(ComposerMarkdownEditing.deleteBackward, "- a\n  ```\n  x\n  |y\n  ```") == "- a\n  ```\n  x|y\n  ```")
+        #expect(run(ComposerMarkdownEditing.deleteBackward, "- a\n  ```\n  x\n  y|\n  ```") == nil)
+    }
+
+    @Test func anItemsCodeKeepsAnOrderedListTogether() {
+        #expect(
+            run(ComposerMarkdownEditing.newline, "1. a|\n   ```\n   x\n   ```\n2. b")
+                == "1. a\n2. |\n   ```\n   x\n   ```\n3. b"
+        )
+    }
+
+    @Test func contentColumnFollowsTheMarkerWidth() {
+        #expect(run(ComposerMarkdownEditing.indent, "- a\n- |b") == "- a\n  - |b")
+        #expect(run(ComposerMarkdownEditing.indent, "* a\n* |b") == "* a\n  * |b")
+        #expect(run(ComposerMarkdownEditing.indent, "1. a\n2. |b") == "1. a\n   1. |b")
+        #expect(run(ComposerMarkdownEditing.indent, "10. a\n11. |b") == "10. a\n    1. |b")
+        #expect(run(ComposerMarkdownEditing.indent, "- [ ] a\n- [ ] |b") == "- [ ] a\n  - [ ] |b")
+    }
+
+    @Test func nestedLevelsAddTheirContentColumns() {
+        #expect(run(ComposerMarkdownEditing.indent, "1. a\n   - b\n   - |c") == "1. a\n   - b\n     - |c")
+        #expect(run(ComposerMarkdownEditing.indent, "- a\n  1. b\n  2. |c") == "- a\n  1. b\n     1. |c")
+    }
+
+    @Test func anOrderedItemsCodeKeepsItsContentColumn() {
+        #expect(run(ComposerMarkdownEditing.newline, "1. a\n   ```\n   x|\n   ```") == "1. a\n   ```\n   x\n   |\n   ```")
+        #expect(run(ComposerMarkdownEditing.newline, "10. a\n    ```\n    x|\n    ```") == "10. a\n    ```\n    x\n    |\n    ```")
+        #expect(
+            run(ComposerMarkdownEditing.indent, "1. a\n2. |b\n   ```\n   x\n   ```")
+                == "1. a\n   1. |b\n      ```\n      x\n      ```"
+        )
+        #expect(
+            run(ComposerMarkdownEditing.indent, "10. a\n11. |b\n    ```\n    x\n    ```")
+                == "10. a\n    1. |b\n        ```\n        x\n        ```"
+        )
     }
 
     @Test func deleteIsOrdinaryElsewhere() {

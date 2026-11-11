@@ -11,10 +11,10 @@ nonisolated enum CheckRollup: Sendable, Equatable {
 }
 
 nonisolated extension CheckRollup {
-    private static let failing: Set<String> = ["FAILURE", "ERROR", "TIMED_OUT", "ACTION_REQUIRED"]
+    fileprivate static let failing: Set<String> = ["FAILURE", "ERROR", "TIMED_OUT", "ACTION_REQUIRED"]
     /// CANCELLED sits here to match GitHub's own PR page: an auto-superseded
     /// duplicate run neither fails nor blocks a merge.
-    private static let settled: Set<String> = ["SUCCESS", "NEUTRAL", "SKIPPED", "CANCELLED"]
+    fileprivate static let settled: Set<String> = ["SUCCESS", "NEUTRAL", "SKIPPED", "CANCELLED"]
 
     /// Folds a rollup, suppressing the pending signal of any check named in
     /// `ignoredWhenPending`.
@@ -37,5 +37,24 @@ nonisolated extension CheckRollup {
 nonisolated extension PullRequest {
     func checkRollup(ignoredWhenPending: Set<String> = []) -> CheckRollup {
         CheckRollup.folding(checkContexts, ignoredWhenPending: ignoredWhenPending)
+    }
+}
+
+/// One check's own outcome, sorted by how much it asks of the reader.
+nonisolated enum CheckVerdict: Int, Sendable, Comparable {
+    case failure
+    case pending
+    case success
+    /// Settled without passing: neutral, skipped or cancelled.
+    case skipped
+
+    static func < (lhs: Self, rhs: Self) -> Bool { lhs.rawValue < rhs.rawValue }
+}
+
+nonisolated extension CheckContext {
+    var verdict: CheckVerdict {
+        if CheckRollup.failing.contains(status) { return .failure }
+        if status == "SUCCESS" { return .success }
+        return CheckRollup.settled.contains(status) ? .skipped : .pending
     }
 }
