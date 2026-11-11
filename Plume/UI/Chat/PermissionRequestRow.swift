@@ -6,8 +6,9 @@ import SwiftUI
 /// The agent stalls until this is answered, so the row states what will run
 /// and offers Allow, or Deny with a reason the model receives as the tool
 /// result. When the CLI suggests a rule, mode or folder grant, each one is
-/// a further button that allows the call and applies it. Drawn as a `DecisionCard` like the question card beside it — the
-/// accent hue is the only thing that says which of the two this is.
+/// a further button that allows the call and applies it. Drawn as a
+/// `DecisionCard` like the question card beside it — the accent hue is the
+/// only thing that says which of the two this is.
 struct PermissionRequestRow: View, ThemedView {
     @Environment(\.theme) var theme
 
