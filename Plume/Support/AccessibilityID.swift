@@ -314,6 +314,10 @@ enum AccessibilityID {
     // MARK: Permission request
 
     static let permissionDenialReasonField = "permission-denial-reason-field"
+    static let permissionAllowButton = "permission-allow-button"
+    static let permissionDenyButton = "permission-deny-button"
+    static let permissionSuggestionButton = "permission-suggestion-button"
+    static let refreshConversationMenuItem = "refresh-conversation-menu-item"
 
     // MARK: Markdown
 

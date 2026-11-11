@@ -176,7 +176,11 @@ enum StreamJSONDecoder {
             decisionReason: body["decision_reason"]?.stringValue,
             toolUseID: body["tool_use_id"]?.stringValue,
             agentID: body["agent_id"]?.stringValue,
-            requiresUserInteraction: body["requires_user_interaction"]?.boolValue ?? false
+            requiresUserInteraction: body["requires_user_interaction"]?.boolValue ?? false,
+            permissionSuggestions: PermissionSuggestion.decoding(
+                body["permission_suggestions"],
+                suppressingRules: body["suppress_always_allow_rule"]?.boolValue ?? false
+            )
         )
     }
 }

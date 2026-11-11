@@ -5,7 +5,8 @@ import SwiftUI
 ///
 /// The agent stalls until this is answered, so the row states what will run
 /// and offers Allow, or Deny with a reason the model receives as the tool
-/// result. Drawn as a `DecisionCard` like the question card beside it — the
+/// result. When the CLI suggests a rule, mode or folder grant, each one is
+/// a further button that allows the call and applies it. Drawn as a `DecisionCard` like the question card beside it — the
 /// accent hue is the only thing that says which of the two this is.
 struct PermissionRequestRow: View, ThemedView {
     @Environment(\.theme) var theme
@@ -14,6 +15,7 @@ struct PermissionRequestRow: View, ThemedView {
     let allow: () -> Void
     let deny: (String) -> Void
     let choose: (PermissionDecisionOption) -> Void
+    var accept: (PermissionSuggestion) -> Void = { _ in }
 
     @State private var denialReason = ""
 
@@ -36,12 +38,15 @@ struct PermissionRequestRow: View, ThemedView {
             inputFields
             if permission.decisions.isEmpty {
                 denialReasonField
+                suggestionButtons
                 HStack(spacing: DecisionCard.nestedPadding) {
                     Spacer()
                     Button("Deny") { deny(denialReason) }
+                        .plumeID(AccessibilityID.permissionDenyButton, label: permission.id) { deny(denialReason) }
                     Button("Allow", action: allow)
                         .buttonStyle(.borderedProminent)
                         .paneKeyboardShortcut(.defaultAction)
+                        .plumeID(AccessibilityID.permissionAllowButton, label: permission.id, invoke: allow)
                 }
                 .font(typography.caption.font)
                 .chatTextColumn()
@@ -73,6 +78,30 @@ struct PermissionRequestRow: View, ThemedView {
                 ? nil
                 : (text: "subagent", symbol: StatusSymbol.subagents.name)
         )
+    }
+
+    @ViewBuilder
+    private var suggestionButtons: some View {
+        if !permission.suggestions.isEmpty {
+            VStack(alignment: .trailing, spacing: DecisionCard.rowSpacing) {
+                ForEach(permission.suggestions) { suggestion in
+                    Button { accept(suggestion) } label: {
+                        Text(suggestion.label)
+                            .lineLimit(1)
+                            .truncationMode(.middle)
+                    }
+                    .help(suggestion.detail)
+                    .plumeID(
+                        AccessibilityID.permissionSuggestionButton,
+                        label: suggestion.label,
+                        invoke: { accept(suggestion) }
+                    )
+                }
+            }
+            .frame(maxWidth: .infinity, alignment: .trailing)
+            .font(typography.caption.font)
+            .chatTextColumn()
+        }
     }
 
     private var denialReasonField: some View {
