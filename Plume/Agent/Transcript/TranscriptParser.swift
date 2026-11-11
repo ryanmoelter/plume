@@ -616,7 +616,7 @@ nonisolated enum TranscriptParser {
     }
 }
 
-private extension JSONEncoder {
+private nonisolated extension JSONEncoder {
     static var sortedKeys: JSONEncoder {
         let encoder = JSONEncoder()
         encoder.outputFormatting = [.sortedKeys, .prettyPrinted, .withoutEscapingSlashes]
@@ -624,7 +624,7 @@ private extension JSONEncoder {
     }
 }
 
-private struct EncodableJSONValue: Encodable {
+private nonisolated struct EncodableJSONValue: Encodable {
     let value: JSONValue
 
     nonisolated init(_ value: JSONValue) {

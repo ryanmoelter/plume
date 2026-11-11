@@ -24,7 +24,7 @@ nonisolated struct FileFingerprint: Equatable, Sendable {
 /// Each subagent transcript's parse, kept between reads so a write to one
 /// subagent re-parses only that subagent's file, and a file that only grew
 /// decodes only its new lines.
-nonisolated struct SubagentTranscriptCache {
+nonisolated struct SubagentTranscriptCache: Sendable {
     /// How one read reached each file's transcript.
     struct Stats: Equatable, Sendable {
         var reused = 0
@@ -32,7 +32,7 @@ nonisolated struct SubagentTranscriptCache {
         var fullParses = 0
     }
 
-    private struct Entry {
+    private struct Entry: Sendable {
         let fingerprint: FileFingerprint
         let transcript: Transcript
         /// Decoded lines up to `consumed`, held only while the file is still
@@ -48,7 +48,7 @@ nonisolated struct SubagentTranscriptCache {
         var evidence: (subagent: LinearSubagentRef, value: [LinearEvidence])?
     }
 
-    private struct Sidecar {
+    private struct Sidecar: Sendable {
         let fingerprint: FileFingerprint
         let descriptor: SubagentDescriptor?
     }

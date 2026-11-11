@@ -89,12 +89,12 @@ nonisolated final class AgentProcess: @unchecked Sendable {
             guard !data.isEmpty else { return }
             let text = String(decoding: data, as: UTF8.self)
                 .trimmingCharacters(in: .whitespacesAndNewlines)
-            guard !text.isEmpty else { return }
-            Log.agent.error("\(self?.label ?? "agent", privacy: .public) stderr: \(text, privacy: .public)")
+            guard !text.isEmpty, let self else { return }
+            Log.agent.error("\(self.label, privacy: .public) stderr: \(text, privacy: .public)")
             let reported = Self.reportedError(in: text)
-            self?.queue.async {
-                self?.lastErrorLine = text
-                if let reported { self?.lastReportedError = reported }
+            queue.async {
+                self.lastErrorLine = text
+                if let reported { self.lastReportedError = reported }
             }
         }
         process.terminationHandler = { [weak self] process in

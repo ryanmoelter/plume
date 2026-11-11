@@ -70,7 +70,7 @@ nonisolated enum CodexRPC {
     }
 }
 
-extension CodexRPC.RequestID {
+nonisolated extension CodexRPC.RequestID {
     init?(json: JSONValue) {
         switch json {
         case .number(let value): self = .number(Int(value))
@@ -87,7 +87,7 @@ extension CodexRPC.RequestID {
     }
 }
 
-extension CodexRPC.ErrorBody {
+nonisolated extension CodexRPC.ErrorBody {
     init?(json: JSONValue) {
         guard case .object(let fields) = json,
               case .string(let message)? = fields["message"]

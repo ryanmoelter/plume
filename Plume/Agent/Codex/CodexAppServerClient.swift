@@ -225,7 +225,7 @@ private enum CodexTransportEvent: Sendable {
 /// A lock protects the tiny synchronous producer side; one consumer Task
 /// drains the FIFO on MainActor. Starting a Task per event does not guarantee
 /// FIFO execution even though the source callbacks themselves are ordered.
-private final class OrderedCodexEvents: @unchecked Sendable {
+private nonisolated final class OrderedCodexEvents: @unchecked Sendable {
     typealias Handler = @MainActor @Sendable (CodexTransportEvent) -> Void
 
     private let lock = NSLock()

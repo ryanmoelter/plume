@@ -21,7 +21,7 @@ nonisolated struct StoredSession: Identifiable, Hashable, Sendable {
     }
 }
 
-extension SessionJSONLReader {
+nonisolated extension SessionJSONLReader {
     /// Transcripts Claude Code has written for `workingDirectory`, newest
     /// first.
     ///
