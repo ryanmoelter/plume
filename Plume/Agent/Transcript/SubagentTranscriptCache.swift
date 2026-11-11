@@ -43,6 +43,10 @@ nonisolated struct SubagentTranscriptCache {
 
     /// How long after its last write a file keeps its decoded lines.
     static let lineRetention: TimeInterval = 300
+    /// How many files keep their decoded lines at once. A tab that goes idle
+    /// reads no more, so the age limit alone would never release the lines
+    /// of every subagent that was writing when it stopped.
+    static let filesKeepingLines = 16
     private static let seamLength = 64
 
     private var entries: [String: Entry] = [:]
@@ -50,11 +54,25 @@ nonisolated struct SubagentTranscriptCache {
 
     init() {}
 
-    /// Starts a read: drops files no longer listed and resets `stats`.
-    mutating func beginRead(paths: [String]) {
+    /// Starts a read: resets `stats` and drops files no longer listed. Nil
+    /// paths, a directory that could not be listed, keeps every file.
+    mutating func beginRead(paths: [String]?) {
+        stats = Stats()
+        guard let paths else { return }
         let listed = Set(paths)
         entries = entries.filter { listed.contains($0.key) }
-        stats = Stats()
+    }
+
+    /// Ends a read: only the most recently written files keep their lines.
+    mutating func endRead() {
+        let keeping = entries.filter { $0.value.lines != nil }
+        guard keeping.count > Self.filesKeepingLines else { return }
+        let released = keeping
+            .sorted { ($0.value.fingerprint.modifiedAt ?? .distantPast) > ($1.value.fingerprint.modifiedAt ?? .distantPast) }
+            .dropFirst(Self.filesKeepingLines)
+        for (path, _) in released {
+            entries[path]?.lines = nil
+        }
     }
 
     /// The transcript at `path`, re-parsed only as far as it changed since the

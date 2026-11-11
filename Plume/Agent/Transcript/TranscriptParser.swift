@@ -93,8 +93,8 @@ nonisolated enum TranscriptParser {
         parse(entries: decodedEntries(in: data), includeSidechain: includeSidechain)
     }
 
-    /// Every line of `data` that decodes, in file order. Lazy, so a whole
-    /// file is never held decoded at once.
+    /// Every line of `data` that decodes, in file order. Lazy, so `parse`
+    /// never holds a whole file decoded at once.
     static func decodedEntries(in data: Data) -> some Sequence<TranscriptEntry> {
         let decoder = JSONDecoder()
         return data.split(separator: UInt8(ascii: "\n")).lazy.compactMap { line in

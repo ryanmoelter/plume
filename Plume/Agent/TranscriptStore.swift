@@ -367,9 +367,10 @@ final class TranscriptStore {
         parent: inout ParentParse,
         cache: inout SubagentTranscriptCache
     ) -> (subagents: [SubagentTranscript], intact: Bool) {
-        guard let paths = SessionJSONLReader.listedSubagentTranscriptPaths(forTranscriptPath: transcriptPath)
-        else { return ([], false) }
-        cache.beginRead(paths: paths)
+        let listed = SessionJSONLReader.listedSubagentTranscriptPaths(forTranscriptPath: transcriptPath)
+        cache.beginRead(paths: listed)
+        defer { cache.endRead() }
+        guard let paths = listed else { return ([], false) }
         guard !paths.isEmpty else { return ([], true) }
 
         var subagents: [SubagentTranscript] = []
