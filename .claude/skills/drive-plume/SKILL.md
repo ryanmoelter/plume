@@ -1,6 +1,6 @@
 ---
 name: drive-plume
-description: Drive and inspect a running debug build of Plume from an agent — read what is on screen as text, click, type, hover, and screenshot — without stealing focus or needing an Accessibility grant. Use whenever verifying a UI change, reproducing a UI bug, or checking what the app shows, before reaching for a screenshot or a process tree.
+description: Drive and inspect a running debug build of Plume from an agent — read what is on screen as text, click, type, hover, screenshot, and record video — without stealing focus or needing an Accessibility grant. Use whenever verifying a UI change, reproducing a UI bug, or checking what the app shows, before reaching for a screenshot or a process tree.
 ---
 
 # Drive the debug app
@@ -64,6 +64,18 @@ c clear
 `key` posts a real `NSEvent` down the whole dispatch path, so it is how a keyboard shortcut gets tested. Its `handledBy` names the menu item that owns the chord, and `menu` dumps every item with the chord AppKit actually holds — which is the thing to check when a shortcut does nothing, not what the source asked for.
 
 **Never drive a repro with `CGEventPostToPid`, `cliclick`, or by exec'ing the binary from a shell.** All three activate the app and take over the user's pointer and frontmost window. For a click the control server can't express, synthesize it *inside* the process: post `NSEvent`s through `NSApp.postEvent` after `window.makeKey()`. Post mouse-down and mouse-up about 150 ms apart, so AppKit's tracking loop pumps the run loop. `LinkClickHarness` is the shipped example and `docs/selectable-text-link-hang.md` has the recipe.
+
+## Record
+
+For anything that only shows over time — a fade, a transition, a scroll hitch, a row that jumps — record a video instead of a screenshot sequence:
+
+```
+c recordStart path=$HOME/Library/Caches/Plume-agent-media/<issue>/what-it-shows.mp4 maxSeconds=10
+c invoke target='{"id":"…"}'      # drive the change while it records
+c recordStop                      # {path, frames, dropped, duration, stoppedBy}
+```
+
+It captures the window the way `screenshot` does, so it needs no grant, never takes focus, and cannot record a hidden (`open -j`) window. `target=` crops to one control or surface, fixed at the start. `fps` (default 30) is a ceiling; read `frames` and `duration` from the result rather than assuming it. A recording stops itself at `maxSeconds` (default 30, at most 300), and `recordStop` afterwards returns that recording with `stoppedBy: "limit"`. Only one recording runs at a time. Check the clip with `ffprobe -count_frames` before handing it over.
 
 **Screenshots can run in parallel.** Each one captures its own window from the window server, so four `screenshot` calls fired at once against one app all succeed, each in under a quarter of a second. Parallel captures against two apps at once are not yet measured.
 

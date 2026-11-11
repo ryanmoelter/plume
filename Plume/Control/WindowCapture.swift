@@ -10,20 +10,26 @@ import AppKit
 /// returns nil here; one window per call works.
 @MainActor
 enum WindowCapture {
-    private static let includingWindow: UInt32 = 1 << 3
-    private static let boundsIgnoreFraming: UInt32 = 1 << 0
-    private static let bestResolution: UInt32 = 1 << 3
+    private nonisolated static let includingWindow: UInt32 = 1 << 3
+    private nonisolated static let boundsIgnoreFraming: UInt32 = 1 << 0
+    private nonisolated static let bestResolution: UInt32 = 1 << 3
 
     /// The window's frame, without its shadow, at backing resolution.
     static func image(of window: NSWindow) -> CGImage? {
-        cgWindowListCreateImage(.null, includingWindow, UInt32(window.windowNumber), boundsIgnoreFraming | bestResolution)?.takeRetainedValue()
+        image(windowID: UInt32(window.windowNumber))
+    }
+
+    /// Callable off the main thread, which is how a recording keeps its
+    /// captures from stalling the animation it records.
+    nonisolated static func image(windowID: UInt32) -> CGImage? {
+        cgWindowListCreateImage(.null, includingWindow, windowID, boundsIgnoreFraming | bestResolution)?.takeRetainedValue()
     }
 
     /// True when a grid of samples all share one color. A driven window is
     /// never one flat color, so a uniform capture means the window server
     /// gave back nothing: the display is asleep, the session is locked, or
     /// the window is off screen.
-    static func isUniform(_ image: CGImage) -> Bool {
+    nonisolated static func isUniform(_ image: CGImage) -> Bool {
         let width = 32, height = 32
         guard let context = CGContext(
             data: nil, width: width, height: height, bitsPerComponent: 8, bytesPerRow: width * 4,
@@ -50,7 +56,7 @@ enum WindowCapture {
 
     /// Draws `top` over `bottom`, scaled to it; the overlay panel and the
     /// content view have the same bounds, so no offset is needed.
-    static func composite(_ top: CGImage, over bottom: CGImage) -> CGImage? {
+    nonisolated static func composite(_ top: CGImage, over bottom: CGImage) -> CGImage? {
         guard let context = CGContext(
             data: nil, width: bottom.width, height: bottom.height, bitsPerComponent: 8, bytesPerRow: 0,
             space: bottom.colorSpace ?? CGColorSpaceCreateDeviceRGB(),

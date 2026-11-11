@@ -1,6 +1,6 @@
 # The debug control server
 
-A debug build of Plume opens a Unix-domain socket an agent can drive and inspect the app through: list the controls on screen, read and set the composer, click a word, dump the window as text, and take a screenshot. It needs no Accessibility (TCC) grant and never activates the app, so the user's focus stays where it was. `scripts/debug/plume-control.py` is the client; `Plume/Control/` is the implementation, all `#if DEBUG`.
+A debug build of Plume opens a Unix-domain socket an agent can drive and inspect the app through: list the controls on screen, read and set the composer, click a word, dump the window as text, take a screenshot, and record a video. It needs no Accessibility (TCC) grant and never activates the app, so the user's focus stays where it was. `scripts/debug/plume-control.py` is the client; `Plume/Control/` is the implementation, all `#if DEBUG`.
 
 ## Inspect before you screenshot
 
@@ -9,6 +9,7 @@ Reach for commands in this order. Each is cheaper than the next for an agent to 
 1. `hierarchy` — the whole window as an indented outline: every text view with its text, every control with its enabled state, every `plumeID` with its frame. This answers "what is on screen" and "where is X" without pixels.
 2. `readText` — one surface's text: the composer, the chat list row by row, or one control.
 3. `screenshot` — only when the question is about layout or rendering that text cannot answer.
+4. `recordStart` and `recordStop` — a video, for what only shows over time: a fade, a scroll hitch, a row that jumps.
 
 ## Finding the socket
 
@@ -64,6 +65,8 @@ While split, a tab chip's label ends with its pane, counted from the left — `C
 | `hover` | `target?` or `x`, `y`; `windowNumber?` | `{rect, windowNumber, regions}`; `regions` counts the `plumeHover` regions now under the pointer |
 | `clear` | `windowNumber?` | `{}`; un-hovers everything and removes the overlay, in one window or all |
 | `screenshot` | `path?`, `target?`, `windowNumber?` | `{path, width, height, scale}`; PNG, cropped to the target when given |
+| `recordStart` | `path?`, `target?`, `windowNumber?`, `fps = 30` (1–60), `maxSeconds = 30` (at most 300) | `{path, width, height, scale, fps, maxSeconds}`; H.264, `.mov` for QuickTime and MPEG-4 otherwise, cropped to the target when given |
+| `recordStop` | — | `{path, width, height, frames, dropped, duration, stoppedBy: "request" \| "limit" \| "windowClosed"}`; after a recording stopped itself, returns that one |
 | `hierarchy` | `windowNumber?`, `target?`, `format = "text" \| "json"`, `textLimit = 200` | `{text}` or `{root}` |
 | `drag` | `files?`, `text?`, `inApp?`; `target?` or `x`, `y`; `windowNumber?` | `{dropped, refusedAt?, view?, entered?, updated?, prepared?, performed?, feedbackAfterUpdate?, feedbackAfterDrop?}`, or `{destinations}` when no point is given |
 | `key` | `key`, `modifiers? = ["command"\|"shift"\|"option"\|"control"]`, `windowNumber?` | `{chord, keyCode, windowNumber, handledBy?, handledByEnabled?}` |
@@ -92,6 +95,8 @@ While split, a tab chip's label ends with its pane, counted from the left — `C
 **Text is read from AppKit, and from the chat selection registry.** The composer is a real `NSTextView`. Markdown chat pieces draw through `ChatSelectionRenderer`, so they are no `NSTextField`; each `Text` records itself in `ChatTextLayoutRegistry`, and `readText` and `clickSpan` take those from the realized rows, merged top to bottom with the AppKit views (tool rows and the like). `clickSpan` finds a glyph rect in the `Text.Layout`. For AppKit views, `clickSpan` resolves a substring through the layout manager (`TextSpanLocator`): TextKit 2 first, because reading `layoutManager` on a TextKit 2 view silently downgrades it. An `NSTextField` without a live field editor is laid out again in a scratch container the size of its title rect, which matches to within a point.
 
 **Screenshots come from the window server.** `WindowCapture` calls `CGWindowListCreateImage` for the app's own window, which needs no Screen Recording grant and returns real pixels even while the session reports itself locked, where drawing the view tree with `cacheDisplay(in:to:)` has come back blank. The SDK hides that function from Swift as "use ScreenCaptureKit", which does need a grant; it is bound by symbol name. The capture is cropped to the content view, the overlay's window is captured the same way and composited on top, and `scale` is pixels per point. A capture that is one flat color is refused with an error naming the display state (asleep, locked) instead of being written as a blank PNG.
+
+**A recording is a screenshot on a timer.** `WindowRecorder` captures the window the same way, so it needs no Screen Recording grant either, and encodes the frames with `AVAssetWriter`. One recording runs at a time; `recordStart` refuses a second. A main-queue timer reads the window's geometry and the overlay each tick, and a serial queue captures and encodes, so the capture never stalls the animation being recorded. Each frame is stamped when it is captured, and the video ends at the moment it stopped, so its duration is real time. `fps` is a ceiling: a busy main thread skips ticks and the encoder skips frames it is still behind on (`dropped`). The recording holds a `ProcessInfo` activity, because App Nap would otherwise throttle a never-frontmost instance's timer to a few frames a second. Frames are drawn in the capture's own color space, since converting each one cost more than everything else in a frame. A recording stops itself at `maxSeconds`, so a forgotten one ends on its own; `recordStop` then returns it. Like `screenshot`, it cannot record a hidden (`open -j`) window. A target's crop is fixed when recording starts.
 
 **A drop is replayed, not dragged.** The window server owns the real drag session and answers only the physical pointer, so `drag` calls the destination protocol itself (`SyntheticDrag`): `draggingEntered`, `draggingUpdated`, `prepareForDragOperation`, `performDragOperation`, `concludeDragOperation`, reporting each step and the one that refused. This is what tells a drop that highlights and then does nothing apart from one that was never offered the drag. The payload goes on the real drag pasteboard, because `DropInfo` reads that by name rather than through `draggingPasteboard`.
 

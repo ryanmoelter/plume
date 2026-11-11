@@ -15,6 +15,8 @@ protocol ControlBackend {
     func click(_ params: ClickParams) async throws -> ClickResult
     func pointerDrag(_ params: PointerDragParams) async throws -> ClickResult
     func screenshot(_ params: ScreenshotParams) throws -> ScreenshotResult
+    func recordStart(_ params: RecordStartParams) throws -> RecordStartResult
+    func recordStop() async throws -> RecordStopResult
     func hierarchy(_ params: HierarchyParams) throws -> HierarchyResult
     func hover(_ params: HoverParams) async throws -> HoverResult
     func clear(_ params: ClearParams) async throws
@@ -56,6 +58,8 @@ enum ControlDispatcher {
             case .click(let params): result = .click(try await backend.click(params))
             case .pointerDrag(let params): result = .click(try await backend.pointerDrag(params))
             case .screenshot(let params): result = .screenshot(try backend.screenshot(params))
+            case .recordStart(let params): result = .recordStart(try backend.recordStart(params))
+            case .recordStop: result = .recordStop(try await backend.recordStop())
             case .hierarchy(let params): result = .hierarchy(try backend.hierarchy(params))
             case .hover(let params): result = .hover(try await backend.hover(params))
             case .clear(let params):
