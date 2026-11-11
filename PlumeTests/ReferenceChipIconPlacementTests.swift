@@ -34,7 +34,7 @@ struct ReferenceChipIconPlacementTests {
     }
 
     /// A font size and a status symbol the chips really draw.
-    static let drawnIcons: [(CGFloat, String)] = [
+    nonisolated static let drawnIcons: [(CGFloat, String)] = [
         (13, "circle.fill"),
         (17, "circle.dashed"),
         (13, "arrow.trianglehead.pull"),
@@ -210,7 +210,8 @@ private final class PlacementBox {
 
 /// Keeps the last draw's placements: SwiftUI draws once to size the `Text`
 /// before the pass that lays out every line.
-private struct PlacementRecorder: TextRenderer {
+@MainActor
+private struct PlacementRecorder: @MainActor TextRenderer {
     let chips: InlineChips
     let box = PlacementBox()
 

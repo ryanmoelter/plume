@@ -2,6 +2,7 @@ import Testing
 import Foundation
 @testable import Plume
 
+@MainActor
 struct HeadlessCommandTests {
     private func permissionModeToken(in arguments: [String]) -> String? {
         guard let flagIndex = arguments.firstIndex(of: "--permission-mode") else { return nil }
@@ -93,6 +94,7 @@ struct HeadlessCommandTests {
 
 /// `--model` carries the tab's pre-launch choice, so the first turn runs on
 /// the model the user picked rather than the CLI's default.
+@MainActor
 struct HeadlessCommandModelTests {
     private func modelToken(in arguments: [String]) -> String? {
         guard let flagIndex = arguments.firstIndex(of: "--model") else { return nil }
@@ -194,6 +196,7 @@ struct HeadlessCommandModelTests {
 /// Locks down the login-shell wrap that puts `claude` on PATH. A GUI-launched
 /// app inherits launchd's minimal PATH, so exec'ing `claude` directly fails
 /// with "No such file or directory" even though a terminal finds it.
+@MainActor
 struct HeadlessLoginShellCommandTests {
     @Test func argumentsRunThroughALoginShell() {
         let command = LoginShellCommand.wrap(arguments: ["claude", "-p"])

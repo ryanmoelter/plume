@@ -4,6 +4,11 @@ import Testing
 
 @MainActor
 struct CodexBackgroundTaskTrackerTests {
+    @MainActor private final class Flag {
+        var isSet: Bool
+        init(_ isSet: Bool) { self.isSet = isSet }
+    }
+
     private func page(_ ids: [String], cursor: String? = nil) -> JSONValue {
         .object([
             "data": .array(ids.map { .object(["processId": .string($0)]) }),
@@ -91,17 +96,17 @@ struct CodexBackgroundTaskTrackerTests {
         struct Failure: Error {}
         let tracker = BackgroundTaskTracker()
         let tabID = UUID()
-        var fails = true
+        let fails = Flag(true)
         let store = CodexBackgroundTaskTracker(tabID: tabID, tracker: tracker) { _, _ in
-            if fails { throw Failure() }
+            if fails.isSet { throw Failure() }
             return self.page(["one"])
         }
         await store.refresh(threadID: "parent")?.value
         #expect(tracker.inFlight(tabID: tabID).isEmpty)
-        fails = false
+        fails.isSet = false
         await store.refresh(threadID: "parent")?.value
         let first = tracker.inFlight(tabID: tabID)
-        fails = true
+        fails.isSet = true
         await store.refresh(threadID: "parent")?.value
         #expect(tracker.inFlight(tabID: tabID) == first)
         store.stop()

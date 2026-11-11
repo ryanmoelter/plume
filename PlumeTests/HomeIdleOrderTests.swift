@@ -2,6 +2,7 @@ import Foundation
 import Testing
 @testable import Plume
 
+@MainActor
 struct HomeIdleOrderTests {
     private func idle(_ title: String, openedAt: Date?) -> HomeFeed.Entry {
         HomeFeed.Entry(

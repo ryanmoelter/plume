@@ -2,6 +2,7 @@ import Foundation
 import Testing
 @testable import Plume
 
+@MainActor
 struct SlashCommandMatcherTests {
     private func command(_ name: String) -> SlashCommand {
         SlashCommand(name: name, description: "desc for \(name)", argumentHint: "")

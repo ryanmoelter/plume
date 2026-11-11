@@ -459,9 +459,10 @@ struct CLICommandHandlerTests {
         let empty = TaskStore.addTab(to: task, kind: .device, in: context)
         let reservations = Reservations()
         let handler = makeReservingHandler(task: task, store: try makeDeviceStore(), reservations: reservations)
+        let (firstID, secondID) = (first.id, second.id)
 
-        async let one = handler.handle(.reserveDevice(.init(tabID: first.id)))
-        async let two = handler.handle(.reserveDevice(.init(tabID: second.id)))
+        async let one = handler.handle(.reserveDevice(.init(tabID: firstID)))
+        async let two = handler.handle(.reserveDevice(.init(tabID: secondID)))
         let tabs = await [one.tabID, two.tabID]
 
         #expect(tabs.contains(empty.id))

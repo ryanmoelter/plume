@@ -2,6 +2,7 @@ import Testing
 import Foundation
 @testable import Plume
 
+@MainActor
 struct HookSettingsWriterTests {
     private func hooks() throws -> [String: Any] {
         try #require(HookSettingsWriter.settingsJSON()["hooks"] as? [String: Any])
@@ -69,6 +70,7 @@ struct HookSettingsWriterTests {
     }
 }
 
+@MainActor
 struct InstrumentedLaunchTests {
     /// The whole `claude` argv runs as one argument to a login, interactive
     /// shell — see `LoginShellCommand`.

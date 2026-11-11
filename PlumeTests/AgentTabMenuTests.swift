@@ -1,6 +1,7 @@
 import Testing
 @testable import Plume
 
+@MainActor
 struct AgentTabMenuTests {
     @Test func transportSwitchLabelNamesTheDestination() {
         #expect(AgentTabMenu.transportSwitchLabel(for: .headless) == "Switch to Terminal Agent…")
@@ -14,6 +15,7 @@ struct AgentTabMenuTests {
     }
 }
 
+@MainActor
 struct AgentTabMenuRefreshTests {
     @Test func refreshIsOfferedOnlyWithAConversationAndAProcessOfItsOwn() {
         #expect(AgentTabMenu.offersRefresh(provider: .claudeCode, transport: .headless, hasConversation: true))

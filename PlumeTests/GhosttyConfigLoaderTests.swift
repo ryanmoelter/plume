@@ -6,6 +6,7 @@ import SwiftUI
 /// Ordering mirrors `preferredDefaultFilePath()` in ghostty's
 /// `src/config/file_load.zig`: Application Support outranks XDG on macOS, and
 /// the `config.ghostty` name outranks the legacy `config` within each pair.
+@MainActor
 struct GhosttyConfigLoaderTests {
     private let home = NSHomeDirectory()
 

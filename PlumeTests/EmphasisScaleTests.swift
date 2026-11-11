@@ -4,6 +4,7 @@ import SwiftUI
 
 /// The emphasis scale's two resolutions: literal alpha for fills, and the
 /// semantic text hierarchy for labels.
+@MainActor
 struct EmphasisScaleTests {
     @Test func fillOpacitiesMatchTheScale() {
         #expect(Emphasis.primary.fillOpacity(for: .light) == 1)

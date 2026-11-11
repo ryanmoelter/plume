@@ -390,7 +390,8 @@ private final class LineStartBox {
 
 /// Keeps the last draw's line starts: SwiftUI draws once to size the `Text`
 /// before the pass that lays out every line.
-private struct LineStartRecorder: TextRenderer {
+@MainActor
+private struct LineStartRecorder: @MainActor TextRenderer {
     let paragraphStarts: [Int]
     let box = LineStartBox()
 
@@ -406,7 +407,8 @@ private final class IndexBox {
     var indices: [Text.Layout.CharacterIndex] = []
 }
 
-private struct IndexRecorder: TextRenderer {
+@MainActor
+private struct IndexRecorder: @MainActor TextRenderer {
     let box = IndexBox()
 
     func draw(layout: Text.Layout, in ctx: inout GraphicsContext) {
@@ -419,6 +421,7 @@ private struct IndexRecorder: TextRenderer {
     }
 }
 
+@MainActor
 struct RevealTimedFadeTests {
     private let samples = [
         RevealSample(time: 10, position: 0),

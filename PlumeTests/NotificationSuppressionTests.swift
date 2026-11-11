@@ -2,6 +2,7 @@ import Foundation
 import Testing
 @testable import Plume
 
+@MainActor
 struct NotificationSuppressionTests {
     private let task = UUID()
     private let tab = UUID()
@@ -95,6 +96,7 @@ struct BellStoreTests {
     }
 }
 
+@MainActor
 struct StatusNotifierBodyTests {
     @Test func onlyStatusesWorthInterruptingForHaveABody() {
         #expect(StatusNotifier.body(for: .planApproval, notifiesOnTurnEnd: false) != nil)

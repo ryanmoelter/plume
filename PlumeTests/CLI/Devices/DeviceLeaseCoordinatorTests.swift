@@ -417,7 +417,12 @@ struct DeviceLeaseCoordinatorTests {
                 unlock.wait()
             }
         }
-        locked.wait()
+        await withCheckedContinuation { continuation in
+            DispatchQueue.global().async {
+                locked.wait()
+                continuation.resume()
+            }
+        }
         let coordinator = coordinator
         let claim = claim()
         let beginning = Task { try await coordinator.beginClaim(claim) }

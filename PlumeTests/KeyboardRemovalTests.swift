@@ -1,6 +1,7 @@
 import Testing
 @testable import Plume
 
+@MainActor
 struct KeyboardRemovalTests {
     @Test func deleteKeyArchivesStartedTask() {
         #expect(KeyboardRemoval.verbForDeleteKey(hasNeverStarted: false) == .archive)

@@ -2,6 +2,7 @@ import Foundation
 import Testing
 @testable import Plume
 
+@MainActor
 struct DimensionsTests {
     @Test func contentWidthScalesWithBodySize() {
         #expect(Dimensions(bodySize: 16).contentWidth == 640)

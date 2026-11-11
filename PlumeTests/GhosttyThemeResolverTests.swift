@@ -4,6 +4,7 @@ import GhosttyTerminal
 import GhosttyTheme
 @testable import Plume
 
+@MainActor
 struct GhosttyThemeResolverTests {
     // MARK: - parseThemeDirective
 

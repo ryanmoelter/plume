@@ -6,6 +6,7 @@ import Testing
 /// events, which Plume names and something else appends to, and wrong for a
 /// transcript: `claude --session-id` reads a file already at the session's
 /// path as proof the id is taken and refuses to start.
+@MainActor
 struct FileWatcherCreationTests {
     private func scratchPath() -> String {
         FileManager.default.temporaryDirectory

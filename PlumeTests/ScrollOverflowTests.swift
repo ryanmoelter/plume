@@ -3,6 +3,7 @@ import Testing
 @testable import Plume
 
 /// Which edges of the `/btw` answer fade: only those with more answer past them.
+@MainActor
 struct ScrollOverflowTests {
     @Test func anAnswerThatFitsFadesNeitherEdge() {
         let overflow = ScrollOverflow(visibleRect: CGRect(x: 0, y: 0, width: 300, height: 120), contentHeight: 120)

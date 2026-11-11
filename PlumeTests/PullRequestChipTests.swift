@@ -1,6 +1,7 @@
 import Testing
 @testable import Plume
 
+@MainActor
 struct PullRequestChipTests {
     private func labels(
         _ state: PullRequestFetchState,

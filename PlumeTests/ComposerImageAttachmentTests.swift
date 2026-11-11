@@ -216,6 +216,7 @@ struct ComposerNSTextViewDragTests {
 
 /// Minimal `NSDraggingInfo` stand-in, enough to drive
 /// `performDragOperation` without a real AppKit drag session.
+@MainActor
 private final class FakeDraggingInfo: NSObject, NSDraggingInfo {
     let draggingPasteboard: NSPasteboard
     init(pasteboard: NSPasteboard) { self.draggingPasteboard = pasteboard }

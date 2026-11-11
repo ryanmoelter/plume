@@ -84,6 +84,7 @@ struct MessageRedoContextTests {
 
 /// Rolling back to a reply rewinds to the user message after it, since
 /// `rewind_conversation` cuts before its target.
+@MainActor
 struct RollbackTargetTests {
     private func message(_ id: String, _ role: ChatMessage.Role) -> ChatMessage {
         ChatMessage(id: id, role: role, blocks: [], timestamp: nil)
@@ -128,6 +129,7 @@ struct RollbackTargetTests {
 
 /// The CLI writes no new tip after a rewind until the next turn, so the chat
 /// applies the cut itself.
+@MainActor
 struct TranscriptRollbackTests {
     private func transcript(_ ids: [String]) -> Transcript {
         var transcript = Transcript()
