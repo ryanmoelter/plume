@@ -31,7 +31,7 @@ final class ThermalStateMonitor: ThermalStateSource {
         }
     }
 
-    deinit {
+    isolated deinit {
         if let observer {
             NotificationCenter.default.removeObserver(observer)
         }

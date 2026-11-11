@@ -27,7 +27,7 @@ import Observation
 final class BackgroundTaskTracker {
     static let shared = BackgroundTaskTracker()
 
-    enum Kind: Equatable, Sendable {
+    nonisolated enum Kind: Equatable, Sendable {
         case monitor
         case backgroundCommand
         case workflow
@@ -42,7 +42,7 @@ final class BackgroundTaskTracker {
         }
     }
 
-    struct Entry: Equatable, Identifiable, Sendable {
+    nonisolated struct Entry: Equatable, Identifiable, Sendable {
         let id: String
         let kind: Kind
         /// What the call said the task was for, so two monitors in one tab

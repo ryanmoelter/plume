@@ -71,7 +71,7 @@ nonisolated struct CmuxPanelView: Sendable {
     var isTerminal: Bool { type == "terminal" }
 }
 
-extension CmuxWorkspaceView {
+nonisolated extension CmuxWorkspaceView {
     /// Pairs each panel with its session.
     ///
     /// `activeSessionsBySurface` holds what is running now rather than a

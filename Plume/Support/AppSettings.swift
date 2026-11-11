@@ -111,7 +111,7 @@ final class AppSettings {
     init(
         defaults: UserDefaults = .standard,
         domainName: String = Bundle.main.bundleIdentifier ?? "",
-        initialAccentPaletteSlot: () -> Int? = SystemAccent.paletteSlot
+        initialAccentPaletteSlot: @MainActor () -> Int? = SystemAccent.paletteSlot
     ) {
         self.defaults = defaults
         self.dismissedMissingProviders = Set((defaults.stringArray(forKey: Key.dismissedMissingProviders) ?? []).compactMap(AgentProviderKind.init(rawValue:)))

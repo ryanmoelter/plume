@@ -30,12 +30,12 @@ final class Notifier: NSObject {
     /// Posts held while the first authorization request is in flight.
     @ObservationIgnored private var queued: [Request] = []
 
-    struct Route: Equatable {
+    nonisolated struct Route: Equatable {
         var taskID: UUID
         var tabID: UUID
     }
 
-    struct Request {
+    nonisolated struct Request {
         var taskID: UUID
         var tabID: UUID
         var title: String
@@ -109,12 +109,13 @@ final class Notifier: NSObject {
     }
 
     private func deliverIfNowAuthorized(_ request: Request, to center: UNUserNotificationCenter) {
-        center.getNotificationSettings { settings in
+        center.getNotificationSettings { [weak self] settings in
             let status = settings.authorizationStatus
             guard status == .authorized || status == .provisional else { return }
-            Task { @MainActor [weak self] in
-                self?.authorization = .granted
-                self?.deliver(request, to: center)
+            Task { @MainActor in
+                guard let self, let center = self.center else { return }
+                self.authorization = .granted
+                self.deliver(request, to: center)
             }
         }
     }

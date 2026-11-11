@@ -7,7 +7,7 @@ import Foundation
 /// a summons that cannot say why is worse than none, so the only unnamed one
 /// is `needsTerminalInput`, which exists because the terminal transport's hook
 /// genuinely cannot say more.
-enum TaskStatus: String, CaseIterable, Sendable {
+nonisolated enum TaskStatus: String, CaseIterable, Sendable {
     /// No agent has run, or none is running after a relaunch. Distinct from
     /// `awaitingReply`, which claims a turn actually ended.
     case notStarted
@@ -127,14 +127,14 @@ enum TaskStatus: String, CaseIterable, Sendable {
     }
 }
 
-enum TabKind: String, CaseIterable, Sendable {
+nonisolated enum TabKind: String, CaseIterable, Sendable {
     case agent
     case terminal
     case device
 }
 
 /// What a `.device` tab mirrors. Persisted on `TaskTab.devicePlatformRaw`.
-enum DevicePlatform: String, Sendable {
+nonisolated enum DevicePlatform: String, Sendable {
     case androidEmulator
     case androidPhysical
     /// A device reserved through Google's Device Streaming; the identifier is the reservation id.
@@ -143,7 +143,7 @@ enum DevicePlatform: String, Sendable {
 
 /// Which coding-agent CLI an agent tab runs. Orthogonal to `AgentTransport`,
 /// which picks how Plume talks to it.
-enum AgentProviderKind: String, CaseIterable, Sendable, Identifiable {
+nonisolated enum AgentProviderKind: String, CaseIterable, Sendable, Identifiable {
     case claudeCode = "claude-code"
     case codex
 
@@ -195,12 +195,12 @@ enum AgentProviderKind: String, CaseIterable, Sendable, Identifiable {
 /// How an agent tab talks to its CLI. `headless` drives it over a JSON
 /// protocol on pipes and always renders as chat; `terminal` keeps the PTY/TUI
 /// as the escape hatch and always renders as a terminal.
-enum AgentTransport: String, CaseIterable, Sendable {
+nonisolated enum AgentTransport: String, CaseIterable, Sendable {
     case headless
     case terminal
 }
 
-enum WorkspaceKind: String, CaseIterable, Sendable {
+nonisolated enum WorkspaceKind: String, CaseIterable, Sendable {
     case unset
     case directory
     case worktree

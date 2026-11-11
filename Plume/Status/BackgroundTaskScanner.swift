@@ -27,7 +27,7 @@ nonisolated enum BackgroundTaskResult {
 
     private struct Shape {
         let prefix: String
-        let parse: (Substring) -> Started?
+        let parse: @Sendable (Substring) -> Started?
     }
 
     private static let shapes: [Shape] = [
@@ -285,7 +285,7 @@ nonisolated enum BackgroundTaskScanner {
     }
 }
 
-private extension Duration {
+nonisolated private extension Duration {
     var seconds: TimeInterval {
         TimeInterval(components.seconds) + TimeInterval(components.attoseconds) / 1e18
     }

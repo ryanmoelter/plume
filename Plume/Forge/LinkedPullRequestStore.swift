@@ -15,8 +15,8 @@ final class LinkedPullRequestStore {
     static let shared = LinkedPullRequestStore()
 
     static let cacheLifetime: TimeInterval = 120
-    static let failureBackoff: TimeInterval = 30
-    static let maxFailureBackoff: TimeInterval = 600
+    nonisolated static let failureBackoff: TimeInterval = 30
+    nonisolated static let maxFailureBackoff: TimeInterval = 600
     static let maxConcurrentRepositories = 2
     /// Half of `cacheLifetime`, so a retained answer is at most one tick past
     /// its lifetime, and a failed fetch retries soon after its backoff ends.

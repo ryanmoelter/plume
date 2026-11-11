@@ -62,7 +62,7 @@ nonisolated enum LinearMentionMatcher {
     }
 }
 
-extension MentionCandidate.LinearIssue {
+nonisolated extension MentionCandidate.LinearIssue {
     /// `state` is the cache's entry for the issue's `stateID`, when it has one.
     nonisolated init(_ issue: LinearSyncCache.Issue, state: LinearWorkflowState?) {
         let state = state ?? issue.fallbackState
@@ -77,7 +77,7 @@ extension MentionCandidate.LinearIssue {
     }
 }
 
-extension MentionCandidate.LinearIssue {
+nonisolated extension MentionCandidate.LinearIssue {
     nonisolated init(_ snapshot: LinearIssueSnapshot) {
         self.init(
             identifier: snapshot.issue.identifier.uppercased(),
