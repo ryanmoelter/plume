@@ -521,6 +521,14 @@ struct InfoPaneBracketGeometryTests {
         #expect(collapsed.barEnd == collapsed.barStart)
     }
 
+    @Test func theStrokeFadesWithProgressAndClamps() {
+        #expect(InfoPaneBracketGeometry.lineFade(progress: -0.5) == 0)
+        #expect(InfoPaneBracketGeometry.lineFade(progress: 0) == 0)
+        #expect(InfoPaneBracketGeometry.lineFade(progress: 0.25) == 0.25)
+        #expect(InfoPaneBracketGeometry.lineFade(progress: 1) == 1)
+        #expect(InfoPaneBracketGeometry.lineFade(progress: 1.2) == 1)
+    }
+
     // Each line's edge is its center ± half the line width.
     @MainActor @Test func barsFitThePaddingClearOfEachOtherAndTheWashes() {
         let half = InfoPaneLayout.bracketLineWidth / 2

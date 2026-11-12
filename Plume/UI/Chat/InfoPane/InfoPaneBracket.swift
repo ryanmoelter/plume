@@ -61,18 +61,53 @@ struct InfoPaneBracketedSection<Header: View, Rows: View>: View, ThemedView {
 
     private func bracket(headerHeight: CGFloat) -> some View {
         let isPlain = InfoPaneLayout.usesPlainBar
-        return InfoPaneBracketShape(
-            progress: isExpanded ? 1 : 0,
-            barX: level.barX,
-            stubStartX: InfoPaneLayout.bracketStubStartX,
-            stubEndX: InfoPaneLayout.bracketStubEndX,
-            stubY: isPlain ? headerHeight + InfoPaneLayout.rowVerticalPadding : headerHeight / 2,
-            drawsStub: !isPlain,
-            cornerRadius: level.cornerRadius,
-            barEndInset: InfoPaneLayout.rowVerticalPadding
+        let progress: CGFloat = isExpanded ? 1 : 0
+        return InfoPaneBracketStroke(
+            progress: progress,
+            shape: InfoPaneBracketShape(
+                progress: progress,
+                barX: level.barX,
+                stubStartX: InfoPaneLayout.bracketStubStartX,
+                stubEndX: InfoPaneLayout.bracketStubEndX,
+                stubY: isPlain ? headerHeight + InfoPaneLayout.rowVerticalPadding : headerHeight / 2,
+                drawsStub: !isPlain,
+                cornerRadius: level.cornerRadius,
+                barEndInset: InfoPaneLayout.rowVerticalPadding
+            ),
+            collapsedColor: colors.selection,
+            expandedColor: colors.divider
         )
-        .stroke(colors.divider, style: StrokeStyle(lineWidth: InfoPaneLayout.bracketLineWidth, lineCap: .round))
         .allowsHitTesting(false)
+    }
+}
+
+/// Strokes the bracket in one color per frame, so the elbow has no seam. A
+/// collapsed stub is a control and takes the accent; expanding fades it to
+/// the line color.
+private struct InfoPaneBracketStroke: View, Animatable {
+    var progress: CGFloat
+    let shape: InfoPaneBracketShape
+    let collapsedColor: Color
+    let expandedColor: Color
+
+    var animatableData: CGFloat {
+        get { progress }
+        set { progress = newValue }
+    }
+
+    var body: some View {
+        var shape = shape
+        shape.progress = progress
+        return shape.stroke(color, style: StrokeStyle(lineWidth: InfoPaneLayout.bracketLineWidth, lineCap: .round))
+    }
+
+    private var color: Color {
+        let fade = InfoPaneBracketGeometry.lineFade(progress: progress)
+        switch fade {
+        case ...0: return collapsedColor
+        case 1...: return expandedColor
+        default: return collapsedColor.mix(with: expandedColor, by: fade)
+        }
     }
 }
 
@@ -236,6 +271,11 @@ private struct InfoPaneHeaderIcon: View {
 nonisolated struct InfoPaneBracketGeometry: Equatable {
     /// The share of `progress` spent reaching the bar before it grows.
     static let reachShare: CGFloat = 0.35
+
+    /// How far the stroke has faded from the accent to the line color, 0 to 1.
+    static func lineFade(progress: CGFloat) -> Double {
+        Double(min(max(progress, 0), 1))
+    }
 
     /// The stub's fixed right end, nil when no stub is drawn.
     let stubEnd: CGPoint?
