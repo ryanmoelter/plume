@@ -34,8 +34,7 @@ struct WorktreeRemovalPromptTests {
     ]
 
     private func targets(for task: WorkTask) -> [WorktreeRemovalTarget] {
-        let claims = WorktreeRemovalPrompt.claims(for: task, directories: TabDirectoryStore())
-        return WorktreeRemovalPrompt.targets(for: claims) { $0 == "/repo" ? listing : [] }
+        WorktreeRemovalPrompt.targets(for: WorktreeRemovalPrompt.claims(for: task)) { $0 == "/repo" ? listing : [] }
     }
 
     @Test func aPlainDirectoryTaskNeedsNoConfirmation() {
@@ -82,6 +81,39 @@ struct WorktreeRemovalPromptTests {
     @Test func theMainCheckoutIsNeverRemoved() {
         let task = makeTask(worktree("/repo", branch: "main"), worktree("/repo/src", branch: nil))
         #expect(targets(for: task).isEmpty)
+    }
+
+    @Test func aRenamedBranchIsFoundByTheFolderInItsWorktree() {
+        let task = makeTask(worktree("/repo/.worktrees/feature/src", branch: "renamed-away"))
+        #expect(targets(for: task) == [feature])
+    }
+
+    /// The listing failed or came back empty, so the saved folder is all there
+    /// is to go on, and the dialog still offers it.
+    @Test func aRepositoryWithNoListingFallsBackToTheSavedFolder() {
+        let task = makeTask(TabWorkspace(kind: .worktree, directory: "/unlisted/.wt/x", repoPath: "/unlisted", branchName: "x"))
+        #expect(targets(for: task) == [
+            WorktreeRemovalTarget(repository: "/unlisted", path: "/unlisted/.wt/x", branch: "x"),
+        ])
+    }
+
+    @Test func theFallbackNeverTargetsTheRepositoryItself() {
+        let task = makeTask(TabWorkspace(kind: .worktree, directory: "/unlisted", repoPath: "/unlisted", branchName: "main"))
+        #expect(targets(for: task).isEmpty)
+    }
+
+    /// Closing a task's last tab must not leak the worktree it was using.
+    @Test func aTaskWithNoTabsOffersTheWorktreeItHolds() {
+        let task = makeTask()
+        task.heldWorkspace = worktree("/repo/.worktrees/feature", branch: "feature")
+        #expect(WorktreeRemovalPrompt.needsConfirmation(for: task))
+        #expect(targets(for: task) == [feature])
+    }
+
+    @Test func aHeldWorkspaceIsIgnoredWhileTheTaskHasTabs() {
+        let task = makeTask(.directory("/repo"))
+        task.heldWorkspace = worktree("/repo/.worktrees/feature", branch: "feature")
+        #expect(!WorktreeRemovalPrompt.needsConfirmation(for: task))
     }
 
     @Test func aWorktreeGitNoLongerListsIsSkipped() {

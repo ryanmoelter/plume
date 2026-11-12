@@ -92,57 +92,91 @@ enum WorktreeRemovalPrompt {
         let directory: String?
     }
 
-    /// True when a tab of `task` uses a Plume-created worktree, so removing it
-    /// needs a decision rather than happening silently underneath delete or
-    /// archive.
-    static func needsConfirmation(for task: WorkTask) -> Bool {
-        task.tabs.contains { $0.workspaceKind == .worktree }
+    /// The workspaces `task` answers for: its tabs', or the one it holds
+    /// once its last tab has gone.
+    private static func workspaces(of task: WorkTask) -> [TabWorkspace] {
+        task.tabs.isEmpty ? [task.heldWorkspace] : task.orderedTabs.map(\.workspace)
     }
 
-    static func claims(for task: WorkTask, directories: TabDirectoryStore = .shared) -> [Claim] {
-        task.orderedTabs.compactMap { tab in
-            guard tab.workspaceKind == .worktree, let repository = tab.repoPath else { return nil }
-            return Claim(repository: repository, branch: tab.branchName, directory: directories.directory(for: tab))
+    /// True when `task` uses a Plume-created worktree, so removing it needs a
+    /// decision rather than happening silently underneath delete or archive.
+    static func needsConfirmation(for task: WorkTask) -> Bool {
+        workspaces(of: task).contains { $0.kind == .worktree }
+    }
+
+    static func claims(for task: WorkTask) -> [Claim] {
+        workspaces(of: task).compactMap { workspace in
+            guard workspace.kind == .worktree, let repository = workspace.repoPath else { return nil }
+            return Claim(repository: repository, branch: workspace.branchName, directory: workspace.directory)
         }
     }
 
-    /// Each claim's worktree, once per path. A tab's folder follows the tab
-    /// wherever it moves, so a claim matches by the branch its worktree was
-    /// made on, and by folder only when it has no branch: `git worktree
-    /// remove --force` on a folder the tab merely wandered into would delete
-    /// someone else's work.
+    /// Each claim's worktree, once per path, and never the main checkout.
+    ///
+    /// A tab's saved folder follows it, so a claim matches first by the branch
+    /// its worktree was made on: `git worktree remove --force` on a folder the
+    /// tab merely wandered into would delete someone else's work. The folder
+    /// answers only when no worktree is on that branch, as after a rename or
+    /// on a detached HEAD. A repository git lists no worktrees for, as when
+    /// the listing failed, falls back to the folder itself.
     nonisolated static func targets(
         for claims: [Claim],
         worktrees: (String) -> [GitWorktree]
     ) -> [WorktreeRemovalTarget] {
         var targets: [WorktreeRemovalTarget] = []
         for claim in claims {
-            let linked = worktrees(claim.repository).filter { !$0.isMain }
-            let match: GitWorktree? = if let branch = claim.branch {
-                linked.first { $0.branch == branch }
-            } else if let directory = claim.directory {
-                linked.first { directory == $0.path || directory.hasPrefix($0.path + "/") }
+            let listing = worktrees(claim.repository)
+            let match: WorktreeRemovalTarget?
+            if listing.isEmpty {
+                match = claim.directory.map { WorktreeRemovalTarget(repository: claim.repository, path: $0, branch: claim.branch) }
             } else {
-                nil
+                let linked = listing.filter { !$0.isMain }
+                let byBranch = claim.branch.flatMap { branch in linked.first { $0.branch == branch } }
+                let byFolder = claim.directory.flatMap { directory in
+                    linked.first { directory == $0.path || directory.hasPrefix($0.path + "/") }
+                }
+                match = (byBranch ?? byFolder).map {
+                    WorktreeRemovalTarget(repository: claim.repository, path: $0.path, branch: $0.branch)
+                }
             }
-            guard let match, !targets.contains(where: { $0.path == match.path }) else { continue }
-            targets.append(WorktreeRemovalTarget(repository: claim.repository, path: match.path, branch: match.branch))
+            guard let match,
+                  match.path != claim.repository,
+                  !listing.contains(where: { $0.isMain && $0.path == match.path }),
+                  !targets.contains(where: { $0.path == match.path })
+            else { continue }
+            targets.append(match)
         }
         return targets
     }
 
-    static func targets(for task: WorkTask) async -> [WorktreeRemovalTarget] {
-        let claims = claims(for: task)
-        var listings: [String: [GitWorktree]] = [:]
-        for repository in Set(claims.map(\.repository)) {
-            listings[repository] = await GitService.shared.worktrees(in: repository)
+    /// The targets, each with its uncommitted changes summarized when it has
+    /// any. Each `git` runs at once rather than queuing on `GitService`, since
+    /// the dialog waits on all of them.
+    nonisolated static func resolve(
+        _ claims: [Claim]
+    ) async -> (worktrees: [WorktreeRemovalTarget], dirtySummaries: [String: String]) {
+        let repositories = Set(claims.map(\.repository))
+        let listings = await withTaskGroup(of: (String, [GitWorktree]).self) { group in
+            for repository in repositories {
+                group.addTask { (repository, GitRunner.worktrees(in: repository)) }
+            }
+            return await group.reduce(into: [String: [GitWorktree]]()) { $0[$1.0] = $1.1 }
         }
-        return targets(for: claims) { listings[$0] ?? [] }
+        let worktrees = targets(for: claims) { listings[$0] ?? [] }
+        let dirtySummaries = await withTaskGroup(of: (String, [String]).self) { group in
+            for worktree in worktrees {
+                group.addTask { (worktree.path, WorkspaceProvisioner.uncommittedChanges(in: worktree.path)) }
+            }
+            return await group.reduce(into: [String: String]()) { summaries, result in
+                if !result.1.isEmpty { summaries[result.0] = describe(result.1) }
+            }
+        }
+        return (worktrees, dirtySummaries)
     }
 
     /// Porcelain status as a sentence and a short list. The codes mean nothing
     /// to a reader deciding whether to lose the work, so only the paths show.
-    static func describe(_ changes: [String]) -> String {
+    nonisolated static func describe(_ changes: [String]) -> String {
         let paths = changes.map { $0.dropFirst(3) }.map(String.init)
         let count = paths.count
         let noun = count == 1 ? "file has" : "files have"
