@@ -295,6 +295,9 @@ struct HomeTaskStarterTests {
         #expect(task.orderedTabs[0].repoPath == "/repos/plume")
         #expect(task.orderedTabs[0].branchName == "ryanm/x-beef")
         #expect(task.orderedTabs[0].workspaceKind == .worktree)
+        #expect(task.ownedWorktrees == [
+            OwnedWorktree(path: "/repos/plume/.plume/worktrees/ryanm-x-beef", repoPath: "/repos/plume", branch: "ryanm/x-beef"),
+        ])
         #expect(RecentFolders.load(from: defaults) == ["/repos/plume"])
     }
 
@@ -312,5 +315,6 @@ struct HomeTaskStarterTests {
         #expect(task.orderedTabs[0].repoPath == "/repos/plume")
         #expect(task.orderedTabs[0].branchName == "ryanm/fix")
         #expect(task.orderedTabs[0].workspaceKind == .worktree)
+        #expect(task.ownedWorktrees.isEmpty)
     }
 }

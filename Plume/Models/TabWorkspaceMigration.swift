@@ -1,20 +1,17 @@
 import Foundation
 import SwiftData
 
-/// Copies each task's workspace onto its tabs, which now own one each. Runs
-/// at launch and touches only tabs not yet migrated, so a second run changes
-/// nothing.
-///
-/// A task left with tabs then has its own copy cleared, since it would
-/// otherwise read as `heldWorkspace`. A task with no tabs keeps it as that.
+/// Moves an older build's task workspace onto the task's tabs, which now own
+/// one each. A task whose workspace was a worktree also records it in
+/// `ownedWorktrees`. The task's fields are cleared once read, and only tabs
+/// not yet migrated are touched, so a second run changes nothing.
 enum TabWorkspaceMigration {
     static func run(in context: ModelContext) throws {
         let tabs = try context.fetch(FetchDescriptor<TaskTab>()).filter { !$0.isWorkspaceMigrated }
-        guard !tabs.isEmpty else { return }
         tabs.forEach(migrate)
-        for task in Set(tabs.compactMap(\.task)) where !task.tabs.isEmpty {
-            task.heldWorkspace = TabWorkspace()
-        }
+        let legacyTasks = try context.fetch(FetchDescriptor<WorkTask>()).filter(hasLegacyWorkspace)
+        legacyTasks.forEach(migrate)
+        guard !tabs.isEmpty || !legacyTasks.isEmpty else { return }
         try context.save()
     }
 
@@ -27,5 +24,21 @@ enum TabWorkspaceMigration {
         if tab.repoPath == nil { tab.repoPath = task.repoPath }
         if tab.branchName == nil { tab.branchName = task.branchName }
         if tab.workspaceKind == .unset { tab.workspaceKindRaw = task.workspaceKindRaw }
+    }
+
+    private static func hasLegacyWorkspace(_ task: WorkTask) -> Bool {
+        task.workspaceKindRaw != WorkspaceKind.unset.rawValue
+            || task.workingDirectoryPath != nil || task.repoPath != nil || task.branchName != nil
+    }
+
+    private static func migrate(_ task: WorkTask) {
+        if task.workspaceKindRaw == WorkspaceKind.worktree.rawValue,
+           let path = task.workingDirectoryPath, let repoPath = task.repoPath {
+            task.recordOwnedWorktree(OwnedWorktree(path: path, repoPath: repoPath, branch: task.branchName))
+        }
+        task.workspaceKindRaw = WorkspaceKind.unset.rawValue
+        task.workingDirectoryPath = nil
+        task.repoPath = nil
+        task.branchName = nil
     }
 }

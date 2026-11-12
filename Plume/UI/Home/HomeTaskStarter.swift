@@ -51,6 +51,7 @@ enum HomeTaskStarter {
             tab.workspace = TabWorkspace(
                 kind: .worktree, directory: workingDirectory, repoPath: repository, branchName: branch
             )
+            task.recordOwnedWorktree(OwnedWorktree(path: directory, repoPath: repository, branch: branch))
             RecentFolders.remember(repository, in: recentFolders)
         case .existingWorktree(_, let repository, let branch):
             tab.workspace = TabWorkspace(

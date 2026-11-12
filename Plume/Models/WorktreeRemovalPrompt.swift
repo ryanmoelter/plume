@@ -20,18 +20,34 @@ enum WorktreeRemovalVerb {
     }
 }
 
-/// A worktree Plume made for one of a task's tabs, as git lists it.
+/// An owned worktree git still lists, ready to remove.
 nonisolated struct WorktreeRemovalTarget: Hashable, Sendable {
     let repository: String
     let path: String
+    /// The branch Plume created, or nil once it no longer exists, so removing
+    /// the branch never deletes one made later under the same name.
     let branch: String?
 }
 
-/// Whether removing a task's worktrees needs confirmation first, shared by the
-/// delete and archive flows so neither can drift from the other.
+/// What archive or delete would do with a task's `ownedWorktrees`, shared by
+/// both flows so neither can drift from the other.
 ///
 /// Kept out of the views so it is testable without SwiftData or a dialog.
 enum WorktreeRemovalPrompt {
+    /// Every owned worktree, sorted by what can happen to it.
+    nonisolated struct Plan: Equatable, Sendable {
+        var removable: [WorktreeRemovalTarget] = []
+        /// Kept, because a tab of another task has its folder there.
+        var inUse: [InUse] = []
+        /// Recorded, but git no longer lists it as a worktree.
+        var gone: [String] = []
+    }
+
+    nonisolated struct InUse: Equatable, Sendable {
+        let path: String
+        let taskTitle: String
+    }
+
     /// A worktree removal awaiting confirmation. `dirtySummaries` is filled in
     /// only once the async uncommitted-changes checks resolve, so the dialog
     /// never presents until its copy is final — its text must not change
@@ -39,13 +55,19 @@ enum WorktreeRemovalPrompt {
     struct PendingRemoval: Identifiable {
         let task: WorkTask
         let verb: WorktreeRemovalVerb
-        let worktrees: [WorktreeRemovalTarget]
+        let plan: Plan
         /// Keyed by worktree path; a clean worktree has no entry.
         let dirtySummaries: [String: String]
 
         var id: UUID { task.id }
 
+        var worktrees: [WorktreeRemovalTarget] { plan.removable }
+
         private var isSingle: Bool { worktrees.count == 1 }
+
+        var offersRemoval: Bool { !worktrees.isEmpty }
+
+        var offersBranchRemoval: Bool { worktrees.contains { $0.branch != nil } }
 
         var dialogTitle: String {
             verb.dialogTitle(for: task.title)
@@ -62,116 +84,124 @@ enum WorktreeRemovalPrompt {
         }
 
         var taskOnlyButtonTitle: String {
-            switch verb {
+            guard offersRemoval else { return verb.title }
+            return switch verb {
             case .delete: "Delete Task Only"
             case .archive: "Archive Task Only"
             }
         }
 
         var message: String {
+            var parts: [String] = []
             if isSingle, let worktree = worktrees.first {
-                let base = "This task uses the worktree at \(worktree.path) on branch \(worktree.branch ?? "")."
-                guard let dirtySummary = dirtySummaries[worktree.path] else { return base }
-                return "\(base)\n\n\(dirtySummary)\n\nRemoving the worktree discards this work, and it cannot be recovered."
+                parts.append("This task uses the worktree at \(worktree.path)\(onBranch(worktree)).")
+            } else if !worktrees.isEmpty {
+                let list = worktrees.map { "• \($0.path)\(onBranch($0))" }.joined(separator: "\n")
+                parts.append("This task uses \(worktrees.count) worktrees:\n\(list)")
             }
-            let list = worktrees.map { "• \($0.path) on branch \($0.branch ?? "")" }.joined(separator: "\n")
-            let base = "This task uses \(worktrees.count) worktrees:\n\(list)"
+            if !plan.inUse.isEmpty {
+                let list = plan.inUse.map { "• \($0.path), used by “\($0.taskTitle)”" }.joined(separator: "\n")
+                parts.append("Kept, because another task is using it:\n\(list)")
+            }
+            if !plan.gone.isEmpty {
+                let list = plan.gone.map { "• \($0)" }.joined(separator: "\n")
+                parts.append("No longer a worktree:\n\(list)")
+            }
             let dirty = worktrees.compactMap { worktree in
-                dirtySummaries[worktree.path].map { "In \(worktree.path), \($0)" }
+                dirtySummaries[worktree.path].map { isSingle ? $0 : "In \(worktree.path), \($0)" }
             }
-            guard !dirty.isEmpty else { return base }
-            let warnings = dirty.joined(separator: "\n\n")
-            return "\(base)\n\n\(warnings)\n\nRemoving the worktrees discards this work, and it cannot be recovered."
+            if !dirty.isEmpty {
+                parts.append(contentsOf: dirty)
+                parts.append("Removing the \(isSingle ? "worktree" : "worktrees") discards this work, and it cannot be recovered.")
+            }
+            return parts.joined(separator: "\n\n")
+        }
+
+        private func onBranch(_ worktree: WorktreeRemovalTarget) -> String {
+            worktree.branch.map { " on branch \($0)" } ?? ""
         }
     }
 
-    /// What one tab asks to remove, before git says which worktree that is.
-    nonisolated struct Claim: Hashable, Sendable {
-        let repository: String
-        let branch: String?
-        let directory: String?
-    }
-
-    /// The workspaces `task` answers for: its tabs', and the one it holds.
-    /// A tab moved into a task that held a worktree leaves the hold in place.
-    private static func workspaces(of task: WorkTask) -> [TabWorkspace] {
-        task.orderedTabs.map(\.workspace) + [task.heldWorkspace]
-    }
-
-    /// True when `task` uses a Plume-created worktree, so removing it needs a
-    /// decision rather than happening silently underneath delete or archive.
     static func needsConfirmation(for task: WorkTask) -> Bool {
-        workspaces(of: task).contains { $0.kind == .worktree }
+        !task.ownedWorktrees.isEmpty
     }
 
-    static func claims(for task: WorkTask) -> [Claim] {
-        workspaces(of: task).compactMap { workspace in
-            guard workspace.kind == .worktree, let repository = workspace.repoPath else { return nil }
-            return Claim(repository: repository, branch: workspace.branchName, directory: workspace.directory)
-        }
-    }
-
-    /// Each claim's worktree, once per path, and never the main checkout.
-    ///
-    /// A tab's saved folder follows it, so a claim matches first by the branch
-    /// its worktree was made on: `git worktree remove --force` on a folder the
-    /// tab merely wandered into would delete someone else's work. The folder
-    /// answers only when no worktree is on that branch, as after a rename or
-    /// on a detached HEAD. A repository git lists no worktrees for, as when
-    /// the listing failed, falls back to the folder itself.
-    nonisolated static func targets(
-        for claims: [Claim],
-        worktrees: (String) -> [GitWorktree]
-    ) -> [WorktreeRemovalTarget] {
-        var targets: [WorktreeRemovalTarget] = []
-        for claim in claims {
-            let listing = worktrees(claim.repository)
-            let match: WorktreeRemovalTarget?
-            if listing.isEmpty {
-                match = claim.directory.map { WorktreeRemovalTarget(repository: claim.repository, path: $0, branch: claim.branch) }
-            } else {
-                let linked = listing.filter { !$0.isMain }
-                let byBranch = claim.branch.flatMap { branch in linked.first { $0.branch == branch } }
-                let byFolder = claim.directory.flatMap { directory in
-                    linked.first { directory == $0.path || directory.hasPrefix($0.path + "/") }
-                }
-                match = (byBranch ?? byFolder).map {
-                    WorktreeRemovalTarget(repository: claim.repository, path: $0.path, branch: $0.branch)
-                }
+    /// For each owned worktree another task has a tab saved in, that task's
+    /// title. Archived tasks don't count: nothing runs in them.
+    static func users(of task: WorkTask, among tasks: [WorkTask], titles: TitleStore = .shared) -> [String: String] {
+        let others = tasks.filter { $0.id != task.id && !$0.isArchived }
+        var users: [String: String] = [:]
+        for worktree in task.ownedWorktrees {
+            let user = others.first { other in
+                other.liveTabs.contains { tab in tab.workingDirectoryPath.map(worktree.contains) ?? false }
             }
-            guard let match,
-                  match.path != claim.repository,
-                  !listing.contains(where: { $0.isMain && $0.path == match.path }),
-                  !targets.contains(where: { $0.path == match.path })
-            else { continue }
-            targets.append(match)
+            if let user { users[worktree.path] = titles.displayTitle(for: user) }
         }
-        return targets
+        return users
     }
 
-    /// The targets, each with its uncommitted changes summarized when it has
-    /// any. Each `git` runs at once rather than queuing on `GitService`, since
-    /// the dialog waits on all of them.
+    /// An empty listing means git failed, so the record is offered anyway
+    /// with the branch it names: losing track of the worktree is worse than a
+    /// removal git then refuses.
+    nonisolated static func plan(
+        for worktrees: [OwnedWorktree],
+        users: [String: String],
+        listing: (String) -> [GitWorktree],
+        branchExists: (String, String) -> Bool
+    ) -> Plan {
+        var plan = Plan()
+        for worktree in worktrees {
+            if let user = users[worktree.path] {
+                plan.inUse.append(InUse(path: worktree.path, taskTitle: user))
+                continue
+            }
+            let listed = listing(worktree.repoPath)
+            guard !listed.isEmpty else {
+                plan.removable.append(
+                    WorktreeRemovalTarget(repository: worktree.repoPath, path: worktree.path, branch: worktree.branch)
+                )
+                continue
+            }
+            guard let match = listed.first(where: { OwnedWorktree.standardized($0.path) == worktree.path }) else {
+                plan.gone.append(worktree.path)
+                continue
+            }
+            guard !match.isMain else { continue }
+            let branch = worktree.branch.flatMap { branchExists(worktree.repoPath, $0) ? $0 : nil }
+            plan.removable.append(WorktreeRemovalTarget(repository: worktree.repoPath, path: worktree.path, branch: branch))
+        }
+        return plan
+    }
+
+    /// The plan, with each removable worktree's uncommitted changes
+    /// summarized. Each `git` runs at once rather than queuing on
+    /// `GitService`, since the dialog waits on all of them.
     nonisolated static func resolve(
-        _ claims: [Claim]
-    ) async -> (worktrees: [WorktreeRemovalTarget], dirtySummaries: [String: String]) {
-        let repositories = Set(claims.map(\.repository))
+        _ worktrees: [OwnedWorktree],
+        users: [String: String]
+    ) async -> (plan: Plan, dirtySummaries: [String: String]) {
+        let repositories = Set(worktrees.map(\.repoPath))
         let listings = await withTaskGroup(of: (String, [GitWorktree]).self) { group in
             for repository in repositories {
                 group.addTask { (repository, GitRunner.worktrees(in: repository)) }
             }
             return await group.reduce(into: [String: [GitWorktree]]()) { $0[$1.0] = $1.1 }
         }
-        let worktrees = targets(for: claims) { listings[$0] ?? [] }
+        let plan = plan(for: worktrees, users: users, listing: { listings[$0] ?? [] }) { repository, branch in
+            (try? GitRunner.run(
+                ["rev-parse", "--verify", "--quiet", "refs/heads/\(branch)"],
+                in: repository
+            )) != nil
+        }
         let dirtySummaries = await withTaskGroup(of: (String, [String]).self) { group in
-            for worktree in worktrees {
+            for worktree in plan.removable {
                 group.addTask { (worktree.path, WorkspaceProvisioner.uncommittedChanges(in: worktree.path)) }
             }
             return await group.reduce(into: [String: String]()) { summaries, result in
                 if !result.1.isEmpty { summaries[result.0] = describe(result.1) }
             }
         }
-        return (worktrees, dirtySummaries)
+        return (plan, dirtySummaries)
     }
 
     /// Porcelain status as a sentence and a short list. The codes mean nothing

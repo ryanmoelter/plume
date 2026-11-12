@@ -3,24 +3,21 @@ import Foundation
 import SwiftData
 @testable import Plume
 
-/// The decision of whether delete or archive needs to ask about worktrees
-/// first, which worktrees it removes, and what the resulting dialog says —
-/// kept separate from the SwiftUI dialog itself so it's testable without
-/// presenting one.
+/// Archive and delete offer to remove only the worktrees a task owns: one git
+/// still lists as a linked worktree, that no other task's tab is in. The
+/// dialog says what happens to each, kept separate from the SwiftUI dialog
+/// itself so it's testable without presenting one.
 @MainActor
 struct WorktreeRemovalPromptTests {
-    private func makeTask(_ workspaces: TabWorkspace...) -> WorkTask {
-        let task = WorkTask(title: "Some Task", orderIndex: 0)
-        task.tabs = workspaces.enumerated().map { index, workspace in
-            let tab = TaskTab(kind: .agent, orderIndex: index, task: task)
-            tab.workspace = workspace
-            return tab
-        }
-        return task
+    private func makeContext() throws -> ModelContext {
+        ModelContext(try ModelContainer(
+            for: Schema([TaskGroup.self, WorkTask.self, TaskTab.self]),
+            configurations: [ModelConfiguration(isStoredInMemoryOnly: true)]
+        ))
     }
 
-    private func worktree(_ path: String, branch: String?) -> TabWorkspace {
-        TabWorkspace(kind: .worktree, directory: path, repoPath: "/repo", branchName: branch)
+    private func owned(_ name: String, branch: String? = nil) -> OwnedWorktree {
+        OwnedWorktree(path: "/repo/.worktrees/\(name)", repoPath: "/repo", branch: branch ?? name)
     }
 
     private let feature = WorktreeRemovalTarget(repository: "/repo", path: "/repo/.worktrees/feature", branch: "feature")
@@ -29,98 +26,113 @@ struct WorktreeRemovalPromptTests {
     private let listing = [
         GitWorktree(path: "/repo", branch: "main", isMain: true),
         GitWorktree(path: "/repo/.worktrees/feature", branch: "feature", isMain: false),
-        GitWorktree(path: "/repo/.worktrees/other", branch: "other", isMain: false),
-        GitWorktree(path: "/repo/.worktrees/detached", branch: nil, isMain: false),
+        GitWorktree(path: "/repo/.worktrees/other", branch: "renamed", isMain: false),
     ]
 
-    private func targets(for task: WorkTask) -> [WorktreeRemovalTarget] {
-        WorktreeRemovalPrompt.targets(for: WorktreeRemovalPrompt.claims(for: task)) { $0 == "/repo" ? listing : [] }
+    private func plan(
+        _ worktrees: [OwnedWorktree],
+        users: [String: String] = [:],
+        branches: Set<String> = ["feature", "other"]
+    ) -> WorktreeRemovalPrompt.Plan {
+        WorktreeRemovalPrompt.plan(
+            for: worktrees,
+            users: users,
+            listing: { $0 == "/repo" ? listing : [] },
+            branchExists: { _, branch in branches.contains(branch) }
+        )
     }
 
-    @Test func aPlainDirectoryTaskNeedsNoConfirmation() {
-        let task = makeTask(.directory("/tmp/foo"))
+    // MARK: - Which tasks ask
+
+    @Test func aTaskThatOwnsNoWorktreeNeedsNoConfirmation() throws {
+        let context = try makeContext()
+        let task = TaskStore.createTask(in: context, siblings: [])
+        task.tabs[0].workspace = TabWorkspace(
+            kind: .worktree, directory: "/repo/.worktrees/feature", repoPath: "/repo", branchName: "feature"
+        )
         #expect(!WorktreeRemovalPrompt.needsConfirmation(for: task))
     }
 
-    @Test func anUnsetWorkspaceNeedsNoConfirmation() {
-        let task = makeTask(TabWorkspace())
-        #expect(!WorktreeRemovalPrompt.needsConfirmation(for: task))
-    }
-
-    @Test func aWorktreeOnAnyTabNeedsConfirmation() {
-        let task = makeTask(.directory("/repo"), worktree("/tmp/foo", branch: nil))
+    @Test func aTaskThatOwnsAWorktreeAlwaysAsks() throws {
+        let context = try makeContext()
+        let task = TaskStore.createTask(in: context, siblings: [])
+        TaskStore.closeTab(task.tabs[0], in: context)
+        task.recordOwnedWorktree(owned("feature"))
         #expect(WorktreeRemovalPrompt.needsConfirmation(for: task))
     }
 
-    // MARK: - Which worktrees
+    // MARK: - The plan
 
-    @Test func tabsSharingAWorktreeRemoveItOnce() {
-        let task = makeTask(
-            worktree("/repo/.worktrees/feature", branch: "feature"),
-            worktree("/repo/.worktrees/feature/sub", branch: "feature"),
-            worktree("/repo/.worktrees/other", branch: "other"),
-            .directory("/repo")
-        )
-        #expect(targets(for: task) == [feature, other])
+    @Test func aListedWorktreeIsRemovableWithItsRecordedBranch() {
+        #expect(plan([owned("feature")]).removable == [feature])
     }
 
-    /// A tab's folder follows it, so a terminal that `cd`s into another
-    /// worktree must not take that worktree with it.
-    @Test func aTabThatMovedStillRemovesTheWorktreeItsBranchNames() {
-        let task = makeTask(worktree("/repo/.worktrees/other/src", branch: "feature"))
-        #expect(targets(for: task) == [feature])
+    /// The recorded branch is what Plume made, whatever is checked out now.
+    @Test func theRecordedBranchIsRemovedNotTheCheckedOutOne() {
+        #expect(plan([owned("other")]).removable == [other])
     }
 
-    @Test func aBranchlessWorktreeIsFoundByTheFolderInIt() {
-        let task = makeTask(worktree("/repo/.worktrees/detached/src", branch: nil))
-        #expect(targets(for: task) == [
-            WorktreeRemovalTarget(repository: "/repo", path: "/repo/.worktrees/detached", branch: nil),
-        ])
+    @Test func aBranchThatNoLongerExistsIsNotRemoved() {
+        let removable = plan([owned("feature")], branches: []).removable
+        #expect(removable == [WorktreeRemovalTarget(repository: "/repo", path: "/repo/.worktrees/feature", branch: nil)])
+    }
+
+    @Test func aWorktreeGitNoLongerListsIsGone() {
+        let result = plan([owned("deleted")])
+        #expect(result.removable.isEmpty)
+        #expect(result.gone == ["/repo/.worktrees/deleted"])
     }
 
     @Test func theMainCheckoutIsNeverRemoved() {
-        let task = makeTask(worktree("/repo", branch: "main"), worktree("/repo/src", branch: nil))
-        #expect(targets(for: task).isEmpty)
+        let result = plan([OwnedWorktree(path: "/repo", repoPath: "/repo", branch: "main")])
+        #expect(result == WorktreeRemovalPrompt.Plan())
     }
 
-    @Test func aRenamedBranchIsFoundByTheFolderInItsWorktree() {
-        let task = makeTask(worktree("/repo/.worktrees/feature/src", branch: "renamed-away"))
-        #expect(targets(for: task) == [feature])
-    }
-
-    /// The listing failed or came back empty, so the saved folder is all there
-    /// is to go on, and the dialog still offers it.
-    @Test func aRepositoryWithNoListingFallsBackToTheSavedFolder() {
-        let task = makeTask(TabWorkspace(kind: .worktree, directory: "/unlisted/.wt/x", repoPath: "/unlisted", branchName: "x"))
-        #expect(targets(for: task) == [
+    /// The listing failed, so the record is all there is to go on.
+    @Test func aRepositoryGitCannotListIsOfferedAnyway() {
+        let record = OwnedWorktree(path: "/unlisted/.wt/x", repoPath: "/unlisted", branch: "x")
+        #expect(plan([record]).removable == [
             WorktreeRemovalTarget(repository: "/unlisted", path: "/unlisted/.wt/x", branch: "x"),
         ])
     }
 
-    @Test func theFallbackNeverTargetsTheRepositoryItself() {
-        let task = makeTask(TabWorkspace(kind: .worktree, directory: "/unlisted", repoPath: "/unlisted", branchName: "main"))
-        #expect(targets(for: task).isEmpty)
+    @Test func aWorktreeAnotherTaskIsInIsKept() {
+        let result = plan([owned("feature"), owned("other")], users: [feature.path: "Other Task"])
+        #expect(result.removable == [other])
+        #expect(result.inUse == [.init(path: feature.path, taskTitle: "Other Task")])
     }
 
-    /// Closing a task's last tab must not leak the worktree it was using.
-    @Test func aTaskWithNoTabsOffersTheWorktreeItHolds() {
-        let task = makeTask()
-        task.heldWorkspace = worktree("/repo/.worktrees/feature", branch: "feature")
-        #expect(WorktreeRemovalPrompt.needsConfirmation(for: task))
-        #expect(targets(for: task) == [feature])
+    @Test func aRecordedPathIsStandardized() {
+        let record = OwnedWorktree(path: "/repo/.worktrees/../.worktrees/feature", repoPath: "/repo", branch: "feature")
+        #expect(record.path == "/repo/.worktrees/feature")
+        #expect(OwnedWorktree(path: "/tmp", repoPath: "/", branch: nil).path == OwnedWorktree.standardized("/private/tmp"))
     }
 
-    /// A tab moved into an empty task leaves the task's held worktree in place.
-    @Test func aHeldWorktreeCountsAlongsideTabs() {
-        let task = makeTask(.directory("/elsewhere"))
-        task.heldWorkspace = worktree("/repo/.worktrees/feature", branch: "feature")
-        #expect(WorktreeRemovalPrompt.needsConfirmation(for: task))
-        #expect(targets(for: task) == [feature])
+    // MARK: - Who else uses it
+
+    @Test func aLiveTabOfAnotherTaskInsideTheWorktreeUsesIt() throws {
+        let context = try makeContext()
+        let task = TaskStore.createTask(in: context, siblings: [])
+        task.recordOwnedWorktree(owned("feature"))
+        let user = TaskStore.createTask(in: context, title: "Other Task", siblings: [task])
+        user.tabs[0].workspace = .directory("/repo/.worktrees/feature/src")
+        let archived = TaskStore.createTask(in: context, title: "Archived", siblings: [task, user])
+        archived.tabs[0].workspace = .directory("/repo/.worktrees/other")
+        archived.isArchived = true
+        task.recordOwnedWorktree(owned("other"))
+
+        let users = WorktreeRemovalPrompt.users(of: task, among: [task, user, archived])
+
+        #expect(users == ["/repo/.worktrees/feature": "Other Task"])
     }
 
-    @Test func aWorktreeGitNoLongerListsIsSkipped() {
-        let task = makeTask(worktree("/repo/.worktrees/gone", branch: "gone"))
-        #expect(targets(for: task).isEmpty)
+    @Test func theTasksOwnTabsDoNotCountAsUsers() throws {
+        let context = try makeContext()
+        let task = TaskStore.createTask(in: context, siblings: [])
+        task.recordOwnedWorktree(owned("feature"))
+        task.tabs[0].workspace = .directory("/repo/.worktrees/feature")
+
+        #expect(WorktreeRemovalPrompt.users(of: task, among: [task]).isEmpty)
     }
 
     // MARK: - Dialog copy
@@ -128,9 +140,16 @@ struct WorktreeRemovalPromptTests {
     private func removal(
         _ worktrees: [WorktreeRemovalTarget],
         verb: WorktreeRemovalVerb = .delete,
+        inUse: [WorktreeRemovalPrompt.InUse] = [],
+        gone: [String] = [],
         dirty: [String: String] = [:]
     ) -> WorktreeRemovalPrompt.PendingRemoval {
-        .init(task: makeTask(), verb: verb, worktrees: worktrees, dirtySummaries: dirty)
+        let task = WorkTask(title: "Some Task", orderIndex: 0)
+        return .init(
+            task: task, verb: verb,
+            plan: .init(removable: worktrees, inUse: inUse, gone: gone),
+            dirtySummaries: dirty
+        )
     }
 
     @Test func deleteAndArchiveWordTheirButtonsDifferently() {
@@ -153,8 +172,28 @@ struct WorktreeRemovalPromptTests {
         #expect(delete.withBranchButtonTitle == "Delete, Remove Worktrees and Branches")
     }
 
+    @Test func nothingRemovableLeavesOnlyTheTaskButton() {
+        let delete = removal([], inUse: [.init(path: feature.path, taskTitle: "Other Task")])
+        #expect(!delete.offersRemoval)
+        #expect(!delete.offersBranchRemoval)
+        #expect(delete.taskOnlyButtonTitle == "Delete")
+        #expect(delete.message == "Kept, because another task is using it:\n• /repo/.worktrees/feature, used by “Other Task”")
+    }
+
+    @Test func noBranchToRemoveHidesTheBranchButton() {
+        let delete = removal([WorktreeRemovalTarget(repository: "/repo", path: feature.path, branch: nil)])
+        #expect(delete.offersRemoval)
+        #expect(!delete.offersBranchRemoval)
+        #expect(delete.message == "This task uses the worktree at /repo/.worktrees/feature.")
+    }
+
     @Test func theMessageNamesTheWorktreeAndBranch() {
         #expect(removal([feature]).message == "This task uses the worktree at /repo/.worktrees/feature on branch feature.")
+    }
+
+    @Test func aGoneWorktreeIsNamed() {
+        let message = removal([feature], gone: ["/repo/.worktrees/deleted"]).message
+        #expect(message.hasSuffix("No longer a worktree:\n• /repo/.worktrees/deleted"))
     }
 
     /// Once the async uncommitted-changes check resolves, the warning is

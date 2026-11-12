@@ -20,13 +20,14 @@ final class WorkTask {
     /// nil means the task lives in the "Ungrouped" section.
     var group: TaskGroup?
 
-    /// Each tab owns its workspace, so these have two roles only: an older
-    /// build's task workspace, as input to `TabWorkspaceMigration`, which
-    /// clears them on a task with tabs; and `heldWorkspace`.
+    /// An older build's task workspace, read only by `TabWorkspaceMigration`,
+    /// which clears them: each tab owns its workspace now.
     var workspaceKindRaw: String = WorkspaceKind.unset.rawValue
     var workingDirectoryPath: String?
     var repoPath: String?
     var branchName: String?
+    /// `ownedWorktrees`, encoded.
+    var ownedWorktreesData: Data = Data()
     /// Nil launches `claude` without `--permission-mode`, leaving the CLI's
     /// own default in charge rather than asserting one.
     var permissionModeRaw: String?
@@ -86,24 +87,15 @@ final class WorkTask {
         set { lastStatusRaw = newValue.rawValue }
     }
 
-    /// The workspace of the last tab to leave, so the next tab added starts
-    /// there and archive or delete still offers its worktree. Adding a tab
-    /// takes it over; a tab moved in leaves it held.
-    var heldWorkspace: TabWorkspace {
-        get {
-            TabWorkspace(
-                kind: WorkspaceKind(rawValue: workspaceKindRaw) ?? .unset,
-                directory: workingDirectoryPath,
-                repoPath: repoPath,
-                branchName: branchName
-            )
-        }
-        set {
-            workspaceKindRaw = newValue.kind.rawValue
-            workingDirectoryPath = newValue.directory
-            repoPath = newValue.repoPath
-            branchName = newValue.branchName
-        }
+    /// The worktrees Plume created for this task's tabs, oldest first.
+    var ownedWorktrees: [OwnedWorktree] {
+        get { (try? JSONDecoder().decode([OwnedWorktree].self, from: ownedWorktreesData)) ?? [] }
+        set { ownedWorktreesData = (try? JSONEncoder().encode(newValue)) ?? Data() }
+    }
+
+    func recordOwnedWorktree(_ worktree: OwnedWorktree) {
+        guard !ownedWorktrees.contains(where: { $0.path == worktree.path }) else { return }
+        ownedWorktrees.append(worktree)
     }
 
     /// Every tab, pane by pane, each pane in strip order.
