@@ -47,12 +47,16 @@ enum ControlTabCommands {
     }
 
     private static func tab(_ params: TabMoveParams, among tasks: [WorkTask]) throws -> TaskTab {
+        try tab(id: params.tabID, label: params.label, among: tasks)
+    }
+
+    static func tab(id: UUID?, label: String?, among tasks: [WorkTask]) throws -> TaskTab {
         let tabs = tasks.flatMap(\.liveTabs)
-        if let id = params.tabID {
+        if let id {
             guard let tab = tabs.first(where: { $0.id == id }) else { throw ControlError.notFound("tab \(id)") }
             return tab
         }
-        guard let label = params.label else { throw ControlError.badParams("name the tab with tabID or label") }
+        guard let label else { throw ControlError.badParams("name the tab with tabID or label") }
         let matches = tabs.filter { $0.displayTitle.localizedCaseInsensitiveContains(label) }
         guard matches.count < 2 else { throw ControlError.ambiguous("tab \"\(label)\"", count: matches.count) }
         guard let tab = matches.first else { throw ControlError.notFound("tab \"\(label)\"") }
