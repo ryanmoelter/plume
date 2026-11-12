@@ -409,10 +409,11 @@ nonisolated enum TranscriptParser {
                     case .commandCaveat: break
                     default: lastSlashCommand = nil
                     }
-                    let split = kind == .systemNote && !entry.isMeta
+                    let split = (kind == .systemNote || kind.isSideSessionEvent) && !entry.isMeta
                         ? InjectedContent.splittingLeadingSystemReminders(text)
                         : (reminders: [], rest: "")
-                    if split.rest.isEmpty {
+                    let hasEvents = split.reminders.contains { $0.hasPrefix("<\(SideSessionEvent.tag)") }
+                    if split.rest.isEmpty && !hasEvents {
                         otherBlocks.insert(
                             kind.isUserProse ? .markdown(kind.bodyText(text)) : .injected(kind, text: text),
                             at: 0
@@ -422,10 +423,10 @@ nonisolated enum TranscriptParser {
                         let restBlock: ChatBlock = restKind.isUserProse
                             ? .markdown(restKind.bodyText(split.rest))
                             : .injected(restKind, text: split.rest)
-                        otherBlocks.insert(
-                            contentsOf: split.reminders.map { ChatBlock.injected(.systemNote, text: $0) } + [restBlock],
-                            at: 0
-                        )
+                        let leading = hasEvents
+                            ? InjectedContent.classifyingLeading(split.reminders).map { ChatBlock.injected($0.kind, text: $0.text) }
+                            : split.reminders.map { ChatBlock.injected(.systemNote, text: $0) }
+                        otherBlocks.insert(contentsOf: leading + (split.rest.isEmpty ? [] : [restBlock]), at: 0)
                     }
                 }
 

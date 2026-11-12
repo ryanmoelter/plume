@@ -152,6 +152,8 @@ struct ChatPieceView: View, ThemedView {
             // disclosure — see `ShellCommandRow`.
             if kind.isShell, case let shell = ShellTranscript.parse(text), !shell.isEmpty {
                 ShellCommandRow(shell: shell)
+            } else if case let .sideSessionEvent(event) = kind {
+                SideSessionEventRow(event: event)
             } else {
                 InjectedContentRow(kind: kind, text: text)
             }

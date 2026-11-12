@@ -173,6 +173,10 @@ enum AccessibilityID {
 
     static let tabChip = "tab-chip"
     static let tabChipClose = "tab-chip-close"
+    /// The ↳ in front of a child session's title.
+    static let tabChipChildMarker = "tab-chip-child-marker"
+    /// A note from another session in the chat, which selects its tab.
+    static let sideSessionEventRow = "side-session-event-row"
     /// In both the task row's and the tab chip's context menu.
     static let markUnreadButton = "mark-unread-button"
     /// Takes `markUnreadButton`'s place while any of its tabs is unread.

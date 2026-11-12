@@ -20,7 +20,7 @@ enum ChatBlockSpacing {
     static func kind(of block: ChatBlock) -> Kind {
         switch block {
         case .toolCall: return .toolCall
-        case .injected(.skill, _), .injected(.systemNote, _): return .toolCall
+        case .injected(.skill, _), .injected(.systemNote, _), .injected(.sideSessionEvent, _): return .toolCall
         default: return .other
         }
     }

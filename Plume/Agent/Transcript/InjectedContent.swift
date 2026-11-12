@@ -41,6 +41,9 @@ nonisolated enum InjectedContent: Equatable {
     /// The summary a compaction wrote back as context. Thousands of words,
     /// and none of them the user's.
     case compactSummary
+    /// A note about a session this one started, or the one that started it.
+    /// The chat shows it as one line that selects that session's tab.
+    case sideSessionEvent(SideSessionEvent)
 
     /// Whether this should render as the user's own prose.
     var isUserProse: Bool {
@@ -108,6 +111,7 @@ nonisolated enum InjectedContent: Equatable {
         case .interrupted: return "Interrupted"
         case .systemNote: return "System note"
         case .compactSummary: return "Compacted context"
+        case .sideSessionEvent(let event): return event.summary
         }
     }
 
@@ -124,6 +128,7 @@ nonisolated enum InjectedContent: Equatable {
         case .interrupted: return StatusSymbol.interruption.name
         case .systemNote: return "info.circle"
         case .compactSummary: return "arrow.down.right.and.arrow.up.left"
+        case .sideSessionEvent(let event): return event.fromParent ? "arrow.turn.left.up" : "arrow.turn.down.right"
         }
     }
 
@@ -287,6 +292,11 @@ nonisolated enum InjectedContent: Equatable {
         if trimmed.hasPrefix("<task-notification") {
             return .taskNotification
         }
+        if trimmed.hasPrefix("<\(SideSessionEvent.tag)") {
+            return .sideSessionEvent(SideSessionEvent.decoding(
+                body: element(named: SideSessionEvent.tag, in: trimmed)?.body ?? ""
+            ))
+        }
         if trimmed.hasPrefix("<pasted_content") {
             return .pastedContent
         }
@@ -314,19 +324,38 @@ nonisolated enum InjectedContent: Equatable {
 
     private static let injectedWrapperTags = ["system-reminder", "system_instruction"]
 
-    /// Complete `<system-reminder>` and `<system_instruction>` blocks at the
-    /// front of a typed message, and the prose after them. Claude Code
-    /// prepends the worktree note and Conductor its instructions this way, so
+    /// Complete `<system-reminder>`, `<system_instruction>` and
+    /// `<side-sessions-event>` blocks at the front of a typed message, and the
+    /// prose after them. Claude Code prepends the worktree note and Conductor
+    /// its instructions this way, and Plume its notes from other sessions, so
     /// classifying the whole text would hide the user's prompt.
     static func splittingLeadingSystemReminders(_ text: String) -> (reminders: [String], rest: String) {
         var reminders: [String] = []
         var remaining = Substring(text.trimmingCharacters(in: .whitespacesAndNewlines))
-        while let tag = injectedWrapperTags.first(where: { remaining.hasPrefix("<\($0)>") }),
+        let tags = injectedWrapperTags + [SideSessionEvent.tag]
+        while let tag = tags.first(where: { remaining.hasPrefix("<\($0)>") }),
               let end = remaining.range(of: "</\(tag)>") {
             reminders.append(String(remaining[..<end.upperBound]))
             remaining = remaining[end.upperBound...].drop(while: { $0.isWhitespace })
         }
         return (reminders, String(remaining))
+    }
+
+    /// The leading blocks `splittingLeadingSystemReminders` found, classified.
+    /// A note from another session is a reminder for the model followed by
+    /// its event; the event row stands for both, so the reminder is dropped.
+    static func classifyingLeading(_ blocks: [String]) -> [(kind: InjectedContent, text: String)] {
+        let kinds = blocks.map { classify(text: $0, isMeta: true) }
+        return blocks.indices.compactMap { index in
+            let isEventNext = kinds.indices.contains(index + 1) && kinds[index + 1].isSideSessionEvent
+            if kinds[index] == .systemNote, isEventNext { return nil }
+            return (kinds[index], blocks[index])
+        }
+    }
+
+    var isSideSessionEvent: Bool {
+        if case .sideSessionEvent = self { return true }
+        return false
     }
 
     /// The text inside the first `<tag>…</tag>` in the string.
