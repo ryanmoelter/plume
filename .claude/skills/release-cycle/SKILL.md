@@ -124,6 +124,8 @@ Publish a review page with the `Artifact` tool before telling the user (load `ar
 
 Tell the user the app is running, give the review page's link, and give a per-package checklist of what to try. Each round of feedback becomes targeted agents on the release branch (Sonnet for tweaks, Opus for behavior bugs), then rebuild and relaunch through the verifier. The verifier recaptures the media a fix changed, and the coordinator republishes the review page.
 
+If the user wants what has merged so far in beta users' hands before the cycle ends, use the `release-beta` skill. It ships a beta from `main` and keeps the cycle going on the same release branch.
+
 ## 5. Release
 
 Only after the user approves. Follow `docs/releasing.md`; do not duplicate it here.
