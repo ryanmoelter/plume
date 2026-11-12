@@ -70,6 +70,10 @@ enum ControlDispatcher {
             case .menu: result = .menu(try backend.menu())
             case .selection: result = .selection(try backend.selection())
             case .selectText(let params): result = .selection(try backend.selectText(params))
+            case .moveTab(let params):
+                result = .tab(try ControlTabCommands.move(params, in: try ControlTabCommands.frontmostContext()))
+            case .splitTab(let params):
+                result = .tab(try ControlTabCommands.split(params, in: try ControlTabCommands.frontmostContext()))
             }
             return .success(id: request.id, result)
         } catch {
