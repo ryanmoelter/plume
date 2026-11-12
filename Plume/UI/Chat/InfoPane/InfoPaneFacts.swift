@@ -367,9 +367,6 @@ enum InfoPaneLayout {
     static let nestedBarX: CGFloat = sectionBarX + 2.5
     static let sectionWashInset: CGFloat = 4.5
     static let nestedWashInset: CGFloat = 2
-    /// A collapsed header's stub is its icon, centered in the icon column.
-    static let bracketStubStartX: CGFloat = iconColumnWidth / 2 - 4
-    static let bracketStubEndX: CGFloat = iconColumnWidth / 2 + 4
     static let bracketLineWidth: CGFloat = 1.5
     static let bracketCornerRadius: CGFloat = 4
     static let nestedBracketCornerRadius: CGFloat = 3

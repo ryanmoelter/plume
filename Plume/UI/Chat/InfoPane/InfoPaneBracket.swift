@@ -62,13 +62,15 @@ struct InfoPaneBracketedSection<Header: View, Rows: View>: View, ThemedView {
     private func bracket(headerHeight: CGFloat) -> some View {
         let isPlain = InfoPaneLayout.usesPlainBar
         let progress: CGFloat = isExpanded ? 1 : 0
+        let stub = InfoPaneBracketStub(pointSize: typography.caption.size, centerX: InfoPaneLayout.iconColumnWidth / 2)
         return InfoPaneBracketStroke(
             progress: progress,
+            stubLineWidth: stub.lineWidth,
             shape: InfoPaneBracketShape(
                 progress: progress,
                 barX: level.barX,
-                stubStartX: InfoPaneLayout.bracketStubStartX,
-                stubEndX: InfoPaneLayout.bracketStubEndX,
+                stubStartX: stub.startX,
+                stubEndX: stub.endX,
                 stubY: isPlain ? headerHeight + InfoPaneLayout.rowVerticalPadding : headerHeight / 2,
                 drawsStub: !isPlain,
                 cornerRadius: level.cornerRadius,
@@ -81,11 +83,12 @@ struct InfoPaneBracketedSection<Header: View, Rows: View>: View, ThemedView {
     }
 }
 
-/// Strokes the bracket in one color per frame, so the elbow has no seam. A
-/// collapsed stub is a control and takes the accent; expanding fades it to
-/// the line color.
+/// Strokes the bracket in one color and width per frame, so the elbow has no
+/// seam. A collapsed stub is a control and takes the accent and the `+`'s
+/// weight; expanding fades it to the line color and width.
 private struct InfoPaneBracketStroke: View, Animatable {
     var progress: CGFloat
+    let stubLineWidth: CGFloat
     let shape: InfoPaneBracketShape
     let collapsedColor: Color
     let expandedColor: Color
@@ -98,7 +101,12 @@ private struct InfoPaneBracketStroke: View, Animatable {
     var body: some View {
         var shape = shape
         shape.progress = progress
-        return shape.stroke(color, style: StrokeStyle(lineWidth: InfoPaneLayout.bracketLineWidth, lineCap: .round))
+        let lineWidth = InfoPaneBracketGeometry.lineWidth(
+            progress: progress,
+            stubWidth: stubLineWidth,
+            barWidth: InfoPaneLayout.bracketLineWidth
+        )
+        return shape.stroke(color, style: StrokeStyle(lineWidth: lineWidth, lineCap: .round))
     }
 
     private var color: Color {
@@ -264,6 +272,28 @@ private struct InfoPaneHeaderIcon: View {
     }
 }
 
+/// A collapsed header's stub, drawn to match the horizontal arm of the
+/// header's `+` at the same font size.
+nonisolated struct InfoPaneBracketStub: Equatable {
+    /// SF Symbols' `plus` at regular weight and medium scale, per point of
+    /// font size, measured from a render at 2x: the arm's stroke, and its
+    /// length from cap to cap. `InfoPaneBracketGeometryTests` re-measures it.
+    static let plusStrokeRatio: CGFloat = 0.088
+    static let plusArmLengthRatio: CGFloat = 0.805
+
+    let startX: CGFloat
+    let endX: CGFloat
+    let lineWidth: CGFloat
+
+    init(pointSize: CGFloat, centerX: CGFloat) {
+        lineWidth = pointSize * Self.plusStrokeRatio
+        // The round caps reach half the line width past each end.
+        let halfLength = (pointSize * Self.plusArmLengthRatio - lineWidth) / 2
+        startX = centerX - halfLength
+        endX = centerX + halfLength
+    }
+}
+
 /// The points of a bracket. Collapsed (`progress` 0), it is a horizontal
 /// stub in the header's icon column. Expanding first runs the stub left and
 /// around the corner, then draws the bar down to the last row. x is measured
@@ -275,6 +305,11 @@ nonisolated struct InfoPaneBracketGeometry: Equatable {
     /// How far the stroke has faded from the accent to the line color, 0 to 1.
     static func lineFade(progress: CGFloat) -> Double {
         Double(min(max(progress, 0), 1))
+    }
+
+    /// Thins from the stub's width to the bar's as the stroke fades.
+    static func lineWidth(progress: CGFloat, stubWidth: CGFloat, barWidth: CGFloat) -> CGFloat {
+        stubWidth + (barWidth - stubWidth) * CGFloat(lineFade(progress: progress))
     }
 
     /// The stub's fixed right end, nil when no stub is drawn.

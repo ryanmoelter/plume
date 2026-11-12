@@ -1,3 +1,4 @@
+import AppKit
 import CoreGraphics
 import Foundation
 import Testing
@@ -538,13 +539,68 @@ struct InfoPaneBracketGeometryTests {
         #expect(InfoPaneLayout.nestedBarX + half < -InfoPaneLayout.nestedWashInset)
     }
 
+    // 8.05 long cap to cap at 10 pt: 0.88 of it is the two half caps.
+    @Test func theStubMatchesThePlusArm() {
+        let stub = InfoPaneBracketStub(pointSize: 10, centerX: 8)
+        #expect(abs(stub.lineWidth - 0.88) < 0.0001)
+        #expect(abs(stub.startX - (8 - 3.585)) < 0.0001)
+        #expect(abs(stub.endX - (8 + 3.585)) < 0.0001)
+    }
+
+    // The default chat font's caption.
     @MainActor @Test func theStubSitsInTheIconColumn() {
-        #expect(InfoPaneLayout.bracketStubStartX >= 0)
-        #expect(InfoPaneLayout.bracketStubStartX < InfoPaneLayout.bracketStubEndX)
-        #expect(InfoPaneLayout.bracketStubEndX <= InfoPaneLayout.iconColumnWidth)
-        #expect(
-            abs((InfoPaneLayout.bracketStubStartX + InfoPaneLayout.bracketStubEndX) / 2 - InfoPaneLayout.iconColumnWidth / 2)
-                < 0.0001
+        let pointSize = Typography(bodySize: AppSettings.defaultChatFontSize).caption.size
+        let stub = InfoPaneBracketStub(pointSize: pointSize, centerX: InfoPaneLayout.iconColumnWidth / 2)
+        #expect(stub.startX - stub.lineWidth / 2 >= 0)
+        #expect(stub.endX + stub.lineWidth / 2 <= InfoPaneLayout.iconColumnWidth)
+        #expect(abs((stub.startX + stub.endX) / 2 - InfoPaneLayout.iconColumnWidth / 2) < 0.0001)
+    }
+
+    @Test func theStrokeThinsFromTheStubToTheBar() {
+        func width(_ progress: CGFloat) -> CGFloat {
+            InfoPaneBracketGeometry.lineWidth(progress: progress, stubWidth: 1, barWidth: 2)
+        }
+        #expect(width(-0.5) == 1)
+        #expect(width(0) == 1)
+        #expect(width(0.25) == 1.25)
+        #expect(width(1) == 2)
+        #expect(width(1.2) == 2)
+    }
+
+    @MainActor @Test func thePlusRatiosMatchTheRenderedSymbol() throws {
+        let pointSize: CGFloat = 16
+        let arm = try Self.renderedPlusArm(pointSize: pointSize)
+        #expect(abs(arm.stroke / pointSize - InfoPaneBracketStub.plusStrokeRatio) < 0.003)
+        #expect(abs(arm.length / pointSize - InfoPaneBracketStub.plusArmLengthRatio) < 0.01)
+    }
+
+    /// Sums the alpha coverage of `plus` drawn at 2x, along the row through
+    /// its horizontal arm and down a column a tenth of the way along it.
+    @MainActor private static func renderedPlusArm(pointSize: CGFloat) throws -> (length: CGFloat, stroke: CGFloat) {
+        let configuration = NSImage.SymbolConfiguration(pointSize: pointSize, weight: .regular, scale: .medium)
+        let image = try #require(
+            NSImage(systemSymbolName: "plus", accessibilityDescription: nil)?.withSymbolConfiguration(configuration)
         )
+        let scale: CGFloat = 2
+        let width = Int(ceil(image.size.width * scale))
+        let height = Int(ceil(image.size.height * scale))
+        let bitmap = try #require(NSBitmapImageRep(
+            bitmapDataPlanes: nil, pixelsWide: width, pixelsHigh: height, bitsPerSample: 8, samplesPerPixel: 4,
+            hasAlpha: true, isPlanar: false, colorSpaceName: .deviceRGB, bytesPerRow: 0, bitsPerPixel: 0
+        ))
+        bitmap.size = image.size
+        NSGraphicsContext.saveGraphicsState()
+        NSGraphicsContext.current = NSGraphicsContext(bitmapImageRep: bitmap)
+        image.draw(in: NSRect(origin: .zero, size: image.size))
+        NSGraphicsContext.restoreGraphicsState()
+
+        func alpha(_ x: Int, _ y: Int) -> CGFloat { bitmap.colorAt(x: x, y: y)?.alphaComponent ?? 0 }
+        let rowSums = (0..<height).map { y in (0..<width).reduce(0) { $0 + alpha($1, y) } }
+        let armRow = try #require(rowSums.indices.max { rowSums[$0] < rowSums[$1] })
+        let firstX = try #require((0..<width).first { alpha($0, armRow) >= 0.5 })
+        let lastX = try #require((0..<width).last { alpha($0, armRow) >= 0.5 })
+        let column = firstX + (lastX - firstX) / 10 + 1
+        let columnSum = (0..<height).reduce(0) { $0 + alpha(column, $1) }
+        return (rowSums[armRow] / scale, columnSum / scale)
     }
 }
