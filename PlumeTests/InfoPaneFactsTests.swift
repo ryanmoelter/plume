@@ -431,61 +431,78 @@ struct InfoPaneLayoutTests {
 }
 
 /// A section's bracket: a horizontal stub while collapsed, which curls down
-/// into a bar ending at the last row's content once expanded.
+/// into a bar ending at the last row's content once expanded. x is measured
+/// from the content edge, so the bar sits at a negative x in the padding.
 struct InfoPaneBracketGeometryTests {
-    private let gutter = CGRect(x: 0, y: 0, width: 12, height: 100)
-
     private func geometry(
         progress: CGFloat,
-        rect: CGRect? = nil,
+        barX: CGFloat = -10,
+        bottom: CGFloat = 100,
         stubY: CGFloat = 12,
         drawsStub: Bool = true
     ) -> InfoPaneBracketGeometry {
         InfoPaneBracketGeometry(
-            rect: rect ?? gutter,
+            barX: barX,
+            stubEndX: -2.5,
             stubY: stubY,
+            bottom: bottom,
             progress: progress,
-            lineWidth: 2,
             drawsStub: drawsStub,
             cornerRadius: 4,
-            stubGap: 3,
             barEndInset: 5
         )
     }
 
     @Test func collapsedIsAStubWithNoBar() {
         let collapsed = geometry(progress: 0)
-        #expect(collapsed.stubEnd == CGPoint(x: 9, y: 12))
-        #expect(collapsed.cornerStart == CGPoint(x: 1, y: 12))
-        #expect(collapsed.cornerEnd == CGPoint(x: 1, y: 12))
+        #expect(collapsed.stubEnd == CGPoint(x: -2.5, y: 12))
+        #expect(collapsed.cornerStart == CGPoint(x: -10, y: 12))
+        #expect(collapsed.cornerEnd == CGPoint(x: -10, y: 12))
         #expect(collapsed.barEnd == collapsed.cornerEnd)
     }
 
-    // 95 is the gutter's 100 less the last row's 5 of padding.
+    // 95 is the section's 100 less the last row's 5 of padding.
     @Test func expandedCurlsIntoABarEndingAtTheLastRow() {
         let expanded = geometry(progress: 1)
-        #expect(expanded.cornerStart == CGPoint(x: 5, y: 12))
-        #expect(expanded.cornerEnd == CGPoint(x: 1, y: 16))
-        #expect(expanded.barEnd == CGPoint(x: 1, y: 95))
+        #expect(expanded.cornerStart == CGPoint(x: -6, y: 12))
+        #expect(expanded.cornerEnd == CGPoint(x: -10, y: 16))
+        #expect(expanded.barEnd == CGPoint(x: -10, y: 95))
     }
 
     @Test func halfwayIsHalfTheCornerAndHalfTheBar() {
         let half = geometry(progress: 0.5)
-        #expect(half.cornerStart.x == 3)
+        #expect(half.cornerStart.x == -8)
         #expect(half.cornerEnd.y == 14)
         #expect(half.barEnd.y == 14 + CGFloat(95 - 12 - 4) / 2)
     }
 
     @Test func aShortSectionShrinksTheCorner() {
-        let short = geometry(progress: 1, rect: CGRect(x: 0, y: 0, width: 12, height: 19))
+        let short = geometry(progress: 1, bottom: 19)
         #expect(short.cornerEnd.y == 14)
         #expect(short.barEnd.y == 14)
+    }
+
+    // The stub runs only 3.5 from the nested bar to its end, under the radius of 4.
+    @Test func aShortStubShrinksTheCorner() {
+        let nested = geometry(progress: 1, barX: -6)
+        #expect(nested.cornerStart == CGPoint(x: -2.5, y: 12))
+        #expect(nested.cornerEnd == CGPoint(x: -6, y: 15.5))
     }
 
     @Test func withoutAStubTheBarRunsStraightFromTheStart() {
         let plain = geometry(progress: 1, stubY: 30, drawsStub: false)
         #expect(plain.stubEnd == nil)
-        #expect(plain.cornerEnd == CGPoint(x: 1, y: 30))
-        #expect(plain.barEnd == CGPoint(x: 1, y: 95))
+        #expect(plain.cornerEnd == CGPoint(x: -10, y: 30))
+        #expect(plain.barEnd == CGPoint(x: -10, y: 95))
+    }
+
+    // 12 is the pane's padding; each line's edge is its center ± half the line width.
+    @MainActor @Test func barsFitThePaddingClearOfEachOtherAndTheWashes() {
+        let half = InfoPaneLayout.bracketLineWidth / 2
+        #expect(InfoPaneLayout.sectionBarX - half > -12)
+        #expect(InfoPaneLayout.sectionBarX + half < -SubagentRow.Columns.washInset)
+        #expect(InfoPaneLayout.sectionBarX + half < InfoPaneLayout.nestedBarX - half)
+        #expect(InfoPaneLayout.nestedBarX + half < -InfoPaneLayout.nestedWashInset)
+        #expect(InfoPaneLayout.nestedBarX < InfoPaneLayout.bracketStubEndX)
     }
 }

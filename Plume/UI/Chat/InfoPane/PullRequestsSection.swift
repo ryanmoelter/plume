@@ -221,7 +221,7 @@ struct PullRequestsSection: View, ThemedView {
     }
 
     private func mentionedGroup(_ mentioned: [InfoPanePullRequestItem]) -> some View {
-        VStack(alignment: .leading, spacing: 0) {
+        InfoPaneBracketedSection(isExpanded: showsMentioned, level: .nested) {
             InfoPaneSubgroupHeader(
                 title: "Mentioned",
                 count: mentioned.count,
@@ -230,7 +230,7 @@ struct PullRequestsSection: View, ThemedView {
             ) {
                 withAnimation(InfoPaneLayout.sectionAnimation) { showsMentioned.toggle() }
             }
-
+        } rows: {
             if showsMentioned {
                 ForEach(mentioned) { row($0) }
             }

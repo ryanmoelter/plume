@@ -72,7 +72,12 @@ struct LinearIssuesSection: View, ThemedView {
                 withAnimation(InfoPaneLayout.sectionAnimation) { settings.infoPaneLinearExpanded.toggle() }
             }
         } label: {
-            InfoPaneHeaderTitle(title: "Linear", count: !isExpanded && linear.workingCount > 0 ? linear.workingCount : nil)
+            Text("Linear")
+            LinearLogo(size: 10)
+            if !isExpanded, linear.workingCount > 0 {
+                Text("\(linear.workingCount)")
+                    .emphasis(.subtle)
+            }
         }
         .overlay(alignment: .trailing) {
             Button { showsLinkPopover = true } label: {
@@ -108,7 +113,7 @@ struct LinearIssuesSection: View, ThemedView {
     }
 
     private func mentioned(_ issues: [InfoPaneFacts.LinearIssueFacts]) -> some View {
-        VStack(alignment: .leading, spacing: 0) {
+        InfoPaneBracketedSection(isExpanded: showsMentioned, level: .nested) {
             InfoPaneSubgroupHeader(
                 title: "Mentioned",
                 count: issues.count,
@@ -117,7 +122,7 @@ struct LinearIssuesSection: View, ThemedView {
             ) {
                 withAnimation(InfoPaneLayout.sectionAnimation) { showsMentioned.toggle() }
             }
-
+        } rows: {
             if showsMentioned {
                 ForEach(issues) { IssueRow(issue: $0, showsBubble: false, actions: actions) }
             }
@@ -126,8 +131,9 @@ struct LinearIssuesSection: View, ThemedView {
 }
 
 /// Clicking opens the issue in Linear, which the open mark atop the trailing
-/// edge shows. A mentioned issue, or one with no URL yet, opens its menu
-/// instead, since there is nothing linked to open, and shows no mark.
+/// edge shows, with the actions menu below it. A mentioned issue opens its
+/// menu instead, so the menu takes the open mark's place. A working issue
+/// with no URL yet also opens its menu, and shows no mark.
 private struct IssueRow: View, ThemedView {
     @Environment(\.theme) var theme
 
@@ -137,6 +143,9 @@ private struct IssueRow: View, ThemedView {
     let actions: InfoPaneLinearActions
 
     @State private var isHoveringMenu = false
+    @State private var titleHeight: CGFloat?
+
+    private var menuIsPrimary: Bool { issue.role == .mentioned }
 
     var body: some View {
         Button(action: activate) {
@@ -147,6 +156,7 @@ private struct IssueRow: View, ThemedView {
                         .lineLimit(1)
                         .truncationMode(.tail)
                         .emphasis(showsBubble ? .secondary : .primary)
+                        .onGeometryChange(for: CGFloat.self) { $0.size.height } action: { titleHeight = $0 }
                     detailLine
                 }
                 Spacer(minLength: 4)
@@ -164,7 +174,7 @@ private struct IssueRow: View, ThemedView {
             value: issue.statusWord ?? issue.stateName,
             invoke: activate
         )
-        .overlay(alignment: .bottomTrailing) { actionsMenu }
+        .overlay(alignment: menuIsPrimary ? .topTrailing : .bottomTrailing) { actionsMenu }
     }
 
     private var startedProgress: LinearStartedProgress {
@@ -219,10 +229,11 @@ private struct IssueRow: View, ThemedView {
         .menuIndicator(.hidden)
         .fixedSize()
         .foregroundStyle(theme.colors.selection)
-        .frame(width: InfoPaneLayout.iconColumnWidth)
+        // On the title's line when it stands in for the open mark.
+        .frame(width: InfoPaneLayout.iconColumnWidth, height: menuIsPrimary ? titleHeight : nil)
         .modifier(OverlaidControlWash(isHovering: isHoveringMenu))
         .plumeHover { isHoveringMenu = $0 }
-        .padding(.bottom, InfoPaneLayout.rowVerticalPadding)
+        .padding(menuIsPrimary ? .top : .bottom, InfoPaneLayout.rowVerticalPadding)
         .help("Linear issue actions")
         .plumeID(AccessibilityID.infoPaneLinearRowMenu, label: issue.identifier)
     }

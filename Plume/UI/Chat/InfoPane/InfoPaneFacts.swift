@@ -355,15 +355,17 @@ enum InfoPaneLayout {
     /// and plain rows keep the same rhythm.
     static let rowVerticalPadding: CGFloat = 5
     static let sectionAnimation: Animation = .snappy(duration: 0.22)
-    /// Left of the pane's content edge, where a section header's stub and
-    /// its bar sit.
-    static let sectionGutter: CGFloat = 12
+    /// Brackets sit in the pane's 12 pt padding, measured from the content
+    /// edge: the section's bar just outside a row's hover wash, a subgroup's
+    /// inside it, where the subgroup's rows trim their wash to clear it.
+    static let sectionBarX: CGFloat = -10
+    static let nestedBarX: CGFloat = -6
+    static let nestedWashInset: CGFloat = 4
+    /// Short of the header title, which starts on the content edge.
+    static let bracketStubEndX: CGFloat = -2.5
     static let bracketLineWidth: CGFloat = 1.5
     static let bracketCornerRadius: CGFloat = 4
-    /// Between a header's stub and its title.
-    static let bracketStubGap: CGFloat = 3
-    static let subgroupGlyphSize = CGSize(width: 8, height: 12)
-    static let subgroupGlyphCornerRadius: CGFloat = 3
+    static let nestedBracketCornerRadius: CGFloat = 3
     #if DEBUG
     /// Debug toggle: a straight bar and a chevron in place of the stub.
     static let usesPlainBar = UserDefaults.standard.bool(forKey: "PlumeInfoPanePlainBar")

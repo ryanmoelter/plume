@@ -22,6 +22,7 @@ struct SubagentRow: View, ThemedView {
         var leadingIndent: CGFloat = 0
         var badgeWidth: CGFloat = 12
         var spacing: CGFloat = 8
+        var leadingWashInset: CGFloat = Columns.washInset
 
         /// How far the hover wash reaches past the badge and the chevron.
         static let washInset: CGFloat = 8
@@ -88,7 +89,8 @@ struct SubagentRow: View, ThemedView {
                     .foregroundStyle(colors.selection)
             }
             .padding(.leading, columns.leadingIndent)
-            .padding(.horizontal, Columns.washInset)
+            .padding(.leading, columns.leadingWashInset)
+            .padding(.trailing, Columns.washInset)
             .padding(.vertical, 5)
             .contentShape(.rect(cornerRadius: 6))
             .background(

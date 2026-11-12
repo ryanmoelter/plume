@@ -7,7 +7,7 @@ import UniformTypeIdentifiers
 /// Every icon centers in a column `InfoPaneLayout.iconColumnWidth` wide, so
 /// the text beside the icons starts on one edge. A collapsible section's
 /// title starts on the icon column's edge, with its stub and bar in the
-/// gutter to the left (`InfoPaneBracketedSection`).
+/// pane's padding to the left (`InfoPaneBracketedSection`).
 struct InfoPaneContent: View, ThemedView {
     @Environment(\.theme) var theme
 
@@ -37,12 +37,9 @@ struct InfoPaneContent: View, ThemedView {
                     .emphasis(.secondary)
             }
             .padding(.bottom, InfoPaneLayout.rowVerticalPadding)
-            VStack(alignment: .leading, spacing: 0) {
-                ForEach(facts.sections, id: \.self) { section in
-                    self.section(section)
-                }
+            ForEach(facts.sections, id: \.self) { section in
+                self.section(section)
             }
-            .padding(.leading, InfoPaneLayout.sectionGutter)
         }
         .font(typography.caption.font)
         .overlay {
@@ -119,7 +116,7 @@ struct InfoPaneContent: View, ThemedView {
     }
 
     private var completedSubagents: some View {
-        VStack(alignment: .leading, spacing: 0) {
+        InfoPaneBracketedSection(isExpanded: showsCompleted, level: .nested) {
             InfoPaneSubgroupHeader(
                 title: "Completed",
                 count: facts.completedSubagents.count,
@@ -128,7 +125,7 @@ struct InfoPaneContent: View, ThemedView {
             ) {
                 withAnimation(InfoPaneLayout.sectionAnimation) { showsCompleted.toggle() }
             }
-
+        } rows: {
             if showsCompleted {
                 ForEach(facts.completedSubagents) { subagentRow($0) }
             }
@@ -136,11 +133,8 @@ struct InfoPaneContent: View, ThemedView {
     }
 
     private func subagentRow(_ subagent: SubagentTranscript) -> some View {
-        SubagentRow(subagent: subagent, tabID: facts.tabID, columns: .infoPane) { onOpenSubagent(subagent) }
+        InfoPaneSubagentRow(subagent: subagent, tabID: facts.tabID) { onOpenSubagent(subagent) }
             .id(subagent.id)
-            // The row insets itself for its hover wash; pulling it out puts
-            // its badge back in the pane's icon column.
-            .padding(.horizontal, -SubagentRow.Columns.washInset)
     }
 
     // MARK: Background tasks
@@ -461,20 +455,18 @@ struct InfoPaneRowButtonStyle: ButtonStyle {
     /// True while a control laid over the row is hovered and shows its own
     /// wash instead.
     var suppressesWash = false
-    /// Zero keeps the wash off a stub drawn in the gutter beside the row.
-    var leadingWashInset = SubagentRow.Columns.washInset
 
     func makeBody(configuration: Configuration) -> some View {
-        RowBody(configuration: configuration, suppressesWash: suppressesWash, leadingWashInset: leadingWashInset)
+        RowBody(configuration: configuration, suppressesWash: suppressesWash)
     }
 
     private struct RowBody: View, ThemedView {
         @Environment(\.theme) var theme
         @Environment(\.isEnabled) private var isEnabled
+        @Environment(\.infoPaneWashLeadingInset) private var leadingWashInset
         @State private var isHovering = false
         let configuration: ButtonStyleConfiguration
         let suppressesWash: Bool
-        let leadingWashInset: CGFloat
 
         var body: some View {
             let showsWash = isEnabled && !suppressesWash && (isHovering || configuration.isPressed)
@@ -489,6 +481,34 @@ struct InfoPaneRowButtonStyle: ButtonStyle {
                 .padding(.trailing, -SubagentRow.Columns.washInset)
         }
     }
+}
+
+/// A subagent row on the pane's columns. The row insets itself for its hover
+/// wash; pulling it back out puts its badge in the pane's icon column.
+private struct InfoPaneSubagentRow: View {
+    @Environment(\.infoPaneWashLeadingInset) private var leadingWashInset
+
+    let subagent: SubagentTranscript
+    let tabID: UUID
+    let onOpen: () -> Void
+
+    var body: some View {
+        SubagentRow(subagent: subagent, tabID: tabID, columns: columns, onOpen: onOpen)
+            .padding(.leading, -leadingWashInset)
+            .padding(.trailing, -SubagentRow.Columns.washInset)
+    }
+
+    private var columns: SubagentRow.Columns {
+        var columns = SubagentRow.Columns.infoPane
+        columns.leadingWashInset = leadingWashInset
+        return columns
+    }
+}
+
+extension EnvironmentValues {
+    /// How far a row's hover wash reaches left of the content edge, which a
+    /// nested bracket trims so its bar stays clear.
+    @Entry var infoPaneWashLeadingInset: CGFloat = SubagentRow.Columns.washInset
 }
 
 /// One cell of the pane's icon column.
