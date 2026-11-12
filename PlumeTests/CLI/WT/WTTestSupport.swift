@@ -248,7 +248,7 @@ nonisolated final class RecordingTabOpener: TabOpener {
 
 nonisolated final class FakePlumeAppClient: PlumeAppClient {
     enum Request: Equatable {
-        case tab(directory: String, caller: PlumeCaller)
+        case tab(directory: String, caller: PlumeCaller, created: WorktreeCreation = .none)
         case task(worktreePath: String, caller: PlumeCaller, created: WorktreeCreation = .none)
     }
 
@@ -261,8 +261,8 @@ nonisolated final class FakePlumeAppClient: PlumeAppClient {
         self.taskResult = taskResult
     }
 
-    func openTab(directory: String, caller: PlumeCaller) -> Bool {
-        requests.append(.tab(directory: directory, caller: caller))
+    func openTab(directory: String, caller: PlumeCaller, created: WorktreeCreation) -> Bool {
+        requests.append(.tab(directory: directory, caller: caller, created: created))
         return tabResult
     }
 

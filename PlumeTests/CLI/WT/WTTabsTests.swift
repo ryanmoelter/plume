@@ -52,6 +52,14 @@ struct WTTabsTests {
         #expect(console.stdout == "")
     }
 
+    @Test func aTabRequestSaysWhatWtCreated() {
+        let client = FakePlumeAppClient()
+        let (tabs, _) = opener(client)
+        let created = WorktreeCreation(worktree: true, branch: true)
+        tabs.open("/wt/foo", asTask: false, created: created)
+        #expect(client.requests == [.tab(directory: "/wt/foo", caller: .tab(Self.tabID), created: created)])
+    }
+
     @Test func aTaskRequestSaysWhatWtCreated() {
         let client = FakePlumeAppClient()
         let (tabs, _) = opener(client)
