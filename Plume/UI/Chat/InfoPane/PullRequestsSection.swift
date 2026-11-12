@@ -338,7 +338,7 @@ private struct PullRequestRow: View, ThemedView {
         .menuStyle(.borderlessButton)
         .menuIndicator(.hidden)
         .fixedSize()
-        .foregroundStyle(colors.selection)
+        .emphasis(.subtle)
         .frame(width: InfoPaneLayout.iconColumnWidth)
         .modifier(OverlaidControlWash(isHovering: isHoveringMenu))
         .plumeHover { isHoveringMenu = $0 }

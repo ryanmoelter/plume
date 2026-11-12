@@ -222,7 +222,7 @@ private struct IssueRow: View, ThemedView {
         .menuStyle(.borderlessButton)
         .menuIndicator(.hidden)
         .fixedSize()
-        .foregroundStyle(theme.colors.selection)
+        .foregroundStyle(AnyShapeStyle.role(theme.colors.selection, when: menuIsPrimary, otherwise: .subtle))
         // On the title's line when it stands in for the open mark.
         .frame(width: InfoPaneLayout.iconColumnWidth, height: menuIsPrimary ? titleHeight : nil)
         .modifier(OverlaidControlWash(isHovering: isHoveringMenu))
