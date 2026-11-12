@@ -344,6 +344,21 @@ enum InfoPaneLayout {
     /// and plain rows keep the same rhythm.
     static let rowVerticalPadding: CGFloat = 5
     static let sectionAnimation: Animation = .snappy(duration: 0.22)
+    /// Left of the pane's content edge, where a section header's stub and
+    /// its bar sit.
+    static let sectionGutter: CGFloat = 12
+    static let bracketLineWidth: CGFloat = 1.5
+    static let bracketCornerRadius: CGFloat = 4
+    /// Between a header's stub and its title.
+    static let bracketStubGap: CGFloat = 3
+    static let subgroupGlyphSize = CGSize(width: 8, height: 12)
+    static let subgroupGlyphCornerRadius: CGFloat = 3
+    #if DEBUG
+    /// Swaps the stub for a straight bar and the old chevron, for comparison.
+    static let usesPlainBar = UserDefaults.standard.bool(forKey: "PlumeInfoPanePlainBar")
+    #else
+    static let usesPlainBar = false
+    #endif
 
     static func clampedPaneWidth(_ width: CGFloat) -> CGFloat {
         min(max(width, minimumPaneWidth), maximumPaneWidth)

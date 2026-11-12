@@ -94,7 +94,6 @@ struct FoldersSection: View, ThemedView {
             Spacer(minLength: 4)
             if canEdit { addCue }
         }
-        .emphasis(.secondary)
         Group {
             if canEdit {
                 Menu { addFolderMenuItems } label: { label }
@@ -117,8 +116,8 @@ struct FoldersSection: View, ThemedView {
 
     private var groupedSection: some View {
         let isExpanded = settings.infoPaneFoldersExpanded
-        return VStack(alignment: .leading, spacing: 0) {
-            InfoPaneGroupHeader(
+        return InfoPaneBracketedSection(isExpanded: isExpanded) {
+            InfoPaneSectionHeader(
                 title: "Folders",
                 count: rows.count,
                 isExpanded: isExpanded,
@@ -126,13 +125,11 @@ struct FoldersSection: View, ThemedView {
                 suppressesWash: isHoveringAdd,
                 reservesTrailingControl: canEdit,
                 action: toggleExpanded
-            ) {
-                Image(systemName: "folder")
-            }
+            )
             .overlay(alignment: .trailing) {
                 if canEdit { addMenu }
             }
-
+        } rows: {
             if isExpanded {
                 ForEach(rows) { row in
                     FolderRowView(
@@ -246,7 +243,7 @@ private struct FolderRowView: View, ThemedView {
                     .frame(width: InfoPaneLayout.iconColumnWidth)
                     .foregroundStyle(theme.colors.selection)
             }
-            .emphasis(isDimmed ? .subtle : .secondary)
+            .emphasis(isDimmed ? .subtle : .primary)
         }
         .modifier(InfoPaneRowMenuChrome())
         .opacity(row.pending == .removesAfterTurn ? 0.6 : 1)

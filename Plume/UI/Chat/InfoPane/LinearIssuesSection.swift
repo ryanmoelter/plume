@@ -33,8 +33,9 @@ struct LinearIssuesSection: View, ThemedView {
     var body: some View {
         if let linear {
             let isExpanded = settings.infoPaneLinearExpanded && !linear.isEmpty
-            VStack(alignment: .leading, spacing: 0) {
+            InfoPaneBracketedSection(isExpanded: isExpanded, isDisclosable: !linear.isEmpty) {
                 header(linear, isExpanded: isExpanded)
+            } rows: {
                 if isExpanded {
                     let cap = LinearIssueCap.layout(total: linear.main.count, isExpanded: showsAllIssues)
                     ForEach(linear.main.prefix(cap.visibleCount)) {
@@ -57,29 +58,22 @@ struct LinearIssuesSection: View, ThemedView {
 
     private func header(_ linear: InfoPaneFacts.LinearFacts, isExpanded: Bool) -> some View {
         let hoveringAdd = isHoveringAdd && !linear.isEmpty
-        return Button {
+        return InfoPaneSectionHeader(
+            isExpanded: isExpanded,
+            isDisclosable: !linear.isEmpty,
+            accessibilityID: AccessibilityID.infoPaneLinearToggle,
+            accessibilityValue: linear.isEmpty ? "empty" : nil,
+            suppressesWash: hoveringAdd,
+            reservesTrailingControl: true
+        ) {
             if linear.isEmpty {
                 showsLinkPopover = true
             } else {
                 withAnimation(InfoPaneLayout.sectionAnimation) { settings.infoPaneLinearExpanded.toggle() }
             }
         } label: {
-            HStack(spacing: InfoPaneLayout.columnSpacing) {
-                InfoPaneIcon { LinearLogo() }
-                Text("Linear")
-                if !isExpanded, linear.workingCount > 0 {
-                    Text("\(linear.workingCount)")
-                }
-                if !linear.isEmpty {
-                    DisclosureChevron(isExpanded: isExpanded)
-                }
-                Spacer(minLength: 0)
-                OverlaidControlSpace()
-            }
-            .emphasis(.secondary)
+            InfoPaneHeaderTitle(title: "Linear", count: !isExpanded && linear.workingCount > 0 ? linear.workingCount : nil)
         }
-        .buttonStyle(InfoPaneRowButtonStyle(suppressesWash: hoveringAdd))
-        .plumeID(AccessibilityID.infoPaneLinearToggle, value: linear.isEmpty ? "empty" : isExpanded ? "expanded" : "collapsed")
         .overlay(alignment: .trailing) {
             Button { showsLinkPopover = true } label: {
                 Image(systemName: "plus")
@@ -115,21 +109,14 @@ struct LinearIssuesSection: View, ThemedView {
 
     private func mentioned(_ issues: [InfoPaneFacts.LinearIssueFacts]) -> some View {
         VStack(alignment: .leading, spacing: 0) {
-            Button {
+            InfoPaneSubgroupHeader(
+                title: "Mentioned",
+                count: issues.count,
+                isExpanded: showsMentioned,
+                accessibilityID: AccessibilityID.infoPaneLinearMentionedToggle
+            ) {
                 withAnimation(InfoPaneLayout.sectionAnimation) { showsMentioned.toggle() }
-            } label: {
-                HStack(spacing: InfoPaneLayout.columnSpacing) {
-                    // Holds the first column without filling the row's height.
-                    InfoPaneIcon { DisclosureChevron(isExpanded: false).hidden() }
-                    Text("Mentioned")
-                    Text("\(issues.count)")
-                    DisclosureChevron(isExpanded: showsMentioned)
-                    Spacer(minLength: 0)
-                }
-                .emphasis(.subtle)
             }
-            .buttonStyle(InfoPaneRowButtonStyle())
-            .plumeID(AccessibilityID.infoPaneLinearMentionedToggle, value: showsMentioned ? "expanded" : "collapsed")
 
             if showsMentioned {
                 ForEach(issues) { IssueRow(issue: $0, showsBubble: false, actions: actions) }

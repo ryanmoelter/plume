@@ -1,3 +1,4 @@
+import CoreGraphics
 import Foundation
 import Testing
 @testable import Plume
@@ -426,5 +427,65 @@ struct InfoPaneLayoutTests {
         #expect(RemoteControlStatus(claude: .failed("nope")) == .failed("nope"))
         #expect(RemoteControlStatus.off.title == "Remote control is off")
         #expect(RemoteControlStatus.on.title == "Remote control is on")
+    }
+}
+
+/// A section's bracket: a horizontal stub while collapsed, which curls down
+/// into a bar ending at the last row's content once expanded.
+struct InfoPaneBracketGeometryTests {
+    private let gutter = CGRect(x: 0, y: 0, width: 12, height: 100)
+
+    private func geometry(
+        progress: CGFloat,
+        rect: CGRect? = nil,
+        stubY: CGFloat = 12,
+        drawsStub: Bool = true
+    ) -> InfoPaneBracketGeometry {
+        InfoPaneBracketGeometry(
+            rect: rect ?? gutter,
+            stubY: stubY,
+            progress: progress,
+            lineWidth: 2,
+            drawsStub: drawsStub,
+            cornerRadius: 4,
+            stubGap: 3,
+            barEndInset: 5
+        )
+    }
+
+    @Test func collapsedIsAStubWithNoBar() {
+        let collapsed = geometry(progress: 0)
+        #expect(collapsed.stubEnd == CGPoint(x: 9, y: 12))
+        #expect(collapsed.cornerStart == CGPoint(x: 1, y: 12))
+        #expect(collapsed.cornerEnd == CGPoint(x: 1, y: 12))
+        #expect(collapsed.barEnd == collapsed.cornerEnd)
+    }
+
+    // 95 is the gutter's 100 less the last row's 5 of padding.
+    @Test func expandedCurlsIntoABarEndingAtTheLastRow() {
+        let expanded = geometry(progress: 1)
+        #expect(expanded.cornerStart == CGPoint(x: 5, y: 12))
+        #expect(expanded.cornerEnd == CGPoint(x: 1, y: 16))
+        #expect(expanded.barEnd == CGPoint(x: 1, y: 95))
+    }
+
+    @Test func halfwayIsHalfTheCornerAndHalfTheBar() {
+        let half = geometry(progress: 0.5)
+        #expect(half.cornerStart.x == 3)
+        #expect(half.cornerEnd.y == 14)
+        #expect(half.barEnd.y == 14 + CGFloat(95 - 12 - 4) / 2)
+    }
+
+    @Test func aShortSectionShrinksTheCorner() {
+        let short = geometry(progress: 1, rect: CGRect(x: 0, y: 0, width: 12, height: 19))
+        #expect(short.cornerEnd.y == 14)
+        #expect(short.barEnd.y == 14)
+    }
+
+    @Test func withoutAStubTheBarRunsStraightFromTheStart() {
+        let plain = geometry(progress: 1, stubY: 30, drawsStub: false)
+        #expect(plain.stubEnd == nil)
+        #expect(plain.cornerEnd == CGPoint(x: 1, y: 30))
+        #expect(plain.barEnd == CGPoint(x: 1, y: 95))
     }
 }

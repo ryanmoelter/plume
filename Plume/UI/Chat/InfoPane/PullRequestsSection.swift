@@ -121,7 +121,6 @@ struct PullRequestsSection: View, ThemedView {
     @State private var checksPopoverItemID: String?
 
     private static let title = "Pull Requests"
-    private static let symbol = "arrow.triangle.pull"
 
     private var linkedReferences: [PullRequestReference] { items.compactMap(\.reference) }
 
@@ -157,10 +156,11 @@ struct PullRequestsSection: View, ThemedView {
         let isExpanded = settings.infoPaneLinkedPullRequestsExpanded
         let leading = items.filter { $0.role != .mentioned }
         let mentioned = items.filter { $0.role == .mentioned }
-        return VStack(alignment: .leading, spacing: 0) {
+        return InfoPaneBracketedSection(isExpanded: isExpanded) {
             header(count: items.count, isExpanded: isExpanded) {
                 withAnimation(InfoPaneLayout.sectionAnimation) { settings.infoPaneLinkedPullRequestsExpanded.toggle() }
             }
+        } rows: {
             if isExpanded {
                 ForEach(leading) { row($0) }
                 if leading.isEmpty {
@@ -194,7 +194,7 @@ struct PullRequestsSection: View, ThemedView {
     }
 
     private func header(count: Int?, isExpanded: Bool, action: @escaping () -> Void) -> some View {
-        InfoPaneGroupHeader(
+        InfoPaneSectionHeader(
             title: Self.title,
             count: count,
             isExpanded: isExpanded,
@@ -203,9 +203,7 @@ struct PullRequestsSection: View, ThemedView {
             suppressesWash: isHoveringAdd,
             reservesTrailingControl: true,
             action: action
-        ) {
-            Image(systemName: Self.symbol)
-        }
+        )
         .overlay(alignment: .trailing) { addButton }
     }
 
@@ -225,24 +223,14 @@ struct PullRequestsSection: View, ThemedView {
 
     private func mentionedGroup(_ mentioned: [InfoPanePullRequestItem]) -> some View {
         VStack(alignment: .leading, spacing: 0) {
-            Button {
+            InfoPaneSubgroupHeader(
+                title: "Mentioned",
+                count: mentioned.count,
+                isExpanded: showsMentioned,
+                accessibilityID: AccessibilityID.infoPaneLinkedPullRequestsMentionedToggle
+            ) {
                 withAnimation(InfoPaneLayout.sectionAnimation) { showsMentioned.toggle() }
-            } label: {
-                HStack(spacing: InfoPaneLayout.columnSpacing) {
-                    // Holds the first column without filling the row's height.
-                    InfoPaneIcon { DisclosureChevron(isExpanded: false).hidden() }
-                    Text("Mentioned")
-                    Text("\(mentioned.count)")
-                    DisclosureChevron(isExpanded: showsMentioned)
-                    Spacer(minLength: 0)
-                }
-                .emphasis(.subtle)
             }
-            .buttonStyle(InfoPaneRowButtonStyle())
-            .plumeID(
-                AccessibilityID.infoPaneLinkedPullRequestsMentionedToggle,
-                value: showsMentioned ? "expanded" : "collapsed"
-            )
 
             if showsMentioned {
                 ForEach(mentioned) { row($0) }
@@ -281,7 +269,7 @@ private struct PullRequestRow: View, ThemedView {
                         Text(item.title)
                             .lineLimit(1)
                             .truncationMode(.tail)
-                            .emphasis(item.role == .mentioned ? .secondary : .primary)
+                            .emphasis(titleEmphasis)
                     }
                     Text(item.summary.map(PullRequestRowContent.detail) ?? label)
                         .lineLimit(1)
@@ -314,7 +302,7 @@ private struct PullRequestRow: View, ThemedView {
             PullRequestGlyphImage(glyph: PullRequestRowContent.leadingWithoutChecks(summary))
         } else {
             Image(systemName: "arrow.triangle.pull")
-                .emphasis(.secondary)
+                .emphasis(titleEmphasis)
         }
     }
 
@@ -322,12 +310,14 @@ private struct PullRequestRow: View, ThemedView {
     private var forgeMark: some View {
         if let forge = item.forge, forge.markImageName != nil {
             ForgeMarkCell(forge: forge)
-                .emphasis(.secondary)
+                .emphasis(titleEmphasis)
         } else {
             Image(systemName: "arrow.triangle.pull")
-                .emphasis(.secondary)
+                .emphasis(titleEmphasis)
         }
     }
+
+    private var titleEmphasis: Emphasis { item.role == .mentioned ? .secondary : .primary }
 
     private var help: String {
         PullRequestRowContent.tooltip(item.summary, number: item.number, forgeName: forgeName)

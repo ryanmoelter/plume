@@ -5,8 +5,9 @@ import UniformTypeIdentifiers
 /// the conversation runs — shared by every presentation.
 ///
 /// Every icon centers in a column `InfoPaneLayout.iconColumnWidth` wide, so
-/// the text beside the icons starts on one edge. A collapsible section ends
-/// with its disclosure chevron, and its rows start on that text edge.
+/// the text beside the icons starts on one edge. A collapsible section's
+/// title starts on the icon column's edge, with its stub and bar in the
+/// gutter to the left (`InfoPaneBracketedSection`).
 struct InfoPaneContent: View, ThemedView {
     @Environment(\.theme) var theme
 
@@ -36,9 +37,12 @@ struct InfoPaneContent: View, ThemedView {
                     .emphasis(.secondary)
             }
             .padding(.bottom, InfoPaneLayout.rowVerticalPadding)
-            ForEach(facts.sections, id: \.self) { section in
-                self.section(section)
+            VStack(alignment: .leading, spacing: 0) {
+                ForEach(facts.sections, id: \.self) { section in
+                    self.section(section)
+                }
             }
+            .padding(.leading, InfoPaneLayout.sectionGutter)
         }
         .font(typography.caption.font)
         .overlay {
@@ -92,27 +96,19 @@ struct InfoPaneContent: View, ThemedView {
 
     private var subagents: some View {
         let isExpanded = settings.infoPaneSubagentsExpanded
-        return VStack(alignment: .leading, spacing: 0) {
-            Button {
+        return InfoPaneBracketedSection(isExpanded: isExpanded) {
+            InfoPaneSectionHeader(isExpanded: isExpanded, accessibilityID: AccessibilityID.infoPaneSubagentsToggle) {
                 withAnimation(InfoPaneLayout.sectionAnimation) { settings.infoPaneSubagentsExpanded.toggle() }
             } label: {
-                HStack(spacing: InfoPaneLayout.columnSpacing) {
-                    InfoPaneIcon { Image(systemName: StatusSymbol.subagents.name) }
-                    // Collapsed, the running subagents say more than the
-                    // section's name does.
-                    if !isExpanded, !facts.liveSubagents.isEmpty {
-                        SubagentGlyphs(subagents: facts.liveSubagents)
-                    } else {
-                        Text("Subagents")
-                    }
-                    DisclosureChevron(isExpanded: isExpanded)
-                    Spacer(minLength: 0)
+                // Collapsed, the running subagents say more than the
+                // section's name does.
+                if !isExpanded, !facts.liveSubagents.isEmpty {
+                    SubagentGlyphs(subagents: facts.liveSubagents)
+                } else {
+                    Text("Subagents")
                 }
-                .emphasis(.secondary)
             }
-            .buttonStyle(InfoPaneRowButtonStyle())
-            .plumeID(AccessibilityID.infoPaneSubagentsToggle, value: isExpanded ? "expanded" : "collapsed")
-
+        } rows: {
             if isExpanded {
                 ForEach(facts.liveSubagents) { subagentRow($0) }
                 if !facts.completedSubagents.isEmpty {
@@ -124,21 +120,14 @@ struct InfoPaneContent: View, ThemedView {
 
     private var completedSubagents: some View {
         VStack(alignment: .leading, spacing: 0) {
-            Button {
+            InfoPaneSubgroupHeader(
+                title: "Completed",
+                count: facts.completedSubagents.count,
+                isExpanded: showsCompleted,
+                accessibilityID: AccessibilityID.infoPaneCompletedToggle
+            ) {
                 withAnimation(InfoPaneLayout.sectionAnimation) { showsCompleted.toggle() }
-            } label: {
-                HStack(spacing: InfoPaneLayout.columnSpacing) {
-                    // Holds the first column without filling the row's height.
-                    InfoPaneIcon { DisclosureChevron(isExpanded: false).hidden() }
-                    Text("Completed")
-                    Text("\(facts.completedSubagents.count)")
-                    DisclosureChevron(isExpanded: showsCompleted)
-                    Spacer(minLength: 0)
-                }
-                .emphasis(.subtle)
             }
-            .buttonStyle(InfoPaneRowButtonStyle())
-            .plumeID(AccessibilityID.infoPaneCompletedToggle, value: showsCompleted ? "expanded" : "collapsed")
 
             if showsCompleted {
                 ForEach(facts.completedSubagents) { subagentRow($0) }
@@ -162,7 +151,6 @@ struct InfoPaneContent: View, ThemedView {
             if !isGrouped, let entry = facts.backgroundTasks.first {
                 HStack(spacing: InfoPaneLayout.columnSpacing) {
                     InfoPaneIcon { Image(systemName: StatusSymbol.backgroundTasks.name) }
-                        .emphasis(.secondary)
                     backgroundTaskRow(entry)
                 }
                 .padding(.vertical, InfoPaneLayout.rowVerticalPadding)
@@ -180,22 +168,16 @@ struct InfoPaneContent: View, ThemedView {
 
     private var backgroundTaskSection: some View {
         let isExpanded = settings.infoPaneBackgroundTasksExpanded
-        return VStack(alignment: .leading, spacing: 0) {
-            Button {
+        return InfoPaneBracketedSection(isExpanded: isExpanded) {
+            InfoPaneSectionHeader(
+                title: "Background Tasks",
+                count: facts.backgroundTasks.count,
+                isExpanded: isExpanded,
+                accessibilityID: AccessibilityID.infoPaneBackgroundTasksToggle
+            ) {
                 withAnimation(InfoPaneLayout.sectionAnimation) { settings.infoPaneBackgroundTasksExpanded.toggle() }
-            } label: {
-                HStack(spacing: InfoPaneLayout.columnSpacing) {
-                    InfoPaneIcon { Image(systemName: StatusSymbol.backgroundTasks.name) }
-                    Text("Background Tasks")
-                    Text("\(facts.backgroundTasks.count)")
-                    DisclosureChevron(isExpanded: isExpanded)
-                    Spacer(minLength: 0)
-                }
-                .emphasis(.secondary)
             }
-            .buttonStyle(InfoPaneRowButtonStyle())
-            .plumeID(AccessibilityID.infoPaneBackgroundTasksToggle, value: isExpanded ? "expanded" : "collapsed")
-
+        } rows: {
             if isExpanded {
                 ForEach(facts.backgroundTasks) { entry in
                     HStack(spacing: InfoPaneLayout.columnSpacing) {
@@ -227,7 +209,6 @@ struct InfoPaneContent: View, ThemedView {
         Button(action: onOpenPlan) {
             HStack(spacing: InfoPaneLayout.columnSpacing) {
                 InfoPaneIcon { Image(systemName: StatusSymbol.plan.name) }
-                    .emphasis(.secondary)
                 Text(facts.planTitle ?? "Plan")
                     .lineLimit(1)
                     .truncationMode(.tail)
@@ -251,17 +232,16 @@ struct InfoPaneContent: View, ThemedView {
         ) {
             if let artifact = facts.artifacts.first { artifactRow(artifact, showsIcon: true) }
         } grouped: {
-            VStack(alignment: .leading, spacing: 0) {
-                InfoPaneGroupHeader(
+            InfoPaneBracketedSection(isExpanded: isExpanded) {
+                InfoPaneSectionHeader(
                     title: "Artifacts",
                     count: facts.artifacts.count,
                     isExpanded: isExpanded,
                     accessibilityID: AccessibilityID.infoPaneArtifactsToggle
                 ) {
                     withAnimation(InfoPaneLayout.sectionAnimation) { settings.infoPaneArtifactsExpanded.toggle() }
-                } icon: {
-                    Image(systemName: ArtifactSymbol.outline)
                 }
+            } rows: {
                 if isExpanded {
                     ForEach(facts.artifacts) { artifactRow($0, showsIcon: false) }
                 }
@@ -276,7 +256,6 @@ struct InfoPaneContent: View, ThemedView {
         } label: {
             HStack(spacing: InfoPaneLayout.columnSpacing) {
                 InfoPaneIcon { Image(systemName: ArtifactSymbol.outline) }
-                    .emphasis(.secondary)
                     .opacity(showsIcon ? 1 : 0)
                 Text(title)
                     .lineLimit(1)
@@ -298,7 +277,6 @@ struct InfoPaneContent: View, ThemedView {
         Button(action: onOpenSideChat) {
             HStack(spacing: InfoPaneLayout.columnSpacing) {
                 InfoPaneIcon { Image(systemName: SideQuestionChip.symbol) }
-                    .emphasis(.secondary)
                 Text("Side chats")
                 Text("\(facts.sideChatCount)")
                     .emphasis(.subtle)
@@ -323,15 +301,17 @@ struct InfoPaneContent: View, ThemedView {
                     .lineLimit(1)
                     .truncationMode(.middle)
                 Spacer(minLength: 4)
-                if let ahead = branch.ahead, ahead > 0 { Text("↑\(ahead)") }
-                if let behind = branch.behind, behind > 0 { Text("↓\(behind)") }
-                if branch.isDirty {
-                    Image(systemName: "circle.fill")
-                        .imageScale(.small)
-                        .help("Uncommitted changes")
+                Group {
+                    if let ahead = branch.ahead, ahead > 0 { Text("↑\(ahead)") }
+                    if let behind = branch.behind, behind > 0 { Text("↓\(behind)") }
+                    if branch.isDirty {
+                        Image(systemName: "circle.fill")
+                            .imageScale(.small)
+                            .help("Uncommitted changes")
+                    }
                 }
+                .emphasis(.subtle)
             }
-            .emphasis(.secondary)
             .padding(.vertical, InfoPaneLayout.rowVerticalPadding)
         }
     }
