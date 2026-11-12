@@ -80,7 +80,9 @@ struct ChildSessionTabTests {
         let child = TaskStore.addChildTab(to: task, parent: parent, in: context)
         let worktree = ChildSessionWorkspace.Worktree(path: "/repo/.plume/worktrees/fix", repository: "/repo", branch: "me/fix-1a2b")
 
-        ChildSessionWorkspace.apply(worktree, to: child, parent: parent, task: task)
+        ChildSessionWorkspace.apply(worktree, to: child, parent: parent)
+        #expect(task.ownedWorktrees.isEmpty)
+        ChildSessionWorkspace.recordOwnership(of: worktree, in: task)
 
         #expect(child.workspace == TabWorkspace(kind: .worktree, directory: worktree.path, repoPath: "/repo", branchName: "me/fix-1a2b"))
         #expect(task.ownedWorktrees == [OwnedWorktree(path: worktree.path, repoPath: "/repo", branch: "me/fix-1a2b")])
@@ -91,27 +93,39 @@ struct ChildSessionTabTests {
         let child = TaskStore.addChildTab(to: task, parent: parent, in: context)
         child.workspace = TabWorkspace()
 
-        ChildSessionWorkspace.apply(nil, to: child, parent: parent, task: task)
+        ChildSessionWorkspace.apply(nil, to: child, parent: parent)
 
         #expect(child.workspace.directory == "/repo")
         #expect(task.ownedWorktrees.isEmpty)
     }
 
-    @Test func aWorktreeIsCutFromTheParentsHead() async throws {
+    private func makeRepository() throws -> String {
         let repository = FileManager.default.temporaryDirectory.appending(path: "plume-child-\(UUID().uuidString)").path
-        defer { try? FileManager.default.removeItem(atPath: repository) }
         try FileManager.default.createDirectory(atPath: repository, withIntermediateDirectories: true)
         for arguments in [
             ["init", "-b", "main"], ["config", "user.email", "test@example.com"], ["config", "user.name", "Test"],
             ["config", "commit.gpgsign", "false"], ["commit", "--allow-empty", "-m", "one"]
         ] { try GitRunner.run(arguments, in: repository) }
+        return repository
+    }
+
+    private static func realPath(_ path: String) -> String {
+        URL(fileURLWithPath: path).resolvingSymlinksInPath().path
+    }
+
+    @Test func aWorktreeIsCutFromTheParentsHeadInTheParentsSubfolder() async throws {
+        let repository = try makeRepository()
+        defer { try? FileManager.default.removeItem(atPath: repository) }
         let parentPath = try WorkspaceProvisioner.createWorktree(repository: repository, branch: "parent-branch")
-        try GitRunner.run(["commit", "--allow-empty", "-m", "parent's own"], in: parentPath)
+        let sub = (parentPath as NSString).appendingPathComponent("app/src")
+        try FileManager.default.createDirectory(atPath: sub, withIntermediateDirectories: true)
+        try Data("x".utf8).write(to: URL(fileURLWithPath: sub).appending(path: "file.txt"))
+        try GitRunner.run(["add", "."], in: parentPath)
+        try GitRunner.run(["commit", "-m", "parent's own"], in: parentPath)
         let parentHead = try GitRunner.run(["rev-parse", "HEAD"], in: parentPath).trimmingCharacters(in: .whitespacesAndNewlines)
 
-        let (task, parent) = try makeTask()
-        parent.workspace = TabWorkspace(kind: .worktree, directory: parentPath, repoPath: repository, branchName: "parent-branch")
-        _ = task
+        let (_, parent) = try makeTask()
+        parent.workspace = TabWorkspace(kind: .worktree, directory: sub, repoPath: "/somewhere/stale", branchName: "parent-branch")
         let request = try StartSessionRequest.parse([
             "title": .string("Child"), "prompt": .string("p"), "initiation": .string("user_asked"), "name": .string("kid")
         ]).get()
@@ -121,6 +135,41 @@ struct ChildSessionTabTests {
         let childHead = try GitRunner.run(["rev-parse", "HEAD"], in: worktree.path).trimmingCharacters(in: .whitespacesAndNewlines)
         #expect(childHead == parentHead)
         #expect(worktree.branch.contains("kid-"))
-        #expect(worktree.repository == repository)
+        #expect(Self.realPath(worktree.repository) == Self.realPath(repository))
+        #expect(worktree.workingDirectory == (worktree.path as NSString).appendingPathComponent("app/src"))
+    }
+
+    @Test func aSubfolderIsRelativeToTheCheckoutRoot() {
+        #expect(ChildSessionWorkspace.subfolder(of: "/r/a/b", in: "/r") == "a/b")
+        #expect(ChildSessionWorkspace.subfolder(of: "/r", in: "/r") == nil)
+        #expect(ChildSessionWorkspace.subfolder(of: "/rx/a", in: "/r") == nil)
+    }
+
+    /// A temporary folder is one Claude Code has never been told to trust,
+    /// so the launch fails its pre-flight without spawning `claude`.
+    @Test func aChildThatCannotLaunchLeavesNoTabAndNoWorktree() async throws {
+        let repository = try makeRepository()
+        defer { try? FileManager.default.removeItem(atPath: repository) }
+        let (task, parent) = try makeTask()
+        parent.workspace = .directory(repository)
+        parent.permissionMode = .manual
+        let request = try StartSessionRequest.parse([
+            "title": .string("Child"), "prompt": .string("p"), "initiation": .string("user_asked"),
+            "name": .string("kid"), "use_worktree": .bool(true)
+        ]).get()
+
+        let result = await ChildSessionCoordinator.shared.startSession(request, from: parent)
+
+        guard case .failure(let error) = result else {
+            Issue.record("expected the start to fail")
+            return
+        }
+        #expect(error.message.hasPrefix("The session could not start: "))
+        #expect(task.liveTabs.map(\.id) == [parent.id])
+        #expect(task.ownedWorktrees.isEmpty)
+        let worktrees = try GitRunner.run(["worktree", "list", "--porcelain"], in: repository)
+        #expect(!worktrees.contains("kid-"))
+        let branches = try GitRunner.run(["branch", "--list"], in: repository)
+        #expect(!branches.contains("kid-"))
     }
 }

@@ -102,6 +102,7 @@ nonisolated enum ChildSessionError: Error, Equatable {
     case proposalsUnsupported
     case unknownSession(String)
     case notRelated(String)
+    case parentClosed
     case failed(String)
 
     var message: String {
@@ -111,6 +112,7 @@ nonisolated enum ChildSessionError: Error, Equatable {
             "Only initiation \"user_asked\" is supported: proposals arrive in a later version. Start a session only when the user asks for one."
         case .unknownSession(let id): "No session with id \(id)."
         case .notRelated(let id): "Session \(id) is neither the session that started this one nor one this session started."
+        case .parentClosed: "This session's tab is closed."
         case .failed(let detail): detail
         }
     }

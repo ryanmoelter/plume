@@ -105,13 +105,18 @@ final class ChildSessionCoordinator {
             return .failure(.failed("This conversation has no session id yet, so it cannot be forked."))
         }
 
+        let parentIsOpen = { parent.isLive && parent.task === task }
+        guard parentIsOpen() else { return .failure(.parentClosed) }
         let worktree: ChildSessionWorkspace.Worktree?
         switch await ChildSessionWorkspace.worktree(for: request, parent: parent) {
         case .success(let made): worktree = made
         case .failure(let error): return .failure(error)
         }
-        // The worktree took a while; the parent may have closed meanwhile.
-        guard parent.isLive, parent.task === task else { return .failure(.failed("This session's tab is closed.")) }
+        // Cutting the worktree took a while, and the parent may have closed meanwhile.
+        guard parentIsOpen() else {
+            if let worktree { await ChildSessionWorkspace.remove(worktree) }
+            return .failure(.parentClosed)
+        }
 
         let child = TaskStore.addChildTab(to: task, parent: parent, in: context)
         TabLaunchChoices(parent).apply(to: child)
@@ -129,7 +134,7 @@ final class ChildSessionCoordinator {
         }
         child.permissionMode = mode
 
-        ChildSessionWorkspace.apply(worktree, to: child, parent: parent, task: task)
+        ChildSessionWorkspace.apply(worktree, to: child, parent: parent)
 
         let notes = AppPaths.sideSessionNotesDirectory(parentTabID: parent.id)
         try? FileManager.default.createDirectory(at: notes, withIntermediateDirectories: true)
@@ -144,9 +149,15 @@ final class ChildSessionCoordinator {
         childNames[child.id] = request.name
         if !request.wakeWhenDone { silentChildren.insert(child.id) }
 
+        let isFork = request.context == .fork
         let newSessionID = UUID().uuidString.lowercased()
         child.agentSessionID = newSessionID
-        if let directory = TabDirectoryStore.shared.directory(for: child) {
+        // A fork launches where the parent's transcript is, whatever folder
+        // the tab records, and the CLI writes the new transcript beside it.
+        let launchDirectory = isFork
+            ? AgentLauncher.claudeLaunchDirectory(for: parent, resumeSessionID: parentSessionID)
+            : TabDirectoryStore.shared.directory(for: child)
+        if let directory = launchDirectory {
             child.sessionJSONLPath = SessionJSONLReader.resolvedTranscriptPath(
                 workingDirectory: directory, sessionID: newSessionID
             )
@@ -154,14 +165,13 @@ final class ChildSessionCoordinator {
 
         var prompt = request.prompt
         if let worktree, request.context == .fork {
-            prompt += "\n\n" + ChildSessionFormats.worktreeNote(path: worktree.path, branch: worktree.branch)
+            prompt += "\n\n" + ChildSessionFormats.worktreeNote(path: worktree.workingDirectory, branch: worktree.branch)
         }
         let brief = ChildSessionFormats.firstMessage(
             prompt: prompt, background: request.background, notesFolder: notes.path
         )
         PendingFirstMessageStore.shared.set(OptimisticFirstMessage(text: brief), forTab: child.id)
 
-        let isFork = request.context == .fork
         AgentLauncher.launch(
             blocks: [],
             task: task,
@@ -171,9 +181,14 @@ final class ChildSessionCoordinator {
             sessionID: isFork ? nil : newSessionID,
             effort: child.isEffortUserChosen ? child.effort : nil
         )
-        guard let session = AgentSessionManager.shared.existingSession(for: child.id) as? HeadlessSession else {
-            return .failure(.failed("The session's tab opened, but it could not launch."))
+        let session = AgentSessionManager.shared.existingSession(for: child.id) as? HeadlessSession
+        guard let session, !session.hasExited else {
+            let reason = session.map(Self.launchFailure) ?? "no session was created"
+            TaskStore.closeTab(child, in: context)
+            if let worktree { await ChildSessionWorkspace.remove(worktree) }
+            return .failure(.failed("The session could not start: \(reason)"))
         }
+        if let worktree { ChildSessionWorkspace.recordOwnership(of: worktree, in: task) }
         session.submitFromHost(blocks: [.text(brief)])
 
         return .success(ChildSessionFormats.started(
@@ -181,6 +196,13 @@ final class ChildSessionCoordinator {
             sessionID: Self.sessionID(of: child),
             name: request.name ?? WorkspaceProvisioner.slugify(request.title)
         ))
+    }
+
+    private static func launchFailure(of session: HeadlessSession) -> String {
+        if let failure = session.startFailure {
+            return [failure.title, failure.detail].compactMap { $0 }.joined(separator: ": ")
+        }
+        return session.lastError ?? "claude exited at launch"
     }
 
     private func sendMessage(_ arguments: [String: JSONValue], from sender: TaskTab) -> Result<String, ChildSessionError> {
@@ -337,6 +359,16 @@ nonisolated enum ChildSessionWorkspace {
         let path: String
         let repository: String
         let branch: String
+        /// The folder the child works in: the same subfolder of the worktree
+        /// that the parent works in, when the worktree has it.
+        var workingDirectory: String
+
+        init(path: String, repository: String, branch: String, workingDirectory: String? = nil) {
+            self.path = path
+            self.repository = repository
+            self.branch = branch
+            self.workingDirectory = workingDirectory ?? path
+        }
     }
 
     /// An unspecified choice follows the parent: a worktree when it works in one.
@@ -344,18 +376,44 @@ nonisolated enum ChildSessionWorkspace {
         requested ?? parentIsWorktree
     }
 
-    /// Puts `child` in its worktree, which the task then owns, or in the
-    /// parent's folder.
+    /// Puts `child` in its worktree, or in the parent's folder.
     @MainActor
-    static func apply(_ worktree: Worktree?, to child: TaskTab, parent: TaskTab, task: WorkTask) {
+    static func apply(_ worktree: Worktree?, to child: TaskTab, parent: TaskTab) {
         guard let worktree else {
             child.workspace = TabDirectoryStore.shared.currentWorkspace(of: parent)
             return
         }
         child.workspace = TabWorkspace(
-            kind: .worktree, directory: worktree.path, repoPath: worktree.repository, branchName: worktree.branch
+            kind: .worktree, directory: worktree.workingDirectory, repoPath: worktree.repository, branchName: worktree.branch
         )
+    }
+
+    /// Once the child has launched, so a failed start leaves the task owning
+    /// nothing.
+    @MainActor
+    static func recordOwnership(of worktree: Worktree, in task: WorkTask) {
         task.recordOwnedWorktree(OwnedWorktree(path: worktree.path, repoPath: worktree.repository, branch: worktree.branch))
+    }
+
+    /// Removes a worktree this call cut, with its branch, which nothing else
+    /// has used yet.
+    static func remove(_ worktree: Worktree) async {
+        do {
+            try await GitService.shared.removeWorktree(
+                repository: worktree.repository, path: worktree.path, branch: worktree.branch, deleteBranch: true
+            )
+        } catch {
+            Log.agent.error("Could not remove the child session's worktree \(worktree.path, privacy: .public): \(error.localizedDescription, privacy: .public)")
+        }
+    }
+
+    /// `directory` relative to `checkoutRoot`, or nil when it is the root or
+    /// lies outside it.
+    static func subfolder(of directory: String, in checkoutRoot: String) -> String? {
+        let root = (checkoutRoot as NSString).standardizingPath
+        let path = (directory as NSString).standardizingPath
+        guard path.hasPrefix(root + "/") else { return nil }
+        return String(path.dropFirst(root.count + 1))
     }
 
     /// The child's own worktree, cut from the parent's HEAD, or nil when it
@@ -370,12 +428,14 @@ nonisolated enum ChildSessionWorkspace {
             return .success(nil)
         }
         guard let facts else { return .failure(.failed("\(directory) is not in a git repository, so it has no worktree to cut.")) }
-        let repository = parent.repoPath ?? ProjectRoot.repositoryDirectory(forRoot: facts.projectRoot)
+        // One `rev-parse` of the live folder names both the repository and
+        // the checkout whose HEAD the worktree starts from.
+        let repository = ProjectRoot.repositoryDirectory(forRoot: facts.projectRoot)
         let prefix = await GitService.shared.configuredBranchPrefix(
             in: repository, configuration: AppSettings.shared.projectsConfiguration
         ) ?? WorkspaceProvisioner.defaultBranchPrefix
         let branch = WorkspaceProvisioner.suggestedBranchName(for: request.name ?? request.title, prefix: prefix)
-        let head = await GitService.shared.headCommit(in: directory)
+        let head = await GitService.shared.headCommit(in: facts.checkoutRoot)
         do {
             let path = try await GitService.shared.createWorktree(
                 repository: repository,
@@ -383,7 +443,15 @@ nonisolated enum ChildSessionWorkspace {
                 basePath: AppSettings.shared.worktreeBasePath,
                 startPoint: head
             )
-            return .success(Worktree(path: path, repository: repository, branch: branch))
+            var worktree = Worktree(path: path, repository: repository, branch: branch)
+            if let subfolder = subfolder(of: directory, in: facts.checkoutRoot) {
+                let nested = (path as NSString).appendingPathComponent(subfolder)
+                var isDirectory: ObjCBool = false
+                if FileManager.default.fileExists(atPath: nested, isDirectory: &isDirectory), isDirectory.boolValue {
+                    worktree.workingDirectory = nested
+                }
+            }
+            return .success(worktree)
         } catch {
             return .failure(.failed("Could not create a worktree: \(error.localizedDescription)"))
         }
