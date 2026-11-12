@@ -152,7 +152,7 @@ struct FoldersSection: View, ThemedView {
 
     private var addMenu: some View {
         Menu { addFolderMenuItems } label: {
-            RowMenuLabel(systemImage: "plus", isHovering: isHoveringAdd)
+            InfoPaneHeaderPlus(isHovering: isHoveringAdd)
         }
         .menuStyle(.button)
         .buttonStyle(.plain)

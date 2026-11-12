@@ -187,6 +187,18 @@ enum InfoPaneSectionIcon: View {
     }
 }
 
+/// The `+` at a section header's trailing edge. It carries the wash, so the
+/// whole washed rect is the click target.
+struct InfoPaneHeaderPlus: View {
+    let isHovering: Bool
+
+    var body: some View {
+        Image(systemName: "plus")
+            .frame(width: InfoPaneLayout.iconColumnWidth)
+            .modifier(OverlaidControlWash(isHovering: isHovering))
+    }
+}
+
 struct InfoPaneHeaderCount: View {
     let count: Int?
 
@@ -205,10 +217,7 @@ struct InfoPaneHeaderTitle: View {
     var body: some View {
         HStack(spacing: InfoPaneLayout.columnSpacing) {
             Text(title)
-            if let count {
-                Text("\(count)")
-                    .emphasis(.subtle)
-            }
+            InfoPaneHeaderCount(count: count)
         }
     }
 }

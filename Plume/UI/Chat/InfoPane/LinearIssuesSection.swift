@@ -80,9 +80,7 @@ struct LinearIssuesSection: View, ThemedView {
         }
         .overlay(alignment: .trailing) {
             Button { showsLinkPopover = true } label: {
-                Image(systemName: "plus")
-                    .frame(width: InfoPaneLayout.iconColumnWidth)
-                    .modifier(OverlaidControlWash(isHovering: hoveringAdd))
+                InfoPaneHeaderPlus(isHovering: hoveringAdd)
             }
             .buttonStyle(.plain)
             .foregroundStyle(theme.colors.selection)

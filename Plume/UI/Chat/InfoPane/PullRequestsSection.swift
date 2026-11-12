@@ -209,9 +209,7 @@ struct PullRequestsSection: View, ThemedView {
 
     private var addButton: some View {
         Button { showsPinPopover = true } label: {
-            Image(systemName: "plus")
-                .frame(width: InfoPaneLayout.iconColumnWidth)
-                .modifier(OverlaidControlWash(isHovering: isHoveringAdd))
+            InfoPaneHeaderPlus(isHovering: isHoveringAdd)
         }
         .buttonStyle(.plain)
         .foregroundStyle(colors.selection)
@@ -345,6 +343,36 @@ private struct PullRequestRow: View, ThemedView {
         .padding(.bottom, InfoPaneLayout.rowVerticalPadding)
         .help("Pull request actions")
         .plumeID(AccessibilityID.infoPaneLinkedPullRequestRowMenu, label: label)
+        .background { menuItemRegistrations }
+    }
+
+    private var menuItemRegistrations: some View {
+        let reference = item.reference
+        return Group {
+            if item.role == .mentioned, let reference {
+                Color.clear.plumeMenuItem(AccessibilityID.infoPaneLinkedPullRequestPinButton, label: label) { actions.pin(reference) }
+            }
+            Color.clear.plumeMenuItem(AccessibilityID.infoPaneLinkedPullRequestOpenButton, label: label, isEnabled: item.url != nil, invoke: open)
+            Color.clear.plumeMenuItem(AccessibilityID.infoPaneLinkedPullRequestCopyButton, label: label, isEnabled: item.url != nil, invoke: copyURL)
+            if item.role != .mentioned {
+                Color.clear.plumeMenuItem(
+                    AccessibilityID.infoPaneLinkedPullRequestUnpinButton,
+                    label: label,
+                    isEnabled: reference != nil
+                ) {
+                    if let reference { actions.unpin(reference) }
+                }
+            }
+            if let pinAnother {
+                Color.clear.plumeMenuItem(AccessibilityID.infoPaneLinkedPullRequestPinAnotherButton, label: label) { pinAnother() }
+            }
+        }
+    }
+
+    private func copyURL() {
+        guard let url = item.url else { return }
+        NSPasteboard.general.clearContents()
+        NSPasteboard.general.setString(url.absoluteString, forType: .string)
     }
 
     /// The branch's own pull request keeps a pinned one's menu, with Unpin
@@ -353,24 +381,20 @@ private struct PullRequestRow: View, ThemedView {
     private var menuItems: some View {
         let reference = item.reference
         if item.role == .mentioned, let reference {
-            menuItem("Pin to Conversation", AccessibilityID.infoPaneLinkedPullRequestPinButton) { actions.pin(reference) }
+            menuItem("Pin to Conversation") { actions.pin(reference) }
             Divider()
         }
-        menuItem("Open on \(forgeName)", AccessibilityID.infoPaneLinkedPullRequestOpenButton, isEnabled: item.url != nil, perform: open)
-        menuItem("Copy URL", AccessibilityID.infoPaneLinkedPullRequestCopyButton, isEnabled: item.url != nil) {
-            guard let url = item.url else { return }
-            NSPasteboard.general.clearContents()
-            NSPasteboard.general.setString(url.absoluteString, forType: .string)
-        }
+        menuItem("Open on \(forgeName)", isEnabled: item.url != nil, perform: open)
+        menuItem("Copy URL", isEnabled: item.url != nil, perform: copyURL)
         if item.role != .mentioned {
             Divider()
-            menuItem("Unpin from Conversation", AccessibilityID.infoPaneLinkedPullRequestUnpinButton, isEnabled: reference != nil) {
+            menuItem("Unpin from Conversation", isEnabled: reference != nil) {
                 if let reference { actions.unpin(reference) }
             }
         }
         if let pinAnother {
             Divider()
-            menuItem("Pin Another Pull Request…", AccessibilityID.infoPaneLinkedPullRequestPinAnotherButton) {
+            menuItem("Pin Another Pull Request…") {
                 // After the menu closes, so the popover has an anchor to present from.
                 Task { @MainActor in pinAnother() }
             }
@@ -379,12 +403,10 @@ private struct PullRequestRow: View, ThemedView {
 
     private func menuItem(
         _ title: String,
-        _ id: String,
         isEnabled: Bool = true,
         perform: @escaping () -> Void
     ) -> some View {
         Button(title, action: perform)
-            .plumeID(id, label: label, invoke: perform)
             .disabled(!isEnabled)
     }
 }
@@ -471,32 +493,35 @@ private struct PullRequestChecksPopover: View, ThemedView {
     /// Clicking opens the check's own page, when the forge gave one.
     private func checkLine(_ entry: CheckListEntry) -> some View {
         let glyph = CheckListContent.glyph(for: entry)
-        let open = { if let url = entry.url { ChatLinkOpener.open(.web(url)) } }
-        return Button(action: open) {
-            HStack(spacing: 6) {
-                PullRequestGlyphImage(glyph: glyph)
-                Text(entry.name)
-                    .lineLimit(1)
-                    .truncationMode(.middle)
-                    .emphasis(entry.isIgnored ? .subtle : .primary)
-                if entry.isIgnored {
-                    Image(systemName: "eye.slash")
-                        .emphasis(.subtle)
-                        .help("Ignored while pending, in Settings ▸ Projects")
-                }
-                Spacer(minLength: 0)
-                if entry.url != nil { LinkOpenIcon() }
+        let value = entry.isIgnored ? "\(glyph.label) ignored" : glyph.label
+        let content = HStack(spacing: 6) {
+            PullRequestGlyphImage(glyph: glyph)
+            Text(entry.name)
+                .lineLimit(1)
+                .truncationMode(.middle)
+                .emphasis(entry.isIgnored ? .subtle : .primary)
+            if entry.isIgnored {
+                Image(systemName: "eye.slash")
+                    .emphasis(.subtle)
+                    .help("Ignored while pending, in Settings ▸ Projects")
+            }
+            Spacer(minLength: 0)
+            if entry.url != nil { LinkOpenIcon() }
+        }
+        return Group {
+            if let url = entry.url {
+                let open = { ChatLinkOpener.open(.web(url)) }
+                Button(action: open) { content }
+                    .buttonStyle(InfoPaneRowButtonStyle())
+                    .help(url.absoluteString)
+                    .plumeID(AccessibilityID.infoPanePullRequestCheck, label: entry.name, value: value, invoke: open)
+            } else {
+                content
+                    .padding(.vertical, InfoPaneLayout.rowVerticalPadding)
+                    .plumeID(AccessibilityID.infoPanePullRequestCheck, label: entry.name, value: value)
+                    .disabled(true)
             }
         }
-        .buttonStyle(InfoPaneRowButtonStyle())
-        .help(entry.url?.absoluteString ?? "")
-        .plumeID(
-            AccessibilityID.infoPanePullRequestCheck,
-            label: entry.name,
-            value: entry.isIgnored ? "\(glyph.label) ignored" : glyph.label,
-            invoke: open
-        )
-        .disabled(entry.url == nil)
     }
 }
 
