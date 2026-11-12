@@ -294,6 +294,9 @@ final class ChildSessionCoordinator {
     /// Records a card for the user to start, and starts nothing.
     func propose(_ request: StartSessionRequest, from parent: TaskTab, now: Date = .now) -> Result<ChildSessionProposal, ChildSessionError> {
         guard !parent.isChildSession else { return .failure(.failed("This session cannot start sessions of its own.")) }
+        guard ChildSessionProposalStore(json: parent.childProposalsJSON).isWritable else {
+            return .failure(.failed("This session's stored proposals could not be read, so no new one can be recorded."))
+        }
         return .success(withProposals(of: parent, now: now) { store in
             var id = ChildSessionProposalStore.makeID()
             while store.proposal(id: id) != nil { id = ChildSessionProposalStore.makeID() }
@@ -303,10 +306,11 @@ final class ChildSessionCoordinator {
         })
     }
 
-    /// Starts a pending proposal with the settings it was proposed with,
-    /// refusing `settings` that differ from them. A start the user made from
-    /// the card also tells the parent, as a note that wakes it, and a refusal
-    /// shows on the card.
+    /// Starts a pending proposal with the brief and settings it was proposed
+    /// with, refusing repeated `settings` that differ from them. A start the
+    /// user made from the card also tells the parent, as a note that wakes it
+    /// unless the proposal asked not to be woken, and a refusal shows on the
+    /// card.
     func startProposal(
         _ id: String,
         from parent: TaskTab,
@@ -318,7 +322,7 @@ final class ChildSessionCoordinator {
         let activity = ChildSessionProposalActivity.shared
         guard !activity.isStarting(id, in: parent.id) else { return .failure(.proposal(.starting(id))) }
         func refuse(_ error: ChildSessionError) -> Result<String, ChildSessionError> {
-            if byUser { activity.fail(id, in: parent.id, reason: Self.cardFailure(error)) }
+            if byUser { activity.fail(id, in: parent.id, Self.cardFailure(error)) }
             return .failure(error)
         }
         let pending = withProposals(of: parent, now: now) { $0.pending(id: id, now: now) }
@@ -347,7 +351,7 @@ final class ChildSessionCoordinator {
 
         if byUser {
             let note = ChildSessionFormats.proposalStartedNote(taskID: id, title: proposal.title, child: participant(child))
-            deliver(.init(childID: child.id, text: note, kind: .message), toParent: parent, wakes: true)
+            deliver(.init(childID: child.id, text: note, kind: .message), toParent: parent, wakes: request.wakeWhenDone)
         }
         return .success(startedText(for: child, request: request, parent: parent))
     }
@@ -374,25 +378,19 @@ final class ChildSessionCoordinator {
 
     /// What a card says when the user's start is refused: the expiry in the
     /// user's terms, anything else as the agent would read it.
-    private static func cardFailure(_ error: ChildSessionError) -> String {
-        if case .proposal(.expired) = error { return "This proposal expired: proposals last 7 days." }
-        return error.message
+    private static func cardFailure(_ error: ChildSessionError) -> ChildSessionProposalActivity.Failure {
+        if case .proposal(.expired) = error { return .init(text: "This proposal expired: proposals last 7 days.", state: .expired) }
+        return .init(text: error.message, state: .pending)
     }
 
-    /// Runs `body` on the tab's proposals, then prunes and saves them. A
-    /// failure from before a proposal expired no longer applies, so it goes.
+    /// Runs `body` on the tab's proposals, then prunes and saves them.
     @discardableResult
     func withProposals<T>(
         of tab: TaskTab, now: Date = .now, prunes: Bool = true, _ body: (inout ChildSessionProposalStore) -> T
     ) -> T {
         var store = ChildSessionProposalStore(json: tab.childProposalsJSON)
         let result = body(&store)
-        if prunes {
-            for proposal in store.proposals where proposal.isExpired(at: now) {
-                ChildSessionProposalActivity.shared.clearFailure(of: proposal.id, in: tab.id)
-            }
-            store.prune(now: now)
-        }
+        if prunes { store.prune(now: now) }
         let json = store.json
         if tab.childProposalsJSON != json { tab.childProposalsJSON = json }
         return result

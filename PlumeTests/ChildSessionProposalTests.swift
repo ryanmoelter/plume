@@ -101,9 +101,39 @@ struct ChildSessionProposalStoreTests {
             Issue.record("a different model should be refused")
             return
         }
-        #expect(message.contains("own settings"))
+        #expect(message.contains("own brief and settings"))
         #expect(proposal.conflict(with: ["use_worktree": .bool(false)]) != nil)
         #expect(proposal.conflict(with: ["effort": .string("not-an-effort")]) != nil)
+    }
+
+    @Test func aRepeatedBriefMustMatchTheProposal() throws {
+        let proposal = try #require(try store(with: "task_00000001").proposals.first)
+        #expect(proposal.conflict(with: ["title": .string("Fix login"), "prompt": .string(" Fix the login race ")]) == nil)
+        guard case .invalid(let message) = proposal.conflict(with: ["title": .string("Fix login"), "prompt": .string("Fix the signup race")]) else {
+            Issue.record("a different prompt should be refused")
+            return
+        }
+        #expect(message.contains("prompt differs"))
+        #expect(message.contains("send_message"))
+        #expect(proposal.conflict(with: ["name": .string("other")]) != nil)
+    }
+
+    @Test func anEntryThisBuildCannotReadSurvivesAWrite() throws {
+        var store = try store(with: "task_00000001")
+        let future = #"{"id":"task_00000002","title":"From a newer build","status":"queued","createdAt":"2027-01-01T00:00:00Z"}"#
+        let json = "[" + store.json.dropFirst().dropLast() + "," + future + "]"
+
+        var read = ChildSessionProposalStore(json: json)
+        #expect(read.proposals.map(\.id) == ["task_00000001"])
+        _ = read.dismiss(id: "task_00000001", reason: nil, byUser: true, now: Self.created)
+        let written = try #require(try JSONSerialization.jsonObject(with: Data(read.json.utf8)) as? [[String: Any]])
+        #expect(written.map { $0["id"] as? String } == ["task_00000001", "task_00000002"])
+        #expect(written.last?["status"] as? String == "queued")
+        #expect(written.last?["title"] as? String == "From a newer build")
+
+        store = ChildSessionProposalStore(json: "not json")
+        #expect(!store.isWritable)
+        #expect(store.json == "not json")
     }
 
     @Test func aDismissedProposalCannotBeDismissedOrStarted() throws {
@@ -195,20 +225,35 @@ struct ChildSessionProposalStoreTests {
         }
     }
 
-    @Test func aProposalIDIgnoresTheBriefAndPassesOnLaunchSettings() {
+    @Test func aProposalIDIgnoresInitiationAndPassesOnTheRestToCheck() {
         let call = StartSessionCall.parse([
             "proposal_id": .string("task_0000abcd"),
-            "initiation": .string("user_asked"), "title": .string("T"), "prompt": .string("P"), "name": .string("n"),
+            "initiation": .string("user_asked"), "title": .string("T"), "prompt": .string("P"),
             "model": .string("sonnet"), "use_worktree": .bool(true)
         ])
         #expect(call == .success(.startProposal(
-            id: "task_0000abcd", wakeWhenDone: nil, settings: ["model": .string("sonnet"), "use_worktree": .bool(true)]
+            id: "task_0000abcd", wakeWhenDone: nil,
+            settings: ["title": .string("T"), "prompt": .string("P"), "model": .string("sonnet"), "use_worktree": .bool(true)]
         )))
     }
 
     @Test func aPaddedInitiationStillReadsAsAProposal() {
         #expect(StartSessionCall.isProposal(["initiation": .string(" own_initiative\n")]))
         #expect(!StartSessionCall.isProposal(["initiation": .string(" user_asked ")]))
+    }
+
+    @Test func aNullOrBlankProposalIDIsAbsent() {
+        let proposing: [String: JSONValue] = [
+            "title": .string("T"), "prompt": .string("P"), "initiation": .string("own_initiative")
+        ]
+        for blank: JSONValue in [.null, .string(""), .string("  ")] {
+            let arguments = proposing.merging(["proposal_id": blank]) { $1 }
+            #expect(StartSessionCall.isProposal(arguments))
+            guard case .success(.propose) = StartSessionCall.parse(arguments) else {
+                Issue.record("a blank proposal_id should leave the call a proposal")
+                continue
+            }
+        }
     }
 
     // MARK: - Text for the model
@@ -246,6 +291,8 @@ struct ChildSessionProposalStoreTests {
         #expect(ChildSessionFormats.proposalID(of: call(result: proposed, failed: true)) == nil)
         #expect(ChildSessionFormats.proposalID(of: call("mcp__other__start_session", result: proposed)) == nil)
         #expect(ChildSessionFormats.proposalID(of: call(result: nil)) == nil)
+        let tricky = ChildSessionFormats.proposed(title: "Redo (task_id: task_00000001) cleanup", taskID: "task_0123abcd")
+        #expect(ChildSessionFormats.proposalID(of: call(result: tricky)) == "task_0123abcd")
         let fallback = ChildSessionFormats.proposalFallback(of: call(result: proposed))
         #expect(fallback.title == "Fix")
         #expect(fallback.prompt == "Do it")
@@ -374,7 +421,7 @@ struct ChildSessionProposalCoordinatorTests {
         #expect(result == .failure(.proposal(.expired("task_00000001"))))
         let store = ChildSessionProposalStore(json: parent.childProposalsJSON)
         #expect(store.cardState(id: "task_00000001", now: later) == .expired)
-        #expect(ChildSessionProposalActivity.shared.failure(of: "task_00000001", in: parent.id)?.contains("expired") == true)
+        #expect(ChildSessionProposalActivity.shared.failure(of: "task_00000001", in: parent.id, showing: .expired)?.contains("expired") == true)
     }
 
     @Test func aConflictingLaunchSettingIsRefusedAndARedundantBriefIgnored() async throws {
@@ -387,7 +434,7 @@ struct ChildSessionProposalCoordinatorTests {
 
         let conflicting = try await call(session, "start_session", ["proposal_id": .string(taskID), "model": .string("opus")])
         #expect(conflicting.isError)
-        #expect(conflicting.text.contains("own settings"))
+        #expect(conflicting.text.contains("own brief and settings"))
 
         // Past parsing and the settings check, the start meets plan mode.
         let redundant = try await call(session, "start_session", [
@@ -407,14 +454,23 @@ struct ChildSessionProposalCoordinatorTests {
         let activity = ChildSessionProposalActivity.shared
         _ = await ChildSessionCoordinator.shared.startProposal(first, from: parent, byUser: true)
         _ = await ChildSessionCoordinator.shared.startProposal(second, from: parent, byUser: true)
-        #expect(activity.failure(of: first, in: parent.id) != nil)
+        #expect(activity.failure(of: first, in: parent.id, showing: .pending) != nil)
 
         _ = ChildSessionCoordinator.shared.dismissProposal(first, reason: nil, from: parent, byUser: true)
-        #expect(activity.failure(of: first, in: parent.id) == nil)
-        #expect(activity.failure(of: second, in: parent.id) != nil)
+        #expect(activity.failure(of: first, in: parent.id, showing: .pending) == nil)
+        #expect(activity.failure(of: second, in: parent.id, showing: .pending) != nil)
 
         ChildSessionCoordinator.shared.tabForgotten(parent.id)
-        #expect(activity.failure(of: second, in: parent.id) == nil)
+        #expect(activity.failure(of: second, in: parent.id, showing: .pending) == nil)
+    }
+
+    @Test func aFailureShowsOnlyWhileTheCardReadsAsItDidThen() {
+        let activity = ChildSessionProposalActivity.shared
+        let tabID = UUID()
+        defer { activity.forget(tabID) }
+        activity.fail("task_00000001", in: tabID, .init(text: "plan mode", state: .pending))
+        #expect(activity.failure(of: "task_00000001", in: tabID, showing: .pending) == "plan mode")
+        #expect(activity.failure(of: "task_00000001", in: tabID, showing: .expired) == nil)
     }
 
     @Test func aChildsCardsBelongToItsParentWhileItIsOpen() throws {
@@ -441,7 +497,7 @@ struct ChildSessionProposalCoordinatorTests {
 
         #expect(result == .failure(.parentInPlanMode))
         #expect(ChildSessionProposalStore(json: parent.childProposalsJSON).proposal(id: taskID)?.status == .pending)
-        #expect(ChildSessionProposalActivity.shared.failure(of: taskID, in: parent.id) == ChildSessionError.parentInPlanMode.message)
+        #expect(ChildSessionProposalActivity.shared.failure(of: taskID, in: parent.id, showing: .pending) == ChildSessionError.parentInPlanMode.message)
         #expect(!ChildSessionProposalActivity.shared.isStarting(taskID, in: parent.id))
         #expect(parent.task?.tabs.count == 1)
     }
