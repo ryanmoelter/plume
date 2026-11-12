@@ -629,7 +629,7 @@ struct ChatTabView: View, ThemedView {
                     text: message.plainText,
                     imageCount: message.count { if case .image = $0 { true } else { false } },
                     onSendNow: { sendNowRequested = true },
-                    onEdit: { editQueuedMessageIndex = index },
+                    onEdit: session.canEditQueuedMessage(at: index) ? { editQueuedMessageIndex = index } : nil,
                     onRemove: { session.removeQueuedMessage(at: index) }
                 )
             }
@@ -654,11 +654,11 @@ struct ChatTabView: View, ThemedView {
                     text: message.blocks.plainText,
                     imageCount: message.blocks.count { if case .image = $0 { true } else { false } },
                     state: chipState(message.state),
-                    onEdit: {
+                    onEdit: message.isEditable ? {
                         session.withdrawDeliveringMessage(id: message.id) { blocks in
                             if let blocks { withdrawnMessageToEdit = blocks }
                         }
-                    },
+                    } : nil,
                     onRemove: { session.withdrawDeliveringMessage(id: message.id) }
                 )
                 .plumeID(AccessibilityID.deliveringMessage, label: "\(index)", value: message.blocks.plainText)
@@ -1616,7 +1616,8 @@ private struct QueuedMessageChip: View, ThemedView {
     var imageCount = 0
     var state = State.queued
     var onSendNow: () -> Void = {}
-    var onEdit: () -> Void = {}
+    /// Nil for a message Plume wrote, which only the user's own text can replace.
+    var onEdit: (() -> Void)?
     var onRemove: () -> Void = {}
 
     var body: some View {
@@ -1688,13 +1689,15 @@ private struct QueuedMessageChip: View, ThemedView {
 
     private func editAndRemove(removeHelp: String) -> some View {
         HStack(spacing: 4) {
-            Button(action: onEdit) {
-                Image(systemName: "pencil.circle.fill")
-                    .emphasis(.secondary)
+            if let onEdit {
+                Button(action: onEdit) {
+                    Image(systemName: "pencil.circle.fill")
+                        .emphasis(.secondary)
+                }
+                .buttonStyle(.plain)
+                .help("Edit")
+                .plumeID(AccessibilityID.queuedMessageEditButton, label: text, invoke: onEdit)
             }
-            .buttonStyle(.plain)
-            .help("Edit")
-            .plumeID(AccessibilityID.queuedMessageEditButton, label: text, invoke: onEdit)
             Button(action: onRemove) {
                 Image(systemName: "xmark.circle.fill")
                     .emphasis(.secondary)

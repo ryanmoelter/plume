@@ -68,6 +68,7 @@ protocol AgentSession: AnyObject, Observable {
     func steer(blocks: [UserContentBlock]) async -> Bool
     func steer(text: String) async -> Bool
     @discardableResult func removeQueuedMessage(at index: Int) -> [UserContentBlock]?
+    func canEditQueuedMessage(at index: Int) -> Bool
     /// Sends every queued message and `blocks`, last, as one message. With no
     /// turn running it starts a turn. Mid-turn, Claude Code joins it to the
     /// running turn; Codex ends that turn first.
@@ -85,6 +86,10 @@ protocol AgentSession: AnyObject, Observable {
 }
 
 extension AgentSession {
+    func canEditQueuedMessage(at index: Int) -> Bool {
+        queuedMessages.indices.contains(index)
+    }
+
     var isRemotelyControlled: Bool {
         guard !hasExited, let session = self as? HeadlessSession else { return false }
         switch session.remoteControl {

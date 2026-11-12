@@ -102,6 +102,31 @@ struct ControlChildSessionCommandsTests {
         #expect(parentSession.userMessagePreamble?()?.contains("Need a decision") == true)
     }
 
+    @Test func hostMessagesTheUserRemovesGoBackToTheParentAsHeldNotes() throws {
+        let task = TaskStore.createTask(in: context, title: "Task", siblings: [])
+        let parent = try #require(task.tabs.first)
+        let child = TaskStore.addChildTab(to: task, parent: parent, in: context)
+        try context.save()
+        let parentSession = HeadlessSession(tabID: parent.id, taskID: task.id)
+        let childSession = HeadlessSession(tabID: child.id, taskID: task.id)
+        ChildSessionCoordinator.shared.attach(to: parentSession, task: task, tab: parent)
+        ChildSessionCoordinator.shared.attach(to: childSession, task: task, tab: child)
+        defer { ChildSessionCoordinator.shared.tabForgotten(parent.id) }
+        let wake = ChildSessionWakePolicy.Note(childID: child.id, text: "WAKE NOTE", kind: .message)
+
+        parentSession.onHostMessagesReturned?([
+            HostMessage(display: [.text("shown")], wire: [.text("WAKE NOTE")], origin: .notes([wake]))
+        ])
+        childSession.onHostMessagesReturned?([
+            HostMessage(display: [.text("Run the tests")], wire: [.text("framed")], origin: .fromParent(text: "Run the tests"))
+        ])
+
+        let preamble = try #require(parentSession.userMessagePreamble?())
+        #expect(preamble.contains("WAKE NOTE"))
+        #expect(preamble.contains("removed your message"))
+        #expect(preamble.contains("Run the tests"))
+    }
+
     @Test func aQueuedNoteShowsItsEventSummaries() {
         let child = ChildSessionFormats.Participant(sessionID: "C1", title: "Fix", name: "fix")
         let notes = ChildSessionCoordinator.joined([

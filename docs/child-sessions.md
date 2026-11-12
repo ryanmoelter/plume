@@ -89,7 +89,14 @@ The reply is cut to 400 characters, with each newline shown as ⏎. A message fr
 
 If a child's process exits mid-turn, the parent gets the same note with "The session exited before finishing its turn: <reason>", under the usual wake rules.
 
-`HeadlessSession.submitFromHost` sends a note as a user turn and marks the turn that carries it as **host-driven**, once the CLI has taken it. `AgentTurnOutcome.isHostDriven` reports that at the turn's end. A note waiting in the queue shows a display text: the parent's message, or each note's one-line summary. The note itself replaces it only when it is sent, and a note put back in the queue by a restart or Reconnect keeps its host-driven marker. Held notes for the user's message are likewise added only when that message is sent, so a queued message shows only what the user wrote.
+`HeadlessSession.submitFromHost` sends a note as a user turn and marks the turn that carries it as **host-driven**, once the CLI has taken it. `AgentTurnOutcome.isHostDriven` reports that at the turn's end. Held notes for the user's message are added only when that message is sent, so a queued message shows only what the user wrote.
+
+Each queue entry is a `QueuedMessage` with its own identity. Its parts are either the user's text or a `HostMessage`: a display text (the parent's message, or each note's one-line summary), the wire text that is actually sent, and a `HostMessageOrigin`. Nothing is matched by equal text, so a parent and a user queueing the same words keep their own roles.
+
+- **A turn the CLI never took goes back as one entry holding every part.** A restart, an exit, or a failed send keeps each host part's wire text and marker, and Reconnect and Send Now after an exit carry the entries over through `relaunchHeadless`.
+- **Only the user's own text can be edited.** A host chip has no Edit button, and Up-arrow recall skips it.
+- **A host message the user removes or withdraws goes back to the coordinator, never into the composer** (`onHostMessagesReturned`). Wake notes return to the parent's policy as held. A parent's message taken off a child's queue becomes a held note telling the parent it was never read. A withdrawn turn that carried the only host message stops being host-driven.
+- **A host message still arriving when the turn's delivery grace ends marks the next turn the CLI begins**, so the turn that answers it is the one that reports as host-driven.
 
 ## When a note wakes the parent
 

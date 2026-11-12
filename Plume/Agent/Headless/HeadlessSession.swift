@@ -234,7 +234,9 @@ final class HeadlessSession: AgentSession {
     private(set) var hasReportedModeAndModel = false
 
     /// Messages typed while a turn is in flight, sent when it finishes.
-    private(set) var queuedMessages: [[UserContentBlock]] = []
+    private(set) var queue: [QueuedMessage] = []
+
+    var queuedMessages: [[UserContentBlock]] { queue.map(\.display) }
 
     /// Messages written into the running turn that the CLI has not put in
     /// front of the model yet. It does that at the turn's next API request,
@@ -285,10 +287,15 @@ final class HeadlessSession: AgentSession {
     /// A preamble already taken for a message that never reached the CLI,
     /// which the next one carries instead.
     @ObservationIgnored private var unsentPreamble: String?
-    /// Messages `submitFromHost` queued that no turn has carried yet. The
-    /// queue holds each one's `display`, and sending swaps in its `wire`.
-    @ObservationIgnored private var hostMessages: [HostMessage] = []
-    @ObservationIgnored private var turnCarriesHostMessage = false
+    /// Handed host messages the user took off the queue or withdrew, which
+    /// never reach the composer.
+    @ObservationIgnored var onHostMessagesReturned: (([HostMessage]) -> Void)?
+    /// Host messages the running turn carries.
+    @ObservationIgnored private var turnHostMessageCount = 0
+    /// Host messages still on their way in when a held turn end stopped
+    /// waiting for them, so the turn the CLI begins next answers them.
+    @ObservationIgnored private var hostMessagesAwaitingTurn = 0
+    private var turnCarriesHostMessage: Bool { turnHostMessageCount > 0 }
 
     @ObservationIgnored private let statusEngine: StatusEngine
     @ObservationIgnored private let quotaStore: QuotaStore
@@ -423,7 +430,8 @@ final class HeadlessSession: AgentSession {
     func stopForRestart() -> AgentProcess? {
         isRestarting = true
         requeue(delivering: deliveringMessages.filter { $0.state != .absorbed })
-        turnCarriesHostMessage = false
+        turnHostMessageCount = 0
+        hostMessagesAwaitingTurn = 0
         let stopping = close(markingExited: false)
         stopping?.terminate()
         return stopping
@@ -494,35 +502,33 @@ final class HeadlessSession: AgentSession {
 
     /// A message Plume writes on another session's behalf. It queues like a
     /// user's message, showing `display` while it waits, and the turn that
-    /// carries it reports as host-driven.
+    /// carries it reports as host-driven. `origin` goes back to the host if
+    /// the user takes the message off the queue.
     @discardableResult
-    func submitFromHost(blocks: [UserContentBlock], display: [UserContentBlock]? = nil) -> Delivery {
+    func submitFromHost(
+        blocks: [UserContentBlock],
+        display: [UserContentBlock]? = nil,
+        origin: HostMessageOrigin? = nil
+    ) -> Delivery {
         let wire = blocks.normalized
         guard wire.hasContent else { return .queued }
         let shown = display?.normalized.hasContent == true ? display!.normalized : wire
-        hostMessages.append(HostMessage(display: shown, wire: wire))
-        return submit(blocks: shown, midTurn: queuedMessageDelivery())
+        let message = HostMessage(display: shown, wire: wire, origin: origin)
+        return submit(QueuedMessage(parts: [.host(message)]), midTurn: queuedMessageDelivery())
     }
 
-    /// The wire form of a turn made of `parts`, decided only as it is sent.
-    /// Host messages leave `hostMessages` here; `requeue` puts them back.
-    private func outgoing(_ parts: [[UserContentBlock]]) -> OutgoingTurn {
-        var hosts: [HostMessage] = []
-        var wires: [[UserContentBlock]] = []
-        var carriesUserMessage = false
-        for part in parts {
-            if let index = hostMessages.firstIndex(where: { $0.display == part }) {
-                let host = hostMessages.remove(at: index)
-                hosts.append(host)
-                wires.append(host.wire)
-            } else {
-                carriesUserMessage = true
-                wires.append(part)
-            }
-        }
-        var turn = OutgoingTurn(display: parts.mergedIntoOneTurn, body: wires.mergedIntoOneTurn, hosts: hosts)
+    /// Submits a message carried over from another session, keeping any
+    /// host message in it whole.
+    @discardableResult
+    func submit(_ message: QueuedMessage) -> Delivery {
+        submit(message, midTurn: queuedMessageDelivery())
+    }
+
+    /// The turn `messages` make, with the preamble decided only as it is sent.
+    private func outgoing(_ messages: [QueuedMessage]) -> OutgoingTurn {
+        var turn = OutgoingTurn(parts: messages.flatMap(\.parts))
         // A note in front of a slash command would stop the CLI reading it as one.
-        guard carriesUserMessage,
+        guard turn.userBlocks != nil,
               !turn.body.plainText.trimmingCharacters(in: .whitespacesAndNewlines).hasPrefix("/"),
               let preamble = unsentPreamble ?? userMessagePreamble?(), !preamble.isEmpty
         else { return turn }
@@ -532,15 +538,15 @@ final class HeadlessSession: AgentSession {
     }
 
     /// Puts a turn the CLI never took back in the queue, as one message.
-    /// Any host message in it keeps its wire form and its marker, and the
-    /// preamble waits for the next message the user sends.
+    /// Its host messages keep their wire form and marker, and the preamble
+    /// waits for the next message the user sends.
     private func requeue(_ turn: OutgoingTurn, atFront: Bool) {
+        let message = QueuedMessage(parts: turn.parts)
         if atFront {
-            queuedMessages.insert(turn.display, at: 0)
+            queue.insert(message, at: 0)
         } else {
-            queuedMessages.append(turn.display)
+            queue.append(message)
         }
-        if !turn.hosts.isEmpty { hostMessages.insert(HostMessage(display: turn.display, wire: turn.body), at: 0) }
         restorePreamble(of: turn)
     }
 
@@ -549,42 +555,51 @@ final class HeadlessSession: AgentSession {
         unsentPreamble = [preamble, unsentPreamble].compactMap { $0 }.joined(separator: "\n\n")
     }
 
-    /// Starts a turn carrying `parts`. False puts them back in the queue,
+    private func returnToHost(_ messages: [HostMessage]) {
+        guard !messages.isEmpty else { return }
+        onHostMessagesReturned?(messages)
+    }
+
+    /// Starts a turn carrying `messages`. False puts them back in the queue,
     /// merged, for a process that could not take the line.
     @discardableResult
-    private func startTurn(carrying parts: [[UserContentBlock]], requeueAtFront: Bool = true) -> Bool {
+    private func startTurn(carrying messages: [QueuedMessage], requeueAtFront: Bool = true) -> Bool {
         beginTurn()
-        let turn = outgoing(parts)
+        let turn = outgoing(messages)
         guard send(StreamJSONEncoder.userTurn(blocks: turn.wire)) else {
             requeue(turn, atFront: requeueAtFront)
             isWorking = false
             return false
         }
-        if !turn.hosts.isEmpty { turnCarriesHostMessage = true }
+        turnHostMessageCount += turn.hosts.count
         return true
     }
 
     private func submit(blocks: [UserContentBlock], midTurn delivery: QueuedMessageDelivery) -> Delivery {
         let normalized = blocks.normalized
         guard normalized.hasContent else { return .queued }
+        return submit(QueuedMessage(parts: [.user(normalized)]), midTurn: delivery)
+    }
+
+    private func submit(_ message: QueuedMessage, midTurn delivery: QueuedMessageDelivery) -> Delivery {
         guard !isRestarting else {
-            queuedMessages.append(normalized)
+            queue.append(message)
             return .queued
         }
         guard !isWorking else {
-            queuedMessages.append(normalized)
+            queue.append(message)
             if delivery == .afterToolCall, sendQueueIntoRunningTurn() { return .sent }
             return .queued
         }
-        return startTurn(carryingQueue: [normalized], requeueAtFront: false)
+        return startTurn(carryingQueue: [message], requeueAtFront: false)
     }
 
-    private func startTurn(carryingQueue parts: [[UserContentBlock]], requeueAtFront: Bool) -> Delivery {
-        if openingMessage == nil { openingMessage = parts.mergedIntoOneTurn.plainText }
+    private func startTurn(carryingQueue messages: [QueuedMessage], requeueAtFront: Bool) -> Delivery {
+        if openingMessage == nil { openingMessage = messages.map(\.display).mergedIntoOneTurn.plainText }
         hasUserSubmitted = true
         // A failed send keeps the message queued, so a restart can still
         // deliver it instead of dropping what the user typed.
-        guard startTurn(carrying: parts, requeueAtFront: requeueAtFront) else {
+        guard startTurn(carrying: messages, requeueAtFront: requeueAtFront) else {
             if lastError == nil { lastError = "claude is not running; the message was not sent" }
             return .queued
         }
@@ -592,28 +607,39 @@ final class HeadlessSession: AgentSession {
         return .sent
     }
 
-    /// Removes and returns the queued message at `index`, so a caller can
-    /// both dequeue it and recover its content (e.g. to edit it in the
-    /// composer). Nil when the index is out of range.
+    /// Removes the queued message at `index` and returns what the user wrote
+    /// in it, for the composer to edit. A host message in it goes back to
+    /// the host instead. Nil when the index is out of range or the message
+    /// holds nothing the user wrote.
     @discardableResult
     func removeQueuedMessage(at index: Int) -> [UserContentBlock]? {
-        guard queuedMessages.indices.contains(index) else { return nil }
-        let removed = queuedMessages.remove(at: index)
-        if let host = hostMessages.firstIndex(where: { $0.display == removed }) { hostMessages.remove(at: host) }
-        return removed
+        guard queue.indices.contains(index) else { return nil }
+        let removed = queue.remove(at: index)
+        returnToHost(removed.parts.hosts)
+        return removed.parts.userBlocks
+    }
+
+    /// Only what the user wrote can be edited.
+    func canEditQueuedMessage(at index: Int) -> Bool {
+        queue.indices.contains(index) && queue[index].parts.userBlocks != nil
     }
 
     /// Mid-turn, the merged message joins the running turn rather than
     /// interrupting it, because an interrupt can also stop background
-    /// subagents.
+    /// subagents. After an exit the queue merges into one message, for the
+    /// resume that delivers it.
     func sendNow(appending blocks: [UserContentBlock]) {
         let normalized = blocks.normalized
-        if normalized.hasContent { queuedMessages.append(normalized) }
-        guard !queuedMessages.isEmpty, !isRestarting else { return }
+        if normalized.hasContent { queue.append(QueuedMessage(parts: [.user(normalized)])) }
+        guard !queue.isEmpty, !isRestarting else { return }
+        guard !hasExited else {
+            queue = [QueuedMessage(parts: queue.flatMap(\.parts))]
+            return
+        }
         guard isWorking else {
-            let parts = queuedMessages
-            queuedMessages = []
-            startTurn(carryingQueue: parts, requeueAtFront: true)
+            let messages = queue
+            queue = []
+            startTurn(carryingQueue: messages, requeueAtFront: true)
             return
         }
         sendQueueIntoRunningTurn()
@@ -623,15 +649,15 @@ final class HeadlessSession: AgentSession {
     /// the queue as it was, for a process that could not take the line.
     @discardableResult
     private func sendQueueIntoRunningTurn() -> Bool {
-        let parts = queuedMessages
-        queuedMessages = []
-        let turn = outgoing(parts)
+        let messages = queue
+        queue = []
+        let turn = outgoing(messages)
         let message = DeliveringMessage(id: UUID().uuidString.lowercased(), turn: turn)
         guard send(StreamJSONEncoder.userTurn(blocks: turn.wire, priority: .next, uuid: message.id)) else {
             requeue(turn, atFront: true)
             return false
         }
-        if !turn.hosts.isEmpty { turnCarriesHostMessage = true }
+        turnHostMessageCount += turn.hosts.count
         deliveringMessages.append(message)
         return true
     }
@@ -642,8 +668,10 @@ final class HeadlessSession: AgentSession {
     }
 
     /// Asks the CLI to drop a delivering message before the model sees it.
-    /// `completion` gets the message's blocks once it is withdrawn, or nil
-    /// when the CLI had already taken it in, refused, or exited first.
+    /// `completion` gets what the user wrote in it once it is withdrawn, or
+    /// nil when it held nothing the user wrote, or the CLI had already taken
+    /// it in, refused, or exited first. A host message in it goes back to
+    /// the host.
     func withdrawDeliveringMessage(id: String, completion: @escaping ([UserContentBlock]?) -> Void = { _ in }) {
         guard let index = deliveringMessages.firstIndex(where: { $0.id == id }),
               deliveringMessages[index].state == .delivering
@@ -682,7 +710,12 @@ final class HeadlessSession: AgentSession {
         }
         if let index { deliveringMessages.remove(at: index) }
         restorePreamble(of: message.turn)
-        completion(message.blocks)
+        let withdrawnHosts = message.turn.hosts.count
+        let awaiting = min(withdrawnHosts, hostMessagesAwaitingTurn)
+        hostMessagesAwaitingTurn -= awaiting
+        turnHostMessageCount = max(0, turnHostMessageCount - (withdrawnHosts - awaiting))
+        returnToHost(message.turn.hosts)
+        completion(message.turn.userBlocks)
         // Nothing is left for the CLI to run after the `result` it already sent.
         if deliveringMessages.isEmpty, let held = heldResult {
             endDeliveryHold()
@@ -835,7 +868,6 @@ final class HeadlessSession: AgentSession {
             }
         } + sideQuestions
         openingMessage = openingMessage ?? previous.openingMessage
-        hostMessages = previous.hostMessages + hostMessages
         unsentPreamble = unsentPreamble ?? previous.unsentPreamble
         titleRequester = previous.titleRequester
         hasUserSubmitted = hasUserSubmitted || previous.hasUserSubmitted
@@ -1417,6 +1449,8 @@ final class HeadlessSession: AgentSession {
     /// turn's reply before the transcript has caught up with it.
     private func beginUnpromptedTurn() {
         endDeliveryHold()
+        turnHostMessageCount += hostMessagesAwaitingTurn
+        hostMessagesAwaitingTurn = 0
         isWorking = true
         lastError = nil
         wasInterrupted = false
@@ -1515,8 +1549,8 @@ final class HeadlessSession: AgentSession {
 
     /// Puts messages back in the queue without sending them, for a restart
     /// whose new process failed to launch: a reconnect delivers them.
-    func requeue(_ messages: [[UserContentBlock]]) {
-        queuedMessages.append(contentsOf: messages)
+    func requeue(_ messages: [QueuedMessage]) {
+        queue.append(contentsOf: messages)
     }
 
     /// Shown for an error result that carries no text, until the CLI's own
@@ -1545,6 +1579,9 @@ final class HeadlessSession: AgentSession {
             guard !Task.isCancelled, let self, let held = self.heldResult else { return }
             self.deliveryHold = nil
             self.heldResult = nil
+            let unread = self.deliveringMessages.reduce(0) { $0 + $1.turn.hosts.count }
+            self.turnHostMessageCount = max(0, self.turnHostMessageCount - unread)
+            self.hostMessagesAwaitingTurn += unread
             self.finishTurn(held)
         }
     }
@@ -1556,7 +1593,7 @@ final class HeadlessSession: AgentSession {
             wasInterrupted: wasInterrupted,
             isHostDriven: turnCarriesHostMessage
         )
-        turnCarriesHostMessage = false
+        turnHostMessageCount = 0
         // Last, so a message the observer sends finds the queue already moved on.
         defer { onTurnFinished?(outcome) }
         isWorking = false
@@ -1631,8 +1668,8 @@ final class HeadlessSession: AgentSession {
     }
 
     private func sendNextQueuedMessage() {
-        guard !queuedMessages.isEmpty else { return }
-        let next = queuedMessages.removeFirst()
+        guard !queue.isEmpty else { return }
+        let next = queue.removeFirst()
         startTurn(carrying: [next])
     }
 
@@ -1640,7 +1677,8 @@ final class HeadlessSession: AgentSession {
         hasExited = true
         let unfinished = isWorking && !isClosed
         let carriedHostMessage = turnCarriesHostMessage
-        turnCarriesHostMessage = false
+        turnHostMessageCount = 0
+        hostMessagesAwaitingTurn = 0
         // The next launch reads the tab's list anyway.
         clearPendingRestart()
         isWorking = false
@@ -1754,21 +1792,73 @@ struct DeliveringMessage: Identifiable, Equatable {
 
     /// What the chip shows: the queued messages, merged.
     var blocks: [UserContentBlock] { turn.display }
+
+    /// Only what the user wrote can be edited.
+    var isEditable: Bool { turn.userBlocks != nil }
 }
 
 /// A message `submitFromHost` queued: what the queue shows, and what is sent.
 struct HostMessage: Equatable {
     let display: [UserContentBlock]
     let wire: [UserContentBlock]
+    var origin: HostMessageOrigin?
+}
+
+/// One entry in the queue. A turn the CLI never took comes back as one
+/// entry holding every part it carried, so each keeps its own role.
+struct QueuedMessage: Identifiable, Equatable {
+    enum Part: Equatable {
+        case user([UserContentBlock])
+        case host(HostMessage)
+
+        var display: [UserContentBlock] {
+            switch self {
+            case .user(let blocks): blocks
+            case .host(let message): message.display
+            }
+        }
+
+        var wire: [UserContentBlock] {
+            switch self {
+            case .user(let blocks): blocks
+            case .host(let message): message.wire
+            }
+        }
+    }
+
+    let id: UUID
+    let parts: [Part]
+
+    init(id: UUID = UUID(), parts: [Part]) {
+        self.id = id
+        self.parts = parts
+    }
+
+    var display: [UserContentBlock] { parts.map(\.display).mergedIntoOneTurn }
+}
+
+extension [QueuedMessage.Part] {
+    var hosts: [HostMessage] {
+        compactMap { if case .host(let message) = $0 { message } else { nil } }
+    }
+
+    /// What the user wrote, merged, or nil when they wrote none of it.
+    var userBlocks: [UserContentBlock]? {
+        let written = compactMap { if case .user(let blocks) = $0 { blocks } else { nil } }
+        return written.isEmpty ? nil : written.mergedIntoOneTurn
+    }
 }
 
 /// One user turn as the queue shows it and as the CLI gets it.
 struct OutgoingTurn: Equatable {
-    let display: [UserContentBlock]
-    /// The wire form, before any preamble.
-    let body: [UserContentBlock]
-    let hosts: [HostMessage]
+    let parts: [QueuedMessage.Part]
     var preamble: String?
+
+    var display: [UserContentBlock] { parts.map(\.display).mergedIntoOneTurn }
+    /// The wire form, before any preamble.
+    var body: [UserContentBlock] { parts.map(\.wire).mergedIntoOneTurn }
+    var hosts: [HostMessage] { parts.hosts }
+    var userBlocks: [UserContentBlock]? { parts.userBlocks }
 
     var wire: [UserContentBlock] {
         guard let preamble else { return body }
