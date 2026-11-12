@@ -400,7 +400,8 @@ claude -p --resume <old-id> --fork-session --session-id <new-id> --resume-sessio
 
 - `--fork-session` writes a **new `.jsonl` under a new session id**, copying history verbatim with uuids preserved. The original file is untouched.
 - `--session-id` lets the host choose the fork's id up front, so a tab can record it before the process exists.
-- `--resume-session-at` resumes only up to a given entry. Cut at the **parent** of the message being redone, not the message itself — cutting at the message keeps it, and the fork opens on two consecutive user turns.
+- `--resume-session-at` resumes only up to a given entry. Leaving it out forks the whole conversation, and that works while the source is mid tool call: a child session forks its parent from inside the parent's `start_session` call this way.
+- `--resume-session-at` cuts at the entry it names. Cut at the **parent** of the message being redone, not the message itself — cutting at the message keeps it, and the fork opens on two consecutive user turns.
 
 **`--resume-session-at` is undocumented**: the CLI parses it but `claude --help` does not list it, so an upgrade can withdraw it without warning. That is why forking is the secondary path and `rewind_conversation` is the default. Companion hidden flags: `--resume-drops-turn`, `--rewind-files`, `--reply-on-resume`.
 
@@ -411,6 +412,34 @@ claude -p --resume <old-id> --fork-session --session-id <new-id> --resume-sessio
 **A forked session writes nothing until its first turn produces content.** Plume forks with an empty prompt, so the process sits idle and no `.jsonl` exists until the user sends something. A missing transcript straight after a fork is the expected state, not a failed launch — and a tab that waits for one before enabling its composer can never get one.
 
 **Resuming a session whose process is still running does not disturb the original.** Both processes stay alive and independent; measured across a fork with a per-second process watch.
+
+## The host's own MCP server — `mcp_message`
+
+Measured against 2.1.321. The host can serve MCP tools itself, over the control plane, with no process or socket of its own. Plume serves child sessions this way; `docs/child-sessions.md` covers the tools.
+
+Name the server in `initialize`:
+
+```json
+{"type":"control_request","request_id":"plume-1","request":{"subtype":"initialize","hooks":{},"sdkMcpServers":["plume"]}}
+```
+
+The CLI then speaks JSON-RPC to it, one message per control request:
+
+```json
+{"type":"control_request","request_id":"…","request":{"subtype":"mcp_message","server_name":"plume","message":{"method":"tools/list","jsonrpc":"2.0","id":1}}}
+```
+
+- **The sequence is `initialize`, `notifications/initialized`, `tools/list`, then a `tools/call` per use.** The first three arrive about 0.3 s after the host's own `initialize`, before the CLI has replied to it. Answer them whatever state the handshake is in.
+- **Reply with the JSON-RPC message under `mcp_response`:**
+
+  ```json
+  {"type":"control_response","response":{"subtype":"success","request_id":"…","response":{"mcp_response":{"jsonrpc":"2.0","id":1,"result":{…}}}}}
+  ```
+
+  A notification has no id and takes no JSON-RPC reply, but the control request still needs an answer: send `"response":{}`.
+- **In `tools/call`, `params.name` is the bare tool name** (`start_session`), and `params._meta["claudecode/toolUseId"]` carries the call's `tool_use` id. A tool's failure is a `result` with `isError: true`, not a JSON-RPC `error`, so the model reads the message.
+- **The model knows the tool as `mcp__<server>__<tool>`**, and so does `can_use_tool`, which also carries `"mcp_server":{"name":"plume","source":"sdk"}`. Without a rule allowing it, every call asks like any other tool. Plume allows its own tools in the `can_use_tool` handler.
+- **The server's `instructions` reach the model**, but the tools themselves are deferred and load through ToolSearch, so the instructions must name each tool in full for the model to find it.
 
 ## Context usage — `get_context_usage`
 
