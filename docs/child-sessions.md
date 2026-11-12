@@ -10,21 +10,23 @@ The code lives in `Plume/Agent/ChildSessions/`. The wire shapes are in the `mcp_
 - **`ChildSessionCoordinator`** is that closure. It opens a child's tab, launches it, carries notes both ways and decides when a note wakes the parent. `AgentLauncher.launchClaudeHeadless` attaches it to every session before `start`.
 - **`ChildSessionWakePolicy`** is the pure state machine for one parent's notes.
 - **`ChildSessionFormats`** holds every piece of text the models see.
+- **`ChildSessionProposalStore`** holds one parent's proposals, as pure rules over the JSON in `TaskTab.childProposalsJSON`.
 - **`SideSessionEvent`** is the `<side-sessions-event>` footer under a note, which the chat renders as one row.
 
 A session's id, to the model, is its **tab's UUID**, not the CLI's session id. It stays the same across resumes, forks and restarts.
 
 ## The tools
 
-Plume answers `can_use_tool` for its own tools (`PlumeMCPServer.decision`). In manual mode, a `start_session` call that would start a session now (any call whose `initiation` is not `own_initiative` or `offer`) asks through the usual permission prompt, like any other action; so does a mode Plume does not recognize, such as `default` or `dontAsk`. The mode is the one the CLI last confirmed: its launch mode, `init`, a `status` line, or a `set_permission_mode` reply, never a change still in flight (`HeadlessSession.confirmedPermissionMode`). Every other call is allowed without asking: it acts only inside Plume, and a prompt would stall a turn the user already asked for. In auto, accept edits and bypass, a start is allowed too. Plan mode refuses a start (see Permissions).
+Plume answers `can_use_tool` for its own tools (`PlumeMCPServer.decision`). In manual mode, a `start_session` call that would start a session now (a `proposal_id`, or any call whose `initiation` is not `own_initiative` or `offer`) asks through the usual permission prompt, like any other action; so does a mode Plume does not recognize, such as `default` or `dontAsk`. The mode is the one the CLI last confirmed: its launch mode, `init`, a `status` line, or a `set_permission_mode` reply, never a change still in flight (`HeadlessSession.confirmedPermissionMode`). Every other call is allowed without asking, a proposal included: it acts only inside Plume, and a prompt would stall a turn the user already asked for. In auto, accept edits and bypass, a start is allowed too. Plan mode refuses a start and allows a proposal (see Permissions). A start from a proposal's card never asks, since the click is the user's approval.
 
 ### `mcp__plume__start_session`
 
 | Argument | Required | Meaning |
 |---|---|---|
-| `title` | yes | The tab's title, under 60 characters |
-| `prompt` | yes | The task, as a self-contained brief |
-| `initiation` | yes | `user_asked`, `own_initiative` or `offer`. Only `user_asked` is accepted; the others return "proposals arrive in a later version" (PLUME-419) |
+| `title` | yes, unless `proposal_id` | The tab's title, under 60 characters |
+| `prompt` | yes, unless `proposal_id` | The task, as a self-contained brief |
+| `initiation` | yes, unless `proposal_id` | `user_asked` starts the session now. `own_initiative` records a proposal instead (see Proposals). Plume treats `offer` as `own_initiative`: it does not wait for the user's answer, and it needs a `prompt` |
+| `proposal_id` | no | Starts that proposal exactly as proposed. Only `wake_when_done` may accompany it |
 | `name` | no | A handle of `a-z`, `0-9` and `-`, at most 24 characters. Names the worktree branch, and the child in event rows |
 | `background` | no | What the child needs from this conversation, at least 80 characters. Ignored for a fork |
 | `context` | no | `fresh` (default) or `fork`, which copies the parent's whole conversation |
@@ -35,6 +37,10 @@ Plume answers `can_use_tool` for its own tools (`PlumeMCPServer.decision`). In m
 The result tells the parent to end its turn:
 
 > Started session "Fix login" (session_id: 6F1C…, name: fix-login). It runs on its own; you get a note here when its turn ends. The sessions you start share a notes folder for hand-over notes and large findings: <path>. Don't repeat the introduction: at most one line on how you'll report back, then end your turn — do not wait for it.
+
+### `mcp__plume__dismiss_task`
+
+`{task_id, reason?}` withdraws a pending proposal, which then reads as dismissed. The result is "Dismissed "Fix login" (task_id: task_…). Its card now reads as dismissed, and it can no longer be started." A proposal that is unknown, expired, dismissed or started is an error. A child's `tools/list` does not have it.
 
 ### `mcp__plume__send_message`
 
@@ -47,6 +53,27 @@ A child's `tools/list` has only `send_message`, so a child cannot start sessions
 A child never starts with more freedom than its parent has at that moment. `ChildSessionPermissions` orders the modes from strictest to most permissive: plan, manual, accept edits, auto, bypass. The child gets the requested mode, or the parent's, capped at the parent's live mode. Bypass also needs Settings ▸ Agents ▸ "Show bypass permissions"; without it a child that would get bypass gets auto. A parent in plan mode cannot start a child: `can_use_tool` denies the call, and the tool itself returns the same error, telling it to exit plan mode first. A parent that entered plan mode on its own counts, since its `status` line reports the change. The parent's mode here is the one the gate reads, and a mode Plume does not recognize counts as manual.
 
 The cap holds after launch too. Approving a plan in the child, or accepting a mode suggestion there, raises its mode only as far as the parent's live mode (`HeadlessSession.permissionCeiling`). Once the parent is gone, the ceiling is the mode the child launched with. A parent in plan mode caps an approved plan at manual, so the plan can still start work. The child's mode picker holds the same cap while the parent is open: it disables the modes above it and ends with a disabled "Limited by the parent session" line (`composer-permission-mode-limited-note`). Once the parent is gone, the picker offers every mode. A cap never lowers the child below the mode it is already in.
+
+## Proposals
+
+A call with `initiation: "own_initiative"` starts nothing. It records a proposal on the parent's tab and returns Desktop's text:
+
+> Proposed "Fix login" (task_id: task_0f3a9c21). The user sees a card and nothing runs until they start it — with a click, or by telling you (then call start_session with proposal_id task_0f3a9c21 and nothing else). It expires in 7 days unless started; dismiss_task withdraws it sooner if it goes stale. Don't wait for it and don't repeat the introduction; carry on with what you were doing.
+
+- **A proposal persists.** `TaskTab.childProposalsJSON` holds the title, brief, every launch setting from the call, the creation time and what became of it, so it survives a relaunch. `ChildSessionCoordinator.withProposals` reads it, runs the change, then prunes and saves. A pending proposal older than 7 days is pruned; a started or dismissed one stays 30 days, so its card keeps saying so.
+- **Plan mode allows a proposal**, since it starts nothing. Starting one is refused there like any start.
+- **`start_session` with `proposal_id` starts it** through the same path as a `user_asked` call, with the stored settings. The permission cap is checked against the parent's live mode at that moment, not when it was proposed. An unknown, expired, dismissed or already-started id is a tool error, and so is a second start while the first is still launching. The proposal records the child's session id and name.
+- **The card.** In the parent's chat, a `mcp__plume__start_session` tool row whose result names a `task_id` renders as `ChildSessionProposalCard`: the title, the first lines of the brief, and Start and Dismiss. Its state comes from the parent tab's store, read through the `chatProposalBoard` environment value, so it follows the store live: started (with the child's name, and a click selects the child's tab), dismissed, or expired. A proposal the store has pruned reads as expired. A start the user makes from the card that fails, as in plan mode, shows its reason on the card (`ChildSessionProposalActivity`).
+- **Starting from the card tells the parent**, as a note that wakes it like a child's message:
+
+```
+<system-reminder>
+The user started your proposal task_0f3a9c21 ("Fix login") as session 6F1C…. It runs on its own; a note reaches you when it ends a turn.
+</system-reminder>
+<side-sessions-event>{"event":"proposal_started","name":"fix-login","session_id":"6F1C…","text":"","title":"Fix login"}</side-sessions-event>
+```
+
+  The chat renders it as "↳ fix-login started from its proposal". A start by `proposal_id` sends no note, since the agent made it. Dismissing from the card tells the parent nothing: Desktop's `dismiss_task` description says a card the user answered "has already left", and no transcript shows Desktop sending a note for it.
 
 ## Starting a child
 
@@ -124,8 +151,8 @@ A session whose process has exited is resumed to take a note through `AgentLaunc
 
 ## What persists
 
-Only `TaskTab.parentTabIDRaw`. Held notes, batches, the interrupted state, names and `wake_when_done` live in memory, so after a relaunch a child still reports to its parent, and nothing else carries over.
+`TaskTab.parentTabIDRaw`, and a parent's proposals in `TaskTab.childProposalsJSON`. Held notes, batches, the interrupted state, names and `wake_when_done` live in memory, so after a relaunch a child still reports to its parent and a proposal can still start, and nothing else carries over.
 
 ## Driving it
 
-The debug control server has `child-session.start` and `child-session.report`; `docs/control-server.md` has the parameters. `child-session.start` launches a real `claude`. `child-session.report` exercises the wake policy without a model.
+The debug control server has `child-session.start`, `child-session.report`, `child-session.propose`, `child-session.proposals`, `child-session.proposal.start` and `child-session.proposal.dismiss`; `docs/control-server.md` has the parameters. `child-session.start` and `child-session.proposal.start` launch a real `claude`. `child-session.report` exercises the wake policy without a model, and the proposal commands exercise the store.
