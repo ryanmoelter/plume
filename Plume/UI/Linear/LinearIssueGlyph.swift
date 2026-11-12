@@ -67,9 +67,9 @@ struct LinearIssueGlyph: View, ThemedView {
         case .unstarted: "circle"
         case .started:
             switch progress {
-            case .quarter: "circle.lefthalf.striped.horizontal.inverse"
+            case .quarter: "circle.lefthalf.filled.righthalf.striped.horizontal.inverse"
             case .half: "circle.righthalf.filled"
-            case .threeQuarters: "circle.lefthalf.filled.righthalf.striped.horizontal.inverse"
+            case .threeQuarters: "circle.lefthalf.striped.horizontal.inverse"
             }
         case .completed: "checkmark.circle.fill"
         case .canceled: "xmark.circle.fill"

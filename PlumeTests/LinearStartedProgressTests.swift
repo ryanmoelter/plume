@@ -21,10 +21,14 @@ struct LinearStartedProgressTests {
         #expect(LinearStartedProgress(position: position, among: positions) == expected)
     }
 
-    @Test func everyFillNamesARealSymbol() {
-        for progress in [LinearStartedProgress.quarter, .half, .threeQuarters] {
-            let name = LinearIssueGlyph.symbolName(for: .started, progress: progress)
-            #expect(NSImage(systemSymbolName: name, accessibilityDescription: nil) != nil)
-        }
+    @Test(arguments: [
+        (LinearStartedProgress.quarter, "circle.lefthalf.filled.righthalf.striped.horizontal.inverse"),
+        (.half, "circle.righthalf.filled"),
+        (.threeQuarters, "circle.lefthalf.striped.horizontal.inverse"),
+    ])
+    func everyFillNamesItsRealSymbol(progress: LinearStartedProgress, expected: String) {
+        let name = LinearIssueGlyph.symbolName(for: .started, progress: progress)
+        #expect(name == expected)
+        #expect(NSImage(systemSymbolName: name, accessibilityDescription: nil) != nil)
     }
 }
