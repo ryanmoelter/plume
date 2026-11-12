@@ -48,6 +48,7 @@ nonisolated struct ControlServerRequest: Decodable {
         case "scrollChat": command = .scrollChat(try ScrollChatParams(from: decoder))
         case "tab.move": command = .moveTab(try TabMoveParams(from: decoder))
         case "tab.split": command = .splitTab(try TabMoveParams(from: decoder))
+        case "sidebar.reveal": command = .revealInSidebar(try SidebarRevealParams(from: decoder))
         default:
             throw DecodingError.dataCorruptedError(
                 forKey: .command, in: container, debugDescription: "unknown command \"\(name)\""
@@ -84,6 +85,7 @@ nonisolated enum ControlCommand {
     case scrollChat(ScrollChatParams)
     case moveTab(TabMoveParams)
     case splitTab(TabMoveParams)
+    case revealInSidebar(SidebarRevealParams)
 }
 
 /// Sets the window's content size, in points. With `live`, the size steps
@@ -875,6 +877,7 @@ nonisolated enum ControlResult: Encodable {
     case resize(ResizeResult)
     case scrollHitch(ScrollHitchReport)
     case tab(TabTaskResult)
+    case sidebarReveal(SidebarRevealResult)
 
     func encode(to encoder: Encoder) throws {
         switch self {
@@ -899,6 +902,7 @@ nonisolated enum ControlResult: Encodable {
         case .resize(let v): try v.encode(to: encoder)
         case .scrollHitch(let v): try v.encode(to: encoder)
         case .tab(let v): try v.encode(to: encoder)
+        case .sidebarReveal(let v): try v.encode(to: encoder)
         }
     }
 }

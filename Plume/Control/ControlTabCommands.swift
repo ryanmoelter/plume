@@ -42,7 +42,7 @@ enum ControlTabCommands {
         return context
     }
 
-    private static func liveTasks(in context: ModelContext) throws -> [WorkTask] {
+    static func liveTasks(in context: ModelContext) throws -> [WorkTask] {
         try context.fetch(FetchDescriptor<WorkTask>()).filter { !$0.isArchived }
     }
 
@@ -59,7 +59,7 @@ enum ControlTabCommands {
         return tab
     }
 
-    private static func task(_ name: String, among tasks: [WorkTask]) throws -> WorkTask {
+    static func task(_ name: String, among tasks: [WorkTask]) throws -> WorkTask {
         if let id = UUID(uuidString: name) {
             guard let task = tasks.first(where: { $0.id == id }) else { throw ControlError.notFound("task \(id)") }
             return task
