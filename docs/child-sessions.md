@@ -29,7 +29,7 @@ Plume allows both tools without asking, in the `can_use_tool` handler. They act 
 | `background` | no | What the child needs from this conversation, at least 80 characters. Ignored for a fork |
 | `context` | no | `fresh` (default) or `fork`, which copies the parent's whole conversation |
 | `use_worktree` | no | A worktree of its own, cut from the parent's HEAD. Defaults to whether the parent works in a worktree |
-| `model`, `effort`, `permission_mode` | no | Override the launch settings copied from the parent |
+| `model`, `effort`, `permission_mode` | no | Override the launch settings copied from the parent. `permission_mode` is capped at the parent's |
 | `wake_when_done` | no | Defaults to true. False holds every report for the parent's next turn |
 
 The result tells the parent to end its turn:
@@ -40,18 +40,23 @@ The result tells the parent to end its turn:
 
 `{to, message}`. A parent may message any child it started; a child may message only its parent, by id or as `"parent"`. Plume delivers the message itself, so the call returns at once: "Sent to …", or "Queued for …" when the target is mid-turn. Any other `to` is an error.
 
-A child's `tools/list` has only `send_message`, so a child cannot start sessions of its own.
+A child's `tools/list` has only `send_message`, so a child cannot start sessions of its own. A tab whose `parentTabIDRaw` is set stays a child after its parent closes; its `send_message` to the parent then returns an error saying the parent is closed.
+
+### Permissions
+
+A child never starts with more freedom than its parent has at that moment. `ChildSessionPermissions` orders the modes from strictest to most permissive: plan, manual, accept edits, auto, bypass. The child gets the requested mode, or the parent's, capped at the parent's live mode. Bypass also needs Settings ▸ Agents ▸ "Show bypass permissions"; without it a child that would get bypass gets auto. A parent in plan mode cannot start a child: the tool returns an error telling it to exit plan mode first.
 
 ## Starting a child
 
 `ChildSessionCoordinator.startSession`:
 
-1. Cuts the worktree, when the child gets one: a branch from `suggestedBranchName(name ?? title)` with the project's branch prefix, at the parent's `HEAD`. The task records it in `ownedWorktrees`, so archive and delete offer to remove it.
+1. Cuts the worktree, when the child gets one: a branch from `suggestedBranchName(name ?? title)` with the project's branch prefix. One `rev-parse` of the parent's live folder gives both the repository and the checkout, and the worktree starts at that checkout's `HEAD`. When the parent works in a subfolder of its checkout, the child works in the same subfolder of the worktree, if it exists there. If the parent's tab closes while the worktree is cut, the worktree and its branch are removed.
 2. Opens the tab with `TaskStore.addChildTab`, in the parent's pane, after the parent's other children. It does not take selection.
-3. Copies the parent's `TabLaunchChoices`, then applies `model`, `effort` and `permission_mode`. An explicit effort launches with `--effort`.
+3. Copies the parent's `TabLaunchChoices`, then the mode, model and effort its running session reports, then applies `model`, `effort` and the capped `permission_mode`. A chosen effort launches with `--effort`.
 4. Adds the **notes folder** with `--add-dir`: `~/Library/Application Support/Plume/side-session-notes/<parent tab ID>/`, shared by every child of one parent and outside every repository.
 5. Mints the child's CLI session id and records it on the tab before the process exists, as Fork to New Tab does, because a hidden chat tab is unmounted and records nothing.
 6. Launches with no prompt, then submits the brief with `submitFromHost`. A fresh child launches with `--session-id`; a fork with `--resume <parent> --fork-session --session-id <new>` and no `--resume-session-at`, which works while the parent is mid tool call.
+7. If the launch fails, the tool returns the failure, the tab closes, and a worktree this call cut is removed with its branch. The task records the worktree in `ownedWorktrees` only once the child has launched, so archive and delete offer to remove it.
 
 The brief uses Desktop's layout:
 
@@ -65,7 +70,9 @@ Task:
 Shared notes folder for this group of sessions (outside the repo; read siblings' notes there, leave hand-over notes or large findings there instead of pasting them into messages): <path>
 ```
 
-A fork has no background block. A fork that gets a worktree still launches where the parent's conversation lives, since that is where its transcript is, so its prompt gains a line naming the worktree's path and branch, and the worktree joins its `--add-dir` list.
+A fork has no background block. A fork that gets a worktree still launches where the parent's conversation lives, since that is where its transcript is, so its prompt gains a line naming the worktree's folder and branch, and the worktree joins its `--add-dir` list. Its tab records the worktree folder, where it is told to work, so the sidebar groups it there; its transcript path is recorded from the launch folder, so a resume finds it.
+
+The notes folder is never deleted, so the notes stay for the user to read after the sessions end.
 
 ## Notes
 
@@ -78,9 +85,11 @@ The session "Fix login" you started (6F1C…) finished a turn. It reported (quot
 <side-sessions-event>{"event":"turn_finished","name":"fix-login","session_id":"6F1C…","text":"All green⏎PR opened","title":"Fix login"}</side-sessions-event>
 ```
 
-The reply is cut to 400 characters, with each newline shown as ⏎. A message from a child uses the same shape with `"event":"message"` and is not cut. A message from the parent reaches the child the same way, with `"from_parent":true`.
+The reply is cut to 400 characters, with each newline shown as ⏎. A message from a child uses the same shape with `"event":"message"` and is not cut. A message from the parent reaches the child the same way, with `"from_parent":true`. Every `<` in quoted text is written as `&lt;` in the reminder, and the footer's JSON keeps `/` escaped, so quoted text can never close either tag.
 
-`HeadlessSession.submitFromHost` sends a note as a user turn and marks the turn that carries it as **host-driven**. `AgentTurnOutcome.isHostDriven` reports that at the turn's end.
+If a child's process exits mid-turn, the parent gets the same note with "The session exited before finishing its turn: <reason>", under the usual wake rules.
+
+`HeadlessSession.submitFromHost` sends a note as a user turn and marks the turn that carries it as **host-driven**, once the CLI has taken it. `AgentTurnOutcome.isHostDriven` reports that at the turn's end. A note waiting in the queue shows a display text: the parent's message, or each note's one-line summary. The note itself replaces it only when it is sent, and a note put back in the queue by a restart or Reconnect keeps its host-driven marker. Held notes for the user's message are likewise added only when that message is sent, so a queued message shows only what the user wrote.
 
 ## When a note wakes the parent
 
@@ -94,7 +103,7 @@ The reply is cut to 400 characters, with each newline shown as ⏎. A message fr
 - **There is no wake cap.**
 - **Closing the parent's tab drops its notes.** Its children stay open and render as top-level tabs.
 
-A parent whose process has exited is resumed to take a note, the way a sent message would resume it.
+A session whose process has exited is resumed to take a note through `AgentLauncher.relaunchHeadless`, the path Reconnect uses, which carries over its queued messages and live settings. A parent that exits mid-turn has its batched notes delivered this way. When a wake cannot reach the parent at all, its notes go back to being held, for the user's next message.
 
 ## What the user sees
 
