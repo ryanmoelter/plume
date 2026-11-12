@@ -52,6 +52,10 @@ nonisolated struct ControlServerRequest: Decodable {
         case "tab.status": command = .setTabStatus(try TabStatusParams(from: decoder))
         case "child-session.start": command = .startChildSession(try ChildSessionStartParams(from: decoder))
         case "child-session.report": command = .reportChildSession(try ChildSessionReportParams(from: decoder))
+        case "child-session.propose": command = .proposeChildSession(try ChildSessionProposeParams(from: decoder))
+        case "child-session.proposals": command = .listChildSessionProposals(try ChildSessionProposalsParams(from: decoder))
+        case "child-session.proposal.start": command = .startChildSessionProposal(try ChildSessionProposalParams(from: decoder))
+        case "child-session.proposal.dismiss": command = .dismissChildSessionProposal(try ChildSessionProposalParams(from: decoder))
         default:
             throw DecodingError.dataCorruptedError(
                 forKey: .command, in: container, debugDescription: "unknown command \"\(name)\""
@@ -92,6 +96,10 @@ nonisolated enum ControlCommand {
     case setTabStatus(TabStatusParams)
     case startChildSession(ChildSessionStartParams)
     case reportChildSession(ChildSessionReportParams)
+    case proposeChildSession(ChildSessionProposeParams)
+    case listChildSessionProposals(ChildSessionProposalsParams)
+    case startChildSessionProposal(ChildSessionProposalParams)
+    case dismissChildSessionProposal(ChildSessionProposalParams)
 }
 
 /// Sets the window's content size, in points. With `live`, the size steps
@@ -886,6 +894,7 @@ nonisolated enum ControlResult: Encodable {
     case sidebarReveal(SidebarRevealResult)
     case tabStatus(TabStatusResult)
     case childSession(ChildSessionResult)
+    case childSessionProposals(ChildSessionProposalsResult)
 
     func encode(to encoder: Encoder) throws {
         switch self {
@@ -913,6 +922,7 @@ nonisolated enum ControlResult: Encodable {
         case .sidebarReveal(let v): try v.encode(to: encoder)
         case .tabStatus(let v): try v.encode(to: encoder)
         case .childSession(let v): try v.encode(to: encoder)
+        case .childSessionProposals(let v): try v.encode(to: encoder)
         }
     }
 }
