@@ -82,6 +82,10 @@ enum ControlDispatcher {
             case .appendTurn(let params): result = .switchLatency(try await backend.appendTurn(params))
             case .resize(let params): result = .resize(try await backend.resize(params))
             case .scrollChat(let params): result = .scrollHitch(try await backend.scrollChat(params))
+            case .moveTab(let params):
+                result = .tab(try ControlTabCommands.move(params, in: try ControlTabCommands.frontmostContext()))
+            case .splitTab(let params):
+                result = .tab(try ControlTabCommands.split(params, in: try ControlTabCommands.frontmostContext()))
             }
             return .success(id: request.id, result)
         } catch {
