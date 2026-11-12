@@ -64,7 +64,7 @@ struct InfoPaneBracketedSection<Header: View, Rows: View>: View, ThemedView {
         let stub = InfoPaneBracketStub(pointSize: typography.caption.size, centerX: InfoPaneLayout.iconColumnWidth / 2)
         return InfoPaneBracketStroke(
             progress: progress,
-            stubLineWidth: stub.lineWidth,
+            lineWidth: stub.lineWidth,
             shape: InfoPaneBracketShape(
                 progress: progress,
                 barX: level.barX,
@@ -81,12 +81,12 @@ struct InfoPaneBracketedSection<Header: View, Rows: View>: View, ThemedView {
     }
 }
 
-/// Strokes the bracket in one color and width per frame, so the elbow has no
-/// seam. A collapsed stub is a control and takes the accent and the `+`'s
-/// weight; expanding fades it to the line color and width.
+/// Strokes the whole bracket at the `+`'s weight, in one color per frame, so
+/// the elbow has no seam. A collapsed stub is a control and takes the accent;
+/// expanding fades it to the line color.
 private struct InfoPaneBracketStroke: View, Animatable {
     var progress: CGFloat
-    let stubLineWidth: CGFloat
+    let lineWidth: CGFloat
     let shape: InfoPaneBracketShape
     let collapsedColor: Color
     let expandedColor: Color
@@ -99,11 +99,6 @@ private struct InfoPaneBracketStroke: View, Animatable {
     var body: some View {
         var shape = shape
         shape.progress = progress
-        let lineWidth = InfoPaneBracketGeometry.lineWidth(
-            progress: progress,
-            stubWidth: stubLineWidth,
-            barWidth: InfoPaneLayout.bracketLineWidth
-        )
         return shape.stroke(color, style: StrokeStyle(lineWidth: lineWidth, lineCap: .round))
     }
 
@@ -290,11 +285,6 @@ nonisolated struct InfoPaneBracketGeometry: Equatable {
     /// How far the stroke has faded from the accent to the line color, 0 to 1.
     static func lineFade(progress: CGFloat) -> Double {
         Double(min(max(progress, 0), 1))
-    }
-
-    /// Thins from the stub's width to the bar's as the stroke fades.
-    static func lineWidth(progress: CGFloat, stubWidth: CGFloat, barWidth: CGFloat) -> CGFloat {
-        stubWidth + (barWidth - stubWidth) * CGFloat(lineFade(progress: progress))
     }
 
     /// The stub's fixed right end.

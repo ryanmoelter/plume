@@ -367,7 +367,6 @@ enum InfoPaneLayout {
     static let nestedBarX: CGFloat = sectionBarX + 2.5
     static let sectionWashInset: CGFloat = 4.5
     static let nestedWashInset: CGFloat = 2
-    static let bracketLineWidth: CGFloat = 1.5
     static let bracketCornerRadius: CGFloat = 4
     static let nestedBracketCornerRadius: CGFloat = 3
     static let headerLogoSize: CGFloat = 10

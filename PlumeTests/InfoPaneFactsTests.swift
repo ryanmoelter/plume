@@ -520,7 +520,8 @@ struct InfoPaneBracketGeometryTests {
 
     // Each line's edge is its center ± half the line width.
     @MainActor @Test func barsFitThePaddingClearOfEachOtherAndTheWashes() {
-        let half = InfoPaneLayout.bracketLineWidth / 2
+        let pointSize = Typography(bodySize: AppSettings.defaultChatFontSize).caption.size
+        let half = InfoPaneBracketStub(pointSize: pointSize, centerX: 0).lineWidth / 2
         #expect(InfoPaneLayout.sectionBarX + InfoPaneLayout.panePadding == 6)
         #expect(InfoPaneLayout.sectionBarX + half < -InfoPaneLayout.sectionWashInset)
         #expect(InfoPaneLayout.sectionBarX + half < InfoPaneLayout.nestedBarX - half)
@@ -542,17 +543,6 @@ struct InfoPaneBracketGeometryTests {
         #expect(stub.startX - stub.lineWidth / 2 >= 0)
         #expect(stub.endX + stub.lineWidth / 2 <= InfoPaneLayout.iconColumnWidth)
         #expect(abs((stub.startX + stub.endX) / 2 - InfoPaneLayout.iconColumnWidth / 2) < 0.0001)
-    }
-
-    @Test func theStrokeThinsFromTheStubToTheBar() {
-        func width(_ progress: CGFloat) -> CGFloat {
-            InfoPaneBracketGeometry.lineWidth(progress: progress, stubWidth: 1, barWidth: 2)
-        }
-        #expect(width(-0.5) == 1)
-        #expect(width(0) == 1)
-        #expect(width(0.25) == 1.25)
-        #expect(width(1) == 2)
-        #expect(width(1.2) == 2)
     }
 
     @MainActor @Test func thePlusRatiosMatchTheRenderedSymbol() throws {
