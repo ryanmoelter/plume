@@ -44,7 +44,17 @@ enum WorktreeRemovalPrompt {
     }
 
     nonisolated struct InUse: Equatable, Sendable {
-        let path: String
+        let worktree: OwnedWorktree
+        let taskID: UUID
+        let taskTitle: String
+
+        var path: String { worktree.path }
+    }
+
+    /// A live tab of another task, saved at `folder`.
+    nonisolated struct User: Equatable, Sendable {
+        let folder: String
+        let taskID: UUID
         let taskTitle: String
     }
 
@@ -126,76 +136,104 @@ enum WorktreeRemovalPrompt {
         !task.ownedWorktrees.isEmpty
     }
 
-    /// For each owned worktree another task has a tab saved in, that task's
-    /// title. Archived tasks don't count: nothing runs in them.
-    static func users(of task: WorkTask, among tasks: [WorkTask], titles: TitleStore = .shared) -> [String: String] {
-        let others = tasks.filter { $0.id != task.id && !$0.isArchived }
-        var users: [String: String] = [:]
-        for worktree in task.ownedWorktrees {
-            let user = others.first { other in
-                other.liveTabs.contains { tab in tab.workingDirectoryPath.map(worktree.contains) ?? false }
+    /// Every saved folder of another task's live tabs, in task order. All of
+    /// them, since which worktree each is in is known only once git answers.
+    /// Archived tasks don't count: nothing runs in them.
+    static func users(of task: WorkTask, among tasks: [WorkTask], titles: TitleStore = .shared) -> [User] {
+        tasks.filter { $0.id != task.id && !$0.isArchived }.flatMap { other in
+            other.liveTabs.compactMap(\.workingDirectoryPath).map {
+                User(folder: $0, taskID: other.id, taskTitle: titles.displayTitle(for: other))
             }
-            if let user { users[worktree.path] = titles.displayTitle(for: user) }
         }
-        return users
     }
 
-    /// An empty listing means git failed, so the record is offered anyway
-    /// with the branch it names: losing track of the worktree is worse than a
-    /// removal git then refuses.
+    /// Deleting a task leaves a worktree another task still uses to that
+    /// task, so deleting that one later can still remove it.
+    static func handOff(_ inUse: [InUse], among tasks: [WorkTask]) {
+        for kept in inUse {
+            tasks.first { $0.id == kept.taskID }?.recordOwnedWorktree(kept.worktree)
+        }
+    }
+
+    /// A record matches the listed worktree it is at or inside, since an
+    /// older build could save a subfolder, and the worktree's root is what
+    /// gets removed. An empty listing means git failed, so the record is
+    /// offered anyway with the branch it names: losing track of the worktree
+    /// is worse than a removal git then refuses.
     nonisolated static func plan(
         for worktrees: [OwnedWorktree],
-        users: [String: String],
+        users: [User],
         listing: (String) -> [GitWorktree],
         branchExists: (String, String) -> Bool
     ) -> Plan {
         var plan = Plan()
-        for worktree in worktrees {
-            if let user = users[worktree.path] {
-                plan.inUse.append(InUse(path: worktree.path, taskTitle: user))
+        var seen: Set<String> = []
+        for record in worktrees {
+            let listed = listing(record.repoPath)
+            var root = record.path
+            if !listed.isEmpty {
+                let match = listed
+                    .map { (worktree: $0, root: OwnedWorktree.standardized($0.path)) }
+                    .filter { record.path == $0.root || record.path.hasPrefix($0.root + "/") }
+                    .max { $0.root.count < $1.root.count }
+                if let match, match.worktree.isMain, match.root == record.path { continue }
+                // Inside the main checkout is where a deleted worktree often was.
+                guard let match, !match.worktree.isMain else {
+                    plan.gone.append(record.path)
+                    continue
+                }
+                root = match.root
+            }
+            guard seen.insert(root).inserted else { continue }
+            let worktree = OwnedWorktree(path: root, repoPath: record.repoPath, branch: record.branch)
+            if let user = users.first(where: { worktree.contains($0.folder) }) {
+                plan.inUse.append(InUse(worktree: worktree, taskID: user.taskID, taskTitle: user.taskTitle))
                 continue
             }
-            let listed = listing(worktree.repoPath)
-            guard !listed.isEmpty else {
-                plan.removable.append(
-                    WorktreeRemovalTarget(repository: worktree.repoPath, path: worktree.path, branch: worktree.branch)
-                )
-                continue
-            }
-            guard let match = listed.first(where: { OwnedWorktree.standardized($0.path) == worktree.path }) else {
-                plan.gone.append(worktree.path)
-                continue
-            }
-            guard !match.isMain else { continue }
-            let branch = worktree.branch.flatMap { branchExists(worktree.repoPath, $0) ? $0 : nil }
-            plan.removable.append(WorktreeRemovalTarget(repository: worktree.repoPath, path: worktree.path, branch: branch))
+            let branch = listed.isEmpty
+                ? record.branch
+                : record.branch.flatMap { branchExists(record.repoPath, $0) ? $0 : nil }
+            plan.removable.append(WorktreeRemovalTarget(repository: record.repoPath, path: root, branch: branch))
         }
         return plan
     }
 
+    /// The git calls `resolve` makes, each of which blocks.
+    nonisolated struct Git: Sendable {
+        var worktrees: @Sendable (_ repository: String) -> [GitWorktree]
+        var branchExists: @Sendable (_ repository: String, _ branch: String) -> Bool
+        var uncommittedChanges: @Sendable (_ path: String) -> [String]
+
+        static let live = Git(
+            worktrees: { GitRunner.worktrees(in: $0) },
+            branchExists: { repository, branch in
+                (try? GitRunner.run(["rev-parse", "--verify", "--quiet", "refs/heads/\(branch)"], in: repository)) != nil
+            },
+            uncommittedChanges: { WorkspaceProvisioner.uncommittedChanges(in: $0) }
+        )
+    }
+
     /// The plan, with each removable worktree's uncommitted changes
     /// summarized. Each `git` runs at once rather than queuing on
-    /// `GitService`, since the dialog waits on all of them.
+    /// `GitService`, since the dialog waits on all of them, and off the main
+    /// actor, since each blocks.
+    @concurrent
     nonisolated static func resolve(
         _ worktrees: [OwnedWorktree],
-        users: [String: String]
+        users: [User],
+        git: Git = .live
     ) async -> (plan: Plan, dirtySummaries: [String: String]) {
         let repositories = Set(worktrees.map(\.repoPath))
         let listings = await withTaskGroup(of: (String, [GitWorktree]).self) { group in
             for repository in repositories {
-                group.addTask { (repository, GitRunner.worktrees(in: repository)) }
+                group.addTask { (repository, git.worktrees(repository)) }
             }
             return await group.reduce(into: [String: [GitWorktree]]()) { $0[$1.0] = $1.1 }
         }
-        let plan = plan(for: worktrees, users: users, listing: { listings[$0] ?? [] }) { repository, branch in
-            (try? GitRunner.run(
-                ["rev-parse", "--verify", "--quiet", "refs/heads/\(branch)"],
-                in: repository
-            )) != nil
-        }
+        let plan = plan(for: worktrees, users: users, listing: { listings[$0] ?? [] }, branchExists: git.branchExists)
         let dirtySummaries = await withTaskGroup(of: (String, [String]).self) { group in
             for worktree in plan.removable {
-                group.addTask { (worktree.path, WorkspaceProvisioner.uncommittedChanges(in: worktree.path)) }
+                group.addTask { (worktree.path, git.uncommittedChanges(worktree.path)) }
             }
             return await group.reduce(into: [String: String]()) { summaries, result in
                 if !result.1.isEmpty { summaries[result.0] = describe(result.1) }

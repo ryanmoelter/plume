@@ -354,7 +354,8 @@ struct MainWindow: View {
             removal.task,
             verb: removal.verb,
             worktrees: removeWorktree ? removal.worktrees : [],
-            deleteBranch: deleteBranch
+            deleteBranch: deleteBranch,
+            inUse: removal.plan.inUse
         )
     }
 
@@ -362,7 +363,8 @@ struct MainWindow: View {
         _ task: WorkTask,
         verb: WorktreeRemovalVerb,
         worktrees: [WorktreeRemovalTarget],
-        deleteBranch: Bool
+        deleteBranch: Bool,
+        inUse: [WorktreeRemovalPrompt.InUse] = []
     ) {
         TaskStore.removeWorktreesThenFinish(
             worktrees,
@@ -376,7 +378,9 @@ struct MainWindow: View {
             finish: {
                 if selection == .task(task.id) { selection = .home }
                 switch verb {
-                case .delete: TaskStore.delete(task, in: context)
+                case .delete:
+                    WorktreeRemovalPrompt.handOff(inUse, among: tasks)
+                    TaskStore.delete(task, in: context)
                 case .archive: TaskStore.archive(task)
                 }
                 pendingWorktreeRemoval = nil
