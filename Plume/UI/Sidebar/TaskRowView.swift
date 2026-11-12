@@ -55,6 +55,28 @@ struct TaskRowView: View {
         )
     }
 
+    private func agentGroup(for tab: TaskTab) -> TaskRowDetails.AgentGroup {
+        let status = Self.status(of: tab)
+        let directory = TabDirectoryStore.shared.directory(for: tab).flatMap { $0.isEmpty ? nil : $0 }
+        return TaskRowDetails.AgentGroup(
+            header: TaskRowDetails.AgentHeader(
+                tabID: tab.id,
+                title: TitleStore.shared.displayTitle(forTab: tab) ?? tab.displayTitle,
+                status: status,
+                isUnread: UnreadStore.showsUnread(
+                    taskStatus: status,
+                    hasUnreadTab: UnreadStore.shared.isUnread(tabID: tab.id)
+                )
+            ),
+            workspace: directory.map(group(for:)) ?? TaskRowDetails.DirectoryGroup(directory: nil)
+        )
+    }
+
+    private static func status(of tab: TaskTab) -> TaskStatus {
+        let live = StatusEngine.shared.status(forTab: tab.id)
+        return live == .notStarted ? tab.lastStatus.afterRelaunch : live
+    }
+
     private func branch(for directory: String) -> String? {
         task.displayedBranch(in: directory)
     }
@@ -74,8 +96,18 @@ struct TaskRowView: View {
     }
 
     private func detailLines(working: [LinkedLinearIssue], pinned: [PullRequestReference]) -> [TaskRowDetails.Line] {
-        let groups = directories.map(group(for:))
-        return TaskRowDetails.lines(groups: groups)
+        let tabs = agentTabs
+        let groups: [TaskRowDetails.DirectoryGroup]
+        let groupLines: [TaskRowDetails.Line]
+        if tabs.count <= 1 {
+            groups = directories.map(group(for:))
+            groupLines = TaskRowDetails.lines(groups: groups)
+        } else {
+            let agents = tabs.map(agentGroup(for:))
+            groups = agents.map(\.workspace)
+            groupLines = TaskRowDetails.lines(agents: agents)
+        }
+        return groupLines
             + TaskRowDetails.pinnedPullRequestLines(
                 pinned,
                 groups: groups,
@@ -90,8 +122,12 @@ struct TaskRowView: View {
         lines.firstIndex { if case .project = $0 { true } else { false } }
     }
 
+    private var agentTabs: [TaskTab] {
+        task.orderedLiveTabs.filter { $0.kind == .agent }
+    }
+
     private var agentTabIDs: [UUID] {
-        task.orderedLiveTabs.filter { $0.kind == .agent }.map(\.id)
+        agentTabs.map(\.id)
     }
 
     /// Whether any of the task's tabs can be driven from elsewhere. Only the
@@ -242,10 +278,38 @@ struct TaskRowView: View {
         }
     }
 
-    /// The project header shares the status badge's lines, so a badge glyph
+    /// The first header shares the status badge's lines, so a badge glyph
     /// taller than the title never changes the row's height.
     private static func badgeLineCount(of lines: [TaskRowDetails.Line]) -> Int {
-        if case .project = lines.first { 1 } else { 0 }
+        switch lines.first {
+        case .project, .agentHeader: 1
+        default: 0
+        }
+    }
+
+    /// Fixed so every agent's title starts at the same x, whatever its
+    /// status draws.
+    static let agentBadgeWidth: CGFloat = 14
+    static let agentDepthIndent: CGFloat = 12
+
+    private func agentHeaderLine(_ header: TaskRowDetails.AgentHeader) -> some View {
+        HStack(spacing: 4) {
+            StatusBadge(status: header.status, isUnread: header.isUnread, showsElapsed: false)
+                .font(.caption)
+                .imageScale(.small)
+                .frame(width: Self.agentBadgeWidth)
+            Text(header.title)
+                .font(.caption)
+                .emphasis(.secondary)
+                .lineLimit(1)
+                .truncationMode(.tail)
+        }
+        .padding(.leading, CGFloat(header.depth) * Self.agentDepthIndent)
+        .plumeID(
+            AccessibilityID.taskAgentGroup,
+            label: header.title,
+            value: ([header.status.rawValue] + (header.isUnread ? ["unread"] : [])).joined(separator: ", ")
+        )
     }
 
     @ViewBuilder
@@ -257,6 +321,8 @@ struct TaskRowView: View {
                 .emphasis(.secondary)
                 .lineLimit(1)
                 .truncationMode(.middle)
+        case .agentHeader(let header):
+            agentHeaderLine(header)
         case .project(let name):
             HStack(spacing: 4) {
                 Text(name)

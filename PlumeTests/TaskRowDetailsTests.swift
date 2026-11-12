@@ -397,3 +397,132 @@ struct TaskRowPinnedPullRequestLinesTests {
         #expect(TaskRowDetails.accessibilityText(.pinnedPullRequestOverflow(2)) == "2 more pull requests")
     }
 }
+
+/// A task with one agent keeps the plain directory lines; a task with several
+/// heads each agent's lines with its own header and shows only what differs
+/// from the agent above.
+@MainActor
+struct TaskRowAgentLinesTests {
+    private let open = PullRequestFetchState.pullRequest(PullRequest(number: 42, state: .open, isDraft: false))
+
+    private func agent(
+        _ title: String,
+        _ directory: String?,
+        branch: String? = nil,
+        pullRequest: PullRequestFetchState? = nil,
+        status: TaskStatus = .awaitingReply
+    ) -> TaskRowDetails.AgentGroup {
+        TaskRowDetails.AgentGroup(
+            header: TaskRowDetails.AgentHeader(tabID: UUID(), title: title, status: status),
+            workspace: TaskRowDetails.DirectoryGroup(directory: directory, branch: branch, pullRequest: pullRequest)
+        )
+    }
+
+    private func headers(_ lines: [TaskRowDetails.Line]) -> [String] {
+        lines.compactMap { if case .agentHeader(let header) = $0 { header.title } else { nil } }
+    }
+
+    @Test func oneAgentKeepsThePlainDirectoryLines() {
+        let lines = TaskRowDetails.lines(groups: [TaskRowDetails.DirectoryGroup(
+            directory: "/Users/me/Plume",
+            branch: "ryanm/fix-login",
+            pullRequest: open,
+            checkout: CheckoutFacts(projectRoot: "/Users/me/Plume", checkoutRoot: "/Users/me/Plume")
+        )])
+        #expect(lines == [
+            .project("Plume"),
+            .branch("ryanm/fix-login", isWorktree: false, accompaniedBy: nil),
+            .pullRequest(directory: "/Users/me/Plume", state: open),
+        ])
+    }
+
+    @Test func aSecondAgentInTheSameFolderTakesOnlyItsHeader() {
+        let first = agent("One", "/Users/me/Plume", branch: "main", pullRequest: open)
+        let second = agent("Two", "/Users/me/Plume", branch: "main", pullRequest: open)
+        let lines = TaskRowDetails.lines(agents: [first, second])
+        #expect(lines == [
+            .agentHeader(first.header),
+            .project("Plume"),
+            .branch("main", accompaniedBy: nil),
+            .pullRequest(directory: "/Users/me/Plume", state: open),
+            .agentHeader(second.header),
+        ])
+    }
+
+    @Test func anAgentInAnotherFolderRepeatsProjectAndBranch() {
+        let first = agent("One", "/Users/me/Plume", branch: "main")
+        let second = agent("Two", "/Users/me/Other", branch: "main")
+        let lines = TaskRowDetails.lines(agents: [first, second])
+        #expect(lines == [
+            .agentHeader(first.header), .project("Plume"), .branch("main", accompaniedBy: nil),
+            .agentHeader(second.header), .project("Other"), .branch("main", accompaniedBy: nil),
+        ])
+    }
+
+    /// Two worktrees of one project share the header, so only the branch and
+    /// what follows it repeat.
+    @Test func aDifferentBranchOfTheSameProjectRepeatsFromTheBranch() {
+        let project = "/Users/me/Plume"
+        func worktree(_ title: String, _ name: String, pullRequest: PullRequestFetchState?) -> TaskRowDetails.AgentGroup {
+            var group = agent(title, "/wt/\(name)", branch: "ryanm/\(name)", pullRequest: pullRequest)
+            group.workspace.checkout = CheckoutFacts(projectRoot: project, checkoutRoot: "/wt/\(name)")
+            return group
+        }
+        let first = worktree("One", "a", pullRequest: nil)
+        let second = worktree("Two", "b", pullRequest: open)
+        let lines = TaskRowDetails.lines(agents: [first, second])
+        #expect(lines == [
+            .agentHeader(first.header), .project("Plume"), .branch("ryanm/a", isWorktree: true, accompaniedBy: nil),
+            .agentHeader(second.header), .branch("ryanm/b", isWorktree: true, accompaniedBy: nil),
+            .pullRequest(directory: "/wt/b", state: open),
+        ])
+    }
+
+    @Test func returningToAnEarlierFolderRepeatsIt() {
+        let lines = TaskRowDetails.lines(agents: [
+            agent("One", "/Users/me/Plume"),
+            agent("Two", "/Users/me/Other"),
+            agent("Three", "/Users/me/Plume"),
+        ])
+        #expect(lines.filter { if case .project = $0 { true } else { false } }
+            == [.project("Plume"), .project("Other"), .project("Plume")])
+        #expect(headers(lines) == ["One", "Two", "Three"])
+    }
+
+    @Test func anAgentWithNoFolderTakesOnlyItsHeader() {
+        let lone = agent("Lone", nil)
+        #expect(TaskRowDetails.lines(agents: [lone, agent("Two", "/Users/me/Plume")]).first == .agentHeader(lone.header))
+        #expect(TaskRowDetails.lines(agents: [lone]) == [.agentHeader(lone.header)])
+    }
+
+    @Test func linesDifferingKeepsEverythingFromTheFirstDifference() {
+        let previous: [TaskRowDetails.Line] = [.project("P"), .branch("a"), .text("x")]
+        #expect(TaskRowDetails.linesDiffering([.project("P"), .branch("b"), .text("x")], from: previous)
+            == [.branch("b"), .text("x")])
+        #expect(TaskRowDetails.linesDiffering(previous, from: previous).isEmpty)
+        #expect(TaskRowDetails.linesDiffering(previous, from: []) == previous)
+        #expect(TaskRowDetails.linesDiffering([.project("P"), .branch("a"), .text("x"), .text("y")], from: previous)
+            == [.text("y")])
+    }
+
+    /// An agent with no folder never gets a pull request, so waiting on it
+    /// would hide pinned lines forever.
+    @Test func pinnedLinesIgnoreGroupsWithoutADirectory() {
+        let reference = PullRequestReference(owner: "a", repo: "b", number: 7)
+        let lines = TaskRowDetails.pinnedPullRequestLines(
+            [reference],
+            groups: [
+                TaskRowDetails.DirectoryGroup(directory: "/a", pullRequest: .noPR),
+                TaskRowDetails.DirectoryGroup(directory: nil),
+                TaskRowDetails.DirectoryGroup(directory: ""),
+            ],
+            details: { _ in nil }
+        )
+        #expect(lines == [.pinnedPullRequest(reference, detail: nil)])
+    }
+
+    @Test func theHeaderReachesTheAccessibilityLabel() {
+        let header = TaskRowDetails.AgentHeader(tabID: UUID(), title: "Fix login", status: .working, isUnread: true)
+        #expect(TaskRowDetails.accessibilityText(.agentHeader(header)) == "Fix login working unread")
+    }
+}
