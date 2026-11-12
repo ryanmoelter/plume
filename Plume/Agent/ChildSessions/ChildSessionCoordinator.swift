@@ -385,7 +385,9 @@ final class ChildSessionCoordinator {
         return .init(text: error.message, state: .pending)
     }
 
-    /// Runs `body` on the tab's proposals, then prunes and saves them.
+    /// Runs `body` on the tab's proposals, then prunes them and saves the
+    /// context itself. Otherwise only a status change saves it, and a
+    /// dismissal changes none, so it would not survive a relaunch.
     @discardableResult
     func withProposals<T>(
         of tab: TaskTab, now: Date = .now, prunes: Bool = true, _ body: (inout ChildSessionProposalStore) -> T
@@ -394,7 +396,14 @@ final class ChildSessionCoordinator {
         let result = body(&store)
         if prunes { store.prune(now: now) }
         let json = store.json
-        if tab.childProposalsJSON != json { tab.childProposalsJSON = json }
+        if tab.childProposalsJSON != json {
+            tab.childProposalsJSON = json
+            do {
+                try tab.modelContext?.save()
+            } catch {
+                Log.agent.error("Could not save child session proposals: \(error.localizedDescription, privacy: .public)")
+            }
+        }
         return result
     }
 
