@@ -234,6 +234,7 @@ struct PullRequestsSection: View, ThemedView {
 /// rest.
 private struct PullRequestRow: View, ThemedView {
     @Environment(\.theme) var theme
+    @Environment(\.chatLinkDirectory) private var linkDirectory
 
     let item: InfoPanePullRequestItem
     /// A row with no header above it, which names its forge in the icon
@@ -316,7 +317,7 @@ private struct PullRequestRow: View, ThemedView {
     }
 
     private func open() {
-        if let url = item.url { ChatLinkOpener.open(.web(url)) }
+        if let url = item.url { ChatLinkOpener.open(.web(url), directory: linkDirectory) }
     }
 
     private var actionsMenu: some View {

@@ -1,8 +1,11 @@
 import Foundation
 
-nonisolated enum PullRequestDestination: String, CaseIterable, Identifiable, Sendable {
+nonisolated enum PullRequestDestination: String, Codable, CaseIterable, Identifiable, Sendable {
     case linearDiffs
     case github
+
+    /// What a link opens in when nothing sets it.
+    static let fallback = PullRequestDestination.github
 
     var id: String { rawValue }
 
@@ -33,5 +36,13 @@ nonisolated enum PullRequestDestination: String, CaseIterable, Identifiable, Sen
         components.query = nil
         components.fragment = nil
         return components.url ?? url
+    }
+}
+
+nonisolated extension ProjectsConfiguration {
+    /// `root` is a project root; nil is a link with no task behind it.
+    func pullRequestDestination(forRoot root: String?) -> PullRequestDestination {
+        let settings = root.map(settings(forRepository:)) ?? defaults
+        return settings.pullRequestDestination ?? .fallback
     }
 }

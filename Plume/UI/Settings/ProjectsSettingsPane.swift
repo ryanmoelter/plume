@@ -249,6 +249,17 @@ private struct ProjectSettingsFields: View {
         }
         .plumeID(AccessibilityID.settingsProjectForgePicker, value: settings.forge?.rawValue ?? "auto")
 
+        Picker("Open pull requests in", selection: Binding(get: { settings.pullRequestDestination }, set: { value in update { $0.pullRequestDestination = value } })) {
+            Text(isDefaults ? "Automatic (\(PullRequestDestination.fallback.displayName))" : "Automatic (\((inherited.pullRequestDestination ?? .fallback).displayName))")
+                .tag(PullRequestDestination?.none)
+            ForEach(PullRequestDestination.allCases) { Text($0.displayName).tag(PullRequestDestination?.some($0)) }
+        }
+        .plumeID(
+            AccessibilityID.pullRequestDestinationPicker,
+            value: settings.pullRequestDestination?.rawValue ?? "auto",
+            setValue: { value in update { $0.pullRequestDestination = PullRequestDestination(rawValue: value) } }
+        )
+
         LinearWorkspacesField(settings: settings, inherited: inherited, isDefaults: isDefaults, update: update)
 
         NameListEditor(
