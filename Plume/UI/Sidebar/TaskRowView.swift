@@ -190,13 +190,14 @@ struct TaskRowView: View {
         let lines = Array(rawLines.enumerated())
         let badgeLineCount = Self.badgeLineCount(of: rawLines)
         let icons = hasSeveralAgents ? nil : projectLineIcons(in: rawLines, agentTabIDs: agentTabIDs)
+        let owners = TaskRowDetails.owningAgentLabels(rawLines)
         VStack(alignment: .leading, spacing: 1) {
             HStack(alignment: .top, spacing: 6) {
                 VStack(alignment: .leading, spacing: 1) {
                     title(heldDevices: hasSeveralAgents ? taskLevelHeldDevices() : nil)
                     descriptionLine
                     ForEach(Array(lines.prefix(badgeLineCount)), id: \.offset) { index, line in
-                        detailLine(line, at: index, icons: icons)
+                        detailLine(line, at: index, owner: owners[index], icons: icons)
                     }
                 }
                 Spacer(minLength: 4)
@@ -208,7 +209,7 @@ struct TaskRowView: View {
             }
 
             ForEach(Array(lines.dropFirst(badgeLineCount)), id: \.offset) { index, line in
-                detailLine(line, at: index, icons: icons)
+                detailLine(line, at: index, owner: owners[index], icons: icons)
             }
 
             TaskActivityRow(tabIDs: agentTabIDs)
@@ -379,7 +380,12 @@ struct TaskRowView: View {
     }
 
     @ViewBuilder
-    private func detailLine(_ line: TaskRowDetails.Line, at index: Int, icons: ProjectLineIcons?) -> some View {
+    private func detailLine(
+        _ line: TaskRowDetails.Line,
+        at index: Int,
+        owner: String?,
+        icons: ProjectLineIcons?
+    ) -> some View {
         switch line {
         case .text(let text):
             Text(text)
@@ -408,6 +414,11 @@ struct TaskRowView: View {
                     }
                 }
             }
+            .plumeID(
+                AccessibilityID.taskProjectLine,
+                label: TaskRowDetails.controlLabel(line),
+                value: TaskRowDetails.controlValue(line, owner: owner)
+            )
         case .branch(let branch, let isWorktree, let companion):
             HStack(spacing: 4) {
                 if isWorktree {
@@ -425,6 +436,11 @@ struct TaskRowView: View {
                     PullRequestChip(state: companion, emphasis: .secondary, symbolWeight: .bold)
                 }
             }
+            .plumeID(
+                AccessibilityID.taskBranchLine,
+                label: TaskRowDetails.controlLabel(line),
+                value: TaskRowDetails.controlValue(line, owner: owner)
+            )
         case .linearIssue(let identifier, let state):
             LinearIssueLine(identifier: identifier, state: state)
         case .linearOverflow(let count):
@@ -440,19 +456,26 @@ struct TaskRowView: View {
         case .pinnedPullRequestOverflow(let count):
             PinnedPullRequestOverflowLine(count: count)
         case .pullRequest(let directory, let state):
-            if case .pullRequest(let pullRequest) = state {
-                PullRequestLine(summary: PullRequestSummary(
-                    pullRequest,
-                    ignoredChecks: PullRequestStore.shared.ignoredPendingChecks(for: directory)
-                ))
-            } else {
-                PullRequestChip(
-                    state: state,
-                    forge: PullRequestStore.shared.forge(for: directory),
-                    checkRollup: { PullRequestStore.shared.checkRollup(for: directory, of: $0) },
-                    symbolWeight: .bold
-                )
+            Group {
+                if case .pullRequest(let pullRequest) = state {
+                    PullRequestLine(summary: PullRequestSummary(
+                        pullRequest,
+                        ignoredChecks: PullRequestStore.shared.ignoredPendingChecks(for: directory)
+                    ))
+                } else {
+                    PullRequestChip(
+                        state: state,
+                        forge: PullRequestStore.shared.forge(for: directory),
+                        checkRollup: { PullRequestStore.shared.checkRollup(for: directory, of: $0) },
+                        symbolWeight: .bold
+                    )
+                }
             }
+            .plumeID(
+                AccessibilityID.taskPRLine,
+                label: TaskRowDetails.controlLabel(line),
+                value: TaskRowDetails.controlValue(line, owner: owner)
+            )
         }
     }
 

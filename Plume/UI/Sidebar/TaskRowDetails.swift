@@ -328,6 +328,50 @@ enum TaskRowDetails {
         return name.isEmpty ? nil : name
     }
 
+    /// For each line, the label of the agent header it sits under. Only a
+    /// directory's own lines have one; the rest belong to the task.
+    static func owningAgentLabels(_ lines: [Line]) -> [String?] {
+        var owner: String?
+        return lines.map { line in
+            switch line {
+            case .agentHeader(let header):
+                owner = header.label
+                return nil
+            case .project, .branch, .pullRequest:
+                return owner
+            default:
+                return nil
+            }
+        }
+    }
+
+    /// The control-server label for a directory line: the text it shows.
+    static func controlLabel(_ line: Line) -> String? {
+        switch line {
+        case .project(let name): name
+        case .branch(let branch, _, _): branch
+        case .pullRequest(_, let state): PullRequestChipContent.accessibilityText(for: state)
+        default: nil
+        }
+    }
+
+    /// The control-server value for a directory line: what tells two lines
+    /// with the same text apart.
+    static func controlValue(_ line: Line, owner: String?) -> String? {
+        var parts = [owner.map { "agent: \($0)" }]
+        switch line {
+        case .branch(_, let isWorktree, let companion):
+            parts.append(isWorktree ? "worktree" : nil)
+            parts.append(companion.flatMap(PullRequestChipContent.accessibilityText(for:)))
+        case .pullRequest(let directory, _):
+            parts.append(directory.map { "directory: \($0)" })
+        default:
+            break
+        }
+        let value = parts.compactMap { $0 }.joined(separator: "; ")
+        return value.isEmpty ? nil : value
+    }
+
     static func accessibilityText(_ line: Line) -> String? {
         switch line {
         case .text(let text): text
