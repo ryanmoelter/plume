@@ -24,8 +24,8 @@ nonisolated enum ChildSessionFormats {
         "Work in the git worktree at \(path) (branch \(branch)), not in the folder this conversation started in."
     }
 
-    static func started(title: String, sessionID: String, name: String) -> String {
-        "Started session \"\(title)\" (session_id: \(sessionID), name: \(name)). It runs on its own; you get a note here when its turn ends. Don't repeat the introduction: at most one line on how you'll report back, then end your turn — do not wait for it."
+    static func started(title: String, sessionID: String, name: String, notesFolder: String) -> String {
+        "Started session \"\(title)\" (session_id: \(sessionID), name: \(name)). It runs on its own; you get a note here when its turn ends. The sessions you start share a notes folder for hand-over notes and large findings: \(notesFolder). Don't repeat the introduction: at most one line on how you'll report back, then end your turn — do not wait for it."
     }
 
     enum Delivery: Equatable {

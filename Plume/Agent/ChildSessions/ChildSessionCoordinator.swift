@@ -82,6 +82,15 @@ final class ChildSessionCoordinator {
 
     nonisolated static func sessionID(of tab: TaskTab) -> String { tab.id.uuidString }
 
+    /// Folders a launch adds for `tab`'s role: a parent with open children
+    /// gets their notes folder. A running parent learns the folder from the
+    /// `start_session` result instead of restarting.
+    static func launchDirectories(for tab: TaskTab) -> [String] {
+        let id = tab.id
+        guard tab.task?.liveTabs.contains(where: { $0.parentTabID == id }) == true else { return [] }
+        return [AppPaths.sideSessionNotesDirectory(parentTabID: id).path]
+    }
+
     // MARK: - Tools
 
     private func handle(_ call: PlumeMCPServer.ToolCall, from tab: TaskTab) async -> PlumeMCPServer.ToolResult {
@@ -213,7 +222,8 @@ final class ChildSessionCoordinator {
         return .success(ChildSessionFormats.started(
             title: request.title,
             sessionID: Self.sessionID(of: child),
-            name: request.name ?? WorkspaceProvisioner.slugify(request.title)
+            name: request.name ?? WorkspaceProvisioner.slugify(request.title),
+            notesFolder: notes.path
         ))
     }
 

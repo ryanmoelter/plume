@@ -41,6 +41,17 @@ struct ChildSessionTabTests {
         #expect(first.provider == .claudeCode)
     }
 
+    @Test func aParentWithChildrenLaunchesWithTheirNotesFolder() throws {
+        let task = TaskStore.createTask(in: context, siblings: [])
+        let parent = try #require(task.tabs.first)
+        #expect(ChildSessionCoordinator.launchDirectories(for: parent).isEmpty)
+
+        let child = TaskStore.addChildTab(to: task, parent: parent, in: context)
+
+        #expect(ChildSessionCoordinator.launchDirectories(for: parent) == [AppPaths.sideSessionNotesDirectory(parentTabID: parent.id).path])
+        #expect(ChildSessionCoordinator.launchDirectories(for: child).isEmpty)
+    }
+
     @Test func theInsertionPointFollowsTheLastChild() {
         let parent = UUID(), other = UUID(), child = UUID()
         #expect(TaskStore.childInsertionIndex(parentID: parent, in: [(parent, nil), (other, nil)]) == 1)
