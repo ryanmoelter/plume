@@ -231,6 +231,7 @@ private struct IssueRow: View, ThemedView {
         .padding(menuIsPrimary ? .top : .bottom, InfoPaneLayout.rowVerticalPadding)
         .help("Linear issue actions")
         .plumeID(AccessibilityID.infoPaneLinearRowMenu, label: issue.identifier)
+        .background { menuItemRegistrations }
     }
 
     @ViewBuilder
@@ -239,10 +240,17 @@ private struct IssueRow: View, ThemedView {
             switch entry {
             case .divider:
                 Divider()
-            case .action(let title, let id, let isEnabled, let perform):
+            case .action(let title, _, let isEnabled, let perform):
                 Button(title, action: perform)
-                    .plumeID(id, label: issue.identifier, invoke: perform)
                     .disabled(!isEnabled)
+            }
+        }
+    }
+
+    private var menuItemRegistrations: some View {
+        ForEach(Array(menuEntries.enumerated()), id: \.offset) { _, entry in
+            if case .action(_, let id, let isEnabled, let perform) = entry {
+                Color.clear.plumeMenuItem(id, label: issue.identifier, isEnabled: isEnabled, invoke: perform)
             }
         }
     }
