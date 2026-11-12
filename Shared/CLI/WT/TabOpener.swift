@@ -39,7 +39,7 @@ nonisolated struct WorktreeCreation: Equatable, Sendable {
 /// the app did it; an unreachable app is a false, never a throw.
 nonisolated protocol PlumeAppClient: AnyObject {
     /// A terminal tab at `directory` in the caller's task (`tab.new`).
-    func openTab(directory: String, caller: PlumeCaller) -> Bool
+    func openTab(directory: String, caller: PlumeCaller, created: WorktreeCreation) -> Bool
     /// A new task for the worktree at `worktreePath`, in the caller's group
     /// (`task.new`). The app reads the repository and branch from the
     /// worktree.
@@ -70,8 +70,11 @@ nonisolated final class SocketPlumeAppClient: PlumeAppClient {
         return (try? CLISocket.send(request, to: socketPath, replyTimeout: Self.replyTimeout))?.ok == true
     }
 
-    func openTab(directory: String, caller: PlumeCaller) -> Bool {
-        succeeds(.newTab(.init(taskID: caller.taskID, tabID: caller.tabID, directory: directory, select: false)))
+    func openTab(directory: String, caller: PlumeCaller, created: WorktreeCreation) -> Bool {
+        succeeds(.newTab(.init(
+            taskID: caller.taskID, tabID: caller.tabID, directory: directory, select: false,
+            createdWorktree: created.worktree, createdBranch: created.branch
+        )))
     }
 
     func openTask(worktreePath: String, caller: PlumeCaller, created: WorktreeCreation) -> Bool {
@@ -134,7 +137,7 @@ nonisolated final class PlumeTabOpener: TabOpener {
         if let caller {
             let opened = asTask
                 ? client.openTask(worktreePath: directory, caller: caller, created: created)
-                : client.openTab(directory: directory, caller: caller)
+                : client.openTab(directory: directory, caller: caller, created: created)
             if opened { return }
         }
         console.print("\(WT.programName): \(directory)")
