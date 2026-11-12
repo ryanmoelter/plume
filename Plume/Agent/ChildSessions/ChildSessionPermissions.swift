@@ -29,8 +29,12 @@ nonisolated enum ChildSessionPermissions {
         return ceiling
     }
 
-    static func capped(_ mode: PermissionMode, at ceiling: PermissionMode) -> PermissionMode {
-        rank(of: mode) > rank(of: ceiling) ? ceiling : mode
+    /// `mode`, or the ceiling when `mode` is above it. A cap never lowers
+    /// the session below `current`, which the user may have picked.
+    static func capped(_ mode: PermissionMode, at ceiling: PermissionMode, current: PermissionMode? = nil) -> PermissionMode {
+        guard rank(of: mode) > rank(of: ceiling) else { return mode }
+        guard let current, rank(of: current) > rank(of: ceiling) else { return ceiling }
+        return current
     }
 
     private static func rank(of mode: PermissionMode) -> Int {

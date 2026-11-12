@@ -46,7 +46,7 @@ A child's `tools/list` has only `send_message`, so a child cannot start sessions
 
 A child never starts with more freedom than its parent has at that moment. `ChildSessionPermissions` orders the modes from strictest to most permissive: plan, manual, accept edits, auto, bypass. The child gets the requested mode, or the parent's, capped at the parent's live mode. Bypass also needs Settings ▸ Agents ▸ "Show bypass permissions"; without it a child that would get bypass gets auto. A parent in plan mode cannot start a child: `can_use_tool` denies the call, and the tool itself returns the same error, telling it to exit plan mode first. A parent that entered plan mode on its own counts, since its `status` line reports the change.
 
-The cap holds after launch too. Approving a plan in the child, or accepting a mode suggestion there, raises its mode only as far as the parent's live mode (`HeadlessSession.permissionCeiling`). Once the parent is gone, the ceiling is the mode the child launched with. A parent in plan mode caps an approved plan at manual, so the plan can still start work. The user's own pick in the child's mode picker is consent and is never capped.
+The cap holds after launch too. Approving a plan in the child, or accepting a mode suggestion there, raises its mode only as far as the parent's live mode (`HeadlessSession.permissionCeiling`). Once the parent is gone, the ceiling is the mode the child launched with. A parent in plan mode caps an approved plan at manual, so the plan can still start work. The user's own pick in the child's mode picker is consent and is never capped. A cap never lowers the child below the mode it is already in.
 
 ## Starting a child
 
