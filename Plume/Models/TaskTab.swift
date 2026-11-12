@@ -234,6 +234,10 @@ final class TaskTab {
         set { parentTabIDRaw = newValue?.uuidString ?? "" }
     }
 
+    /// True for any tab a session started, even after that session's tab
+    /// closes, so it never gains the tools only a parent has.
+    var isChildSession: Bool { !parentTabIDRaw.isEmpty }
+
     var additionalDirectories: [String] {
         get {
             guard let additionalDirectoriesData else { return [] }
