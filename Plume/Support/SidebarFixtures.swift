@@ -33,6 +33,7 @@ enum SidebarFixtures {
                 tasks.append(seedTask(for: fixture, in: context, group: group, siblings: tasks))
             }
             tasks.append(seedMultiDirectoryTask(in: context, group: group, siblings: tasks))
+            tasks.append(seedSameDirectoryTask(in: context, group: group, siblings: tasks))
         }
         tasks.append(contentsOf: seedLinearTasks(in: context, group: group, siblings: tasks))
     }
@@ -114,6 +115,44 @@ enum SidebarFixtures {
                     behind: 0,
                     isDirty: false
                 )
+            )
+        }
+        return task
+    }
+
+    /// One task with three agent tabs, two sharing a folder and one in
+    /// another, each with its own title and status, so the sidebar's
+    /// per-agent headers show both an omitted and a repeated folder.
+    private static func seedSameDirectoryTask(
+        in context: ModelContext,
+        group: TaskGroup,
+        siblings: [WorkTask]
+    ) -> WorkTask {
+        let task = TaskStore.createTask(in: context, title: "same-directory", group: group, siblings: siblings)
+        let shared = "/tmp/plume-fixtures/fixture-same-dir-shared"
+        let other = "/tmp/plume-fixtures/fixture-same-dir-other"
+        let agents: [(directory: String, title: String, status: TaskStatus)] = [
+            (shared, "Refactor the sidebar row", .working),
+            (shared, "Write the sidebar tests", .questionAsked),
+            (other, "Update the docs", .awaitingReply),
+        ]
+        task.tabs.first?.workspace = .directory(shared, branchName: "ryanm/same-dir-shared")
+
+        let firstTab = task.orderedTabs.first(where: { $0.kind == .agent })
+        let tabs = [firstTab].compactMap { $0 }
+            + (1..<agents.count).map { _ in TaskStore.addTab(to: task, kind: .agent, in: context) }
+
+        for (tab, agent) in zip(tabs, agents) {
+            tab.title = agent.title
+            tab.lastStatus = agent.status
+            TabDirectoryStore.shared.setDirectory(agent.directory, forTab: tab)
+            StatusEngine.shared.setStatus(agent.status, taskID: task.id, tabID: tab.id)
+        }
+        for (directory, branch) in [(shared, "ryanm/same-dir-shared"), (other, "ryanm/same-dir-other")] {
+            PullRequestStore.shared.seedFixture(directory: directory, state: .noPR)
+            GitStateStore.shared.seedFixture(
+                directory: directory,
+                state: GitState(branch: branch, upstream: "origin/\(branch)", ahead: 0, behind: 0, isDirty: false)
             )
         }
         return task
