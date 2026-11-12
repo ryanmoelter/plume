@@ -619,4 +619,37 @@ struct TaskRowAgentLinesTests {
         #expect(header.statusText == "Working, unread")
         #expect(TaskRowDetails.accessibilityText(.agentHeader(header)) == "Fix login, Working, unread")
     }
+
+    @Test func directoryLinesNameTheAgentTheySitUnder() {
+        let first = agent("One", "/Users/me/Plume", branch: "main", pullRequest: open)
+        let second = agent("Two", "/Users/me/Other", branch: "dev")
+        let lines = TaskRowDetails.lines(agents: [first, second])
+        let owners = TaskRowDetails.owningAgentLabels(lines)
+        #expect(zip(lines, owners).map { line, owner in
+            TaskRowDetails.controlLabel(line).map { "\($0) @ \(owner ?? "-")" } ?? "header"
+        } == [
+            "header",
+            "Plume @ One",
+            "main @ One",
+            "\(PullRequestChipContent.accessibilityText(for: open) ?? "") @ One",
+            "header",
+            "Other @ Two",
+            "dev @ Two",
+        ])
+    }
+
+    @Test func aOneAgentRowNamesNoAgent() {
+        let lines: [TaskRowDetails.Line] = [.text("note"), .project("Plume"), .branch("main")]
+        #expect(TaskRowDetails.owningAgentLabels(lines) == [nil, nil, nil])
+        #expect(TaskRowDetails.controlValue(.project("Plume"), owner: nil) == nil)
+    }
+
+    @Test func aLinesValueTellsTwoLinesWithTheSameTextApart() {
+        #expect(TaskRowDetails.controlValue(.project("Plume"), owner: "Chat #2") == "agent: Chat #2")
+        #expect(TaskRowDetails.controlValue(.branch("main", isWorktree: true, accompaniedBy: open), owner: "One")
+            == "agent: One; worktree; \(PullRequestChipContent.accessibilityText(for: open) ?? "")")
+        #expect(TaskRowDetails.controlValue(.pullRequest(directory: "/Users/me/Plume", state: open), owner: nil)
+            == "directory: /Users/me/Plume")
+        #expect(TaskRowDetails.controlLabel(.linearOverflow(2)) == nil)
+    }
 }
