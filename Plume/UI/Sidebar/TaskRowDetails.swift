@@ -94,14 +94,18 @@ enum TaskRowDetails {
         }
     }
 
-    /// Each title as given the first time, then numbered from 2: "Chat",
-    /// "Chat #2".
+    /// A title that appears once stays bare; one that repeats is numbered on
+    /// every copy, "Chat #1", "Chat #2". Numbering only the later copies would
+    /// leave "Chat" matching all of them, since the control server matches a
+    /// label as a substring.
     static func distinctLabels(_ titles: [String]) -> [String] {
-        var counts: [String: Int] = [:]
+        let totals = titles.reduce(into: [String: Int]()) { $0[$1, default: 0] += 1 }
+        var seen: [String: Int] = [:]
         return titles.map { title in
-            let count = counts[title, default: 0] + 1
-            counts[title] = count
-            return count == 1 ? title : "\(title) #\(count)"
+            guard totals[title, default: 0] > 1 else { return title }
+            let count = seen[title, default: 0] + 1
+            seen[title] = count
+            return "\(title) #\(count)"
         }
     }
 
@@ -119,9 +123,10 @@ enum TaskRowDetails {
 
     /// A header per agent, followed by only what its directory says that the
     /// agent above did not, so agents sharing a folder stack without
-    /// repeating it. An agent in another folder that reads identically — a
-    /// second clone on the same branch — shows its lines in full, or it would
-    /// look like it shared the folder.
+    /// repeating it. An agent in another folder always shows at least its
+    /// branch: a second clone on the same branch reads the same as the first,
+    /// and showing only its pull request, or nothing, would make it look like
+    /// it shared the first one's folder.
     static func lines(agents: [AgentGroup]) -> [Line] {
         var lines: [Line] = []
         var previous: (directory: String?, lines: [Line])?
@@ -131,7 +136,7 @@ enum TaskRowDetails {
             if let previous {
                 let differing = linesDiffering(current, from: previous.lines)
                 let isOtherFolder = agent.workspace.directory != previous.directory
-                lines.append(contentsOf: differing.isEmpty && isOtherFolder ? current : differing)
+                lines.append(contentsOf: isOtherFolder && !startsAtFolderLine(differing) ? current : differing)
             } else {
                 lines.append(contentsOf: current)
             }
@@ -140,13 +145,30 @@ enum TaskRowDetails {
         return lines
     }
 
-    /// `current` from its first line that differs from the same position in
-    /// `previous`. The lines nest — a branch belongs to its project — so once
-    /// one differs, everything under it is shown too.
+    private static func startsAtFolderLine(_ lines: [Line]) -> Bool {
+        switch lines.first {
+        case .project, .branch: true
+        default: false
+        }
+    }
+
+    /// `current` from its first line that reads differently from the same
+    /// position in `previous`. The lines nest — a branch belongs to its
+    /// project — so once one differs, everything under it is shown too.
     static func linesDiffering(_ current: [Line], from previous: [Line]) -> [Line] {
-        let firstDifference = current.indices.first { $0 >= previous.count || current[$0] != previous[$0] }
+        let firstDifference = current.indices.first { $0 >= previous.count || !readsTheSame(current[$0], previous[$0]) }
         guard let firstDifference else { return [] }
         return Array(current[firstDifference...])
+    }
+
+    /// A pull request line carries its directory only so the chip can look up
+    /// that repository's ignored checks; two folders showing one pull request
+    /// read the same.
+    private static func readsTheSame(_ line: Line, _ other: Line) -> Bool {
+        if case .pullRequest(_, let state) = line, case .pullRequest(_, let otherState) = other {
+            return state == otherState
+        }
+        return line == other
     }
 
     /// Project first: it is the header the branch and pull request under it
@@ -235,29 +257,42 @@ enum TaskRowDetails {
         }
     }
 
+    /// Each agent tab's folder, in tab order, nil where none resolves. When
+    /// no agent tab has a folder, every one takes `taskDirectory`, which may
+    /// come from any tab. When some do, a folderless one takes only
+    /// `savedAgentDirectory`, a folder an agent tab saved: a terminal's folder
+    /// follows `cd`, which must not move an agent's lines.
+    static func agentTabDirectories(
+        _ directories: [String?],
+        savedAgentDirectory: String?,
+        taskDirectory: String?
+    ) -> [String?] {
+        let anyHasFolder = directories.contains { nonEmpty($0) != nil }
+        let fallback = anyHasFolder ? savedAgentDirectory : taskDirectory
+        return directories.map { nonEmpty($0) ?? nonEmpty(fallback) }
+    }
+
     /// The distinct directories a task shows a group for, in the order its
-    /// agent tabs report them. Two tabs in one folder are one group; an agent
-    /// tab with no folder, or a task with no agent tab, takes
-    /// `fallbackDirectory`.
+    /// agent tabs report them. Two tabs in one folder are one group; a task
+    /// whose agent tabs have no folder falls back to `fallbackDirectory`.
     static func distinctDirectories(
         agentTabDirectories: [String?],
         fallbackDirectory: String?
     ) -> [String] {
-        let resolved = agentTabDirectories.isEmpty
-            ? [resolvedDirectory(nil, fallback: fallbackDirectory)]
-            : agentTabDirectories.map { resolvedDirectory($0, fallback: fallbackDirectory) }
         var seen: Set<String> = []
         var directories: [String] = []
-        for directory in resolved.compactMap({ $0 }) where seen.insert(directory).inserted {
+        for directory in agentTabDirectories.compactMap(nonEmpty) where seen.insert(directory).inserted {
             directories.append(directory)
+        }
+        if directories.isEmpty, let fallbackDirectory = nonEmpty(fallbackDirectory) {
+            directories = [fallbackDirectory]
         }
         return directories
     }
 
-    static func resolvedDirectory(_ directory: String?, fallback: String?) -> String? {
-        if let directory, !directory.isEmpty { return directory }
-        if let fallback, !fallback.isEmpty { return fallback }
-        return nil
+    private static func nonEmpty(_ directory: String?) -> String? {
+        guard let directory, !directory.isEmpty else { return nil }
+        return directory
     }
 
     /// Drawing nothing and taking no row are separate facts: these states keep

@@ -185,12 +185,31 @@ struct TaskRowDirectoryGroupingTests {
     }
 
     /// The row must watch the folder a folderless agent's header borrows.
-    @Test func aFolderlessAgentAmongOthersTakesTheFallback() {
-        let directories = TaskRowDetails.distinctDirectories(
-            agentTabDirectories: ["/Users/me/Other", nil, ""],
-            fallbackDirectory: "/Users/me/Plume"
+    /// A terminal's folder follows `cd`, so beside an agent that has a folder,
+    /// a folderless one borrows only what an agent tab saved.
+    @Test func aFolderlessAgentAmongOthersTakesASavedAgentFolder() {
+        let directories = TaskRowDetails.agentTabDirectories(
+            ["/Users/me/Other", nil, ""],
+            savedAgentDirectory: "/Users/me/Saved",
+            taskDirectory: "/Users/me/Terminal"
         )
-        #expect(directories == ["/Users/me/Other", "/Users/me/Plume"])
+        #expect(directories == ["/Users/me/Other", "/Users/me/Saved", "/Users/me/Saved"])
+        #expect(TaskRowDetails.agentTabDirectories(
+            ["/Users/me/Other", nil],
+            savedAgentDirectory: nil,
+            taskDirectory: "/Users/me/Terminal"
+        ) == ["/Users/me/Other", nil])
+    }
+
+    @Test func agentsWithNoFolderAllTakeTheTaskFolder() {
+        let directories = TaskRowDetails.agentTabDirectories(
+            [nil, ""],
+            savedAgentDirectory: nil,
+            taskDirectory: "/Users/me/Plume"
+        )
+        #expect(directories == ["/Users/me/Plume", "/Users/me/Plume"])
+        #expect(TaskRowDetails.distinctDirectories(agentTabDirectories: directories, fallbackDirectory: "/Users/me/Plume")
+            == ["/Users/me/Plume"])
     }
 }
 
@@ -528,8 +547,45 @@ struct TaskRowAgentLinesTests {
         ])
     }
 
-    @Test func repeatedTitlesAreNumberedForTheirLabels() {
-        #expect(TaskRowDetails.distinctLabels(["Chat", "Fix", "Chat", "Chat"]) == ["Chat", "Fix", "Chat #2", "Chat #3"])
+    @Test func twoClonesWithTheSamePullRequestBothShowTheirLines() {
+        let first = agent("One", "/Users/me/Plume", branch: "main", pullRequest: open)
+        let second = agent("Two", "/Users/me/elsewhere/Plume", branch: "main", pullRequest: open)
+        #expect(TaskRowDetails.lines(agents: [first, second]) == [
+            .agentHeader(first.header), .project("Plume"), .branch("main", accompaniedBy: nil),
+            .pullRequest(directory: "/Users/me/Plume", state: open),
+            .agentHeader(second.header), .project("Plume"), .branch("main", accompaniedBy: nil),
+            .pullRequest(directory: "/Users/me/elsewhere/Plume", state: open),
+        ])
+    }
+
+    /// Only the pull request differs, but a lone pull request line under the
+    /// header would read as the first clone's folder.
+    @Test func aCloneWithAPullRequestTheOtherLacksShowsItsLines() {
+        let first = agent("One", "/Users/me/Plume", branch: "main")
+        let second = agent("Two", "/Users/me/elsewhere/Plume", branch: "main", pullRequest: open)
+        #expect(TaskRowDetails.lines(agents: [first, second]) == [
+            .agentHeader(first.header), .project("Plume"), .branch("main", accompaniedBy: nil),
+            .agentHeader(second.header), .project("Plume"), .branch("main", accompaniedBy: nil),
+            .pullRequest(directory: "/Users/me/elsewhere/Plume", state: open),
+        ])
+        #expect(TaskRowDetails.lines(agents: [second, first]) == [
+            .agentHeader(second.header), .project("Plume"), .branch("main", accompaniedBy: nil),
+            .pullRequest(directory: "/Users/me/elsewhere/Plume", state: open),
+            .agentHeader(first.header), .project("Plume"), .branch("main", accompaniedBy: nil),
+        ])
+    }
+
+    @Test func twoAgentsInOneFolderShareAPullRequestLine() {
+        let first = agent("One", "/Users/me/Plume", branch: "main")
+        let second = agent("Two", "/Users/me/Plume", branch: "main", pullRequest: open)
+        #expect(TaskRowDetails.lines(agents: [first, second]) == [
+            .agentHeader(first.header), .project("Plume"), .branch("main", accompaniedBy: nil),
+            .agentHeader(second.header), .pullRequest(directory: "/Users/me/Plume", state: open),
+        ])
+    }
+
+    @Test func repeatedTitlesAreNumberedOnEveryCopy() {
+        #expect(TaskRowDetails.distinctLabels(["Chat", "Fix", "Chat", "Chat"]) == ["Chat #1", "Fix", "Chat #2", "Chat #3"])
     }
 
     @Test func linesDifferingKeepsEverythingFromTheFirstDifference() {

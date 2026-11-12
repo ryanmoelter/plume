@@ -43,11 +43,8 @@ final class StartupWarmPass {
     static func directories(for tasks: [WorkTask]) -> Set<String> {
         var directories: Set<String> = []
         for task in tasks {
-            let agentTabDirectories = task.orderedTabs
-                .filter { $0.kind == .agent }
-                .map { TabDirectoryStore.shared.directory(for: $0) }
             let resolved = TaskRowDetails.distinctDirectories(
-                agentTabDirectories: agentTabDirectories,
+                agentTabDirectories: task.agentTabDirectories(of: task.orderedTabs),
                 fallbackDirectory: task.storedTabDirectory
             )
             directories.formUnion(resolved)

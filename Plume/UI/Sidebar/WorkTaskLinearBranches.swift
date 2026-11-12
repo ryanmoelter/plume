@@ -5,10 +5,19 @@ extension WorkTask {
     /// One entry per distinct directory the task's agent tabs are open in.
     var agentDirectories: [String] {
         TaskRowDetails.distinctDirectories(
-            agentTabDirectories: orderedLiveTabs
-                .filter { $0.kind == .agent }
-                .map { TabDirectoryStore.shared.directory(for: $0) },
+            agentTabDirectories: agentTabDirectories(of: orderedLiveTabs),
             fallbackDirectory: storedTabDirectory
+        )
+    }
+
+    /// The folder of each agent tab among `tabs`, in order, by
+    /// `TaskRowDetails.agentTabDirectories`.
+    func agentTabDirectories(of tabs: [TaskTab]) -> [String?] {
+        let agentTabs = tabs.filter { $0.kind == .agent }
+        return TaskRowDetails.agentTabDirectories(
+            agentTabs.map { TabDirectoryStore.shared.directory(for: $0) },
+            savedAgentDirectory: agentTabs.lazy.compactMap(\.workingDirectoryPath).first { !$0.isEmpty },
+            taskDirectory: storedTabDirectory
         )
     }
 
