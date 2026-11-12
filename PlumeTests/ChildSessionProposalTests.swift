@@ -37,17 +37,73 @@ struct ChildSessionProposalStoreTests {
         #expect(store.cardState(id: "task_0000abcd", now: Self.created.addingTimeInterval(7 * Self.day)) == .expired)
     }
 
-    @Test func pruningDropsExpiredProposalsAndOldSettledOnes() throws {
-        var store = try store(with: "task_00000001")
-        store.add(ChildSessionProposal(id: "task_00000002", request: try request(), createdAt: Self.created.addingTimeInterval(6 * Self.day)))
-        store.add(ChildSessionProposal(id: "task_00000003", request: try request(), createdAt: Self.created))
-        store.markStarted(id: "task_00000003", sessionID: "S", name: "fix-login", now: Self.created.addingTimeInterval(Self.day))
+    @Test func pruningKeepsTheNewestSettledProposalsAndEveryPendingOne() throws {
+        let limit = ChildSessionProposalStore.settledLimit
+        var store = ChildSessionProposalStore()
+        // An expired proposal settles at its expiry, older than every start below.
+        store.add(ChildSessionProposal(id: "expired", request: try request(), createdAt: Self.created.addingTimeInterval(-8 * Self.day)))
+        for index in 0..<limit {
+            let id = "started-\(index)"
+            store.add(ChildSessionProposal(id: id, request: try request(), createdAt: Self.created))
+            store.markStarted(id: id, sessionID: "S", name: "n", now: Self.created.addingTimeInterval(Double(index)))
+        }
+        store.add(ChildSessionProposal(id: "pending", request: try request(), createdAt: Self.created))
+        let now = Self.created.addingTimeInterval(400 * Self.day)
 
-        store.prune(now: Self.created.addingTimeInterval(8 * Self.day))
-        #expect(store.proposals.map(\.id) == ["task_00000002", "task_00000003"])
+        store.prune(now: Self.created.addingTimeInterval(Self.day))
+        #expect(store.proposal(id: "expired") == nil)
+        #expect(store.proposals.count == limit + 1)
 
-        store.prune(now: Self.created.addingTimeInterval(31 * Self.day + 1))
-        #expect(store.proposals.isEmpty)
+        store.add(ChildSessionProposal(id: "late", request: try request(), createdAt: now))
+        _ = store.dismiss(id: "late", reason: nil, byUser: true, now: now)
+        store.prune(now: now)
+        // "pending" has expired too, but a week after created, later than every start.
+        #expect(store.proposal(id: "started-0") == nil)
+        #expect(store.proposal(id: "started-1") == nil)
+        #expect(store.proposal(id: "started-2") != nil)
+        #expect(store.proposal(id: "pending") != nil)
+        #expect(store.proposal(id: "late") != nil)
+        #expect(store.proposals.count == limit)
+    }
+
+    @Test func pruningNeverDropsAProposalThatCanStart() throws {
+        var store = ChildSessionProposalStore()
+        for index in 0...ChildSessionProposalStore.settledLimit {
+            store.add(ChildSessionProposal(id: "p\(index)", request: try request(), createdAt: Self.created))
+        }
+        store.prune(now: Self.created.addingTimeInterval(Self.day))
+        #expect(store.proposals.count == ChildSessionProposalStore.settledLimit + 1)
+    }
+
+    @Test func aProposalTheStoreDoesNotHoldWasMadeElsewhere() throws {
+        #expect(try store().cardState(id: "task_ffffffff", now: Self.created) == .elsewhere)
+    }
+
+    @Test func aStartIsRecordedPastTheLifetimeAndCanBeUndone() throws {
+        var store = try store()
+        let late = Self.created.addingTimeInterval(8 * Self.day)
+        let recorded = store.markStarted(id: "task_0000abcd", sessionID: "CHILD", name: "fix-login", now: late)
+        let recordedMissing = store.markStarted(id: "task_ffffffff", sessionID: "CHILD", name: "fix-login", now: late)
+        #expect(recorded)
+        #expect(!recordedMissing)
+        #expect(store.cardState(id: "task_0000abcd", now: late) == .started(sessionID: "CHILD", name: "fix-login"))
+
+        store.reopen(id: "task_0000abcd")
+        #expect(store.proposal(id: "task_0000abcd")?.status == .pending)
+        #expect(store.proposal(id: "task_0000abcd")?.startedSessionID == nil)
+    }
+
+    @Test func repeatedLaunchSettingsMustMatchTheProposal() throws {
+        let proposal = try #require(try store(with: "task_00000001", ["model": .string("sonnet"), "use_worktree": .bool(true)]).proposals.first)
+        #expect(proposal.conflict(with: [:]) == nil)
+        #expect(proposal.conflict(with: ["model": .string("sonnet"), "use_worktree": .bool(true), "context": .string("fresh")]) == nil)
+        guard case .invalid(let message) = proposal.conflict(with: ["model": .string("opus")]) else {
+            Issue.record("a different model should be refused")
+            return
+        }
+        #expect(message.contains("own settings"))
+        #expect(proposal.conflict(with: ["use_worktree": .bool(false)]) != nil)
+        #expect(proposal.conflict(with: ["effort": .string("not-an-effort")]) != nil)
     }
 
     @Test func aDismissedProposalCannotBeDismissedOrStarted() throws {
@@ -129,13 +185,30 @@ struct ChildSessionProposalStoreTests {
             return
         }
         #expect(proposed.initiation == .ownInitiative)
-        #expect(StartSessionCall.parse(["proposal_id": .string("task_0000abcd")]) == .success(.startProposal(id: "task_0000abcd", wakeWhenDone: nil)))
+        #expect(StartSessionCall.parse(["proposal_id": .string("task_0000abcd")])
+            == .success(.startProposal(id: "task_0000abcd", wakeWhenDone: nil, settings: [:])))
         #expect(StartSessionCall.parse(["proposal_id": .string("task_0000abcd"), "wake_when_done": .bool(false)])
-            == .success(.startProposal(id: "task_0000abcd", wakeWhenDone: false)))
-        guard case .failure(.invalid) = StartSessionCall.parse(["proposal_id": .string("task_0000abcd"), "title": .string("T")]) else {
-            Issue.record("a proposal_id with other arguments should be refused")
+            == .success(.startProposal(id: "task_0000abcd", wakeWhenDone: false, settings: [:])))
+        guard case .failure(.invalid) = StartSessionCall.parse(["proposal_id": .string("task_0000abcd"), "colour": .string("red")]) else {
+            Issue.record("a proposal_id with an unknown argument should be refused")
             return
         }
+    }
+
+    @Test func aProposalIDIgnoresTheBriefAndPassesOnLaunchSettings() {
+        let call = StartSessionCall.parse([
+            "proposal_id": .string("task_0000abcd"),
+            "initiation": .string("user_asked"), "title": .string("T"), "prompt": .string("P"), "name": .string("n"),
+            "model": .string("sonnet"), "use_worktree": .bool(true)
+        ])
+        #expect(call == .success(.startProposal(
+            id: "task_0000abcd", wakeWhenDone: nil, settings: ["model": .string("sonnet"), "use_worktree": .bool(true)]
+        )))
+    }
+
+    @Test func aPaddedInitiationStillReadsAsAProposal() {
+        #expect(StartSessionCall.isProposal(["initiation": .string(" own_initiative\n")]))
+        #expect(!StartSessionCall.isProposal(["initiation": .string(" user_asked ")]))
     }
 
     // MARK: - Text for the model
@@ -277,9 +350,8 @@ struct ChildSessionProposalCoordinatorTests {
         let unknown = try await call(session, "start_session", ["proposal_id": .string("task_ffffffff")])
         #expect(unknown.isError)
         #expect(unknown.text == ChildSessionProposalError.unknown("task_ffffffff").message)
-        // Pruned on the write above, so it reads as unknown.
         #expect(try await call(session, "start_session", ["proposal_id": .string("task_00000001")]).text
-            == ChildSessionProposalError.unknown("task_00000001").message)
+            == ChildSessionProposalError.expired("task_00000001").message)
         #expect(try await call(session, "start_session", ["proposal_id": .string("task_00000002")]).text
             == ChildSessionProposalError.dismissed("task_00000002").message)
         #expect(try await call(session, "start_session", ["proposal_id": .string("task_00000003")]).text
@@ -287,7 +359,7 @@ struct ChildSessionProposalCoordinatorTests {
         #expect(parent.task?.tabs.count == 1)
     }
 
-    @Test func anExpiredProposalStillStoredSaysItExpired() async throws {
+    @Test func aStartFromTheCardAfterExpirySaysItExpired() async throws {
         let (_, parent, _) = try makeParent()
         defer { ChildSessionCoordinator.shared.tabForgotten(parent.id) }
         let request = try StartSessionRequest.parse(Self.proposal).get()
@@ -297,10 +369,64 @@ struct ChildSessionProposalCoordinatorTests {
         }
 
         let later = created.addingTimeInterval(7 * 24 * 60 * 60 + 1)
-        let result = await ChildSessionCoordinator.shared.startProposal("task_00000001", from: parent, byUser: false, now: later)
+        let result = await ChildSessionCoordinator.shared.startProposal("task_00000001", from: parent, byUser: true, now: later)
 
         #expect(result == .failure(.proposal(.expired("task_00000001"))))
-        #expect(ChildSessionProposalStore(json: parent.childProposalsJSON).proposals.isEmpty)
+        let store = ChildSessionProposalStore(json: parent.childProposalsJSON)
+        #expect(store.cardState(id: "task_00000001", now: later) == .expired)
+        #expect(ChildSessionProposalActivity.shared.failure(of: "task_00000001", in: parent.id)?.contains("expired") == true)
+    }
+
+    @Test func aConflictingLaunchSettingIsRefusedAndARedundantBriefIgnored() async throws {
+        let (_, parent, session) = try makeParent()
+        defer { ChildSessionCoordinator.shared.tabForgotten(parent.id) }
+        parent.permissionMode = .plan
+        let request = try StartSessionRequest.parse(Self.proposal.merging(["model": .string("sonnet")]) { $1 }).get()
+        let taskID = try ChildSessionCoordinator.shared.propose(request, from: parent).get().id
+        #expect(ChildSessionProposalStore(json: parent.childProposalsJSON).proposals.map(\.id) == [taskID])
+
+        let conflicting = try await call(session, "start_session", ["proposal_id": .string(taskID), "model": .string("opus")])
+        #expect(conflicting.isError)
+        #expect(conflicting.text.contains("own settings"))
+
+        // Past parsing and the settings check, the start meets plan mode.
+        let redundant = try await call(session, "start_session", [
+            "proposal_id": .string(taskID), "title": .string("Fix login"), "initiation": .string("user_asked"),
+            "model": .string("sonnet")
+        ])
+        #expect(redundant.text == ChildSessionError.parentInPlanMode.message)
+    }
+
+    @Test func aFailureClearsOnDismissalAndWhenTheTabIsForgotten() async throws {
+        let (_, parent, _) = try makeParent()
+        defer { ChildSessionCoordinator.shared.tabForgotten(parent.id) }
+        parent.permissionMode = .plan
+        let request = try StartSessionRequest.parse(Self.proposal).get()
+        let first = try ChildSessionCoordinator.shared.propose(request, from: parent).get().id
+        let second = try ChildSessionCoordinator.shared.propose(request, from: parent).get().id
+        let activity = ChildSessionProposalActivity.shared
+        _ = await ChildSessionCoordinator.shared.startProposal(first, from: parent, byUser: true)
+        _ = await ChildSessionCoordinator.shared.startProposal(second, from: parent, byUser: true)
+        #expect(activity.failure(of: first, in: parent.id) != nil)
+
+        _ = ChildSessionCoordinator.shared.dismissProposal(first, reason: nil, from: parent, byUser: true)
+        #expect(activity.failure(of: first, in: parent.id) == nil)
+        #expect(activity.failure(of: second, in: parent.id) != nil)
+
+        ChildSessionCoordinator.shared.tabForgotten(parent.id)
+        #expect(activity.failure(of: second, in: parent.id) == nil)
+    }
+
+    @Test func aChildsCardsBelongToItsParentWhileItIsOpen() throws {
+        let (task, parent, _) = try makeParent()
+        defer { ChildSessionCoordinator.shared.tabForgotten(parent.id) }
+        let child = TaskStore.addChildTab(to: task, parent: parent, in: context)
+
+        #expect(ChildSessionCoordinator.proposalOwner(of: parent) === parent)
+        #expect(ChildSessionCoordinator.proposalOwner(of: child) === parent)
+
+        TaskStore.closeTab(parent, in: context)
+        #expect(ChildSessionCoordinator.proposalOwner(of: child) == nil)
     }
 
     @Test func aParentInPlanModeCannotStartItsProposalAndTheCardSaysWhy() async throws {

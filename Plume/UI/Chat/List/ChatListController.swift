@@ -88,11 +88,9 @@ final class ChatListController: NSObject {
             documentView.needsLayout = true
         }
     }
-    /// Like `subagentOpener`: without it a proposal renders as a plain
-    /// tool row.
     var proposalBoard: ChatProposalBoard? {
         didSet {
-            guard (oldValue == nil) != (proposalBoard == nil) else { return }
+            guard oldValue?.tabID != proposalBoard?.tabID else { return }
             refreshRoots(Set(hosts.keys))
             documentView.needsLayout = true
         }

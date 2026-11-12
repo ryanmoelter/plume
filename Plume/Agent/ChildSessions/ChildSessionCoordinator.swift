@@ -62,6 +62,8 @@ final class ChildSessionCoordinator {
         silentChildren.remove(tabID)
         launchModes.removeValue(forKey: tabID)
         limitChecks.removeValue(forKey: tabID)?.cancel()
+        ChildSessionProposalActivity.shared.forget(tabID)
+        ChildSessionProposalStoreCache.shared.forget(tabID)
     }
 
     /// A parent's message still unread in a closing child goes back to the
@@ -128,9 +130,10 @@ final class ChildSessionCoordinator {
         case .startSession:
             switch StartSessionCall.parse(call.arguments) {
             case .success(.start(let request)): result = await startSession(request, from: tab)
-            case .success(.propose(let request)): result = propose(request, from: tab)
-            case .success(.startProposal(let id, let wakeWhenDone)):
-                result = await startProposal(id, from: tab, wakeWhenDone: wakeWhenDone, byUser: false)
+            case .success(.propose(let request)):
+                result = propose(request, from: tab).map { ChildSessionFormats.proposed(title: $0.title, taskID: $0.id) }
+            case .success(.startProposal(let id, let wakeWhenDone, let settings)):
+                result = await startProposal(id, from: tab, wakeWhenDone: wakeWhenDone, settings: settings, byUser: false)
             case .failure(let error): result = .failure(error)
             }
         case .sendMessage:
@@ -167,7 +170,12 @@ final class ChildSessionCoordinator {
         return request.ignoresWorktreeRequest ? started + " " + ChildSessionFormats.forkWorktreeIgnored : started
     }
 
-    private func launchChild(_ request: StartSessionRequest, from parent: TaskTab) async -> Result<TaskTab, ChildSessionError> {
+    /// `proposalID` names the proposal this launch starts. It is recorded as
+    /// started in the same step that opens the child's tab, so no later
+    /// failure or crash can let it start twice.
+    private func launchChild(
+        _ request: StartSessionRequest, from parent: TaskTab, proposalID: String? = nil
+    ) async -> Result<TaskTab, ChildSessionError> {
         guard !parent.isChildSession else { return .failure(.failed("This session cannot start sessions of its own.")) }
         guard let task = parent.task, let context = parent.modelContext else {
             return .failure(.failed("This session's task is gone."))
@@ -200,7 +208,16 @@ final class ChildSessionCoordinator {
             return .failure(.parentClosed)
         }
 
+        let name = request.name ?? WorkspaceProvisioner.slugify(request.title)
         let child = TaskStore.addChildTab(to: task, parent: parent, in: context)
+        if let proposalID {
+            let recorded = withProposals(of: parent, prunes: false) {
+                $0.markStarted(id: proposalID, sessionID: Self.sessionID(of: child), name: name, now: .now)
+            }
+            if !recorded {
+                Log.agent.error("Proposal \(proposalID, privacy: .public) vanished while it started")
+            }
+        }
         TabLaunchChoices(parent).apply(to: child)
         child.transport = .headless
         child.providerID = AgentProviderKind.claudeCode.rawValue
@@ -228,7 +245,6 @@ final class ChildSessionCoordinator {
         child.title = request.title
         child.titleSource = .custom
         TitleStore.shared.setTitle(request.title, forTab: child.id, source: .custom)
-        let name = request.name ?? WorkspaceProvisioner.slugify(request.title)
         childNames[child.id] = name
         if !request.wakeWhenDone { silentChildren.insert(child.id) }
 
@@ -264,6 +280,7 @@ final class ChildSessionCoordinator {
         guard let session, !session.hasExited else {
             let reason = session.map(Self.launchFailure) ?? "no session was created"
             TaskStore.closeTab(child, in: context)
+            if let proposalID { withProposals(of: parent, prunes: false) { $0.reopen(id: proposalID) } }
             if let worktree { await ChildSessionWorkspace.remove(worktree) }
             return .failure(.failed("The session could not start: \(reason)"))
         }
@@ -275,53 +292,59 @@ final class ChildSessionCoordinator {
     // MARK: - Proposals
 
     /// Records a card for the user to start, and starts nothing.
-    func propose(_ request: StartSessionRequest, from parent: TaskTab, now: Date = .now) -> Result<String, ChildSessionError> {
+    func propose(_ request: StartSessionRequest, from parent: TaskTab, now: Date = .now) -> Result<ChildSessionProposal, ChildSessionError> {
         guard !parent.isChildSession else { return .failure(.failed("This session cannot start sessions of its own.")) }
-        let proposal = withProposals(of: parent, now: now) { store in
+        return .success(withProposals(of: parent, now: now) { store in
             var id = ChildSessionProposalStore.makeID()
             while store.proposal(id: id) != nil { id = ChildSessionProposalStore.makeID() }
             let proposal = ChildSessionProposal(id: id, request: request, createdAt: now)
             store.add(proposal)
             return proposal
-        }
-        return .success(ChildSessionFormats.proposed(title: proposal.title, taskID: proposal.id))
+        })
     }
 
-    /// Starts a pending proposal with the settings it was proposed with. A
-    /// start the user made from the card also tells the parent, as a note
-    /// that wakes it.
+    /// Starts a pending proposal with the settings it was proposed with,
+    /// refusing `settings` that differ from them. A start the user made from
+    /// the card also tells the parent, as a note that wakes it, and a refusal
+    /// shows on the card.
     func startProposal(
-        _ id: String, from parent: TaskTab, wakeWhenDone: Bool? = nil, byUser: Bool, now: Date = .now
+        _ id: String,
+        from parent: TaskTab,
+        wakeWhenDone: Bool? = nil,
+        settings: [String: JSONValue] = [:],
+        byUser: Bool,
+        now: Date = .now
     ) async -> Result<String, ChildSessionError> {
         let activity = ChildSessionProposalActivity.shared
         guard !activity.isStarting(id, in: parent.id) else { return .failure(.proposal(.starting(id))) }
+        func refuse(_ error: ChildSessionError) -> Result<String, ChildSessionError> {
+            if byUser { activity.fail(id, in: parent.id, reason: Self.cardFailure(error)) }
+            return .failure(error)
+        }
         let pending = withProposals(of: parent, now: now) { $0.pending(id: id, now: now) }
         let proposal: ChildSessionProposal
         switch pending {
         case .success(let found): proposal = found
-        case .failure(let error): return .failure(.proposal(error))
+        case .failure(let error): return refuse(.proposal(error))
         }
+        if let conflict = proposal.conflict(with: settings) { return refuse(conflict) }
         let request: StartSessionRequest
         switch proposal.request(wakeWhenDone: wakeWhenDone) {
         case .success(let parsed): request = parsed
-        case .failure(let error): return .failure(error)
+        case .failure(let error): return refuse(error)
         }
 
         activity.begin(id, in: parent.id)
         let child: TaskTab
-        switch await launchChild(request, from: parent) {
+        switch await launchChild(request, from: parent, proposalID: id) {
         case .success(let launched):
             activity.end(id, in: parent.id, failure: nil)
             child = launched
         case .failure(let error):
-            activity.end(id, in: parent.id, failure: byUser ? error.message : nil)
+            activity.end(id, in: parent.id, failure: byUser ? Self.cardFailure(error) : nil)
             return .failure(error)
         }
 
-        let name = childNames[child.id] ?? WorkspaceProvisioner.slugify(request.title)
-        withProposals(of: parent, now: .now) {
-            $0.markStarted(id: id, sessionID: Self.sessionID(of: child), name: name, now: .now)
-        }
         if byUser {
             let note = ChildSessionFormats.proposalStartedNote(taskID: id, title: proposal.title, child: participant(child))
             deliver(.init(childID: child.id, text: note, kind: .message), toParent: parent, wakes: true)
@@ -341,21 +364,52 @@ final class ChildSessionCoordinator {
             $0.dismiss(id: id, reason: reason, byUser: byUser, now: now)
         }
         switch dismissed {
-        case .success(let proposal): return .success(ChildSessionFormats.proposalDismissed(title: proposal.title, taskID: id))
-        case .failure(let error): return .failure(.proposal(error))
+        case .success(let proposal):
+            ChildSessionProposalActivity.shared.clearFailure(of: id, in: parent.id)
+            return .success(ChildSessionFormats.proposalDismissed(title: proposal.title, taskID: id))
+        case .failure(let error):
+            return .failure(.proposal(error))
         }
     }
 
-    /// Runs `body` on the tab's proposals as stored, so it can still tell an
-    /// expired proposal from an unknown one, then prunes and saves them.
+    /// What a card says when the user's start is refused: the expiry in the
+    /// user's terms, anything else as the agent would read it.
+    private static func cardFailure(_ error: ChildSessionError) -> String {
+        if case .proposal(.expired) = error { return "This proposal expired: proposals last 7 days." }
+        return error.message
+    }
+
+    /// Runs `body` on the tab's proposals, then prunes and saves them. A
+    /// failure from before a proposal expired no longer applies, so it goes.
     @discardableResult
-    func withProposals<T>(of tab: TaskTab, now: Date = .now, _ body: (inout ChildSessionProposalStore) -> T) -> T {
+    func withProposals<T>(
+        of tab: TaskTab, now: Date = .now, prunes: Bool = true, _ body: (inout ChildSessionProposalStore) -> T
+    ) -> T {
         var store = ChildSessionProposalStore(json: tab.childProposalsJSON)
         let result = body(&store)
-        store.prune(now: now)
+        if prunes {
+            for proposal in store.proposals where proposal.isExpired(at: now) {
+                ChildSessionProposalActivity.shared.clearFailure(of: proposal.id, in: tab.id)
+            }
+            store.prune(now: now)
+        }
         let json = store.json
         if tab.childProposalsJSON != json { tab.childProposalsJSON = json }
         return result
+    }
+
+    /// The tab whose proposals `tab`'s chat shows: a child's transcript
+    /// carries its parent's. Nil when that parent has closed.
+    static func proposalOwner(of tab: TaskTab) -> TaskTab? {
+        guard tab.isChildSession else { return tab }
+        return tab.parentTabID.flatMap { id in tab.task?.liveTabs.first { $0.id == id } }
+    }
+
+    /// The tab's proposals as they read at `now`, without saving anything.
+    func proposals(of tab: TaskTab, now: Date = .now) -> ChildSessionProposalStore {
+        var store = ChildSessionProposalStore(json: tab.childProposalsJSON)
+        store.prune(now: now)
+        return store
     }
 
     private static func launchFailure(of session: HeadlessSession) -> String {

@@ -186,15 +186,23 @@ struct ChatTabView: View, ThemedView {
     }
 
     private var proposalBoard: ChatProposalBoard {
-        let tab = tab
+        guard let owner = ChildSessionCoordinator.proposalOwner(of: tab) else {
+            return ChatProposalBoard(tabID: tab.id, store: { ChildSessionProposalStore() }, start: { _ in }, dismiss: { _ in })
+        }
         return ChatProposalBoard(
-            tabID: tab.id,
-            store: { ChildSessionProposalStore(json: tab.childProposalsJSON) },
-            start: { id in
-                Task { _ = await ChildSessionCoordinator.shared.startProposal(id, from: tab, byUser: true) }
+            tabID: owner.id,
+            // A child's rows can outlive its parent's tab, which is deleted on close.
+            store: { [weak owner] in
+                guard let owner, owner.isLive else { return ChildSessionProposalStore() }
+                return ChildSessionProposalStoreCache.shared.store(for: owner)
             },
-            dismiss: { id in
-                _ = ChildSessionCoordinator.shared.dismissProposal(id, reason: nil, from: tab, byUser: true)
+            start: { [weak owner] id in
+                guard let owner, owner.isLive else { return }
+                Task { _ = await ChildSessionCoordinator.shared.startProposal(id, from: owner, byUser: true) }
+            },
+            dismiss: { [weak owner] id in
+                guard let owner, owner.isLive else { return }
+                _ = ChildSessionCoordinator.shared.dismissProposal(id, reason: nil, from: owner, byUser: true)
             }
         )
     }

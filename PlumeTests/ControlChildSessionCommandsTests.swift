@@ -223,7 +223,11 @@ struct ControlChildSessionCommandsTests {
         let proposed = try ControlChildSessionCommands.propose(.init(parent: "Lead", title: "Fix", prompt: "Go"), in: context)
         let taskID = try #require(proposed.taskID)
         #expect(proposed.message.contains("(task_id: \(taskID))"))
+        // Padding the stored JSON shows whether listing writes it back.
+        parent.childProposalsJSON = " " + parent.childProposalsJSON
+        let stored = parent.childProposalsJSON
         #expect(try ControlChildSessionCommands.proposals(.init(parent: "Lead"), in: context).proposals.map(\.state) == ["pending"])
+        #expect(parent.childProposalsJSON == stored)
 
         _ = try ControlChildSessionCommands.dismissProposal(.init(parent: "Lead", taskID: taskID), in: context)
 

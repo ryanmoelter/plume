@@ -149,9 +149,9 @@ enum ControlChildSessionCommands {
         case .failure(let error): throw ControlError.badParams(error.message)
         }
         switch ChildSessionCoordinator.shared.propose(request, from: parent) {
-        case .success(let message):
-            let taskID = ChildSessionProposalStore(json: parent.childProposalsJSON).proposals.last?.id
-            return ChildSessionResult(parentTabID: parent.id, childTabID: nil, message: message, taskID: taskID)
+        case .success(let proposal):
+            let message = ChildSessionFormats.proposed(title: proposal.title, taskID: proposal.id)
+            return ChildSessionResult(parentTabID: parent.id, childTabID: nil, message: message, taskID: proposal.id)
         case .failure(let error):
             throw ControlError.badParams(error.message)
         }
@@ -160,13 +160,14 @@ enum ControlChildSessionCommands {
     static func proposals(_ params: ChildSessionProposalsParams, in context: ModelContext) throws -> ChildSessionProposalsResult {
         let parent = try tab(params.parent, in: context)
         let now = Date.now
-        let store = ChildSessionCoordinator.shared.withProposals(of: parent, now: now) { $0 }
+        let store = ChildSessionCoordinator.shared.proposals(of: parent, now: now)
         return ChildSessionProposalsResult(parentTabID: parent.id, proposals: store.proposals.map { proposal in
             let state = switch store.cardState(id: proposal.id, now: now) {
             case .pending: "pending"
             case .started: "started"
             case .dismissed: "dismissed"
             case .expired: "expired"
+            case .elsewhere: "elsewhere"
             }
             return .init(
                 taskID: proposal.id, title: proposal.title, name: proposal.name, state: state,
