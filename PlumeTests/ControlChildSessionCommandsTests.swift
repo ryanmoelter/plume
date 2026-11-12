@@ -102,6 +102,39 @@ struct ControlChildSessionCommandsTests {
         #expect(parentSession.userMessagePreamble?()?.contains("Need a decision") == true)
     }
 
+    private final class Lines {
+        var all: [String] = []
+    }
+
+    private static let result = #"{"type":"result","subtype":"success","is_error":false,"result":"DONE"}"#
+
+    @Test func aMessageQueuedBehindAnInterruptLetsAChildWakeTheParentAgain() throws {
+        let task = TaskStore.createTask(in: context, title: "Task", siblings: [])
+        let parent = try #require(task.tabs.first)
+        let child = TaskStore.addChildTab(to: task, parent: parent, in: context)
+        try context.save()
+        let session = try #require(AgentSessionManager.shared.session(for: parent.id, taskID: task.id) as? HeadlessSession)
+        defer {
+            _ = AgentSessionManager.shared.detachSession(for: parent.id)
+            ChildSessionCoordinator.shared.tabForgotten(parent.id)
+        }
+        session.queuedMessageDelivery = { .endOfTurn }
+        let lines = Lines()
+        session.debugLineSink = { lines.all.append($0) }
+        ChildSessionCoordinator.shared.attach(to: session, task: task, tab: parent)
+        _ = try ControlChildSessionCommands.report(.init(child: child.id.uuidString, text: "Earlier", wakes: false), in: context)
+
+        session.submit(text: "first")
+        session.submit(text: "second")
+        session.interrupt()
+        session.handle(try #require(StreamJSONDecoder.decode(line: Self.result)))
+        session.handle(try #require(StreamJSONDecoder.decode(line: Self.result)))
+        _ = try ControlChildSessionCommands.report(.init(child: child.id.uuidString, text: "All green"), in: context)
+
+        #expect(lines.all.last?.contains("All green") == true)
+        #expect(session.isWorking)
+    }
+
     @Test func hostMessagesTheUserRemovesGoBackToTheParentAsHeldNotes() throws {
         let task = TaskStore.createTask(in: context, title: "Task", siblings: [])
         let parent = try #require(task.tabs.first)

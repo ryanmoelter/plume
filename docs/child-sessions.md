@@ -108,7 +108,7 @@ Each queue entry is a `QueuedMessage` with its own identity. Its parts are eithe
 - **A turn the user drove in the child is held.** Only the latest held turn report per child is kept, and it rides in front of the parent's next turn, whoever starts it. A child's `send_message` note is never dropped or replaced, held or not.
 - **An idle parent wakes at once.** The notes go in as one host-driven user turn.
 - **A working parent batches notes** until its turn ends, then gets them as one turn.
-- **After the user interrupts the parent, nothing wakes it.** Every note waits for the user's next message, which carries them in front (`userMessagePreamble`).
+- **After the user interrupts the parent, nothing wakes it.** Every note waits for the user's next message, which carries them in front (`userMessagePreamble`). A message the user queued before the interrupt counts as that next message: once it starts, wakes resume.
 - **There is no wake cap.**
 - **Closing the parent's tab drops its notes.** Its children stay open and render as top-level tabs.
 
