@@ -41,6 +41,11 @@ nonisolated enum CLIRequest: Equatable, Sendable {
         var taskID: UUID?
         var tabID: UUID?
         var select: Bool
+        /// Whether `wt` created the worktree, and its branch. The task owns
+        /// only what was created; an older client sends neither, so it owns
+        /// nothing.
+        var createdWorktree: Bool? = nil
+        var createdBranch: Bool? = nil
     }
 
     /// Shows the Settings window, on `section` when given (`projects`, say).

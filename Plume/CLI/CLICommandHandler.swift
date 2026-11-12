@@ -354,10 +354,9 @@ final class CLICommandHandler {
             repoPath: repository,
             branchName: checkout.branch
         )
-        // `plume wt` made the worktree for this task, so deleting the task
-        // offers to remove it. The main checkout is never one.
-        if checkout.facts.isWorktree {
-            task.recordOwnedWorktree(OwnedWorktree(path: path, repoPath: repository, branch: checkout.branch))
+        if checkout.facts.isWorktree, params.createdWorktree == true {
+            let branch = params.createdBranch == true ? checkout.branch : nil
+            task.recordOwnedWorktree(OwnedWorktree(path: path, repoPath: repository, branch: branch))
         }
         if params.select { windows.first?.reveal(task.id) }
         var response = CLIResponse.success
