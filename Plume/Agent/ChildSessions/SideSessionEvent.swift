@@ -60,7 +60,8 @@ nonisolated struct SideSessionEvent: Equatable, Codable {
 
     var footer: String {
         let encoder = JSONEncoder()
-        encoder.outputFormatting = [.sortedKeys, .withoutEscapingSlashes]
+        // Slashes stay escaped, so quoted text can never close the tag as `</`.
+        encoder.outputFormatting = [.sortedKeys]
         let json = (try? encoder.encode(self)).map { String(decoding: $0, as: UTF8.self) } ?? "{}"
         return "<\(Self.tag)>\(json)</\(Self.tag)>"
     }
