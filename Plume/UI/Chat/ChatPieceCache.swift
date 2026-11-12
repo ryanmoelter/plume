@@ -97,7 +97,7 @@ final class ChatPieceCache {
         var foundTargets = Set<ReferenceTarget>()
         let artifactTitles = ArtifactChipTitles(messages: messages)
         func chipTitle(_ target: ReferenceTarget) -> String? {
-            if case .artifact(let id) = target { return artifactTitles.title(forArtifact: id) }
+            if case .artifact(let id) = target { return artifactTitles.title(forArtifact: id) ?? "" }
             return referenceTitle(target)
         }
         let pieces = ChatPieceSplitter.pieces(
@@ -128,10 +128,13 @@ final class ChatPieceCache {
                 let chipped = blocks.map { entry in
                     MarkdownBlock.Parsed(
                         block: entry.block.mappingInline { text in
-                            ReferenceChipText.rewrite(text) { destination in
-                                ReferenceChipText.url(forDestination: destination)
+                            ReferenceChipText.rewrite(text) { destination, label in
+                                let target = ReferenceChipText.url(forDestination: destination)
                                     .flatMap { ReferenceTarget.classify($0, base: linkBase) }
-                                    .flatMap(chipTitle)
+                                if case .artifact(let id) = target {
+                                    return artifactTitles.title(forArtifact: id, label: label, destination: destination)
+                                }
+                                return target.flatMap(chipTitle)
                             }
                         },
                         source: entry.source

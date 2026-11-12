@@ -97,12 +97,18 @@ struct ReferenceChipPieceTests {
         #expect(paragraphText(pieces) == "See [\(chip)Release notes](\(url)) or [\(chip)Release notes](\(url)).")
     }
 
-    @Test func anUnknownArtifactLinkIsAChipWithTheGenericLabel() {
+    @Test func anUnnamedArtifactLinkShowsItsLabelOrItsURL() {
         let url = "https://claude.ai/artifact/xyz"
         let cache = ChatPieceCache()
-        let pieces = build(cache, "See [the page](\(url)) or \(url).")
+        let pieces = build(cache, "See [old deck](\(url)) or \(url).")
         #expect(cache.referenceTargets == [.artifact(id: "xyz")])
-        #expect(paragraphText(pieces) == "See [\(chip)Artifact](\(url)) or [\(chip)Artifact](\(url)).")
+        #expect(paragraphText(pieces) == "See [\(chip)old deck](\(url)) or [\(chip)claude.ai/artifact/xyz](\(url)).")
+    }
+
+    @Test func aLongBareArtifactURLIsTruncated() {
+        let url = "https://claude.ai/code/artifact/0f2c1d9e-8a7b-4c3d-9e1f-123456789abc"
+        let pieces = build(ChatPieceCache(), url)
+        #expect(paragraphText(pieces) == "[\(chip)claude.ai/code/artifact/0f2c1d9e-8a7b-4…](\(url))")
     }
 
     @Test func aResolvedReferenceIsRewrittenAndCopiesAsWritten() throws {

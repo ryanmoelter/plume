@@ -128,7 +128,7 @@ struct ConversationArtifactTests {
 }
 
 /// Artifact chips take the latest title the tab's own calls gave each
-/// artifact, and the generic label for one they never named.
+/// artifact, and fall back to the author's label or the URL for one they never named.
 struct ArtifactChipTitlesTests {
     private func call(_ input: [String: JSONValue], result: String?, title: String?) -> ChatMessage {
         let call = ToolCall(
@@ -151,11 +151,14 @@ struct ArtifactChipTitlesTests {
         #expect(titles.title(forArtifact: "aaa") == "Final")
     }
 
-    @Test func anArtifactNoCallNamedGetsTheGenericLabel() {
+    @Test func anArtifactNoCallNamedFallsBackToItsLabelThenItsURL() {
         let titles = ArtifactChipTitles(messages: [
             call(["file_path": .string("/tmp/a.html")], result: "Published https://claude.ai/artifact/aaa", title: nil),
         ])
-        #expect(titles.title(forArtifact: "aaa") == "Artifact")
-        #expect(titles.title(forArtifact: "zzz") == "Artifact")
+        let url = "https://claude.ai/artifact/zzz"
+        #expect(titles.title(forArtifact: "aaa") == nil)
+        #expect(titles.title(forArtifact: "zzz", label: "old deck", destination: url) == "old deck")
+        #expect(titles.title(forArtifact: "zzz", label: "  ", destination: url) == "claude.ai/artifact/zzz")
+        #expect(titles.title(forArtifact: "zzz", label: nil, destination: url) == "claude.ai/artifact/zzz")
     }
 }

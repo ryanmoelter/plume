@@ -14,9 +14,16 @@ nonisolated struct ArtifactChipTitles: Equatable {
         }
     }
 
-    /// The generic label for an artifact no call named, since every artifact
-    /// link is a chip.
-    func title(forArtifact id: String) -> String {
-        titles[id] ?? ReferenceTarget.genericArtifactLabel
+    func title(forArtifact id: String) -> String? {
+        titles[id]
+    }
+
+    /// Every artifact link is a chip: the title a call gave it, else the
+    /// author's label, else the link itself without its scheme.
+    func title(forArtifact id: String, label: String?, destination: String) -> String {
+        if let named = titles[id] { return named }
+        if let label, !label.allSatisfy(\.isWhitespace) { return label }
+        guard let schemeEnd = destination.range(of: "://") else { return destination }
+        return String(destination[schemeEnd.upperBound...])
     }
 }
