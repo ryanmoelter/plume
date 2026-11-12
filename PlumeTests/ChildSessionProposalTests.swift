@@ -434,6 +434,25 @@ struct ChildSessionProposalCoordinatorTests {
         #expect(parent.task?.tabs.count == 1)
     }
 
+    /// Nothing else saves the context after a dismissal, so without its own
+    /// save it is lost on relaunch.
+    @Test func everyProposalWriteSavesOnItsOwn() throws {
+        let (_, parent, _) = try makeParent()
+        defer { ChildSessionCoordinator.shared.tabForgotten(parent.id) }
+        try context.save()
+        let request = try StartSessionRequest.parse(Self.proposal).get()
+        let parentID = parent.id
+        func stored(_ id: String) throws -> ChildSessionProposal.Status? {
+            let fresh = try #require(try ModelContext(container).fetch(FetchDescriptor<TaskTab>(predicate: #Predicate { $0.id == parentID })).first)
+            return ChildSessionProposalStore(json: fresh.childProposalsJSON).proposal(id: id)?.status
+        }
+
+        let taskID = try ChildSessionCoordinator.shared.propose(request, from: parent).get().id
+        #expect(try stored(taskID) == .pending)
+        _ = ChildSessionCoordinator.shared.dismissProposal(taskID, reason: nil, from: parent, byUser: true)
+        #expect(try stored(taskID) == .dismissed)
+    }
+
     @Test func aStartFromTheCardAfterExpirySaysItExpired() async throws {
         let (_, parent, _) = try makeParent()
         defer { ChildSessionCoordinator.shared.tabForgotten(parent.id) }
