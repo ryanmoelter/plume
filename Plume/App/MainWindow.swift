@@ -340,16 +340,12 @@ struct MainWindow: View {
         // mutating under the user once the check resolves. The await also
         // defers presenting past the live-agent dialog's dismissal, which
         // would otherwise drop it.
+        let claims = WorktreeRemovalPrompt.claims(for: task)
         Task {
-            let worktrees = await WorktreeRemovalPrompt.targets(for: task)
+            let (worktrees, dirtySummaries) = await WorktreeRemovalPrompt.resolve(claims)
             guard !worktrees.isEmpty else {
                 finishRemoval(task, verb: verb, worktrees: [], deleteBranch: false)
                 return
-            }
-            var dirtySummaries: [String: String] = [:]
-            for worktree in worktrees {
-                let changes = await GitService.shared.uncommittedChanges(in: worktree.path)
-                if !changes.isEmpty { dirtySummaries[worktree.path] = WorktreeRemovalPrompt.describe(changes) }
             }
             pendingWorktreeRemoval = .init(task: task, verb: verb, worktrees: worktrees, dirtySummaries: dirtySummaries)
         }

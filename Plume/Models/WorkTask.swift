@@ -20,9 +20,9 @@ final class WorkTask {
     /// nil means the task lives in the "Ungrouped" section.
     var group: TaskGroup?
 
-    /// Input to `TabWorkspaceMigration` only: each tab owns its workspace,
-    /// and nothing else may read these. They stay in the schema because
-    /// lightweight migration would drop the columns before the pass reads them.
+    /// Each tab owns its workspace, so these hold one only while the task has
+    /// no tabs (`heldWorkspace`), and before that only as an older build's
+    /// input to `TabWorkspaceMigration`.
     var workspaceKindRaw: String = WorkspaceKind.unset.rawValue
     var workingDirectoryPath: String?
     var repoPath: String?
@@ -84,6 +84,26 @@ final class WorkTask {
     var lastStatus: TaskStatus {
         get { TaskStatus(migratingRawValue: lastStatusRaw) }
         set { lastStatusRaw = newValue.rawValue }
+    }
+
+    /// The workspace of the last tab to leave, kept until a tab is added, so
+    /// the next tab starts there and archive or delete still offers its
+    /// worktree. Meaningful only while `tabs` is empty.
+    var heldWorkspace: TabWorkspace {
+        get {
+            TabWorkspace(
+                kind: WorkspaceKind(rawValue: workspaceKindRaw) ?? .unset,
+                directory: workingDirectoryPath,
+                repoPath: repoPath,
+                branchName: branchName
+            )
+        }
+        set {
+            workspaceKindRaw = newValue.kind.rawValue
+            workingDirectoryPath = newValue.directory
+            repoPath = newValue.repoPath
+            branchName = newValue.branchName
+        }
     }
 
     /// Every tab, pane by pane, each pane in strip order.
