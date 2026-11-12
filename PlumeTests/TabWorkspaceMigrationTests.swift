@@ -45,6 +45,30 @@ struct TabWorkspaceMigrationTests {
         #expect(task.tabs.allSatisfy { $0.isWorkspaceMigrated })
     }
 
+    /// Otherwise the task would read as holding a workspace its tabs own.
+    @Test func aTaskWithTabsHasItsOwnCopyCleared() throws {
+        let context = try makeContext()
+        let task = makeLegacyTask(in: context, tabCount: 2)
+
+        try TabWorkspaceMigration.run(in: context)
+        try TabWorkspaceMigration.run(in: context)
+
+        #expect(task.heldWorkspace == TabWorkspace())
+        #expect(task.tabs.map(\.workspace) == [taskWorkspace, taskWorkspace])
+    }
+
+    /// A task with no tabs keeps its workspace as the one it holds.
+    @Test func aTaskWithNoTabsKeepsItsWorkspace() throws {
+        let context = try makeContext()
+        let empty = makeLegacyTask(in: context, tabCount: 0)
+        _ = makeLegacyTask(in: context)
+
+        try TabWorkspaceMigration.run(in: context)
+        try TabWorkspaceMigration.run(in: context)
+
+        #expect(empty.heldWorkspace == taskWorkspace)
+    }
+
     @Test func aFolderTheTabAlreadyReportedIsKept() throws {
         let context = try makeContext()
         let tab = makeLegacyTask(in: context).tabs[0]
