@@ -81,7 +81,7 @@ nonisolated struct ChildSessionProposal: Codable, Equatable, Identifiable {
                 ("use_worktree", asked.useWorktree == proposed.useWorktree),
                 ("context", asked.context == proposed.context)
             ]
-            differing = fields.filter { !$0.1 }.map(\.0)
+            differing = fields.filter { !$0.1 && repeated[$0.0] != nil }.map(\.0)
         } else {
             differing = repeated.keys.sorted()
         }
@@ -126,6 +126,9 @@ nonisolated struct ChildSessionProposalStore: Equatable {
     /// Stored text that is not a JSON array at all. While set, the store
     /// must not be written, or that text would be lost.
     private(set) var unreadableText: String?
+    /// Keys a newer build added to an entry this build reads, by proposal
+    /// id. Every write carries them through unchanged.
+    private var unknownKeys: [String: [String: JSONValue]] = [:]
 
     init(proposals: [ChildSessionProposal] = []) {
         self.proposals = proposals
@@ -145,6 +148,10 @@ nonisolated struct ChildSessionProposalStore: Equatable {
             if let data = try? JSONEncoder().encode(entry),
                let proposal = try? decoder.decode(ChildSessionProposal.self, from: data) {
                 proposals.append(proposal)
+                if case .object(let stored) = entry, let known = Self.encoded(proposal) {
+                    let unknown = stored.filter { known[$0.key] == nil }
+                    if !unknown.isEmpty { unknownKeys[proposal.id] = unknown }
+                }
             } else {
                 unreadable.append(entry)
             }
@@ -161,13 +168,21 @@ nonisolated struct ChildSessionProposalStore: Equatable {
     var json: String {
         if let unreadableText { return unreadableText }
         guard !proposals.isEmpty || !unreadable.isEmpty else { return "" }
+        let decoded = proposals.compactMap { proposal in
+            Self.encoded(proposal).map { JSONValue.object((unknownKeys[proposal.id] ?? [:]).merging($0) { $1 }) }
+        }
+        let encoder = JSONEncoder()
+        encoder.outputFormatting = [.sortedKeys]
+        return (try? encoder.encode(decoded + unreadable)).map { String(decoding: $0, as: UTF8.self) } ?? ""
+    }
+
+    private static func encoded(_ proposal: ChildSessionProposal) -> [String: JSONValue]? {
         let encoder = JSONEncoder()
         encoder.dateEncodingStrategy = .iso8601
-        encoder.outputFormatting = [.sortedKeys]
-        let decoded = proposals.compactMap { proposal in
-            (try? encoder.encode(proposal)).flatMap { try? JSONDecoder().decode(JSONValue.self, from: $0) }
-        }
-        return (try? encoder.encode(decoded + unreadable)).map { String(decoding: $0, as: UTF8.self) } ?? ""
+        guard let data = try? encoder.encode(proposal),
+              case .object(let fields) = try? JSONDecoder().decode(JSONValue.self, from: data)
+        else { return nil }
+        return fields
     }
 
     static func makeID(random: UInt32 = .random(in: .min ... .max)) -> String {
@@ -322,7 +337,7 @@ nonisolated enum StartSessionCall: Equatable {
             return .success(.startProposal(
                 id: id,
                 wakeWhenDone: arguments["wake_when_done"]?.boolValue,
-                settings: arguments.filter { repeatable.contains($0.key) }
+                settings: arguments.filter { repeatable.contains($0.key) && !isBlank($0.value) }
             ))
         }
         return StartSessionRequest.parse(arguments).map { request in
@@ -332,10 +347,15 @@ nonisolated enum StartSessionCall: Equatable {
 
     /// A `null` or blank `proposal_id` counts as absent.
     private static func hasProposalID(_ arguments: [String: JSONValue]) -> Bool {
-        switch arguments["proposal_id"] {
-        case nil, .null?: false
-        case .string(let id)?: !id.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
-        default: true
+        arguments["proposal_id"].map { !isBlank($0) } ?? false
+    }
+
+    /// A `null` or blank value counts as not sent.
+    private static func isBlank(_ value: JSONValue) -> Bool {
+        switch value {
+        case .null: true
+        case .string(let text): text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+        default: false
         }
     }
 

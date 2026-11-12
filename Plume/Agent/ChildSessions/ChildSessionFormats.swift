@@ -226,7 +226,7 @@ nonisolated enum ChildSessionFormats {
                 "title": string("Under \(StartSessionRequest.titleLimit) chars; names the task. Shown on the tab or card. Required unless proposal_id is set."),
                 "prompt": string("The brief: the task, the files or area, what done looks like, self-contained for a session that has not seen this conversation. Required unless proposal_id is set."),
                 "initiation": enumeration(StartSessionRequest.Initiation.allCases.map(\.rawValue), "\"user_asked\": the user asked in words for separate, parallel or background work, or told you to start this piece — it starts now. \"own_initiative\": work you propose yourself that the user has not told you to do — something you noticed, or the follow-up your own answer or work turned up; it waits as a proposal card until the user starts it; never for a task the user's message tells you to do. \"offer\" works as \"own_initiative\". Required unless proposal_id is set."),
-                "proposal_id": string("Start a proposal the user told you to start, exactly as proposed: its task_id and nothing else (wake_when_done may accompany it). To change it, dismiss_task it and start a new session."),
+                "proposal_id": string("Start a proposal the user told you to start, exactly as proposed: its task_id, and wake_when_done if you like. Other fields that match the proposal are ignored; one that differs is refused. To change it, dismiss_task it and start a new session."),
                 "name": .object([
                     "type": .string("string"),
                     "pattern": .string("^[a-z0-9-]{1,\(StartSessionRequest.nameLimit)}$"),
