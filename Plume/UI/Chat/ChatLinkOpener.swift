@@ -83,13 +83,20 @@ enum ChatLinkOpener {
 
     /// Hands the target to the system off the main thread — `NSWorkspace`
     /// blocks its caller while Launch Services starts the handler.
+    ///
+    /// `directory` is the task's folder, which picks its project's pull
+    /// request destination. Nil takes the defaults row's.
     @MainActor
-    static func open(_ target: Target) {
+    static func open(_ target: Target, directory: URL? = nil) {
         switch target {
         case .web(let rawURL):
-            let url = AppSettings.shared.pullRequestDestination.openingURL(for: rawURL)
+            let configuration = AppSettings.shared.projectsConfiguration
+            let path = directory?.path
             Task.detached(priority: .userInitiated) {
-                NSWorkspace.shared.open(url)
+                // Finding the project root runs git.
+                let root = path.flatMap(ProjectRoot.containing)
+                let destination = configuration.pullRequestDestination(forRoot: root)
+                NSWorkspace.shared.open(destination.openingURL(for: rawURL))
             }
         case .file(let url):
             Task.detached(priority: .userInitiated) {
@@ -120,7 +127,7 @@ extension View {
     func chatLinkHandling(directory: URL?) -> some View {
         environment(\.chatLinkDirectory, directory)
             .environment(\.openURL, OpenURLAction { url in
-                ChatLinkOpener.open(ChatLinkOpener.target(for: url, relativeTo: directory))
+                ChatLinkOpener.open(ChatLinkOpener.target(for: url, relativeTo: directory), directory: directory)
                 return .handled
             })
     }

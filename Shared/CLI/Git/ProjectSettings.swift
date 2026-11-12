@@ -25,6 +25,8 @@ nonisolated struct ProjectSettings: Codable, Equatable, Sendable {
     var ignoredPendingChecks: [String]?
     /// Linear workspaces (`orgID`s) tasks in this project see. Default: all.
     var linearOrgIDs: [String]?
+    /// Where this project's pull request links open. Default: GitHub.
+    var pullRequestDestination: PullRequestDestination?
 
     init(
         baseBranch: String? = nil,
@@ -33,7 +35,8 @@ nonisolated struct ProjectSettings: Codable, Equatable, Sendable {
         nerdFont: NerdFontMode? = nil,
         protectedWorktrees: [String]? = nil,
         ignoredPendingChecks: [String]? = nil,
-        linearOrgIDs: [String]? = nil
+        linearOrgIDs: [String]? = nil,
+        pullRequestDestination: PullRequestDestination? = nil
     ) {
         self.baseBranch = baseBranch
         self.branchPrefix = branchPrefix
@@ -42,6 +45,7 @@ nonisolated struct ProjectSettings: Codable, Equatable, Sendable {
         self.protectedWorktrees = protectedWorktrees
         self.ignoredPendingChecks = ignoredPendingChecks
         self.linearOrgIDs = linearOrgIDs
+        self.pullRequestDestination = pullRequestDestination
     }
 
     /// These settings over `fallback`: each non-nil field here wins, and a
@@ -54,7 +58,8 @@ nonisolated struct ProjectSettings: Codable, Equatable, Sendable {
             nerdFont: nerdFont ?? fallback.nerdFont,
             protectedWorktrees: protectedWorktrees ?? fallback.protectedWorktrees,
             ignoredPendingChecks: ignoredPendingChecks ?? fallback.ignoredPendingChecks,
-            linearOrgIDs: linearOrgIDs ?? fallback.linearOrgIDs
+            linearOrgIDs: linearOrgIDs ?? fallback.linearOrgIDs,
+            pullRequestDestination: pullRequestDestination ?? fallback.pullRequestDestination
         )
     }
 }

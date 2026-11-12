@@ -299,9 +299,14 @@ final class AppSettings {
         self.hasPromptedForFullDiskAccess = defaults.bool(forKey: Key.hasPromptedForFullDiskAccess)
         self.bundledSkillsPromptDismissed = defaults.bool(forKey: Key.bundledSkillsPromptDismissed)
 
-        let projectsConfiguration = defaults.data(forKey: ProjectsConfiguration.userDefaultsKey)
+        var projectsConfiguration = defaults.data(forKey: ProjectsConfiguration.userDefaultsKey)
             .flatMap { try? JSONDecoder().decode(ProjectsConfiguration.self, from: $0) }
             ?? ProjectsConfiguration()
+        if let legacy = defaults.string(forKey: Key.pullRequestDestinationRaw) {
+            projectsConfiguration = Self.migratingPullRequestDestination(legacy: legacy, into: projectsConfiguration)
+            defaults.set(try? JSONEncoder().encode(projectsConfiguration), forKey: ProjectsConfiguration.userDefaultsKey)
+            defaults.removeObject(forKey: Key.pullRequestDestinationRaw)
+        }
         self.projectsConfiguration = projectsConfiguration
 
         let storedNerdFontMode = defaults.string(forKey: NerdFontMode.userDefaultsKey)
@@ -315,7 +320,6 @@ final class AppSettings {
             ? true
             : defaults.bool(forKey: Key.automaticallyChecksForUpdates)
         self.updateChannel = defaults.string(forKey: Key.updateChannelRaw).flatMap(UpdateChannel.init(rawValue:)) ?? .stable
-        self.pullRequestDestination = defaults.string(forKey: Key.pullRequestDestinationRaw).flatMap(PullRequestDestination.init(rawValue:)) ?? .github
     }
 
     /// Overrides where worktrees are created. Nil (the default) means
@@ -865,6 +869,19 @@ final class AppSettings {
         defaults.removeObject(forKey: Key.legacyIgnoredPendingChecks)
     }
 
+    /// The retired global destination becomes the defaults row's, unless the
+    /// row already has one.
+    nonisolated static func migratingPullRequestDestination(
+        legacy: String,
+        into configuration: ProjectsConfiguration
+    ) -> ProjectsConfiguration {
+        var updated = configuration
+        if updated.defaults.pullRequestDestination == nil {
+            updated.defaults.pullRequestDestination = PullRequestDestination(rawValue: legacy)
+        }
+        return updated
+    }
+
     /// `names` appended to the defaults row's list and to every project
     /// row that sets its own, skipping blanks and names already there. The
     /// legacy list applied everywhere, and a project's list replaces the
@@ -964,11 +981,6 @@ final class AppSettings {
         }
     }
 
-    var pullRequestDestination: PullRequestDestination {
-        didSet {
-            defaults.set(pullRequestDestination.rawValue, forKey: Key.pullRequestDestinationRaw)
-        }
-    }
 }
 
 enum UpdateChannel: String, CaseIterable, Identifiable {
