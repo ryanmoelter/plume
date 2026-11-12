@@ -54,6 +54,18 @@ struct TitleStoreTests {
         #expect(store.displayTitle(forTab: tab) == "Live title")
     }
 
+    @Test func aFreshAgentTabIsCalledChat() throws {
+        let context = try makeContext()
+        let task = TaskStore.createTask(in: context, siblings: [])
+        let tab = task.tabs[0]
+        let store = TitleStore()
+        #expect(store.chipTitle(for: tab, hasConversation: false) == "Chat")
+        #expect(store.chipTitle(for: tab, hasConversation: true) == "Agent")
+
+        store.setTitle("Live title", forTab: tab.id, source: .reply)
+        #expect(store.chipTitle(for: tab, hasConversation: false) == "Live title")
+    }
+
     @Test func aTaskWithNoTitleAnywhereReadsAsNewTask() throws {
         let context = try makeContext()
         let task = TaskStore.createTask(in: context, siblings: [])

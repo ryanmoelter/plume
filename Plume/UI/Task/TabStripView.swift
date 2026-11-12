@@ -162,10 +162,8 @@ private struct TabChip: View {
     @State private var isConfirmingEmulatorShutDown = false
     @State private var isConfirmingEndReservation = false
 
-    /// The live title wins over the snapshot on the tab, which is only there
-    /// to label the chip before anything reconnects.
     private var chipTitle: String {
-        TitleStore.shared.title(forTab: tab.id) ?? (tab.kind == .agent && !hasConversation && tab.title == nil ? "Chat" : tab.displayTitle)
+        TitleStore.shared.chipTitle(for: tab, hasConversation: hasConversation)
     }
 
     private var unseenHelp: String? {
@@ -175,9 +173,7 @@ private struct TabChip: View {
     }
 
     private var hasConversation: Bool {
-        tab.agentSessionID?.isEmpty == false || tab.sessionJSONLPath?.isEmpty == false
-            || AgentSessionManager.shared.existingSession(for: tab.id) != nil
-            || SurfaceManager.shared.existingSession(for: tab.id) != nil
+        tab.hasConversation
     }
 
     var body: some View {
