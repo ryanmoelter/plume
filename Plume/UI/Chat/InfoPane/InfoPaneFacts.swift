@@ -357,14 +357,19 @@ enum InfoPaneLayout {
     /// and plain rows keep the same rhythm.
     static let rowVerticalPadding: CGFloat = 5
     static let sectionAnimation: Animation = .snappy(duration: 0.22)
-    /// Brackets sit in the pane's 12 pt padding, measured from the content
-    /// edge: the section's bar just outside a row's hover wash, a subgroup's
-    /// inside it, where the subgroup's rows trim their wash to clear it.
-    static let sectionBarX: CGFloat = -10
-    static let nestedBarX: CGFloat = -6
-    static let nestedWashInset: CGFloat = 4
-    /// Short of the header title, which starts on the content edge.
-    static let bracketStubEndX: CGFloat = -2.5
+    static let panePadding: CGFloat = 12
+    /// Above and below a section, and above a subgroup, which always ends
+    /// its section, so a bar still ends on the section's last row.
+    static let groupVerticalPadding: CGFloat = 4
+    /// Brackets sit in the pane's padding, measured from the content edge,
+    /// each just outside the hover wash of the rows it holds.
+    static let sectionBarX: CGFloat = 6 - panePadding
+    static let nestedBarX: CGFloat = sectionBarX + 2.5
+    static let sectionWashInset: CGFloat = 4.5
+    static let nestedWashInset: CGFloat = 2
+    /// A collapsed header's stub is its icon, centered in the icon column.
+    static let bracketStubStartX: CGFloat = iconColumnWidth / 2 - 4
+    static let bracketStubEndX: CGFloat = iconColumnWidth / 2 + 4
     static let bracketLineWidth: CGFloat = 1.5
     static let bracketCornerRadius: CGFloat = 4
     static let nestedBracketCornerRadius: CGFloat = 3

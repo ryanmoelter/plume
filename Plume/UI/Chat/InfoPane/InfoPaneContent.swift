@@ -6,8 +6,8 @@ import UniformTypeIdentifiers
 ///
 /// Every icon centers in a column `InfoPaneLayout.iconColumnWidth` wide, so
 /// the text beside the icons starts on one edge. A collapsible section's
-/// title starts on the icon column's edge, with its stub and bar in the
-/// pane's padding to the left (`InfoPaneBracketedSection`).
+/// stub is its header's icon, and its bar sits in the pane's padding to the
+/// left (`InfoPaneBracketedSection`).
 struct InfoPaneContent: View, ThemedView {
     @Environment(\.theme) var theme
 
@@ -507,7 +507,7 @@ private struct InfoPaneSubagentRow: View {
 
 extension EnvironmentValues {
     /// How far a row's hover wash reaches left of the content edge, which a
-    /// nested bracket trims so its bar stays clear.
+    /// bracket trims so its bar stays clear.
     @Entry var infoPaneWashLeadingInset: CGFloat = SubagentRow.Columns.washInset
 }
 

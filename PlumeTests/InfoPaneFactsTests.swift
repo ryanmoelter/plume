@@ -430,20 +430,22 @@ struct InfoPaneLayoutTests {
     }
 }
 
-/// A section's bracket: a horizontal stub while collapsed, which curls down
-/// into a bar ending at the last row's content once expanded. x is measured
-/// from the content edge, so the bar sits at a negative x in the padding.
+/// A section's bracket: a stub in the header's icon column while collapsed,
+/// which runs left, curls down and grows into a bar ending at the last row's
+/// content once expanded. x is measured from the content edge, so the bar
+/// sits at a negative x in the padding.
 struct InfoPaneBracketGeometryTests {
     private func geometry(
         progress: CGFloat,
-        barX: CGFloat = -10,
+        barX: CGFloat = -6,
         bottom: CGFloat = 100,
         stubY: CGFloat = 12,
         drawsStub: Bool = true
     ) -> InfoPaneBracketGeometry {
         InfoPaneBracketGeometry(
             barX: barX,
-            stubEndX: -2.5,
+            stubStartX: 4,
+            stubEndX: 12,
             stubY: stubY,
             bottom: bottom,
             progress: progress,
@@ -453,56 +455,88 @@ struct InfoPaneBracketGeometryTests {
         )
     }
 
-    @Test func collapsedIsAStubWithNoBar() {
+    private let reach = InfoPaneBracketGeometry.reachShare
+
+    @Test func collapsedIsAStubInTheIconColumn() {
         let collapsed = geometry(progress: 0)
-        #expect(collapsed.stubEnd == CGPoint(x: -2.5, y: 12))
-        #expect(collapsed.cornerStart == CGPoint(x: -10, y: 12))
-        #expect(collapsed.cornerEnd == CGPoint(x: -10, y: 12))
-        #expect(collapsed.barEnd == collapsed.cornerEnd)
+        #expect(collapsed.stubEnd == CGPoint(x: 12, y: 12))
+        #expect(collapsed.runEnd == CGPoint(x: 4, y: 12))
+        #expect(collapsed.cornerTurn == 0)
+        #expect(collapsed.barEnd == collapsed.barStart)
+    }
+
+    // The run is 6 long (from 4 to the corner's start at -2), the corner 2π.
+    @Test func expandingRunsLeftBeforeTheCorner() {
+        let early = geometry(progress: reach * 0.25)
+        #expect(early.runEnd.x < 4)
+        #expect(early.runEnd.x > -2)
+        #expect(early.cornerTurn == 0)
+        #expect(early.barEnd == early.barStart)
+    }
+
+    @Test func theCornerFinishesBeforeTheBarGrows() {
+        let reached = geometry(progress: reach)
+        #expect(reached.runEnd == CGPoint(x: -2, y: 12))
+        #expect(abs(reached.cornerTurn - 1) < 0.0001)
+        #expect(reached.barEnd == reached.barStart)
     }
 
     // 95 is the section's 100 less the last row's 5 of padding.
     @Test func expandedCurlsIntoABarEndingAtTheLastRow() {
         let expanded = geometry(progress: 1)
-        #expect(expanded.cornerStart == CGPoint(x: -6, y: 12))
-        #expect(expanded.cornerEnd == CGPoint(x: -10, y: 16))
-        #expect(expanded.barEnd == CGPoint(x: -10, y: 95))
+        #expect(expanded.runEnd == CGPoint(x: -2, y: 12))
+        #expect(expanded.cornerCenter == CGPoint(x: -2, y: 16))
+        #expect(abs(expanded.cornerTurn - 1) < 0.0001)
+        #expect(expanded.barStart == CGPoint(x: -6, y: 16))
+        #expect(expanded.barEnd == CGPoint(x: -6, y: 95))
     }
 
-    @Test func halfwayIsHalfTheCornerAndHalfTheBar() {
-        let half = geometry(progress: 0.5)
-        #expect(half.cornerStart.x == -8)
-        #expect(half.cornerEnd.y == 14)
-        #expect(half.barEnd.y == 14 + CGFloat(95 - 12 - 4) / 2)
+    // Half of the bar's 79: 95 less the corner's end at 16.
+    @Test func halfwayThroughTheBarIsHalfItsLength() {
+        let half = geometry(progress: reach + (1 - reach) / 2)
+        #expect(abs(half.barEnd.y - (16 + 39.5)) < 0.0001)
     }
 
     @Test func aShortSectionShrinksTheCorner() {
         let short = geometry(progress: 1, bottom: 19)
-        #expect(short.cornerEnd.y == 14)
+        #expect(short.cornerRadius == 2)
+        #expect(short.barStart.y == 14)
         #expect(short.barEnd.y == 14)
     }
 
-    // The stub runs only 3.5 from the nested bar to its end, under the radius of 4.
-    @Test func aShortStubShrinksTheCorner() {
-        let nested = geometry(progress: 1, barX: -6)
-        #expect(nested.cornerStart == CGPoint(x: -2.5, y: 12))
-        #expect(nested.cornerEnd == CGPoint(x: -6, y: 15.5))
+    // The stub starts only 2 right of this bar, under the radius of 4.
+    @Test func aShortRunShrinksTheCorner() {
+        let near = geometry(progress: 1, barX: 2)
+        #expect(near.cornerRadius == 2)
+        #expect(near.runEnd == CGPoint(x: 4, y: 12))
+        #expect(near.barStart == CGPoint(x: 2, y: 14))
     }
 
     @Test func withoutAStubTheBarRunsStraightFromTheStart() {
         let plain = geometry(progress: 1, stubY: 30, drawsStub: false)
         #expect(plain.stubEnd == nil)
-        #expect(plain.cornerEnd == CGPoint(x: -10, y: 30))
-        #expect(plain.barEnd == CGPoint(x: -10, y: 95))
+        #expect(plain.barStart == CGPoint(x: -6, y: 30))
+        #expect(plain.barEnd == CGPoint(x: -6, y: 95))
+        let collapsed = geometry(progress: 0, stubY: 30, drawsStub: false)
+        #expect(collapsed.barEnd == collapsed.barStart)
     }
 
-    // 12 is the pane's padding; each line's edge is its center ± half the line width.
+    // Each line's edge is its center ± half the line width.
     @MainActor @Test func barsFitThePaddingClearOfEachOtherAndTheWashes() {
         let half = InfoPaneLayout.bracketLineWidth / 2
-        #expect(InfoPaneLayout.sectionBarX - half > -12)
-        #expect(InfoPaneLayout.sectionBarX + half < -SubagentRow.Columns.washInset)
+        #expect(InfoPaneLayout.sectionBarX + InfoPaneLayout.panePadding == 6)
+        #expect(InfoPaneLayout.sectionBarX + half < -InfoPaneLayout.sectionWashInset)
         #expect(InfoPaneLayout.sectionBarX + half < InfoPaneLayout.nestedBarX - half)
         #expect(InfoPaneLayout.nestedBarX + half < -InfoPaneLayout.nestedWashInset)
-        #expect(InfoPaneLayout.nestedBarX < InfoPaneLayout.bracketStubEndX)
+    }
+
+    @MainActor @Test func theStubSitsInTheIconColumn() {
+        #expect(InfoPaneLayout.bracketStubStartX >= 0)
+        #expect(InfoPaneLayout.bracketStubStartX < InfoPaneLayout.bracketStubEndX)
+        #expect(InfoPaneLayout.bracketStubEndX <= InfoPaneLayout.iconColumnWidth)
+        #expect(
+            abs((InfoPaneLayout.bracketStubStartX + InfoPaneLayout.bracketStubEndX) / 2 - InfoPaneLayout.iconColumnWidth / 2)
+                < 0.0001
+        )
     }
 }
