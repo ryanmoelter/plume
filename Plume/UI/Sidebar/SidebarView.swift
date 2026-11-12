@@ -184,6 +184,15 @@ struct SidebarView: View {
                         .plumeID(AccessibilityID.taskEditButton, label: TitleStore.shared.displayTitle(for: task))
                     taskContextMenu(for: task)
                 }
+                .plumeMenuItem(
+                    AccessibilityID.taskArchiveButton,
+                    label: TitleStore.shared.displayTitle(for: task),
+                    isPresent: !task.hasNeverStarted
+                ) { requestArchive(task) }
+                .plumeMenuItem(
+                    AccessibilityID.taskDeleteButton,
+                    label: TitleStore.shared.displayTitle(for: task)
+                ) { requestDelete(task) }
                 .sidebarDragAndDrop(
                     .task(task.id),
                     target: .task(task.id),
@@ -293,7 +302,6 @@ struct SidebarView: View {
         }
         if !task.hasNeverStarted {
             Button("Archive") { requestArchive(task) }
-                .plumeID(AccessibilityID.taskArchiveButton)
         }
         linearMenuItems(for: task)
         Divider()
