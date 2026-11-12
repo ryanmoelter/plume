@@ -88,6 +88,15 @@ final class ChatListController: NSObject {
             documentView.needsLayout = true
         }
     }
+    /// Like `subagentOpener`: without it a proposal renders as a plain
+    /// tool row.
+    var proposalBoard: ChatProposalBoard? {
+        didSet {
+            guard (oldValue == nil) != (proposalBoard == nil) else { return }
+            refreshRoots(Set(hosts.keys))
+            documentView.needsLayout = true
+        }
+    }
     var onVisiblePieceIDs: (Set<String>) -> Void = { _ in }
     var onDetachedChange: (Bool) -> Void = { _ in }
     var revealModel: ChatRevealModel?
@@ -1004,6 +1013,7 @@ final class ChatListController: NSObject {
             linkDirectory: inputs.linkDirectory,
             redoContext: redoContext,
             subagentOpener: subagentOpener,
+            proposalBoard: proposalBoard,
             selectionSpan: selection.isSelectable(id)
                 ? ChatSelectionSpan(store: selection, pieceID: id, piece: selection.box(for: id))
                 : nil
@@ -1423,6 +1433,7 @@ struct ChatListItemEnvironment {
     /// has no live session to rewind.
     var redoContext: MessageRedoContext?
     var subagentOpener: ChatSubagentOpener?
+    var proposalBoard: ChatProposalBoard?
     /// Set only on a piece whose text joins the transcript's selection.
     var selectionSpan: ChatSelectionSpan?
 }
@@ -1443,6 +1454,7 @@ struct ChatListItemRoot<Content: View>: View {
             .environment(\.workStartedAt, environment.workStartedAt)
             .environment(\.messageRedoContext, environment.redoContext)
             .environment(\.chatSubagentOpener, environment.subagentOpener)
+            .environment(\.chatProposalBoard, environment.proposalBoard)
             .environment(\.chatSelectionSpan, environment.selectionSpan)
             .chatLinkHandling(directory: environment.linkDirectory)
             .plumeTheme(bodySize: environment.chatFontSize)

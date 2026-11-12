@@ -16,6 +16,7 @@ struct ToolCallRow: View, ThemedView {
     var onOpenPlan: (() -> Void)? = nil
 
     @Environment(\.chatSubagentOpener) private var subagentOpener
+    @Environment(\.chatProposalBoard) private var proposalBoard
 
     @State private var expanded = false
     @State private var isHoveringArtifact = false
@@ -27,6 +28,12 @@ struct ToolCallRow: View, ThemedView {
             artifactButton(artifactURL)
         } else if let sent = call.sentFiles, !call.didFail {
             SentFilesView(sent: sent)
+        } else if let proposalBoard, let proposalID = ChildSessionFormats.proposalID(of: call) {
+            ChildSessionProposalCard(
+                proposalID: proposalID,
+                board: proposalBoard,
+                fallback: ChildSessionFormats.proposalFallback(of: call)
+            )
         } else if let subagentOpener, let subagent = spawnedSubagent(opener: subagentOpener) {
             SubagentRow(
                 subagent: subagent,

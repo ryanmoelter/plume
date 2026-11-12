@@ -185,6 +185,20 @@ struct ChatTabView: View, ThemedView {
         )
     }
 
+    private var proposalBoard: ChatProposalBoard {
+        let tab = tab
+        return ChatProposalBoard(
+            tabID: tab.id,
+            store: { ChildSessionProposalStore(json: tab.childProposalsJSON) },
+            start: { id in
+                Task { _ = await ChildSessionCoordinator.shared.startProposal(id, from: tab, byUser: true) }
+            },
+            dismiss: { id in
+                _ = ChildSessionCoordinator.shared.dismissProposal(id, reason: nil, from: tab, byUser: true)
+            }
+        )
+    }
+
     private var openSubagent: SubagentTranscript? {
         guard let openSubagentID else { return nil }
         return subagents.first { $0.id == openSubagentID }
@@ -1126,6 +1140,7 @@ struct ChatTabView: View, ThemedView {
         )
         .onGeometryChange(for: CGFloat.self) { $0.size.height } action: { chatHeight = $0 }
         .environment(\.chatSubagentOpener, subagentOpener)
+        .environment(\.chatProposalBoard, proposalBoard)
         .overlay(alignment: .bottom) {
             let reserve = geometry.chatTrailingReserve
             // Moves with the chat's own horizontal shift.

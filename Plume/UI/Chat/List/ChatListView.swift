@@ -31,12 +31,14 @@ struct ChatListView: NSViewRepresentable {
         controller.open(at: initialPosition)
         apply(to: controller)
         controller.subagentOpener = context.environment.chatSubagentOpener
+        controller.proposalBoard = context.environment.chatProposalBoard
         return controller.scrollView
     }
 
     func updateNSView(_ nsView: NSScrollView, context: Context) {
         apply(to: context.coordinator)
         context.coordinator.subagentOpener = context.environment.chatSubagentOpener
+        context.coordinator.proposalBoard = context.environment.chatProposalBoard
     }
 
     static func dismantleNSView(_ nsView: NSScrollView, coordinator: ChatListController) {

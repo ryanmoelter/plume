@@ -177,6 +177,13 @@ enum AccessibilityID {
     static let tabChipChildMarker = "tab-chip-child-marker"
     /// A note from another session in the chat, which selects its tab.
     static let sideSessionEventRow = "side-session-event-row"
+    /// A proposed session's card buttons; `label` is the proposal's task_id.
+    static let proposalStartButton = "proposal-start-button"
+    static let proposalDismissButton = "proposal-dismiss-button"
+    /// A started card's line, which selects the child's tab.
+    static let proposalStartedRow = "proposal-started-row"
+    /// A dismissed or expired card's state, in `value`.
+    static let proposalState = "proposal-state"
     /// In both the task row's and the tab chip's context menu.
     static let markUnreadButton = "mark-unread-button"
     /// Takes `markUnreadButton`'s place while any of its tabs is unread.
