@@ -212,13 +212,13 @@ struct PullRequestsSection: View, ThemedView {
             Image(systemName: "plus")
                 .frame(width: InfoPaneLayout.iconColumnWidth)
                 .modifier(OverlaidControlWash(isHovering: isHoveringAdd))
-                .contentShape(.rect)
         }
         .buttonStyle(.plain)
         .foregroundStyle(colors.selection)
         .plumeHover { isHoveringAdd = $0 }
         .help("Pin a pull request to this conversation")
         .plumeID(AccessibilityID.infoPaneLinkedPullRequestAddButton)
+        .padding(-OverlaidControlWash.inset)
     }
 
     private func mentionedGroup(_ mentioned: [InfoPanePullRequestItem]) -> some View {
@@ -333,16 +333,15 @@ private struct PullRequestRow: View, ThemedView {
 
     private var actionsMenu: some View {
         Menu { menuItems } label: {
-            RowMenuLabel()
+            RowMenuLabel(isHovering: isHoveringMenu)
         }
         .menuStyle(.button)
         .buttonStyle(.plain)
         .menuIndicator(.hidden)
         .fixedSize()
         .emphasis(.subtle)
-        .frame(width: InfoPaneLayout.iconColumnWidth)
-        .modifier(OverlaidControlWash(isHovering: isHoveringMenu))
         .plumeHover { isHoveringMenu = $0 }
+        .padding(-OverlaidControlWash.inset)
         .padding(.bottom, InfoPaneLayout.rowVerticalPadding)
         .help("Pull request actions")
         .plumeID(AccessibilityID.infoPaneLinkedPullRequestRowMenu, label: label)

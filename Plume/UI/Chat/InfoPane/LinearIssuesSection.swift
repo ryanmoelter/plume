@@ -83,13 +83,13 @@ struct LinearIssuesSection: View, ThemedView {
                 Image(systemName: "plus")
                     .frame(width: InfoPaneLayout.iconColumnWidth)
                     .modifier(OverlaidControlWash(isHovering: hoveringAdd))
-                    .contentShape(.rect)
             }
             .buttonStyle(.plain)
             .foregroundStyle(theme.colors.selection)
             .plumeHover { isHoveringAdd = $0 }
             .help("Pin a Linear issue to this conversation")
             .plumeID(AccessibilityID.infoPaneLinearAddButton)
+            .padding(-OverlaidControlWash.inset)
             .popover(isPresented: $showsLinkPopover, arrowEdge: .bottom) {
                 LinkIssuePopover(actions: actions, isPresented: $showsLinkPopover)
             }
@@ -217,17 +217,16 @@ private struct IssueRow: View, ThemedView {
 
     private var actionsMenu: some View {
         Menu { menuItems } label: {
-            RowMenuLabel()
+            // On the title's line when it stands in for the open mark.
+            RowMenuLabel(lineHeight: menuIsPrimary ? titleHeight : nil, isHovering: isHoveringMenu)
         }
         .menuStyle(.button)
         .buttonStyle(.plain)
         .menuIndicator(.hidden)
         .fixedSize()
         .foregroundStyle(AnyShapeStyle.role(theme.colors.selection, when: menuIsPrimary, otherwise: .subtle))
-        // On the title's line when it stands in for the open mark.
-        .frame(width: InfoPaneLayout.iconColumnWidth, height: menuIsPrimary ? titleHeight : nil)
-        .modifier(OverlaidControlWash(isHovering: isHoveringMenu))
         .plumeHover { isHoveringMenu = $0 }
+        .padding(-OverlaidControlWash.inset)
         .padding(menuIsPrimary ? .top : .bottom, InfoPaneLayout.rowVerticalPadding)
         .help("Linear issue actions")
         .plumeID(AccessibilityID.infoPaneLinearRowMenu, label: issue.identifier)
@@ -340,15 +339,20 @@ struct OverlaidControlSpace: View {
 }
 
 /// The hover wash of a control laid over a row, which replaces the row's own.
+/// It goes inside the control's label, so the control's bounds, and so what
+/// a click and the hover reach, are the washed rect. The control then takes
+/// back the room with `.padding(-inset)`, so it lays out at its glyph's size.
 struct OverlaidControlWash: ViewModifier, ThemedView {
+    static let inset: CGFloat = 3
+
     @Environment(\.theme) var theme
     let isHovering: Bool
 
     func body(content: Content) -> some View {
         content
-            .padding(3)
+            .padding(Self.inset)
+            .contentShape(.rect)
             .background(isHovering ? colors.surfaceTint : Color.clear, in: .rect(cornerRadius: 4))
-            .padding(-3)
     }
 }
 

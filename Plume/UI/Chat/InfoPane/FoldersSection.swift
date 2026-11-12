@@ -152,17 +152,17 @@ struct FoldersSection: View, ThemedView {
 
     private var addMenu: some View {
         Menu { addFolderMenuItems } label: {
-            Image(systemName: "plus")
+            RowMenuLabel(systemImage: "plus", isHovering: isHoveringAdd)
         }
-        .menuStyle(.borderlessButton)
+        .menuStyle(.button)
+        .buttonStyle(.plain)
         .menuIndicator(.hidden)
         .fixedSize()
         .foregroundStyle(theme.colors.selection)
-        .frame(width: InfoPaneLayout.iconColumnWidth)
-        .modifier(OverlaidControlWash(isHovering: isHoveringAdd))
         .plumeHover { isHoveringAdd = $0 }
         .help("Let this conversation reach another folder")
         .plumeID(AccessibilityID.infoPaneFoldersAddMenu)
+        .padding(-OverlaidControlWash.inset)
     }
 
     private func toggleExpanded() {
