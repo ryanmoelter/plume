@@ -306,7 +306,10 @@ enum AgentLauncher {
                 .merging(LoginShellCommand.plumeEnvironment(taskID: task.id, tabID: tab.id)) { current, _ in current },
             fork: fork,
             sessionID: sessionID,
-            addDirectories: AdditionalDirectories.list(tab.additionalDirectories, excluding: workingDirectory)
+            addDirectories: AdditionalDirectories.list(
+                tab.additionalDirectories + ChildSessionCoordinator.launchDirectories(for: tab),
+                excluding: workingDirectory
+            )
         )
         session.onAdoptDirectories = { [weak tab] paths in
             guard let tab else { return }

@@ -91,8 +91,9 @@ struct ChildSessionFormatsTests {
     }
 
     @Test func theToolResultTellsTheParentToEndItsTurn() {
-        let text = ChildSessionFormats.started(title: "Fix login", sessionID: "ID", name: "fix-login")
+        let text = ChildSessionFormats.started(title: "Fix login", sessionID: "ID", name: "fix-login", notesFolder: "/notes")
         #expect(text.hasPrefix("Started session \"Fix login\" (session_id: ID, name: fix-login)."))
+        #expect(text.contains("notes folder for hand-over notes and large findings: /notes."))
         #expect(text.hasSuffix("do not wait for it."))
     }
 

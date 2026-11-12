@@ -34,7 +34,7 @@ Plume allows both tools without asking, in the `can_use_tool` handler. They act 
 
 The result tells the parent to end its turn:
 
-> Started session "Fix login" (session_id: 6F1C…, name: fix-login). It runs on its own; you get a note here when its turn ends. Don't repeat the introduction: at most one line on how you'll report back, then end your turn — do not wait for it.
+> Started session "Fix login" (session_id: 6F1C…, name: fix-login). It runs on its own; you get a note here when its turn ends. The sessions you start share a notes folder for hand-over notes and large findings: <path>. Don't repeat the introduction: at most one line on how you'll report back, then end your turn — do not wait for it.
 
 ### `mcp__plume__send_message`
 
@@ -55,7 +55,7 @@ The cap holds after launch too. Approving a plan in the child, or accepting a mo
 1. Cuts the worktree, when the child gets one: a branch from `suggestedBranchName(name ?? title)` with the project's branch prefix. One `rev-parse` of the parent's live folder gives both the repository and the checkout, and the worktree starts at that checkout's `HEAD`. When the parent works in a subfolder of its checkout, the child works in the same subfolder of the worktree, if it exists there. If the parent's tab closes while the worktree is cut, the worktree and its branch are removed.
 2. Opens the tab with `TaskStore.addChildTab`, in the parent's pane, after the parent's other children. It does not take selection.
 3. Copies the parent's `TabLaunchChoices`, then the mode, model and effort its running session reports, then applies `model`, `effort` and the capped `permission_mode`. A chosen effort launches with `--effort`.
-4. Adds the **notes folder** with `--add-dir`: `~/Library/Application Support/Plume/side-session-notes/<parent tab ID>/`, shared by every child of one parent and outside every repository.
+4. Adds the **notes folder** with `--add-dir`: `~/Library/Application Support/Plume/side-session-notes/<parent tab ID>/`, shared by every child of one parent and outside every repository. The parent learns the path from the tool result. A parent that launches while it has children gets the folder with `--add-dir` too (`ChildSessionCoordinator.launchDirectories`); a running parent is never restarted for it.
 5. Mints the child's CLI session id and records it on the tab before the process exists, as Fork to New Tab does, because a hidden chat tab is unmounted and records nothing.
 6. Launches with no prompt, then submits the brief with `submitFromHost`. A fresh child launches with `--session-id`; a fork with `--resume <parent> --fork-session --session-id <new>` and no `--resume-session-at`, which works while the parent is mid tool call.
 7. If the launch fails, the tool returns the failure, the tab closes, and a worktree this call cut is removed with its branch. The task records the worktree in `ownedWorktrees` only once the child has launched, so archive and delete offer to remove it.
