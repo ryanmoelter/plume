@@ -44,6 +44,8 @@ nonisolated struct ControlServerRequest: Decodable {
         case "tab.split": command = .splitTab(try TabMoveParams(from: decoder))
         case "sidebar.reveal": command = .revealInSidebar(try SidebarRevealParams(from: decoder))
         case "tab.status": command = .setTabStatus(try TabStatusParams(from: decoder))
+        case "child-session.start": command = .startChildSession(try ChildSessionStartParams(from: decoder))
+        case "child-session.report": command = .reportChildSession(try ChildSessionReportParams(from: decoder))
         default:
             throw DecodingError.dataCorruptedError(
                 forKey: .command, in: container, debugDescription: "unknown command \"\(name)\""
@@ -76,6 +78,8 @@ nonisolated enum ControlCommand {
     case splitTab(TabMoveParams)
     case revealInSidebar(SidebarRevealParams)
     case setTabStatus(TabStatusParams)
+    case startChildSession(ChildSessionStartParams)
+    case reportChildSession(ChildSessionReportParams)
 }
 
 /// `matching` selects one span. `from` and `to` select from the start of
@@ -571,6 +575,7 @@ nonisolated enum ControlResult: Encodable {
     case tab(TabTaskResult)
     case sidebarReveal(SidebarRevealResult)
     case tabStatus(TabStatusResult)
+    case childSession(ChildSessionResult)
 
     func encode(to encoder: Encoder) throws {
         switch self {
@@ -592,6 +597,7 @@ nonisolated enum ControlResult: Encodable {
         case .tab(let v): try v.encode(to: encoder)
         case .sidebarReveal(let v): try v.encode(to: encoder)
         case .tabStatus(let v): try v.encode(to: encoder)
+        case .childSession(let v): try v.encode(to: encoder)
         }
     }
 }

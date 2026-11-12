@@ -82,6 +82,14 @@ enum ControlDispatcher {
                 result = .tabStatus(
                     try ControlStatusCommands.setStatus(params, in: try ControlTabCommands.frontmostContext())
                 )
+            case .startChildSession(let params):
+                result = .childSession(
+                    try await ControlChildSessionCommands.start(params, in: try ControlTabCommands.frontmostContext())
+                )
+            case .reportChildSession(let params):
+                result = .childSession(
+                    try ControlChildSessionCommands.report(params, in: try ControlTabCommands.frontmostContext())
+                )
             }
             return .success(id: request.id, result)
         } catch {
