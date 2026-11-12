@@ -42,6 +42,7 @@ nonisolated struct ControlServerRequest: Decodable {
         case "selectText": command = .selectText(try SelectTextParams(from: decoder))
         case "tab.move": command = .moveTab(try TabMoveParams(from: decoder))
         case "tab.split": command = .splitTab(try TabMoveParams(from: decoder))
+        case "sidebar.reveal": command = .revealInSidebar(try SidebarRevealParams(from: decoder))
         default:
             throw DecodingError.dataCorruptedError(
                 forKey: .command, in: container, debugDescription: "unknown command \"\(name)\""
@@ -72,6 +73,7 @@ nonisolated enum ControlCommand {
     case selectText(SelectTextParams)
     case moveTab(TabMoveParams)
     case splitTab(TabMoveParams)
+    case revealInSidebar(SidebarRevealParams)
 }
 
 /// `matching` selects one span. `from` and `to` select from the start of
@@ -565,6 +567,7 @@ nonisolated enum ControlResult: Encodable {
     case menu(MenuResult)
     case selection(SelectionResult)
     case tab(TabTaskResult)
+    case sidebarReveal(SidebarRevealResult)
 
     func encode(to encoder: Encoder) throws {
         switch self {
@@ -584,6 +587,7 @@ nonisolated enum ControlResult: Encodable {
         case .menu(let v): try v.encode(to: encoder)
         case .selection(let v): try v.encode(to: encoder)
         case .tab(let v): try v.encode(to: encoder)
+        case .sidebarReveal(let v): try v.encode(to: encoder)
         }
     }
 }

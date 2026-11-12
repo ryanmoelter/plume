@@ -64,6 +64,7 @@ struct SidebarView: View {
                     guard let task = tasks.first(where: { $0.id == selection?.taskID }) else { return }
                     withAnimation { proxy.scrollTo(task.sidebarRowID) }
                 }
+                .controlSidebarReveal(proxy: proxy) { id in tasks.first { $0.id == id }?.sidebarRowID }
             }
             // Hand-built because `List(.sidebar)` paints its own accent
             // highlight on a row selected from code or right-clicked, with no

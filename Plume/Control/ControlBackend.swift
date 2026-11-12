@@ -74,6 +74,10 @@ enum ControlDispatcher {
                 result = .tab(try ControlTabCommands.move(params, in: try ControlTabCommands.frontmostContext()))
             case .splitTab(let params):
                 result = .tab(try ControlTabCommands.split(params, in: try ControlTabCommands.frontmostContext()))
+            case .revealInSidebar(let params):
+                result = .sidebarReveal(
+                    try ControlSidebarCommands.reveal(params, in: try ControlTabCommands.frontmostContext())
+                )
             }
             return .success(id: request.id, result)
         } catch {
