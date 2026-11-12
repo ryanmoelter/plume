@@ -1,6 +1,7 @@
 import Testing
 import Foundation
 import SwiftData
+import Synchronization
 @testable import Plume
 
 /// Archive and delete offer to remove only the worktrees a task owns: one git
@@ -31,7 +32,7 @@ struct WorktreeRemovalPromptTests {
 
     private func plan(
         _ worktrees: [OwnedWorktree],
-        users: [String: String] = [:],
+        users: [WorktreeRemovalPrompt.User] = [],
         branches: Set<String> = ["feature", "other"]
     ) -> WorktreeRemovalPrompt.Plan {
         WorktreeRemovalPrompt.plan(
@@ -96,10 +97,51 @@ struct WorktreeRemovalPromptTests {
         ])
     }
 
+    private let otherTaskID = UUID()
+
+    private func user(_ folder: String) -> WorktreeRemovalPrompt.User {
+        .init(folder: folder, taskID: otherTaskID, taskTitle: "Other Task")
+    }
+
     @Test func aWorktreeAnotherTaskIsInIsKept() {
-        let result = plan([owned("feature"), owned("other")], users: [feature.path: "Other Task"])
+        let result = plan([owned("feature"), owned("other")], users: [user(feature.path + "/src")])
         #expect(result.removable == [other])
-        #expect(result.inUse == [.init(path: feature.path, taskTitle: "Other Task")])
+        #expect(result.inUse == [.init(worktree: owned("feature"), taskID: otherTaskID, taskTitle: "Other Task")])
+    }
+
+    /// An older build could save a subfolder of the worktree as the task's.
+    @Test func aSubfolderRecordRemovesItsWorktreesRoot() {
+        let record = OwnedWorktree(path: "/repo/.worktrees/feature/app", repoPath: "/repo", branch: "feature")
+        let result = plan([record])
+        #expect(result.removable == [feature])
+        #expect(result.gone.isEmpty)
+    }
+
+    @Test func aRecordInsideTheMainCheckoutIsGoneNotRemoved() {
+        let record = OwnedWorktree(path: "/repo/app", repoPath: "/repo", branch: "main")
+        #expect(plan([record]) == WorktreeRemovalPrompt.Plan(gone: ["/repo/app"]))
+    }
+
+    @Test func aUserAnywhereInTheRootKeepsASubfolderRecord() {
+        let record = OwnedWorktree(path: "/repo/.worktrees/feature/app", repoPath: "/repo", branch: "feature")
+        let result = plan([record], users: [user(feature.path + "/docs")])
+        #expect(result.inUse.map(\.path) == [feature.path])
+    }
+
+    @Test func twoRecordsInOneWorktreeRemoveItOnce() {
+        let sub = OwnedWorktree(path: "/repo/.worktrees/feature/app", repoPath: "/repo", branch: "feature")
+        #expect(plan([owned("feature"), sub]).removable == [feature])
+    }
+
+    /// The branch check stands in for git: anything it is asked about
+    /// fails the test, since a record without a branch must never delete one.
+    @Test func noRecordedBranchIsNeverChecked() {
+        let record = OwnedWorktree(path: "/repo/.worktrees/feature", repoPath: "/repo", branch: nil)
+        let result = WorktreeRemovalPrompt.plan(
+            for: [record], users: [], listing: { _ in listing },
+            branchExists: { _, branch in Issue.record("checked \(branch)"); return true }
+        )
+        #expect(result.removable == [WorktreeRemovalTarget(repository: "/repo", path: feature.path, branch: nil)])
     }
 
     @Test func aRecordedPathIsStandardized() {
@@ -108,9 +150,27 @@ struct WorktreeRemovalPromptTests {
         #expect(OwnedWorktree(path: "/tmp", repoPath: "/", branch: nil).path == OwnedWorktree.standardized("/private/tmp"))
     }
 
+    /// Called from the main actor, as the dialog does; every git call must
+    /// still run off it.
+    @Test func resolveRunsNoGitOnTheMainActor() async {
+        let onMain = MainThreadCalls()
+        let listing = listing
+        let git = WorktreeRemovalPrompt.Git(
+            worktrees: { _ in onMain.note("worktrees"); return listing },
+            branchExists: { _, _ in onMain.note("branchExists"); return true },
+            uncommittedChanges: { _ in onMain.note("uncommittedChanges"); return [" M a.txt"] }
+        )
+
+        let (plan, dirty) = await WorktreeRemovalPrompt.resolve([owned("feature")], users: [], git: git)
+
+        #expect(plan.removable == [feature])
+        #expect(dirty[feature.path] != nil)
+        #expect(onMain.calls.isEmpty)
+    }
+
     // MARK: - Who else uses it
 
-    @Test func aLiveTabOfAnotherTaskInsideTheWorktreeUsesIt() throws {
+    @Test func aLiveTabOfAnotherTaskIsAUser() throws {
         let context = try makeContext()
         let task = TaskStore.createTask(in: context, siblings: [])
         task.recordOwnedWorktree(owned("feature"))
@@ -119,11 +179,21 @@ struct WorktreeRemovalPromptTests {
         let archived = TaskStore.createTask(in: context, title: "Archived", siblings: [task, user])
         archived.tabs[0].workspace = .directory("/repo/.worktrees/other")
         archived.isArchived = true
-        task.recordOwnedWorktree(owned("other"))
 
         let users = WorktreeRemovalPrompt.users(of: task, among: [task, user, archived])
 
-        #expect(users == ["/repo/.worktrees/feature": "Other Task"])
+        #expect(users == [.init(folder: "/repo/.worktrees/feature/src", taskID: user.id, taskTitle: "Other Task")])
+    }
+
+    @Test func deletingHandsAWorktreeInUseToItsUser() throws {
+        let context = try makeContext()
+        let user = TaskStore.createTask(in: context, siblings: [])
+        user.recordOwnedWorktree(owned("other"))
+        let kept = WorktreeRemovalPrompt.InUse(worktree: owned("feature"), taskID: user.id, taskTitle: "Other Task")
+
+        WorktreeRemovalPrompt.handOff([kept, kept], among: [user])
+
+        #expect(user.ownedWorktrees == [owned("other"), owned("feature")])
     }
 
     @Test func theTasksOwnTabsDoNotCountAsUsers() throws {
@@ -173,7 +243,7 @@ struct WorktreeRemovalPromptTests {
     }
 
     @Test func nothingRemovableLeavesOnlyTheTaskButton() {
-        let delete = removal([], inUse: [.init(path: feature.path, taskTitle: "Other Task")])
+        let delete = removal([], inUse: [.init(worktree: owned("feature"), taskID: UUID(), taskTitle: "Other Task")])
         #expect(!delete.offersRemoval)
         #expect(!delete.offersBranchRemoval)
         #expect(delete.taskOnlyButtonTitle == "Delete")
@@ -233,5 +303,15 @@ struct WorktreeRemovalPromptTests {
         let summary = WorktreeRemovalPrompt.describe(changes)
         #expect(summary.contains("7 files have uncommitted changes"))
         #expect(summary.contains("and 2 more"))
+    }
+}
+
+nonisolated private final class MainThreadCalls: Sendable {
+    private let recorded = Mutex<[String]>([])
+
+    var calls: [String] { recorded.withLock { $0 } }
+
+    func note(_ call: String) {
+        if Thread.isMainThread { recorded.withLock { $0.append(call) } }
     }
 }

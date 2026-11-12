@@ -500,7 +500,8 @@ enum TaskStore {
                     onError(error.localizedDescription)
                     return
                 }
-                task.ownedWorktrees.removeAll { $0.path == worktree.path }
+                let removed = OwnedWorktree(path: worktree.path, repoPath: worktree.repository, branch: nil)
+                task.ownedWorktrees.removeAll { removed.contains($0.path) }
             }
             finish()
         }
