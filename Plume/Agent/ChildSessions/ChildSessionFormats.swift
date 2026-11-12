@@ -54,9 +54,21 @@ nonisolated enum ChildSessionFormats {
     /// What a child's finished turn reported, worded for its outcome.
     static func reportText(of outcome: AgentTurnOutcome) -> String {
         let text = outcome.text?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+        if outcome.exitedMidTurn, !outcome.wasInterrupted {
+            return "The session exited before finishing its turn: " + (text.isEmpty ? "no detail" : text)
+        }
         if outcome.wasInterrupted { return "The turn was interrupted." + (text.isEmpty ? "" : " \(text)") }
         if outcome.isError { return "The turn failed: " + (text.isEmpty ? "no detail" : text) }
         return text.isEmpty ? "(no reply)" : text
+    }
+
+    /// What a queued note shows: each footer's one-line summary.
+    static func summary(ofNotes text: String) -> String {
+        let events = InjectedContent.splittingLeadingSystemReminders(text).reminders.compactMap { block -> String? in
+            guard case .sideSessionEvent(let event) = InjectedContent.classify(text: block, isMeta: false) else { return nil }
+            return event.summary
+        }
+        return events.isEmpty ? text : events.joined(separator: "\n")
     }
 
     struct Participant: Equatable {
