@@ -119,6 +119,7 @@ struct FoldersSection: View, ThemedView {
         return InfoPaneBracketedSection(isExpanded: isExpanded) {
             InfoPaneSectionHeader(
                 title: "Folders",
+                icon: .symbol("folder"),
                 count: rows.count,
                 isExpanded: isExpanded,
                 accessibilityID: AccessibilityID.infoPaneFoldersToggle,

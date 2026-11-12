@@ -379,6 +379,14 @@ enum InfoPaneLayout {
     #else
     static let usesPlainBar = false
     #endif
+    static let headerLogoSize: CGFloat = 10
+    #if DEBUG
+    /// Debug toggle: a section header's icon before its title, which pushes
+    /// the title past the rows' text, in place of after it.
+    static let headerIconLeads = UserDefaults.standard.bool(forKey: "PlumeInfoPaneHeaderIconLeading")
+    #else
+    static let headerIconLeads = false
+    #endif
 
     static func clampedPaneWidth(_ width: CGFloat) -> CGFloat {
         min(max(width, minimumPaneWidth), maximumPaneWidth)

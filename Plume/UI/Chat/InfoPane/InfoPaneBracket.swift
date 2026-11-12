@@ -78,8 +78,10 @@ struct InfoPaneBracketedSection<Header: View, Rows: View>: View, ThemedView {
 
 /// The header of a collapsible section. Clicking it runs `action`, which
 /// usually toggles the section. Its icon column holds the bracket's stub, so
-/// its title lines up with the rows' text.
-struct InfoPaneSectionHeader<Label: View>: View {
+/// its title lines up with the rows' text, unless the section's icon leads it.
+struct InfoPaneSectionHeader<Accessory: View>: View {
+    let title: String
+    let icon: InfoPaneSectionIcon
     let isExpanded: Bool
     /// False when there is nothing to disclose, as in an empty section.
     var isDisclosable = true
@@ -90,13 +92,19 @@ struct InfoPaneSectionHeader<Label: View>: View {
     /// Leaves room for a control laid over the trailing edge.
     var reservesTrailingControl = false
     let action: () -> Void
-    @ViewBuilder let label: Label
+    /// Follows the title and icon, such as a count.
+    @ViewBuilder let accessory: Accessory
 
     var body: some View {
         Button(action: action) {
             HStack(spacing: InfoPaneLayout.columnSpacing) {
                 InfoPaneHeaderIcon(isExpanded: isExpanded, isDisclosable: isDisclosable)
-                label
+                if InfoPaneLayout.headerIconLeads { icon }
+                Text(title)
+                    .lineLimit(1)
+                    .truncationMode(.tail)
+                if !InfoPaneLayout.headerIconLeads { icon }
+                accessory
                 Spacer(minLength: 0)
                 if reservesTrailingControl { OverlaidControlSpace() }
             }
@@ -107,10 +115,11 @@ struct InfoPaneSectionHeader<Label: View>: View {
     }
 }
 
-extension InfoPaneSectionHeader where Label == InfoPaneHeaderTitle {
+extension InfoPaneSectionHeader where Accessory == InfoPaneHeaderCount {
     /// With no count, the section has nothing to disclose.
     init(
         title: String,
+        icon: InfoPaneSectionIcon,
         count: Int?,
         isExpanded: Bool,
         accessibilityID: String,
@@ -120,6 +129,8 @@ extension InfoPaneSectionHeader where Label == InfoPaneHeaderTitle {
         action: @escaping () -> Void
     ) {
         self.init(
+            title: title,
+            icon: icon,
             isExpanded: isExpanded,
             isDisclosable: count != nil,
             accessibilityID: accessibilityID,
@@ -128,7 +139,39 @@ extension InfoPaneSectionHeader where Label == InfoPaneHeaderTitle {
             reservesTrailingControl: reservesTrailingControl,
             action: action
         ) {
-            InfoPaneHeaderTitle(title: title, count: count)
+            InfoPaneHeaderCount(count: count)
+        }
+    }
+}
+
+/// Names a section beside its header's title.
+enum InfoPaneSectionIcon: View {
+    case symbol(String)
+    case linear
+    case gitHub
+
+    var body: some View {
+        switch self {
+        case .symbol(let name):
+            Image(systemName: name)
+        case .linear:
+            LinearLogo(size: InfoPaneLayout.headerLogoSize)
+        case .gitHub:
+            Image("GitHubMark")
+                .resizable()
+                .scaledToFit()
+                .frame(width: InfoPaneLayout.headerLogoSize, height: InfoPaneLayout.headerLogoSize)
+        }
+    }
+}
+
+struct InfoPaneHeaderCount: View {
+    let count: Int?
+
+    var body: some View {
+        if let count {
+            Text("\(count)")
+                .emphasis(.subtle)
         }
     }
 }

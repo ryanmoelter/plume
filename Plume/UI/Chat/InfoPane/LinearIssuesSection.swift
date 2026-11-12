@@ -59,6 +59,8 @@ struct LinearIssuesSection: View, ThemedView {
     private func header(_ linear: InfoPaneFacts.LinearFacts, isExpanded: Bool) -> some View {
         let hoveringAdd = isHoveringAdd && !linear.isEmpty
         return InfoPaneSectionHeader(
+            title: "Linear",
+            icon: .linear,
             isExpanded: isExpanded,
             isDisclosable: !linear.isEmpty,
             accessibilityID: AccessibilityID.infoPaneLinearToggle,
@@ -71,9 +73,7 @@ struct LinearIssuesSection: View, ThemedView {
             } else {
                 withAnimation(InfoPaneLayout.sectionAnimation) { settings.infoPaneLinearExpanded.toggle() }
             }
-        } label: {
-            Text("Linear")
-            LinearLogo(size: 10)
+        } accessory: {
             if !isExpanded, linear.workingCount > 0 {
                 Text("\(linear.workingCount)")
                     .emphasis(.subtle)

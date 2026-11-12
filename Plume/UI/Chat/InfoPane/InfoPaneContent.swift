@@ -94,12 +94,14 @@ struct InfoPaneContent: View, ThemedView {
     private var subagents: some View {
         let isExpanded = settings.infoPaneSubagentsExpanded
         return InfoPaneBracketedSection(isExpanded: isExpanded) {
-            InfoPaneSectionHeader(isExpanded: isExpanded, accessibilityID: AccessibilityID.infoPaneSubagentsToggle) {
+            InfoPaneSectionHeader(
+                title: "Subagents",
+                icon: .symbol(StatusSymbol.subagents.name),
+                isExpanded: isExpanded,
+                accessibilityID: AccessibilityID.infoPaneSubagentsToggle
+            ) {
                 withAnimation(InfoPaneLayout.sectionAnimation) { settings.infoPaneSubagentsExpanded.toggle() }
-            } label: {
-                Text("Subagents")
-                    .lineLimit(1)
-                    .truncationMode(.tail)
+            } accessory: {
                 if !isExpanded, !facts.liveSubagents.isEmpty {
                     SubagentGlyphs(subagents: facts.liveSubagents)
                         .layoutPriority(1)
@@ -165,6 +167,7 @@ struct InfoPaneContent: View, ThemedView {
         return InfoPaneBracketedSection(isExpanded: isExpanded) {
             InfoPaneSectionHeader(
                 title: "Background Tasks",
+                icon: .symbol(StatusSymbol.backgroundTasks.name),
                 count: facts.backgroundTasks.count,
                 isExpanded: isExpanded,
                 accessibilityID: AccessibilityID.infoPaneBackgroundTasksToggle
@@ -229,6 +232,7 @@ struct InfoPaneContent: View, ThemedView {
             InfoPaneBracketedSection(isExpanded: isExpanded) {
                 InfoPaneSectionHeader(
                     title: "Artifacts",
+                    icon: .symbol(ArtifactSymbol.outline),
                     count: facts.artifacts.count,
                     isExpanded: isExpanded,
                     accessibilityID: AccessibilityID.infoPaneArtifactsToggle

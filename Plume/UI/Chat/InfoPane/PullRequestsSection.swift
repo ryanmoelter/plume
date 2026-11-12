@@ -195,6 +195,7 @@ struct PullRequestsSection: View, ThemedView {
     private func header(count: Int?, isExpanded: Bool, action: @escaping () -> Void) -> some View {
         InfoPaneSectionHeader(
             title: Self.title,
+            icon: .gitHub,
             count: count,
             isExpanded: isExpanded,
             accessibilityID: AccessibilityID.infoPaneLinkedPullRequestsToggle,
