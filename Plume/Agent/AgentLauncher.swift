@@ -30,21 +30,24 @@ enum AgentLauncher {
     }
 
     /// `fork` branches the resumed conversation into a new session instead of
-    /// continuing it, and is honoured on Claude Code's headless transport
-    /// only — no other path has a way to pass the cut through.
+    /// continuing it, and `sessionID` names a new conversation up front. Both
+    /// are honoured on Claude Code's headless transport only — no other path
+    /// has a way to pass them through.
     static func launch(
         blocks: [UserContentBlock],
         task: WorkTask,
         tab: TaskTab,
         resumeSessionID: String? = nil,
-        fork: HeadlessCommand.Fork? = nil
+        fork: HeadlessCommand.Fork? = nil,
+        sessionID: String? = nil
     ) {
         let normalized = blocks.normalized
         let text = normalized.plainText
         switch (tab.provider, tab.transport) {
         case (.claudeCode, .headless):
             launchClaudeHeadless(
-                blocks: normalized, task: task, tab: tab, resumeSessionID: resumeSessionID, fork: fork
+                blocks: normalized, task: task, tab: tab, resumeSessionID: resumeSessionID, fork: fork,
+                sessionID: sessionID
             )
         case (.claudeCode, .terminal):
             launchClaudeTerminal(message: text.isEmpty ? nil : text, task: task, tab: tab, resumeSessionID: resumeSessionID)
@@ -209,7 +212,8 @@ enum AgentLauncher {
         task: WorkTask,
         tab: TaskTab,
         resumeSessionID: String?,
-        fork: HeadlessCommand.Fork? = nil
+        fork: HeadlessCommand.Fork? = nil,
+        sessionID: String? = nil
     ) {
         // `claude -p` skips the folder-trust prompt outright rather than
         // blocking on it, so a directory the user never accepted would run
@@ -269,6 +273,7 @@ enum AgentLauncher {
             Log.agent.error("Tab \(tab.id, privacy: .public) already holds another CLI's session")
             return
         }
+        ChildSessionCoordinator.shared.attach(to: session, task: task, tab: tab)
         session.start(
             workingDirectory: workingDirectory,
             permissionMode: resolvedPermissionMode(
@@ -283,6 +288,7 @@ enum AgentLauncher {
             environment: HeadlessCommand.environment
                 .merging(LoginShellCommand.plumeEnvironment(taskID: task.id, tabID: tab.id)) { current, _ in current },
             fork: fork,
+            sessionID: sessionID,
             addDirectories: AdditionalDirectories.list(tab.additionalDirectories, excluding: workingDirectory)
         )
         session.onAdoptDirectories = { [weak tab] paths in

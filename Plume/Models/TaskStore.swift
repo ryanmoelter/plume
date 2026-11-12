@@ -103,6 +103,7 @@ enum TaskStore {
         kind: TabKind,
         provider: AgentProviderKind? = nil,
         pane: Int? = nil,
+        selecting: Bool = true,
         in context: ModelContext
     ) -> TaskTab {
         let paneIndex = min(max(pane ?? task.focusedPane, 0), task.paneCount - 1)
@@ -128,8 +129,61 @@ enum TaskStore {
         }
         context.insert(tab)
         task.tabs.append(tab)
-        selectTab(tab, in: task)
+        if selecting { selectTab(tab, in: task) }
         return tab
+    }
+
+    /// A headless Claude tab for a session `parent`'s agent started, placed
+    /// after the parent's other children in its pane and left unselected, so
+    /// the user stays where they are.
+    static func addChildTab(to task: WorkTask, parent: TaskTab, in context: ModelContext) -> TaskTab {
+        let tab = addTab(
+            to: task, kind: .agent, provider: .claudeCode, pane: parent.paneIndex, selecting: false, in: context
+        )
+        tab.transport = .headless
+        tab.parentTabID = parent.id
+        var pane = task.tabs(inPane: tab.paneIndex).filter { $0.id != tab.id }
+        let index = childInsertionIndex(parentID: parent.id, in: pane.map { ($0.id, $0.parentTabID) })
+        pane.insert(tab, at: min(index, pane.count))
+        reindex(pane)
+        return tab
+    }
+
+    /// Just after the parent's last child, or after the parent itself.
+    static func childInsertionIndex(parentID: UUID, in tabs: [(id: UUID, parentID: UUID?)]) -> Int {
+        if let last = tabs.lastIndex(where: { $0.parentID == parentID }) { return last + 1 }
+        if let parent = tabs.firstIndex(where: { $0.id == parentID }) { return parent + 1 }
+        return tabs.count
+    }
+
+    /// `tabs` with each child moved right after its parent, and how deep it
+    /// nests. A tab whose parent is not among `tabs` stays top-level.
+    static func nestedByParent<T>(
+        _ tabs: [T],
+        id: (T) -> UUID,
+        parentID: (T) -> UUID?
+    ) -> [(item: T, depth: Int)] {
+        let ids = Set(tabs.map(id))
+        var childrenByParent: [UUID: [T]] = [:]
+        var roots: [T] = []
+        for tab in tabs {
+            if let parent = parentID(tab), parent != id(tab), ids.contains(parent) {
+                childrenByParent[parent, default: []].append(tab)
+            } else {
+                roots.append(tab)
+            }
+        }
+        var result: [(item: T, depth: Int)] = []
+        var visited: Set<UUID> = []
+        func visit(_ tab: T, depth: Int) {
+            guard visited.insert(id(tab)).inserted else { return }
+            result.append((tab, depth))
+            for child in childrenByParent[id(tab)] ?? [] { visit(child, depth: depth + 1) }
+        }
+        for root in roots { visit(root, depth: 0) }
+        // A parent cycle has no root to reach it from.
+        for tab in tabs where !visited.contains(id(tab)) { visit(tab, depth: 0) }
+        return result
     }
 
     // MARK: - Selection
@@ -522,6 +576,7 @@ enum TaskStore {
         AgentSessionManager.shared.closeSession(for: tabID)
         DeviceSessionManager.shared.closeSession(for: tabID)
         DeviceLeaseCoordinator.shared.tabForgotten(tabID)
+        ChildSessionCoordinator.shared.tabForgotten(tabID)
         TitleStore.shared.forget(tabID: tabID)
         TabDirectoryStore.shared.forget(tabID: tabID)
         FolderRowsCache.shared.forget(tabID: tabID)

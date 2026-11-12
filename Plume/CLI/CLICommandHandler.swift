@@ -129,7 +129,7 @@ final class CLICommandHandler {
     }
 
     /// The task the tab is in now, which a moved tab changes.
-    private func currentTask(ofTab tabID: UUID) -> (task: WorkTask, context: ModelContext)? {
+    func currentTask(ofTab tabID: UUID) -> (task: WorkTask, context: ModelContext)? {
         let windows = frontmostFirst
         guard let taskID = windows.lazy.compactMap({ $0.taskIDForTab(tabID) }).first else { return nil }
         return windows.lazy.compactMap { window in window.task(taskID).map { (task: $0, context: window.context) } }.first

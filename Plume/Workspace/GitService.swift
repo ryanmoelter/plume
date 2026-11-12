@@ -61,15 +61,22 @@ actor GitService {
         branch: String,
         basePath: String?,
         strippingPrefix: Bool = false,
-        explicitPath: String? = nil
+        explicitPath: String? = nil,
+        startPoint: String? = nil
     ) throws -> String {
         try WorkspaceProvisioner.createWorktree(
             repository: repository,
             branch: branch,
             basePath: basePath,
             strippingPrefix: strippingPrefix,
-            explicitPath: explicitPath
+            explicitPath: explicitPath,
+            startPoint: startPoint
         )
+    }
+
+    func headCommit(in directory: String) -> String? {
+        (try? GitRunner.run(["rev-parse", "HEAD"], in: directory))?
+            .trimmingCharacters(in: .whitespacesAndNewlines)
     }
 
     func configuredBranchPrefix(in repository: String?, configuration: ProjectsConfiguration) -> String? {

@@ -182,7 +182,8 @@ nonisolated enum WorkspaceProvisioner {
         branch: String,
         basePath: String? = nil,
         strippingPrefix: Bool = false,
-        explicitPath: String? = nil
+        explicitPath: String? = nil,
+        startPoint: String? = nil
     ) throws -> String {
         let path = worktreePath(
             repository: repository,
@@ -201,7 +202,7 @@ nonisolated enum WorkspaceProvisioner {
             )
             try ensureExcluded(path: path, in: repository)
         }
-        try GitRunner.run(["worktree", "add", "-b", branch, path], in: repository)
+        try GitRunner.run(["worktree", "add", "-b", branch, path] + (startPoint.map { [$0] } ?? []), in: repository)
         return path
     }
 

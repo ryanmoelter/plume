@@ -106,6 +106,9 @@ final class TaskTab {
     /// can go on reporting a folder it reached before, and this keeps that
     /// report from adopting it again.
     var removedAdditionalDirectoriesData: Data?
+    /// The tab whose agent started this one as a child session, or empty.
+    /// `docs/child-sessions.md` is the reference.
+    var parentTabIDRaw: String = ""
 
     init(kind: TabKind, orderIndex: Int, task: WorkTask? = nil) {
         self.id = UUID()
@@ -224,6 +227,11 @@ final class TaskTab {
     var model: AgentModel? {
         get { modelRaw.flatMap { AgentModel.recognizing($0, provider: provider) } }
         set { modelRaw = newValue?.id }
+    }
+
+    var parentTabID: UUID? {
+        get { UUID(uuidString: parentTabIDRaw) }
+        set { parentTabIDRaw = newValue?.uuidString ?? "" }
     }
 
     var additionalDirectories: [String] {

@@ -96,6 +96,14 @@ nonisolated enum AppPaths {
             .appending(path: "\(tabID.uuidString).jsonl")
     }
 
+    /// Notes a parent session and the sessions it started share, outside
+    /// any repository. `docs/child-sessions.md` is the reference.
+    static func sideSessionNotesDirectory(parentTabID: UUID) -> URL {
+        applicationSupport
+            .appending(path: "side-session-notes")
+            .appending(path: parentTabID.uuidString)
+    }
+
     /// The debug control server's sockets, one per running instance.
     static var controlDirectory: URL {
         applicationSupport.appending(path: "control")
