@@ -92,16 +92,6 @@ nonisolated struct StartSessionRequest: Equatable {
         return .success(request)
     }
 
-    /// Whether a call with these arguments would start a session at once,
-    /// read before validation, so only a call that names a proposal or an
-    /// offer counts as starting nothing.
-    static func startsNow(_ arguments: [String: JSONValue]) -> Bool {
-        guard let raw = arguments["initiation"]?.stringValue?.trimmingCharacters(in: .whitespacesAndNewlines),
-              let initiation = Initiation(rawValue: raw)
-        else { return true }
-        return initiation == .userAsked
-    }
-
     /// A fork launches where the parent's transcript is, so it shares the
     /// parent's folder whatever `use_worktree` says.
     var ignoresWorktreeRequest: Bool { context == .fork && useWorktree == true }
@@ -112,8 +102,7 @@ nonisolated struct StartSessionRequest: Equatable {
 
 nonisolated enum ChildSessionError: Error, Equatable {
     case invalid(String)
-    /// `own_initiative` and `offer`, until proposals exist (PLUME-419).
-    case proposalsUnsupported
+    case proposal(ChildSessionProposalError)
     case unknownSession(String)
     case notRelated(String)
     case parentClosed
@@ -123,8 +112,7 @@ nonisolated enum ChildSessionError: Error, Equatable {
     var message: String {
         switch self {
         case .invalid(let detail): detail
-        case .proposalsUnsupported:
-            "Only initiation \"user_asked\" is supported: proposals arrive in a later version. Start a session only when the user asks for one."
+        case .proposal(let error): error.message
         case .unknownSession(let id): "No session with id \(id)."
         case .notRelated(let id): "Session \(id) is neither the session that started this one nor one this session started."
         case .parentClosed: "This session's tab is closed."

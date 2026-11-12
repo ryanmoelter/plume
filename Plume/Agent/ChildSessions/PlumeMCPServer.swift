@@ -4,6 +4,7 @@ import Foundation
 nonisolated enum PlumeMCPTool: String, CaseIterable {
     case startSession = "start_session"
     case sendMessage = "send_message"
+    case dismissTask = "dismiss_task"
 
     /// The name the model and `can_use_tool` know the tool by.
     var qualifiedName: String { "mcp__\(PlumeMCPServer.serverName)__\(rawValue)" }
@@ -68,9 +69,10 @@ final class PlumeMCPServer {
 
     /// How to answer `can_use_tool`, or nil to ask the user. Only Plume's own
     /// tools get an answer. The CLI asks even in plan mode, where starting a
-    /// session is refused. In manual mode, or a mode Plume does not recognize
-    /// (`nil`), a call that starts a session now asks like any other action;
-    /// everything else acts only inside Plume and is allowed.
+    /// session is refused; a proposal starts nothing, so plan mode allows it.
+    /// In manual mode, or a mode Plume does not recognize (`nil`), a call
+    /// that starts a session now asks like any other action; everything else
+    /// acts only inside Plume and is allowed.
     nonisolated static func decision(
         toolName: String,
         input: [String: JSONValue],
@@ -78,10 +80,11 @@ final class PlumeMCPServer {
     ) -> PermissionDecision? {
         guard isPlumeTool(toolName) else { return nil }
         if toolName == PlumeMCPTool.startSession.qualifiedName {
-            if permissionMode == .plan {
+            let startsNow = !StartSessionCall.isProposal(input)
+            if permissionMode == .plan, startsNow {
                 return .deny(message: ChildSessionError.parentInPlanMode.message)
             }
-            if permissionMode == .manual || permissionMode == nil, StartSessionRequest.startsNow(input) {
+            if permissionMode == .manual || permissionMode == nil, startsNow {
                 return nil
             }
         }

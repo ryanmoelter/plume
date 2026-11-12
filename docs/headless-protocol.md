@@ -449,7 +449,7 @@ The CLI then speaks JSON-RPC to it, one message per control request:
   A notification has no id and takes no JSON-RPC reply, but the control request still needs an answer: send `"response":{}`.
 - **In `tools/call`, `params.name` is the bare tool name** (`start_session`), and `params._meta["claudecode/toolUseId"]` carries the call's `tool_use` id. A tool's failure is a `result` with `isError: true`, not a JSON-RPC `error`, so the model reads the message.
 - **The model knows the tool as `mcp__<server>__<tool>`**, and so does `can_use_tool`, which also carries `"mcp_server":{"name":"plume","source":"sdk"}`. Without a rule allowing it, every call asks like any other tool. Plume allows its own tools in the `can_use_tool` handler, except a `start_session` that starts a session in manual mode, which it lets ask.
-- **Plan mode does not stop an MCP call.** Probed against 2.1.321 in `--permission-mode plan`: `can_use_tool` still arrived for `mcp__plume__start_session`, and an `allow` ran it. Plume denies `start_session` there instead, with a message telling the model to exit plan mode (`PlumeMCPServer.decision`).
+- **Plan mode does not stop an MCP call.** Probed against 2.1.321 in `--permission-mode plan`: `can_use_tool` still arrived for `mcp__plume__start_session`, and an `allow` ran it. Plume denies `start_session` there instead, with a message telling the model to exit plan mode (`PlumeMCPServer.decision`). A proposal (`own_initiative` or `offer` without `proposal_id`) starts nothing, so it is allowed.
 - **The server's `instructions` reach the model**, but the tools themselves are deferred and load through ToolSearch, so the instructions must name each tool in full for the model to find it.
 
 ## Context usage — `get_context_usage`

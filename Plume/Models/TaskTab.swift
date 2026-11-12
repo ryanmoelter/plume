@@ -109,6 +109,9 @@ final class TaskTab {
     /// The tab whose agent started this one as a child session, or empty.
     /// `docs/child-sessions.md` is the reference.
     var parentTabIDRaw: String = ""
+    /// JSON for the sessions this tab's agent proposed, read through
+    /// `ChildSessionProposalStore`. Empty when it has proposed none.
+    var childProposalsJSON: String = ""
 
     init(kind: TabKind, orderIndex: Int, task: WorkTask? = nil) {
         self.id = UUID()

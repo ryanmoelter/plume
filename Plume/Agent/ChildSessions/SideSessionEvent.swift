@@ -9,6 +9,8 @@ nonisolated struct SideSessionEvent: Equatable, Codable {
     enum Kind: String, Codable {
         case turnFinished = "turn_finished"
         case message
+        /// The user started a session the parent had proposed.
+        case proposalStarted = "proposal_started"
         case other
     }
 
@@ -73,7 +75,7 @@ nonisolated struct SideSessionEvent: Equatable, Codable {
     /// `sentence` instead.
     var summary: String {
         switch kind {
-        case .turnFinished, .message: "\(fromParent ? "↑" : "↳") \(sentence)"
+        case .turnFinished, .message, .proposalStarted: "\(fromParent ? "↑" : "↳") \(sentence)"
         case .other: sentence
         }
     }
@@ -89,6 +91,8 @@ nonisolated struct SideSessionEvent: Equatable, Codable {
             return firstLine.isEmpty ? "\(who) finished a turn" : "\(who) finished a turn: \(firstLine)"
         case .message:
             return firstLine.isEmpty ? "\(who) sent a message" : "\(who) sent a message: \(firstLine)"
+        case .proposalStarted:
+            return "\(who) started from its proposal"
         case .other:
             return firstLine.isEmpty ? "Sessions update" : firstLine
         }

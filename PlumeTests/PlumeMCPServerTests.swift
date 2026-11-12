@@ -50,12 +50,51 @@ struct PlumeMCPServerTests {
         #expect(instructions.contains("mcp__plume__send_message"))
     }
 
-    @Test func aParentListsBothTools() async {
+    @Test func aParentListsEveryTool() async {
         let (server, _) = makeServer()
         let reply = await server.handle(request(1, "tools/list"))
-        #expect(toolNames(reply) == ["start_session", "send_message"])
-        let schema = reply?["result"]?["tools"]?.arrayValue?.first?["inputSchema"]
-        #expect(schema?["required"]?.arrayValue == [.string("title"), .string("prompt"), .string("initiation")])
+        #expect(toolNames(reply) == ["start_session", "send_message", "dismiss_task"])
+        let tools = reply?["result"]?["tools"]?.arrayValue ?? []
+        // A start by proposal_id carries nothing else, so no argument is required.
+        let start = tools.first { $0["name"]?.stringValue == "start_session" }
+        #expect(start?["inputSchema"]?["required"] == nil)
+        #expect(start?["inputSchema"]?["properties"]?["proposal_id"] != nil)
+        let dismiss = tools.first { $0["name"]?.stringValue == "dismiss_task" }
+        #expect(dismiss?["inputSchema"]?["required"]?.arrayValue == [.string("task_id")])
+        #expect(dismiss?["description"]?.stringValue?.hasPrefix("Withdraw a proposal you made with start_session") == true)
+    }
+
+    @Test func instructionsExplainProposals() async throws {
+        let (server, _) = makeServer()
+        let instructions = try #require(await server.handle(request(0, "initialize"))?["result"]?["instructions"]?.stringValue)
+        #expect(instructions.contains("\"own_initiative\""))
+        #expect(instructions.contains("proposal_id"))
+        #expect(instructions.contains("mcp__plume__dismiss_task"))
+    }
+
+    @Test func aChildCannotDismissProposals() async {
+        let (server, calls) = makeServer(role: .child(parentID: "p"))
+        let reply = await server.handle(request(5, "tools/call", [
+            "name": .string("dismiss_task"), "arguments": .object(["task_id": .string("task_00000000")])
+        ]))
+        #expect(calls.received.isEmpty)
+        #expect(reply?["result"]?["isError"] == .bool(true))
+    }
+
+    @Test func planModeAllowsAProposalButNotAStart() {
+        let (server, _) = makeServer()
+        let start = PlumeMCPTool.startSession.qualifiedName
+        let proposal: [String: JSONValue] = ["initiation": .string("own_initiative"), "title": .string("T"), "prompt": .string("P")]
+        let offer: [String: JSONValue] = ["initiation": .string("offer"), "title": .string("T"), "prompt": .string("P")]
+        let byID: [String: JSONValue] = ["proposal_id": .string("task_0000abcd")]
+        let asked: [String: JSONValue] = ["initiation": .string("user_asked"), "title": .string("T"), "prompt": .string("P")]
+
+        #expect(server.decision(toolName: start, input: proposal, permissionMode: .plan) == .allow(updatedInput: proposal))
+        #expect(server.decision(toolName: start, input: offer, permissionMode: .plan) == .allow(updatedInput: offer))
+        #expect(server.decision(toolName: start, input: byID, permissionMode: .plan) == .deny(message: ChildSessionError.parentInPlanMode.message))
+        #expect(server.decision(toolName: start, input: asked, permissionMode: .plan) == .deny(message: ChildSessionError.parentInPlanMode.message))
+        let dismiss = PlumeMCPTool.dismissTask.qualifiedName
+        #expect(server.decision(toolName: dismiss, input: [:], permissionMode: .plan) == .allow(updatedInput: [:]))
     }
 
     @Test func aChildListsOnlySendMessageAndLearnsItsParent() async {
@@ -113,6 +152,7 @@ struct PlumeMCPServerTests {
     @Test func onlyPlumesOwnToolsAreAnswered() {
         #expect(PlumeMCPServer.isPlumeTool("mcp__plume__start_session"))
         #expect(PlumeMCPServer.isPlumeTool("mcp__plume__send_message"))
+        #expect(PlumeMCPServer.isPlumeTool("mcp__plume__dismiss_task"))
         #expect(!PlumeMCPServer.isPlumeTool("mcp__other__start_session"))
         #expect(!PlumeMCPServer.isPlumeTool("Bash"))
         for mode in [PermissionMode.auto, .bypassPermissions] {

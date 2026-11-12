@@ -71,7 +71,7 @@ struct ChildSessionFormatsTests {
 
     @Test func proposalsParseButAreNotUserAsked() throws {
         #expect(try parse(minimal(["initiation": .string("offer")])).get().initiation == .offer)
-        #expect(ChildSessionError.proposalsUnsupported.message.contains("proposals arrive in a later version"))
+        #expect(try parse(minimal(["initiation": .string("own_initiative")])).get().initiation == .ownInitiative)
     }
 
     // MARK: - Text for the model
