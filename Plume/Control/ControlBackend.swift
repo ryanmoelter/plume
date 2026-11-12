@@ -78,6 +78,10 @@ enum ControlDispatcher {
                 result = .sidebarReveal(
                     try ControlSidebarCommands.reveal(params, in: try ControlTabCommands.frontmostContext())
                 )
+            case .setTabStatus(let params):
+                result = .tabStatus(
+                    try ControlStatusCommands.setStatus(params, in: try ControlTabCommands.frontmostContext())
+                )
             }
             return .success(id: request.id, result)
         } catch {

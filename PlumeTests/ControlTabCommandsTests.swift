@@ -127,3 +127,68 @@ struct ControlSidebarCommandsTests {
         #expect(params == SidebarRevealParams(task: "same-directory"))
     }
 }
+
+/// `tab.status` sets a tab's status through `StatusEngine`, so `UnreadStore`
+/// marks an unseen finished turn unread as it would live, and `unread`
+/// overrides that mark.
+@MainActor
+struct ControlStatusCommandsTests {
+    private let context: ModelContext
+    private let engine = StatusEngine()
+    private let unread = UnreadStore()
+
+    init() throws {
+        context = ModelContext(try ModelContainer(
+            for: Schema([TaskGroup.self, WorkTask.self, TaskTab.self]),
+            configurations: [ModelConfiguration(isStoredInMemoryOnly: true)]
+        ))
+        unread.observe(engine) { .inactive }
+    }
+
+    private func setStatus(_ params: TabStatusParams) throws -> TabStatusResult {
+        try ControlStatusCommands.setStatus(params, in: context, engine: engine, unreadStore: unread)
+    }
+
+    @Test func aFinishedTurnInAnUnseenTabReadsUnread() throws {
+        let task = TaskStore.createTask(in: context, title: "Driven", siblings: [])
+        let tab = TaskStore.addTab(to: task, kind: .agent, in: context)
+        try context.save()
+
+        let result = try setStatus(.init(tabID: tab.id, status: "awaitingReply"))
+
+        #expect(result == TabStatusResult(tabID: tab.id, taskID: task.id, status: "awaitingReply", unread: true))
+        #expect(engine.status(forTab: tab.id) == .awaitingReply)
+    }
+
+    @Test func unreadOverridesTheMarkTheStatusLeaves() throws {
+        let task = TaskStore.createTask(in: context, title: "Driven", siblings: [])
+        let tab = TaskStore.addTab(to: task, kind: .agent, in: context)
+        try context.save()
+
+        #expect(try setStatus(.init(tabID: tab.id, status: "awaitingReply", unread: false)).unread == false)
+        #expect(try setStatus(.init(tabID: tab.id, status: "working", unread: true)).unread)
+        #expect(unread.isUnread(tabID: tab.id))
+    }
+
+    @Test func refusesAnUnknownStatus() throws {
+        let task = TaskStore.createTask(in: context, title: "Driven", siblings: [])
+        let tab = TaskStore.addTab(to: task, kind: .agent, in: context)
+        try context.save()
+
+        #expect(throws: ControlError.self) { try setStatus(.init(tabID: tab.id, status: "sleeping")) }
+        #expect(throws: ControlError.self) { try setStatus(.init(tabID: tab.id)) }
+        #expect(engine.status(forTab: tab.id) == .notStarted)
+    }
+
+    @Test func theWireNamesTheCommand() throws {
+        let request = try JSONDecoder().decode(
+            ControlServerRequest.self,
+            from: Data(#"{"id":"1","command":"tab.status","label":"Chat","status":"working","unread":true}"#.utf8)
+        )
+        guard case .setTabStatus(let params) = request.command else {
+            Issue.record("decoded \(request.command)")
+            return
+        }
+        #expect(params == TabStatusParams(label: "Chat", status: "working", unread: true))
+    }
+}
