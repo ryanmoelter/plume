@@ -55,7 +55,8 @@ struct InfoPanePullRequestItem: Equatable, Identifiable {
             ))
         }
         for role in [Role.pinned, .mentioned] {
-            for linked in linked where Role(linked.role) == role {
+            let inRole = linked.filter { Role($0.role) == role }
+            for linked in PullRequestStatusOrder.sorted(inRole, summary: { $0.pullRequest.map(PullRequestSummary.init) }) {
                 let reference = linked.reference
                 items.append(InfoPanePullRequestItem(
                     id: reference.id,
@@ -70,6 +71,27 @@ struct InfoPanePullRequestItem: Equatable, Identifiable {
             }
         }
         return items
+    }
+}
+
+/// Open, then draft, then unknown, then closed, then merged.
+enum PullRequestStatusOrder {
+    static func rank(_ summary: PullRequestSummary?) -> Int {
+        guard let summary else { return 2 }
+        switch summary.state {
+        case .open: return summary.isDraft ? 1 : 0
+        case .closed: return 3
+        case .merged: return 4
+        }
+    }
+
+    static func sorted<Element>(_ elements: [Element], summary: (Element) -> PullRequestSummary?) -> [Element] {
+        elements.enumerated()
+            .sorted { lhs, rhs in
+                let (left, right) = (rank(summary(lhs.element)), rank(summary(rhs.element)))
+                return left != right ? left < right : lhs.offset < rhs.offset
+            }
+            .map(\.element)
     }
 }
 

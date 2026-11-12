@@ -55,6 +55,8 @@ nonisolated struct LinearWorkflowState: Sendable, Equatable, Hashable, Codable {
     let type: LinearStateType
     /// A `#rrggbb` hex string, as Linear reports it.
     let color: String
+    /// Order within the team's states; nil in caches written before it was fetched.
+    var position: Double? = nil
 }
 
 nonisolated struct LinearTeam: Sendable, Equatable, Codable {
@@ -101,6 +103,7 @@ nonisolated struct LinearIssue: Sendable, Equatable, Codable {
     let stateName: String
     let stateType: LinearStateType
     let stateColor: String
+    var statePosition: Double? = nil
     let assigneeName: String?
     let teamKey: String
     /// The description's opening lines, from `LinearIssue.summary(ofDescription:)`.

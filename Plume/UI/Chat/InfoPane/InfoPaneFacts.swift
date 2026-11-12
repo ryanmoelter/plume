@@ -77,6 +77,7 @@ struct InfoPaneFacts: Equatable {
         var stateName: String?
         var stateType: LinearStateType?
         var stateColor: String?
+        var statePosition: Double?
         var assignee: String?
         var url: URL?
         /// Who touched the issue, when a subagent did.
@@ -242,7 +243,7 @@ extension InfoPaneFacts {
         return LinearFacts(main: issues.filter { !settledIDs.contains($0.identifier) }, mentioned: settled)
     }
 
-    /// Working issues first, then mentioned ones, each keeping its order.
+    /// Working issues first, then mentioned ones, each sorted by `LinearIssueOrder`.
     static func linearIssues(
         links: [LinkedLinearIssue],
         state: (String) -> LinearIssueFetchState?
@@ -257,13 +258,15 @@ extension InfoPaneFacts {
                 stateName: issue?.stateName,
                 stateType: issue?.stateType,
                 stateColor: issue?.stateColor,
+                statePosition: issue?.statePosition,
                 assignee: issue?.assigneeName,
                 url: issue.flatMap { URL(string: $0.url) },
                 attribution: attribution(of: link),
                 statusWord: statusWord(for: fetch)
             )
         }
-        return facts.filter { $0.role == .working } + facts.filter { $0.role == .mentioned }
+        return LinearIssueOrder.sorted(facts.filter { $0.role == .working })
+            + LinearIssueOrder.sorted(facts.filter { $0.role == .mentioned })
     }
 
     static func attribution(of link: LinkedLinearIssue) -> String? {
@@ -282,6 +285,35 @@ extension InfoPaneFacts {
         case .unauthorized: "key rejected"
         case .rateLimited: "rate limited"
         }
+    }
+}
+
+/// Started issues first, then unstarted, backlog, triage, other types,
+/// completed, and canceled or duplicate. Within a type, a later workflow
+/// state comes first. Issues with no state yet go last.
+enum LinearIssueOrder {
+    static func typeRank(_ type: LinearStateType?) -> Int {
+        switch type {
+        case .started: 0
+        case .unstarted: 1
+        case .backlog: 2
+        case .triage: 3
+        case .other: 4
+        case .completed: 5
+        case .canceled, .duplicate: 6
+        case nil: 7
+        }
+    }
+
+    static func sorted(_ issues: [InfoPaneFacts.LinearIssueFacts]) -> [InfoPaneFacts.LinearIssueFacts] {
+        issues.enumerated().sorted { lhs, rhs in
+            let (left, right) = (lhs.element, rhs.element)
+            let (leftRank, rightRank) = (typeRank(left.stateType), typeRank(right.stateType))
+            if leftRank != rightRank { return leftRank < rightRank }
+            let (leftPosition, rightPosition) = (left.statePosition ?? -.infinity, right.statePosition ?? -.infinity)
+            if leftPosition != rightPosition { return leftPosition > rightPosition }
+            return lhs.offset < rhs.offset
+        }.map(\.element)
     }
 }
 
