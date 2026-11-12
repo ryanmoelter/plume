@@ -55,7 +55,7 @@ struct HeadlessChildSessionTests {
         #expect(response["request_id"]?.stringValue == "m1")
         let reply = try #require(response["response"]?["mcp_response"])
         #expect(reply["id"] == .number(1))
-        #expect(reply["result"]?["tools"]?.arrayValue?.count == 2)
+        #expect(reply["result"]?["tools"]?.arrayValue?.count == PlumeMCPTool.allCases.count)
     }
 
     @Test func aNotificationIsAcknowledgedWithAnEmptyResponse() async throws {

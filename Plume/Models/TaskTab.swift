@@ -112,6 +112,9 @@ final class TaskTab {
     /// Hides the chips of the child sessions grouped after this tab in its
     /// strip. Their tabs stay open; see `TabStripGrouping`.
     var childrenCollapsed: Bool = false
+    /// JSON for the sessions this tab's agent proposed, read through
+    /// `ChildSessionProposalStore`. Empty when it has proposed none.
+    var childProposalsJSON: String = ""
 
     init(kind: TabKind, orderIndex: Int, task: WorkTask? = nil) {
         self.id = UUID()
