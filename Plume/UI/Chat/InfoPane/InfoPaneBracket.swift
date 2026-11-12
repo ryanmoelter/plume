@@ -31,27 +31,20 @@ struct InfoPaneBracketedSection<Header: View, Rows: View>: View, ThemedView {
 
     private func bracket(headerHeight: CGFloat) -> some View {
         let isPlain = InfoPaneLayout.usesPlainBar
-        let shape = { (part: InfoPaneBracketShape.Part) in
-            InfoPaneBracketShape(
-                part: part,
-                progress: isExpanded ? 1 : 0,
-                stubY: isPlain ? headerHeight + InfoPaneLayout.rowVerticalPadding : headerHeight / 2,
-                drawsStub: !isPlain,
-                cornerRadius: InfoPaneLayout.bracketCornerRadius,
-                stubGap: InfoPaneLayout.bracketStubGap,
-                barEndInset: InfoPaneLayout.rowVerticalPadding,
-                lineWidth: InfoPaneLayout.bracketLineWidth
-            )
-        }
-        let style = StrokeStyle(lineWidth: InfoPaneLayout.bracketLineWidth, lineCap: .round)
-        return ZStack {
-            shape(.stub).stroke(colors.divider, style: style)
-            shape(.bar).stroke(colors.divider, style: style)
-        }
+        return InfoPaneBracketShape(
+            part: .whole,
+            progress: isExpanded ? 1 : 0,
+            stubY: isPlain ? headerHeight + InfoPaneLayout.rowVerticalPadding : headerHeight / 2,
+            drawsStub: !isPlain,
+            cornerRadius: InfoPaneLayout.bracketCornerRadius,
+            stubGap: InfoPaneLayout.bracketStubGap,
+            barEndInset: InfoPaneLayout.rowVerticalPadding,
+            lineWidth: InfoPaneLayout.bracketLineWidth
+        )
+        .stroke(colors.divider, style: StrokeStyle(lineWidth: InfoPaneLayout.bracketLineWidth, lineCap: .round))
         .frame(width: InfoPaneLayout.sectionGutter)
         .offset(x: -InfoPaneLayout.sectionGutter)
         .allowsHitTesting(false)
-        .animation(InfoPaneLayout.sectionAnimation, value: isExpanded)
     }
 }
 
@@ -82,7 +75,7 @@ struct InfoPaneSectionHeader<Label: View>: View {
             }
             .emphasis(.secondary)
         }
-        .buttonStyle(InfoPaneRowButtonStyle(suppressesWash: suppressesWash))
+        .buttonStyle(InfoPaneRowButtonStyle(suppressesWash: suppressesWash, leadingWashInset: isDisclosable ? 0 : SubagentRow.Columns.washInset))
         .plumeID(accessibilityID, value: accessibilityValue ?? (isExpanded ? "expanded" : "collapsed"))
     }
 }

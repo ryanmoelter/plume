@@ -79,7 +79,6 @@ struct InfoPaneFacts: Equatable {
         var stateColor: String?
         var statePosition: Double?
         var teamKey: String?
-        var startedProgress: LinearStartedProgress = .half
         var assignee: String?
         var url: URL?
         /// Who touched the issue, when a subagent did.
@@ -236,11 +235,10 @@ extension InfoPaneFacts {
         isConfigured: Bool,
         links: [LinkedLinearIssue],
         state: (String) -> LinearIssueFetchState?,
-        startedProgress: (_ identifier: String, _ teamKey: String, _ position: Double?) -> LinearStartedProgress,
         hasSettled: (String) -> Bool
     ) -> LinearFacts? {
         guard isEnabled, isConfigured else { return nil }
-        let issues = linearIssues(links: links, state: state, startedProgress: startedProgress)
+        let issues = linearIssues(links: links, state: state)
         let settled = issues.filter { $0.role == .mentioned && hasSettled($0.identifier) }
         let settledIDs = Set(settled.map(\.identifier))
         return LinearFacts(main: issues.filter { !settledIDs.contains($0.identifier) }, mentioned: settled)
@@ -249,8 +247,7 @@ extension InfoPaneFacts {
     /// Working issues first, then mentioned ones, each sorted by `LinearIssueOrder`.
     static func linearIssues(
         links: [LinkedLinearIssue],
-        state: (String) -> LinearIssueFetchState?,
-        startedProgress: (_ identifier: String, _ teamKey: String, _ position: Double?) -> LinearStartedProgress = { _, _, _ in .half }
+        state: (String) -> LinearIssueFetchState?
     ) -> [LinearIssueFacts] {
         let facts = links.map { link -> LinearIssueFacts in
             let fetch = state(link.identifier)
@@ -264,7 +261,6 @@ extension InfoPaneFacts {
                 stateColor: issue?.stateColor,
                 statePosition: issue?.statePosition,
                 teamKey: issue?.teamKey,
-                startedProgress: issue.map { startedProgress(link.identifier, $0.teamKey, $0.statePosition) } ?? .half,
                 assignee: issue?.assigneeName,
                 url: issue.flatMap { URL(string: $0.url) },
                 attribution: attribution(of: link),
@@ -369,7 +365,7 @@ enum InfoPaneLayout {
     static let subgroupGlyphSize = CGSize(width: 8, height: 12)
     static let subgroupGlyphCornerRadius: CGFloat = 3
     #if DEBUG
-    /// Swaps the stub for a straight bar and the old chevron, for comparison.
+    /// Debug toggle: a straight bar and a chevron in place of the stub.
     static let usesPlainBar = UserDefaults.standard.bool(forKey: "PlumeInfoPanePlainBar")
     #else
     static let usesPlainBar = false

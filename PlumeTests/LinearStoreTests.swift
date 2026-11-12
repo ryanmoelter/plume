@@ -577,7 +577,7 @@ struct LinearStoreTests {
         #expect(harness.store.teamKeys == ["CACHE"])
     }
 
-    @Test func aCachedCatalogWithoutStatePositionsIsRefetchedAtOnce() async throws {
+    @Test func aCachedCatalogWithoutStatePositionsIsRefetchedOnTheNextSyncTick() async throws {
         let directory = FileManager.default.temporaryDirectory.appending(path: "LinearStoreTests-\(UUID().uuidString)")
         defer { try? FileManager.default.removeItem(at: directory) }
         try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
@@ -586,9 +586,15 @@ struct LinearStoreTests {
         try JSONEncoder().encode(cached).write(to: directory.appending(path: "catalog-A.json"))
 
         let a = FakeLinearWorkspace(orgID: "A", teamKeys: ["PLUME"])
+        await a.set(catalogError: LinearError.failed("offline"))
         let harness = try await makeHarness([a], cacheDirectory: directory)
         harness.store.start()
         defer { harness.store.reset() }
+        await harness.store.settle()
+        #expect(harness.store.teamKeys == ["CACHE"])
+
+        await a.set(catalogError: nil)
+        harness.store.sync()
         await harness.store.settle()
         #expect(harness.store.teamKeys == ["PLUME"])
     }
@@ -611,6 +617,31 @@ struct LinearStoreTests {
         await harness.store.settle()
 
         #expect(harness.store.startedProgress(identifier: "PLUME-1", teamKey: "PLUME", position: 2) == .half)
+    }
+
+    @Test func startedProgressFollowsTheWorkspaceThatOwnsTheIssue() async throws {
+        func catalog(_ orgID: String, positions: [Double]) -> LinearCatalog {
+            let states = positions.enumerated().map {
+                LinearWorkflowState(id: "\(orgID)\($0.offset)", name: "S", type: .started, color: "#000000", position: $0.element)
+            }
+            let team = LinearTeam(id: "t\(orgID)", key: "PLUME", name: "Plume", states: states)
+            return LinearCatalog(orgID: orgID, teams: [team], fetchedAt: Date())
+        }
+        let a = FakeLinearWorkspace(orgID: "A", teamKeys: ["PLUME"])
+        let b = FakeLinearWorkspace(orgID: "B", teamKeys: ["PLUME"])
+        await a.set(catalog: catalog("A", positions: [1, 2]))
+        await b.set(catalog: catalog("B", positions: [1, 2, 3]))
+        await a.set(issues: ["PLUME-1": LinearTestFixtures.issue("PLUME-1", title: "from A")])
+        await b.set(issues: ["PLUME-1": LinearTestFixtures.issue("PLUME-1", title: "from B")])
+        let harness = try await makeHarness([a, b])
+        harness.store.setWanted(["PLUME-1"], owner: UUID())
+        await harness.store.settle()
+
+        let title = try #require(harness.store.state(for: "PLUME-1")?.issue?.title)
+        let positions: [Double] = title == "from A" ? [1, 2] : [1, 2, 3]
+        let expected = LinearStartedProgress(position: 2, among: positions)
+        #expect(expected != LinearStartedProgress(position: 2, among: title == "from A" ? [1, 2, 3] : [1, 2]))
+        #expect(harness.store.startedProgress(identifier: "plume-1", teamKey: "PLUME", position: 2) == expected)
     }
 
     @Test func aFetchedCatalogIsWrittenToTheCache() async throws {

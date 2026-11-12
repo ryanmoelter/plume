@@ -197,7 +197,7 @@ struct InfoPaneFactsTests {
     @Test func linearSectionNeedsTheSettingAndAWorkspace() {
         func facts(enabled: Bool, configured: Bool) -> InfoPaneFacts {
             InfoPaneFacts(tabID: UUID(), linear: InfoPaneFacts.linear(
-                isEnabled: enabled, isConfigured: configured, links: [], state: { _ in nil }, startedProgress: { _, _, _ in .half }, hasSettled: { _ in true }
+                isEnabled: enabled, isConfigured: configured, links: [], state: { _ in nil }, hasSettled: { _ in true }
             ))
         }
         #expect(facts(enabled: false, configured: true).sections.isEmpty)
@@ -225,7 +225,6 @@ struct InfoPaneFactsTests {
             isConfigured: true,
             links: [link("A-1", .mentioned), link("B-2"), link("C-3", .mentioned)],
             state: { _ in nil },
-            startedProgress: { _, _, _ in .half },
             hasSettled: { $0 == "C-3" }
         ))
         #expect(facts.main.map(\.identifier) == ["B-2", "A-1"])

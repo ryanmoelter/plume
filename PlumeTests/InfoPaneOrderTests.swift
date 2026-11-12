@@ -89,7 +89,7 @@ struct InfoPaneOrderTests {
         let facts = try #require(InfoPaneFacts.linear(
             isEnabled: true, isConfigured: true,
             links: [link("M-1", .mentioned), link("M-2", .mentioned)],
-            state: { fetched[$0] }, startedProgress: { _, _, _ in .half }, hasSettled: { _ in true }
+            state: { fetched[$0] }, hasSettled: { _ in true }
         ))
         #expect(facts.mentioned.map(\.identifier) == ["M-2", "M-1"])
     }

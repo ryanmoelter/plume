@@ -180,7 +180,7 @@ final class LinearStore: LinearActivitySink {
     func startedProgress(identifier: String, teamKey: String, position: Double?) -> LinearStartedProgress {
         guard let position else { return .half }
         let key = teamKey.uppercased()
-        let owner = caches.first { $0.value.issueID(identifier: identifier) != nil }?.key
+        let owner = issueOwner[identifier.uppercased()]
         let candidates = owner.map { id in orderedCatalogs.filter { $0.orgID == id } } ?? orderedCatalogs
         let team = candidates.lazy.compactMap { $0.teams.first { $0.key == key } }.first
         let positions = team?.states.filter { $0.type == .started }.compactMap(\.position) ?? []

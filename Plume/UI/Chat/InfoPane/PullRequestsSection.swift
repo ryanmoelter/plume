@@ -301,7 +301,7 @@ private struct PullRequestRow: View, ThemedView {
             PullRequestGlyphImage(glyph: PullRequestRowContent.leadingWithoutChecks(summary))
         } else {
             Image(systemName: "arrow.triangle.pull")
-                .emphasis(titleEmphasis)
+                .emphasis(.subtle)
         }
     }
 

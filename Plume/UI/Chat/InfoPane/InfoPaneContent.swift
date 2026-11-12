@@ -101,8 +101,11 @@ struct InfoPaneContent: View, ThemedView {
                 withAnimation(InfoPaneLayout.sectionAnimation) { settings.infoPaneSubagentsExpanded.toggle() }
             } label: {
                 Text("Subagents")
+                    .lineLimit(1)
+                    .truncationMode(.tail)
                 if !isExpanded, !facts.liveSubagents.isEmpty {
                     SubagentGlyphs(subagents: facts.liveSubagents)
+                        .layoutPriority(1)
                 }
             }
         } rows: {
@@ -458,9 +461,11 @@ struct InfoPaneRowButtonStyle: ButtonStyle {
     /// True while a control laid over the row is hovered and shows its own
     /// wash instead.
     var suppressesWash = false
+    /// Zero keeps the wash off a stub drawn in the gutter beside the row.
+    var leadingWashInset = SubagentRow.Columns.washInset
 
     func makeBody(configuration: Configuration) -> some View {
-        RowBody(configuration: configuration, suppressesWash: suppressesWash)
+        RowBody(configuration: configuration, suppressesWash: suppressesWash, leadingWashInset: leadingWashInset)
     }
 
     private struct RowBody: View, ThemedView {
@@ -469,16 +474,19 @@ struct InfoPaneRowButtonStyle: ButtonStyle {
         @State private var isHovering = false
         let configuration: ButtonStyleConfiguration
         let suppressesWash: Bool
+        let leadingWashInset: CGFloat
 
         var body: some View {
             let showsWash = isEnabled && !suppressesWash && (isHovering || configuration.isPressed)
             configuration.label
-                .padding(.horizontal, SubagentRow.Columns.washInset)
+                .padding(.leading, leadingWashInset)
+                .padding(.trailing, SubagentRow.Columns.washInset)
                 .padding(.vertical, InfoPaneLayout.rowVerticalPadding)
                 .contentShape(.rect(cornerRadius: 6))
                 .background(showsWash ? colors.surfaceTint : Color.clear, in: .rect(cornerRadius: 6))
                 .plumeHover { isHovering = $0 }
-                .padding(.horizontal, -SubagentRow.Columns.washInset)
+                .padding(.leading, -leadingWashInset)
+                .padding(.trailing, -SubagentRow.Columns.washInset)
         }
     }
 }
