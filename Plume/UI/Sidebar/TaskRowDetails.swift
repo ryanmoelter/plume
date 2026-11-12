@@ -9,6 +9,8 @@ enum TaskRowDetails {
     /// One line, either words or the pull request chip's own drawing.
     enum Line: Equatable {
         case text(String)
+        /// One agent tab of a task that has several, heading its own lines.
+        case agentHeader(AgentHeader)
         /// The group header: which project this directory belongs to.
         case project(String)
         /// A branch, marked when its checkout is a linked worktree, and with
@@ -52,10 +54,57 @@ enum TaskRowDetails {
         }
     }
 
+    struct AgentHeader: Equatable {
+        var tabID: UUID
+        var title: String
+        var status: TaskStatus
+        var isUnread: Bool
+        /// How far the agent nests under the one that started it.
+        var depth: Int
+
+        init(tabID: UUID, title: String, status: TaskStatus, isUnread: Bool = false, depth: Int = 0) {
+            self.tabID = tabID
+            self.title = title
+            self.status = status
+            self.isUnread = isUnread
+            self.depth = depth
+        }
+    }
+
+    /// One agent tab of a task, with the directory it is open in.
+    struct AgentGroup: Equatable {
+        var header: AgentHeader
+        var workspace: DirectoryGroup
+    }
+
     /// The agent's status is the trailing badge's job, so it takes no line of
     /// its own.
     static func lines(groups: [DirectoryGroup]) -> [Line] {
         groups.flatMap(lines(for:))
+    }
+
+    /// A header per agent, followed by only what its directory says that the
+    /// agent above did not, so agents sharing a folder stack without
+    /// repeating it.
+    static func lines(agents: [AgentGroup]) -> [Line] {
+        var lines: [Line] = []
+        var previous: [Line] = []
+        for agent in agents {
+            let current = self.lines(for: agent.workspace)
+            lines.append(.agentHeader(agent.header))
+            lines.append(contentsOf: linesDiffering(current, from: previous))
+            previous = current
+        }
+        return lines
+    }
+
+    /// `current` from its first line that differs from the same position in
+    /// `previous`. The lines nest — a branch belongs to its project — so once
+    /// one differs, everything under it is shown too.
+    static func linesDiffering(_ current: [Line], from previous: [Line]) -> [Line] {
+        let firstDifference = current.indices.first { $0 >= previous.count || current[$0] != previous[$0] }
+        guard let firstDifference else { return [] }
+        return Array(current[firstDifference...])
     }
 
     /// Project first: it is the header the branch and pull request under it
@@ -113,6 +162,8 @@ enum TaskRowDetails {
         details: (PullRequestReference) -> LinkedPullRequestStore.Detail?,
         cap: Int = pinnedLineCap
     ) -> [Line] {
+        // An agent with no folder has no pull request to wait for.
+        let groups = groups.filter { !($0.directory ?? "").isEmpty }
         guard !pinned.isEmpty,
               !groups.contains(where: { $0.pullRequest == nil || $0.pullRequest == .loading })
         else { return [] }
@@ -196,6 +247,8 @@ enum TaskRowDetails {
     static func accessibilityText(_ line: Line) -> String? {
         switch line {
         case .text(let text): text
+        case .agentHeader(let header):
+            ([header.title, header.status.rawValue] + (header.isUnread ? ["unread"] : [])).joined(separator: " ")
         case .project(let name): name
         case .branch(let branch, let isWorktree, let companion):
             [isWorktree ? "worktree" : nil, branch,
