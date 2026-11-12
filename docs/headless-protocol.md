@@ -200,6 +200,16 @@ Verified: the model received `Your questions have been answered: "Tabs or spaces
 
 Same shape. `input` carries `plan` (markdown) and `planFilePath`. `allow` approves the plan and leaves plan mode; `deny` with a `message` rejects it and hands the model the reason.
 
+### Plan mode the model enters itself — `EnterPlanMode`
+
+Probed against 2.1.321, launched with `--permission-mode default`. `EnterPlanMode` needs no permission: no `can_use_tool` arrives for it. Between the `tool_use` and its result the CLI writes a `status` line that carries the new mode:
+
+```json
+{"type":"system","subtype":"status","status":null,"permissionMode":"plan","uuid":"…","session_id":"…"}
+```
+
+`HeadlessSession` reads `permissionMode` off any `status` line and treats it as confirmed, the same as `init`. Without that, the picker and anything reading the session's live mode would keep showing the mode it launched in.
+
 ### A message mid-turn
 
 A `user` line written while a turn runs takes an optional `priority`, which says when the model sees it. The field sits in the CLI's own SDK user-message schema beside `uuid` and `shouldQuery`, as `priority: "now" | "next" | "later"`, and it is not marked `@internal`. Measured on **2.1.304** with Plume's flags, in a trusted directory. The probe turn ran `sleep 3` four times through Bash, and the second line arrived just after the first tool result:
@@ -439,6 +449,7 @@ The CLI then speaks JSON-RPC to it, one message per control request:
   A notification has no id and takes no JSON-RPC reply, but the control request still needs an answer: send `"response":{}`.
 - **In `tools/call`, `params.name` is the bare tool name** (`start_session`), and `params._meta["claudecode/toolUseId"]` carries the call's `tool_use` id. A tool's failure is a `result` with `isError: true`, not a JSON-RPC `error`, so the model reads the message.
 - **The model knows the tool as `mcp__<server>__<tool>`**, and so does `can_use_tool`, which also carries `"mcp_server":{"name":"plume","source":"sdk"}`. Without a rule allowing it, every call asks like any other tool. Plume allows its own tools in the `can_use_tool` handler.
+- **Plan mode does not stop an MCP call.** Probed against 2.1.321 in `--permission-mode plan`: `can_use_tool` still arrived for `mcp__plume__start_session`, and an `allow` ran it. Plume denies `start_session` there instead, with a message telling the model to exit plan mode (`PlumeMCPServer.decision`).
 - **The server's `instructions` reach the model**, but the tools themselves are deferred and load through ToolSearch, so the instructions must name each tool in full for the model to find it.
 
 ## Context usage — `get_context_usage`

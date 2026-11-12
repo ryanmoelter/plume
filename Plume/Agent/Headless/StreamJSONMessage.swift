@@ -10,7 +10,9 @@ import Foundation
 nonisolated enum StreamJSONMessage {
     case rateLimit(RateLimitInfo)
     case initialized(SessionInit)
-    case status(String)
+    /// `permissionMode` is set when the mode changed, including when the
+    /// model entered plan mode itself.
+    case status(String, permissionMode: String?)
     case bridgeState(BridgeState)
     /// A control request is under way — currently only observed for
     /// `side_question`, which otherwise gives no sign it is running until its

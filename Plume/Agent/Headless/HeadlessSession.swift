@@ -1110,6 +1110,13 @@ final class HeadlessSession: AgentSession {
     /// session records both here: the composer shows the new mode at once,
     /// and a granted folder joins the tab's list so a restart keeps it.
     func resolve(_ permission: PendingPermission, accepting suggestion: PermissionSuggestion) {
+        if case .setMode(let token) = suggestion.kind, let mode = PermissionMode.recognizing(token),
+           cappedForRaise(mode) != mode {
+            // The suggestion names the CLI's mode, so the capped one goes as its own request.
+            resolve(permission, with: .allow(updatedInput: permission.input))
+            setPermissionMode(cappedForRaise(mode))
+            return
+        }
         resolve(permission, with: .allow(updatedInput: permission.input, updatedPermissions: [suggestion.raw]))
         switch suggestion.kind {
         case .setMode(let token):
@@ -1130,7 +1137,16 @@ final class HeadlessSession: AgentSession {
     /// action. Without it the session stays in `plan` and never starts work.
     func approvePlan(_ permission: PendingPermission) {
         resolve(permission, with: .allow(updatedInput: permission.input))
-        setPermissionMode(.auto)
+        setPermissionMode(cappedForRaise(.auto))
+    }
+
+    /// The highest mode a raise the user did not pick in the picker may
+    /// reach, or nil for no limit. Set for a child session.
+    @ObservationIgnored var permissionCeiling: (() -> PermissionMode?)?
+
+    private func cappedForRaise(_ mode: PermissionMode) -> PermissionMode {
+        guard let ceiling = permissionCeiling?() else { return mode }
+        return ChildSessionPermissions.capped(mode, at: ceiling)
     }
 
     /// Approves the plan and sends `feedback` as an ordinary user turn.
@@ -1179,7 +1195,11 @@ final class HeadlessSession: AgentSession {
                 permissionModeRequests.confirm(recognized)
             }
 
-        case .status(let status):
+        case .status(let status, let reportedMode):
+            if let reportedMode, let mode = PermissionMode.recognizing(reportedMode) {
+                permissionMode = mode
+                permissionModeRequests.confirm(mode)
+            }
             // Only the main thread reports this, and a notification-woken
             // turn reports it seconds before its first envelope — long enough
             // for its subagent's finish to read as the task settling.
@@ -1274,11 +1294,9 @@ final class HeadlessSession: AgentSession {
             return
         }
         guard request.subtype == "can_use_tool" else { return }
-        if let server = mcpServer, let tool = request.toolName, server.isAutoAllowed(toolName: tool) {
-            send(StreamJSONEncoder.permissionResponse(
-                requestID: request.requestID,
-                decision: .allow(updatedInput: request.input)
-            ))
+        if let server = mcpServer, let tool = request.toolName,
+           let decision = server.decision(toolName: tool, input: request.input, permissionMode: permissionMode) {
+            send(StreamJSONEncoder.permissionResponse(requestID: request.requestID, decision: decision))
             return
         }
         let name = request.toolName ?? "Tool"
