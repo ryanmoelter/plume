@@ -252,7 +252,9 @@ struct ChatComposer: View, ThemedView {
     /// recall from an empty composer. Takes an index rather than always the
     /// last message so recall can later walk further back through the queue.
     private func editQueuedMessage(at index: Int) {
-        guard let headlessSession, let blocks = headlessSession.removeQueuedMessage(at: index) else { return }
+        guard let headlessSession, headlessSession.canEditQueuedMessage(at: index),
+              let blocks = headlessSession.removeQueuedMessage(at: index)
+        else { return }
         loadIntoDraft(blocks)
     }
 
@@ -615,8 +617,10 @@ struct ChatComposer: View, ThemedView {
     }
 
     private var editQueuedHandler: (() -> Void)? {
-        guard let session = headlessSession, !session.queuedMessages.isEmpty else { return nil }
-        return { editQueuedMessage(at: session.queuedMessages.count - 1) }
+        guard let session = headlessSession,
+              let last = session.queuedMessages.indices.last(where: { session.canEditQueuedMessage(at: $0) })
+        else { return nil }
+        return { editQueuedMessage(at: last) }
     }
 
     private var pageScrollHandler: ((Bool) -> Void)? { onPageScroll }
@@ -796,6 +800,12 @@ struct ChatComposer: View, ThemedView {
         }
         guard headlessSession.hasExited else {
             headlessSession.sendNow(appending: draftBlocks)
+            return
+        }
+        if let claude = headlessSession as? HeadlessSession {
+            // The resume carries the queue, so a host message in it keeps its own role.
+            claude.sendNow(appending: draftBlocks)
+            AgentLauncher.relaunchHeadless(task: tab.task ?? task, tab: tab)
             return
         }
         var messages: [[UserContentBlock]] = []

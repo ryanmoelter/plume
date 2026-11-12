@@ -111,6 +111,17 @@ nonisolated enum ChildSessionFormats {
         return wrap(reminder, event)
     }
 
+    /// To the parent, for a message the user took off the child's queue.
+    static func messageRemovedNote(child: Participant, text: String) -> String {
+        let clipped = clipped(text)
+        let reminder = "The user removed your message to the session \"\(neutralized(child.title))\" (\(child.sessionID)) before it was sent, so that session never read it: \"\(neutralized(clipped))\""
+        let event = SideSessionEvent(
+            kind: .other, sessionID: child.sessionID, name: child.name, title: child.title,
+            text: "Your message to \(child.name ?? child.title) was removed before it was sent: \(clipped)"
+        )
+        return wrap(reminder, event)
+    }
+
     private static func wrap(_ reminder: String, _ event: SideSessionEvent) -> String {
         "<system-reminder>\n\(reminder)\n</system-reminder>\n\(event.footer)"
     }

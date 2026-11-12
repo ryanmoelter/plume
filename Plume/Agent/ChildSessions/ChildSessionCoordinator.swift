@@ -42,6 +42,10 @@ final class ChildSessionCoordinator {
         session.userMessagePreamble = { [weak self] in
             self?.takePreamble(forParent: tabID)
         }
+        session.onHostMessagesReturned = { [weak self, weak tab] messages in
+            guard let self, let tab, tab.isLive else { return }
+            self.hostMessagesReturned(messages, by: tab)
+        }
     }
 
     func tabForgotten(_ tabID: UUID) {
@@ -189,7 +193,7 @@ final class ChildSessionCoordinator {
             return .failure(.failed("The session could not start: \(reason)"))
         }
         if let worktree { ChildSessionWorkspace.recordOwnership(of: worktree, in: task) }
-        session.submitFromHost(blocks: [.text(brief)], display: [.text(request.prompt)])
+        session.submitFromHost(blocks: [.text(brief)], display: [.text(request.prompt)], origin: .fromParent(text: request.prompt))
 
         return .success(ChildSessionFormats.started(
             title: request.title,
@@ -242,7 +246,7 @@ final class ChildSessionCoordinator {
         guard target.parentTabID == sender.id else { return .failure(.notRelated(to)) }
         let note = ChildSessionFormats.messageFromParentNote(parent: participant(sender), text: message)
         let queued = isWorking(target)
-        guard submitFromHost(note, display: message, to: target, in: task) else {
+        guard submitFromHost(note, display: message, origin: .fromParent(text: message), to: target, in: task) else {
             return .failure(.failed("Session \(to) could not be reached."))
         }
         return .success(ChildSessionFormats.delivered(to: TitleStore.shared.chipTitle(for: target), queued ? .queued : .sent))
@@ -276,14 +280,36 @@ final class ChildSessionCoordinator {
     private func wake(_ parent: TaskTab, with notes: [ChildSessionWakePolicy.Note]) {
         guard !notes.isEmpty else { return }
         let joined = Self.joined(notes)
-        if let task = parent.task,
-           submitFromHost(joined, display: ChildSessionFormats.summary(ofNotes: joined), to: parent, in: task) {
+        let display = ChildSessionFormats.summary(ofNotes: joined)
+        if let task = parent.task, submitFromHost(joined, display: display, origin: .notes(notes), to: parent, in: task) {
             return
         }
         Log.agent.error("Could not deliver child-session notes to tab \(parent.id, privacy: .public)")
+        hold(notes, for: parent)
+    }
+
+    private func hold(_ notes: [ChildSessionWakePolicy.Note], for parent: TaskTab) {
         var policy = policies[parent.id] ?? ChildSessionWakePolicy()
         policy.deliveryFailed(notes)
         policies[parent.id] = policy
+    }
+
+    /// Notes the user took off the parent's queue wait for the user's next
+    /// message. A parent's message taken off a child's queue goes back to
+    /// the parent as a held note saying so.
+    private func hostMessagesReturned(_ messages: [HostMessage], by tab: TaskTab) {
+        for message in messages {
+            switch message.origin {
+            case .notes(let notes):
+                hold(notes, for: tab)
+            case .fromParent(let text):
+                guard let parent = parent(of: tab) else { continue }
+                let note = ChildSessionFormats.messageRemovedNote(child: participant(tab), text: text)
+                hold([.init(childID: tab.id, text: note, kind: .message)], for: parent)
+            case nil:
+                break
+            }
+        }
     }
 
     private func takePreamble(forParent tabID: UUID) -> String? {
@@ -300,9 +326,11 @@ final class ChildSessionCoordinator {
     // MARK: - Reaching a tab's session
 
     /// Submits to the tab's running session, or resumes its conversation
-    /// first, the way Reconnect does. False when nothing could take it.
+    /// first. False when nothing could take it.
     @discardableResult
-    private func submitFromHost(_ text: String, display: String, to tab: TaskTab, in task: WorkTask) -> Bool {
+    private func submitFromHost(
+        _ text: String, display: String, origin: HostMessageOrigin, to tab: TaskTab, in task: WorkTask
+    ) -> Bool {
         let existing = AgentSessionManager.shared.existingSession(for: tab.id) as? HeadlessSession
         let session: HeadlessSession
         if let existing, !existing.hasExited {
@@ -315,7 +343,7 @@ final class ChildSessionCoordinator {
             else { return false }
             session = resumed
         }
-        session.submitFromHost(blocks: [.text(text)], display: [.text(display)])
+        session.submitFromHost(blocks: [.text(text)], display: [.text(display)], origin: origin)
         return true
     }
 

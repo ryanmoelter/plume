@@ -163,17 +163,94 @@ struct HeadlessChildSessionTests {
         #expect(recorder.outcomes.map(\.isHostDriven) == [false, true])
     }
 
-    @Test func removingAQueuedHostMessageForgetsItsWire() throws {
+    @Test func removingAQueuedHostMessageHandsItBackToTheHost() throws {
         let (session, recorder) = makeSession()
+        var returned: [HostMessage] = []
+        session.onHostMessagesReturned = { returned += $0 }
         session.submit(text: "typed")
-        session.submitFromHost(blocks: [.text("wire")], display: [.text("same")])
-        session.removeQueuedMessage(at: 0)
+        session.submitFromHost(blocks: [.text("wire")], display: [.text("same")], origin: .fromParent(text: "same"))
+
+        #expect(!session.canEditQueuedMessage(at: 0))
+        #expect(session.removeQueuedMessage(at: 0) == nil)
+        #expect(returned.map(\.origin) == [.fromParent(text: "same")])
+
         session.submit(text: "same")
-
         try receive(session, Self.result)
-
         #expect(try sentTexts(recorder) == ["typed", "same"])
         #expect(recorder.outcomes.map(\.isHostDriven) == [false])
+    }
+
+    @Test func identicalTextFromTheHostAndTheUserKeepsEachRole() throws {
+        let (session, recorder) = makeSession()
+        var returned: [HostMessage] = []
+        session.onHostMessagesReturned = { returned += $0 }
+        session.submit(text: "first")
+        session.submit(text: "same")
+        session.submitFromHost(blocks: [.text("wire")], display: [.text("same")])
+        #expect(session.queuedMessages == [[.text("same")], [.text("same")]])
+        #expect(session.canEditQueuedMessage(at: 0))
+        #expect(!session.canEditQueuedMessage(at: 1))
+
+        #expect(session.removeQueuedMessage(at: 0) == [.text("same")])
+        #expect(returned.isEmpty)
+        try receive(session, Self.result)
+        try receive(session, Self.result)
+
+        #expect(try sentTexts(recorder) == ["first", "wire"])
+        #expect(recorder.outcomes.map(\.isHostDriven) == [false, true])
+    }
+
+    @Test func withdrawingTheOnlyHostMessageInATurnLeavesItUserDriven() throws {
+        let (session, recorder) = makeSession()
+        var returned: [HostMessage] = []
+        session.onHostMessagesReturned = { returned += $0 }
+        var handedBack: [UserContentBlock]? = [.text("unset")]
+        session.submit(text: "typed")
+        session.submitFromHost(blocks: [.text("wire")], display: [.text("shown")], origin: .fromParent(text: "shown"))
+        session.sendNow(appending: [])
+        let delivering = try #require(session.deliveringMessages.first)
+        #expect(!delivering.isEditable)
+
+        session.withdrawDeliveringMessage(id: delivering.id) { handedBack = $0 }
+        let request = try json(try #require(recorder.lines.last))
+        let requestID = try #require(request["request_id"]?.stringValue)
+        try receive(session, #"{"type":"control_response","response":{"subtype":"success","request_id":""# + requestID + #"","response":{"cancelled":true}}}"#)
+        try receive(session, Self.result)
+
+        #expect(handedBack == nil)
+        #expect(returned.map(\.wire) == [[.text("wire")]])
+        #expect(recorder.outcomes.map(\.isHostDriven) == [false])
+    }
+
+    @Test func aHostMessageStillArrivingWhenTheGraceEndsMarksTheNextTurn() async throws {
+        let (session, recorder) = makeSession()
+        session.deliveryGrace = .zero
+        session.submit(text: "typed")
+        session.submitFromHost(blocks: [.text("wire")])
+        session.sendNow(appending: [])
+        try receive(session, Self.result)
+        for _ in 0..<1000 where recorder.outcomes.isEmpty { await Task.yield() }
+
+        try receive(session, #"{"type":"system","subtype":"status","status":"requesting"}"#)
+        try receive(session, Self.result)
+
+        #expect(recorder.outcomes.map(\.isHostDriven) == [false, true])
+    }
+
+    @Test func sendNowAfterAnExitMergesTheQueueKeepingItsHostMessage() throws {
+        let (session, _) = makeSession()
+        session.submit(text: "typed")
+        session.submitFromHost(blocks: [.text("wire")], display: [.text("shown")])
+        session.debugExit(status: 1, errorLine: "boom")
+
+        session.sendNow(appending: [.text("draft")])
+
+        #expect(session.queuedMessages == [[.text("shown\n\ndraft")]])
+        let (resumed, recorder) = makeSession()
+        for message in session.queue { resumed.submit(message) }
+        #expect(try sentTexts(recorder) == ["wire\n\ndraft"])
+        try receive(resumed, Self.result)
+        #expect(recorder.outcomes.map(\.isHostDriven) == [true])
     }
 
     @Test func aRequeuedHostMessageKeepsItsMarkerInTheResumedSession() throws {
@@ -184,7 +261,7 @@ struct HeadlessChildSessionTests {
 
         let (resumed, recorder) = makeSession()
         resumed.inherit(from: session)
-        for message in session.queuedMessages { resumed.submit(blocks: message) }
+        for message in session.queue { resumed.submit(message) }
         try receive(resumed, Self.result)
 
         #expect(try sentTexts(recorder) == ["wire"])

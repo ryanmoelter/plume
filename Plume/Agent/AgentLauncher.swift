@@ -113,7 +113,7 @@ enum AgentLauncher {
     @discardableResult
     static func relaunchHeadless(task: WorkTask, tab: TaskTab) -> (any AgentSession)? {
         let previous = AgentSessionManager.shared.existingSession(for: tab.id)
-        let queued = previous?.queuedMessages ?? []
+        let queued = queue(of: previous)
         if let previous = previous as? HeadlessSession { persistLiveSettings(of: previous, to: tab) }
         if previous != nil { AgentSessionManager.shared.closeSession(for: tab.id) }
         return resume(task: task, tab: tab, inheriting: previous, queued: queued)
@@ -145,9 +145,14 @@ enum AgentLauncher {
                   AgentSessionManager.shared.existingSession(for: tab.id) as? HeadlessSession === previous
             else { return }
             _ = AgentSessionManager.shared.detachSession(for: tab.id)
-            resume(task: tab.task ?? task, tab: tab, inheriting: previous, queued: previous.queuedMessages)
+            resume(task: tab.task ?? task, tab: tab, inheriting: previous, queued: previous.queue)
         }
         return true
+    }
+
+    private static func queue(of session: (any AgentSession)?) -> [QueuedMessage] {
+        if let headless = session as? HeadlessSession { return headless.queue }
+        return (session?.queuedMessages ?? []).map { QueuedMessage(parts: [.user($0)]) }
     }
 
     /// A launch that fails still leaves a failed session holding the
@@ -157,20 +162,28 @@ enum AgentLauncher {
         task: WorkTask,
         tab: TaskTab,
         inheriting previous: (any AgentSession)?,
-        queued: [[UserContentBlock]]
+        queued: [QueuedMessage]
     ) -> (any AgentSession)? {
         launch(message: nil, task: task, tab: tab, resumeSessionID: tab.agentSessionID)
         let resumed = AgentSessionManager.shared.existingSession(for: tab.id)
         if let previous = previous as? HeadlessSession, let resumed = resumed as? HeadlessSession {
             resumed.inherit(from: previous)
         }
-        if let resumed = resumed as? HeadlessSession, resumed.hasExited {
-            resumed.requeue(queued)
+        if let resumed = resumed as? HeadlessSession {
+            if resumed.hasExited {
+                resumed.requeue(queued)
+            } else {
+                for message in queued { resumed.submit(message) }
+            }
         } else if let resumed {
-            for message in queued { resumed.submit(blocks: message) }
+            for message in queued { resumed.submit(blocks: message.display) }
         } else if !queued.isEmpty {
-            let draft = [DraftStore.shared.draft(forTab: tab.id)] + queued.map(\.plainText)
-            DraftStore.shared.setDraft(draft.filter { !$0.isEmpty }.joined(separator: "\n\n"), forTab: tab.id)
+            let parts = queued.flatMap(\.parts)
+            if let written = parts.userBlocks {
+                let draft = [DraftStore.shared.draft(forTab: tab.id), written.plainText]
+                DraftStore.shared.setDraft(draft.filter { !$0.isEmpty }.joined(separator: "\n\n"), forTab: tab.id)
+            }
+            (previous as? HeadlessSession)?.onHostMessagesReturned?(parts.hosts)
         }
         return resumed
     }
