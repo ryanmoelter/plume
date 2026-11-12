@@ -101,6 +101,10 @@ nonisolated struct LinearCatalog: Sendable, Equatable, Codable {
 
     var teamKeys: Set<String> { Set(teams.map(\.key)) }
 
+    var hasStatePositions: Bool {
+        teams.allSatisfy { $0.states.allSatisfy { $0.position != nil } }
+    }
+
     func team(key: String) -> LinearTeam? {
         teams.first { $0.key == key.uppercased() }
     }

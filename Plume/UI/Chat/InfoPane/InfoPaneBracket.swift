@@ -45,7 +45,7 @@ struct InfoPaneBracketedSection<Header: View, Rows: View>: View, ThemedView {
         }
         let style = StrokeStyle(lineWidth: InfoPaneLayout.bracketLineWidth, lineCap: .round)
         return ZStack {
-            shape(.stub).stroke(colors.surface(.subtle), style: style)
+            shape(.stub).stroke(colors.divider, style: style)
             shape(.bar).stroke(colors.divider, style: style)
         }
         .frame(width: InfoPaneLayout.sectionGutter)

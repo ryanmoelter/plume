@@ -177,10 +177,12 @@ final class LinearStore: LinearActivitySink {
         catalogs[orgID]
     }
 
-    func startedProgress(identifier: String, position: Double?) -> LinearStartedProgress {
+    func startedProgress(identifier: String, teamKey: String, position: Double?) -> LinearStartedProgress {
         guard let position else { return .half }
-        let key = LinearIdentifier.teamKey(of: identifier).uppercased()
-        let team = orderedCatalogs.lazy.compactMap { $0.teams.first { $0.key == key } }.first
+        let key = teamKey.uppercased()
+        let owner = caches.first { $0.value.issueID(identifier: identifier) != nil }?.key
+        let candidates = owner.map { id in orderedCatalogs.filter { $0.orgID == id } } ?? orderedCatalogs
+        let team = candidates.lazy.compactMap { $0.teams.first { $0.key == key } }.first
         let positions = team?.states.filter { $0.type == .started }.compactMap(\.position) ?? []
         return LinearStartedProgress(position: position, among: positions)
     }
@@ -788,6 +790,10 @@ final class LinearStore: LinearActivitySink {
         }
         if let catalog, catalogs[orgID] == nil {
             install(catalog)
+            if !catalog.hasStatePositions {
+                catalogFetchedAt[orgID] = .distantPast
+                refreshCatalog(orgID: orgID)
+            }
         } else if let catalog = catalogs[orgID] {
             caches[orgID]?.install(catalog)
         }

@@ -315,7 +315,7 @@ struct ChatTabView: View, ThemedView {
                 isConfigured: LinearStore.shared.isConfigured,
                 links: linearLinks,
                 state: { LinearStore.shared.state(for: $0) },
-                startedProgress: { LinearStore.shared.startedProgress(identifier: $0, position: $1) },
+                startedProgress: { LinearStore.shared.startedProgress(identifier: $0, teamKey: $1, position: $2) },
                 hasSettled: { [taskID = task.id] in LinearMentionTracker.shared.hasSettled($0, taskID: taskID) }
             ),
             sideChatCount: claudeSession?.sideQuestions.count ?? 0,

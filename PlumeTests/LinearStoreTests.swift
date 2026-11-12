@@ -577,6 +577,42 @@ struct LinearStoreTests {
         #expect(harness.store.teamKeys == ["CACHE"])
     }
 
+    @Test func aCachedCatalogWithoutStatePositionsIsRefetchedAtOnce() async throws {
+        let directory = FileManager.default.temporaryDirectory.appending(path: "LinearStoreTests-\(UUID().uuidString)")
+        defer { try? FileManager.default.removeItem(at: directory) }
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        let cached = LinearCatalog(orgID: "A", teams: [LinearTestFixtures.team(key: "CACHE")], fetchedAt: Date())
+        #expect(!cached.hasStatePositions)
+        try JSONEncoder().encode(cached).write(to: directory.appending(path: "catalog-A.json"))
+
+        let a = FakeLinearWorkspace(orgID: "A", teamKeys: ["PLUME"])
+        let harness = try await makeHarness([a], cacheDirectory: directory)
+        harness.store.start()
+        defer { harness.store.reset() }
+        await harness.store.settle()
+        #expect(harness.store.teamKeys == ["PLUME"])
+    }
+
+    @Test func startedProgressUsesTheIssuesOwnTeamAndWorkspace() async throws {
+        func catalog(_ orgID: String, positions: [Double]) -> LinearCatalog {
+            let states = positions.enumerated().map {
+                LinearWorkflowState(id: "\(orgID)\($0.offset)", name: "S", type: .started, color: "#000000", position: $0.element)
+            }
+            let team = LinearTeam(id: "t\(orgID)", key: "PLUME", name: "Plume", states: states)
+            return LinearCatalog(orgID: orgID, teams: [team], fetchedAt: Date())
+        }
+        let a = FakeLinearWorkspace(orgID: "A", teamKeys: ["PLUME"])
+        let b = FakeLinearWorkspace(orgID: "B", teamKeys: ["PLUME"])
+        await a.set(catalog: catalog("A", positions: [1, 2]))
+        await b.set(catalog: catalog("B", positions: [1, 2, 3]))
+        await b.set(issues: ["PLUME-1": LinearTestFixtures.issue("PLUME-1")])
+        let harness = try await makeHarness([a, b])
+        harness.store.setWanted(["PLUME-1"], owner: UUID())
+        await harness.store.settle()
+
+        #expect(harness.store.startedProgress(identifier: "PLUME-1", teamKey: "PLUME", position: 2) == .half)
+    }
+
     @Test func aFetchedCatalogIsWrittenToTheCache() async throws {
         let directory = FileManager.default.temporaryDirectory.appending(path: "LinearStoreTests-\(UUID().uuidString)")
         defer { try? FileManager.default.removeItem(at: directory) }

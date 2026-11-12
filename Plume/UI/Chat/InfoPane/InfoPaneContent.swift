@@ -100,12 +100,9 @@ struct InfoPaneContent: View, ThemedView {
             InfoPaneSectionHeader(isExpanded: isExpanded, accessibilityID: AccessibilityID.infoPaneSubagentsToggle) {
                 withAnimation(InfoPaneLayout.sectionAnimation) { settings.infoPaneSubagentsExpanded.toggle() }
             } label: {
-                // Collapsed, the running subagents say more than the
-                // section's name does.
+                Text("Subagents")
                 if !isExpanded, !facts.liveSubagents.isEmpty {
                     SubagentGlyphs(subagents: facts.liveSubagents)
-                } else {
-                    Text("Subagents")
                 }
             }
         } rows: {

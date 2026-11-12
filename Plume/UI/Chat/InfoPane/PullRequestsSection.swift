@@ -56,13 +56,14 @@ struct InfoPanePullRequestItem: Equatable, Identifiable {
         }
         for role in [Role.pinned, .mentioned] {
             let inRole = linked.filter { Role($0.role) == role }
-            for linked in PullRequestStatusOrder.sorted(inRole, summary: { $0.pullRequest.map(PullRequestSummary.init) }) {
+            let summaries = inRole.map { $0.pullRequest.map(PullRequestSummary.init) }
+            for (linked, summary) in PullRequestStatusOrder.sorted(Array(zip(inRole, summaries)), summary: { $0.1 }) {
                 let reference = linked.reference
                 items.append(InfoPanePullRequestItem(
                     id: reference.id,
                     role: role,
                     number: reference.number,
-                    summary: linked.pullRequest.map(PullRequestSummary.init),
+                    summary: summary,
                     url: URL(string: reference.url),
                     reference: reference,
                     forge: .github,
@@ -87,10 +88,8 @@ enum PullRequestStatusOrder {
 
     static func sorted<Element>(_ elements: [Element], summary: (Element) -> PullRequestSummary?) -> [Element] {
         elements.enumerated()
-            .sorted { lhs, rhs in
-                let (left, right) = (rank(summary(lhs.element)), rank(summary(rhs.element)))
-                return left != right ? left < right : lhs.offset < rhs.offset
-            }
+            .map { (offset: $0.offset, element: $0.element, rank: rank(summary($0.element))) }
+            .sorted { $0.rank != $1.rank ? $0.rank < $1.rank : $0.offset < $1.offset }
             .map(\.element)
     }
 }

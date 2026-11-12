@@ -25,7 +25,7 @@ Pages are 100 issues, newest first, up to 5 pages per sync. The cache merges eac
 - **Overflow.** If the page cap stops a delta early, the issues held but not covered may have missed an update. The cache drops them and keeps only what the delta fetched. Wanted identifiers that were dropped are looked up again.
 - **Deletion and archival.** Archived issues stay in the cache and display as before. A trashed issue (`trashed: true`, Linear's delete) is removed. A permanent deletion never appears in any delta, so the store re-verifies wanted cached issues by identifier once they are older than `verifyInterval` (30 minutes). A lookup that finds nothing removes the issue.
 - **Renames.** States and users are separate tables. A renamed state reaches every issue in it once the catalog or any issue payload carries the new name.
-- **State order.** A workflow state carries Linear's `position`, which the info pane uses to sort issues within a state type. Caches written before it existed decode with no position and gain one as each issue syncs again.
+- **State order.** A workflow state carries Linear's `position`, which the info pane uses to sort issues within a state type. A catalog saved before it existed has states with no position, so the store refetches it as soon as it loads. The issue cache takes the positions from that refetch.
 
 ## Lookups by identifier
 

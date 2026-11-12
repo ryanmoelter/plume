@@ -78,6 +78,7 @@ struct InfoPaneFacts: Equatable {
         var stateType: LinearStateType?
         var stateColor: String?
         var statePosition: Double?
+        var teamKey: String?
         var startedProgress: LinearStartedProgress = .half
         var assignee: String?
         var url: URL?
@@ -235,7 +236,7 @@ extension InfoPaneFacts {
         isConfigured: Bool,
         links: [LinkedLinearIssue],
         state: (String) -> LinearIssueFetchState?,
-        startedProgress: (String, Double?) -> LinearStartedProgress = { _, _ in .half },
+        startedProgress: (_ identifier: String, _ teamKey: String, _ position: Double?) -> LinearStartedProgress,
         hasSettled: (String) -> Bool
     ) -> LinearFacts? {
         guard isEnabled, isConfigured else { return nil }
@@ -249,7 +250,7 @@ extension InfoPaneFacts {
     static func linearIssues(
         links: [LinkedLinearIssue],
         state: (String) -> LinearIssueFetchState?,
-        startedProgress: (String, Double?) -> LinearStartedProgress = { _, _ in .half }
+        startedProgress: (_ identifier: String, _ teamKey: String, _ position: Double?) -> LinearStartedProgress = { _, _, _ in .half }
     ) -> [LinearIssueFacts] {
         let facts = links.map { link -> LinearIssueFacts in
             let fetch = state(link.identifier)
@@ -262,7 +263,8 @@ extension InfoPaneFacts {
                 stateType: issue?.stateType,
                 stateColor: issue?.stateColor,
                 statePosition: issue?.statePosition,
-                startedProgress: startedProgress(link.identifier, issue?.statePosition),
+                teamKey: issue?.teamKey,
+                startedProgress: issue.map { startedProgress(link.identifier, $0.teamKey, $0.statePosition) } ?? .half,
                 assignee: issue?.assigneeName,
                 url: issue.flatMap { URL(string: $0.url) },
                 attribution: attribution(of: link),
@@ -293,8 +295,10 @@ extension InfoPaneFacts {
 }
 
 /// Started issues first, then unstarted, backlog, triage, other types,
-/// completed, and canceled or duplicate. Within a type, a later workflow
-/// state comes first. Issues with no state yet go last.
+/// completed, and canceled or duplicate. Within a type, issues group by team
+/// in order of first appearance, and a later workflow state comes first
+/// within a team: positions only compare inside one team. Issues with no
+/// state yet go last.
 enum LinearIssueOrder {
     static func typeRank(_ type: LinearStateType?) -> Int {
         switch type {
@@ -310,14 +314,21 @@ enum LinearIssueOrder {
     }
 
     static func sorted(_ issues: [InfoPaneFacts.LinearIssueFacts]) -> [InfoPaneFacts.LinearIssueFacts] {
-        issues.enumerated().sorted { lhs, rhs in
-            let (left, right) = (lhs.element, rhs.element)
-            let (leftRank, rightRank) = (typeRank(left.stateType), typeRank(right.stateType))
+        var teamOrder: [String: Int] = [:]
+        let keyed = issues.enumerated().map { offset, issue -> (offset: Int, issue: InfoPaneFacts.LinearIssueFacts, team: Int) in
+            let team = issue.teamKey ?? ""
+            let index = teamOrder[team] ?? teamOrder.count
+            teamOrder[team] = index
+            return (offset, issue, index)
+        }
+        return keyed.sorted { left, right in
+            let (leftRank, rightRank) = (typeRank(left.issue.stateType), typeRank(right.issue.stateType))
             if leftRank != rightRank { return leftRank < rightRank }
-            let (leftPosition, rightPosition) = (left.statePosition ?? -.infinity, right.statePosition ?? -.infinity)
+            if left.team != right.team { return left.team < right.team }
+            let (leftPosition, rightPosition) = (left.issue.statePosition ?? -.infinity, right.issue.statePosition ?? -.infinity)
             if leftPosition != rightPosition { return leftPosition > rightPosition }
-            return lhs.offset < rhs.offset
-        }.map(\.element)
+            return left.offset < right.offset
+        }.map(\.issue)
     }
 }
 

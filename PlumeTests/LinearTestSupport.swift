@@ -62,6 +62,7 @@ actor FakeLinearWorkspace {
     }
     func set(issueFailures: [String: String]) { self.issueFailures = issueFailures }
     func set(issueError: Error?) { self.issueError = issueError }
+    func set(catalog: LinearCatalog) { self.catalog = catalog }
     func set(catalogError: Error?) { self.catalogError = catalogError }
     func set(viewerError: Error?) { self.viewerError = viewerError }
     func set(rateLimit: LinearRateLimit?) { self.rateLimit = rateLimit }

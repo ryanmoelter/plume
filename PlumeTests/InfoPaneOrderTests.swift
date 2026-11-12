@@ -4,11 +4,13 @@ import Testing
 
 @MainActor
 struct InfoPaneOrderTests {
-    private func issue(_ identifier: String, _ type: LinearStateType, _ position: Double? = nil) -> LinearIssue {
+    private func issue(
+        _ identifier: String, _ type: LinearStateType, _ position: Double? = nil, team: String = "P"
+    ) -> LinearIssue {
         LinearIssue(
             identifier: identifier, title: "T", url: "https://linear.app/x/issue/\(identifier)",
             stateName: "S", stateType: type, stateColor: "#000000", statePosition: position,
-            assigneeName: nil, teamKey: "P"
+            assigneeName: nil, teamKey: team
         )
     }
 
@@ -44,6 +46,16 @@ struct InfoPaneOrderTests {
         #expect(order(["A-1", "A-2", "A-3", "A-4"].map { link($0) }, fetched) == ["A-2", "A-3", "A-1", "A-4"])
     }
 
+    @Test func positionsOnlyCompareWithinOneTeamAndTeamsGroupByFirstAppearance() {
+        let fetched: [String: LinearIssueFetchState] = [
+            "A-1": .issue(issue("A-1", .started, 1, team: "A")),
+            "B-1": .issue(issue("B-1", .started, 9, team: "B")),
+            "A-2": .issue(issue("A-2", .started, 2, team: "A")),
+            "B-2": .issue(issue("B-2", .started, 5, team: "B")),
+        ]
+        #expect(order(["A-1", "B-1", "A-2", "B-2"].map { link($0) }, fetched) == ["A-2", "A-1", "B-1", "B-2"])
+    }
+
     @Test func equalIssuesKeepTheirOrder() {
         let fetched: [String: LinearIssueFetchState] = [
             "A-1": .issue(issue("A-1", .started, 1)),
@@ -77,7 +89,7 @@ struct InfoPaneOrderTests {
         let facts = try #require(InfoPaneFacts.linear(
             isEnabled: true, isConfigured: true,
             links: [link("M-1", .mentioned), link("M-2", .mentioned)],
-            state: { fetched[$0] }, hasSettled: { _ in true }
+            state: { fetched[$0] }, startedProgress: { _, _, _ in .half }, hasSettled: { _ in true }
         ))
         #expect(facts.mentioned.map(\.identifier) == ["M-2", "M-1"])
     }
