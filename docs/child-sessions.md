@@ -38,7 +38,7 @@ The result tells the parent to end its turn:
 
 ### `mcp__plume__send_message`
 
-`{to, message}`. A parent may message any child it started; a child may message only its parent, by id or as `"parent"`. Plume delivers the message itself, so the call returns at once: "Sent to …", or "Queued for …" when the target is mid-turn. Any other `to` is an error.
+`{to, message}`. A parent may message any child it started; a child may message only its parent, by id or as `"parent"`. Plume delivers the message itself, so the call returns at once: "Sent to …", "Queued for …" when the target is mid-turn, or "Delivered with the user's next message to …" when the user interrupted the parent or the wake could not reach it. Any other `to` is an error.
 
 A child's `tools/list` has only `send_message`, so a child cannot start sessions of its own. A tab whose `parentTabIDRaw` is set stays a child after its parent closes; its `send_message` to the parent then returns an error saying the parent is closed.
 
@@ -96,7 +96,7 @@ If a child's process exits mid-turn, the parent gets the same note with "The ses
 `ChildSessionWakePolicy` holds one parent's notes:
 
 - **A child turn the parent or its brief started wakes the parent.** That is a host-driven turn that was not interrupted, from a child whose `wake_when_done` is not false. A message from a child also wakes the parent.
-- **A turn the user drove in the child is held.** Only the latest held note per child is kept, and it rides in front of the parent's next turn, whoever starts it.
+- **A turn the user drove in the child is held.** Only the latest held turn report per child is kept, and it rides in front of the parent's next turn, whoever starts it. A child's `send_message` note is never dropped or replaced, held or not.
 - **An idle parent wakes at once.** The notes go in as one host-driven user turn.
 - **A working parent batches notes** until its turn ends, then gets them as one turn.
 - **After the user interrupts the parent, nothing wakes it.** Every note waits for the user's next message, which carries them in front (`userMessagePreamble`).

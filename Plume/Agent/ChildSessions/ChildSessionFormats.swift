@@ -28,10 +28,19 @@ nonisolated enum ChildSessionFormats {
         "Started session \"\(title)\" (session_id: \(sessionID), name: \(name)). It runs on its own; you get a note here when its turn ends. Don't repeat the introduction: at most one line on how you'll report back, then end your turn — do not wait for it."
     }
 
-    static func delivered(to title: String, queued: Bool) -> String {
-        queued
-            ? "Queued for \"\(title)\"; it reads the message when its current turn ends."
-            : "Sent to \"\(title)\"."
+    enum Delivery: Equatable {
+        case sent
+        case queued
+        /// The user interrupted that session, so nothing wakes it.
+        case heldForUser
+    }
+
+    static func delivered(to title: String, _ delivery: Delivery) -> String {
+        switch delivery {
+        case .sent: "Sent to \"\(title)\"."
+        case .queued: "Queued for \"\(title)\"; it reads the message when its current turn ends."
+        case .heldForUser: "Delivered with the user's next message to \"\(title)\"."
+        }
     }
 
     // MARK: - Notes
