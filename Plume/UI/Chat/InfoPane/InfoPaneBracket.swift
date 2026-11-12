@@ -78,7 +78,7 @@ struct InfoPaneBracketedSection<Header: View, Rows: View>: View, ThemedView {
 
 /// The header of a collapsible section. Clicking it runs `action`, which
 /// usually toggles the section. Its icon column holds the bracket's stub, so
-/// its title lines up with the rows' text, unless the section's icon leads it.
+/// its title lines up with the rows' text.
 struct InfoPaneSectionHeader<Accessory: View>: View {
     let title: String
     let icon: InfoPaneSectionIcon
@@ -99,11 +99,10 @@ struct InfoPaneSectionHeader<Accessory: View>: View {
         Button(action: action) {
             HStack(spacing: InfoPaneLayout.columnSpacing) {
                 InfoPaneHeaderIcon(isExpanded: isExpanded, isDisclosable: isDisclosable)
-                if InfoPaneLayout.headerIconLeads { icon }
                 Text(title)
                     .lineLimit(1)
                     .truncationMode(.tail)
-                if !InfoPaneLayout.headerIconLeads { icon }
+                icon
                 accessory
                 Spacer(minLength: 0)
                 if reservesTrailingControl { OverlaidControlSpace() }
