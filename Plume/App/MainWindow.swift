@@ -340,18 +340,16 @@ struct MainWindow: View {
         // mutating under the user once the check resolves. The await also
         // defers presenting past the live-agent dialog's dismissal, which
         // would otherwise drop it.
-        let claims = WorktreeRemovalPrompt.claims(for: task)
+        let owned = task.ownedWorktrees
+        let users = WorktreeRemovalPrompt.users(of: task, among: tasks)
         Task {
-            let (worktrees, dirtySummaries) = await WorktreeRemovalPrompt.resolve(claims)
-            guard !worktrees.isEmpty else {
-                finishRemoval(task, verb: verb, worktrees: [], deleteBranch: false)
-                return
-            }
-            pendingWorktreeRemoval = .init(task: task, verb: verb, worktrees: worktrees, dirtySummaries: dirtySummaries)
+            let (plan, dirtySummaries) = await WorktreeRemovalPrompt.resolve(owned, users: users)
+            pendingWorktreeRemoval = .init(task: task, verb: verb, plan: plan, dirtySummaries: dirtySummaries)
         }
     }
 
     private func confirmRemoval(_ removal: WorktreeRemovalPrompt.PendingRemoval, removeWorktree: Bool, deleteBranch: Bool) {
+        removal.task.ownedWorktrees.removeAll { removal.plan.gone.contains($0.path) }
         finishRemoval(
             removal.task,
             verb: removal.verb,

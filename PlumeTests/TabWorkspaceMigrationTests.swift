@@ -4,7 +4,8 @@ import SwiftData
 @testable import Plume
 
 /// Tabs saved before they owned a workspace take their task's at launch:
-/// every field the tab lacks, none it already has, and only once.
+/// every field the tab lacks, none it already has, and only once. A task
+/// whose workspace was a worktree owns it.
 @MainActor
 struct TabWorkspaceMigrationTests {
     private func makeContext() throws -> ModelContext {
@@ -45,28 +46,49 @@ struct TabWorkspaceMigrationTests {
         #expect(task.tabs.allSatisfy { $0.isWorkspaceMigrated })
     }
 
-    /// Otherwise the task would read as holding a workspace its tabs own.
-    @Test func aTaskWithTabsHasItsOwnCopyCleared() throws {
+    private let ownedFeature = OwnedWorktree(path: "/repo/.worktrees/feature", repoPath: "/repo", branch: "feature")
+
+    @Test func aWorktreeTaskOwnsItsWorktreeOnce() throws {
         let context = try makeContext()
         let task = makeLegacyTask(in: context, tabCount: 2)
 
         try TabWorkspaceMigration.run(in: context)
         try TabWorkspaceMigration.run(in: context)
 
-        #expect(task.heldWorkspace == TabWorkspace())
+        #expect(task.ownedWorktrees == [ownedFeature])
         #expect(task.tabs.map(\.workspace) == [taskWorkspace, taskWorkspace])
     }
 
-    /// A task with no tabs keeps its workspace as the one it holds.
-    @Test func aTaskWithNoTabsKeepsItsWorkspace() throws {
+    @Test func aTaskWithNoTabsStillOwnsItsWorktree() throws {
         let context = try makeContext()
         let empty = makeLegacyTask(in: context, tabCount: 0)
-        _ = makeLegacyTask(in: context)
 
         try TabWorkspaceMigration.run(in: context)
+
+        #expect(empty.ownedWorktrees == [ownedFeature])
+    }
+
+    @Test func aDirectoryTaskOwnsNoWorktree() throws {
+        let context = try makeContext()
+        let task = makeLegacyTask(in: context)
+        task.workspaceKindRaw = WorkspaceKind.directory.rawValue
+
         try TabWorkspaceMigration.run(in: context)
 
-        #expect(empty.heldWorkspace == taskWorkspace)
+        #expect(task.ownedWorktrees.isEmpty)
+    }
+
+    /// Once read, the task's fields are cleared, so nothing reads them again.
+    @Test func theTasksOwnFieldsAreCleared() throws {
+        let context = try makeContext()
+        let task = makeLegacyTask(in: context)
+
+        try TabWorkspaceMigration.run(in: context)
+
+        #expect(task.workspaceKindRaw == WorkspaceKind.unset.rawValue)
+        #expect(task.workingDirectoryPath == nil)
+        #expect(task.repoPath == nil)
+        #expect(task.branchName == nil)
     }
 
     @Test func aFolderTheTabAlreadyReportedIsKept() throws {

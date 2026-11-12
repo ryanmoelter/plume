@@ -20,11 +20,15 @@ struct WorktreeRemovalDialogModifier: ViewModifier {
                 ),
                 presenting: pendingRemoval
             ) { removal in
-                Button(removal.primaryButtonTitle, role: .destructive) {
-                    onConfirm(removal, true, false)
+                if removal.offersRemoval {
+                    Button(removal.primaryButtonTitle, role: .destructive) {
+                        onConfirm(removal, true, false)
+                    }
                 }
-                Button(removal.withBranchButtonTitle, role: .destructive) {
-                    onConfirm(removal, true, true)
+                if removal.offersBranchRemoval {
+                    Button(removal.withBranchButtonTitle, role: .destructive) {
+                        onConfirm(removal, true, true)
+                    }
                 }
                 Button(removal.taskOnlyButtonTitle) {
                     onConfirm(removal, false, false)

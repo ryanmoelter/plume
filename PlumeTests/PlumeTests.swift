@@ -149,7 +149,7 @@ struct TaskStoreTests {
 
 /// A new tab opens in the workspace of the tab the user is on: the selected
 /// tab, else the last focused agent tab, else the first tab with a folder.
-/// A worktree stays with its task when a tab leaves, even its last tab.
+/// A tab of a task with no other tab starts in the newest worktree it owns.
 @MainActor
 struct AddTabWorkspaceTests {
     private func makeContext() throws -> ModelContext {
@@ -214,102 +214,66 @@ struct AddTabWorkspaceTests {
         #expect(tab.workspace == TabWorkspace())
     }
 
-    // MARK: - Leaving the task
+    // MARK: - Owned worktrees
 
-    @Test func aTabMovedToAnotherTaskLeavesTheWorktreeBehind() throws {
+    /// Only the task that created a worktree owns it, so moving a tab never
+    /// makes its new task offer to remove the worktree.
+    @Test func aMovedTabTakesNoOwnershipWithIt() throws {
         let context = try makeContext()
         let source = TaskStore.createTask(in: context, siblings: [])
         source.tabs[0].workspace = worktree
+        source.recordOwnedWorktree(OwnedWorktree(path: "/repo/.worktrees/feature", repoPath: "/repo", branch: "feature"))
         let tab = TaskStore.addTab(to: source, kind: .terminal, in: context)
         let destination = TaskStore.createTask(in: context, siblings: [source])
 
         TaskStore.moveTab(tab, to: destination)
 
-        #expect(tab.workspace == .directory("/repo/.worktrees/feature", repoPath: "/repo", branchName: "feature"))
         #expect(!WorktreeRemovalPrompt.needsConfirmation(for: destination))
         #expect(WorktreeRemovalPrompt.needsConfirmation(for: source))
     }
 
-    @Test func aTabSplitIntoANewTaskLeavesTheWorktreeBehind() throws {
-        let context = try makeContext()
-        let source = TaskStore.createTask(in: context, siblings: [])
-        source.tabs[0].workspace = worktree
-        let tab = TaskStore.addTab(to: source, kind: .terminal, in: context)
-
-        let split = TaskStore.splitTabIntoNewTask(tab, in: context, siblings: [source])
-
-        #expect(tab.workspaceKind == .directory)
-        #expect(!WorktreeRemovalPrompt.needsConfirmation(for: split))
-    }
-
-    @Test func closingTheLastTabKeepsItsWorkspaceForTheNextOne() throws {
+    @Test func closingTheLastTabKeepsTheWorktreeOwned() throws {
         let context = try makeContext()
         let task = TaskStore.createTask(in: context, siblings: [])
-        task.tabs[0].workspace = worktree
+        task.recordOwnedWorktree(OwnedWorktree(path: "/repo/.worktrees/feature", repoPath: "/repo", branch: "feature"))
 
         TaskStore.closeTab(task.tabs[0], in: context)
 
-        #expect(task.tabs.isEmpty)
         #expect(WorktreeRemovalPrompt.needsConfirmation(for: task))
-        let tab = TaskStore.addTab(to: task, kind: .terminal, in: context)
-        #expect(tab.workspace == worktree)
-        #expect(task.heldWorkspace == TabWorkspace())
     }
 
-    @Test func movingTheLastTabAwayKeepsTheWorktreeClaim() throws {
-        let context = try makeContext()
-        let source = TaskStore.createTask(in: context, siblings: [])
-        source.tabs[0].workspace = worktree
-        let destination = TaskStore.createTask(in: context, siblings: [source])
-
-        TaskStore.moveTab(source.tabs[0], to: destination)
-
-        #expect(source.heldWorkspace == worktree)
-        #expect(WorktreeRemovalPrompt.needsConfirmation(for: source))
-    }
-
-    @Test func aTabMovedInAndClosedLeavesTheHeldWorktree() throws {
-        let context = try makeContext()
-        let empty = TaskStore.createTask(in: context, siblings: [])
-        empty.tabs[0].workspace = worktree
-        TaskStore.closeTab(empty.tabs[0], in: context)
-        let other = TaskStore.createTask(in: context, siblings: [empty])
-        other.tabs[0].workspace = .directory("/elsewhere")
-        let visitor = TaskStore.addTab(to: other, kind: .terminal, in: context)
-
-        TaskStore.moveTab(visitor, to: empty)
-        TaskStore.closeTab(visitor, in: context)
-
-        #expect(empty.heldWorkspace == worktree)
-        #expect(WorktreeRemovalPrompt.needsConfirmation(for: empty))
-    }
-
-    /// A task holds one worktree, so the one it already held wins.
-    @Test func aSecondWorktreeLeavingDoesNotReplaceTheHeldOne() throws {
+    @Test func anEmptyTasksNewTabStartsInItsNewestWorktree() throws {
         let context = try makeContext()
         let task = TaskStore.createTask(in: context, siblings: [])
-        task.tabs[0].workspace = worktree
         TaskStore.closeTab(task.tabs[0], in: context)
-        let source = TaskStore.createTask(in: context, siblings: [task])
-        source.tabs[0].workspace = .directory("/elsewhere")
-        let visitor = TaskStore.addTab(to: source, kind: .terminal, in: context)
-        TaskStore.moveTab(visitor, to: task)
-        visitor.workspace = TabWorkspace(kind: .worktree, directory: "/repo/.worktrees/other", repoPath: "/repo", branchName: "other")
+        task.recordOwnedWorktree(OwnedWorktree(path: "/repo/.worktrees/old", repoPath: "/repo", branch: "old"))
+        task.recordOwnedWorktree(OwnedWorktree(path: "/repo/.worktrees/feature", repoPath: "/repo", branch: "feature"))
 
-        TaskStore.closeTab(visitor, in: context)
+        let tab = TaskStore.addTab(to: task, kind: .terminal, in: context)
 
-        #expect(task.heldWorkspace == worktree)
+        #expect(tab.workspace == worktree)
     }
 
-    @Test func closingATabThatIsNotTheLastHoldsNothing() throws {
+    @Test func aTabWithAFolderWinsOverTheOwnedWorktree() throws {
         let context = try makeContext()
         let task = TaskStore.createTask(in: context, siblings: [])
-        task.tabs[0].workspace = worktree
-        let other = TaskStore.addTab(to: task, kind: .terminal, in: context)
+        task.tabs[0].workspace = .directory("/elsewhere")
+        task.recordOwnedWorktree(OwnedWorktree(path: "/repo/.worktrees/feature", repoPath: "/repo", branch: "feature"))
 
-        TaskStore.closeTab(other, in: context)
+        let tab = TaskStore.addTab(to: task, kind: .terminal, in: context)
 
-        #expect(task.heldWorkspace == TabWorkspace())
+        #expect(tab.workspace == .directory("/elsewhere"))
+    }
+
+    @Test func recordingTheSameWorktreeTwiceKeepsOne() throws {
+        let context = try makeContext()
+        let task = TaskStore.createTask(in: context, siblings: [])
+        let record = OwnedWorktree(path: "/repo/.worktrees/feature", repoPath: "/repo", branch: "feature")
+
+        task.recordOwnedWorktree(record)
+        task.recordOwnedWorktree(record)
+
+        #expect(task.ownedWorktrees == [record])
     }
 }
 

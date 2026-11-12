@@ -1,5 +1,4 @@
 import Foundation
-import os
 import SwiftData
 import SwiftUI // Array.move(fromOffsets:toOffset:)
 
@@ -110,11 +109,12 @@ enum TaskStore {
         let tab = TaskTab(kind: kind, orderIndex: nextIndex(after: task.tabs(inPane: paneIndex)), task: task)
         tab.paneIndex = paneIndex
         let directories = TabDirectoryStore.shared
-        if !task.tabs.contains(where: { $0.id != tab.id }) {
-            tab.workspace = task.heldWorkspace
-            task.heldWorkspace = TabWorkspace()
-        } else if let source = directories.workspaceSource(in: task) {
+        if let source = directories.workspaceSource(in: task, excluding: tab.id) {
             tab.workspace = directories.currentWorkspace(of: source)
+        } else if let newest = task.ownedWorktrees.last {
+            tab.workspace = TabWorkspace(
+                kind: .worktree, directory: newest.path, repoPath: newest.repoPath, branchName: newest.branch
+            )
         }
         if kind == .agent {
             let provider = provider ?? AppSettings.shared.defaultProvider
@@ -460,22 +460,6 @@ enum TaskStore {
         return Set(task.liveTabs.compactMap(directories.directory(for:))).subtracting(othersInUse)
     }
 
-    /// A task holds one workspace, and a worktree outranks anything else: a
-    /// plain folder never replaces a held worktree, or nothing would remove it.
-    private static func hold(_ departing: TabWorkspace, in task: WorkTask) {
-        let held = task.heldWorkspace
-        guard held.kind == .worktree else {
-            task.heldWorkspace = departing
-            return
-        }
-        if departing.kind == .worktree,
-           departing.repoPath != held.repoPath || departing.branchName != held.branchName {
-            Log.app.error(
-                "Task \(task.id) already holds a worktree, so it drops the claim on \(departing.directory ?? "?", privacy: .public)"
-            )
-        }
-    }
-
     // MARK: - Worktree removal (shared by delete and archive)
 
     /// Removing the worktrees is best-effort: if git refuses one, the task
@@ -485,7 +469,9 @@ enum TaskStore {
     /// it declines.
     ///
     /// `finish` runs after every worktree is removed (or when there are none),
-    /// and is where the caller actually deletes or archives the task.
+    /// and is where the caller actually deletes or archives the task. Each
+    /// worktree removed leaves `ownedWorktrees`, so an archived task never
+    /// offers it again.
     static func removeWorktreesThenFinish(
         _ worktrees: [WorktreeRemovalTarget],
         of task: WorkTask,
@@ -514,6 +500,7 @@ enum TaskStore {
                     onError(error.localizedDescription)
                     return
                 }
+                task.ownedWorktrees.removeAll { $0.path == worktree.path }
             }
             finish()
         }
@@ -575,7 +562,6 @@ enum TaskStore {
             return
         }
         let remaining = task.orderedTabs.filter { $0.id != tab.id }
-        if remaining.isEmpty { hold(tab.workspace, in: task) }
         if task.lastFocusedAgentTabID == tab.id {
             task.lastFocusedAgentTabID = remaining.first { $0.kind == .agent }?.id
         }
@@ -703,16 +689,10 @@ enum TaskStore {
     /// running process cannot be redirected to `destination`'s folder, so a
     /// moved tab stays in its original directory rather than silently
     /// pointing at the wrong one.
-    ///
-    /// A worktree stays with the task that made it: the moved tab keeps the
-    /// folder as a plain directory, so deleting `destination` never offers to
-    /// remove a worktree `source` is still working in.
     static func moveTab(_ tab: TaskTab, to destination: WorkTask, selectAfterMove: Bool = true) {
         guard let source = tab.task, source.id != destination.id else { return }
 
         let remainingInSource = source.orderedTabs.filter { $0.id != tab.id }
-        if remainingInSource.isEmpty { hold(tab.workspace, in: source) }
-        if tab.workspaceKind == .worktree { tab.workspaceKind = .directory }
         if source.lastFocusedAgentTabID == tab.id {
             source.lastFocusedAgentTabID = remainingInSource.first { $0.kind == .agent }?.id
         }

@@ -181,6 +181,7 @@ struct NewWorktreeSheet: View {
                 tab.repoPath = repository
                 tab.branchName = branch
                 tab.workspaceKind = .worktree
+                tab.task?.recordOwnedWorktree(OwnedWorktree(path: path, repoPath: repository, branch: branch))
                 RecentFolders.remember(repository)
                 dismiss()
             } catch {
