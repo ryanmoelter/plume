@@ -345,7 +345,9 @@ final class ChildSessionCoordinator {
             activity.end(id, in: parent.id, failure: nil)
             child = launched
         case .failure(let error):
-            activity.end(id, in: parent.id, failure: byUser ? Self.cardFailure(error) : nil)
+            // A closed parent's activity is already forgotten, and has no card to show it.
+            let showsOnCard = byUser && parent.isLive && error != .parentClosed
+            activity.end(id, in: parent.id, failure: showsOnCard ? Self.cardFailure(error) : nil)
             return .failure(error)
         }
 

@@ -118,6 +118,27 @@ struct ChildSessionProposalStoreTests {
         #expect(proposal.conflict(with: ["name": .string("other")]) != nil)
     }
 
+    @Test func aConflictNamesOnlyTheFieldsSent() throws {
+        let proposal = try #require(try store(with: "task_00000001").proposals.first)
+        guard case .invalid(let message) = proposal.conflict(with: ["context": .string("fork")]) else {
+            Issue.record("a different context should be refused")
+            return
+        }
+        #expect(message.contains("and context differs"))
+        #expect(!message.contains("background"))
+    }
+
+    @Test func aKeyFromANewerBuildSurvivesARewriteOfItsEntry() throws {
+        let store = try store(with: "task_00000001")
+        let json = store.json.replacingOccurrences(of: #""id":"#, with: #""priority":"high","id":"#)
+        var read = ChildSessionProposalStore(json: json)
+        _ = read.dismiss(id: "task_00000001", reason: nil, byUser: true, now: Self.created)
+
+        let written = try #require(try JSONSerialization.jsonObject(with: Data(read.json.utf8)) as? [[String: Any]])
+        #expect(written.first?["priority"] as? String == "high")
+        #expect(written.first?["status"] as? String == "dismissed")
+    }
+
     @Test func anEntryThisBuildCannotReadSurvivesAWrite() throws {
         var store = try store(with: "task_00000001")
         let future = #"{"id":"task_00000002","title":"From a newer build","status":"queued","createdAt":"2027-01-01T00:00:00Z"}"#
@@ -240,6 +261,13 @@ struct ChildSessionProposalStoreTests {
     @Test func aPaddedInitiationStillReadsAsAProposal() {
         #expect(StartSessionCall.isProposal(["initiation": .string(" own_initiative\n")]))
         #expect(!StartSessionCall.isProposal(["initiation": .string(" user_asked ")]))
+    }
+
+    @Test func aNullOrBlankRepeatedFieldIsNotSent() {
+        let call = StartSessionCall.parse([
+            "proposal_id": .string("task_0000abcd"), "name": .null, "model": .string(""), "title": .string("  ")
+        ])
+        #expect(call == .success(.startProposal(id: "task_0000abcd", wakeWhenDone: nil, settings: [:])))
     }
 
     @Test func aNullOrBlankProposalIDIsAbsent() {
@@ -442,6 +470,11 @@ struct ChildSessionProposalCoordinatorTests {
             "model": .string("sonnet")
         ])
         #expect(redundant.text == ChildSessionError.parentInPlanMode.message)
+
+        let blank = try await call(session, "start_session", [
+            "proposal_id": .string(taskID), "name": .null, "model": .string("")
+        ])
+        #expect(blank.text == ChildSessionError.parentInPlanMode.message)
     }
 
     @Test func aFailureClearsOnDismissalAndWhenTheTabIsForgotten() async throws {
