@@ -52,11 +52,15 @@ struct NewWorktreeSheet: View {
                 Text("Branch").font(.callout).foregroundStyle(.secondary)
                 TextField("Branch name", text: $branchName)
                     .textFieldStyle(.roundedBorder)
-                    .plumeID(AccessibilityID.worktreeBranchField)
+                    .plumeID(AccessibilityID.worktreeBranchField, value: branchName, setValue: { branchName = $0 })
                     .background(InitialFocus())
                 if branchHasPrefix {
                     Toggle("Drop the branch prefix from the folder name", isOn: $stripsBranchPrefix)
-                        .plumeID(AccessibilityID.worktreeStripPrefixToggle)
+                        .plumeID(
+                            AccessibilityID.worktreeStripPrefixToggle,
+                            value: stripsBranchPrefix ? "on" : "off",
+                            invoke: { stripsBranchPrefix.toggle() }
+                        )
                 }
             }
 
@@ -74,11 +78,11 @@ struct NewWorktreeSheet: View {
                 Spacer()
                 Button("Cancel") { dismiss() }
                     .keyboardShortcut(.cancelAction)
-                    .plumeID(AccessibilityID.worktreeCancelButton)
+                    .plumeID(AccessibilityID.worktreeCancelButton, invoke: { dismiss() })
                 Button("Create", action: create)
                     .keyboardShortcut(.defaultAction)
+                    .plumeID(AccessibilityID.worktreeCreateButton, value: errorMessage, invoke: create)
                     .disabled(!canCreate)
-                    .plumeID(AccessibilityID.worktreeCreateButton)
             }
         }
         .padding(20)
@@ -122,7 +126,7 @@ struct NewWorktreeSheet: View {
                 HStack {
                     TextField("Worktree path", text: $locationOverride)
                         .textFieldStyle(.roundedBorder)
-                        .plumeID(AccessibilityID.worktreeLocationField)
+                        .plumeID(AccessibilityID.worktreeLocationField, value: locationOverride, setValue: { locationOverride = $0 })
                     Button("Choose…", action: chooseLocation)
                         .plumeID(AccessibilityID.worktreeChooseLocationButton)
                 }

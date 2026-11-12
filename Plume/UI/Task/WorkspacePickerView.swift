@@ -139,7 +139,7 @@ struct WorkspacePickerView: View, ThemedView {
                 .fixedSize()
             if tab.repoPath != nil {
                 branchGroup
-                    .plumeID(AccessibilityID.statuslineBranch)
+                    .plumeID(AccessibilityID.statuslineBranch, value: workspaceValue)
             }
             if directory != nil && !directoryExists {
                 Label("Missing", systemImage: "exclamationmark.triangle.fill")
@@ -242,6 +242,7 @@ struct WorkspacePickerView: View, ThemedView {
                 inlineLabel(folderName, glyph: .symbol("folder"))
             }
             .modifier(InlineMenuChrome(help: folderHelp))
+            .plumeID(AccessibilityID.workspaceFolderMenu, value: workspaceValue)
         } else {
             inlineLabel(folderName, glyph: .symbol("folder"), isControl: false)
                 .help(folderHelp)
@@ -264,7 +265,13 @@ struct WorkspacePickerView: View, ThemedView {
                     inlineLabel(title, glyph: .pathSeparator)
                 }
                 .modifier(InlineMenuChrome(help: "Subfolder: \(title)"))
-                .plumeID(AccessibilityID.workspaceSubfolderMenu)
+                .plumeID(AccessibilityID.workspaceSubfolderMenu, value: workspaceValue)
+                .plumeMenuItems(
+                    AccessibilityID.workspaceSubfolderItem,
+                    [nil] + subfolderChoices.map(Optional.some),
+                    label: { $0 ?? ProjectSubfolder.rootTitle },
+                    invoke: chooseSubfolder
+                )
             } else {
                 inlineLabel(title, glyph: .pathSeparator, isControl: false)
                     .help("Subfolder: \(title)")
@@ -282,7 +289,8 @@ struct WorkspacePickerView: View, ThemedView {
                 inlineLabel(worktreeName, glyph: .symbol("tree"))
             }
             .modifier(InlineMenuChrome(help: worktreeHelp))
-            .plumeID(AccessibilityID.workspaceWorktreeMenu)
+            .plumeID(AccessibilityID.workspaceWorktreeMenu, value: workspaceValue)
+            .modifier(worktreeItemControls)
         } else {
             inlineLabel(worktreeName, glyph: .symbol("tree"), isControl: false)
                 .help(worktreeHelp)
@@ -358,6 +366,7 @@ struct WorkspacePickerView: View, ThemedView {
             }
             .menuStyle(.borderlessButton)
             .fixedSize()
+            .plumeID(AccessibilityID.workspaceFolderMenu, value: workspaceValue)
         } readOnly: {
             folderLabel
         }
@@ -462,6 +471,21 @@ struct WorkspacePickerView: View, ThemedView {
         }
     }
 
+    private var worktreeItemControls: WorktreeItemControls {
+        WorktreeItemControls(
+            canCreate: tab.repoPath != nil,
+            worktrees: worktrees,
+            name: name(for:),
+            newWorktree: { worktreeSheetShown = true },
+            select: select
+        )
+    }
+
+    /// The tab's saved workspace as the control server reads it.
+    private var workspaceValue: String {
+        "kind: \(tab.workspaceKind.rawValue); folder: \(directory ?? "none"); branch: \(tab.branchName ?? "none")"
+    }
+
     private var worktreeChip: some View {
         chip(isEditable: isEditable, help: worktreeHelp) {
             Menu {
@@ -470,7 +494,8 @@ struct WorkspacePickerView: View, ThemedView {
                 worktreeLabel
             }
             .menuStyle(.borderlessButton)
-            .plumeID(AccessibilityID.workspaceWorktreeMenu)
+            .plumeID(AccessibilityID.workspaceWorktreeMenu, value: workspaceValue)
+            .modifier(worktreeItemControls)
         } readOnly: {
             worktreeLabel
         }
@@ -830,4 +855,20 @@ enum BranchWidth {
     /// Whatever the row has left, between `statuslineBranchMinWidth` and
     /// `statuslineBranchMaxWidth`.
     case flexible
+}
+
+/// The worktree menu's items for the control server, which never sees a
+/// `Menu`'s items while it is closed.
+private struct WorktreeItemControls: ViewModifier {
+    let canCreate: Bool
+    let worktrees: [GitWorktree]
+    let name: (GitWorktree) -> String
+    let newWorktree: () -> Void
+    let select: (GitWorktree) -> Void
+
+    func body(content: Content) -> some View {
+        content
+            .plumeMenuItem(AccessibilityID.workspaceNewWorktreeItem, isEnabled: canCreate, invoke: newWorktree)
+            .plumeMenuItems(AccessibilityID.workspaceWorktreeItem, worktrees, label: name, invoke: select)
+    }
 }

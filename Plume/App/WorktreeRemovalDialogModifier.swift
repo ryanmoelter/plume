@@ -37,6 +37,7 @@ struct WorktreeRemovalDialogModifier: ViewModifier {
             } message: { removal in
                 Text(removal.message)
             }
+            .modifier(WorktreeRemovalControls(pendingRemoval: $pendingRemoval, onConfirm: onConfirm))
             .alert("Could Not Remove Worktree", isPresented: Binding(
                 get: { removalError != nil },
                 set: { if !$0 { removalError = nil } }
@@ -44,6 +45,39 @@ struct WorktreeRemovalDialogModifier: ViewModifier {
                 Button("OK") { removalError = nil }
             } message: {
                 Text(removalError ?? "")
+            }
+    }
+}
+
+/// The dialog's choices for the control server. A `confirmationDialog` is
+/// an AppKit sheet, where no `plumeID` registers, so each choice registers
+/// on the window instead while the dialog is up.
+private struct WorktreeRemovalControls: ViewModifier {
+    @Binding var pendingRemoval: WorktreeRemovalPrompt.PendingRemoval?
+    let onConfirm: (WorktreeRemovalPrompt.PendingRemoval, Bool, Bool) -> Void
+
+    func body(content: Content) -> some View {
+        let removal = pendingRemoval
+        let label = removal?.dialogTitle
+        return content
+            .plumeMenuItem(AccessibilityID.worktreeRemovalRemoveButton, label: label, isPresent: removal?.offersRemoval == true) {
+                removal.map { onConfirm($0, true, false) }
+            }
+            .plumeMenuItem(
+                AccessibilityID.worktreeRemovalWithBranchButton, label: label, isPresent: removal?.offersBranchRemoval == true
+            ) {
+                removal.map { onConfirm($0, true, true) }
+            }
+            .plumeMenuItem(AccessibilityID.worktreeRemovalTaskOnlyButton, label: label, isPresent: removal != nil) {
+                removal.map { onConfirm($0, false, false) }
+            }
+            .plumeMenuItem(AccessibilityID.worktreeRemovalCancelButton, label: label, isPresent: removal != nil) {
+                pendingRemoval = nil
+            }
+            .background {
+                if let removal {
+                    Color.clear.plumeID(AccessibilityID.worktreeRemovalMessage, label: removal.dialogTitle, value: removal.message)
+                }
             }
     }
 }

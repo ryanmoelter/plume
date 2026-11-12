@@ -43,6 +43,25 @@ extension View {
         #endif
     }
 
+    /// `plumeMenuItem` for each of a `Menu`'s repeated items, all under one
+    /// id and told apart by `label`.
+    func plumeMenuItems<Item: Hashable>(
+        _ id: String,
+        _ items: [Item],
+        label: @escaping (Item) -> String,
+        invoke: @escaping (Item) -> Void
+    ) -> some View {
+        #if DEBUG
+        background {
+            ForEach(items, id: \.self) { item in
+                Color.clear.plumeID(id, label: label(item), invoke: { invoke(item) })
+            }
+        }
+        #else
+        self
+        #endif
+    }
+
     /// Marks a subtree as off screen for the control server, for a container
     /// that hides content by opacity rather than unmounting it.
     func plumeControlsHidden(_ hidden: Bool) -> some View {

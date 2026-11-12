@@ -15,6 +15,7 @@ enum AccessibilityID {
     static let newGroupButton = "new-group-button"
     static let sidebarArchiveButton = "sidebar-archive-button"
     static let taskArchiveButton = "task-archive-button"
+    static let taskDeleteButton = "task-delete-button"
     static let taskRemoteControlToggle = "task-remote-control-toggle"
     static let taskDeviceLeaseBadge = "task-device-lease-badge"
     static let taskDescription = "task-description"
@@ -286,6 +287,18 @@ enum AccessibilityID {
 
     static let workspaceWorktreeMenu = "workspace-worktree-menu"
     static let workspaceSubfolderMenu = "workspace-subfolder-menu"
+    static let workspaceFolderMenu = "workspace-folder-menu"
+    static let workspaceNewWorktreeItem = "workspace-new-worktree-item"
+    static let workspaceWorktreeItem = "workspace-worktree-item"
+    static let workspaceSubfolderItem = "workspace-subfolder-item"
+
+    // MARK: Worktree removal dialog
+
+    static let worktreeRemovalRemoveButton = "worktree-removal-remove-button"
+    static let worktreeRemovalWithBranchButton = "worktree-removal-with-branch-button"
+    static let worktreeRemovalTaskOnlyButton = "worktree-removal-task-only-button"
+    static let worktreeRemovalCancelButton = "worktree-removal-cancel-button"
+    static let worktreeRemovalMessage = "worktree-removal-message"
 
     // MARK: New worktree sheet
 
