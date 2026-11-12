@@ -27,6 +27,14 @@ nonisolated enum PlumeCaller: Equatable, Sendable {
     }
 }
 
+/// What `wt` made for a worktree it opens, so a task owns only those.
+nonisolated struct WorktreeCreation: Equatable, Sendable {
+    var worktree = false
+    var branch = false
+
+    static let none = WorktreeCreation()
+}
+
 /// The app actions `wt` asks for over the CLI socket. Each answers whether
 /// the app did it; an unreachable app is a false, never a throw.
 nonisolated protocol PlumeAppClient: AnyObject {
@@ -35,7 +43,7 @@ nonisolated protocol PlumeAppClient: AnyObject {
     /// A new task for the worktree at `worktreePath`, in the caller's group
     /// (`task.new`). The app reads the repository and branch from the
     /// worktree.
-    func openTask(worktreePath: String, caller: PlumeCaller) -> Bool
+    func openTask(worktreePath: String, caller: PlumeCaller, created: WorktreeCreation) -> Bool
     /// The Settings window on `section` (`settings.open`). Needs no caller.
     func openSettings(section: String?) -> Bool
 }
@@ -66,8 +74,11 @@ nonisolated final class SocketPlumeAppClient: PlumeAppClient {
         succeeds(.newTab(.init(taskID: caller.taskID, tabID: caller.tabID, directory: directory, select: false)))
     }
 
-    func openTask(worktreePath: String, caller: PlumeCaller) -> Bool {
-        succeeds(.newTask(.init(worktreePath: worktreePath, taskID: caller.taskID, tabID: caller.tabID, select: false)))
+    func openTask(worktreePath: String, caller: PlumeCaller, created: WorktreeCreation) -> Bool {
+        succeeds(.newTask(.init(
+            worktreePath: worktreePath, taskID: caller.taskID, tabID: caller.tabID, select: false,
+            createdWorktree: created.worktree, createdBranch: created.branch
+        )))
     }
 
     func openSettings(section: String?) -> Bool {
@@ -83,7 +94,7 @@ nonisolated protocol TabOpener: AnyObject {
     var canOpenTabs: Bool { get }
     /// A tab in the calling task, or with `asTask` a new task. Anywhere it
     /// can't, prints the `cd` hint instead.
-    func open(_ directory: String, asTask: Bool)
+    func open(_ directory: String, asTask: Bool, created: WorktreeCreation)
     /// Asks the running app to show Settings on `section`; false when it is
     /// unreachable or refuses.
     func openSettings(section: String?) -> Bool
@@ -91,6 +102,10 @@ nonisolated protocol TabOpener: AnyObject {
 
 nonisolated extension TabOpener {
     func openSettings(section: String?) -> Bool { false }
+
+    func open(_ directory: String, asTask: Bool) {
+        open(directory, asTask: asTask, created: .none)
+    }
 }
 
 /// Opens tabs through the running app. Outside Plume, or when the app
@@ -115,10 +130,10 @@ nonisolated final class PlumeTabOpener: TabOpener {
         caller != nil
     }
 
-    func open(_ directory: String, asTask: Bool) {
+    func open(_ directory: String, asTask: Bool, created: WorktreeCreation) {
         if let caller {
             let opened = asTask
-                ? client.openTask(worktreePath: directory, caller: caller)
+                ? client.openTask(worktreePath: directory, caller: caller, created: created)
                 : client.openTab(directory: directory, caller: caller)
             if opened { return }
         }

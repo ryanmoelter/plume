@@ -231,6 +231,7 @@ nonisolated final class RecordingTabOpener: TabOpener {
     struct Opened: Equatable {
         var directory: String
         var asTask: Bool
+        var created = WorktreeCreation.none
     }
 
     var canOpenTabs: Bool
@@ -240,15 +241,15 @@ nonisolated final class RecordingTabOpener: TabOpener {
         self.canOpenTabs = canOpenTabs
     }
 
-    func open(_ directory: String, asTask: Bool) {
-        opened.append(Opened(directory: directory, asTask: asTask))
+    func open(_ directory: String, asTask: Bool, created: WorktreeCreation) {
+        opened.append(Opened(directory: directory, asTask: asTask, created: created))
     }
 }
 
 nonisolated final class FakePlumeAppClient: PlumeAppClient {
     enum Request: Equatable {
         case tab(directory: String, caller: PlumeCaller)
-        case task(worktreePath: String, caller: PlumeCaller)
+        case task(worktreePath: String, caller: PlumeCaller, created: WorktreeCreation = .none)
     }
 
     var tabResult: Bool
@@ -265,8 +266,8 @@ nonisolated final class FakePlumeAppClient: PlumeAppClient {
         return tabResult
     }
 
-    func openTask(worktreePath: String, caller: PlumeCaller) -> Bool {
-        requests.append(.task(worktreePath: worktreePath, caller: caller))
+    func openTask(worktreePath: String, caller: PlumeCaller, created: WorktreeCreation) -> Bool {
+        requests.append(.task(worktreePath: worktreePath, caller: caller, created: created))
         return taskResult
     }
 }

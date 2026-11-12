@@ -52,6 +52,14 @@ struct WTTabsTests {
         #expect(console.stdout == "")
     }
 
+    @Test func aTaskRequestSaysWhatWtCreated() {
+        let client = FakePlumeAppClient()
+        let (tabs, _) = opener(client)
+        let created = WorktreeCreation(worktree: true, branch: false)
+        tabs.open("/wt/foo", asTask: true, created: created)
+        #expect(client.requests == [.task(worktreePath: "/wt/foo", caller: .tab(Self.tabID), created: created)])
+    }
+
     @Test func aFailedTabRequestNeverEscalatesToATask() {
         let client = FakePlumeAppClient(tabResult: false)
         let (tabs, console) = opener(client)
@@ -149,14 +157,24 @@ struct WTTabsTests {
         #expect(ctx.fakeGit.added == [.init(path: path, branch: "ryanm/x", new: true, baseRef: "origin/main")])
         #expect(ctx.fakeGit.fetched == ["main"])
         #expect(ctx.ensuredWorktreesDirectory)
-        #expect(ctx.recordingTabs.opened == [.init(directory: path, asTask: false)])
+        #expect(ctx.recordingTabs.opened == [.init(directory: path, asTask: false, created: .init(worktree: true, branch: true))])
     }
 
     @Test(arguments: ["--task", "--workspace"])
     func checkoutThreadsTheTaskFlag(_ flag: String) throws {
         let ctx = checkoutContext()
         try WT.checkout(ctx, ["-b", "x", flag])
-        #expect(ctx.recordingTabs.opened == [.init(directory: "\(ctx.newWorktreesDirectory)/x", asTask: true)])
+        #expect(ctx.recordingTabs.opened == [
+            .init(directory: "\(ctx.newWorktreesDirectory)/x", asTask: true, created: .init(worktree: true, branch: true)),
+        ])
+    }
+
+    @Test func checkoutOfAnExistingBranchCreatesOnlyTheWorktree() throws {
+        let ctx = FakeWTContext(prefix: "ryanm/", branches: ["ryanm/wt"], baseBranch: "main")
+        try WT.checkout(ctx, ["wt", "--task"])
+        #expect(ctx.recordingTabs.opened == [
+            .init(directory: "\(ctx.newWorktreesDirectory)/wt", asTask: true, created: .init(worktree: true, branch: false)),
+        ])
     }
 
     @Test func noTabOpensNothing() throws {

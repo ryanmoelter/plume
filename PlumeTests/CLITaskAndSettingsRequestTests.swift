@@ -82,7 +82,9 @@ struct CLITaskAndSettingsRequestTests {
         var revealed: [UUID] = []
         let handler = makeHandler(tasks: [caller]) { revealed.append($0) }
 
-        let response = await handler.handle(.newTask(.init(worktreePath: worktree, tabID: callerTab.id, select: true)))
+        let response = await handler.handle(.newTask(.init(
+            worktreePath: worktree, tabID: callerTab.id, select: true, createdWorktree: true, createdBranch: true
+        )))
 
         #expect(response.error == nil)
         let taskID = try #require(response.taskID)
@@ -115,13 +117,50 @@ struct CLITaskAndSettingsRequestTests {
         #expect(!revealed)
     }
 
-    /// A task owns a worktree it opened on, but never the main checkout.
+    @Test func aWorktreeWtOnlyOpenedIsNotOwned() async throws {
+        defer { try? FileManager.default.removeItem(atPath: scratch) }
+        let (_, worktree) = try await makeRepositoryWithWorktree()
+        let handler = makeHandler(tasks: [])
+
+        let response = await handler.handle(.newTask(.init(worktreePath: worktree, select: false, createdWorktree: false)))
+
+        let task = try #require(try allTasks().first { $0.id == response.taskID })
+        #expect(task.ownedWorktrees.isEmpty)
+    }
+
+    @Test func aWorktreeOnAnExistingBranchIsOwnedWithoutItsBranch() async throws {
+        defer { try? FileManager.default.removeItem(atPath: scratch) }
+        let (_, worktree) = try await makeRepositoryWithWorktree()
+        let handler = makeHandler(tasks: [])
+
+        let response = await handler.handle(.newTask(.init(
+            worktreePath: worktree, select: false, createdWorktree: true, createdBranch: false
+        )))
+
+        let task = try #require(try allTasks().first { $0.id == response.taskID })
+        #expect(task.ownedWorktrees.map(\.path) == [OwnedWorktree.standardized(worktree)])
+        #expect(task.ownedWorktrees.map(\.branch) == [nil])
+    }
+
+    @Test func anOlderClientsRequestDecodesAndOwnsNothing() throws {
+        let json = #"{"command":"task.new","params":{"worktreePath":"/wt/x","select":false}}"#
+        let request = try JSONDecoder().decode(CLIRequest.self, from: Data(json.utf8))
+        guard case .newTask(let params) = request else {
+            Issue.record("decoded \(request)")
+            return
+        }
+        #expect(params.createdWorktree == nil)
+        #expect(params.createdBranch == nil)
+    }
+
+    /// Even a `wt` that claims to have created it can't make a task own the
+    /// main checkout.
     @Test func theMainCheckoutOpensAsADirectoryTask() async throws {
         defer { try? FileManager.default.removeItem(atPath: scratch) }
         let (repository, _) = try await makeRepositoryWithWorktree()
         let handler = makeHandler(tasks: [])
 
-        let response = await handler.handle(.newTask(.init(worktreePath: repository, select: false)))
+        let response = await handler.handle(.newTask(.init(worktreePath: repository, select: false, createdWorktree: true)))
 
         let task = try #require(try allTasks().first { $0.id == response.taskID })
         #expect(task.orderedTabs[0].workspaceKind == .directory)
