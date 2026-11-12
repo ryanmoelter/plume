@@ -179,6 +179,7 @@ For performance, measure first. `scripts/profile-chat-scroll.sh <seconds>` recor
 
 - **SwiftData models are the persisted skeleton only.** Live process/terminal state belongs in in-memory `@Observable` objects keyed by model UUID. Never persist anything about a running PTY.
 - **Every SwiftData stored property needs a default value**, so lightweight migration keeps working as the schema grows.
+- **Each tab owns its workspace** (`TaskTab.workspace`: kind, folder, repository, branch); a new tab copies the one the user is on. `WorkTask`'s workspace fields are input to `TabWorkspaceMigration` only, so never read them anywhere else. Resolve a tab's folder through `TabDirectoryStore.directory(for:)`.
 - Enums persist as `...Raw` strings with a computed accessor (`workspaceKindRaw` / `workspaceKind`). Keeps migrations trivial.
 - Ordering is a dense `orderIndex` per section, rewritten on move. All of it lives in `TaskStore` — keep it out of views.
 - Model names avoid colliding with Swift's `Task` and SwiftUI's `Group`: `WorkTask`, `TaskGroup`, `TaskTab`.
