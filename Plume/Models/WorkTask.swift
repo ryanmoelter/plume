@@ -20,6 +20,9 @@ final class WorkTask {
     /// nil means the task lives in the "Ungrouped" section.
     var group: TaskGroup?
 
+    /// Input to `TabWorkspaceMigration` only: each tab owns its workspace,
+    /// and nothing else may read these. They stay in the schema because
+    /// lightweight migration would drop the columns before the pass reads them.
     var workspaceKindRaw: String = WorkspaceKind.unset.rawValue
     var workingDirectoryPath: String?
     var repoPath: String?
@@ -78,11 +81,6 @@ final class WorkTask {
         set { permissionModeRaw = newValue?.rawValue }
     }
 
-    var workspaceKind: WorkspaceKind {
-        get { WorkspaceKind(rawValue: workspaceKindRaw) ?? .unset }
-        set { workspaceKindRaw = newValue.rawValue }
-    }
-
     var lastStatus: TaskStatus {
         get { TaskStatus(migratingRawValue: lastStatusRaw) }
         set { lastStatusRaw = newValue.rawValue }
@@ -102,6 +100,15 @@ final class WorkTask {
 
     var orderedLiveTabs: [TaskTab] {
         Self.inPaneOrder(liveTabs)
+    }
+
+    /// Each repository the tabs are in, once, in tab order.
+    var tabRepositories: [String] {
+        var repositories: [String] = []
+        for repository in orderedLiveTabs.compactMap(\.repoPath) where !repositories.contains(repository) {
+            repositories.append(repository)
+        }
+        return repositories
     }
 
     private static func inPaneOrder(_ tabs: [TaskTab]) -> [TaskTab] {

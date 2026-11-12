@@ -16,10 +16,11 @@ enum TaskStore {
     /// Off by default: it reads `UserDefaults` and shells out to `git`, which
     /// callers that just want a bare task shouldn't pay for.
     ///
-    /// `inheritingFrom` seeds it instead from another task's workspace —
-    /// ⌘N's selected-task case — and wins over `defaultsToRecentFolder` when
-    /// both are given. A worktree task is inherited as a plain directory:
-    /// the new task gets the same folder, not a worktree of its own.
+    /// `inheritingFrom` seeds it instead from the workspace of another task's
+    /// `TabDirectoryStore.workspaceSource(in:)` — ⌘N's selected-task case —
+    /// and wins over `defaultsToRecentFolder` when both are given. A worktree
+    /// is inherited as a plain directory: the new task gets the same folder,
+    /// not a worktree of its own.
     @discardableResult
     static func createTask(
         in context: ModelContext,
@@ -31,20 +32,19 @@ enum TaskStore {
         firstTab kind: TabKind = .agent
     ) -> WorkTask {
         let task = WorkTask(title: title, orderIndex: nextIndex(after: siblings), group: group)
-        if let source = inheritingFrom, let folder = source.workingDirectoryPath {
-            task.workingDirectoryPath = folder
-            task.repoPath = source.repoPath
-            task.branchName = source.branchName
-            task.workspaceKind = .directory
-        } else if defaultsToRecentFolder, let folder = RecentFolders.mostRecent() {
-            task.workingDirectoryPath = folder
-            task.workspaceKind = .directory
-            // Filled in once `git` answers: creating a task must not wait on
-            // a subprocess, and nothing reads `repoPath` before then.
-            Task { task.repoPath = await GitService.shared.repositoryRoot(containing: folder) }
-        }
         let tab = TaskTab(kind: kind, orderIndex: 0, task: task)
         if kind == .agent { applyDefaultLaunchSettings(to: tab) }
+        let directories = TabDirectoryStore.shared
+        if let source = inheritingFrom.flatMap(directories.workspaceSource(in:)),
+           case let inherited = directories.currentWorkspace(of: source),
+           let folder = inherited.directory {
+            tab.workspace = .directory(folder, repoPath: inherited.repoPath, branchName: inherited.branchName)
+        } else if defaultsToRecentFolder, let folder = RecentFolders.mostRecent() {
+            tab.workspace = .directory(folder)
+            // Filled in once `git` answers: creating a task must not wait on
+            // a subprocess, and nothing reads `repoPath` before then.
+            Task { tab.repoPath = await GitService.shared.repositoryRoot(containing: folder) }
+        }
         context.insert(task)
         context.insert(tab)
         task.tabs = [tab]
@@ -79,9 +79,9 @@ enum TaskStore {
         siblings: [WorkTask]
     ) -> (task: WorkTask, tab: TaskTab) {
         let task = createTask(in: context, title: title, siblings: siblings, firstTab: .terminal)
-        task.workingDirectoryPath = directory
-        task.workspaceKind = .directory
-        return (task, task.tabs[0])
+        let tab = task.tabs[0]
+        tab.workspace = .directory(directory)
+        return (task, tab)
     }
 
     @discardableResult
@@ -95,7 +95,8 @@ enum TaskStore {
         return group
     }
 
-    /// Lands in `pane`, or the focused pane when nil, at the end of its strip.
+    /// Lands in `pane`, or the focused pane when nil, at the end of its strip,
+    /// in the workspace of the tab the user is on.
     @discardableResult
     static func addTab(
         to task: WorkTask,
@@ -107,6 +108,10 @@ enum TaskStore {
         let paneIndex = min(max(pane ?? task.focusedPane, 0), task.paneCount - 1)
         let tab = TaskTab(kind: kind, orderIndex: nextIndex(after: task.tabs(inPane: paneIndex)), task: task)
         tab.paneIndex = paneIndex
+        let directories = TabDirectoryStore.shared
+        if let source = directories.workspaceSource(in: task) {
+            tab.workspace = directories.currentWorkspace(of: source)
+        }
         if kind == .agent {
             let provider = provider ?? AppSettings.shared.defaultProvider
             tab.provider = provider
@@ -418,14 +423,14 @@ enum TaskStore {
     /// The cascade delete removes the tabs, but their terminals are held
     /// outside SwiftData and have to be closed explicitly.
     static func delete(_ task: WorkTask, in context: ModelContext) {
+        let directories = Set(task.tabs.compactMap(TabDirectoryStore.shared.directory(for:)))
         for tab in task.tabs {
             forgetTab(tab)
         }
-        // The row that took this watch is going away with the task, and a
+        // The row that took these watches is going away with the task, and a
         // deleted row is not guaranteed to run its own teardown. Tasks in the
         // same directory still need the watch and the branch it publishes.
-        if let directory = task.workingDirectoryPath,
-           !isDirectoryShared(directory, excluding: task, in: context) {
+        for directory in directories where !isDirectoryShared(directory, excluding: task, in: context) {
             GitStateStore.shared.forget(directory: directory)
             PullRequestStore.shared.forget(directory: directory)
         }
@@ -438,32 +443,33 @@ enum TaskStore {
     static func isDirectoryShared(_ directory: String, excluding task: WorkTask, in context: ModelContext) -> Bool {
         let taskID = task.id
         let descriptor = FetchDescriptor<WorkTask>(predicate: #Predicate {
-            $0.workingDirectoryPath == directory && $0.id != taskID && !$0.isArchived
+            $0.id != taskID && !$0.isArchived
         })
-        return ((try? context.fetchCount(descriptor)) ?? 0) > 0
+        let others = (try? context.fetch(descriptor)) ?? []
+        return others.contains { other in
+            other.liveTabs.contains { TabDirectoryStore.shared.directory(for: $0) == directory }
+        }
     }
 
     // MARK: - Worktree removal (shared by delete and archive)
 
-    /// Removing the worktree is best-effort: if git refuses, the task stays
-    /// so the user can resolve it rather than losing track of the directory.
-    /// Its tabs are closed by then either way — they have to go before git
-    /// touches the directory, and there is no reopening them if it declines.
+    /// Removing the worktrees is best-effort: if git refuses one, the task
+    /// stays so the user can resolve it rather than losing track of the
+    /// directory. Its tabs are closed by then either way — they have to go
+    /// before git touches the directories, and there is no reopening them if
+    /// it declines.
     ///
-    /// `finish` runs after a successful (or skipped) worktree removal, and is
-    /// where the caller actually deletes or archives the task.
-    static func removeWorktreeThenFinish(
-        for task: WorkTask,
-        removeWorktree: Bool,
+    /// `finish` runs after every worktree is removed (or when there are none),
+    /// and is where the caller actually deletes or archives the task.
+    static func removeWorktreesThenFinish(
+        _ worktrees: [WorktreeRemovalTarget],
+        of task: WorkTask,
         deleteBranch: Bool,
         in context: ModelContext,
         onError: @escaping (String) -> Void,
         finish: @escaping () -> Void
     ) {
-        guard removeWorktree,
-              let repository = task.repoPath,
-              let path = task.workingDirectoryPath
-        else {
+        guard !worktrees.isEmpty else {
             finish()
             return
         }
@@ -471,16 +477,18 @@ enum TaskStore {
             forgetTab(tab)
         }
         Task {
-            do {
-                try await GitService.shared.removeWorktree(
-                    repository: repository,
-                    path: path,
-                    branch: task.branchName,
-                    deleteBranch: deleteBranch
-                )
-            } catch {
-                onError(error.localizedDescription)
-                return
+            for worktree in worktrees {
+                do {
+                    try await GitService.shared.removeWorktree(
+                        repository: worktree.repository,
+                        path: worktree.path,
+                        branch: worktree.branch,
+                        deleteBranch: deleteBranch
+                    )
+                } catch {
+                    onError(error.localizedDescription)
+                    return
+                }
             }
             finish()
         }

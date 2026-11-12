@@ -34,7 +34,7 @@ struct ProjectsSettingsPane: View {
     }
 
     private var repoPaths: [String] {
-        Array(Set(tasks.compactMap(\.repoPath))).sorted()
+        Array(Set(tasks.flatMap(\.tabRepositories))).sorted()
     }
 
     private var current: ProjectSettings {

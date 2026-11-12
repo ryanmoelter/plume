@@ -8,7 +8,7 @@ private struct WorktreeListingKey: Equatable {
     let directory: String?
 }
 
-/// The task's workspace, as two chips in the statusline: the folder to run
+/// A tab's workspace, as two chips in the statusline: the folder to run
 /// in, and — when that folder is a git repository — which of its worktrees,
 /// with that worktree's ahead/behind and dirty markers beside it. Worktree
 /// and branch answer one question, so they read as one group.
@@ -19,7 +19,7 @@ struct WorkspacePickerView: View, ThemedView {
     @Environment(\.colorScheme) private var colorScheme
     @Environment(\.theme) var theme
 
-    @Bindable var task: WorkTask
+    @Bindable var tab: TaskTab
     var isEditable = true
     /// How much room the branch name may take. The statusline row decides
     /// this, since it is the row's one compressible segment.
@@ -29,9 +29,8 @@ struct WorkspacePickerView: View, ThemedView {
     /// The chip names its branch when there is one, so the name and the
     /// markers beside it always come from the same `git` run.
     var state: GitState?
-    /// The directory `state` describes. Usually `task.workingDirectoryPath`,
-    /// but `EnterWorktree` can move the agent's own directory without
-    /// updating the task's, so the caller passes its own resolved directory
+    /// The directory `state` describes. Usually the tab's own directory, but
+    /// the caller resolves it (from the transcript, say), so it passes it in
     /// rather than leaving this view to assume the two agree.
     var stateDirectory: String?
 
@@ -76,19 +75,19 @@ struct WorkspacePickerView: View, ThemedView {
             )
         )
         .sheet(isPresented: $worktreeSheetShown) {
-            NewWorktreeSheet(task: task)
+            NewWorktreeSheet(tab: tab)
         }
         // `folderName` reads this cache, which only a lifecycle event may
         // fill — see `CheckoutFactsStore.load`.
-        .onChange(of: task.workingDirectoryPath, initial: true) { _, path in
+        .onChange(of: directory, initial: true) { _, path in
             if let path, !path.isEmpty { CheckoutFactsStore.shared.load(path) }
         }
         // The repository answers for the project when the worktree's own
         // facts have not arrived, so it needs loading too.
-        .onChange(of: task.repoPath, initial: true) { _, path in
+        .onChange(of: tab.repoPath, initial: true) { _, path in
             if let path, !path.isEmpty { CheckoutFactsStore.shared.load(path) }
         }
-        // Only needed when it differs from `task.workingDirectoryPath`, but
+        // Only needed when it differs from `directory`, but
         // loading is idempotent, so no need to check.
         .onChange(of: stateDirectory, initial: true) { _, path in
             if let path, !path.isEmpty { CheckoutFactsStore.shared.load(path) }
@@ -97,7 +96,7 @@ struct WorkspacePickerView: View, ThemedView {
         // render would be ruinous, and writing observable state from `body`
         // invalidates the view being rendered.
         // Keyed on the directory as well as the repository: creating or
-        // removing a worktree moves the task inside one repository, leaving
+        // removing a worktree moves the tab inside one repository, leaving
         // `repoPath` untouched while the listing it loaded goes stale.
         .task(id: checkoutDirectory) {
             guard let directory = checkoutDirectory, !directory.isEmpty else {
@@ -106,17 +105,17 @@ struct WorkspacePickerView: View, ThemedView {
             }
             subfolderChoices = await Task.detached { ProjectSubfolder.childFolders(of: directory) }.value
         }
-        .task(id: WorktreeListingKey(repository: task.repoPath, directory: task.workingDirectoryPath)) {
-            guard let repoPath = task.repoPath else {
+        .task(id: WorktreeListingKey(repository: tab.repoPath, directory: directory)) {
+            guard let repoPath = tab.repoPath else {
                 worktrees = []
                 repositoryBranch = nil
                 loadedRepoPath = nil
-                // A task restored with no repository never passed through
+                // A tab restored with no repository never passed through
                 // `setDirectory`, so nothing has asked `git` about its folder
                 // yet. Ask, rather than leaving the clause up forever.
-                if let path = task.workingDirectoryPath, !path.isEmpty {
+                if let path = directory, !path.isEmpty {
                     let root = await GitService.shared.repositoryRoot(containing: path)
-                    task.repoPath = root
+                    tab.repoPath = root
                     directoryWithoutRepository = root == nil ? path : nil
                 }
                 return
@@ -138,11 +137,11 @@ struct WorkspacePickerView: View, ThemedView {
         HStack(spacing: 10) {
             folderChip
                 .fixedSize()
-            if task.repoPath != nil {
+            if tab.repoPath != nil {
                 branchGroup
                     .plumeID(AccessibilityID.statuslineBranch)
             }
-            if task.workingDirectoryPath != nil && !directoryExists {
+            if directory != nil && !directoryExists {
                 Label("Missing", systemImage: "exclamationmark.triangle.fill")
                     .foregroundStyle(.orange)
                     .fixedSize()
@@ -365,7 +364,7 @@ struct WorkspacePickerView: View, ThemedView {
     }
 
     private var folderHelp: String {
-        guard let path = task.workingDirectoryPath else { return "No folder chosen" }
+        guard let path = directory else { return "No folder chosen" }
         return "Working folder: \(abbreviate(path))"
     }
 
@@ -378,13 +377,13 @@ struct WorkspacePickerView: View, ThemedView {
     /// naming that directory here would make the project appear to change with
     /// it.
     private var folderName: String {
-        guard let path = task.workingDirectoryPath, !path.isEmpty else { return "Choose Folder" }
+        guard let path = directory, !path.isEmpty else { return "Choose Folder" }
         if let projectName = CheckoutFactsStore.shared.facts(for: path)?.projectName {
             return projectName
         }
         // Every worktree of a repository answers with the same project, so the
         // repository's own path names it while a newly chosen directory waits.
-        if let repoPath = task.repoPath,
+        if let repoPath = tab.repoPath,
            let projectName = CheckoutFactsStore.shared.facts(for: repoPath)?.projectName {
             return projectName
         }
@@ -446,10 +445,10 @@ struct WorkspacePickerView: View, ThemedView {
 
     @ViewBuilder
     private var worktreeMenuItems: some View {
-        // The sheet takes the repository from the task rather than asking, so
+        // The sheet takes the repository from the tab rather than asking, so
         // it has nothing to work from until one is chosen.
         Button("New Worktree…") { worktreeSheetShown = true }
-            .disabled(task.repoPath == nil)
+            .disabled(tab.repoPath == nil)
         Divider()
         ForEach(worktrees, id: \.self) { worktree in
             Button {
@@ -492,23 +491,23 @@ struct WorkspacePickerView: View, ThemedView {
     }
 
     /// The branch shown in the composer and statusline: `git`'s answer for
-    /// the directory the agent is actually running in, or the task's stored
+    /// the directory the agent is actually running in, or the tab's stored
     /// guess before that arrives.
     private var chipBranchName: String {
         guard isSettled else { return Self.unsettledName }
-        return GitState.displayedBranch(state: state, taskBranchName: task.branchName)
+        return GitState.displayedBranch(state: state, storedBranchName: tab.branchName)
             ?? repositoryBranch ?? "Worktree"
     }
 
     /// Whether the current checkout is a linked worktree. Keyed on
-    /// `stateDirectory` rather than `task.workingDirectoryPath`: they can
+    /// `stateDirectory` rather than `directory`: they can
     /// differ, and this must agree with `chipBranchName`, which reads the
     /// same directory's `state`.
     private var isLinkedWorktree: Bool {
-        CheckoutFactsStore.shared.facts(for: stateDirectory ?? task.workingDirectoryPath)?.isWorktree ?? false
+        CheckoutFactsStore.shared.facts(for: stateDirectory ?? directory)?.isWorktree ?? false
     }
 
-    /// The worktree the task is working in, matched on a standardized path —
+    /// The worktree the tab is working in, matched on a standardized path —
     /// `git` and the stored path can spell one directory differently.
     private var selectedWorktree: GitWorktree? {
         guard isSettled, let path = checkoutDirectory.map(standardized) else { return nil }
@@ -522,11 +521,11 @@ struct WorkspacePickerView: View, ThemedView {
     /// common move between two repositories flicker the clause out and back,
     /// to spare a rarer case a clause that was never going to appear.
     private var hasRepository: Bool {
-        guard let path = task.workingDirectoryPath, !path.isEmpty else { return false }
+        guard let path = directory, !path.isEmpty else { return false }
         return directoryWithoutRepository != path
     }
 
-    /// Whether `worktrees` describes the repository the task is in now.
+    /// Whether `worktrees` describes the repository the tab is in now.
     ///
     /// Only choosing a project moves `repoPath`, so only that leaves the
     /// listing stale. Choosing a worktree stays inside one repository and its
@@ -537,7 +536,7 @@ struct WorkspacePickerView: View, ThemedView {
     /// where the new directory sits beside the old repository. Requiring the
     /// directory to be one the listing knows closes that window.
     private var isSettled: Bool {
-        guard task.repoPath == loadedRepoPath else { return false }
+        guard tab.repoPath == loadedRepoPath else { return false }
         guard let path = checkoutDirectory.map(standardized), !worktrees.isEmpty else { return true }
         return worktrees.contains { standardized($0.path) == path }
     }
@@ -560,20 +559,20 @@ struct WorkspacePickerView: View, ThemedView {
     /// same value from any of its worktrees, so the path and the name always
     /// name one thing.
     private var folderPathNote: String? {
-        guard let path = task.workingDirectoryPath, !path.isEmpty else { return nil }
+        guard let path = directory, !path.isEmpty else { return nil }
         let root = CheckoutFactsStore.shared.facts(for: path)?.projectRoot
-            ?? task.repoPath.flatMap { CheckoutFactsStore.shared.facts(for: $0)?.projectRoot }
+            ?? tab.repoPath.flatMap { CheckoutFactsStore.shared.facts(for: $0)?.projectRoot }
         guard let root else { return nil }
         guard let subfolder = currentSubfolder else { return abbreviate(root) }
         return abbreviate((root as NSString).appendingPathComponent(subfolder))
     }
 
     private var workingFacts: CheckoutFacts? {
-        CheckoutFactsStore.shared.facts(for: task.workingDirectoryPath)
+        CheckoutFactsStore.shared.facts(for: directory)
     }
 
     private var currentSplit: ProjectSubfolder? {
-        guard let path = task.workingDirectoryPath else { return nil }
+        guard let path = directory else { return nil }
         return ProjectSubfolder.split(path: path, facts: workingFacts)
     }
 
@@ -582,7 +581,7 @@ struct WorkspacePickerView: View, ThemedView {
     /// The checkout's own directory, which the worktree listing names; the
     /// working directory is deeper than it when a subfolder is chosen.
     private var checkoutDirectory: String? {
-        currentSplit?.checkoutRoot ?? task.workingDirectoryPath
+        currentSplit?.checkoutRoot ?? directory
     }
 
     private func name(for worktree: GitWorktree) -> String {
@@ -601,11 +600,11 @@ struct WorkspacePickerView: View, ThemedView {
     /// the directory it actually names for the composer and statusline.
     private var worktreeHelp: String {
         guard prominence == .inline else {
-            let path = stateDirectory ?? task.workingDirectoryPath
+            let path = stateDirectory ?? directory
             guard let path else { return "Branch: \(chipBranchName)" }
             return "Branch \(chipBranchName): \(abbreviate(path))"
         }
-        guard let path = task.workingDirectoryPath else { return "Worktree: \(worktreeName)" }
+        guard let path = directory else { return "Worktree: \(worktreeName)" }
         return "Worktree \(worktreeName): \(abbreviate(path))"
     }
 
@@ -647,9 +646,9 @@ struct WorkspacePickerView: View, ThemedView {
     }
 
     private func select(_ worktree: GitWorktree) {
-        task.workingDirectoryPath = directoryKeepingSubfolder(in: worktree.path)
-        task.branchName = worktree.branch
-        task.workspaceKind = worktree.isMain ? .directory : .worktree
+        TabDirectoryStore.shared.setDirectory(directoryKeepingSubfolder(in: worktree.path), forTab: tab)
+        tab.branchName = worktree.branch
+        tab.workspaceKind = worktree.isMain ? .directory : .worktree
         rememberProject(containing: worktree.path)
     }
 
@@ -705,8 +704,14 @@ struct WorkspacePickerView: View, ThemedView {
         path.replacingOccurrences(of: NSHomeDirectory(), with: "~")
     }
 
+    /// The live value, since a tab that has reported a folder is there
+    /// whatever it saved.
+    private var directory: String? {
+        TabDirectoryStore.shared.directory(for: tab)
+    }
+
     private var directoryExists: Bool {
-        guard let path = task.workingDirectoryPath else { return false }
+        guard let path = directory else { return false }
         return FileManager.default.fileExists(atPath: path)
     }
 
@@ -738,10 +743,10 @@ struct WorkspacePickerView: View, ThemedView {
     }
 
     private func setDirectory(_ path: String, keepingBranch: Bool = false) {
-        task.workingDirectoryPath = path
+        TabDirectoryStore.shared.setDirectory(path, forTab: tab)
         if !keepingBranch {
-            task.workspaceKind = .directory
-            task.branchName = nil
+            tab.workspaceKind = .directory
+            tab.branchName = nil
         }
         rememberProject(containing: path)
         // Resolved after the fact: finding the repository root is a
@@ -749,13 +754,13 @@ struct WorkspacePickerView: View, ThemedView {
         // folder the user just chose.
         Task {
             let root = await GitService.shared.repositoryRoot(containing: path)
-            task.repoPath = root
+            tab.repoPath = root
             directoryWithoutRepository = root == nil ? path : nil
         }
     }
 }
 
-/// Takes a dragged folder as the task's working directory, and declines
+/// Takes a dragged folder as the tab's working directory, and declines
 /// anything else.
 ///
 /// A plain `.onDrop(of: [.fileURL])` accepts every file URL and can only

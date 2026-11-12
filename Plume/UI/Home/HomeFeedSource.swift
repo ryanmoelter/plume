@@ -49,7 +49,7 @@ extension HomeRowContext {
         let showsPullRequests = AppSettings.shared.showsPullRequestStatus
         var context = HomeRowContext(
             project: TaskRowDetails.projectName(for: .init(directory: directory, checkout: checkout)),
-            branch: directory.flatMap(task.displayedBranch(in:)) ?? task.branchName,
+            branch: directory.flatMap(task.displayedBranch(in:)) ?? tab.branchName,
             isWorktree: checkout?.isWorktree ?? false,
             isLocalOnly: showsPullRequests && PullRequestStore.shared.state(for: directory) == .localOnly
         )

@@ -251,9 +251,9 @@ struct HomeTaskStarterTests {
         )
         #expect(task.group?.id == group.id)
         #expect(task.orderIndex == sibling.orderIndex + 1)
-        #expect(task.workingDirectoryPath == "/repos/plume")
-        #expect(task.repoPath == "/repos/plume")
-        #expect(task.workspaceKind == .directory)
+        #expect(task.orderedTabs[0].workingDirectoryPath == "/repos/plume")
+        #expect(task.orderedTabs[0].repoPath == "/repos/plume")
+        #expect(task.orderedTabs[0].workspaceKind == .directory)
         #expect(task.tabs.map(\.kind) == [.agent])
         #expect(task.hasNeverStarted)
         #expect(RecentFolders.load(from: defaults) == ["/repos/plume"])
@@ -291,10 +291,10 @@ struct HomeTaskStarterTests {
             in: context, recentFolders: defaults
         )
         #expect(task.group == nil)
-        #expect(task.workingDirectoryPath == "/repos/plume/.plume/worktrees/ryanm-x-beef")
-        #expect(task.repoPath == "/repos/plume")
-        #expect(task.branchName == "ryanm/x-beef")
-        #expect(task.workspaceKind == .worktree)
+        #expect(task.orderedTabs[0].workingDirectoryPath == "/repos/plume/.plume/worktrees/ryanm-x-beef")
+        #expect(task.orderedTabs[0].repoPath == "/repos/plume")
+        #expect(task.orderedTabs[0].branchName == "ryanm/x-beef")
+        #expect(task.orderedTabs[0].workspaceKind == .worktree)
         #expect(RecentFolders.load(from: defaults) == ["/repos/plume"])
     }
 
@@ -308,9 +308,9 @@ struct HomeTaskStarterTests {
         let task = HomeTaskStarter.createTask(
             for: plan, directory: path, in: context, recentFolders: defaults
         )
-        #expect(task.workingDirectoryPath == path)
-        #expect(task.repoPath == "/repos/plume")
-        #expect(task.branchName == "ryanm/fix")
-        #expect(task.workspaceKind == .worktree)
+        #expect(task.orderedTabs[0].workingDirectoryPath == path)
+        #expect(task.orderedTabs[0].repoPath == "/repos/plume")
+        #expect(task.orderedTabs[0].branchName == "ryanm/fix")
+        #expect(task.orderedTabs[0].workspaceKind == .worktree)
     }
 }

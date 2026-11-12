@@ -208,7 +208,7 @@ struct TranscriptStoreTests {
             configurations: [ModelConfiguration(isStoredInMemoryOnly: true)]
         )
         let task = TaskStore.createTask(in: ModelContext(container), siblings: [])
-        task.workingDirectoryPath = "/repo"
+        task.tabs[0].workingDirectoryPath = "/repo"
         let tab = task.tabs[0]
 
         let dir = makeTempDirectory()

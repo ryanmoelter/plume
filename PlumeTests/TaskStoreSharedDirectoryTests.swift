@@ -15,6 +15,12 @@ struct TaskStoreSharedDirectoryTests {
     }
 
     private let directory = "/tmp/plume-shared-directory-test"
+
+    private func addTab(in directory: String, to task: WorkTask, context: ModelContext) {
+        let tab = TaskTab(kind: .terminal, orderIndex: 0, task: task)
+        context.insert(tab)
+        tab.workingDirectoryPath = directory
+    }
     private let state = GitState(branch: "feature", upstream: nil, ahead: 0, behind: 0, isDirty: false)
 
     @Test func deletingOneTaskKeepsGitStateForTheOthers() throws {
@@ -23,8 +29,8 @@ struct TaskStoreSharedDirectoryTests {
         defer { store.reset() }
         let first = TaskStore.createTask(in: context, siblings: [])
         let second = TaskStore.createTask(in: context, siblings: [])
-        first.workingDirectoryPath = directory
-        second.workingDirectoryPath = directory
+        addTab(in: directory, to: first, context: context)
+        addTab(in: directory, to: second, context: context)
         store.seedFixture(directory: directory, state: state)
         store.watch(directory)
 
@@ -38,7 +44,7 @@ struct TaskStoreSharedDirectoryTests {
         let store = GitStateStore.shared
         defer { store.reset() }
         let only = TaskStore.createTask(in: context, siblings: [])
-        only.workingDirectoryPath = directory
+        addTab(in: directory, to: only, context: context)
         store.seedFixture(directory: directory, state: state)
         store.watch(directory)
 

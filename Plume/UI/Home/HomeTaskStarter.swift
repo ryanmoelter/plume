@@ -40,24 +40,22 @@ enum HomeTaskStarter {
         recentFolders: UserDefaults = .standard
     ) -> WorkTask {
         let task = TaskStore.createTask(in: context, groupID: plan.groupID)
-        if let choices = plan.choices, let tab = task.orderedTabs.first {
-            choices.apply(to: tab)
-        }
-        task.workingDirectoryPath = plan.workingDirectory(inCheckout: directory)
+        guard let tab = task.orderedTabs.first else { return task }
+        plan.choices?.apply(to: tab)
+        let workingDirectory = plan.workingDirectory(inCheckout: directory)
         switch plan.workspace {
         case .directory(_, let repoPath):
-            task.repoPath = repoPath
-            task.workspaceKind = .directory
+            tab.workspace = .directory(workingDirectory, repoPath: repoPath)
             RecentFolders.remember(directory, in: recentFolders)
         case .newWorktree(let repository, let branch):
-            task.repoPath = repository
-            task.branchName = branch
-            task.workspaceKind = .worktree
+            tab.workspace = TabWorkspace(
+                kind: .worktree, directory: workingDirectory, repoPath: repository, branchName: branch
+            )
             RecentFolders.remember(repository, in: recentFolders)
         case .existingWorktree(_, let repository, let branch):
-            task.repoPath = repository
-            task.branchName = branch
-            task.workspaceKind = .worktree
+            tab.workspace = TabWorkspace(
+                kind: .worktree, directory: workingDirectory, repoPath: repository, branchName: branch
+            )
             RecentFolders.remember(repository, in: recentFolders)
         }
         return task

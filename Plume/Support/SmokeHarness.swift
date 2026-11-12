@@ -71,11 +71,10 @@ enum SmokeHarness {
             }
         }
 
-        // PLUME_SEED_CWD gives the first task a working directory, so agent
-        // tabs can launch without a folder picker.
+        // PLUME_SEED_CWD gives the first task's tabs a working directory, so
+        // agent tabs can launch without a folder picker.
         if let cwd = environment["PLUME_SEED_CWD"], let first = tasks.first {
-            first.workingDirectoryPath = cwd
-            first.workspaceKind = .directory
+            for tab in first.tabs { tab.workspace = .directory(cwd) }
         }
 
         // PLUME_SEED_AGENT_SESSION_ID stores a session ID on the first task's

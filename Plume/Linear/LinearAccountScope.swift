@@ -19,10 +19,22 @@ nonisolated enum LinearAccountScope {
         return connected.allSatisfy(allowed.contains) ? nil : allowed
     }
 
-    /// `repository` is a task's `repoPath`; a nil one belongs to no project.
+    /// `repository` is a tab's `repoPath`; a nil one belongs to no project.
     static func allowedOrgIDs(repository: String?, configuration: ProjectsConfiguration) -> [String]? {
         guard let repository else { return allowedOrgIDs(root: nil, configuration: configuration) }
         return allowedOrgIDs(root: ProjectRoot.root(forRepositoryDirectory: repository), configuration: configuration)
+    }
+
+    /// What any of `repositories` sees, since a task's tabs can sit in more
+    /// than one project and an issue linked from any of them belongs.
+    static func allowedOrgIDs(repositories: [String], configuration: ProjectsConfiguration) -> [String]? {
+        guard !repositories.isEmpty else { return allowedOrgIDs(repository: nil, configuration: configuration) }
+        var union: [String] = []
+        for repository in repositories {
+            guard let orgIDs = allowedOrgIDs(repository: repository, configuration: configuration) else { return nil }
+            union.append(contentsOf: orgIDs.filter { !union.contains($0) })
+        }
+        return union
     }
 
     static func allowedOrgIDs(root: String?, configuration: ProjectsConfiguration) -> [String]? {

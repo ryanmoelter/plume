@@ -26,13 +26,23 @@ final class TaskTab {
     var transportRaw: String?
 
     var providerID: String?
-    /// Where this tab last reported being, which is not always its task's
-    /// folder: an agent that moves into a worktree stays there across a
-    /// relaunch, and a terminal reopens wherever it last was unless that
-    /// folder is gone. Nil until the tab reports, so a new tab starts at its
-    /// task's folder. `TabDirectoryStore` owns the live value and writes
-    /// through here.
+    /// Where the tab works. Its workspace sets it, and it then follows the
+    /// tab as it reports moving: an agent that moves into a worktree stays
+    /// there across a relaunch, and a terminal reopens wherever it last was
+    /// unless that folder is gone. `TabDirectoryStore` owns the live value and
+    /// writes through here.
     var workingDirectoryPath: String?
+    var workspaceKindRaw: String = WorkspaceKind.unset.rawValue
+    /// The repository `workingDirectoryPath` belongs to; nil outside git.
+    var repoPath: String?
+    /// The branch the tab's workspace was made on or switched to. Unlike
+    /// `workingDirectoryPath` it never follows the tab, so it still names a
+    /// worktree Plume made after the tab has moved out of it.
+    var branchName: String?
+    /// False only for a tab saved before tabs owned their workspace, until
+    /// `TabWorkspaceMigration` fills it from its task. The initializer sets
+    /// it, so the stored default reaches only those older tabs.
+    var isWorkspaceMigrated: Bool = false
     /// The CLI's own identifier for this conversation, passed back to it to
     /// resume: a Claude Code `session_id`, or a Codex `threadId`.
     var agentSessionID: String?
@@ -103,7 +113,24 @@ final class TaskTab {
         self.orderIndex = orderIndex
         self.task = task
         self.providerID = kind == .agent ? ClaudeCodeProviderID : nil
+        self.isWorkspaceMigrated = true
+    }
 
+    var workspaceKind: WorkspaceKind {
+        get { WorkspaceKind(rawValue: workspaceKindRaw) ?? .unset }
+        set { workspaceKindRaw = newValue.rawValue }
+    }
+
+    var workspace: TabWorkspace {
+        get {
+            TabWorkspace(kind: workspaceKind, directory: workingDirectoryPath, repoPath: repoPath, branchName: branchName)
+        }
+        set {
+            workspaceKind = newValue.kind
+            workingDirectoryPath = newValue.directory
+            repoPath = newValue.repoPath
+            branchName = newValue.branchName
+        }
     }
 
     var kind: TabKind {
@@ -240,6 +267,17 @@ final class TaskTab {
         case .terminal: return "Terminal"
         case .device: return "Device"
         }
+    }
+}
+
+nonisolated struct TabWorkspace: Equatable, Sendable {
+    var kind: WorkspaceKind = .unset
+    var directory: String?
+    var repoPath: String?
+    var branchName: String?
+
+    static func directory(_ path: String, repoPath: String? = nil, branchName: String? = nil) -> TabWorkspace {
+        TabWorkspace(kind: .directory, directory: path, repoPath: repoPath, branchName: branchName)
     }
 }
 

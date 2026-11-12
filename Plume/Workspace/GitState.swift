@@ -63,11 +63,11 @@ nonisolated struct GitState: Equatable {
     }
 
     /// The branch to show for a directory: `git`'s own answer once it has
-    /// one, or the task's stored guess before that. Showing nothing while
+    /// one, or the tab's stored guess before that. Showing nothing while
     /// `git` is still answering would read as a directory with no branch
     /// rather than one still loading.
-    static func displayedBranch(state: GitState?, taskBranchName: String?) -> String? {
-        state?.branch ?? taskBranchName
+    static func displayedBranch(state: GitState?, storedBranchName: String?) -> String? {
+        state?.branch ?? storedBranchName
     }
 }
 

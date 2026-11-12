@@ -283,7 +283,7 @@ struct MainWindow: View {
         WorktreeRemovalDialogModifier(
             pendingRemoval: $pendingWorktreeRemoval,
             removalError: $worktreeRemovalError,
-            onConfirm: finishRemoval
+            onConfirm: confirmRemoval
         )
     }
 
@@ -332,36 +332,47 @@ struct MainWindow: View {
 
     private func requestWorktreeRemoval(of task: WorkTask, verb: WorktreeRemovalVerb) {
         guard WorktreeRemovalPrompt.needsConfirmation(for: task) else {
-            finishRemoval(task, verb: verb, removeWorktree: false, deleteBranch: false)
-            return
-        }
-        guard let path = task.workingDirectoryPath else {
-            // Deferred a tick: `requestRemoval` can call this from inside the
-            // live-agent dialog's own confirm button, and presenting this
-            // dialog in the same run loop turn as that one dismisses drops
-            // the presentation.
-            DispatchQueue.main.async {
-                pendingWorktreeRemoval = .init(task: task, verb: verb, dirtySummary: nil)
-            }
+            finishRemoval(task, verb: verb, worktrees: [], deleteBranch: false)
             return
         }
         // Checks for uncommitted work before presenting the confirmation, so
         // the dialog's copy is settled before it ever appears rather than
-        // mutating under the user once the check resolves.
+        // mutating under the user once the check resolves. The await also
+        // defers presenting past the live-agent dialog's dismissal, which
+        // would otherwise drop it.
         Task {
-            let changes = await GitService.shared.uncommittedChanges(in: path)
-            pendingWorktreeRemoval = .init(
-                task: task,
-                verb: verb,
-                dirtySummary: changes.isEmpty ? nil : WorktreeRemovalPrompt.describe(changes)
-            )
+            let worktrees = await WorktreeRemovalPrompt.targets(for: task)
+            guard !worktrees.isEmpty else {
+                finishRemoval(task, verb: verb, worktrees: [], deleteBranch: false)
+                return
+            }
+            var dirtySummaries: [String: String] = [:]
+            for worktree in worktrees {
+                let changes = await GitService.shared.uncommittedChanges(in: worktree.path)
+                if !changes.isEmpty { dirtySummaries[worktree.path] = WorktreeRemovalPrompt.describe(changes) }
+            }
+            pendingWorktreeRemoval = .init(task: task, verb: verb, worktrees: worktrees, dirtySummaries: dirtySummaries)
         }
     }
 
-    private func finishRemoval(_ task: WorkTask, verb: WorktreeRemovalVerb, removeWorktree: Bool, deleteBranch: Bool) {
-        TaskStore.removeWorktreeThenFinish(
-            for: task,
-            removeWorktree: removeWorktree,
+    private func confirmRemoval(_ removal: WorktreeRemovalPrompt.PendingRemoval, removeWorktree: Bool, deleteBranch: Bool) {
+        finishRemoval(
+            removal.task,
+            verb: removal.verb,
+            worktrees: removeWorktree ? removal.worktrees : [],
+            deleteBranch: deleteBranch
+        )
+    }
+
+    private func finishRemoval(
+        _ task: WorkTask,
+        verb: WorktreeRemovalVerb,
+        worktrees: [WorktreeRemovalTarget],
+        deleteBranch: Bool
+    ) {
+        TaskStore.removeWorktreesThenFinish(
+            worktrees,
+            of: task,
             deleteBranch: deleteBranch,
             in: context,
             onError: { message in

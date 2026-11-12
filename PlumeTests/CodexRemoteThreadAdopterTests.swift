@@ -15,8 +15,8 @@ struct CodexRemoteThreadAdopterTests {
         let task = WorkTask(title: "Existing", orderIndex: 0)
         context.insert(task)
         task.isArchived = true
-        task.workingDirectoryPath = "/old"
         let tab = TaskStore.addTab(to: task, kind: .agent, provider: .codex, in: context)
+        tab.workingDirectoryPath = "/old"
         tab.transport = .headless
         tab.agentSessionID = "existing"
         let matched = try CodexRemoteThreadAdopter.resolve(thread: .object([
@@ -24,7 +24,7 @@ struct CodexRemoteThreadAdopterTests {
         ]), in: context)
         #expect(matched?.id == tab.id)
         #expect(!task.isArchived)
-        #expect(task.workingDirectoryPath == "/old")
+        #expect(tab.workingDirectoryPath == "/old")
         let fresh = try CodexRemoteThreadAdopter.resolve(thread: .object([
             "id": .string("new"), "cwd": .string("/old")
         ]), in: context)

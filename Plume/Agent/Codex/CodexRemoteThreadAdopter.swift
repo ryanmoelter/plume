@@ -20,12 +20,11 @@ enum CodexRemoteThreadAdopter {
         }
         let tasks = try context.fetch(FetchDescriptor<WorkTask>())
         let task = WorkTask(title: "", orderIndex: (tasks.filter { $0.group == nil && !$0.isArchived }.map(\.orderIndex).max() ?? -1) + 1)
-        if let cwd = thread["cwd"]?.stringValue, !cwd.isEmpty {
-            task.workingDirectoryPath = cwd
-            task.workspaceKind = .directory
-        }
         context.insert(task)
         let tab = TaskStore.addTab(to: task, kind: .agent, provider: .codex, in: context)
+        if let cwd = thread["cwd"]?.stringValue, !cwd.isEmpty {
+            tab.workspace = .directory(cwd)
+        }
         tab.transport = .headless
         tab.agentSessionID = id
         tab.title = thread["name"]?.stringValue
@@ -44,7 +43,7 @@ enum CodexRemoteThreadAdopter {
             guard manager.claimCodexThread(threadID, for: tab.id),
                   let session = manager.session(for: tab.id, taskID: task.id, provider: .codex) as? CodexSession else { return false }
             try context.save()
-            session.start(workingDirectory: task.workingDirectoryPath,
+            session.start(workingDirectory: TabDirectoryStore.shared.directory(for: tab),
                           resumeThreadID: threadID, model: nil,
                           preserveRemoteConfiguration: true, environment: [:])
             // start marks the handshake synchronously. Requests replayed by

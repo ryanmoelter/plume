@@ -36,7 +36,7 @@ struct AutoResumingAgentTabView: View {
     }
 
     private var directoryExists: Bool {
-        guard let path = task.workingDirectoryPath else { return false }
+        guard let path = TabDirectoryStore.shared.directory(for: tab) else { return false }
         return FileManager.default.fileExists(atPath: path)
     }
 
@@ -44,7 +44,7 @@ struct AutoResumingAgentTabView: View {
         guard !hasResumed else { return }
         guard AgentAutoResume.shouldResume(
             agentSessionID: tab.agentSessionID,
-            workingDirectoryPath: task.workingDirectoryPath,
+            workingDirectoryPath: TabDirectoryStore.shared.directory(for: tab),
             hasExistingSurfaceSession: SurfaceManager.shared.existingSession(for: tab.id) != nil,
             directoryExists: { FileManager.default.fileExists(atPath: $0) }
         ) else { return }

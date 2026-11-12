@@ -337,7 +337,10 @@ final class CLICommandHandler {
         // A client that timed out and retried would otherwise get a second
         // task for the same worktree.
         let resolved = Self.resolvedPath(path)
-        if let existing = liveTasks.first(where: { $0.workingDirectoryPath.map(Self.resolvedPath) == resolved }) {
+        let isInDirectory = { (tab: TaskTab) in
+            self.directories.directory(for: tab).map(Self.resolvedPath) == resolved
+        }
+        if let existing = liveTasks.first(where: { $0.tabs.contains(where: isInDirectory) }) {
             if params.select { windows.first?.reveal(existing.id) }
             var response = CLIResponse.success
             response.taskID = existing.id
@@ -348,12 +351,14 @@ final class CLICommandHandler {
         let task = TaskStore.createTask(
             in: context, title: (path as NSString).lastPathComponent, group: group, siblings: siblings
         )
-        task.workingDirectoryPath = path
-        task.repoPath = ProjectRoot.repositoryDirectory(forRoot: checkout.facts.projectRoot)
-        task.branchName = checkout.branch
         // Deleting a worktree task offers to remove the worktree, which the
         // main checkout must never be.
-        task.workspaceKind = checkout.facts.isWorktree ? .worktree : .directory
+        task.tabs.first?.workspace = TabWorkspace(
+            kind: checkout.facts.isWorktree ? .worktree : .directory,
+            directory: path,
+            repoPath: ProjectRoot.repositoryDirectory(forRoot: checkout.facts.projectRoot),
+            branchName: checkout.branch
+        )
         if params.select { windows.first?.reveal(task.id) }
         var response = CLIResponse.success
         response.taskID = task.id

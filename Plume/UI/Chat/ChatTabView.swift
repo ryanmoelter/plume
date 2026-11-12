@@ -160,7 +160,7 @@ struct ChatTabView: View, ThemedView {
     /// transcript at all — so unlike the plan path, this is not on the
     /// streaming render path and can check the filesystem directly.
     private var canResume: Bool {
-        guard let directory = task.workingDirectoryPath else { return false }
+        guard let directory = TabDirectoryStore.shared.directory(for: tab) else { return false }
         return FileManager.default.fileExists(atPath: directory)
     }
 
@@ -271,7 +271,7 @@ struct ChatTabView: View, ThemedView {
         )
         let gitState = GitStateStore.shared.state(for: gitDirectory)
         let checkout = CheckoutFactsStore.shared.facts(for: gitDirectory)
-        let branch = GitState.displayedBranch(state: gitState, taskBranchName: task.branchName).map {
+        let branch = GitState.displayedBranch(state: gitState, storedBranchName: tab.branchName).map {
             InfoPaneFacts.Branch(
                 name: $0,
                 isWorktree: checkout?.isWorktree ?? false,
@@ -542,10 +542,10 @@ struct ChatTabView: View, ThemedView {
         }
         .animation(.snappy(duration: 0.22), value: isSideChatShown)
         .sheet(isPresented: $resumeSheetShown) {
-            if let path = task.workingDirectoryPath {
+            if let path = TabDirectoryStore.shared.directory(for: tab) {
                 ResumeSessionSheet(
                     workingDirectory: path,
-                    repoPath: task.repoPath,
+                    repoPath: tab.repoPath,
                     provider: tab.provider,
                     onSelect: resume
                 )
@@ -828,7 +828,7 @@ struct ChatTabView: View, ThemedView {
     /// empty state (`workspaceChoice`).
     private func workspaceGroup(branchWidth: BranchWidth) -> some View {
         WorkspacePickerView(
-            task: task,
+            tab: tab,
             isEditable: false,
             branchWidth: branchWidth,
             state: GitStateStore.shared.state(for: gitDirectory),
@@ -1239,7 +1239,7 @@ struct ChatTabView: View, ThemedView {
     /// conversation drops it until the replacement arrives.
     private var forkSessionID: String? {
         guard let sessionID = tab.agentSessionID, !sessionID.isEmpty,
-              task.workingDirectoryPath != nil
+              TabDirectoryStore.shared.directory(for: tab) != nil
         else { return nil }
         return sessionID
     }
@@ -1263,13 +1263,14 @@ struct ChatTabView: View, ThemedView {
         else { return }
         let newSessionID = UUID().uuidString.lowercased()
         let newTab = TaskStore.addTab(to: task, kind: .agent, pane: tab.paneIndex, in: modelContext)
+        newTab.workspace = TabDirectoryStore.shared.currentWorkspace(of: tab)
         newTab.transport = .headless
         newTab.agentSessionID = newSessionID
         // Derived here, because `persistHeadlessSessionID` only derives it for
         // an id it has not already seen — and the fork's id is recorded above,
         // before the CLI reports it. Without the path the tab watches nothing,
         // so its transcript is never read and the composer stays disabled.
-        if let workingDirectory = task.workingDirectoryPath {
+        if let workingDirectory = TabDirectoryStore.shared.directory(for: newTab) {
             newTab.sessionJSONLPath = SessionJSONLReader.resolvedTranscriptPath(
                 workingDirectory: workingDirectory,
                 sessionID: newSessionID
@@ -1372,7 +1373,7 @@ struct ChatTabView: View, ThemedView {
     /// that reason — see `emptyState`.
     private var workspaceChoice: some View {
         WorkspacePickerView(
-            task: task,
+            tab: tab,
             isEditable: true,
             branchWidth: .natural,
             prominence: .inline,

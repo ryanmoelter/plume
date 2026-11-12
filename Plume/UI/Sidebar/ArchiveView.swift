@@ -36,7 +36,7 @@ struct ArchiveView: View {
                         Text(TitleStore.shared.displayTitle(for: task))
                             .lineLimit(2)
                             .truncationMode(.tail)
-                        if let path = task.workingDirectoryPath {
+                        if let path = task.storedTabDirectory {
                             Text(path.replacingOccurrences(of: NSHomeDirectory(), with: "~"))
                                 .font(.caption)
                                 .foregroundStyle(.secondary)

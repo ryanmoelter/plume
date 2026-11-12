@@ -9,6 +9,11 @@ struct PlumeApp: App {
 
     init() {
         LoginShellCommand.dropInheritedInstanceKeys()
+        do {
+            try TabWorkspaceMigration.run(in: modelContainer.mainContext)
+        } catch {
+            Log.app.error("Could not move workspaces onto tabs: \(error, privacy: .public)")
+        }
         #if DEBUG
         do {
             try SeededProviderRecovery.recover(in: modelContainer.mainContext)

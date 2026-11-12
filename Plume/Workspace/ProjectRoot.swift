@@ -15,7 +15,7 @@ nonisolated enum ProjectRoot {
 
     /// Where git runs repository-wide commands for `root`: its `.bare` in the
     /// bare layout, where the root itself is no repository, else `root`.
-    /// This is what a task records as its `repoPath`.
+    /// This is what a tab records as its `repoPath`.
     static func repositoryDirectory(forRoot root: String) -> String {
         let bare = (root as NSString).appendingPathComponent(".bare")
         return FileManager.default.fileExists(atPath: bare) ? bare : root

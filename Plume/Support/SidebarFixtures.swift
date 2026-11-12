@@ -44,34 +44,31 @@ enum SidebarFixtures {
         siblings: [WorkTask]
     ) -> WorkTask {
         let task = TaskStore.createTask(in: context, title: fixture.name, group: group, siblings: siblings)
-        task.workingDirectoryPath = "/tmp/plume-fixtures/\(fixture.directory)"
-        task.workspaceKind = .directory
-        task.branchName = fixture.branch
+        let directory = "/tmp/plume-fixtures/\(fixture.directory)"
+        task.tabs.first?.workspace = .directory(directory, branchName: fixture.branch)
         task.lastStatus = fixture.status
         if let agentTab = task.orderedTabs.first(where: { $0.kind == .agent }) {
             StatusEngine.shared.setStatus(fixture.status, taskID: task.id, tabID: agentTab.id)
         }
-        if let directory = task.workingDirectoryPath {
-            if let state = fixture.pullRequestState {
-                PullRequestStore.shared.seedFixture(directory: directory, state: state)
-            }
-            if let checkout = fixture.checkout {
-                CheckoutFactsStore.shared.seedFixture(directory: directory, facts: checkout)
-            }
-            // Without this the row takes a real git watch on a path that does
-            // not exist, and the failed lookup publishes a nil branch over the
-            // fixture's.
-            GitStateStore.shared.seedFixture(
-                directory: directory,
-                state: GitState(
-                    branch: fixture.branch,
-                    upstream: fixture.pullRequestState == .localOnly ? nil : "origin/\(fixture.branch ?? "")",
-                    ahead: 0,
-                    behind: 0,
-                    isDirty: false
-                )
-            )
+        if let state = fixture.pullRequestState {
+            PullRequestStore.shared.seedFixture(directory: directory, state: state)
         }
+        if let checkout = fixture.checkout {
+            CheckoutFactsStore.shared.seedFixture(directory: directory, facts: checkout)
+        }
+        // Without this the row takes a real git watch on a path that does
+        // not exist, and the failed lookup publishes a nil branch over the
+        // fixture's.
+        GitStateStore.shared.seedFixture(
+            directory: directory,
+            state: GitState(
+                branch: fixture.branch,
+                upstream: fixture.pullRequestState == .localOnly ? nil : "origin/\(fixture.branch ?? "")",
+                ahead: 0,
+                behind: 0,
+                isDirty: false
+            )
+        )
         return task
     }
 
@@ -84,14 +81,13 @@ enum SidebarFixtures {
         siblings: [WorkTask]
     ) -> WorkTask {
         let task = TaskStore.createTask(in: context, title: "multi-directory", group: group, siblings: siblings)
-        task.workspaceKind = .directory
 
         let directories = [
             "fixture-multi-dir-alpha",
             "fixture-multi-dir-beta",
             "fixture-multi-dir-gamma",
         ]
-        task.workingDirectoryPath = "/tmp/plume-fixtures/\(directories[0])"
+        task.tabs.first?.workspace = .directory("/tmp/plume-fixtures/\(directories[0])")
 
         let firstTab = task.orderedTabs.first(where: { $0.kind == .agent })
         let tabs = [firstTab].compactMap { $0 }
@@ -154,9 +150,7 @@ enum SidebarFixtures {
         func seed(_ name: String, branch: String) -> WorkTask {
             let task = TaskStore.createTask(in: context, title: name, group: group, siblings: siblings)
             let directory = "/tmp/plume-fixtures/fixture-\(name)"
-            task.workingDirectoryPath = directory
-            task.workspaceKind = .directory
-            task.branchName = branch
+            task.tabs.first?.workspace = .directory(directory, branchName: branch)
             GitStateStore.shared.seedFixture(
                 directory: directory,
                 state: GitState(branch: branch, upstream: nil, ahead: 0, behind: 0, isDirty: false)

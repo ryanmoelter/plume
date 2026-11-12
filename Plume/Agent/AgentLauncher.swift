@@ -197,7 +197,7 @@ enum AgentLauncher {
         tab.agentSessionID = sessionID
         // Only Claude Code keeps a transcript on disk; Codex serves its
         // history over the protocol, so a Codex tab has no path to derive.
-        guard tab.provider == .claudeCode, let workingDirectory = tab.task?.workingDirectoryPath else { return }
+        guard tab.provider == .claudeCode, let workingDirectory = TabDirectoryStore.shared.directory(for: tab) else { return }
         tab.sessionJSONLPath = SessionJSONLReader.resolvedTranscriptPath(
             workingDirectory: workingDirectory,
             sessionID: sessionID
