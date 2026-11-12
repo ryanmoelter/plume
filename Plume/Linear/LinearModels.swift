@@ -67,6 +67,28 @@ nonisolated struct LinearTeam: Sendable, Equatable, Codable {
     let states: [LinearWorkflowState]
 }
 
+/// How far Linear fills a `started` state's circle, by where the state sits
+/// among its team's started states.
+nonisolated enum LinearStartedProgress: Sendable, Equatable {
+    case quarter, half, threeQuarters
+
+    /// A lone started state reads as half; two read as half and three
+    /// quarters; three or more run from a quarter to three quarters.
+    init(position: Double, among startedPositions: [Double]) {
+        let count = startedPositions.count
+        let rank = startedPositions.count { $0 < position }
+        switch count {
+        case ...1:
+            self = .half
+        case 2:
+            self = rank == 0 ? .half : .threeQuarters
+        default:
+            let fraction = Double(min(rank, count - 1)) / Double(count - 1)
+            self = fraction < 0.25 ? .quarter : fraction > 0.75 ? .threeQuarters : .half
+        }
+    }
+}
+
 /// One workspace's teams and their workflow states. Small and slow-changing,
 /// so it is cached on disk and refreshed rarely.
 nonisolated struct LinearCatalog: Sendable, Equatable, Codable {

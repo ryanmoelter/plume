@@ -78,6 +78,7 @@ struct InfoPaneFacts: Equatable {
         var stateType: LinearStateType?
         var stateColor: String?
         var statePosition: Double?
+        var startedProgress: LinearStartedProgress = .half
         var assignee: String?
         var url: URL?
         /// Who touched the issue, when a subagent did.
@@ -234,10 +235,11 @@ extension InfoPaneFacts {
         isConfigured: Bool,
         links: [LinkedLinearIssue],
         state: (String) -> LinearIssueFetchState?,
+        startedProgress: (String, Double?) -> LinearStartedProgress = { _, _ in .half },
         hasSettled: (String) -> Bool
     ) -> LinearFacts? {
         guard isEnabled, isConfigured else { return nil }
-        let issues = linearIssues(links: links, state: state)
+        let issues = linearIssues(links: links, state: state, startedProgress: startedProgress)
         let settled = issues.filter { $0.role == .mentioned && hasSettled($0.identifier) }
         let settledIDs = Set(settled.map(\.identifier))
         return LinearFacts(main: issues.filter { !settledIDs.contains($0.identifier) }, mentioned: settled)
@@ -246,7 +248,8 @@ extension InfoPaneFacts {
     /// Working issues first, then mentioned ones, each sorted by `LinearIssueOrder`.
     static func linearIssues(
         links: [LinkedLinearIssue],
-        state: (String) -> LinearIssueFetchState?
+        state: (String) -> LinearIssueFetchState?,
+        startedProgress: (String, Double?) -> LinearStartedProgress = { _, _ in .half }
     ) -> [LinearIssueFacts] {
         let facts = links.map { link -> LinearIssueFacts in
             let fetch = state(link.identifier)
@@ -259,6 +262,7 @@ extension InfoPaneFacts {
                 stateType: issue?.stateType,
                 stateColor: issue?.stateColor,
                 statePosition: issue?.statePosition,
+                startedProgress: startedProgress(link.identifier, issue?.statePosition),
                 assignee: issue?.assigneeName,
                 url: issue.flatMap { URL(string: $0.url) },
                 attribution: attribution(of: link),

@@ -174,7 +174,7 @@ private struct IssueRow: View, ThemedView {
         if showsBubble {
             Image(systemName: "questionmark.bubble").emphasis(.secondary)
         } else if let type = issue.stateType {
-            LinearIssueGlyph(stateType: type, colorHex: issue.stateColor)
+            LinearIssueGlyph(stateType: type, colorHex: issue.stateColor, progress: issue.startedProgress)
         } else {
             Image(systemName: "circle.dotted").emphasis(.subtle)
         }

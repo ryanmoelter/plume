@@ -177,6 +177,14 @@ final class LinearStore: LinearActivitySink {
         catalogs[orgID]
     }
 
+    func startedProgress(identifier: String, position: Double?) -> LinearStartedProgress {
+        guard let position else { return .half }
+        let key = LinearIdentifier.teamKey(of: identifier).uppercased()
+        let team = orderedCatalogs.lazy.compactMap { $0.teams.first { $0.key == key } }.first
+        let positions = team?.states.filter { $0.type == .started }.compactMap(\.position) ?? []
+        return LinearStartedProgress(position: position, among: positions)
+    }
+
     /// Not observable: read it when showing it.
     func rateLimit(orgID: String) -> LinearRateLimit? {
         rateLimits.limit(orgID: orgID)

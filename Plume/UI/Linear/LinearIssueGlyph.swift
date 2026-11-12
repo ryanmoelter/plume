@@ -11,19 +11,29 @@ struct LinearIssueGlyph: View, ThemedView {
     let colorHex: String?
     /// Nil draws Linear's color unchanged.
     let strategy: LinearStateColorStrategy?
+    /// Only a `started` state reads it.
+    let progress: LinearStartedProgress
 
-    init(stateType: LinearStateType, colorHex: String?) {
-        self.init(stateType: stateType, colorHex: colorHex, strategy: AppSettings.shared.linearStateColors)
+    init(stateType: LinearStateType, colorHex: String?, progress: LinearStartedProgress = .half) {
+        self.init(
+            stateType: stateType, colorHex: colorHex, strategy: AppSettings.shared.linearStateColors, progress: progress
+        )
     }
 
-    init(stateType: LinearStateType, colorHex: String?, strategy: LinearStateColorStrategy?) {
+    init(
+        stateType: LinearStateType,
+        colorHex: String?,
+        strategy: LinearStateColorStrategy?,
+        progress: LinearStartedProgress = .half
+    ) {
         self.stateType = stateType
         self.colorHex = colorHex
         self.strategy = strategy
+        self.progress = progress
     }
 
     var body: some View {
-        let image = Image(systemName: Self.symbolName(for: stateType))
+        let image = Image(systemName: Self.symbolName(for: stateType, progress: progress))
         if let color {
             image.foregroundStyle(color)
         } else {
@@ -48,11 +58,19 @@ struct LinearIssueGlyph: View, ThemedView {
         }
     }
 
-    nonisolated static func symbolName(for stateType: LinearStateType) -> String {
+    nonisolated static func symbolName(
+        for stateType: LinearStateType,
+        progress: LinearStartedProgress = .half
+    ) -> String {
         switch stateType {
         case .backlog: "circle.dashed"
         case .unstarted: "circle"
-        case .started: "circle.righthalf.filled"
+        case .started:
+            switch progress {
+            case .quarter: "circle.lefthalf.striped.horizontal.inverse"
+            case .half: "circle.righthalf.filled"
+            case .threeQuarters: "circle.lefthalf.filled.righthalf.striped.horizontal.inverse"
+            }
         case .completed: "checkmark.circle.fill"
         case .canceled: "xmark.circle.fill"
         case .duplicate: "equal.circle.fill"
