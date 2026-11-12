@@ -93,13 +93,21 @@ nonisolated enum PullRequestRowContent {
     }
 
     /// The info pane's status glyph: checks have their own row there, so it
-    /// takes draft, else review, else plain open.
+    /// takes draft, else review, else plain open. A draft reads dim there, as
+    /// inactive.
     static func leadingWithoutChecks(_ pull: PullRequestSummary) -> PullRequestGlyph {
         if let finished = PullRequestChipContent.finishedGlyph(pull.state) { return finished }
-        if pull.isDraft { return PullRequestChipContent.draft }
+        if pull.isDraft { return dimDraft }
         return PullRequestChipContent.reviewGlyph(pull.reviewDecision, hasReviewers: pull.hasReviewers)
             ?? PullRequestChipContent.open
     }
+
+    private static let dimDraft = PullRequestGlyph(
+        symbol: PullRequestChipContent.draft.symbol,
+        tint: .neutral,
+        label: PullRequestChipContent.draft.label,
+        isDim: true
+    )
 
     /// Nil for a finished pull request, whose review no longer matters, and
     /// for one nobody was asked to review.
