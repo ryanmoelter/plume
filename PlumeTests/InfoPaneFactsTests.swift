@@ -439,18 +439,15 @@ struct InfoPaneBracketGeometryTests {
     private func geometry(
         progress: CGFloat,
         barX: CGFloat = -6,
-        bottom: CGFloat = 100,
-        stubY: CGFloat = 12,
-        drawsStub: Bool = true
+        bottom: CGFloat = 100
     ) -> InfoPaneBracketGeometry {
         InfoPaneBracketGeometry(
             barX: barX,
             stubStartX: 4,
             stubEndX: 12,
-            stubY: stubY,
+            stubY: 12,
             bottom: bottom,
             progress: progress,
-            drawsStub: drawsStub,
             cornerRadius: 4,
             barEndInset: 5
         )
@@ -511,15 +508,6 @@ struct InfoPaneBracketGeometryTests {
         #expect(near.cornerRadius == 2)
         #expect(near.runEnd == CGPoint(x: 4, y: 12))
         #expect(near.barStart == CGPoint(x: 2, y: 14))
-    }
-
-    @Test func withoutAStubTheBarRunsStraightFromTheStart() {
-        let plain = geometry(progress: 1, stubY: 30, drawsStub: false)
-        #expect(plain.stubEnd == nil)
-        #expect(plain.barStart == CGPoint(x: -6, y: 30))
-        #expect(plain.barEnd == CGPoint(x: -6, y: 95))
-        let collapsed = geometry(progress: 0, stubY: 30, drawsStub: false)
-        #expect(collapsed.barEnd == collapsed.barStart)
     }
 
     @Test func theStrokeFadesWithProgressAndClamps() {

@@ -60,7 +60,6 @@ struct InfoPaneBracketedSection<Header: View, Rows: View>: View, ThemedView {
     }
 
     private func bracket(headerHeight: CGFloat) -> some View {
-        let isPlain = InfoPaneLayout.usesPlainBar
         let progress: CGFloat = isExpanded ? 1 : 0
         let stub = InfoPaneBracketStub(pointSize: typography.caption.size, centerX: InfoPaneLayout.iconColumnWidth / 2)
         return InfoPaneBracketStroke(
@@ -71,8 +70,7 @@ struct InfoPaneBracketedSection<Header: View, Rows: View>: View, ThemedView {
                 barX: level.barX,
                 stubStartX: stub.startX,
                 stubEndX: stub.endX,
-                stubY: isPlain ? headerHeight + InfoPaneLayout.rowVerticalPadding : headerHeight / 2,
-                drawsStub: !isPlain,
+                stubY: headerHeight / 2,
                 cornerRadius: level.cornerRadius,
                 barEndInset: InfoPaneLayout.rowVerticalPadding
             ),
@@ -126,8 +124,6 @@ struct InfoPaneSectionHeader<Accessory: View>: View {
     let title: String
     let icon: InfoPaneSectionIcon
     let isExpanded: Bool
-    /// False when there is nothing to disclose, as in an empty section.
-    var isDisclosable = true
     let accessibilityID: String
     var accessibilityValue: String?
     /// True while a control laid over the header is hovered.
@@ -141,7 +137,7 @@ struct InfoPaneSectionHeader<Accessory: View>: View {
     var body: some View {
         Button(action: action) {
             HStack(spacing: InfoPaneLayout.columnSpacing) {
-                InfoPaneHeaderIcon(isExpanded: isExpanded, isDisclosable: isDisclosable)
+                InfoPaneHeaderIcon()
                 Text(title)
                     .lineLimit(1)
                     .truncationMode(.tail)
@@ -158,7 +154,6 @@ struct InfoPaneSectionHeader<Accessory: View>: View {
 }
 
 extension InfoPaneSectionHeader where Accessory == InfoPaneHeaderCount {
-    /// With no count, the section has nothing to disclose.
     init(
         title: String,
         icon: InfoPaneSectionIcon,
@@ -174,7 +169,6 @@ extension InfoPaneSectionHeader where Accessory == InfoPaneHeaderCount {
             title: title,
             icon: icon,
             isExpanded: isExpanded,
-            isDisclosable: count != nil,
             accessibilityID: accessibilityID,
             accessibilityValue: accessibilityValue,
             suppressesWash: suppressesWash,
@@ -245,7 +239,7 @@ struct InfoPaneSubgroupHeader: View {
     var body: some View {
         Button(action: action) {
             HStack(spacing: InfoPaneLayout.columnSpacing) {
-                InfoPaneHeaderIcon(isExpanded: isExpanded, isDisclosable: true)
+                InfoPaneHeaderIcon()
                 InfoPaneHeaderTitle(title: title, count: count)
                 Spacer(minLength: 0)
             }
@@ -256,19 +250,10 @@ struct InfoPaneSubgroupHeader: View {
     }
 }
 
-/// Room for the bracket's stub, or the debug plain bar's chevron.
+/// Room for the bracket's stub.
 private struct InfoPaneHeaderIcon: View {
-    let isExpanded: Bool
-    let isDisclosable: Bool
-
     var body: some View {
-        InfoPaneIcon {
-            if InfoPaneLayout.usesPlainBar, isDisclosable {
-                DisclosureChevron(isExpanded: isExpanded)
-            } else {
-                Color.clear.frame(height: 0)
-            }
-        }
+        InfoPaneIcon { Color.clear.frame(height: 0) }
     }
 }
 
@@ -312,8 +297,8 @@ nonisolated struct InfoPaneBracketGeometry: Equatable {
         stubWidth + (barWidth - stubWidth) * CGFloat(lineFade(progress: progress))
     }
 
-    /// The stub's fixed right end, nil when no stub is drawn.
-    let stubEnd: CGPoint?
+    /// The stub's fixed right end.
+    let stubEnd: CGPoint
     /// The left end of the horizontal run so far.
     let runEnd: CGPoint
     let cornerCenter: CGPoint
@@ -323,7 +308,7 @@ nonisolated struct InfoPaneBracketGeometry: Equatable {
     let barStart: CGPoint
     let barEnd: CGPoint
 
-    /// `bottom` is the section's. Without a stub, the bar starts at `stubY`.
+    /// `bottom` is the section's.
     init(
         barX: CGFloat,
         stubStartX: CGFloat,
@@ -331,22 +316,11 @@ nonisolated struct InfoPaneBracketGeometry: Equatable {
         stubY: CGFloat,
         bottom: CGFloat,
         progress: CGFloat,
-        drawsStub: Bool,
         cornerRadius: CGFloat,
         barEndInset: CGFloat
     ) {
         let progress = min(max(progress, 0), 1)
         let fullLength = max(0, bottom - barEndInset - stubY)
-        guard drawsStub else {
-            stubEnd = nil
-            runEnd = CGPoint(x: barX, y: stubY)
-            cornerCenter = runEnd
-            self.cornerRadius = 0
-            cornerTurn = 0
-            barStart = runEnd
-            barEnd = CGPoint(x: barX, y: stubY + fullLength * progress)
-            return
-        }
         let radius = max(0, min(cornerRadius, fullLength, stubStartX - barX))
         let runLength = max(0, stubStartX - barX - radius)
         let cornerLength = radius * .pi / 2
@@ -371,7 +345,6 @@ nonisolated struct InfoPaneBracketShape: Shape {
     let stubStartX: CGFloat
     let stubEndX: CGFloat
     let stubY: CGFloat
-    let drawsStub: Bool
     let cornerRadius: CGFloat
     let barEndInset: CGFloat
 
@@ -388,25 +361,22 @@ nonisolated struct InfoPaneBracketShape: Shape {
             stubY: rect.minY + stubY,
             bottom: rect.maxY,
             progress: progress,
-            drawsStub: drawsStub,
             cornerRadius: cornerRadius,
             barEndInset: barEndInset
         )
         var path = Path()
-        if let stubEnd = geometry.stubEnd {
-            path.move(to: stubEnd)
-            path.addLine(to: geometry.runEnd)
-            if geometry.cornerTurn > 0 {
-                // From the corner's top toward the bar: counterclockwise on
-                // screen, which SwiftUI's flipped space calls clockwise.
-                path.addArc(
-                    center: geometry.cornerCenter,
-                    radius: geometry.cornerRadius,
-                    startAngle: .degrees(-90),
-                    endAngle: .degrees(-90 - 90 * Double(geometry.cornerTurn)),
-                    clockwise: true
-                )
-            }
+        path.move(to: geometry.stubEnd)
+        path.addLine(to: geometry.runEnd)
+        if geometry.cornerTurn > 0 {
+            // From the corner's top toward the bar: counterclockwise on
+            // screen, which SwiftUI's flipped space calls clockwise.
+            path.addArc(
+                center: geometry.cornerCenter,
+                radius: geometry.cornerRadius,
+                startAngle: .degrees(-90),
+                endAngle: .degrees(-90 - 90 * Double(geometry.cornerTurn)),
+                clockwise: true
+            )
         }
         if geometry.barEnd.y > geometry.barStart.y {
             path.move(to: geometry.barStart)

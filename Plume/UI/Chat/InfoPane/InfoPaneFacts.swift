@@ -370,12 +370,6 @@ enum InfoPaneLayout {
     static let bracketLineWidth: CGFloat = 1.5
     static let bracketCornerRadius: CGFloat = 4
     static let nestedBracketCornerRadius: CGFloat = 3
-    #if DEBUG
-    /// Debug toggle: a straight bar and a chevron in place of the stub.
-    static let usesPlainBar = UserDefaults.standard.bool(forKey: "PlumeInfoPanePlainBar")
-    #else
-    static let usesPlainBar = false
-    #endif
     static let headerLogoSize: CGFloat = 10
 
     static func clampedPaneWidth(_ width: CGFloat) -> CGFloat {

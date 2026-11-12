@@ -62,7 +62,6 @@ struct LinearIssuesSection: View, ThemedView {
             title: "Linear",
             icon: .linear,
             isExpanded: isExpanded,
-            isDisclosable: !linear.isEmpty,
             accessibilityID: AccessibilityID.infoPaneLinearToggle,
             accessibilityValue: linear.isEmpty ? "empty" : nil,
             suppressesWash: hoveringAdd,
