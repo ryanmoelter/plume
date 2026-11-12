@@ -207,6 +207,33 @@ struct CLITaskAndSettingsRequestTests {
         #expect(try allTasks().count == 1)
     }
 
+    @Test func anAgentThatMovedIntoASubfolderStillOwnsItsWorktree() {
+        let task = TaskStore.createTask(in: context, siblings: [])
+        task.tabs[0].workspace = TabWorkspace(kind: .worktree, directory: "/wt/feature/src", repoPath: "/repo", branchName: "f")
+
+        #expect(CLICommandHandler.taskAlreadyOn("/wt/feature", among: [task]) === task)
+    }
+
+    /// Another task's tab saved in the folder loses to the task whose worktree it is.
+    @Test func theWorktreesOwnTaskWinsOverAPlainTabInTheFolder() {
+        let visitor = TaskStore.createTask(in: context, siblings: [])
+        visitor.tabs[0].workspace = .directory("/wt/feature")
+        let owner = TaskStore.createTask(in: context, siblings: [visitor])
+        owner.tabs[0].workspace = TabWorkspace(kind: .worktree, directory: "/wt/feature/src", repoPath: "/repo", branchName: "f")
+
+        #expect(CLICommandHandler.taskAlreadyOn("/wt/feature", among: [visitor, owner]) === owner)
+    }
+
+    @Test func aTerminalThatOnlyCdIntoTheFolderDoesNotMatch() {
+        let task = TaskStore.createTask(in: context, siblings: [])
+        task.tabs[0].workspace = .directory("/elsewhere")
+        let store = TabDirectoryStore.shared
+        store.setDirectory("/wt/feature", forTab: task.tabs[0].id)
+        defer { store.forget(tabID: task.tabs[0].id) }
+
+        #expect(CLICommandHandler.taskAlreadyOn("/wt/feature", among: [task]) == nil)
+    }
+
     @Test func aPathThatIsNotAWorktreeRootIsRefused() async throws {
         defer { try? FileManager.default.removeItem(atPath: scratch) }
         let (_, worktree) = try await makeRepositoryWithWorktree()

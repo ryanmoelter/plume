@@ -336,11 +336,7 @@ final class CLICommandHandler {
         let liveTasks = ((try? context.fetch(FetchDescriptor<WorkTask>())) ?? []).filter { !$0.isArchived }
         // A client that timed out and retried would otherwise get a second
         // task for the same worktree.
-        let resolved = Self.resolvedPath(path)
-        let isInDirectory = { (tab: TaskTab) in
-            self.directories.directory(for: tab).map(Self.resolvedPath) == resolved
-        }
-        if let existing = liveTasks.first(where: { $0.tabs.contains(where: isInDirectory) }) {
+        if let existing = Self.taskAlreadyOn(path, among: liveTasks) {
             if params.select { windows.first?.reveal(existing.id) }
             var response = CLIResponse.success
             response.taskID = existing.id
@@ -363,6 +359,23 @@ final class CLICommandHandler {
         var response = CLIResponse.success
         response.taskID = task.id
         return response
+    }
+
+    /// Matches saved workspaces, not where a terminal has `cd`'d since: a task
+    /// whose worktree tab is at or under `path` first, then one with a tab
+    /// saved exactly there.
+    static func taskAlreadyOn(_ path: String, among tasks: [WorkTask]) -> WorkTask? {
+        let resolved = resolvedPath(path)
+        let saved = { (tab: TaskTab) in tab.workingDirectoryPath.map(resolvedPath) }
+        let worktreeMatch = tasks.first { task in
+            task.liveTabs.contains { tab in
+                guard tab.workspaceKind == .worktree, let folder = saved(tab) else { return false }
+                return folder == resolved || folder.hasPrefix(resolved + "/")
+            }
+        }
+        return worktreeMatch ?? tasks.first { task in
+            task.liveTabs.contains { saved($0) == resolved }
+        }
     }
 
     /// Deletes a task through `TaskStore`, which closes its terminals. A no-op when no open
