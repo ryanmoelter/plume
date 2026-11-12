@@ -6,7 +6,7 @@ import Observation
 ///
 /// The live value is in memory, like every other live-process fact, but it is
 /// also written through to `TaskTab.workingDirectoryPath` so a tab that moved
-/// into a worktree reopens there instead of at its task's folder.
+/// into a worktree reopens there instead of at its workspace's folder.
 @MainActor
 @Observable
 final class TabDirectoryStore {
@@ -43,15 +43,31 @@ final class TabDirectoryStore {
         directories.removeAll()
     }
 
-    /// Where a tab is, falling back to its task's folder while it has reported
-    /// nothing.
     func directory(for tab: TaskTab) -> String? {
-        directories[tab.id] ?? tab.workingDirectoryPath ?? tab.task?.workingDirectoryPath
+        directories[tab.id] ?? tab.workingDirectoryPath
+    }
+
+    /// `tab`'s workspace, at the folder it is in now.
+    func currentWorkspace(of tab: TaskTab) -> TabWorkspace {
+        var workspace = tab.workspace
+        workspace.directory = directory(for: tab)
+        return workspace
+    }
+
+    /// The tab whose workspace stands for `task` when a new tab or task copies
+    /// one: the selected tab, else the last focused agent tab, else the first
+    /// tab with a folder.
+    func workspaceSource(in task: WorkTask) -> TaskTab? {
+        let tabs = task.orderedTabs
+        let preferred = [task.selectedTabID, task.lastFocusedAgentTabID].compactMap { id in
+            tabs.first { $0.id == id }
+        }
+        return (preferred + tabs).first { directory(for: $0) != nil }
     }
 
     /// Where a tab's terminal starts: a directory already set for it, as by
     /// `plume tab new --cwd`, else the folder it saved before a relaunch,
-    /// else where a new tab in its task starts. A saved folder that has since
+    /// else where its task's other tabs are. A saved folder that has since
     /// been deleted is skipped, since a shell can't start there.
     func startingDirectory(for tab: TaskTab, in task: WorkTask) -> String? {
         directories[tab.id] ?? existingFolder(tab.workingDirectoryPath) ?? startingDirectory(for: task, excluding: tab.id)
@@ -66,8 +82,8 @@ final class TabDirectoryStore {
         return path
     }
 
-    /// Where a *new* tab in this task should start: wherever the task's work
-    /// has moved to, else the task's own folder.
+    /// Where a tab in this task with no folder of its own should start:
+    /// wherever the task's other tabs are.
     ///
     /// The preference order matches `TitleStore.representativeTab(of:)`, so a
     /// new terminal opens beside whatever the sidebar is describing.
@@ -78,6 +94,6 @@ final class TabDirectoryStore {
         let reported = order.lazy.compactMap { id in
             self.directories[id] ?? byID[id]?.workingDirectoryPath
         }
-        return reported.first ?? task.workingDirectoryPath
+        return reported.first
     }
 }

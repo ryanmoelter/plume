@@ -144,18 +144,18 @@ enum TaskRowDetails {
 
     /// The distinct directories a task shows a group for, in the order its
     /// agent tabs report them. Two tabs in one folder are one group; a task
-    /// whose agent tabs have reported nothing falls back to its own folder.
+    /// whose agent tabs have no folder falls back to `fallbackDirectory`.
     static func distinctDirectories(
         agentTabDirectories: [String?],
-        taskDirectory: String?
+        fallbackDirectory: String?
     ) -> [String] {
         var seen: Set<String> = []
         var directories: [String] = []
         for directory in agentTabDirectories.compactMap({ $0 }) where !directory.isEmpty {
             if seen.insert(directory).inserted { directories.append(directory) }
         }
-        if directories.isEmpty, let taskDirectory, !taskDirectory.isEmpty {
-            directories = [taskDirectory]
+        if directories.isEmpty, let fallbackDirectory, !fallbackDirectory.isEmpty {
+            directories = [fallbackDirectory]
         }
         return directories
     }

@@ -8,22 +8,34 @@ extension WorkTask {
             agentTabDirectories: orderedLiveTabs
                 .filter { $0.kind == .agent }
                 .map { TabDirectoryStore.shared.directory(for: $0) },
-            taskDirectory: workingDirectoryPath
+            fallbackDirectory: storedTabDirectory
         )
+    }
+
+    /// The first folder any tab saved, for a task whose agent tabs have none.
+    var storedTabDirectory: String? {
+        orderedLiveTabs.lazy.compactMap(\.workingDirectoryPath).first { !$0.isEmpty }
     }
 
     func displayedBranch(in directory: String) -> String? {
         GitState.displayedBranch(
             state: GitStateStore.shared.state(for: directory),
-            taskBranchName: branchName
+            storedBranchName: storedBranchName(in: directory)
         )
     }
 
+    /// The branch saved on the first tab in `directory`.
+    func storedBranchName(in directory: String) -> String? {
+        orderedLiveTabs.first { TabDirectoryStore.shared.directory(for: $0) == directory }?.branchName
+    }
+
     /// The branches whose names can carry a working Linear issue: what each
-    /// agent directory has checked out, plus the branch the task was made on.
+    /// agent directory has checked out, plus the branch each tab was made on.
     var linearBranches: [String] {
         var branches = agentDirectories.compactMap(displayedBranch(in:))
-        if let branchName, !branches.contains(branchName) { branches.append(branchName) }
+        for branch in orderedLiveTabs.compactMap(\.branchName) where !branches.contains(branch) {
+            branches.append(branch)
+        }
         return branches
     }
 }

@@ -3,65 +3,149 @@ import Foundation
 import SwiftData
 @testable import Plume
 
-/// The decision of whether delete or archive needs to ask about a worktree
-/// first, and what the resulting dialog says — kept separate from the SwiftUI
-/// dialog itself so it's testable without presenting one.
+/// The decision of whether delete or archive needs to ask about worktrees
+/// first, which worktrees it removes, and what the resulting dialog says —
+/// kept separate from the SwiftUI dialog itself so it's testable without
+/// presenting one.
 @MainActor
 struct WorktreeRemovalPromptTests {
-    private func makeTask(workspaceKind: WorkspaceKind, path: String? = nil, branch: String? = nil) -> WorkTask {
+    private func makeTask(_ workspaces: TabWorkspace...) -> WorkTask {
         let task = WorkTask(title: "Some Task", orderIndex: 0)
-        task.workspaceKind = workspaceKind
-        task.workingDirectoryPath = path
-        task.branchName = branch
+        task.tabs = workspaces.enumerated().map { index, workspace in
+            let tab = TaskTab(kind: .agent, orderIndex: index, task: task)
+            tab.workspace = workspace
+            return tab
+        }
         return task
     }
 
+    private func worktree(_ path: String, branch: String?) -> TabWorkspace {
+        TabWorkspace(kind: .worktree, directory: path, repoPath: "/repo", branchName: branch)
+    }
+
+    private let feature = WorktreeRemovalTarget(repository: "/repo", path: "/repo/.worktrees/feature", branch: "feature")
+    private let other = WorktreeRemovalTarget(repository: "/repo", path: "/repo/.worktrees/other", branch: "other")
+
+    private let listing = [
+        GitWorktree(path: "/repo", branch: "main", isMain: true),
+        GitWorktree(path: "/repo/.worktrees/feature", branch: "feature", isMain: false),
+        GitWorktree(path: "/repo/.worktrees/other", branch: "other", isMain: false),
+        GitWorktree(path: "/repo/.worktrees/detached", branch: nil, isMain: false),
+    ]
+
+    private func targets(for task: WorkTask) -> [WorktreeRemovalTarget] {
+        let claims = WorktreeRemovalPrompt.claims(for: task, directories: TabDirectoryStore())
+        return WorktreeRemovalPrompt.targets(for: claims) { $0 == "/repo" ? listing : [] }
+    }
+
     @Test func aPlainDirectoryTaskNeedsNoConfirmation() {
-        let task = makeTask(workspaceKind: .directory, path: "/tmp/foo")
+        let task = makeTask(.directory("/tmp/foo"))
         #expect(!WorktreeRemovalPrompt.needsConfirmation(for: task))
     }
 
     @Test func anUnsetWorkspaceNeedsNoConfirmation() {
-        let task = makeTask(workspaceKind: .unset)
+        let task = makeTask(TabWorkspace())
         #expect(!WorktreeRemovalPrompt.needsConfirmation(for: task))
     }
 
-    @Test func aWorktreeTaskNeedsConfirmation() {
-        let task = makeTask(workspaceKind: .worktree, path: "/tmp/foo")
+    @Test func aWorktreeOnAnyTabNeedsConfirmation() {
+        let task = makeTask(.directory("/repo"), worktree("/tmp/foo", branch: nil))
         #expect(WorktreeRemovalPrompt.needsConfirmation(for: task))
     }
 
-    @Test func deleteAndArchiveWordTheirButtonsDifferently() {
-        let task = makeTask(workspaceKind: .worktree, path: "/tmp/foo", branch: "feature")
+    // MARK: - Which worktrees
 
-        let delete = WorktreeRemovalPrompt.PendingRemoval(task: task, verb: .delete, dirtySummary: nil)
+    @Test func tabsSharingAWorktreeRemoveItOnce() {
+        let task = makeTask(
+            worktree("/repo/.worktrees/feature", branch: "feature"),
+            worktree("/repo/.worktrees/feature/sub", branch: "feature"),
+            worktree("/repo/.worktrees/other", branch: "other"),
+            .directory("/repo")
+        )
+        #expect(targets(for: task) == [feature, other])
+    }
+
+    /// A tab's folder follows it, so a terminal that `cd`s into another
+    /// worktree must not take that worktree with it.
+    @Test func aTabThatMovedStillRemovesTheWorktreeItsBranchNames() {
+        let task = makeTask(worktree("/repo/.worktrees/other/src", branch: "feature"))
+        #expect(targets(for: task) == [feature])
+    }
+
+    @Test func aBranchlessWorktreeIsFoundByTheFolderInIt() {
+        let task = makeTask(worktree("/repo/.worktrees/detached/src", branch: nil))
+        #expect(targets(for: task) == [
+            WorktreeRemovalTarget(repository: "/repo", path: "/repo/.worktrees/detached", branch: nil),
+        ])
+    }
+
+    @Test func theMainCheckoutIsNeverRemoved() {
+        let task = makeTask(worktree("/repo", branch: "main"), worktree("/repo/src", branch: nil))
+        #expect(targets(for: task).isEmpty)
+    }
+
+    @Test func aWorktreeGitNoLongerListsIsSkipped() {
+        let task = makeTask(worktree("/repo/.worktrees/gone", branch: "gone"))
+        #expect(targets(for: task).isEmpty)
+    }
+
+    // MARK: - Dialog copy
+
+    private func removal(
+        _ worktrees: [WorktreeRemovalTarget],
+        verb: WorktreeRemovalVerb = .delete,
+        dirty: [String: String] = [:]
+    ) -> WorktreeRemovalPrompt.PendingRemoval {
+        .init(task: makeTask(), verb: verb, worktrees: worktrees, dirtySummaries: dirty)
+    }
+
+    @Test func deleteAndArchiveWordTheirButtonsDifferently() {
+        let delete = removal([feature], verb: .delete)
         #expect(delete.dialogTitle == "Delete “Some Task”?")
         #expect(delete.primaryButtonTitle == "Delete and Remove Worktree")
         #expect(delete.withBranchButtonTitle == "Delete, Remove Worktree and Branch")
         #expect(delete.taskOnlyButtonTitle == "Delete Task Only")
 
-        let archive = WorktreeRemovalPrompt.PendingRemoval(task: task, verb: .archive, dirtySummary: nil)
+        let archive = removal([feature], verb: .archive)
         #expect(archive.dialogTitle == "Archive “Some Task”?")
         #expect(archive.primaryButtonTitle == "Archive and Remove Worktree")
         #expect(archive.withBranchButtonTitle == "Archive, Remove Worktree and Branch")
         #expect(archive.taskOnlyButtonTitle == "Archive Task Only")
     }
 
+    @Test func severalWorktreesArePluralInTheButtons() {
+        let delete = removal([feature, other])
+        #expect(delete.primaryButtonTitle == "Delete and Remove Worktrees")
+        #expect(delete.withBranchButtonTitle == "Delete, Remove Worktrees and Branches")
+    }
+
     @Test func theMessageNamesTheWorktreeAndBranch() {
-        let task = makeTask(workspaceKind: .worktree, path: "/tmp/foo", branch: "feature")
-        let removal = WorktreeRemovalPrompt.PendingRemoval(task: task, verb: .delete, dirtySummary: nil)
-        #expect(removal.message == "This task uses the worktree at /tmp/foo on branch feature.")
+        #expect(removal([feature]).message == "This task uses the worktree at /repo/.worktrees/feature on branch feature.")
     }
 
     /// Once the async uncommitted-changes check resolves, the warning is
     /// appended rather than replacing the base sentence.
     @Test func aDirtySummaryWarnsAboutLosingWork() {
-        let task = makeTask(workspaceKind: .worktree, path: "/tmp/foo", branch: "feature")
-        let removal = WorktreeRemovalPrompt.PendingRemoval(
-            task: task, verb: .delete, dirtySummary: "1 file has uncommitted changes:\n• a.txt"
-        )
-        #expect(removal.message.contains("uncommitted changes"))
-        #expect(removal.message.contains("cannot be recovered"))
+        let message = removal([feature], dirty: [feature.path: "1 file has uncommitted changes:\n• a.txt"]).message
+        #expect(message.hasPrefix("This task uses the worktree at /repo/.worktrees/feature on branch feature."))
+        #expect(message.contains("uncommitted changes"))
+        #expect(message.contains("cannot be recovered"))
+    }
+
+    @Test func severalWorktreesAreListedAndOnlyTheDirtyOnesWarn() {
+        let message = removal([feature, other], dirty: [other.path: "1 file has uncommitted changes:\n• a.txt"]).message
+        #expect(message.hasPrefix("""
+            This task uses 2 worktrees:
+            • /repo/.worktrees/feature on branch feature
+            • /repo/.worktrees/other on branch other
+            """))
+        #expect(message.contains("In /repo/.worktrees/other, 1 file has uncommitted changes"))
+        #expect(!message.contains("In /repo/.worktrees/feature,"))
+        #expect(message.contains("cannot be recovered"))
+    }
+
+    @Test func cleanWorktreesCarryNoWarning() {
+        #expect(!removal([feature, other]).message.contains("cannot be recovered"))
     }
 
     @Test func describeSummarizesPorcelainStatusAsPaths() {

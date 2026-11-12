@@ -20,7 +20,7 @@ struct TaskStoreTests {
         #expect(task.tabs.count == 1)
         #expect(task.tabs.first?.kind == .agent)
         #expect(task.selectedTabID == task.tabs.first?.id)
-        #expect(task.workspaceKind == .unset)
+        #expect(task.tabs[0].workspaceKind == .unset)
     }
 
     @Test func createdTasksGetIncreasingOrderIndexes() throws {
@@ -95,17 +95,17 @@ struct TaskStoreTests {
     @Test func newTaskInheritsTheSourceTasksWorkspace() throws {
         let context = try makeContext()
         let source = TaskStore.createTask(in: context, siblings: [])
-        source.workingDirectoryPath = "/tmp/repo"
-        source.repoPath = "/tmp/repo"
-        source.branchName = "main"
-        source.workspaceKind = .directory
+        source.tabs[0].workingDirectoryPath = "/tmp/repo"
+        source.tabs[0].repoPath = "/tmp/repo"
+        source.tabs[0].branchName = "main"
+        source.tabs[0].workspaceKind = .directory
 
         let task = TaskStore.createTask(in: context, siblings: [source], inheritingFrom: source)
 
-        #expect(task.workingDirectoryPath == "/tmp/repo")
-        #expect(task.repoPath == "/tmp/repo")
-        #expect(task.branchName == "main")
-        #expect(task.workspaceKind == .directory)
+        #expect(task.tabs[0].workingDirectoryPath == "/tmp/repo")
+        #expect(task.tabs[0].repoPath == "/tmp/repo")
+        #expect(task.tabs[0].branchName == "main")
+        #expect(task.tabs[0].workspaceKind == .directory)
     }
 
     /// A worktree task is inherited as a plain directory, not a new worktree
@@ -113,15 +113,15 @@ struct TaskStoreTests {
     @Test func inheritingFromAWorktreeTaskYieldsAPlainDirectory() throws {
         let context = try makeContext()
         let source = TaskStore.createTask(in: context, siblings: [])
-        source.workingDirectoryPath = "/tmp/repo/.worktrees/feature"
-        source.repoPath = "/tmp/repo"
-        source.branchName = "plume/feature"
-        source.workspaceKind = .worktree
+        source.tabs[0].workingDirectoryPath = "/tmp/repo/.worktrees/feature"
+        source.tabs[0].repoPath = "/tmp/repo"
+        source.tabs[0].branchName = "plume/feature"
+        source.tabs[0].workspaceKind = .worktree
 
         let task = TaskStore.createTask(in: context, siblings: [source], inheritingFrom: source)
 
-        #expect(task.workingDirectoryPath == "/tmp/repo/.worktrees/feature")
-        #expect(task.workspaceKind == .directory)
+        #expect(task.tabs[0].workingDirectoryPath == "/tmp/repo/.worktrees/feature")
+        #expect(task.tabs[0].workspaceKind == .directory)
     }
 
     @Test func inheritingFromATaskWithNoWorkspaceLeavesItUnset() throws {
@@ -130,8 +130,87 @@ struct TaskStoreTests {
 
         let task = TaskStore.createTask(in: context, siblings: [source], inheritingFrom: source)
 
-        #expect(task.workingDirectoryPath == nil)
-        #expect(task.workspaceKind == .unset)
+        #expect(task.tabs[0].workingDirectoryPath == nil)
+        #expect(task.tabs[0].workspaceKind == .unset)
+    }
+
+    @Test func inheritingTakesTheSelectedTabsWorkspace() throws {
+        let context = try makeContext()
+        let source = TaskStore.createTask(in: context, siblings: [])
+        source.tabs[0].workspace = .directory("/tmp/repo", repoPath: "/tmp/repo")
+        let selected = TaskStore.addTab(to: source, kind: .terminal, in: context)
+        selected.workspace = .directory("/tmp/other", repoPath: "/tmp/other", branchName: "feature")
+
+        let task = TaskStore.createTask(in: context, siblings: [source], inheritingFrom: source)
+
+        #expect(task.tabs[0].workspace == .directory("/tmp/other", repoPath: "/tmp/other", branchName: "feature"))
+    }
+}
+
+/// A new tab opens in the workspace of the tab the user is on: the selected
+/// tab, else the last focused agent tab, else the first tab with a folder.
+@MainActor
+struct AddTabWorkspaceTests {
+    private func makeContext() throws -> ModelContext {
+        ModelContext(try ModelContainer(
+            for: Schema([TaskGroup.self, WorkTask.self, TaskTab.self]),
+            configurations: [ModelConfiguration(isStoredInMemoryOnly: true)]
+        ))
+    }
+
+    private let worktree = TabWorkspace(
+        kind: .worktree, directory: "/repo/.worktrees/feature", repoPath: "/repo", branchName: "feature"
+    )
+
+    @Test func aNewTabTakesTheSelectedTabsWholeWorkspace() throws {
+        let context = try makeContext()
+        let task = TaskStore.createTask(in: context, siblings: [])
+        task.tabs[0].workspace = worktree
+
+        let tab = TaskStore.addTab(to: task, kind: .terminal, in: context)
+
+        #expect(tab.workspace == worktree)
+    }
+
+    @Test func aNewTabTakesTheSelectedTabsLiveDirectory() throws {
+        let context = try makeContext()
+        let task = TaskStore.createTask(in: context, siblings: [])
+        let source = task.tabs[0]
+        source.workspace = worktree
+        TabDirectoryStore.shared.setDirectory("/repo/.worktrees/feature/sub", forTab: source.id)
+        defer { TabDirectoryStore.shared.forget(tabID: source.id) }
+
+        let tab = TaskStore.addTab(to: task, kind: .agent, in: context)
+
+        #expect(tab.workingDirectoryPath == "/repo/.worktrees/feature/sub")
+        #expect(tab.branchName == "feature")
+        #expect(tab.workspaceKind == .worktree)
+    }
+
+    @Test func aSelectedTabWithNoFolderFallsBackToTheLastFocusedAgentTab() throws {
+        let context = try makeContext()
+        let task = TaskStore.createTask(in: context, siblings: [])
+        let first = TaskStore.addTab(to: task, kind: .terminal, in: context)
+        first.workspace = .directory("/first")
+        let agent = TaskStore.addTab(to: task, kind: .agent, in: context)
+        agent.workspace = worktree
+        let device = TaskStore.addTab(to: task, kind: .device, in: context)
+        device.workspace = TabWorkspace()
+        #expect(task.selectedTabID == device.id)
+        #expect(task.lastFocusedAgentTabID == agent.id)
+
+        let tab = TaskStore.addTab(to: task, kind: .terminal, in: context)
+
+        #expect(tab.workspace == worktree)
+    }
+
+    @Test func aTaskWithNoFolderLeavesTheNewTabUnset() throws {
+        let context = try makeContext()
+        let task = TaskStore.createTask(in: context, siblings: [])
+
+        let tab = TaskStore.addTab(to: task, kind: .terminal, in: context)
+
+        #expect(tab.workspace == TabWorkspace())
     }
 }
 

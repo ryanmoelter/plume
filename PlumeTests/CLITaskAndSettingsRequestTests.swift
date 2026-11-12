@@ -89,10 +89,10 @@ struct CLITaskAndSettingsRequestTests {
         let task = try #require(try allTasks().first { $0.id == taskID })
         #expect(task.group?.id == group.id)
         #expect(task.orderIndex == caller.orderIndex + 1)
-        #expect(task.workspaceKind == .worktree)
-        #expect(task.workingDirectoryPath == worktree)
-        #expect(task.repoPath.map(resolved) == resolved(repository))
-        #expect(task.branchName == "ryanm/feature")
+        #expect(task.orderedTabs[0].workspaceKind == .worktree)
+        #expect(task.orderedTabs[0].workingDirectoryPath == worktree)
+        #expect(task.orderedTabs[0].repoPath.map(resolved) == resolved(repository))
+        #expect(task.orderedTabs[0].branchName == "ryanm/feature")
         #expect(task.title == "feature")
         #expect(task.tabs.count == 1)
         #expect(revealed == [taskID])
@@ -123,8 +123,8 @@ struct CLITaskAndSettingsRequestTests {
         let response = await handler.handle(.newTask(.init(worktreePath: repository, select: false)))
 
         let task = try #require(try allTasks().first { $0.id == response.taskID })
-        #expect(task.workspaceKind == .directory)
-        #expect(task.branchName == "main")
+        #expect(task.orderedTabs[0].workspaceKind == .directory)
+        #expect(task.orderedTabs[0].branchName == "main")
     }
 
     /// In the `.bare` layout the project folder is no repository, so the task
@@ -153,8 +153,8 @@ struct CLITaskAndSettingsRequestTests {
         let response = await handler.handle(.newTask(.init(worktreePath: worktree, select: false)))
 
         let task = try #require(try allTasks().first { $0.id == response.taskID })
-        #expect(task.workspaceKind == .worktree)
-        let repository = try #require(task.repoPath)
+        #expect(task.orderedTabs[0].workspaceKind == .worktree)
+        let repository = try #require(task.orderedTabs[0].repoPath)
         #expect(resolved(repository) == resolved("\(project)/.bare"))
 
         let listing = await GitService.shared.worktreeListing(in: repository)
@@ -190,6 +190,21 @@ struct CLITaskAndSettingsRequestTests {
         #expect(retry.taskID == taskID)
         #expect(try allTasks().count == 1)
         #expect(revealed == [taskID])
+    }
+
+    @Test func aTaskWithAnyTabInTheWorktreeIsReturned() async throws {
+        defer { try? FileManager.default.removeItem(atPath: scratch) }
+        let (repository, worktree) = try await makeRepositoryWithWorktree()
+        let existing = TaskStore.createTask(in: context, siblings: [])
+        existing.tabs[0].workspace = .directory(repository)
+        TaskStore.addTab(to: existing, kind: .terminal, in: context).workspace = .directory(worktree)
+        let handler = makeHandler(tasks: [existing])
+
+        let response = await handler.handle(.newTask(.init(worktreePath: worktree, select: false)))
+
+        #expect(response.error == nil)
+        #expect(response.taskID == existing.id)
+        #expect(try allTasks().count == 1)
     }
 
     @Test func aPathThatIsNotAWorktreeRootIsRefused() async throws {

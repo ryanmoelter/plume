@@ -8,7 +8,7 @@ import SwiftUI
 struct WorktreeRemovalDialogModifier: ViewModifier {
     @Binding var pendingRemoval: WorktreeRemovalPrompt.PendingRemoval?
     @Binding var removalError: String?
-    let onConfirm: (WorkTask, WorktreeRemovalVerb, Bool, Bool) -> Void
+    let onConfirm: (WorktreeRemovalPrompt.PendingRemoval, Bool, Bool) -> Void
 
     func body(content: Content) -> some View {
         content
@@ -21,13 +21,13 @@ struct WorktreeRemovalDialogModifier: ViewModifier {
                 presenting: pendingRemoval
             ) { removal in
                 Button(removal.primaryButtonTitle, role: .destructive) {
-                    onConfirm(removal.task, removal.verb, true, false)
+                    onConfirm(removal, true, false)
                 }
                 Button(removal.withBranchButtonTitle, role: .destructive) {
-                    onConfirm(removal.task, removal.verb, true, true)
+                    onConfirm(removal, true, true)
                 }
                 Button(removal.taskOnlyButtonTitle) {
-                    onConfirm(removal.task, removal.verb, false, false)
+                    onConfirm(removal, false, false)
                 }
                 Button("Cancel", role: .cancel) {}
             } message: { removal in

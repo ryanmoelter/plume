@@ -159,7 +159,7 @@ struct TaskRowDirectoryGroupingTests {
     @Test func twoTabsInOneFolderCollapseToOneGroup() {
         let directories = TaskRowDetails.distinctDirectories(
             agentTabDirectories: ["/Users/me/Plume", "/Users/me/Plume"],
-            taskDirectory: "/Users/me/Plume"
+            fallbackDirectory: "/Users/me/Plume"
         )
         #expect(directories == ["/Users/me/Plume"])
     }
@@ -167,21 +167,21 @@ struct TaskRowDirectoryGroupingTests {
     @Test func twoFoldersGiveTwoGroupsInTabOrder() {
         let directories = TaskRowDetails.distinctDirectories(
             agentTabDirectories: ["/Users/me/Plume", "/Users/me/Other", "/Users/me/Plume"],
-            taskDirectory: "/Users/me/Plume"
+            fallbackDirectory: "/Users/me/Plume"
         )
         #expect(directories == ["/Users/me/Plume", "/Users/me/Other"])
     }
 
-    @Test func aTaskWithNoReportingAgentTabFallsBackToItsOwnFolder() {
+    @Test func aTaskWithNoReportingAgentTabFallsBackToAnotherTabsFolder() {
         let directories = TaskRowDetails.distinctDirectories(
             agentTabDirectories: [nil, nil],
-            taskDirectory: "/Users/me/Plume"
+            fallbackDirectory: "/Users/me/Plume"
         )
         #expect(directories == ["/Users/me/Plume"])
     }
 
     @Test func aTaskWithNoFolderAtAllHasNoGroups() {
-        #expect(TaskRowDetails.distinctDirectories(agentTabDirectories: [], taskDirectory: nil).isEmpty)
+        #expect(TaskRowDetails.distinctDirectories(agentTabDirectories: [], fallbackDirectory: nil).isEmpty)
     }
 }
 
@@ -190,7 +190,6 @@ struct TaskRowAgentTabFilterTests {
     /// A terminal's cwd follows `cd`, so it must not contribute a group.
     @Test func terminalTabsAreExcluded() throws {
         let task = WorkTask(title: "T", orderIndex: 0)
-        task.workingDirectoryPath = "/Users/me/Plume"
         let agent = TaskTab(kind: .agent, orderIndex: 0, task: task)
         let terminal = TaskTab(kind: .terminal, orderIndex: 1, task: task)
         task.tabs = [agent, terminal]
@@ -203,7 +202,7 @@ struct TaskRowAgentTabFilterTests {
             agentTabDirectories: task.orderedTabs
                 .filter { $0.kind == .agent }
                 .map { store.directory(for: $0) },
-            taskDirectory: task.workingDirectoryPath
+            fallbackDirectory: nil
         )
         #expect(directories == ["/Users/me/Plume"])
     }
