@@ -286,6 +286,25 @@ struct HeadlessChildSessionTests {
         #expect(recorder.outcomes.isEmpty)
     }
 
+    @Test func aWithdrawnPreambleRidesWithNewerNotes() throws {
+        let (session, recorder) = makeSession()
+        var notes = ["OLD", "NEW"]
+        session.userMessagePreamble = { notes.isEmpty ? nil : notes.removeFirst() }
+        session.submitFromHost(blocks: [.text("host")])
+        session.sendNow(appending: [.text("first")])
+        let delivering = try #require(session.deliveringMessages.first)
+        session.withdrawDeliveringMessage(id: delivering.id)
+        let request = try json(try #require(recorder.lines.last))
+        let requestID = try #require(request["request_id"]?.stringValue)
+        try receive(session, #"{"type":"control_response","response":{"subtype":"success","request_id":""# + requestID + #"","response":{"cancelled":true}}}"#)
+        try receive(session, Self.result)
+
+        session.submit(text: "second")
+
+        #expect(try sentTexts(recorder).last == "OLD\n\nNEW\n\nsecond")
+        #expect(notes.isEmpty)
+    }
+
     @Test func aSlashCommandLeavesThePreambleForTheNextMessage() throws {
         let (session, recorder) = makeSession()
         var preamble: String? = "NOTE"

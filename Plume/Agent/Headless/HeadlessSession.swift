@@ -529,11 +529,15 @@ final class HeadlessSession: AgentSession {
         var turn = OutgoingTurn(parts: messages.flatMap(\.parts))
         // A note in front of a slash command would stop the CLI reading it as one.
         guard turn.userBlocks != nil,
-              !turn.body.plainText.trimmingCharacters(in: .whitespacesAndNewlines).hasPrefix("/"),
-              let preamble = unsentPreamble ?? userMessagePreamble?(), !preamble.isEmpty
+              !turn.body.plainText.trimmingCharacters(in: .whitespacesAndNewlines).hasPrefix("/")
         else { return turn }
+        // Always asked, so the host learns the user is sending and newer notes ride along.
+        let preamble = [unsentPreamble, userMessagePreamble?()]
+            .compactMap { $0 }
+            .filter { !$0.isEmpty }
+            .joined(separator: "\n\n")
         unsentPreamble = nil
-        turn.preamble = preamble
+        if !preamble.isEmpty { turn.preamble = preamble }
         return turn
     }
 
