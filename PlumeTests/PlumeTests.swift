@@ -268,6 +268,39 @@ struct AddTabWorkspaceTests {
         #expect(WorktreeRemovalPrompt.needsConfirmation(for: source))
     }
 
+    @Test func aTabMovedInAndClosedLeavesTheHeldWorktree() throws {
+        let context = try makeContext()
+        let empty = TaskStore.createTask(in: context, siblings: [])
+        empty.tabs[0].workspace = worktree
+        TaskStore.closeTab(empty.tabs[0], in: context)
+        let other = TaskStore.createTask(in: context, siblings: [empty])
+        other.tabs[0].workspace = .directory("/elsewhere")
+        let visitor = TaskStore.addTab(to: other, kind: .terminal, in: context)
+
+        TaskStore.moveTab(visitor, to: empty)
+        TaskStore.closeTab(visitor, in: context)
+
+        #expect(empty.heldWorkspace == worktree)
+        #expect(WorktreeRemovalPrompt.needsConfirmation(for: empty))
+    }
+
+    /// A task holds one worktree, so the one it already held wins.
+    @Test func aSecondWorktreeLeavingDoesNotReplaceTheHeldOne() throws {
+        let context = try makeContext()
+        let task = TaskStore.createTask(in: context, siblings: [])
+        task.tabs[0].workspace = worktree
+        TaskStore.closeTab(task.tabs[0], in: context)
+        let source = TaskStore.createTask(in: context, siblings: [task])
+        source.tabs[0].workspace = .directory("/elsewhere")
+        let visitor = TaskStore.addTab(to: source, kind: .terminal, in: context)
+        TaskStore.moveTab(visitor, to: task)
+        visitor.workspace = TabWorkspace(kind: .worktree, directory: "/repo/.worktrees/other", repoPath: "/repo", branchName: "other")
+
+        TaskStore.closeTab(visitor, in: context)
+
+        #expect(task.heldWorkspace == worktree)
+    }
+
     @Test func closingATabThatIsNotTheLastHoldsNothing() throws {
         let context = try makeContext()
         let task = TaskStore.createTask(in: context, siblings: [])
