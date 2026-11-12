@@ -61,6 +61,8 @@ c clear
 
 **Confirm which tab is selected before every chat-list or composer read.** A hidden agent tab renders nothing, so its controls read disabled and `readText` on its chat list returns "not found". That is a correctly hidden tab, not a broken one. Forking selects the new tab on its own. Run `c list plumeID=tab-chip`, find the chip with `value: "selected"`, and say which tab each reading came from.
 
+**Start test chats in a temporary folder outside any repository** (`mktemp -d`), unless the check needs a repository or the user asks for one. A chat runs a real `claude`, and an accepted "Always allow … in this project" suggestion writes a rule to that project's `.claude/settings.local.json`. For a worktree, the project is the primary checkout.
+
 `key` posts a real `NSEvent` down the whole dispatch path, so it is how a keyboard shortcut gets tested. Its `handledBy` names the menu item that owns the chord, and `menu` dumps every item with the chord AppKit actually holds — which is the thing to check when a shortcut does nothing, not what the source asked for.
 
 **Never drive a repro with `CGEventPostToPid`, `cliclick`, or by exec'ing the binary from a shell.** All three activate the app and take over the user's pointer and frontmost window. For a click the control server can't express, synthesize it *inside* the process: post `NSEvent`s through `NSApp.postEvent` after `window.makeKey()`. Post mouse-down and mouse-up about 150 ms apart, so AppKit's tracking loop pumps the run loop. `LinkClickHarness` is the shipped example and `docs/selectable-text-link-hang.md` has the recipe.
