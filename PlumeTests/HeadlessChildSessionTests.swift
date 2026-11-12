@@ -132,6 +132,19 @@ struct HeadlessChildSessionTests {
         #expect(texts == ["NOTE\n\nhi", "from host"])
     }
 
+    @Test func aSlashCommandLeavesThePreambleForTheNextMessage() throws {
+        let (session, recorder) = makeSession()
+        var preamble: String? = "NOTE"
+        session.userMessagePreamble = { defer { preamble = nil }; return preamble }
+
+        session.submit(text: "/effort high")
+        try receive(session, Self.result)
+        session.submit(text: "hi")
+
+        let texts = try recorder.lines.map { try json($0)["message"]?["content"]?.arrayValue?.first?["text"]?.stringValue }
+        #expect(texts == ["/effort high", "NOTE\n\nhi"])
+    }
+
     // MARK: - Wire
 
     @Test func initializeNamesTheSDKServerOnlyWhenAsked() throws {
