@@ -111,13 +111,28 @@ nonisolated enum ChildSessionFormats {
         return wrap(reminder, event)
     }
 
-    /// To the parent, for a message the user took off the child's queue.
-    static func messageRemovedNote(child: Participant, text: String) -> String {
+    enum Removal {
+        /// The user took the message off the child's queue.
+        case removed
+        /// The user closed the child's tab with the message still unread.
+        case closed
+    }
+
+    /// To the parent, for a message the child never read.
+    static func messageRemovedNote(child: Participant, text: String, _ removal: Removal = .removed) -> String {
         let clipped = clipped(text)
-        let reminder = "The user removed your message to the session \"\(neutralized(child.title))\" (\(child.sessionID)) before it was sent, so that session never read it: \"\(neutralized(clipped))\""
+        let session = "the session \"\(neutralized(child.title))\" (\(child.sessionID))"
+        let reminder = switch removal {
+        case .removed: "The user removed your message to \(session) before it was sent, so that session never read it: \"\(neutralized(clipped))\""
+        case .closed: "The user closed \(session) before it read your message, so it never will: \"\(neutralized(clipped))\""
+        }
+        let name = child.name ?? child.title
+        let summary = switch removal {
+        case .removed: "Your message to \(name) was removed before it was sent: \(clipped)"
+        case .closed: "\(name) was closed before it read your message: \(clipped)"
+        }
         let event = SideSessionEvent(
-            kind: .other, sessionID: child.sessionID, name: child.name, title: child.title,
-            text: "Your message to \(child.name ?? child.title) was removed before it was sent: \(clipped)"
+            kind: .other, sessionID: child.sessionID, name: child.name, title: child.title, text: summary
         )
         return wrap(reminder, event)
     }

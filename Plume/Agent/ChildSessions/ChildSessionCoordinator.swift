@@ -60,6 +60,18 @@ final class ChildSessionCoordinator {
         launchModes.removeValue(forKey: tabID)
     }
 
+    /// A parent's message still unread in a closing child goes back to the
+    /// parent as a held note. Call before the child's session is discarded.
+    func childClosing(_ child: TaskTab) {
+        guard let parent = parent(of: child),
+              let session = AgentSessionManager.shared.existingSession(for: child.id) as? HeadlessSession
+        else { return }
+        for case .fromParent(let text)? in session.unreadHostMessages.map(\.origin) {
+            let note = ChildSessionFormats.messageRemovedNote(child: participant(child), text: text, .closed)
+            hold([.init(childID: child.id, text: note, kind: .message)], for: parent)
+        }
+    }
+
     private func permissionCeiling(forChild child: TaskTab) -> PermissionMode {
         ChildSessionPermissions.ceiling(
             parent: parent(of: child).map { LiveSettings(of: $0).permissionMode },
