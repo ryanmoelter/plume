@@ -24,9 +24,9 @@ final class ChildSessionCoordinator {
     func attach(to session: HeadlessSession, task: WorkTask, tab: TaskTab) {
         let tabID = tab.id
         session.mcpServer = PlumeMCPServer(
-            role: { [weak self, weak tab] in
-                guard let self, let tab, let parent = self.parent(of: tab) else { return .parent }
-                return .child(parentID: Self.sessionID(of: parent))
+            role: { [weak tab] in
+                guard let tab, tab.isChildSession else { return .parent }
+                return .child(parentID: tab.parentTabIDRaw)
             },
             callTool: { [weak self, weak tab] call in
                 guard let self, let tab, tab.isLive else {
@@ -86,8 +86,19 @@ final class ChildSessionCoordinator {
     /// Opens the child's tab and launches it with its brief.
     func startSession(_ request: StartSessionRequest, from parent: TaskTab) async -> Result<String, ChildSessionError> {
         guard request.initiation == .userAsked else { return .failure(.proposalsUnsupported) }
+        guard !parent.isChildSession else { return .failure(.failed("This session cannot start sessions of its own.")) }
         guard let task = parent.task, let context = parent.modelContext else {
             return .failure(.failed("This session's task is gone."))
+        }
+        let live = LiveSettings(of: parent)
+        let mode: PermissionMode
+        switch ChildSessionPermissions.mode(
+            requested: request.permissionMode,
+            parent: live.permissionMode,
+            showsBypassPermissions: AppSettings.shared.showsBypassPermissions
+        ) {
+        case .success(let resolved): mode = resolved
+        case .failure(let error): return .failure(error)
         }
         let parentSessionID = parent.agentSessionID ?? ""
         if request.context == .fork, parentSessionID.isEmpty {
@@ -106,6 +117,8 @@ final class ChildSessionCoordinator {
         TabLaunchChoices(parent).apply(to: child)
         child.transport = .headless
         child.providerID = AgentProviderKind.claudeCode.rawValue
+        if let model = live.model { child.model = model }
+        if let effort = live.effort { child.effort = effort }
         if let model = request.model {
             child.model = model
             child.isModelUserChosen = true
@@ -114,7 +127,7 @@ final class ChildSessionCoordinator {
             child.effort = effort
             child.isEffortUserChosen = true
         }
-        if let mode = request.permissionMode { child.permissionMode = mode }
+        child.permissionMode = mode
 
         ChildSessionWorkspace.apply(worktree, to: child, parent: parent, task: task)
 
@@ -156,7 +169,7 @@ final class ChildSessionCoordinator {
             resumeSessionID: isFork ? parentSessionID : nil,
             fork: isFork ? HeadlessCommand.Fork(newSessionID: newSessionID, cutAfterMessageUUID: nil) : nil,
             sessionID: isFork ? nil : newSessionID,
-            effort: request.effort
+            effort: child.isEffortUserChosen ? child.effort : nil
         )
         guard let session = AgentSessionManager.shared.existingSession(for: child.id) as? HeadlessSession else {
             return .failure(.failed("The session's tab opened, but it could not launch."))
@@ -180,6 +193,9 @@ final class ChildSessionCoordinator {
         guard let task = sender.task else { return .failure(.failed("This session's task is gone.")) }
 
         let parent = parent(of: sender)
+        if sender.isChildSession, parent == nil, to == "parent" || to.caseInsensitiveCompare(sender.parentTabIDRaw) == .orderedSame {
+            return .failure(.failed("The session that started this one is closed, so nothing can reach it."))
+        }
         let target: TaskTab
         if to == "parent", let parent {
             target = parent
@@ -272,6 +288,28 @@ final class ChildSessionCoordinator {
     func parent(of tab: TaskTab) -> TaskTab? {
         guard let parentID = tab.parentTabID, parentID != tab.id else { return nil }
         return tab.task?.liveTabs.first { $0.id == parentID }
+    }
+
+    /// What the parent's session runs on now, or what its tab records when
+    /// no session is running.
+    private struct LiveSettings {
+        let permissionMode: PermissionMode
+        let model: AgentModel?
+        let effort: AgentEffort?
+
+        init(of tab: TaskTab) {
+            let session = AgentSessionManager.shared.existingSession(for: tab.id) as? HeadlessSession
+            let running = session.flatMap { $0.hasExited ? nil : $0 }
+            permissionMode = running?.permissionMode ?? HeadlessCommand.launchPermissionMode(
+                AgentLauncher.resolvedPermissionMode(
+                    tab: tab.permissionMode,
+                    task: tab.task?.permissionMode,
+                    appDefault: AppSettings.shared.resolvedDefaultPermissionMode
+                )
+            )
+            model = running?.model ?? tab.model
+            effort = running?.effort ?? tab.effort
+        }
     }
 
     private func participant(_ tab: TaskTab) -> ChildSessionFormats.Participant {
