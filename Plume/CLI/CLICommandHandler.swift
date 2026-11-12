@@ -347,34 +347,33 @@ final class CLICommandHandler {
         let task = TaskStore.createTask(
             in: context, title: (path as NSString).lastPathComponent, group: group, siblings: siblings
         )
-        // Deleting a worktree task offers to remove the worktree, which the
-        // main checkout must never be.
+        let repository = ProjectRoot.repositoryDirectory(forRoot: checkout.facts.projectRoot)
         task.tabs.first?.workspace = TabWorkspace(
             kind: checkout.facts.isWorktree ? .worktree : .directory,
             directory: path,
-            repoPath: ProjectRoot.repositoryDirectory(forRoot: checkout.facts.projectRoot),
+            repoPath: repository,
             branchName: checkout.branch
         )
+        // `plume wt` made the worktree for this task, so deleting the task
+        // offers to remove it. The main checkout is never one.
+        if checkout.facts.isWorktree {
+            task.recordOwnedWorktree(OwnedWorktree(path: path, repoPath: repository, branch: checkout.branch))
+        }
         if params.select { windows.first?.reveal(task.id) }
         var response = CLIResponse.success
         response.taskID = task.id
         return response
     }
 
-    /// Matches saved workspaces, not where a terminal has `cd`'d since: a task
-    /// whose worktree tab is at or under `path` first, then one with a tab
-    /// saved exactly there.
+    /// The task that owns the worktree at `path`, else one with an agent tab
+    /// saved exactly there. A terminal's folder never counts: it follows `cd`.
     static func taskAlreadyOn(_ path: String, among tasks: [WorkTask]) -> WorkTask? {
-        let resolved = resolvedPath(path)
-        let saved = { (tab: TaskTab) in tab.workingDirectoryPath.map(resolvedPath) }
-        let worktreeMatch = tasks.first { task in
+        let standardized = OwnedWorktree.standardized(path)
+        let owner = tasks.first { task in task.ownedWorktrees.contains { $0.path == standardized } }
+        return owner ?? tasks.first { task in
             task.liveTabs.contains { tab in
-                guard tab.workspaceKind == .worktree, let folder = saved(tab) else { return false }
-                return folder == resolved || folder.hasPrefix(resolved + "/")
+                tab.kind == .agent && tab.workingDirectoryPath.map(OwnedWorktree.standardized) == standardized
             }
-        }
-        return worktreeMatch ?? tasks.first { task in
-            task.liveTabs.contains { saved($0) == resolved }
         }
     }
 
