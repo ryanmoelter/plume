@@ -279,7 +279,11 @@ private struct ModelControl: View, ThemedView {
         .help(state.modeAndModelHelp("Model: \(label)"))
         .accessibilityLabel("Model")
         .accessibilityValue(label)
-        .plumeID(AccessibilityID.composerModelControl)
+        // The NSMenu that `invoke` opens can't be driven, so a driver picks a model by name.
+        .plumeID(AccessibilityID.composerModelControl, value: label, setValue: { name in
+            guard let model = AgentModel.recognizing(name, provider: state.provider) else { return }
+            _ = state.setModel(model, provider: state.provider)
+        })
         .popover(isPresented: $isAskingForCustomID) {
             CustomModelIDField(id: $customID) {
                 state.setModel(AgentModel(unrecognizedID: $0), provider: customProvider)

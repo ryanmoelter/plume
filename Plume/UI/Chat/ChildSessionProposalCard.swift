@@ -81,7 +81,7 @@ struct ChildSessionProposalCard: View, ThemedView {
                 .lineLimit(1)
                 .truncationMode(.tail)
                 .chatTextColumn()
-            Text(text.prompt)
+            Text(MarkdownCache.inline(text.prompt))
                 .font(typography.caption.font)
                 .emphasis(.secondary)
                 .lineLimit(Self.briefLineLimit)
