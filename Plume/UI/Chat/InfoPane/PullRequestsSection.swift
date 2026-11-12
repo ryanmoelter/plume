@@ -459,7 +459,7 @@ private struct PullRequestChecksPopover: View, ThemedView {
                 .padding(.horizontal, SubagentRow.Columns.washInset)
             }
             .padding(.horizontal, -SubagentRow.Columns.washInset)
-            .environment(\.infoPaneWashLeadingInset, SubagentRow.Columns.washInset)
+            .environment(\.infoPaneRowWash, .rounded)
             .scrollBounceBehavior(.basedOnSize)
             .frame(maxHeight: 360)
             .fixedSize(horizontal: false, vertical: true)

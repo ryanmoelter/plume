@@ -18,14 +18,6 @@ enum InfoPaneBracketLevel {
         case .nested: InfoPaneLayout.nestedBracketCornerRadius
         }
     }
-
-    /// Keeps a row's hover wash clear of this level's bar.
-    var washLeadingInset: CGFloat {
-        switch self {
-        case .section: InfoPaneLayout.sectionWashInset
-        case .nested: InfoPaneLayout.nestedWashInset
-        }
-    }
 }
 
 /// A collapsible section: a header led by a stub in its icon column, which,
@@ -54,7 +46,6 @@ struct InfoPaneBracketedSection<Header: View, Rows: View>: View, ThemedView {
                 bracket(headerHeight: headerHeight)
             }
         }
-        .environment(\.infoPaneWashLeadingInset, level.washLeadingInset)
         .padding(.top, InfoPaneLayout.groupVerticalPadding)
         .padding(.bottom, level == .section ? InfoPaneLayout.groupVerticalPadding : 0)
     }

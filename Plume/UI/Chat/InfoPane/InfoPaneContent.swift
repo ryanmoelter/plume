@@ -42,6 +42,7 @@ struct InfoPaneContent: View, ThemedView {
             }
         }
         .font(typography.caption.font)
+        .environment(\.infoPaneRowWash, .paneWidth)
         .overlay {
             if isFolderDropTargeted {
                 RoundedRectangle(cornerRadius: 8)
@@ -453,8 +454,9 @@ private struct SubagentGlyphs: View, ThemedView {
     }
 }
 
-/// A clickable pane row: insets that give its hover wash room, pulled back
-/// out so the row's icon and text stay on the pane's columns.
+/// A clickable pane row: insets that give its hover wash and click target
+/// room, pulled back out so the row's icon and text stay on the pane's
+/// columns.
 struct InfoPaneRowButtonStyle: ButtonStyle {
     /// True while a control laid over the row is hovered and shows its own
     /// wash instead.
@@ -467,7 +469,7 @@ struct InfoPaneRowButtonStyle: ButtonStyle {
     private struct RowBody: View, ThemedView {
         @Environment(\.theme) var theme
         @Environment(\.isEnabled) private var isEnabled
-        @Environment(\.infoPaneWashLeadingInset) private var leadingWashInset
+        @Environment(\.infoPaneRowWash) private var wash
         @State private var isHovering = false
         let configuration: ButtonStyleConfiguration
         let suppressesWash: Bool
@@ -475,14 +477,12 @@ struct InfoPaneRowButtonStyle: ButtonStyle {
         var body: some View {
             let showsWash = isEnabled && !suppressesWash && (isHovering || configuration.isPressed)
             configuration.label
-                .padding(.leading, leadingWashInset)
-                .padding(.trailing, SubagentRow.Columns.washInset)
+                .padding(.horizontal, wash.inset)
                 .padding(.vertical, InfoPaneLayout.rowVerticalPadding)
-                .contentShape(.rect(cornerRadius: 6))
-                .background(showsWash ? colors.surfaceTint : Color.clear, in: .rect(cornerRadius: 6))
+                .contentShape(.rect(cornerRadius: wash.cornerRadius))
+                .background(showsWash ? colors.surfaceTint : Color.clear, in: .rect(cornerRadius: wash.cornerRadius))
                 .plumeHover { isHovering = $0 }
-                .padding(.leading, -leadingWashInset)
-                .padding(.trailing, -SubagentRow.Columns.washInset)
+                .padding(.horizontal, -wash.inset)
         }
     }
 }
@@ -490,7 +490,7 @@ struct InfoPaneRowButtonStyle: ButtonStyle {
 /// A subagent row on the pane's columns. The row insets itself for its hover
 /// wash; pulling it back out puts its badge in the pane's icon column.
 private struct InfoPaneSubagentRow: View {
-    @Environment(\.infoPaneWashLeadingInset) private var leadingWashInset
+    @Environment(\.infoPaneRowWash) private var wash
 
     let subagent: SubagentTranscript
     let tabID: UUID
@@ -498,21 +498,32 @@ private struct InfoPaneSubagentRow: View {
 
     var body: some View {
         SubagentRow(subagent: subagent, tabID: tabID, columns: columns, onOpen: onOpen)
-            .padding(.leading, -leadingWashInset)
-            .padding(.trailing, -SubagentRow.Columns.washInset)
+            .padding(.horizontal, -wash.inset)
     }
 
     private var columns: SubagentRow.Columns {
         var columns = SubagentRow.Columns.infoPane
-        columns.leadingWashInset = leadingWashInset
+        columns.leadingWashInset = wash.inset
+        columns.trailingWashInset = wash.inset
+        columns.washCornerRadius = wash.cornerRadius
         return columns
     }
 }
 
+/// How far a clickable row's hover wash and click target reach past its
+/// content on each side.
+struct InfoPaneRowWash {
+    var inset: CGFloat
+    var cornerRadius: CGFloat
+
+    static let rounded = InfoPaneRowWash(inset: SubagentRow.Columns.washInset, cornerRadius: 6)
+    /// Spans the pane edge to edge, across the brackets in its padding, which
+    /// draw over the wash. The pane's own corners round it, so it has none.
+    static let paneWidth = InfoPaneRowWash(inset: InfoPaneLayout.panePadding, cornerRadius: 0)
+}
+
 extension EnvironmentValues {
-    /// How far a row's hover wash reaches left of the content edge, which a
-    /// bracket trims so its bar stays clear.
-    @Entry var infoPaneWashLeadingInset: CGFloat = SubagentRow.Columns.washInset
+    @Entry var infoPaneRowWash = InfoPaneRowWash.rounded
 }
 
 /// One cell of the pane's icon column.

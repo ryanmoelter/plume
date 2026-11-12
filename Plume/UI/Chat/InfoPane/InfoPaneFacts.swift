@@ -361,12 +361,9 @@ enum InfoPaneLayout {
     /// Above and below a section, and above a subgroup, which always ends
     /// its section, so a bar still ends on the section's last row.
     static let groupVerticalPadding: CGFloat = 4
-    /// Brackets sit in the pane's padding, measured from the content edge,
-    /// each just outside the hover wash of the rows it holds.
+    /// Brackets sit in the pane's padding, measured from the content edge.
     static let sectionBarX: CGFloat = 6 - panePadding
     static let nestedBarX: CGFloat = sectionBarX + 2.5
-    static let sectionWashInset: CGFloat = 4.5
-    static let nestedWashInset: CGFloat = 2
     static let bracketCornerRadius: CGFloat = 4
     static let nestedBracketCornerRadius: CGFloat = 3
     static let headerLogoSize: CGFloat = 10

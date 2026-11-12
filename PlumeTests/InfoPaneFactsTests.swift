@@ -519,13 +519,12 @@ struct InfoPaneBracketGeometryTests {
     }
 
     // Each line's edge is its center ± half the line width.
-    @MainActor @Test func barsFitThePaddingClearOfEachOtherAndTheWashes() {
+    @MainActor @Test func barsFitThePaddingClearOfEachOther() {
         let pointSize = Typography(bodySize: AppSettings.defaultChatFontSize).caption.size
         let half = InfoPaneBracketStub(pointSize: pointSize, centerX: 0).lineWidth / 2
         #expect(InfoPaneLayout.sectionBarX + InfoPaneLayout.panePadding == 6)
-        #expect(InfoPaneLayout.sectionBarX + half < -InfoPaneLayout.sectionWashInset)
         #expect(InfoPaneLayout.sectionBarX + half < InfoPaneLayout.nestedBarX - half)
-        #expect(InfoPaneLayout.nestedBarX + half < -InfoPaneLayout.nestedWashInset)
+        #expect(InfoPaneLayout.nestedBarX + half < 0)
     }
 
     // 8.05 long cap to cap at 10 pt: 0.88 of it is the two half caps.
