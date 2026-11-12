@@ -88,7 +88,7 @@ struct ChildSessionProposalCard: View, ThemedView {
                 .truncationMode(.tail)
                 .chatTextColumn()
             footer(state: state, isStarting: isStarting)
-            if state == .pending || state == .expired, let failure = activity.failure(of: proposalID, in: board.tabID) {
+            if let failure = activity.failure(of: proposalID, in: board.tabID, showing: state) {
                 Label(failure, systemImage: "exclamationmark.triangle")
                     .font(typography.caption.font)
                     .foregroundStyle(colors.warning)

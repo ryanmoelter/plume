@@ -33,7 +33,8 @@ nonisolated enum ChildSessionFormats {
     static func proposalID(of call: ToolCall) -> String? {
         guard call.name == PlumeMCPTool.startSession.qualifiedName, !call.didFail,
               let result = call.result, result.hasPrefix("Proposed \""),
-              let match = result.firstMatch(of: /\(task_id: (task_[0-9a-f]{8})\)/)
+              // The last match, since the title before the real id is the agent's own text.
+              let match = result.matches(of: /\(task_id: (task_[0-9a-f]{8})\)\. The user sees a card/).last
         else { return nil }
         return String(match.output.1)
     }

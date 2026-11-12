@@ -1,4 +1,5 @@
 import Foundation
+import os
 
 /// A session an agent proposed with `start_session` and
 /// `initiation: "own_initiative"`. Nothing runs until the user starts it from
@@ -61,19 +62,35 @@ nonisolated struct ChildSessionProposal: Codable, Equatable, Identifiable {
         StartSessionRequest.parse(arguments(wakeWhenDone: override))
     }
 
-    /// Why a start by `proposal_id` that also passed launch `settings` is
-    /// refused: they differ from the ones it was proposed with. Nil when they
-    /// match.
-    func conflict(with settings: [String: JSONValue]) -> ChildSessionError? {
-        guard !settings.isEmpty else { return nil }
-        let refusal = "proposal_id starts the proposal with its own settings, and \(settings.keys.sorted().joined(separator: ", ")) differs from them. To change them, dismiss_task it and start a new session."
-        guard case .success(let proposed) = request(),
-              case .success(let asked) = StartSessionRequest.parse(arguments().merging(settings) { $1 })
-        else { return .invalid(refusal) }
-        let matches = asked.model == proposed.model && asked.effort == proposed.effort
-            && asked.permissionMode == proposed.permissionMode && asked.useWorktree == proposed.useWorktree
-            && asked.context == proposed.context
-        return matches ? nil : .invalid(refusal)
+    /// Why a start by `proposal_id` that repeated part of the brief or the
+    /// launch settings is refused: what it repeated differs from the
+    /// proposal's own. Nil when it all matches.
+    func conflict(with repeated: [String: JSONValue]) -> ChildSessionError? {
+        guard !repeated.isEmpty else { return nil }
+        let differing: [String]
+        if case .success(let proposed) = request(),
+           case .success(let asked) = StartSessionRequest.parse(arguments().merging(repeated) { $1 }) {
+            let fields: [(String, Bool)] = [
+                ("title", asked.title == proposed.title),
+                ("prompt", asked.prompt == proposed.prompt),
+                ("name", asked.name == proposed.name),
+                ("background", asked.background == proposed.background),
+                ("model", asked.model == proposed.model),
+                ("effort", asked.effort == proposed.effort),
+                ("permission_mode", asked.permissionMode == proposed.permissionMode),
+                ("use_worktree", asked.useWorktree == proposed.useWorktree),
+                ("context", asked.context == proposed.context)
+            ]
+            differing = fields.filter { !$0.1 }.map(\.0)
+        } else {
+            differing = repeated.keys.sorted()
+        }
+        guard !differing.isEmpty else { return nil }
+        let brief: Set<String> = ["title", "prompt", "name", "background"]
+        let advice = differing.contains(where: brief.contains)
+            ? "To change the brief, dismiss_task it and start a new session, or start it as it is and send_message the child once it starts."
+            : "To change them, dismiss_task it and start a new session."
+        return .invalid("proposal_id starts the proposal with its own brief and settings, and \(differing.joined(separator: ", ")) differs from them. \(advice)")
     }
 
     private func arguments(wakeWhenDone override: Bool? = nil) -> [String: JSONValue] {
@@ -103,24 +120,54 @@ nonisolated struct ChildSessionProposalStore: Equatable {
     static let settledLimit = 200
 
     private(set) var proposals: [ChildSessionProposal]
+    /// Entries this build cannot decode, as a newer one may have written
+    /// them. Every write carries them through unchanged.
+    private(set) var unreadable: [JSONValue] = []
+    /// Stored text that is not a JSON array at all. While set, the store
+    /// must not be written, or that text would be lost.
+    private(set) var unreadableText: String?
 
     init(proposals: [ChildSessionProposal] = []) {
         self.proposals = proposals
     }
 
-    /// Empty or unreadable JSON is an empty store.
     init(json: String) {
+        proposals = []
+        guard !json.isEmpty else { return }
+        guard let entries = try? JSONDecoder().decode([JSONValue].self, from: Data(json.utf8)) else {
+            unreadableText = json
+            Log.agent.error("Child session proposals are not a JSON array; leaving them as stored")
+            return
+        }
         let decoder = JSONDecoder()
         decoder.dateDecodingStrategy = .iso8601
-        proposals = (try? decoder.decode([ChildSessionProposal].self, from: Data(json.utf8))) ?? []
+        for entry in entries {
+            if let data = try? JSONEncoder().encode(entry),
+               let proposal = try? decoder.decode(ChildSessionProposal.self, from: data) {
+                proposals.append(proposal)
+            } else {
+                unreadable.append(entry)
+            }
+        }
+        let unreadableCount = unreadable.count
+        if unreadableCount > 0 {
+            Log.agent.error("Carrying \(unreadableCount, privacy: .public) child session proposals this build cannot read")
+        }
     }
 
+    /// False when the stored text could not be read at all.
+    var isWritable: Bool { unreadableText == nil }
+
     var json: String {
-        guard !proposals.isEmpty else { return "" }
+        if let unreadableText { return unreadableText }
+        guard !proposals.isEmpty || !unreadable.isEmpty else { return "" }
         let encoder = JSONEncoder()
         encoder.dateEncodingStrategy = .iso8601
         encoder.outputFormatting = [.sortedKeys]
-        return (try? encoder.encode(proposals)).map { String(decoding: $0, as: UTF8.self) } ?? ""
+        let decoded = proposals.compactMap { proposal in
+            (try? encoder.encode(proposal)).flatMap { try? JSONDecoder().decode(JSONValue.self, from: $0) }
+        }
+        return (try? encoder.encode(decoded + unreadable)).map { String(decoding: $0, as: UTF8.self) } ?? ""
     }
 
     static func makeID(random: UInt32 = .random(in: .min ... .max)) -> String {
@@ -252,31 +299,30 @@ nonisolated enum ChildSessionProposalError: Error, Equatable {
 nonisolated enum StartSessionCall: Equatable {
     case start(StartSessionRequest)
     case propose(StartSessionRequest)
-    /// `settings` are the launch settings the call repeated, which must match
-    /// the proposal's own.
+    /// `settings` are the brief and launch settings the call repeated, which
+    /// must match the proposal's own.
     case startProposal(id: String, wakeWhenDone: Bool?, settings: [String: JSONValue])
 
-    /// Arguments a start by `proposal_id` ignores, since the proposal
-    /// already holds them.
-    static let ignoredByProposalID: Set<String> = ["initiation", "title", "prompt", "name", "background"]
-    static let launchSettings: Set<String> = ["model", "effort", "permission_mode", "use_worktree", "context"]
+    /// What a start by `proposal_id` may repeat, as long as it matches.
+    static let repeatable: Set<String> = [
+        "title", "prompt", "name", "background", "model", "effort", "permission_mode", "use_worktree", "context"
+    ]
 
     static func parse(_ arguments: [String: JSONValue]) -> Result<StartSessionCall, ChildSessionError> {
-        if let raw = arguments["proposal_id"] {
-            guard let id = raw.stringValue?.trimmingCharacters(in: .whitespacesAndNewlines), !id.isEmpty else {
+        if hasProposalID(arguments) {
+            guard let id = arguments["proposal_id"]?.stringValue?.trimmingCharacters(in: .whitespacesAndNewlines) else {
                 return .failure(.invalid("proposal_id must be the task_id a proposal returned"))
             }
             let extra = Set(arguments.keys)
-                .subtracting(["proposal_id", "wake_when_done"])
-                .subtracting(ignoredByProposalID)
-                .subtracting(launchSettings)
+                .subtracting(["proposal_id", "wake_when_done", "initiation"])
+                .subtracting(repeatable)
             guard extra.isEmpty else {
                 return .failure(.invalid("proposal_id does not take \(extra.sorted().joined(separator: ", "))."))
             }
             return .success(.startProposal(
                 id: id,
                 wakeWhenDone: arguments["wake_when_done"]?.boolValue,
-                settings: arguments.filter { launchSettings.contains($0.key) }
+                settings: arguments.filter { repeatable.contains($0.key) }
             ))
         }
         return StartSessionRequest.parse(arguments).map { request in
@@ -284,9 +330,18 @@ nonisolated enum StartSessionCall: Equatable {
         }
     }
 
+    /// A `null` or blank `proposal_id` counts as absent.
+    private static func hasProposalID(_ arguments: [String: JSONValue]) -> Bool {
+        switch arguments["proposal_id"] {
+        case nil, .null?: false
+        case .string(let id)?: !id.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+        default: true
+        }
+    }
+
     /// Whether the call only records a card, which plan mode allows.
     static func isProposal(_ arguments: [String: JSONValue]) -> Bool {
-        guard arguments["proposal_id"] == nil,
+        guard !hasProposalID(arguments),
               let raw = arguments["initiation"]?.stringValue?.trimmingCharacters(in: .whitespacesAndNewlines),
               let initiation = StartSessionRequest.Initiation(rawValue: raw)
         else { return false }
