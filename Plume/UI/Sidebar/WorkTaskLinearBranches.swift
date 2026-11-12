@@ -24,9 +24,12 @@ extension WorkTask {
         )
     }
 
-    /// The branch saved on the first tab in `directory`.
+    /// The first branch saved on a tab in `directory`.
     func storedBranchName(in directory: String) -> String? {
-        orderedLiveTabs.first { TabDirectoryStore.shared.directory(for: $0) == directory }?.branchName
+        orderedLiveTabs.lazy
+            .filter { TabDirectoryStore.shared.directory(for: $0) == directory }
+            .compactMap(\.branchName)
+            .first
     }
 
     /// The branches whose names can carry a working Linear issue: what each
