@@ -14,17 +14,21 @@ struct LinearIssueGlyph: View, ThemedView {
     /// Only a `started` state reads it.
     let progress: LinearStartedProgress
 
-    init(stateType: LinearStateType, colorHex: String?, progress: LinearStartedProgress = .half) {
+    init(stateType: LinearStateType, progress: LinearStartedProgress, colorHex: String?) {
         self.init(
-            stateType: stateType, colorHex: colorHex, strategy: AppSettings.shared.linearStateColors, progress: progress
+            stateType: stateType, progress: progress, colorHex: colorHex, strategy: AppSettings.shared.linearStateColors
         )
+    }
+
+    init(_ issue: LinearIssue) {
+        self.init(stateType: issue.stateType, progress: issue.startedProgress, colorHex: issue.stateColor)
     }
 
     init(
         stateType: LinearStateType,
+        progress: LinearStartedProgress,
         colorHex: String?,
-        strategy: LinearStateColorStrategy?,
-        progress: LinearStartedProgress = .half
+        strategy: LinearStateColorStrategy?
     ) {
         self.stateType = stateType
         self.colorHex = colorHex
@@ -58,10 +62,7 @@ struct LinearIssueGlyph: View, ThemedView {
         }
     }
 
-    nonisolated static func symbolName(
-        for stateType: LinearStateType,
-        progress: LinearStartedProgress = .half
-    ) -> String {
+    nonisolated static func symbolName(for stateType: LinearStateType, progress: LinearStartedProgress) -> String {
         switch stateType {
         case .backlog: "circle.dashed"
         case .unstarted: "circle"

@@ -4,7 +4,7 @@ import Foundation
 nonisolated struct ResolvedMention: Hashable, Sendable {
     enum State: Hashable, Sendable {
         /// `colorHex` is a `#rrggbb` string, as Linear reports it.
-        case linear(LinearStateType, colorHex: String)
+        case linear(LinearStateType, progress: LinearStartedProgress, colorHex: String)
         case pullRequest(PullRequestState, isDraft: Bool)
         case file(isDirectory: Bool)
     }
@@ -146,7 +146,7 @@ final class MentionResolver {
 
 extension ResolvedMention {
     nonisolated init(_ issue: MentionCandidate.LinearIssue) {
-        self.init(target: issue.url, title: issue.title, state: .linear(issue.stateType, colorHex: issue.stateColor))
+        self.init(target: issue.url, title: issue.title, state: .linear(issue.stateType, progress: issue.startedProgress, colorHex: issue.stateColor))
     }
 
     nonisolated init(_ pull: MentionCandidate.PullRequestEntry) {

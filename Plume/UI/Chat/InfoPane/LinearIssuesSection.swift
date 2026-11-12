@@ -177,11 +177,6 @@ private struct IssueRow: View, ThemedView {
         .overlay(alignment: menuIsPrimary ? .topTrailing : .bottomTrailing) { actionsMenu }
     }
 
-    private var startedProgress: LinearStartedProgress {
-        guard issue.stateType == .started, let teamKey = issue.teamKey else { return .half }
-        return LinearStore.shared.startedProgress(identifier: issue.identifier, teamKey: teamKey, position: issue.statePosition)
-    }
-
     private var opensIssue: Bool { issue.role == .working && issue.url != nil }
 
     @ViewBuilder
@@ -189,7 +184,7 @@ private struct IssueRow: View, ThemedView {
         if showsBubble {
             Image(systemName: "questionmark.bubble").emphasis(.secondary)
         } else if let type = issue.stateType {
-            LinearIssueGlyph(stateType: type, colorHex: issue.stateColor, progress: startedProgress)
+            LinearIssueGlyph(stateType: type, progress: issue.startedProgress, colorHex: issue.stateColor)
         } else {
             Image(systemName: "circle.dotted").emphasis(.subtle)
         }

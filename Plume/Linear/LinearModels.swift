@@ -69,7 +69,7 @@ nonisolated struct LinearTeam: Sendable, Equatable, Codable {
 
 /// How far Linear fills a `started` state's circle, by where the state sits
 /// among its team's started states.
-nonisolated enum LinearStartedProgress: Sendable, Equatable {
+nonisolated enum LinearStartedProgress: String, Sendable, Hashable, Codable {
     case quarter, half, threeQuarters
 
     /// A lone started state reads as half; two read as half and three
@@ -86,6 +86,24 @@ nonisolated enum LinearStartedProgress: Sendable, Equatable {
             let fraction = Double(min(rank, count - 1)) / Double(count - 1)
             self = fraction < 0.25 ? .quarter : fraction > 0.75 ? .threeQuarters : .half
         }
+    }
+
+    /// Read from the first of `catalogs` that defines the team. Half for any
+    /// other state type, and when no catalog knows the team or the position.
+    init(stateType: LinearStateType, position: Double?, teamKey: String, catalogs: [LinearCatalog]) {
+        guard stateType == .started else {
+            self = .half
+            return
+        }
+        let team = catalogs.lazy.compactMap { $0.team(key: teamKey) }.first
+        self = team?.startedProgress(position: position) ?? .half
+    }
+}
+
+nonisolated extension LinearTeam {
+    func startedProgress(position: Double?) -> LinearStartedProgress {
+        guard let position else { return .half }
+        return LinearStartedProgress(position: position, among: states.filter { $0.type == .started }.compactMap(\.position))
     }
 }
 
@@ -136,6 +154,17 @@ nonisolated struct LinearIssue: Sendable, Equatable, Codable {
     var summary: String? = nil
     /// Linear's `TimelessDate`, `yyyy-MM-dd`.
     var dueDate: String? = nil
+    /// `LinearStore` sets it from the owning workspace's catalog when it
+    /// hands the issue out.
+    var startedProgress: LinearStartedProgress = .half
+
+    func resolvingProgress(in catalogs: [LinearCatalog]) -> LinearIssue {
+        var issue = self
+        issue.startedProgress = LinearStartedProgress(
+            stateType: stateType, position: statePosition, teamKey: teamKey, catalogs: catalogs
+        )
+        return issue
+    }
 }
 
 nonisolated extension LinearIssue {

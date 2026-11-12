@@ -14,7 +14,7 @@ struct HomeRowContextTests {
     }
 
     @Test func everySegmentInOrder() {
-        let issue = Reference(id: "PLUME-334", icon: .linear(.started, colorHex: "#f2c94c"))
+        let issue = Reference(id: "PLUME-334", icon: .linear(.started, progress: .half, colorHex: "#f2c94c"))
         let pullRequest = Reference(id: "#12", icon: .pullRequest(number: 12, state: .open, isDraft: false))
         let context = HomeRowContext(
             project: "Plume",

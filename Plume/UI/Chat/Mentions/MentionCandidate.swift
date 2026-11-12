@@ -38,6 +38,7 @@ nonisolated enum MentionCandidate: Identifiable, Hashable, Sendable {
         /// A `#rrggbb` hex string, as Linear reports it.
         let stateColor: String
         let updatedAt: Date
+        var startedProgress: LinearStartedProgress = .half
 
         /// The identifier's prefix, `DROID` in `DROID-123`.
         var teamKey: String {

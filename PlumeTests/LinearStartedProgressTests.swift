@@ -31,4 +31,31 @@ struct LinearStartedProgressTests {
         #expect(name == expected)
         #expect(NSImage(systemSymbolName: name, accessibilityDescription: nil) != nil)
     }
+
+    private func catalog(_ orgID: String, positions: [Double]) -> LinearCatalog {
+        let states = positions.enumerated().map {
+            LinearWorkflowState(id: "\(orgID)\($0.offset)", name: "S\($0.offset)", type: .started, color: "#000000", position: $0.element)
+        }
+        return LinearCatalog(orgID: orgID, teams: [LinearTeam(id: orgID, key: "PLUME", name: "Plume", states: states)], fetchedAt: Date())
+    }
+
+    @Test func theFirstCatalogDefiningTheTeamDecides() {
+        let catalogs = [catalog("A", positions: [1, 2]), catalog("B", positions: [1, 2, 3])]
+        #expect(LinearStartedProgress(stateType: .started, position: 2, teamKey: "plume", catalogs: catalogs) == .threeQuarters)
+        #expect(LinearStartedProgress(stateType: .started, position: 2, teamKey: "PLUME", catalogs: Array(catalogs.reversed())) == .half)
+    }
+
+    @Test func anythingUnresolvableReadsAsHalf() {
+        let catalogs = [catalog("A", positions: [1, 2, 3])]
+        #expect(LinearStartedProgress(stateType: .unstarted, position: 1, teamKey: "PLUME", catalogs: catalogs) == .half)
+        #expect(LinearStartedProgress(stateType: .started, position: nil, teamKey: "PLUME", catalogs: catalogs) == .half)
+        #expect(LinearStartedProgress(stateType: .started, position: 1, teamKey: "DROID", catalogs: catalogs) == .half)
+        #expect(LinearStartedProgress(stateType: .started, position: 1, teamKey: "PLUME", catalogs: []) == .half)
+    }
+
+    @Test func aStateGroupEntryCarriesItsTeamsProgress() {
+        let groups = LinearStateGroups(catalog: catalog("A", positions: [1, 2, 3]))
+        let entries = groups.sections.flatMap(\.entries).sorted { ($0.state.position ?? 0) < ($1.state.position ?? 0) }
+        #expect(entries.map(\.startedProgress) == [.quarter, .half, .threeQuarters])
+    }
 }

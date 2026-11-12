@@ -177,14 +177,19 @@ final class LinearStore: LinearActivitySink {
         catalogs[orgID]
     }
 
-    func startedProgress(identifier: String, teamKey: String, position: Double?) -> LinearStartedProgress {
-        guard let position else { return .half }
-        let key = teamKey.uppercased()
-        let owner = issueOwner[identifier.uppercased()]
-        let candidates = owner.map { id in orderedCatalogs.filter { $0.orgID == id } } ?? orderedCatalogs
-        let team = candidates.lazy.compactMap { $0.teams.first { $0.key == key } }.first
-        let positions = team?.states.filter { $0.type == .started }.compactMap(\.position) ?? []
-        return LinearStartedProgress(position: position, among: positions)
+    /// `issue` with its started progress read from the catalog of the
+    /// workspace that answered with it, or of the first one defining its team.
+    private func resolvingProgress(_ issue: LinearIssue) -> LinearIssue {
+        let owner = issueOwner[issue.identifier.uppercased()]
+        return issue.resolvingProgress(in: owner.map { id in orderedCatalogs.filter { $0.orgID == id } } ?? orderedCatalogs)
+    }
+
+    private func resolvingProgress(_ state: LinearIssueFetchState) -> LinearIssueFetchState {
+        switch state {
+        case .issue(let issue): .issue(resolvingProgress(issue))
+        case .stale(let issue, let reason): .stale(resolvingProgress(issue), reason: reason)
+        default: state
+        }
     }
 
     /// Not observable: read it when showing it.
@@ -675,6 +680,8 @@ final class LinearStore: LinearActivitySink {
                 publish(.noWorkspace, for: identifier)
             } else if publishFromCache(identifier) {
                 continue
+            } else if let current = currentState(identifier), current.issue != nil {
+                publish(current, for: identifier)
             } else if currentState(identifier) == nil || currentState(identifier) == .noWorkspace {
                 publish(.loading, for: identifier)
                 routable.append(identifier)
@@ -948,7 +955,7 @@ final class LinearStore: LinearActivitySink {
             sources.append(MentionSource(
                 cache: caches[orgID],
                 hits: searchHits[orgID] ?? [:],
-                viewerID: catalogs[orgID]?.viewerID
+                catalog: catalogs[orgID]
             ))
         }
         let isBare = query.trimmingCharacters(in: .whitespaces).isEmpty
@@ -962,9 +969,14 @@ final class LinearStore: LinearActivitySink {
     /// the sync cache, or a search hit.
     func knownIssue(identifier: String) -> LinearIssue? {
         let identifier = identifier.uppercased()
-        if let issue = state(for: identifier)?.issue ?? cachedIssue(identifier)?.issue { return issue }
+        if let issue = state(for: identifier)?.issue { return issue }
+        if let (orgID, issue) = cachedIssue(identifier) {
+            return issue.resolvingProgress(in: catalogs[orgID].map { [$0] } ?? [])
+        }
         for account in accounts.accounts {
-            if let hit = searchHits[account.orgID]?[identifier] { return hit.issue }
+            if let hit = searchHits[account.orgID]?[identifier] {
+                return hit.issue.resolvingProgress(in: catalogs[account.orgID].map { [$0] } ?? [])
+            }
         }
         return nil
     }
@@ -973,10 +985,12 @@ final class LinearStore: LinearActivitySink {
         let identifier = identifier.uppercased()
         if let (orgID, _) = cachedIssue(identifier), let cache = caches[orgID],
            let id = cache.issueID(identifier: identifier), let issue = cache.issues[id] {
-            return MentionCandidate.LinearIssue(issue, state: cache.states[issue.stateID])
+            return MentionCandidate.LinearIssue(issue, state: cache.states[issue.stateID], catalog: catalogs[orgID])
         }
         for account in accounts.accounts {
-            if let hit = searchHits[account.orgID]?[identifier] { return MentionCandidate.LinearIssue(hit) }
+            if let hit = searchHits[account.orgID]?[identifier] {
+                return MentionCandidate.LinearIssue(hit, catalog: catalogs[account.orgID])
+            }
         }
         return nil
     }
@@ -984,7 +998,7 @@ final class LinearStore: LinearActivitySink {
     private nonisolated struct MentionSource: Sendable {
         let cache: LinearSyncCache?
         let hits: [String: LinearIssueSnapshot]
-        let viewerID: String?
+        let catalog: LinearCatalog?
     }
 
     /// With `assignedToViewer`, only the open issues assigned to the API
@@ -996,16 +1010,17 @@ final class LinearStore: LinearActivitySink {
         var seen = Set<String>()
         var issues: [MentionCandidate.LinearIssue] = []
         for source in sources {
-            if assignedToViewer, source.viewerID == nil { continue }
+            let viewerID = source.catalog?.viewerID
+            if assignedToViewer, viewerID == nil { continue }
             if let cache = source.cache {
                 for issue in cache.issues.values where seen.insert(issue.identifier).inserted {
-                    if assignedToViewer, issue.assigneeID != source.viewerID { continue }
-                    issues.append(MentionCandidate.LinearIssue(issue, state: cache.states[issue.stateID]))
+                    if assignedToViewer, issue.assigneeID != viewerID { continue }
+                    issues.append(MentionCandidate.LinearIssue(issue, state: cache.states[issue.stateID], catalog: source.catalog))
                 }
             }
             for (identifier, snapshot) in source.hits where seen.insert(identifier).inserted {
-                if assignedToViewer, snapshot.assignee?.id != source.viewerID { continue }
-                issues.append(MentionCandidate.LinearIssue(snapshot))
+                if assignedToViewer, snapshot.assignee?.id != viewerID { continue }
+                issues.append(MentionCandidate.LinearIssue(snapshot, catalog: source.catalog))
             }
         }
         return assignedToViewer ? issues.filter(\.isOpen) : issues
@@ -1206,6 +1221,7 @@ final class LinearStore: LinearActivitySink {
     // MARK: - Bookkeeping
 
     private func publish(_ state: LinearIssueFetchState, for identifier: String) {
+        let state = resolvingProgress(state)
         guard wantCounts[identifier] != nil, currentState(identifier) != state else { return }
         stateBox(for: identifier).value = state
     }

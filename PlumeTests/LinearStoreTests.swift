@@ -599,49 +599,102 @@ struct LinearStoreTests {
         #expect(harness.store.teamKeys == ["PLUME"])
     }
 
-    @Test func startedProgressUsesTheIssuesOwnTeamAndWorkspace() async throws {
-        func catalog(_ orgID: String, positions: [Double]) -> LinearCatalog {
-            let states = positions.enumerated().map {
-                LinearWorkflowState(id: "\(orgID)\($0.offset)", name: "S", type: .started, color: "#000000", position: $0.element)
-            }
-            let team = LinearTeam(id: "t\(orgID)", key: "PLUME", name: "Plume", states: states)
-            return LinearCatalog(orgID: orgID, teams: [team], fetchedAt: Date())
+    private func startedCatalog(_ orgID: String, positions: [Double]) -> LinearCatalog {
+        let states = positions.enumerated().map {
+            LinearWorkflowState(id: "\(orgID)\($0.offset)", name: "S", type: .started, color: "#000000", position: $0.element)
         }
-        let a = FakeLinearWorkspace(orgID: "A", teamKeys: ["PLUME"])
-        let b = FakeLinearWorkspace(orgID: "B", teamKeys: ["PLUME"])
-        await a.set(catalog: catalog("A", positions: [1, 2]))
-        await b.set(catalog: catalog("B", positions: [1, 2, 3]))
-        await b.set(issues: ["PLUME-1": LinearTestFixtures.issue("PLUME-1")])
-        let harness = try await makeHarness([a, b])
-        harness.store.setWanted(["PLUME-1"], owner: UUID())
-        await harness.store.settle()
-
-        #expect(harness.store.startedProgress(identifier: "PLUME-1", teamKey: "PLUME", position: 2) == .half)
+        let team = LinearTeam(id: "t\(orgID)", key: "PLUME", name: "Plume", states: states)
+        return LinearCatalog(orgID: orgID, teams: [team], fetchedAt: Date())
     }
 
-    @Test func startedProgressFollowsTheWorkspaceThatOwnsTheIssue() async throws {
-        func catalog(_ orgID: String, positions: [Double]) -> LinearCatalog {
-            let states = positions.enumerated().map {
-                LinearWorkflowState(id: "\(orgID)\($0.offset)", name: "S", type: .started, color: "#000000", position: $0.element)
-            }
-            let team = LinearTeam(id: "t\(orgID)", key: "PLUME", name: "Plume", states: states)
-            return LinearCatalog(orgID: orgID, teams: [team], fetchedAt: Date())
-        }
+    private func startedIssue(_ identifier: String, position: Double, title: String = "An issue") -> LinearIssue {
+        LinearIssue(
+            identifier: identifier,
+            title: title,
+            url: "https://linear.app/x/issue/\(identifier)",
+            stateName: "In Progress",
+            stateType: .started,
+            stateColor: "#f2c94c",
+            statePosition: position,
+            assigneeName: nil,
+            teamKey: LinearIdentifier.teamKey(of: identifier)
+        )
+    }
+
+    @Test func aPublishedIssueReadsProgressFromItsOwnWorkspace() async throws {
         let a = FakeLinearWorkspace(orgID: "A", teamKeys: ["PLUME"])
         let b = FakeLinearWorkspace(orgID: "B", teamKeys: ["PLUME"])
-        await a.set(catalog: catalog("A", positions: [1, 2]))
-        await b.set(catalog: catalog("B", positions: [1, 2, 3]))
-        await a.set(issues: ["PLUME-1": LinearTestFixtures.issue("PLUME-1", title: "from A")])
-        await b.set(issues: ["PLUME-1": LinearTestFixtures.issue("PLUME-1", title: "from B")])
+        await a.set(catalog: startedCatalog("A", positions: [1, 2]))
+        await b.set(catalog: startedCatalog("B", positions: [1, 2, 3]))
+        await b.set(issues: ["PLUME-1": startedIssue("PLUME-1", position: 2)])
         let harness = try await makeHarness([a, b])
         harness.store.setWanted(["PLUME-1"], owner: UUID())
         await harness.store.settle()
 
-        let title = try #require(harness.store.state(for: "PLUME-1")?.issue?.title)
-        let positions: [Double] = title == "from A" ? [1, 2] : [1, 2, 3]
-        let expected = LinearStartedProgress(position: 2, among: positions)
-        #expect(expected != LinearStartedProgress(position: 2, among: title == "from A" ? [1, 2, 3] : [1, 2]))
-        #expect(harness.store.startedProgress(identifier: "plume-1", teamKey: "PLUME", position: 2) == expected)
+        #expect(harness.store.state(for: "PLUME-1")?.issue?.startedProgress == .half)
+    }
+
+    @Test func aPublishedIssueFollowsTheWorkspaceThatOwnsIt() async throws {
+        let a = FakeLinearWorkspace(orgID: "A", teamKeys: ["PLUME"])
+        let b = FakeLinearWorkspace(orgID: "B", teamKeys: ["PLUME"])
+        await a.set(catalog: startedCatalog("A", positions: [1, 2]))
+        await b.set(catalog: startedCatalog("B", positions: [1, 2, 3]))
+        await a.set(issues: ["PLUME-1": startedIssue("PLUME-1", position: 2, title: "from A")])
+        await b.set(issues: ["PLUME-1": startedIssue("PLUME-1", position: 2, title: "from B")])
+        let harness = try await makeHarness([a, b])
+        harness.store.setWanted(["PLUME-1"], owner: UUID())
+        await harness.store.settle()
+
+        let issue = try #require(harness.store.state(for: "PLUME-1")?.issue)
+        #expect(issue.startedProgress == (issue.title == "from A" ? .threeQuarters : .half))
+    }
+
+    @Test func aCatalogChangeReResolvesPublishedProgress() async throws {
+        let a = FakeLinearWorkspace(orgID: "A", teamKeys: ["PLUME"])
+        await a.set(catalog: startedCatalog("A", positions: [1, 2]))
+        await a.set(issues: ["PLUME-1": startedIssue("PLUME-1", position: 2)])
+        let harness = try await makeHarness([a])
+        harness.store.setWanted(["PLUME-1"], owner: UUID())
+        await harness.store.settle()
+        #expect(harness.store.state(for: "PLUME-1")?.issue?.startedProgress == .threeQuarters)
+
+        await a.set(catalog: startedCatalog("A", positions: [1, 2, 3]))
+        harness.store.refreshCatalog(orgID: "A")
+        await harness.store.settle()
+
+        #expect(harness.store.state(for: "PLUME-1")?.issue?.startedProgress == .half)
+    }
+
+    @Test func mentionsAndChipsCarryTheResolvedProgress() async throws {
+        let a = FakeLinearWorkspace(orgID: "A", teamKeys: ["PLUME"])
+        await a.set(catalog: startedCatalog("A", positions: [1, 2, 3]))
+        await a.set(issues: ["PLUME-1": startedIssue("PLUME-1", position: 1)])
+        let harness = try await makeHarness([a])
+        harness.store.setWanted(["PLUME-1"], owner: UUID())
+        await harness.store.settle()
+
+        let mention = try #require(harness.store.mentionIssue(identifier: "PLUME-1"))
+        #expect(mention.startedProgress == .quarter)
+        let chip = ResolvedMention(mention).state.chipIcon(number: nil)
+        #expect(chip.symbol == LinearIssueGlyph.symbolName(for: .started, progress: .quarter))
+        let known = try #require(harness.store.knownIssue(identifier: "PLUME-1"))
+        #expect(ReferenceChipIcon.linear(known).symbol == chip.symbol)
+    }
+
+    @Test func rankedMentionCandidatesCarryTheResolvedProgress() async throws {
+        let a = FakeLinearWorkspace(orgID: "A", teamKeys: ["PLUME"])
+        await a.set(catalog: startedCatalog("A", positions: [1, 2, 3]))
+        await a.set(issues: ["PLUME-1": startedIssue("PLUME-1", position: 3, title: "Glyphs everywhere")])
+        let harness = try await makeHarness([a])
+        harness.store.setWanted(["PLUME-1"], owner: UUID())
+        await harness.store.settle()
+
+        let ranked = await harness.store.mentionCandidates(matching: "glyphs")
+        guard case .linear(let issue) = ranked.first?.candidate else {
+            Issue.record("expected a Linear candidate, got \(String(describing: ranked.first))")
+            return
+        }
+        #expect(issue.startedProgress == .threeQuarters)
     }
 
     @Test func aFetchedCatalogIsWrittenToTheCache() async throws {

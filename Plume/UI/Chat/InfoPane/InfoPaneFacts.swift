@@ -78,6 +78,7 @@ struct InfoPaneFacts: Equatable {
         var stateType: LinearStateType?
         var stateColor: String?
         var statePosition: Double?
+        var startedProgress: LinearStartedProgress = .half
         var teamKey: String?
         var assignee: String?
         var url: URL?
@@ -260,6 +261,7 @@ extension InfoPaneFacts {
                 stateType: issue?.stateType,
                 stateColor: issue?.stateColor,
                 statePosition: issue?.statePosition,
+                startedProgress: issue?.startedProgress ?? .half,
                 teamKey: issue?.teamKey,
                 assignee: issue?.assigneeName,
                 url: issue.flatMap { URL(string: $0.url) },
