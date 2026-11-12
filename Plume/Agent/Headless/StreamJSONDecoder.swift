@@ -19,7 +19,7 @@ nonisolated enum StreamJSONDecoder {
         case "system":
             switch root["subtype"]?.stringValue {
             case "init": return .initialized(sessionInit(from: root))
-            case "status": return .status(root["status"]?.stringValue ?? "")
+            case "status": return .status(root["status"]?.stringValue ?? "", permissionMode: root["permissionMode"]?.stringValue)
             case "bridge_state": return .bridgeState(bridgeState(from: root))
             case "control_request_progress":
                 guard let id = root["request_id"]?.stringValue else { return .unknown(type: "system") }

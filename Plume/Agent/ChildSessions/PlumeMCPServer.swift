@@ -65,6 +65,17 @@ final class PlumeMCPServer {
         PlumeMCPTool.allCases.contains { $0.qualifiedName == toolName }
     }
 
+    /// How to answer `can_use_tool` for one of Plume's tools, or nil for
+    /// any other tool. The CLI asks even in plan mode, where starting a
+    /// session is refused.
+    func decision(toolName: String, input: [String: JSONValue], permissionMode: PermissionMode?) -> PermissionDecision? {
+        guard isAutoAllowed(toolName: toolName) else { return nil }
+        if permissionMode == .plan, toolName == PlumeMCPTool.startSession.qualifiedName {
+            return .deny(message: ChildSessionError.parentInPlanMode.message)
+        }
+        return .allow(updatedInput: input)
+    }
+
     /// The reply to `message`, or nil for a notification, which takes none.
     func handle(_ message: JSONValue) async -> JSONValue? {
         guard let object = message.objectValue, let method = object["method"]?.stringValue else {

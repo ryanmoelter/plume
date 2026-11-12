@@ -103,6 +103,7 @@ nonisolated enum ChildSessionError: Error, Equatable {
     case unknownSession(String)
     case notRelated(String)
     case parentClosed
+    case parentInPlanMode
     case failed(String)
 
     var message: String {
@@ -113,6 +114,7 @@ nonisolated enum ChildSessionError: Error, Equatable {
         case .unknownSession(let id): "No session with id \(id)."
         case .notRelated(let id): "Session \(id) is neither the session that started this one nor one this session started."
         case .parentClosed: "This session's tab is closed."
+        case .parentInPlanMode: "This session is in plan mode, so it cannot start sessions. Exit plan mode first."
         case .failed(let detail): detail
         }
     }
