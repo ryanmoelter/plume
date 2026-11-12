@@ -32,7 +32,8 @@ enum TaskRowDetails {
     }
 
     /// One open directory of a task: where it is, what it is on, and its pull
-    /// request. A task shows one of these per distinct agent-tab directory.
+    /// request. A task with one agent tab shows one per distinct directory;
+    /// with several, each agent's `AgentGroup` carries one.
     struct DirectoryGroup: Equatable {
         var directory: String?
         var branch: String?
@@ -57,17 +58,50 @@ enum TaskRowDetails {
     struct AgentHeader: Equatable {
         var tabID: UUID
         var title: String
+        /// The title, numbered when another agent of the task shares it, so a
+        /// driver can tell the headers apart.
+        var label: String
         var status: TaskStatus
         var isUnread: Bool
         /// How far the agent nests under the one that started it.
         var depth: Int
+        var isRemotelyControlled: Bool
+        /// The devices the tab holds, as `DeviceLeaseStore.summary` words them.
+        var heldDevices: String?
 
-        init(tabID: UUID, title: String, status: TaskStatus, isUnread: Bool = false, depth: Int = 0) {
+        init(
+            tabID: UUID,
+            title: String,
+            label: String? = nil,
+            status: TaskStatus,
+            isUnread: Bool = false,
+            depth: Int = 0,
+            isRemotelyControlled: Bool = false,
+            heldDevices: String? = nil
+        ) {
             self.tabID = tabID
             self.title = title
+            self.label = label ?? title
             self.status = status
             self.isUnread = isUnread
             self.depth = depth
+            self.isRemotelyControlled = isRemotelyControlled
+            self.heldDevices = heldDevices
+        }
+
+        var statusText: String {
+            ([status.label] + (isUnread ? ["unread"] : [])).joined(separator: ", ")
+        }
+    }
+
+    /// Each title as given the first time, then numbered from 2: "Chat",
+    /// "Chat #2".
+    static func distinctLabels(_ titles: [String]) -> [String] {
+        var counts: [String: Int] = [:]
+        return titles.map { title in
+            let count = counts[title, default: 0] + 1
+            counts[title] = count
+            return count == 1 ? title : "\(title) #\(count)"
         }
     }
 
@@ -85,15 +119,23 @@ enum TaskRowDetails {
 
     /// A header per agent, followed by only what its directory says that the
     /// agent above did not, so agents sharing a folder stack without
-    /// repeating it.
+    /// repeating it. An agent in another folder that reads identically — a
+    /// second clone on the same branch — shows its lines in full, or it would
+    /// look like it shared the folder.
     static func lines(agents: [AgentGroup]) -> [Line] {
         var lines: [Line] = []
-        var previous: [Line] = []
+        var previous: (directory: String?, lines: [Line])?
         for agent in agents {
             let current = self.lines(for: agent.workspace)
             lines.append(.agentHeader(agent.header))
-            lines.append(contentsOf: linesDiffering(current, from: previous))
-            previous = current
+            if let previous {
+                let differing = linesDiffering(current, from: previous.lines)
+                let isOtherFolder = agent.workspace.directory != previous.directory
+                lines.append(contentsOf: differing.isEmpty && isOtherFolder ? current : differing)
+            } else {
+                lines.append(contentsOf: current)
+            }
+            previous = (agent.workspace.directory, current)
         }
         return lines
     }
@@ -194,21 +236,28 @@ enum TaskRowDetails {
     }
 
     /// The distinct directories a task shows a group for, in the order its
-    /// agent tabs report them. Two tabs in one folder are one group; a task
-    /// whose agent tabs have no folder falls back to `fallbackDirectory`.
+    /// agent tabs report them. Two tabs in one folder are one group; an agent
+    /// tab with no folder, or a task with no agent tab, takes
+    /// `fallbackDirectory`.
     static func distinctDirectories(
         agentTabDirectories: [String?],
         fallbackDirectory: String?
     ) -> [String] {
+        let resolved = agentTabDirectories.isEmpty
+            ? [resolvedDirectory(nil, fallback: fallbackDirectory)]
+            : agentTabDirectories.map { resolvedDirectory($0, fallback: fallbackDirectory) }
         var seen: Set<String> = []
         var directories: [String] = []
-        for directory in agentTabDirectories.compactMap({ $0 }) where !directory.isEmpty {
-            if seen.insert(directory).inserted { directories.append(directory) }
-        }
-        if directories.isEmpty, let fallbackDirectory, !fallbackDirectory.isEmpty {
-            directories = [fallbackDirectory]
+        for directory in resolved.compactMap({ $0 }) where seen.insert(directory).inserted {
+            directories.append(directory)
         }
         return directories
+    }
+
+    static func resolvedDirectory(_ directory: String?, fallback: String?) -> String? {
+        if let directory, !directory.isEmpty { return directory }
+        if let fallback, !fallback.isEmpty { return fallback }
+        return nil
     }
 
     /// Drawing nothing and taking no row are separate facts: these states keep
@@ -247,8 +296,7 @@ enum TaskRowDetails {
     static func accessibilityText(_ line: Line) -> String? {
         switch line {
         case .text(let text): text
-        case .agentHeader(let header):
-            ([header.title, header.status.rawValue] + (header.isUnread ? ["unread"] : [])).joined(separator: " ")
+        case .agentHeader(let header): "\(header.title), \(header.statusText)"
         case .project(let name): name
         case .branch(let branch, let isWorktree, let companion):
             [isWorktree ? "worktree" : nil, branch,

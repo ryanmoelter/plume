@@ -39,9 +39,10 @@ struct TaskRowView: View {
         tabKinds.contains(.agent) && status == .notStarted
     }
 
-    /// One group per distinct directory the task's agent tabs are open in. A
-    /// terminal's cwd follows `cd`, so including terminal tabs would make the
-    /// list shift as the user moves around a shell.
+    /// Every distinct directory the task's agent tabs are open in, which is
+    /// what the row watches. A terminal's cwd follows `cd`, so including
+    /// terminal tabs would make the list shift as the user moves around a
+    /// shell.
     private var directories: [String] {
         task.agentDirectories
     }
@@ -55,20 +56,46 @@ struct TaskRowView: View {
         )
     }
 
-    private func agentGroup(for tab: TaskTab) -> TaskRowDetails.AgentGroup {
+    /// A folderless agent takes the folder the task's tabs saved, as the
+    /// one-agent row does.
+    private func agentGroups(for tabs: [TaskTab]) -> [TaskRowDetails.AgentGroup] {
+        let fallback = task.storedTabDirectory
+        let titles = tabs.map { TitleStore.shared.chipTitle(for: $0) }
+        let labels = TaskRowDetails.distinctLabels(titles)
+        var groupsByDirectory: [String: TaskRowDetails.DirectoryGroup] = [:]
+        return tabs.indices.map { index in
+            let tab = tabs[index]
+            let workspace: TaskRowDetails.DirectoryGroup
+            if let directory = TaskRowDetails.resolvedDirectory(
+                TabDirectoryStore.shared.directory(for: tab),
+                fallback: fallback
+            ) {
+                workspace = groupsByDirectory[directory] ?? group(for: directory)
+                groupsByDirectory[directory] = workspace
+            } else {
+                workspace = TaskRowDetails.DirectoryGroup(directory: nil)
+            }
+            return TaskRowDetails.AgentGroup(
+                header: header(for: tab, title: titles[index], label: labels[index]),
+                workspace: workspace
+            )
+        }
+    }
+
+    private func header(for tab: TaskTab, title: String, label: String) -> TaskRowDetails.AgentHeader {
         let status = Self.status(of: tab)
-        let directory = TabDirectoryStore.shared.directory(for: tab).flatMap { $0.isEmpty ? nil : $0 }
-        return TaskRowDetails.AgentGroup(
-            header: TaskRowDetails.AgentHeader(
-                tabID: tab.id,
-                title: TitleStore.shared.displayTitle(forTab: tab) ?? tab.displayTitle,
-                status: status,
-                isUnread: UnreadStore.showsUnread(
-                    taskStatus: status,
-                    hasUnreadTab: UnreadStore.shared.isUnread(tabID: tab.id)
-                )
+        let held = DeviceLeaseStore.shared.leases(ownedBy: [tab.id])
+        return TaskRowDetails.AgentHeader(
+            tabID: tab.id,
+            title: title,
+            label: label,
+            status: status,
+            isUnread: UnreadStore.showsUnread(
+                taskStatus: status,
+                hasUnreadTab: UnreadStore.shared.isUnread(tabID: tab.id)
             ),
-            workspace: directory.map(group(for:)) ?? TaskRowDetails.DirectoryGroup(directory: nil)
+            isRemotelyControlled: Self.isRemoteControlled(tabIDs: [tab.id]),
+            heldDevices: held.isEmpty ? nil : DeviceLeaseStore.summary(held)
         )
     }
 
@@ -95,15 +122,18 @@ struct TaskRowView: View {
         return TaskStore.pinnedPullRequests(of: task)
     }
 
-    private func detailLines(working: [LinkedLinearIssue], pinned: [PullRequestReference]) -> [TaskRowDetails.Line] {
-        let tabs = agentTabs
+    private func detailLines(
+        agentTabs: [TaskTab],
+        working: [LinkedLinearIssue],
+        pinned: [PullRequestReference]
+    ) -> [TaskRowDetails.Line] {
         let groups: [TaskRowDetails.DirectoryGroup]
         let groupLines: [TaskRowDetails.Line]
-        if tabs.count <= 1 {
+        if agentTabs.count <= 1 {
             groups = directories.map(group(for:))
             groupLines = TaskRowDetails.lines(groups: groups)
         } else {
-            let agents = tabs.map(agentGroup(for:))
+            let agents = agentGroups(for: agentTabs)
             groups = agents.map(\.workspace)
             groupLines = TaskRowDetails.lines(agents: agents)
         }
@@ -116,45 +146,60 @@ struct TaskRowView: View {
             + TaskRowDetails.linearLines(working, states: { LinearStore.shared.state(for: $0) })
     }
 
-    /// A task with several directories repeats the project header per group,
-    /// and the bridge belongs to the task rather than to any one of them.
-    private func firstProjectLineIndex(in lines: [TaskRowDetails.Line]) -> Int? {
-        lines.firstIndex { if case .project = $0 { true } else { false } }
+    /// The remote-control and device icons of a task with one agent tab. Its
+    /// project header repeats per directory, and the icons belong to the task
+    /// rather than to any one of them, so they ride on the first. With several
+    /// agent tabs, each header carries its own tab's icons instead.
+    private struct ProjectLineIcons {
+        var lineIndex: Int
+        var isRemoteControlled: Bool
+        var heldDevices: [DeviceLease]
+    }
+
+    private func projectLineIcons(in lines: [TaskRowDetails.Line], agentTabIDs: [UUID]) -> ProjectLineIcons? {
+        guard let index = lines.firstIndex(where: { if case .project = $0 { true } else { false } }) else { return nil }
+        return ProjectLineIcons(
+            lineIndex: index,
+            isRemoteControlled: Self.isRemoteControlled(tabIDs: agentTabIDs),
+            heldDevices: DeviceLeaseStore.shared.leases(ownedBy: task.orderedLiveTabs.map(\.id))
+        )
+    }
+
+    /// With several agent tabs, a lease owned by a terminal or device tab
+    /// belongs to no header, so it shows beside the task's title.
+    private func taskLevelHeldDevices() -> String? {
+        let held = DeviceLeaseStore.shared.leases(ownedBy: task.orderedLiveTabs.filter { $0.kind != .agent }.map(\.id))
+        return held.isEmpty ? nil : DeviceLeaseStore.summary(held)
     }
 
     private var agentTabs: [TaskTab] {
         task.orderedLiveTabs.filter { $0.kind == .agent }
     }
 
-    private var agentTabIDs: [UUID] {
-        agentTabs.map(\.id)
-    }
-
-    /// Whether any of the task's tabs can be driven from elsewhere. Only the
+    /// Whether any of these tabs can be driven from elsewhere. Only the
     /// headless transport carries the bridge; a terminal tab's own TUI serves
     /// `/rc` itself.
-    private var isRemoteControlled: Bool {
-        agentTabIDs.contains { AgentSessionManager.shared.existingSession(for: $0)?.isRemotelyControlled == true }
-    }
-
-    private var heldDevices: [DeviceLease] {
-        DeviceLeaseStore.shared.leases(ownedBy: task.orderedLiveTabs.map(\.id))
+    private static func isRemoteControlled(tabIDs: [UUID]) -> Bool {
+        tabIDs.contains { AgentSessionManager.shared.existingSession(for: $0)?.isRemotelyControlled == true }
     }
 
     var body: some View {
+        let agentTabs = agentTabs
+        let agentTabIDs = agentTabs.map(\.id)
+        let hasSeveralAgents = agentTabs.count > 1
         let working = workingLinearIssues
         let pinned = pinnedPullRequests
-        let rawLines = detailLines(working: working, pinned: pinned)
+        let rawLines = detailLines(agentTabs: agentTabs, working: working, pinned: pinned)
         let lines = Array(rawLines.enumerated())
         let badgeLineCount = Self.badgeLineCount(of: rawLines)
-        let firstProjectIndex = firstProjectLineIndex(in: rawLines)
+        let icons = hasSeveralAgents ? nil : projectLineIcons(in: rawLines, agentTabIDs: agentTabIDs)
         VStack(alignment: .leading, spacing: 1) {
             HStack(alignment: .top, spacing: 6) {
                 VStack(alignment: .leading, spacing: 1) {
-                    title
+                    title(heldDevices: hasSeveralAgents ? taskLevelHeldDevices() : nil)
                     descriptionLine
                     ForEach(Array(lines.prefix(badgeLineCount)), id: \.offset) { index, line in
-                        detailLine(line, at: index, firstProjectIndex: firstProjectIndex)
+                        detailLine(line, at: index, icons: icons)
                     }
                 }
                 Spacer(minLength: 4)
@@ -166,7 +211,7 @@ struct TaskRowView: View {
             }
 
             ForEach(Array(lines.dropFirst(badgeLineCount)), id: \.offset) { index, line in
-                detailLine(line, at: index, firstProjectIndex: firstProjectIndex)
+                detailLine(line, at: index, icons: icons)
             }
 
             TaskActivityRow(tabIDs: agentTabIDs)
@@ -174,7 +219,7 @@ struct TaskRowView: View {
         .padding(.vertical, 2)
         .contentShape(.rect)
         .accessibilityElement(children: .combine)
-        .accessibilityLabel(accessibilityLabel(lines: rawLines))
+        .accessibilityLabel(accessibilityLabel(lines: rawLines, agentTabIDs: agentTabIDs))
         .plumeID(AccessibilityID.taskRow, label: TitleStore.shared.displayTitle(for: task), value: isSelected ? "selected" : nil, invoke: onSelect)
         // Adding or closing an agent tab changes how many groups the row
         // shows, so its height eases rather than snapping the rows below it.
@@ -224,14 +269,36 @@ struct TaskRowView: View {
         watched.apply(change)
     }
 
-    private var title: some View {
+    private func title(heldDevices: String?) -> some View {
         SidebarIconTitle(
             icon: icon,
             iconMinWidth: SidebarMetrics.taskIconMinWidth,
             spacing: 5
         ) {
-            titleText
+            HStack(spacing: 4) {
+                titleText
+                if let heldDevices {
+                    deviceLeaseIcon(heldDevices, label: TitleStore.shared.displayTitle(for: task))
+                }
+            }
         }
+    }
+
+    private var remoteControlIcon: some View {
+        Image(systemName: StatusSymbol.remoteControl.name)
+            .font(.caption)
+            .imageScale(.small)
+            .foregroundStyle(ChatRole.attention(for: colorScheme))
+            .help("Remote control is on")
+    }
+
+    private func deviceLeaseIcon(_ summary: String, label: String) -> some View {
+        Image(systemName: "iphone")
+            .font(.caption)
+            .imageScale(.small)
+            .emphasis(.secondary)
+            .help("Holds \(summary)")
+            .plumeID(AccessibilityID.taskDeviceLeaseBadge, label: label, value: summary)
     }
 
     private var icon: AnyView? {
@@ -303,17 +370,19 @@ struct TaskRowView: View {
                 .emphasis(.secondary)
                 .lineLimit(1)
                 .truncationMode(.tail)
+            if header.isRemotelyControlled {
+                remoteControlIcon
+            }
+            if let heldDevices = header.heldDevices {
+                deviceLeaseIcon(heldDevices, label: header.label)
+            }
         }
         .padding(.leading, CGFloat(header.depth) * Self.agentDepthIndent)
-        .plumeID(
-            AccessibilityID.taskAgentGroup,
-            label: header.title,
-            value: ([header.status.rawValue] + (header.isUnread ? ["unread"] : [])).joined(separator: ", ")
-        )
+        .plumeID(AccessibilityID.taskAgentGroup, label: header.label, value: header.statusText)
     }
 
     @ViewBuilder
-    private func detailLine(_ line: TaskRowDetails.Line, at index: Int, firstProjectIndex: Int?) -> some View {
+    private func detailLine(_ line: TaskRowDetails.Line, at index: Int, icons: ProjectLineIcons?) -> some View {
         switch line {
         case .text(let text):
             Text(text)
@@ -330,21 +399,16 @@ struct TaskRowView: View {
                     .emphasis(.secondary)
                     .lineLimit(1)
                     .truncationMode(.middle)
-                if isRemoteControlled, index == firstProjectIndex {
-                    Image(systemName: StatusSymbol.remoteControl.name)
-                        .font(.caption)
-                        .imageScale(.small)
-                        .foregroundStyle(ChatRole.attention(for: colorScheme))
-                        .help("Remote control is on")
-                }
-                if index == firstProjectIndex, case let held = heldDevices, !held.isEmpty {
-                    let summary = DeviceLeaseStore.summary(held)
-                    Image(systemName: "iphone")
-                        .font(.caption)
-                        .imageScale(.small)
-                        .emphasis(.secondary)
-                        .help("Holds \(summary)")
-                        .plumeID(AccessibilityID.taskDeviceLeaseBadge, label: TitleStore.shared.displayTitle(for: task), value: summary)
+                if let icons, index == icons.lineIndex {
+                    if icons.isRemoteControlled {
+                        remoteControlIcon
+                    }
+                    if !icons.heldDevices.isEmpty {
+                        deviceLeaseIcon(
+                            DeviceLeaseStore.summary(icons.heldDevices),
+                            label: TitleStore.shared.displayTitle(for: task)
+                        )
+                    }
                 }
             }
         case .branch(let branch, let isWorktree, let companion):
@@ -402,7 +466,7 @@ struct TaskRowView: View {
         )
     }
 
-    private func accessibilityLabel(lines: [TaskRowDetails.Line]) -> String {
+    private func accessibilityLabel(lines: [TaskRowDetails.Line], agentTabIDs: [UUID]) -> String {
         ([TitleStore.shared.displayTitle(for: task)]
             + (task.taskDescription.isEmpty ? [] : [task.taskDescription])
             + (isUnread ? ["unread"] : [])
