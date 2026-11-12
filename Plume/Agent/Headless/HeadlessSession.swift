@@ -334,6 +334,7 @@ final class HeadlessSession: AgentSession {
         settingsPath: String?,
         model: AgentModel? = nil,
         isModelExplicitlyChosen: Bool = true,
+        effort launchEffort: AgentEffort? = nil,
         environment: [String: String] = [:],
         fork: HeadlessCommand.Fork? = nil,
         sessionID: String? = nil,
@@ -346,12 +347,14 @@ final class HeadlessSession: AgentSession {
         self.permissionMode = permissionMode
         permissionModeRequests.confirm(HeadlessCommand.launchPermissionMode(permissionMode))
         if let model { self.model = model }
+        if let launchEffort { effort = launchEffort }
         let arguments = HeadlessCommand.arguments(
             resumeSessionID: resumeSessionID,
             permissionMode: permissionMode,
             settingsPath: settingsPath,
             model: model,
             isModelExplicitlyChosen: isModelExplicitlyChosen,
+            effort: launchEffort,
             fork: fork,
             sessionID: sessionID,
             addDirectories: addDirectories,
@@ -491,7 +494,9 @@ final class HeadlessSession: AgentSession {
     }
 
     private func withPreamble(_ blocks: [UserContentBlock]) -> [UserContentBlock] {
+        // A note in front of a slash command would stop the CLI reading it as one.
         guard blocks.normalized.hasContent,
+              !blocks.plainText.trimmingCharacters(in: .whitespacesAndNewlines).hasPrefix("/"),
               let preamble = userMessagePreamble?(), !preamble.isEmpty
         else { return blocks }
         return [[.text(preamble)], blocks].mergedIntoOneTurn
