@@ -217,9 +217,10 @@ private struct IssueRow: View, ThemedView {
 
     private var actionsMenu: some View {
         Menu { menuItems } label: {
-            Image(systemName: "ellipsis")
+            RowMenuLabel()
         }
-        .menuStyle(.borderlessButton)
+        .menuStyle(.button)
+        .buttonStyle(.plain)
         .menuIndicator(.hidden)
         .fixedSize()
         .foregroundStyle(AnyShapeStyle.role(theme.colors.selection, when: menuIsPrimary, otherwise: .subtle))

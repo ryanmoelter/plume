@@ -333,9 +333,10 @@ private struct PullRequestRow: View, ThemedView {
 
     private var actionsMenu: some View {
         Menu { menuItems } label: {
-            Image(systemName: "ellipsis")
+            RowMenuLabel()
         }
-        .menuStyle(.borderlessButton)
+        .menuStyle(.button)
+        .buttonStyle(.plain)
         .menuIndicator(.hidden)
         .fixedSize()
         .emphasis(.subtle)
