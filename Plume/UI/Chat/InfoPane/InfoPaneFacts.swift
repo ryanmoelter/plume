@@ -293,9 +293,9 @@ extension InfoPaneFacts {
 }
 
 /// Started issues first, then unstarted, backlog, triage, other types,
-/// completed, and canceled or duplicate. Within a type, issues group by team
-/// in order of first appearance, and a later workflow state comes first
-/// within a team: positions only compare inside one team. Issues with no
+/// completed, and canceled or duplicate. Within a type, issues group by team,
+/// teams ordered by first appearance across the whole list, and a later
+/// workflow state comes first within a team: positions only compare inside one team. Issues with no
 /// state yet go last.
 enum LinearIssueOrder {
     static func typeRank(_ type: LinearStateType?) -> Int {
