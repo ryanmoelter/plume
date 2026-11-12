@@ -32,14 +32,16 @@ enum AgentLauncher {
     /// `fork` branches the resumed conversation into a new session instead of
     /// continuing it, and `sessionID` names a new conversation up front. Both
     /// are honoured on Claude Code's headless transport only — no other path
-    /// has a way to pass them through.
+    /// has a way to pass them through. So is `effort`, which only a child
+    /// session launches with; every other launch sets effort with `/effort`.
     static func launch(
         blocks: [UserContentBlock],
         task: WorkTask,
         tab: TaskTab,
         resumeSessionID: String? = nil,
         fork: HeadlessCommand.Fork? = nil,
-        sessionID: String? = nil
+        sessionID: String? = nil,
+        effort: AgentEffort? = nil
     ) {
         let normalized = blocks.normalized
         let text = normalized.plainText
@@ -47,7 +49,7 @@ enum AgentLauncher {
         case (.claudeCode, .headless):
             launchClaudeHeadless(
                 blocks: normalized, task: task, tab: tab, resumeSessionID: resumeSessionID, fork: fork,
-                sessionID: sessionID
+                sessionID: sessionID, effort: effort
             )
         case (.claudeCode, .terminal):
             launchClaudeTerminal(message: text.isEmpty ? nil : text, task: task, tab: tab, resumeSessionID: resumeSessionID)
@@ -213,7 +215,8 @@ enum AgentLauncher {
         tab: TaskTab,
         resumeSessionID: String?,
         fork: HeadlessCommand.Fork? = nil,
-        sessionID: String? = nil
+        sessionID: String? = nil,
+        effort: AgentEffort? = nil
     ) {
         // `claude -p` skips the folder-trust prompt outright rather than
         // blocking on it, so a directory the user never accepted would run
@@ -285,6 +288,7 @@ enum AgentLauncher {
             settingsPath: settingsPath,
             model: tab.model ?? AppSettings.shared.defaultClaudeModel.pinnedModel,
             isModelExplicitlyChosen: tab.isModelUserChosen,
+            effort: effort,
             environment: HeadlessCommand.environment
                 .merging(LoginShellCommand.plumeEnvironment(taskID: task.id, tabID: tab.id)) { current, _ in current },
             fork: fork,

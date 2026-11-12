@@ -48,7 +48,7 @@ A child's `tools/list` has only `send_message`, so a child cannot start sessions
 
 1. Cuts the worktree, when the child gets one: a branch from `suggestedBranchName(name ?? title)` with the project's branch prefix, at the parent's `HEAD`. The task records it in `ownedWorktrees`, so archive and delete offer to remove it.
 2. Opens the tab with `TaskStore.addChildTab`, in the parent's pane, after the parent's other children. It does not take selection.
-3. Copies the parent's `TabLaunchChoices`, then applies `model`, `effort` and `permission_mode`. Effort has no launch flag, so an explicit effort rides a `/effort` turn before the brief; that turn reports to no one.
+3. Copies the parent's `TabLaunchChoices`, then applies `model`, `effort` and `permission_mode`. An explicit effort launches with `--effort`.
 4. Adds the **notes folder** with `--add-dir`: `~/Library/Application Support/Plume/side-session-notes/<parent tab ID>/`, shared by every child of one parent and outside every repository.
 5. Mints the child's CLI session id and records it on the tab before the process exists, as Fork to New Tab does, because a hidden chat tab is unmounted and records nothing.
 6. Launches with no prompt, then submits the brief with `submitFromHost`. A fresh child launches with `--session-id`; a fork with `--resume <parent> --fork-session --session-id <new>` and no `--resume-session-at`, which works while the parent is mid tool call.

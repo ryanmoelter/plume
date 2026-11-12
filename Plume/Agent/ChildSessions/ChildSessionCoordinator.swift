@@ -16,9 +16,6 @@ final class ChildSessionCoordinator {
     private var policies: [UUID: ChildSessionWakePolicy] = [:]
     private var childNames: [UUID: String] = [:]
     private var silentChildren: Set<UUID> = []
-    /// Turns Plume started in a child for its own reasons, which report to
-    /// no one.
-    private var unreportedTurns: [UUID: Int] = [:]
 
     // MARK: - Wiring a session
 
@@ -51,7 +48,6 @@ final class ChildSessionCoordinator {
         policies.removeValue(forKey: tabID)
         childNames.removeValue(forKey: tabID)
         silentChildren.remove(tabID)
-        unreportedTurns.removeValue(forKey: tabID)
     }
 
     /// Selects the tab of the session a chat row names. False when no open
@@ -159,14 +155,11 @@ final class ChildSessionCoordinator {
             tab: child,
             resumeSessionID: isFork ? parentSessionID : nil,
             fork: isFork ? HeadlessCommand.Fork(newSessionID: newSessionID, cutAfterMessageUUID: nil) : nil,
-            sessionID: isFork ? nil : newSessionID
+            sessionID: isFork ? nil : newSessionID,
+            effort: request.effort
         )
         guard let session = AgentSessionManager.shared.existingSession(for: child.id) as? HeadlessSession else {
             return .failure(.failed("The session's tab opened, but it could not launch."))
-        }
-        if let effort = request.effort {
-            unreportedTurns[child.id, default: 0] += 1
-            session.setEffort(effort)
         }
         session.submitFromHost(blocks: [.text(brief)])
 
@@ -214,15 +207,11 @@ final class ChildSessionCoordinator {
 
     private func turnFinished(in tab: TaskTab, outcome: AgentTurnOutcome) {
         if let parent = parent(of: tab) {
-            if let pending = unreportedTurns[tab.id], pending > 0 {
-                unreportedTurns[tab.id] = pending - 1
-            } else {
-                let note = ChildSessionFormats.turnFinishedNote(
-                    child: participant(tab), text: ChildSessionFormats.reportText(of: outcome)
-                )
-                let wakes = outcome.isHostDriven && !outcome.wasInterrupted && !silentChildren.contains(tab.id)
-                deliver(.init(childID: tab.id, text: note), toParent: parent, wakes: wakes)
-            }
+            let note = ChildSessionFormats.turnFinishedNote(
+                child: participant(tab), text: ChildSessionFormats.reportText(of: outcome)
+            )
+            let wakes = outcome.isHostDriven && !outcome.wasInterrupted && !silentChildren.contains(tab.id)
+            deliver(.init(childID: tab.id, text: note), toParent: parent, wakes: wakes)
         }
         guard var policy = policies[tab.id] else { return }
         let due = policy.parentTurnFinished(interrupted: outcome.wasInterrupted, parentIsWorking: isWorking(tab))

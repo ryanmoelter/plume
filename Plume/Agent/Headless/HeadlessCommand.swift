@@ -38,6 +38,7 @@ enum HeadlessCommand {
         settingsPath: String?,
         model: AgentModel? = nil,
         isModelExplicitlyChosen: Bool = true,
+        effort: AgentEffort? = nil,
         fork: Fork? = nil,
         sessionID: String? = nil,
         addDirectories: [String] = [],
@@ -81,6 +82,10 @@ enum HeadlessCommand {
             arguments.append(model.token)
         }
 
+        if let effort {
+            arguments.append("--effort")
+            arguments.append(effort.token)
+        }
         if let settingsPath {
             arguments.append("--settings")
             arguments.append(settingsPath)
