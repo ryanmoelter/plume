@@ -32,7 +32,7 @@ struct ToolCallRow: View, ThemedView {
             ChildSessionProposalCard(
                 proposalID: proposalID,
                 board: proposalBoard,
-                fallback: ChildSessionFormats.proposalFallback(of: call)
+                fallback: { ChildSessionFormats.proposalFallback(of: call) }
             )
         } else if let subagentOpener, let subagent = spawnedSubagent(opener: subagentOpener) {
             SubagentRow(

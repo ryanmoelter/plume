@@ -35,4 +35,17 @@ final class ChildSessionProposalActivity {
         starting.remove(key)
         failures[key] = failure
     }
+
+    func fail(_ proposalID: String, in tabID: UUID, reason: String) {
+        failures[Key(tabID: tabID, proposalID: proposalID)] = reason
+    }
+
+    func clearFailure(of proposalID: String, in tabID: UUID) {
+        failures.removeValue(forKey: Key(tabID: tabID, proposalID: proposalID))
+    }
+
+    func forget(_ tabID: UUID) {
+        starting = starting.filter { $0.tabID != tabID }
+        failures = failures.filter { $0.key.tabID != tabID }
+    }
 }
