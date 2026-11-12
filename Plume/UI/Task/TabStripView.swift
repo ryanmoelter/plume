@@ -176,8 +176,21 @@ private struct TabChip: View {
         tab.hasConversation
     }
 
+    /// A session another tab's agent started, while that tab is open.
+    private var isChildSession: Bool {
+        guard let parentID = tab.parentTabID else { return false }
+        return task.liveTabs.contains { $0.id == parentID }
+    }
+
     var body: some View {
         HStack(spacing: 5) {
+            if isChildSession {
+                Text("↳")
+                    .font(.callout)
+                    .foregroundStyle(.secondary)
+                    .help("Started by another session in this task")
+                    .plumeID(AccessibilityID.tabChipChildMarker, label: chipTitle)
+            }
             switch tab.kind {
             case .agent:
                 if hasConversation {
