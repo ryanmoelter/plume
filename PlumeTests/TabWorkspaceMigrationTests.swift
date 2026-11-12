@@ -68,6 +68,26 @@ struct TabWorkspaceMigrationTests {
         #expect(empty.ownedWorktrees == [ownedFeature])
     }
 
+    @Test func aSavedSubfolderOwnsTheWorktreeRoot() throws {
+        let scratch = FileManager.default.temporaryDirectory.appending(path: "plume-migration-\(UUID().uuidString)")
+        defer { try? FileManager.default.removeItem(at: scratch) }
+        let root = scratch.appending(path: "wt")
+        let subfolder = root.appending(path: "app")
+        try FileManager.default.createDirectory(at: subfolder, withIntermediateDirectories: true)
+        try "gitdir: /repo/.git/worktrees/wt".write(to: root.appending(path: ".git"), atomically: true, encoding: .utf8)
+        let context = try makeContext()
+        let task = makeLegacyTask(in: context)
+        task.workingDirectoryPath = subfolder.path
+
+        try TabWorkspaceMigration.run(in: context)
+
+        #expect(task.ownedWorktrees.map(\.path) == [OwnedWorktree.standardized(root.path)])
+    }
+
+    @Test func aFolderThatNoLongerExistsIsKeptAsSaved() {
+        #expect(TabWorkspaceMigration.checkoutRoot(containing: "/nonexistent/wt/app") == "/nonexistent/wt/app")
+    }
+
     @Test func aDirectoryTaskOwnsNoWorktree() throws {
         let context = try makeContext()
         let task = makeLegacyTask(in: context)

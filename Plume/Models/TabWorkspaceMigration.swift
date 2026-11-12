@@ -31,10 +31,24 @@ enum TabWorkspaceMigration {
             || task.workingDirectoryPath != nil || task.repoPath != nil || task.branchName != nil
     }
 
+    /// An older task could save a subfolder of its worktree. Found by `.git`
+    /// rather than by git itself, so launch never waits on a process; a
+    /// folder that no longer exists is kept as saved.
+    nonisolated static func checkoutRoot(containing path: String) -> String {
+        let files = FileManager.default
+        guard files.fileExists(atPath: path) else { return path }
+        var folder = URL(fileURLWithPath: path).standardizedFileURL
+        while folder.path != "/" {
+            if files.fileExists(atPath: folder.appending(path: ".git").path) { return folder.path }
+            folder.deleteLastPathComponent()
+        }
+        return path
+    }
+
     private static func migrate(_ task: WorkTask) {
         if task.workspaceKindRaw == WorkspaceKind.worktree.rawValue,
            let path = task.workingDirectoryPath, let repoPath = task.repoPath {
-            task.recordOwnedWorktree(OwnedWorktree(path: path, repoPath: repoPath, branch: task.branchName))
+            task.recordOwnedWorktree(OwnedWorktree(path: checkoutRoot(containing: path), repoPath: repoPath, branch: task.branchName))
         }
         task.workspaceKindRaw = WorkspaceKind.unset.rawValue
         task.workingDirectoryPath = nil
