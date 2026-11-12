@@ -71,6 +71,40 @@ struct ReferenceChipPieceTests {
         #expect(paragraphText(pieces) == "See [\(chip)Add chips](\(issueURL)) and `x`.")
     }
 
+    private func artifactMessages(_ text: String, published url: String, title: String) -> [ChatMessage] {
+        let call = ToolCall(
+            id: "t",
+            name: "Artifact",
+            summary: ToolCallSummary(name: "Artifact"),
+            input: .json("{}"),
+            result: "Published \(url)",
+            artifact: ArtifactToolCall(name: "Artifact", input: ["file_path": .string("/tmp/a.html")], readsPageTitle: { _ in title })
+        )
+        return [
+            ChatMessage(id: "c", role: .assistant, blocks: [.toolCall(call)], timestamp: nil, isLive: false),
+            ChatMessage(id: "a", role: .assistant, blocks: [.markdown(text)], timestamp: nil, isLive: false),
+        ]
+    }
+
+    @Test func anArtifactLinkTakesTheTitleTheTabsArtifactCallGaveIt() {
+        let url = "https://claude.ai/code/artifact/0f2c"
+        let pieces = ChatPieceCache().pieces(
+            for: artifactMessages("See [the page](\(url)) or \(url).", published: url, title: "Release notes"),
+            status: .awaitingReply,
+            hiddenToolUseIDs: [],
+            dimensions: dimensions
+        )
+        #expect(paragraphText(pieces) == "See [\(chip)Release notes](\(url)) or [\(chip)Release notes](\(url)).")
+    }
+
+    @Test func anUnknownArtifactLinkIsAChipWithTheGenericLabel() {
+        let url = "https://claude.ai/artifact/xyz"
+        let cache = ChatPieceCache()
+        let pieces = build(cache, "See [the page](\(url)) or \(url).")
+        #expect(cache.referenceTargets == [.artifact(id: "xyz")])
+        #expect(paragraphText(pieces) == "See [\(chip)Artifact](\(url)) or [\(chip)Artifact](\(url)).")
+    }
+
     @Test func aResolvedReferenceIsRewrittenAndCopiesAsWritten() throws {
         let text = "See [PLUME-1](\(issueURL))."
         let pieces = build(ChatPieceCache(), text, titles: [.linear(identifier: "PLUME-1"): "Add chips"])

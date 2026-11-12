@@ -71,6 +71,11 @@ struct ReferenceChipTooltipTests {
         #expect(ReferenceChipTooltip.text(for: .pullRequest(owner: "o", repo: "r", number: 4), detail: nil, title: nil, directory: nil) == "o/r #4")
     }
 
+    @Test func anArtifactShowsItsLink() {
+        let url = URL(string: "https://claude.ai/artifact/abc")!
+        #expect(ReferenceChipTooltip.text(for: .artifact(id: "abc"), detail: nil, title: nil, directory: nil, url: url) == url.absoluteString)
+    }
+
     @Test func aFileShowsItsFullPath() {
         let text = ReferenceChipTooltip.text(for: .file(path: "/repo/Plume/App/X.swift"), detail: nil, title: nil, directory: "/repo")
         #expect(text == "/repo/Plume/App/X.swift")

@@ -42,6 +42,21 @@ struct ReferenceTargetTests {
         #expect(classify("mailto:someone@example.com") == nil)
     }
 
+    @Test func bothArtifactURLShapesNameTheArtifactByID() {
+        #expect(classify("https://claude.ai/artifact/abc-12_3") == .artifact(id: "abc-12_3"))
+        #expect(classify("https://claude.ai/code/artifact/0f2c-9e") == .artifact(id: "0f2c-9e"))
+        #expect(classify("https://claude.ai/code/artifact/0f2c-9e?tab=1#top") == .artifact(id: "0f2c-9e"))
+        #expect(classify("https://www.claude.ai/artifact/abc") == .artifact(id: "abc"))
+    }
+
+    @Test func otherClaudePagesAreNotArtifacts() {
+        #expect(classify("https://claude.ai/artifact") == nil)
+        #expect(classify("https://claude.ai/artifact/abc/edit") == nil)
+        #expect(classify("https://claude.ai/chat/abc") == nil)
+        #expect(classify("https://claude.ai/code/artifacts") == nil)
+        #expect(classify("https://example.com/artifact/abc") == nil)
+    }
+
     @Test func aRelativePathResolvesAgainstTheBase() {
         #expect(classify("Sources/App.swift") == .file(path: "/repo/Sources/App.swift"))
         #expect(classify("Sources/../App.swift") == .file(path: "/repo/App.swift"))
@@ -67,5 +82,6 @@ struct ReferenceTargetTests {
         #expect(ReferenceTarget.linear(identifier: "PLUME-101").canonicalLabel == "PLUME-101")
         #expect(ReferenceTarget.pullRequest(owner: "o", repo: "r", number: 12).canonicalLabel == "#12")
         #expect(ReferenceTarget.file(path: "/repo/Sources/App.swift").canonicalLabel == "App.swift")
+        #expect(ReferenceTarget.artifact(id: "abc").canonicalLabel == "Artifact")
     }
 }

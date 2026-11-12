@@ -40,11 +40,15 @@ nonisolated struct ReferenceChipIcon: Hashable, Sendable {
         ReferenceChipIcon(symbol: isDirectory ? "folder" : "doc", tint: .link)
     }
 
-    /// Before anything has vouched for the target.
+    static let artifact = ReferenceChipIcon(symbol: ArtifactSymbol.filled, tint: .link)
+
+    /// Before anything has vouched for the target. An artifact needs no
+    /// lookup, so this is its icon for good.
     static func placeholder(for target: ReferenceTarget) -> ReferenceChipIcon {
         switch target {
         case .linear: ReferenceChipIcon(symbol: "circle.dashed", tint: .neutral)
         case .pullRequest: ReferenceChipIcon(symbol: "arrow.triangle.pull", tint: .neutral)
+        case .artifact: .artifact
         case .file: .file(isDirectory: false)
         }
     }
