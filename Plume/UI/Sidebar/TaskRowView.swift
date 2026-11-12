@@ -56,20 +56,17 @@ struct TaskRowView: View {
         )
     }
 
-    /// A folderless agent takes the folder the task's tabs saved, as the
-    /// one-agent row does.
+    /// Folders come from the rule `directories` uses, so every group's
+    /// directory is one the row watches.
     private func agentGroups(for tabs: [TaskTab]) -> [TaskRowDetails.AgentGroup] {
-        let fallback = task.storedTabDirectory
+        let directories = task.agentTabDirectories(of: tabs)
         let titles = tabs.map { TitleStore.shared.chipTitle(for: $0) }
         let labels = TaskRowDetails.distinctLabels(titles)
         var groupsByDirectory: [String: TaskRowDetails.DirectoryGroup] = [:]
         return tabs.indices.map { index in
             let tab = tabs[index]
             let workspace: TaskRowDetails.DirectoryGroup
-            if let directory = TaskRowDetails.resolvedDirectory(
-                TabDirectoryStore.shared.directory(for: tab),
-                fallback: fallback
-            ) {
+            if let directory = directories[index] {
                 workspace = groupsByDirectory[directory] ?? group(for: directory)
                 groupsByDirectory[directory] = workspace
             } else {

@@ -63,7 +63,13 @@ struct TitleStoreTests {
         #expect(store.chipTitle(for: tab, hasConversation: true) == "Agent")
 
         store.setTitle("Live title", forTab: tab.id, source: .reply)
-        #expect(store.chipTitle(for: tab, hasConversation: false) == "Live title")
+        var askedForConversation = false
+        func hasConversation() -> Bool {
+            askedForConversation = true
+            return false
+        }
+        #expect(store.chipTitle(for: tab, hasConversation: hasConversation()) == "Live title")
+        #expect(!askedForConversation)
     }
 
     @Test func aTaskWithNoTitleAnywhereReadsAsNewTask() throws {

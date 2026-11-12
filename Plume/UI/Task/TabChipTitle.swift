@@ -14,9 +14,11 @@ extension TaskTab {
 extension TitleStore {
     /// What the tab strip and the sidebar call a tab. The live title wins over
     /// the snapshot on the tab, which is only there to label it before
-    /// anything reconnects.
-    func chipTitle(for tab: TaskTab, hasConversation: Bool) -> String {
-        title(forTab: tab.id) ?? (tab.kind == .agent && !hasConversation && tab.title == nil ? "Chat" : tab.displayTitle)
+    /// anything reconnects. `hasConversation` is read only when nothing else
+    /// names the tab, so a titled tab never observes the session managers.
+    func chipTitle(for tab: TaskTab, hasConversation: @autoclosure () -> Bool) -> String {
+        if let live = title(forTab: tab.id) { return live }
+        return tab.kind == .agent && tab.title == nil && !hasConversation() ? "Chat" : tab.displayTitle
     }
 
     func chipTitle(for tab: TaskTab) -> String {
