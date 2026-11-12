@@ -78,6 +78,30 @@ struct ControlChildSessionCommandsTests {
         #expect(preamble.contains("<side-sessions-event>"))
     }
 
+    @Test func aChildsMessageToAParentThatCannotWakeSaysItWaitsForTheUser() async throws {
+        let task = TaskStore.createTask(in: context, title: "Task", siblings: [])
+        let parent = try #require(task.tabs.first)
+        let child = TaskStore.addChildTab(to: task, parent: parent, in: context)
+        try context.save()
+        let parentSession = HeadlessSession(tabID: parent.id, taskID: task.id)
+        let childSession = HeadlessSession(tabID: child.id, taskID: task.id)
+        ChildSessionCoordinator.shared.attach(to: parentSession, task: task, tab: parent)
+        ChildSessionCoordinator.shared.attach(to: childSession, task: task, tab: child)
+        defer { ChildSessionCoordinator.shared.tabForgotten(parent.id) }
+        let server = try #require(childSession.mcpServer)
+
+        let reply = await server.handle(.object([
+            "jsonrpc": .string("2.0"), "id": .number(1), "method": .string("tools/call"),
+            "params": .object(["name": .string("send_message"), "arguments": .object([
+                "to": .string("parent"), "message": .string("Need a decision")
+            ])])
+        ]))
+
+        let text = reply?["result"]?["content"]?.arrayValue?.first?["text"]?.stringValue ?? ""
+        #expect(text.hasPrefix("Delivered with the user's next message"))
+        #expect(parentSession.userMessagePreamble?()?.contains("Need a decision") == true)
+    }
+
     @Test func aQueuedNoteShowsItsEventSummaries() {
         let child = ChildSessionFormats.Participant(sessionID: "C1", title: "Fix", name: "fix")
         let notes = ChildSessionCoordinator.joined([

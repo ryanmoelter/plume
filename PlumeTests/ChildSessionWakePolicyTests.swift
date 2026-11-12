@@ -3,8 +3,8 @@ import Testing
 @testable import Plume
 
 /// Notes that wake reach an idle parent at once and batch while it works.
-/// Notes that don't wake are held, the latest per child, until the parent's
-/// next turn. After the user interrupts the parent, everything waits for the
+/// Turn reports that don't wake are held, the latest per child, until the
+/// parent's next turn; a message is never dropped or replaced. After the user interrupts the parent, everything waits for the
 /// user's next message.
 struct ChildSessionWakePolicyTests {
     private let childA = UUID()
@@ -12,6 +12,10 @@ struct ChildSessionWakePolicyTests {
 
     private func note(_ child: UUID, _ text: String) -> ChildSessionWakePolicy.Note {
         .init(childID: child, text: text)
+    }
+
+    private func message(_ child: UUID, _ text: String) -> ChildSessionWakePolicy.Note {
+        .init(childID: child, text: text, kind: .message)
     }
 
     @Test func aWakingNoteReachesAnIdleParentAtOnce() {
@@ -74,5 +78,36 @@ struct ChildSessionWakePolicyTests {
         for index in 0..<50 {
             #expect(policy.noteArrived(note(childA, "\(index)"), wakes: true, parentIsWorking: false)?.count == 1)
         }
+    }
+
+    @Test func aChildsMessagesAreNeverReplaced() {
+        var policy = ChildSessionWakePolicy()
+        _ = policy.parentTurnFinished(interrupted: true, parentIsWorking: false)
+        _ = policy.noteArrived(message(childA, "first"), wakes: true, parentIsWorking: false)
+        _ = policy.noteArrived(note(childA, "report"), wakes: false, parentIsWorking: false)
+        _ = policy.noteArrived(message(childA, "second"), wakes: true, parentIsWorking: false)
+        _ = policy.noteArrived(note(childA, "newer report"), wakes: false, parentIsWorking: false)
+
+        #expect(policy.userWillSend() == [
+            note(childA, "newer report"), message(childA, "first"), message(childA, "second"),
+        ])
+    }
+
+    @Test func aFailedWakeKeepsEveryMessageButOnlyTheNewerReport() {
+        var policy = ChildSessionWakePolicy()
+        _ = policy.noteArrived(note(childA, "newer report"), wakes: false, parentIsWorking: false)
+
+        policy.deliveryFailed([message(childA, "one"), note(childA, "old report"), message(childA, "two")])
+
+        #expect(policy.userWillSend() == [message(childA, "one"), message(childA, "two"), note(childA, "newer report")])
+    }
+
+    @Test func aNoteWaitsForTheUserOnlyWhenHeldOrInterrupted() {
+        var policy = ChildSessionWakePolicy()
+        _ = policy.noteArrived(message(childA, "batched"), wakes: true, parentIsWorking: true)
+        #expect(!policy.waitsForUser(message(childA, "batched")))
+
+        _ = policy.parentTurnFinished(interrupted: true, parentIsWorking: false)
+        #expect(policy.waitsForUser(message(childA, "batched")))
     }
 }

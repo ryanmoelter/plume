@@ -228,9 +228,16 @@ final class ChildSessionCoordinator {
         }
 
         if let parent, target.id == parent.id {
-            let note = ChildSessionFormats.messageFromChildNote(child: participant(sender), text: message)
-            deliver(.init(childID: sender.id, text: note), toParent: parent, wakes: true)
-            return .success(ChildSessionFormats.delivered(to: TitleStore.shared.chipTitle(for: parent), queued: isWorking(parent)))
+            let text = ChildSessionFormats.messageFromChildNote(child: participant(sender), text: message)
+            let note = ChildSessionWakePolicy.Note(childID: sender.id, text: text, kind: .message)
+            let queued = isWorking(parent)
+            deliver(note, toParent: parent, wakes: true)
+            let delivery: ChildSessionFormats.Delivery = if policies[parent.id]?.waitsForUser(note) == true {
+                .heldForUser
+            } else {
+                queued ? .queued : .sent
+            }
+            return .success(ChildSessionFormats.delivered(to: TitleStore.shared.chipTitle(for: parent), delivery))
         }
         guard target.parentTabID == sender.id else { return .failure(.notRelated(to)) }
         let note = ChildSessionFormats.messageFromParentNote(parent: participant(sender), text: message)
@@ -238,7 +245,7 @@ final class ChildSessionCoordinator {
         guard submitFromHost(note, display: message, to: target, in: task) else {
             return .failure(.failed("Session \(to) could not be reached."))
         }
-        return .success(ChildSessionFormats.delivered(to: TitleStore.shared.chipTitle(for: target), queued: queued))
+        return .success(ChildSessionFormats.delivered(to: TitleStore.shared.chipTitle(for: target), queued ? .queued : .sent))
     }
 
     // MARK: - Notes
