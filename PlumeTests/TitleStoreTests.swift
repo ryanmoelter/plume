@@ -40,6 +40,20 @@ struct TitleStoreTests {
         #expect(TitleStore().displayTitle(for: task) == "From last launch")
     }
 
+    @Test func aTabTitlePrefersTheLiveTitleOverTheSnapshot() throws {
+        let context = try makeContext()
+        let task = TaskStore.createTask(in: context, siblings: [])
+        let tab = task.tabs[0]
+        let store = TitleStore()
+        #expect(store.displayTitle(forTab: tab) == nil)
+
+        tab.title = "From last launch"
+        #expect(store.displayTitle(forTab: tab) == "From last launch")
+
+        store.setTitle("Live title", forTab: tab.id, source: .reply)
+        #expect(store.displayTitle(forTab: tab) == "Live title")
+    }
+
     @Test func aTaskWithNoTitleAnywhereReadsAsNewTask() throws {
         let context = try makeContext()
         let task = TaskStore.createTask(in: context, siblings: [])
