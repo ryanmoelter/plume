@@ -20,6 +20,17 @@ struct ChildSessionWakePolicyTests {
         #expect(policy.isEmpty)
     }
 
+    @Test func notesAFailedWakeCouldNotDeliverWaitForTheUser() {
+        var policy = ChildSessionWakePolicy()
+        let due = policy.noteArrived(note(childA, "a"), wakes: true, parentIsWorking: false) ?? []
+        _ = policy.noteArrived(note(childB, "b2"), wakes: false, parentIsWorking: false)
+
+        policy.deliveryFailed(due + [note(childB, "b1")])
+
+        #expect(policy.parentTurnFinished(interrupted: false, parentIsWorking: false) == nil)
+        #expect(policy.userWillSend() == [note(childA, "a"), note(childB, "b2")])
+    }
+
     @Test func wakingNotesBatchWhileTheParentWorks() {
         var policy = ChildSessionWakePolicy()
         #expect(policy.noteArrived(note(childA, "a"), wakes: true, parentIsWorking: true) == nil)

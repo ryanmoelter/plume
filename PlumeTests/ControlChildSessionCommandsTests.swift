@@ -60,4 +60,30 @@ struct ControlChildSessionCommandsTests {
             try ControlChildSessionCommands.report(.init(child: orphan.id.uuidString, text: "Done"), in: context)
         }
     }
+
+    /// The parent has no conversation to resume, so the wake cannot reach it.
+    @Test func aWakeThatCannotReachTheParentLeavesTheNoteForTheUser() throws {
+        let task = TaskStore.createTask(in: context, title: "Task", siblings: [])
+        let parent = try #require(task.tabs.first)
+        let child = TaskStore.addChildTab(to: task, parent: parent, in: context)
+        try context.save()
+        let session = HeadlessSession(tabID: parent.id, taskID: task.id)
+        ChildSessionCoordinator.shared.attach(to: session, task: task, tab: parent)
+        defer { ChildSessionCoordinator.shared.tabForgotten(parent.id) }
+
+        _ = try ControlChildSessionCommands.report(.init(child: child.id.uuidString, text: "All green"), in: context)
+
+        let preamble = try #require(session.userMessagePreamble?())
+        #expect(preamble.contains("All green"))
+        #expect(preamble.contains("<side-sessions-event>"))
+    }
+
+    @Test func aQueuedNoteShowsItsEventSummaries() {
+        let child = ChildSessionFormats.Participant(sessionID: "C1", title: "Fix", name: "fix")
+        let notes = ChildSessionCoordinator.joined([
+            .init(childID: UUID(), text: ChildSessionFormats.turnFinishedNote(child: child, text: "Done")),
+            .init(childID: UUID(), text: ChildSessionFormats.messageFromChildNote(child: child, text: "Help")),
+        ])
+        #expect(ChildSessionFormats.summary(ofNotes: notes) == "↳ fix finished a turn: Done\n↳ fix sent a message: Help")
+    }
 }

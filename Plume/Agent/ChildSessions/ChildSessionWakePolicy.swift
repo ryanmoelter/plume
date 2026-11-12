@@ -41,6 +41,13 @@ nonisolated struct ChildSessionWakePolicy: Equatable {
         return takeAll()
     }
 
+    /// Notes a wake could not deliver, held for the user's next message.
+    /// A note already held from the same child is newer, so it stays.
+    mutating func deliveryFailed(_ notes: [Note]) {
+        let newer = Set(held.map(\.childID))
+        held = notes.filter { !newer.contains($0.childID) } + held
+    }
+
     /// Every note, to go in front of the message the user is sending.
     mutating func userWillSend() -> [Note] {
         isInterrupted = false

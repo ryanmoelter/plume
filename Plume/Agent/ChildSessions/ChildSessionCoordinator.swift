@@ -189,7 +189,7 @@ final class ChildSessionCoordinator {
             return .failure(.failed("The session could not start: \(reason)"))
         }
         if let worktree { ChildSessionWorkspace.recordOwnership(of: worktree, in: task) }
-        session.submitFromHost(blocks: [.text(brief)])
+        session.submitFromHost(blocks: [.text(brief)], display: [.text(request.prompt)])
 
         return .success(ChildSessionFormats.started(
             title: request.title,
@@ -235,7 +235,7 @@ final class ChildSessionCoordinator {
         guard target.parentTabID == sender.id else { return .failure(.notRelated(to)) }
         let note = ChildSessionFormats.messageFromParentNote(parent: participant(sender), text: message)
         let queued = isWorking(target)
-        guard submitFromHost(note, to: target, in: task) else {
+        guard submitFromHost(note, display: message, to: target, in: task) else {
             return .failure(.failed("Session \(to) could not be reached."))
         }
         return .success(ChildSessionFormats.delivered(to: TitleStore.shared.chipTitle(for: target), queued: queued))
@@ -264,11 +264,19 @@ final class ChildSessionCoordinator {
         if let due { wake(parent, with: due) }
     }
 
+    /// A wake that cannot reach the parent leaves its notes held, for the
+    /// user's next message to carry.
     private func wake(_ parent: TaskTab, with notes: [ChildSessionWakePolicy.Note]) {
-        guard let task = parent.task, !notes.isEmpty else { return }
-        if !submitFromHost(Self.joined(notes), to: parent, in: task) {
-            Log.agent.error("Could not deliver child-session notes to tab \(parent.id, privacy: .public)")
+        guard !notes.isEmpty else { return }
+        let joined = Self.joined(notes)
+        if let task = parent.task,
+           submitFromHost(joined, display: ChildSessionFormats.summary(ofNotes: joined), to: parent, in: task) {
+            return
         }
+        Log.agent.error("Could not deliver child-session notes to tab \(parent.id, privacy: .public)")
+        var policy = policies[parent.id] ?? ChildSessionWakePolicy()
+        policy.deliveryFailed(notes)
+        policies[parent.id] = policy
     }
 
     private func takePreamble(forParent tabID: UUID) -> String? {
@@ -285,20 +293,22 @@ final class ChildSessionCoordinator {
     // MARK: - Reaching a tab's session
 
     /// Submits to the tab's running session, or resumes its conversation
-    /// first. False when the tab has no conversation to resume.
+    /// first, the way Reconnect does. False when nothing could take it.
     @discardableResult
-    private func submitFromHost(_ text: String, to tab: TaskTab, in task: WorkTask) -> Bool {
-        if let session = AgentSessionManager.shared.existingSession(for: tab.id) as? HeadlessSession, !session.hasExited {
-            session.submitFromHost(blocks: [.text(text)])
-            return true
+    private func submitFromHost(_ text: String, display: String, to tab: TaskTab, in task: WorkTask) -> Bool {
+        let existing = AgentSessionManager.shared.existingSession(for: tab.id) as? HeadlessSession
+        let session: HeadlessSession
+        if let existing, !existing.hasExited {
+            session = existing
+        } else {
+            guard tab.provider == .claudeCode, tab.transport == .headless,
+                  let sessionID = tab.agentSessionID, !sessionID.isEmpty,
+                  let resumed = AgentLauncher.relaunchHeadless(task: task, tab: tab) as? HeadlessSession,
+                  !resumed.hasExited
+            else { return false }
+            session = resumed
         }
-        guard tab.provider == .claudeCode, tab.transport == .headless,
-              let sessionID = tab.agentSessionID, !sessionID.isEmpty
-        else { return false }
-        AgentSessionManager.shared.closeSession(for: tab.id)
-        AgentLauncher.launch(blocks: [], task: task, tab: tab, resumeSessionID: sessionID)
-        guard let session = AgentSessionManager.shared.existingSession(for: tab.id) as? HeadlessSession else { return false }
-        session.submitFromHost(blocks: [.text(text)])
+        session.submitFromHost(blocks: [.text(text)], display: [.text(display)])
         return true
     }
 

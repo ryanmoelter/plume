@@ -132,6 +132,83 @@ struct HeadlessChildSessionTests {
         #expect(texts == ["NOTE\n\nhi", "from host"])
     }
 
+    private func sentTexts(_ recorder: Recorder) throws -> [String?] {
+        try recorder.lines.map { try json($0)["message"]?["content"]?.arrayValue?.first?["text"]?.stringValue }
+    }
+
+    @Test func aQueuedMessageTakesThePreambleOnlyWhenItIsSent() throws {
+        let (session, recorder) = makeSession()
+        var asked = 0
+        session.userMessagePreamble = { asked += 1; return asked == 1 ? "NOTE" : nil }
+
+        session.submitFromHost(blocks: [.text("host")])
+        session.submit(text: "typed")
+        #expect(session.queuedMessages == [[.text("typed")]])
+        #expect(asked == 0)
+
+        try receive(session, Self.result)
+        #expect(try sentTexts(recorder) == ["host", "NOTE\n\ntyped"])
+    }
+
+    @Test func aQueuedHostMessageShowsItsDisplayAndSendsItsWire() throws {
+        let (session, recorder) = makeSession()
+        session.submit(text: "typed")
+        session.submitFromHost(blocks: [.text("<system-reminder>x</system-reminder>")], display: [.text("Stop")])
+        #expect(session.queuedMessages == [[.text("Stop")]])
+
+        try receive(session, Self.result)
+        try receive(session, Self.result)
+
+        #expect(try sentTexts(recorder) == ["typed", "<system-reminder>x</system-reminder>"])
+        #expect(recorder.outcomes.map(\.isHostDriven) == [false, true])
+    }
+
+    @Test func removingAQueuedHostMessageForgetsItsWire() throws {
+        let (session, recorder) = makeSession()
+        session.submit(text: "typed")
+        session.submitFromHost(blocks: [.text("wire")], display: [.text("same")])
+        session.removeQueuedMessage(at: 0)
+        session.submit(text: "same")
+
+        try receive(session, Self.result)
+
+        #expect(try sentTexts(recorder) == ["typed", "same"])
+        #expect(recorder.outcomes.map(\.isHostDriven) == [false])
+    }
+
+    @Test func aRequeuedHostMessageKeepsItsMarkerInTheResumedSession() throws {
+        let (session, _) = makeSession()
+        session.submit(text: "typed")
+        session.submitFromHost(blocks: [.text("wire")], display: [.text("shown")])
+        session.debugExit(status: 1, errorLine: "boom")
+
+        let (resumed, recorder) = makeSession()
+        resumed.inherit(from: session)
+        for message in session.queuedMessages { resumed.submit(blocks: message) }
+        try receive(resumed, Self.result)
+
+        #expect(try sentTexts(recorder) == ["wire"])
+        #expect(recorder.outcomes.map(\.isHostDriven) == [true])
+    }
+
+    @Test func anExitMidTurnReportsAnErrorOutcome() throws {
+        let (session, recorder) = makeSession()
+        session.submitFromHost(blocks: [.text("brief")])
+        session.debugExit(status: 1, errorLine: "API down")
+
+        let outcome = try #require(recorder.outcomes.first)
+        #expect(outcome.exitedMidTurn)
+        #expect(outcome.isError)
+        #expect(outcome.isHostDriven)
+        #expect(ChildSessionFormats.reportText(of: outcome) == "The session exited before finishing its turn: API down")
+    }
+
+    @Test func anExitBetweenTurnsReportsNothing() {
+        let (session, recorder) = makeSession()
+        session.debugExit(status: 0, errorLine: nil)
+        #expect(recorder.outcomes.isEmpty)
+    }
+
     @Test func aSlashCommandLeavesThePreambleForTheNextMessage() throws {
         let (session, recorder) = makeSession()
         var preamble: String? = "NOTE"
