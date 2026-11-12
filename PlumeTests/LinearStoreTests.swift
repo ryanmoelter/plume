@@ -676,9 +676,9 @@ struct LinearStoreTests {
         let mention = try #require(harness.store.mentionIssue(identifier: "PLUME-1"))
         #expect(mention.startedProgress == .quarter)
         let chip = ResolvedMention(mention).state.chipIcon(number: nil)
-        #expect(chip.symbol == LinearIssueGlyph.symbolName(for: .started, progress: .quarter))
+        #expect(chip.glyph == .linearProgress(.quarter))
         let known = try #require(harness.store.knownIssue(identifier: "PLUME-1"))
-        #expect(ReferenceChipIcon.linear(known).symbol == chip.symbol)
+        #expect(ReferenceChipIcon.linear(known).glyph == chip.glyph)
     }
 
     @Test func rankedMentionCandidatesCarryTheResolvedProgress() async throws {

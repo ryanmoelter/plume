@@ -21,14 +21,17 @@ struct LinearStartedProgressTests {
         #expect(LinearStartedProgress(position: position, among: positions) == expected)
     }
 
-    @Test(arguments: [
-        (LinearStartedProgress.quarter, "circle.lefthalf.filled.righthalf.striped.horizontal.inverse"),
-        (.half, "circle.righthalf.filled"),
-        (.threeQuarters, "circle.lefthalf.striped.horizontal.inverse"),
-    ])
-    func everyFillNamesItsRealSymbol(progress: LinearStartedProgress, expected: String) {
-        let name = LinearIssueGlyph.symbolName(for: .started, progress: progress)
-        #expect(name == expected)
+    @Test(arguments: [LinearStartedProgress.quarter, .half, .threeQuarters])
+    func everyFillDrawsTheProgressGlyph(progress: LinearStartedProgress) {
+        #expect(LinearIssueGlyph.glyph(for: .started, progress: progress) == .linearProgress(progress))
+    }
+
+    @Test(arguments: [LinearStateType.backlog, .unstarted, .completed, .canceled, .duplicate, .triage, .other("custom")])
+    func everyOtherStateNamesARealSymbol(stateType: LinearStateType) {
+        guard case .symbol(let name) = LinearIssueGlyph.glyph(for: stateType, progress: .half) else {
+            Issue.record("\(stateType) draws no symbol")
+            return
+        }
         #expect(NSImage(systemSymbolName: name, accessibilityDescription: nil) != nil)
     }
 

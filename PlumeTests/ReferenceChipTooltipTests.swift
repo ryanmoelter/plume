@@ -121,7 +121,7 @@ struct ComposerReferenceToolTipTests {
         let toolTip = ComposerReferenceChip.ToolTip(target: .file(path: "/repo/a"), directory: "/repo")
         let chip = ComposerDecorations.ReferenceChip(
             rects: [NSRect(x: 0, y: 0, width: 40, height: 16), NSRect(x: 0, y: 16, width: 20, height: 16)],
-            iconRect: .zero, symbol: "doc", tint: .labelColor, wash: .clear, toolTip: toolTip
+            iconRect: .zero, glyph: .symbol("doc"), tint: .labelColor, wash: .clear, toolTip: toolTip
         )
         owner.update([chip], in: view)
         let first = UnsafeMutableRawPointer(bitPattern: 1)

@@ -1,6 +1,6 @@
 import Foundation
 
-/// The symbol a reference chip leads with, before any color scheme is known.
+/// The glyph a reference chip leads with, before any color scheme is known.
 nonisolated struct ReferenceChipIcon: Hashable, Sendable {
     enum Tint: Hashable, Sendable {
         case neutral
@@ -14,11 +14,20 @@ nonisolated struct ReferenceChipIcon: Hashable, Sendable {
         case linear(colorHex: String)
     }
 
-    let symbol: String
+    let glyph: StatusGlyph
     let tint: Tint
 
+    init(glyph: StatusGlyph, tint: Tint) {
+        self.glyph = glyph
+        self.tint = tint
+    }
+
+    init(symbol: String, tint: Tint) {
+        self.init(glyph: .symbol(symbol), tint: tint)
+    }
+
     static func linear(_ stateType: LinearStateType, progress: LinearStartedProgress, colorHex: String) -> ReferenceChipIcon {
-        ReferenceChipIcon(symbol: LinearIssueGlyph.symbolName(for: stateType, progress: progress), tint: .linear(colorHex: colorHex))
+        ReferenceChipIcon(glyph: LinearIssueGlyph.glyph(for: stateType, progress: progress), tint: .linear(colorHex: colorHex))
     }
 
     static func linear(_ issue: LinearIssue) -> ReferenceChipIcon {

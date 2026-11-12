@@ -5,7 +5,7 @@ import SwiftUI
 /// included, and the icon drawn where its hidden trigger sits.
 struct ComposerReferenceChip: Equatable {
     var range: NSRange
-    var symbol: String
+    var glyph: StatusGlyph
     var tint: NSColor
     var wash: NSColor
     var brand: ReferenceChipBrand?
@@ -113,7 +113,7 @@ extension ComposerReferenceChip {
             let icon = resolved.state.chipIcon(number: number)
             chips.append(ComposerReferenceChip(
                 range: range,
-                symbol: icon.symbol,
+                glyph: icon.glyph,
                 tint: icon.tint == .link ? textTint : palette.nsColor(for: icon.tint),
                 wash: wash,
                 brand: reference.kind.brand,
