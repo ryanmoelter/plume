@@ -40,12 +40,25 @@ nonisolated enum ReferenceChipText {
     /// destination, byte for byte.
     static func rewrite(_ text: String, title: (_ destination: String) -> String?) -> String {
         let links = MarkdownHighlighter.linkRanges(in: text)
-        guard !links.isEmpty else { return text }
         let ns = text as NSString
         let rewritten = NSMutableString(string: text)
         for link in links.reversed() where !link.isImage {
             guard let title = title(ns.substring(with: link.destination)) else { continue }
             rewritten.replaceCharacters(in: link.label, with: chipLabel(title))
+        }
+        return rewriteBareLinks(in: rewritten as String, title: title)
+    }
+
+    /// Each bare `https://…` with a title given becomes `[chip label](url)`.
+    private static func rewriteBareLinks(in text: String, title: (_ destination: String) -> String?) -> String {
+        let bare = MarkdownHighlighter.bareLinkRanges(in: text)
+        guard !bare.isEmpty else { return text }
+        let ns = text as NSString
+        let rewritten = NSMutableString(string: text)
+        for link in bare.reversed() {
+            let destination = ns.substring(with: link.url)
+            guard let title = title(destination) else { continue }
+            rewritten.replaceCharacters(in: link.range, with: "[\(chipLabel(title))](\(destination))")
         }
         return rewritten as String
     }

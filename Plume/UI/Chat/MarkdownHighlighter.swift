@@ -156,6 +156,49 @@ nonisolated enum MarkdownHighlighter {
         return links
     }
 
+    /// `https://…` written with no label, outside code spans and outside any
+    /// `[label](url)`. `range` covers the URL, plus its angle brackets when
+    /// it has both; trailing sentence punctuation is left out.
+    static func bareLinkRanges(in text: String) -> [BareLinkRange] {
+        let ns = text as NSString
+        guard ns.range(of: "://").location != NSNotFound else { return [] }
+        var ignored: [Span] = []
+        let full = NSRange(location: 0, length: ns.length)
+        let codeRanges = inlineCodeSpans(in: ns, range: full, into: &ignored)
+        let linkRanges = linkPattern.matches(in: text, range: full).map(\.range)
+        var found: [BareLinkRange] = []
+        bareLinkPattern.enumerateMatches(in: text, range: full) { match, _, _ in
+            guard let match else { return }
+            var url = match.range(at: 2)
+            var whole = url
+            if match.range(at: 1).location != NSNotFound, match.range(at: 3).location != NSNotFound {
+                whole = match.range
+            } else {
+                while url.length > 0, let last = ns.substring(with: url).last, trailingPunctuation.contains(last) {
+                    url.length -= 1
+                }
+                whole = url
+            }
+            guard url.length > "https://".count else { return }
+            let overlaps: (NSRange) -> Bool = { NSIntersectionRange($0, whole).length > 0 }
+            guard !codeRanges.contains(where: overlaps), !linkRanges.contains(where: overlaps) else { return }
+            found.append(BareLinkRange(range: whole, url: url))
+        }
+        return found
+    }
+
+    struct BareLinkRange: Equatable {
+        let range: NSRange
+        let url: NSRange
+    }
+
+    private static let trailingPunctuation: Set<Character> = [".", ",", ";", ":", "!", "?", "*", "_", "~", "'", "\""]
+
+    private static let bareLinkPattern = try! NSRegularExpression(
+        pattern: #"(<)?(https?://[^\s<>()\[\]\\]+)(>)?"#,
+        options: [.caseInsensitive]
+    )
+
     private static let linkPattern = try! NSRegularExpression(
         pattern: #"(!?\[)(?:[^\[\]\\\n]|\\.)+(\]\((?:<(?:[^<>\\\n]|\\.)*>|[^()\s]+)\))"#
     )

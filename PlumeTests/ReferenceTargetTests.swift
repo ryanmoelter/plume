@@ -28,6 +28,13 @@ struct ReferenceTargetTests {
         #expect(classify("https://www.github.com/ryanmoelter/Plume/pull/12") == expected)
     }
 
+    @Test func aLinearDiffURLNamesTheSamePullRequestAsItsGitHubURL() {
+        let expected = ReferenceTarget.pullRequest(owner: "ryanmoelter", repo: "Plume", number: 12)
+        #expect(classify("https://linear.review/ryanmoelter/Plume/pull/12") == expected)
+        #expect(classify("https://linear.review/ryanmoelter/Plume/pull/12/files") == expected)
+        #expect(classify("https://linear.review/ryanmoelter/Plume") == nil)
+    }
+
     @Test func anIssueOrAnotherHostIsNotAPullRequest() {
         #expect(classify("https://github.com/ryanmoelter/Plume/issues/12") == nil)
         #expect(classify("https://gitlab.com/ryanmoelter/Plume/pull/12") == nil)
