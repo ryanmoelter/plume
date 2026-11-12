@@ -183,6 +183,15 @@ struct TaskRowDirectoryGroupingTests {
     @Test func aTaskWithNoFolderAtAllHasNoGroups() {
         #expect(TaskRowDetails.distinctDirectories(agentTabDirectories: [], fallbackDirectory: nil).isEmpty)
     }
+
+    /// The row must watch the folder a folderless agent's header borrows.
+    @Test func aFolderlessAgentAmongOthersTakesTheFallback() {
+        let directories = TaskRowDetails.distinctDirectories(
+            agentTabDirectories: ["/Users/me/Other", nil, ""],
+            fallbackDirectory: "/Users/me/Plume"
+        )
+        #expect(directories == ["/Users/me/Other", "/Users/me/Plume"])
+    }
 }
 
 @MainActor
@@ -491,8 +500,36 @@ struct TaskRowAgentLinesTests {
 
     @Test func anAgentWithNoFolderTakesOnlyItsHeader() {
         let lone = agent("Lone", nil)
-        #expect(TaskRowDetails.lines(agents: [lone, agent("Two", "/Users/me/Plume")]).first == .agentHeader(lone.header))
+        let two = agent("Two", "/Users/me/Plume", branch: "main")
+        #expect(TaskRowDetails.lines(agents: [lone, two]) == [
+            .agentHeader(lone.header),
+            .agentHeader(two.header), .project("Plume"), .branch("main", accompaniedBy: nil),
+        ])
         #expect(TaskRowDetails.lines(agents: [lone]) == [.agentHeader(lone.header)])
+    }
+
+    @Test func anAgentWithNoFolderAfterOneWithAFolderTakesOnlyItsHeader() {
+        let one = agent("One", "/Users/me/Plume", branch: "main")
+        let lone = agent("Lone", nil)
+        #expect(TaskRowDetails.lines(agents: [one, lone]) == [
+            .agentHeader(one.header), .project("Plume"), .branch("main", accompaniedBy: nil),
+            .agentHeader(lone.header),
+        ])
+    }
+
+    /// Two clones on the same branch read identically, but they are not one
+    /// folder, so the second must not look like it shares the first's.
+    @Test func aSecondCloneThatReadsTheSameRepeatsItsLines() {
+        let first = agent("One", "/Users/me/Plume", branch: "main")
+        let second = agent("Two", "/Users/me/elsewhere/Plume", branch: "main")
+        #expect(TaskRowDetails.lines(agents: [first, second]) == [
+            .agentHeader(first.header), .project("Plume"), .branch("main", accompaniedBy: nil),
+            .agentHeader(second.header), .project("Plume"), .branch("main", accompaniedBy: nil),
+        ])
+    }
+
+    @Test func repeatedTitlesAreNumberedForTheirLabels() {
+        #expect(TaskRowDetails.distinctLabels(["Chat", "Fix", "Chat", "Chat"]) == ["Chat", "Fix", "Chat #2", "Chat #3"])
     }
 
     @Test func linesDifferingKeepsEverythingFromTheFirstDifference() {
@@ -523,6 +560,7 @@ struct TaskRowAgentLinesTests {
 
     @Test func theHeaderReachesTheAccessibilityLabel() {
         let header = TaskRowDetails.AgentHeader(tabID: UUID(), title: "Fix login", status: .working, isUnread: true)
-        #expect(TaskRowDetails.accessibilityText(.agentHeader(header)) == "Fix login working unread")
+        #expect(header.statusText == "Working, unread")
+        #expect(TaskRowDetails.accessibilityText(.agentHeader(header)) == "Fix login, Working, unread")
     }
 }
