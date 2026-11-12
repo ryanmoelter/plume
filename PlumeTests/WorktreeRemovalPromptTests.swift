@@ -110,10 +110,12 @@ struct WorktreeRemovalPromptTests {
         #expect(targets(for: task) == [feature])
     }
 
-    @Test func aHeldWorkspaceIsIgnoredWhileTheTaskHasTabs() {
-        let task = makeTask(.directory("/repo"))
+    /// A tab moved into an empty task leaves the task's held worktree in place.
+    @Test func aHeldWorktreeCountsAlongsideTabs() {
+        let task = makeTask(.directory("/elsewhere"))
         task.heldWorkspace = worktree("/repo/.worktrees/feature", branch: "feature")
-        #expect(!WorktreeRemovalPrompt.needsConfirmation(for: task))
+        #expect(WorktreeRemovalPrompt.needsConfirmation(for: task))
+        #expect(targets(for: task) == [feature])
     }
 
     @Test func aWorktreeGitNoLongerListsIsSkipped() {

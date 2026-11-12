@@ -1,4 +1,5 @@
 import Foundation
+import os
 import SwiftData
 import SwiftUI // Array.move(fromOffsets:toOffset:)
 
@@ -459,6 +460,22 @@ enum TaskStore {
         return Set(task.liveTabs.compactMap(directories.directory(for:))).subtracting(othersInUse)
     }
 
+    /// A task holds one workspace, and a worktree outranks anything else: a
+    /// plain folder never replaces a held worktree, or nothing would remove it.
+    private static func hold(_ departing: TabWorkspace, in task: WorkTask) {
+        let held = task.heldWorkspace
+        guard held.kind == .worktree else {
+            task.heldWorkspace = departing
+            return
+        }
+        if departing.kind == .worktree,
+           departing.repoPath != held.repoPath || departing.branchName != held.branchName {
+            Log.app.error(
+                "Task \(task.id) already holds a worktree, so it drops the claim on \(departing.directory ?? "?", privacy: .public)"
+            )
+        }
+    }
+
     // MARK: - Worktree removal (shared by delete and archive)
 
     /// Removing the worktrees is best-effort: if git refuses one, the task
@@ -558,7 +575,7 @@ enum TaskStore {
             return
         }
         let remaining = task.orderedTabs.filter { $0.id != tab.id }
-        if remaining.isEmpty { task.heldWorkspace = tab.workspace }
+        if remaining.isEmpty { hold(tab.workspace, in: task) }
         if task.lastFocusedAgentTabID == tab.id {
             task.lastFocusedAgentTabID = remaining.first { $0.kind == .agent }?.id
         }
@@ -694,7 +711,7 @@ enum TaskStore {
         guard let source = tab.task, source.id != destination.id else { return }
 
         let remainingInSource = source.orderedTabs.filter { $0.id != tab.id }
-        if remainingInSource.isEmpty { source.heldWorkspace = tab.workspace }
+        if remainingInSource.isEmpty { hold(tab.workspace, in: source) }
         if tab.workspaceKind == .worktree { tab.workspaceKind = .directory }
         if source.lastFocusedAgentTabID == tab.id {
             source.lastFocusedAgentTabID = remainingInSource.first { $0.kind == .agent }?.id

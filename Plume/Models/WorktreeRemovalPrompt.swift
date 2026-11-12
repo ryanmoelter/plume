@@ -92,10 +92,10 @@ enum WorktreeRemovalPrompt {
         let directory: String?
     }
 
-    /// The workspaces `task` answers for: its tabs', or the one it holds
-    /// once its last tab has gone.
+    /// The workspaces `task` answers for: its tabs', and the one it holds.
+    /// A tab moved into a task that held a worktree leaves the hold in place.
     private static func workspaces(of task: WorkTask) -> [TabWorkspace] {
-        task.tabs.isEmpty ? [task.heldWorkspace] : task.orderedTabs.map(\.workspace)
+        task.orderedTabs.map(\.workspace) + [task.heldWorkspace]
     }
 
     /// True when `task` uses a Plume-created worktree, so removing it needs a
