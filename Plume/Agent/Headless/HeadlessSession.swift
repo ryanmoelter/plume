@@ -1622,7 +1622,7 @@ final class HeadlessSession: AgentSession {
     }
 
     private func finishTurn(_ result: TurnResult) {
-        let outcome = AgentTurnOutcome(
+        var outcome = AgentTurnOutcome(
             text: result.text,
             isError: result.isError && !wasInterrupted,
             wasInterrupted: wasInterrupted,
@@ -1657,7 +1657,7 @@ final class HeadlessSession: AgentSession {
         if firePendingRestartIfIdle() { return }
         restartedAtTurnEnd = false
         requestTitleIfDue()
-        sendNextQueuedMessage()
+        outcome.userTurnFollows = sendNextQueuedMessage()
     }
 
     /// Called when the opening message is sent, and again at the end of
@@ -1702,10 +1702,12 @@ final class HeadlessSession: AgentSession {
         return PlanSummary.title(of: contents)
     }
 
-    private func sendNextQueuedMessage() {
-        guard !queue.isEmpty else { return }
+    /// Whether the turn it began carries a message the user wrote.
+    @discardableResult
+    private func sendNextQueuedMessage() -> Bool {
+        guard !queue.isEmpty else { return false }
         let next = queue.removeFirst()
-        startTurn(carrying: [next])
+        return startTurn(carrying: [next]) && next.parts.userBlocks != nil
     }
 
     private func handleExit(status: Int32, errorLine: String?) {
@@ -1911,4 +1913,7 @@ struct AgentTurnOutcome: Equatable {
     let isHostDriven: Bool
     /// The process exited with the turn still running; `text` is why.
     var exitedMidTurn = false
+    /// A queued message the user wrote began the next turn before this
+    /// outcome was reported.
+    var userTurnFollows = false
 }

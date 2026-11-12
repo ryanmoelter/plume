@@ -288,7 +288,9 @@ final class ChildSessionCoordinator {
             deliver(.init(childID: tab.id, text: note), toParent: parent, wakes: wakes)
         }
         guard var policy = policies[tab.id] else { return }
-        let due = policy.parentTurnFinished(interrupted: outcome.wasInterrupted, parentIsWorking: isWorking(tab))
+        // The user's queued message already answered the interrupt.
+        let interrupted = outcome.wasInterrupted && !outcome.userTurnFollows
+        let due = policy.parentTurnFinished(interrupted: interrupted, parentIsWorking: isWorking(tab))
         policies[tab.id] = policy
         if let due { wake(tab, with: due) }
     }
