@@ -97,7 +97,7 @@ Each queue entry is a `QueuedMessage` with its own identity. Its parts are eithe
 
 - **A turn the CLI never took goes back as one entry holding every part.** A restart, an exit, or a failed send keeps each host part's wire text and marker, and Reconnect and Send Now after an exit carry the entries over through `relaunchHeadless`.
 - **Only the user's own text can be edited.** A host chip has no Edit button, and Up-arrow recall skips it.
-- **A host message the user removes or withdraws goes back to the coordinator, never into the composer** (`onHostMessagesReturned`). Wake notes return to the parent's policy as held. A parent's message taken off a child's queue becomes a held note telling the parent it was never read. A withdrawn turn that carried the only host message stops being host-driven.
+- **A host message the user removes or withdraws goes back to the coordinator, never into the composer** (`onHostMessagesReturned`). Wake notes return to the parent's policy as held. A parent's message taken off a child's queue becomes a held note telling the parent it was never read. Closing a child does the same for a parent's message still unread there (`ChildSessionCoordinator.childClosing`). A withdrawn turn that carried the only host message stops being host-driven.
 - **A host message still arriving when the turn's delivery grace ends marks the next turn the CLI begins**, so the turn that answers it is the one that reports as host-driven.
 
 ## When a note wakes the parent

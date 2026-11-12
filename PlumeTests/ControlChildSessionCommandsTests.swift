@@ -160,6 +160,30 @@ struct ControlChildSessionCommandsTests {
         #expect(preamble.contains("Run the tests"))
     }
 
+    @Test func closingAChildWithAParentsMessageQueuedTellsTheParent() throws {
+        let task = TaskStore.createTask(in: context, title: "Task", siblings: [])
+        let parent = try #require(task.tabs.first)
+        let child = TaskStore.addChildTab(to: task, parent: parent, in: context)
+        try context.save()
+        let parentSession = HeadlessSession(tabID: parent.id, taskID: task.id)
+        ChildSessionCoordinator.shared.attach(to: parentSession, task: task, tab: parent)
+        let childSession = try #require(AgentSessionManager.shared.session(for: child.id, taskID: task.id) as? HeadlessSession)
+        defer {
+            _ = AgentSessionManager.shared.detachSession(for: child.id)
+            ChildSessionCoordinator.shared.tabForgotten(parent.id)
+        }
+        childSession.debugLineSink = { _ in }
+        childSession.queuedMessageDelivery = { .endOfTurn }
+        childSession.submit(text: "busy")
+        childSession.submitFromHost(blocks: [.text("framed")], display: [.text("Run the tests")], origin: .fromParent(text: "Run the tests"))
+
+        TaskStore.closeTab(child, in: context)
+
+        let preamble = try #require(parentSession.userMessagePreamble?())
+        #expect(preamble.contains("closed the session"))
+        #expect(preamble.contains("Run the tests"))
+    }
+
     @Test func aQueuedNoteShowsItsEventSummaries() {
         let child = ChildSessionFormats.Participant(sessionID: "C1", title: "Fix", name: "fix")
         let notes = ChildSessionCoordinator.joined([

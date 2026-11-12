@@ -567,6 +567,11 @@ final class HeadlessSession: AgentSession {
         unsentPreamble = [preamble, unsentPreamble].compactMap { $0 }.joined(separator: "\n\n")
     }
 
+    /// Host messages queued or sent into a turn that the CLI has not taken in.
+    var unreadHostMessages: [HostMessage] {
+        deliveringMessages.filter { $0.state != .absorbed }.flatMap(\.turn.hosts) + queue.flatMap(\.parts.hosts)
+    }
+
     private func returnToHost(_ messages: [HostMessage]) {
         guard !messages.isEmpty else { return }
         onHostMessagesReturned?(messages)

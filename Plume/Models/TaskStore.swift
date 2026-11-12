@@ -613,6 +613,7 @@ enum TaskStore {
     }
 
     static func closeTab(_ tab: TaskTab, in context: ModelContext) {
+        ChildSessionCoordinator.shared.childClosing(tab)
         forgetTab(tab)
         guard let task = tab.task else {
             context.delete(tab)
