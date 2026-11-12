@@ -189,7 +189,7 @@ final class ReferenceChipStore {
                 inFlight.remove(target)
                 if let isDirectory = kinds[path] {
                     nextLookups[target] = .distantFuture
-                    publish(Resolution(title: target.canonicalLabel, icon: .file(isDirectory: isDirectory)), for: target)
+                    publish(Resolution(title: (path as NSString).lastPathComponent, icon: .file(isDirectory: isDirectory)), for: target)
                 } else {
                     nextLookups[target] = now.addingTimeInterval(Self.retryInterval)
                     publish(nil, for: target)

@@ -49,16 +49,13 @@ nonisolated enum ReferenceTarget: Hashable, Sendable {
         }
     }
 
-    /// The chip title of an artifact the tab's Artifact calls never named.
-    static let genericArtifactLabel = "Artifact"
-
-    /// What a reference to this target is written as: `DROID-123`, `#12`,
-    /// `Artifact`, or the file's name.
-    var canonicalLabel: String {
+    /// What a reference to this target is written as: `DROID-123`, `#12`, or
+    /// the file's name. Nil for an artifact, whose label is the author's own.
+    var canonicalLabel: String? {
         switch self {
         case .linear(let identifier): identifier
         case .pullRequest(_, _, let number): "#\(number)"
-        case .artifact: Self.genericArtifactLabel
+        case .artifact: nil
         case .file(let path): (path as NSString).lastPathComponent
         }
     }

@@ -36,28 +36,29 @@ nonisolated enum ReferenceChipText {
     private static let escapedCharacters: Set<Character> = ["\\", "`", "*", "_", "[", "]", "<", ">", "~", "&", "|", "!"]
 
     /// `text` with each link whose destination has a title given rewritten as
-    /// a chip. Images and links inside code are left alone, and so is every
-    /// destination, byte for byte.
-    static func rewrite(_ text: String, title: (_ destination: String) -> String?) -> String {
+    /// a chip. `label` is the link's own label, nil for a bare URL. Images and
+    /// links inside code are left alone, and so is every destination, byte
+    /// for byte.
+    static func rewrite(_ text: String, title: (_ destination: String, _ label: String?) -> String?) -> String {
         let links = MarkdownHighlighter.linkRanges(in: text)
         let ns = text as NSString
         let rewritten = NSMutableString(string: text)
         for link in links.reversed() where !link.isImage {
-            guard let title = title(ns.substring(with: link.destination)) else { continue }
+            guard let title = title(ns.substring(with: link.destination), ns.substring(with: link.label)) else { continue }
             rewritten.replaceCharacters(in: link.label, with: chipLabel(title))
         }
         return rewriteBareLinks(in: rewritten as String, title: title)
     }
 
     /// Each bare `https://…` with a title given becomes `[chip label](url)`.
-    private static func rewriteBareLinks(in text: String, title: (_ destination: String) -> String?) -> String {
+    private static func rewriteBareLinks(in text: String, title: (_ destination: String, _ label: String?) -> String?) -> String {
         let bare = MarkdownHighlighter.bareLinkRanges(in: text)
         guard !bare.isEmpty else { return text }
         let ns = text as NSString
         let rewritten = NSMutableString(string: text)
         for link in bare.reversed() {
             let destination = ns.substring(with: link.url)
-            guard let title = title(destination) else { continue }
+            guard let title = title(destination, nil) else { continue }
             rewritten.replaceCharacters(in: link.range, with: "[\(chipLabel(title))](\(destination))")
         }
         return rewritten as String
@@ -76,8 +77,11 @@ nonisolated enum ReferenceChipText {
         let restored = NSMutableString(string: text)
         for link in links.reversed() where !link.isImage {
             guard ns.substring(with: link.label).first == placeholder else { continue }
-            let label = url(forDestination: ns.substring(with: link.destination)).flatMap(canonicalLabel(for:))
-            restored.replaceCharacters(in: link.label, with: escaped(label ?? ""))
+            guard let label = url(forDestination: ns.substring(with: link.destination)).flatMap(canonicalLabel(for:)) else {
+                restored.replaceCharacters(in: link.label, with: String(ns.substring(with: link.label).dropFirst()))
+                continue
+            }
+            restored.replaceCharacters(in: link.label, with: escaped(label))
         }
         return restored as String
     }
@@ -87,7 +91,7 @@ nonisolated enum ReferenceChipText {
     static func canonicalLabel(for url: URL) -> String? {
         if let target = ReferenceTarget.classify(url, base: URL(fileURLWithPath: "/")) {
             if case .file = target, url.absoluteString.split(separator: "#").first?.hasSuffix("/") == true {
-                return target.canonicalLabel + "/"
+                return target.canonicalLabel.map { $0 + "/" }
             }
             return target.canonicalLabel
         }

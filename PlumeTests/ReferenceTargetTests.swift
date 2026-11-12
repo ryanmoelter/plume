@@ -82,6 +82,6 @@ struct ReferenceTargetTests {
         #expect(ReferenceTarget.linear(identifier: "PLUME-101").canonicalLabel == "PLUME-101")
         #expect(ReferenceTarget.pullRequest(owner: "o", repo: "r", number: 12).canonicalLabel == "#12")
         #expect(ReferenceTarget.file(path: "/repo/Sources/App.swift").canonicalLabel == "App.swift")
-        #expect(ReferenceTarget.artifact(id: "abc").canonicalLabel == "Artifact")
+        #expect(ReferenceTarget.artifact(id: "abc").canonicalLabel == nil)
     }
 }

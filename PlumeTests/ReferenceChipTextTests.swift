@@ -49,7 +49,7 @@ struct ReferenceChipTextTests {
     // MARK: - Rewriting
 
     private func rewrite(_ text: String, titles: [String: String]) -> String {
-        ReferenceChipText.rewrite(text) { titles[$0] }
+        ReferenceChipText.rewrite(text) { destination, _ in titles[destination] }
     }
 
     @Test func aLinkWithATitleIsRewritten() {
@@ -121,6 +121,11 @@ struct ReferenceChipTextTests {
         let text = "[\(chip)Add chips](https://linear.app/p/issue/PLUME-1/slug), [\(chip)Fix](https://github.com/o/r/pull/7), [\(chip)A\\_B.swift](Sources/A_B.swift#L4) and [x](https://example.com)"
         #expect(ReferenceChipText.restoringCanonical(in: text)
             == "[PLUME-1](https://linear.app/p/issue/PLUME-1/slug), [#7](https://github.com/o/r/pull/7), [A\\_B.swift](Sources/A_B.swift#L4) and [x](https://example.com)")
+    }
+
+    @Test func anArtifactChipKeepsItsShownTitleWhenRestored() {
+        let text = "[\(chip)old deck](https://claude.ai/artifact/abc)"
+        #expect(ReferenceChipText.restoringCanonical(in: text) == "[old deck](https://claude.ai/artifact/abc)")
     }
 
     @Test func aFolderKeepsItsTrailingSlash() {
