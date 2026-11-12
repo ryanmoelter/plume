@@ -47,22 +47,37 @@ final class TabDirectoryStore {
         directories[tab.id] ?? tab.workingDirectoryPath
     }
 
-    /// `tab`'s workspace, at the folder it is in now.
+    /// `tab`'s workspace, at the folder it is in now. A tab whose live folder
+    /// has left its saved one may be in another repository altogether, so it
+    /// passes on only the folder, and git resolves the rest.
     func currentWorkspace(of tab: TaskTab) -> TabWorkspace {
-        var workspace = tab.workspace
-        workspace.directory = directory(for: tab)
-        return workspace
+        guard let live = directories[tab.id], live != tab.workingDirectoryPath else { return tab.workspace }
+        return .directory(live)
     }
 
     /// The tab whose workspace stands for `task` when a new tab or task copies
     /// one: the selected tab, else the last focused agent tab, else the first
     /// tab with a folder.
-    func workspaceSource(in task: WorkTask) -> TaskTab? {
-        let tabs = task.orderedTabs
+    func workspaceSource(in task: WorkTask, excluding excludedTabID: UUID? = nil) -> TaskTab? {
+        Self.workspaceSource(in: task, excluding: excludedTabID) { directory(for: $0) != nil }
+    }
+
+    /// `workspaceSource(in:)` from saved folders alone, for a view body that
+    /// must not observe every tab's live folder.
+    static func savedWorkspaceSource(in task: WorkTask) -> TaskTab? {
+        workspaceSource(in: task, excluding: nil) { $0.workingDirectoryPath != nil }
+    }
+
+    private static func workspaceSource(
+        in task: WorkTask,
+        excluding excludedTabID: UUID?,
+        hasFolder: (TaskTab) -> Bool
+    ) -> TaskTab? {
+        let tabs = task.orderedLiveTabs.filter { $0.id != excludedTabID }
         let preferred = [task.selectedTabID, task.lastFocusedAgentTabID].compactMap { id in
             tabs.first { $0.id == id }
         }
-        return (preferred + tabs).first { directory(for: $0) != nil }
+        return (preferred + tabs).first(where: hasFolder)
     }
 
     /// Where a tab's terminal starts: a directory already set for it, as by
@@ -82,18 +97,9 @@ final class TabDirectoryStore {
         return path
     }
 
-    /// Where a tab in this task with no folder of its own should start:
-    /// wherever the task's other tabs are.
-    ///
-    /// The preference order matches `TitleStore.representativeTab(of:)`, so a
-    /// new terminal opens beside whatever the sidebar is describing.
+    /// Where a tab in this task with no folder of its own should start: the
+    /// folder a new tab would copy.
     func startingDirectory(for task: WorkTask, excluding excludedTabID: UUID? = nil) -> String? {
-        let preferred = [task.lastFocusedAgentTabID, task.selectedTabID].compactMap { $0 }
-        let order = (preferred + task.orderedTabs.map(\.id)).filter { $0 != excludedTabID }
-        let byID = Dictionary(task.tabs.map { ($0.id, $0) }, uniquingKeysWith: { first, _ in first })
-        let reported = order.lazy.compactMap { id in
-            self.directories[id] ?? byID[id]?.workingDirectoryPath
-        }
-        return reported.first
+        workspaceSource(in: task, excluding: excludedTabID).flatMap(directory(for:))
     }
 }

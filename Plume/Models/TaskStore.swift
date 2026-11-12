@@ -35,7 +35,7 @@ enum TaskStore {
         let tab = TaskTab(kind: kind, orderIndex: 0, task: task)
         if kind == .agent { applyDefaultLaunchSettings(to: tab) }
         let directories = TabDirectoryStore.shared
-        if let source = inheritingFrom.flatMap(directories.workspaceSource(in:)),
+        if let source = inheritingFrom.flatMap({ directories.workspaceSource(in: $0) }),
            case let inherited = directories.currentWorkspace(of: source),
            let folder = inherited.directory {
             tab.workspace = .directory(folder, repoPath: inherited.repoPath, branchName: inherited.branchName)
@@ -109,7 +109,10 @@ enum TaskStore {
         let tab = TaskTab(kind: kind, orderIndex: nextIndex(after: task.tabs(inPane: paneIndex)), task: task)
         tab.paneIndex = paneIndex
         let directories = TabDirectoryStore.shared
-        if let source = directories.workspaceSource(in: task) {
+        if !task.tabs.contains(where: { $0.id != tab.id }) {
+            tab.workspace = task.heldWorkspace
+            task.heldWorkspace = TabWorkspace()
+        } else if let source = directories.workspaceSource(in: task) {
             tab.workspace = directories.currentWorkspace(of: source)
         }
         if kind == .agent {
@@ -423,14 +426,18 @@ enum TaskStore {
     /// The cascade delete removes the tabs, but their terminals are held
     /// outside SwiftData and have to be closed explicitly.
     static func delete(_ task: WorkTask, in context: ModelContext) {
-        let directories = Set(task.tabs.compactMap(TabDirectoryStore.shared.directory(for:)))
+        let unshared = foldersOnlyUsed(
+            by: task,
+            among: (try? context.fetch(FetchDescriptor<WorkTask>())) ?? [],
+            directories: .shared
+        )
         for tab in task.tabs {
             forgetTab(tab)
         }
         // The row that took these watches is going away with the task, and a
-        // deleted row is not guaranteed to run its own teardown. Tasks in the
-        // same directory still need the watch and the branch it publishes.
-        for directory in directories where !isDirectoryShared(directory, excluding: task, in: context) {
+        // deleted row is not guaranteed to run its own teardown. Another
+        // task's row still reads a folder it shares.
+        for directory in unshared {
             GitStateStore.shared.forget(directory: directory)
             PullRequestStore.shared.forget(directory: directory)
         }
@@ -440,15 +447,16 @@ enum TaskStore {
         context.delete(task)
     }
 
-    static func isDirectoryShared(_ directory: String, excluding task: WorkTask, in context: ModelContext) -> Bool {
-        let taskID = task.id
-        let descriptor = FetchDescriptor<WorkTask>(predicate: #Predicate {
-            $0.id != taskID && !$0.isArchived
-        })
-        let others = (try? context.fetch(descriptor)) ?? []
-        return others.contains { other in
-            other.liveTabs.contains { TabDirectoryStore.shared.directory(for: $0) == directory }
-        }
+    static func foldersOnlyUsed(
+        by task: WorkTask,
+        among tasks: [WorkTask],
+        directories: TabDirectoryStore
+    ) -> Set<String> {
+        let othersInUse = tasks
+            .filter { $0.id != task.id && !$0.isArchived }
+            .flatMap(\.liveTabs)
+            .compactMap(directories.directory(for:))
+        return Set(task.liveTabs.compactMap(directories.directory(for:))).subtracting(othersInUse)
     }
 
     // MARK: - Worktree removal (shared by delete and archive)
@@ -550,6 +558,7 @@ enum TaskStore {
             return
         }
         let remaining = task.orderedTabs.filter { $0.id != tab.id }
+        if remaining.isEmpty { task.heldWorkspace = tab.workspace }
         if task.lastFocusedAgentTabID == tab.id {
             task.lastFocusedAgentTabID = remaining.first { $0.kind == .agent }?.id
         }
@@ -677,10 +686,16 @@ enum TaskStore {
     /// running process cannot be redirected to `destination`'s folder, so a
     /// moved tab stays in its original directory rather than silently
     /// pointing at the wrong one.
+    ///
+    /// A worktree stays with the task that made it: the moved tab keeps the
+    /// folder as a plain directory, so deleting `destination` never offers to
+    /// remove a worktree `source` is still working in.
     static func moveTab(_ tab: TaskTab, to destination: WorkTask, selectAfterMove: Bool = true) {
         guard let source = tab.task, source.id != destination.id else { return }
 
         let remainingInSource = source.orderedTabs.filter { $0.id != tab.id }
+        if remainingInSource.isEmpty { source.heldWorkspace = tab.workspace }
+        if tab.workspaceKind == .worktree { tab.workspaceKind = .directory }
         if source.lastFocusedAgentTabID == tab.id {
             source.lastFocusedAgentTabID = remainingInSource.first { $0.kind == .agent }?.id
         }

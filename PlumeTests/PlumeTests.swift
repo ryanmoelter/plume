@@ -149,6 +149,7 @@ struct TaskStoreTests {
 
 /// A new tab opens in the workspace of the tab the user is on: the selected
 /// tab, else the last focused agent tab, else the first tab with a folder.
+/// A worktree stays with its task when a tab leaves, even its last tab.
 @MainActor
 struct AddTabWorkspaceTests {
     private func makeContext() throws -> ModelContext {
@@ -177,7 +178,7 @@ struct AddTabWorkspaceTests {
         let task = TaskStore.createTask(in: context, siblings: [])
         let source = task.tabs[0]
         source.workspace = worktree
-        TabDirectoryStore.shared.setDirectory("/repo/.worktrees/feature/sub", forTab: source.id)
+        TabDirectoryStore.shared.setDirectory("/repo/.worktrees/feature/sub", forTab: source)
         defer { TabDirectoryStore.shared.forget(tabID: source.id) }
 
         let tab = TaskStore.addTab(to: task, kind: .agent, in: context)
@@ -211,6 +212,132 @@ struct AddTabWorkspaceTests {
         let tab = TaskStore.addTab(to: task, kind: .terminal, in: context)
 
         #expect(tab.workspace == TabWorkspace())
+    }
+
+    // MARK: - Leaving the task
+
+    @Test func aTabMovedToAnotherTaskLeavesTheWorktreeBehind() throws {
+        let context = try makeContext()
+        let source = TaskStore.createTask(in: context, siblings: [])
+        source.tabs[0].workspace = worktree
+        let tab = TaskStore.addTab(to: source, kind: .terminal, in: context)
+        let destination = TaskStore.createTask(in: context, siblings: [source])
+
+        TaskStore.moveTab(tab, to: destination)
+
+        #expect(tab.workspace == .directory("/repo/.worktrees/feature", repoPath: "/repo", branchName: "feature"))
+        #expect(!WorktreeRemovalPrompt.needsConfirmation(for: destination))
+        #expect(WorktreeRemovalPrompt.needsConfirmation(for: source))
+    }
+
+    @Test func aTabSplitIntoANewTaskLeavesTheWorktreeBehind() throws {
+        let context = try makeContext()
+        let source = TaskStore.createTask(in: context, siblings: [])
+        source.tabs[0].workspace = worktree
+        let tab = TaskStore.addTab(to: source, kind: .terminal, in: context)
+
+        let split = TaskStore.splitTabIntoNewTask(tab, in: context, siblings: [source])
+
+        #expect(tab.workspaceKind == .directory)
+        #expect(!WorktreeRemovalPrompt.needsConfirmation(for: split))
+    }
+
+    @Test func closingTheLastTabKeepsItsWorkspaceForTheNextOne() throws {
+        let context = try makeContext()
+        let task = TaskStore.createTask(in: context, siblings: [])
+        task.tabs[0].workspace = worktree
+
+        TaskStore.closeTab(task.tabs[0], in: context)
+
+        #expect(task.tabs.isEmpty)
+        #expect(WorktreeRemovalPrompt.needsConfirmation(for: task))
+        let tab = TaskStore.addTab(to: task, kind: .terminal, in: context)
+        #expect(tab.workspace == worktree)
+        #expect(task.heldWorkspace == TabWorkspace())
+    }
+
+    @Test func movingTheLastTabAwayKeepsTheWorktreeClaim() throws {
+        let context = try makeContext()
+        let source = TaskStore.createTask(in: context, siblings: [])
+        source.tabs[0].workspace = worktree
+        let destination = TaskStore.createTask(in: context, siblings: [source])
+
+        TaskStore.moveTab(source.tabs[0], to: destination)
+
+        #expect(source.heldWorkspace == worktree)
+        #expect(WorktreeRemovalPrompt.needsConfirmation(for: source))
+    }
+
+    @Test func closingATabThatIsNotTheLastHoldsNothing() throws {
+        let context = try makeContext()
+        let task = TaskStore.createTask(in: context, siblings: [])
+        task.tabs[0].workspace = worktree
+        let other = TaskStore.addTab(to: task, kind: .terminal, in: context)
+
+        TaskStore.closeTab(other, in: context)
+
+        #expect(task.heldWorkspace == TabWorkspace())
+    }
+}
+
+/// Deleting a task drops the git and pull request watches on its folders, but
+/// not on a folder another live task's tab still uses.
+@MainActor
+struct DeletedTaskFolderTests {
+    @Test func aFolderAnotherTaskUsesIsKept() throws {
+        let context = ModelContext(try ModelContainer(
+            for: Schema([TaskGroup.self, WorkTask.self, TaskTab.self]),
+            configurations: [ModelConfiguration(isStoredInMemoryOnly: true)]
+        ))
+        let deleted = TaskStore.createTask(in: context, siblings: [])
+        deleted.tabs[0].workspace = .directory("/shared")
+        TaskStore.addTab(to: deleted, kind: .terminal, in: context).workspace = .directory("/own")
+        let other = TaskStore.createTask(in: context, siblings: [deleted])
+        other.tabs[0].workspace = .directory("/shared")
+        let archived = TaskStore.createTask(in: context, siblings: [deleted, other])
+        archived.tabs[0].workspace = .directory("/own")
+        archived.isArchived = true
+
+        let folders = TaskStore.foldersOnlyUsed(
+            by: deleted, among: [deleted, other, archived], directories: TabDirectoryStore()
+        )
+
+        #expect(folders == ["/own"])
+    }
+}
+
+@MainActor
+struct SavedWorkspaceReaderTests {
+    private func makeContext() throws -> ModelContext {
+        ModelContext(try ModelContainer(
+            for: Schema([TaskGroup.self, WorkTask.self, TaskTab.self]),
+            configurations: [ModelConfiguration(isStoredInMemoryOnly: true)]
+        ))
+    }
+
+    /// Home builds its inputs in a view body, so a terminal's `cd` must not
+    /// reach them.
+    @Test func homeReadsTheSavedFolderNotTheLiveOne() throws {
+        let context = try makeContext()
+        let task = TaskStore.createTask(in: context, siblings: [])
+        let tab = task.tabs[0]
+        tab.workspace = .directory("/saved", repoPath: "/repo")
+        TabDirectoryStore.shared.setDirectory("/live", forTab: tab.id)
+        defer { TabDirectoryStore.shared.forget(tabID: tab.id) }
+
+        let input = try #require(HomeComposerInputs(tasks: [task], groups: []).tasks.first)
+
+        #expect(input.path == "/repo")
+        #expect(input.workspaceKindRaw == WorkspaceKind.directory.rawValue)
+    }
+
+    @Test func theStoredBranchSkipsATabWithNone() throws {
+        let context = try makeContext()
+        let task = TaskStore.createTask(in: context, siblings: [])
+        task.tabs[0].workspace = .directory("/repo")
+        TaskStore.addTab(to: task, kind: .terminal, in: context).workspace = .directory("/repo", branchName: "feature")
+
+        #expect(task.storedBranchName(in: "/repo") == "feature")
     }
 }
 
