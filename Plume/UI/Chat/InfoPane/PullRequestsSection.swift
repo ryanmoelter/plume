@@ -55,13 +55,15 @@ struct InfoPanePullRequestItem: Equatable, Identifiable {
             ))
         }
         for role in [Role.pinned, .mentioned] {
-            for linked in linked where Role(linked.role) == role {
+            let inRole = linked.filter { Role($0.role) == role }
+            let summaries = inRole.map { $0.pullRequest.map(PullRequestSummary.init) }
+            for (linked, summary) in PullRequestStatusOrder.sorted(Array(zip(inRole, summaries)), summary: { $0.1 }) {
                 let reference = linked.reference
                 items.append(InfoPanePullRequestItem(
                     id: reference.id,
                     role: role,
                     number: reference.number,
-                    summary: linked.pullRequest.map(PullRequestSummary.init),
+                    summary: summary,
                     url: URL(string: reference.url),
                     reference: reference,
                     forge: .github,
@@ -70,6 +72,25 @@ struct InfoPanePullRequestItem: Equatable, Identifiable {
             }
         }
         return items
+    }
+}
+
+/// Open, then draft, then unknown, then closed, then merged.
+enum PullRequestStatusOrder {
+    static func rank(_ summary: PullRequestSummary?) -> Int {
+        guard let summary else { return 2 }
+        switch summary.state {
+        case .open: return summary.isDraft ? 1 : 0
+        case .closed: return 3
+        case .merged: return 4
+        }
+    }
+
+    static func sorted<Element>(_ elements: [Element], summary: (Element) -> PullRequestSummary?) -> [Element] {
+        elements.enumerated()
+            .map { (offset: $0.offset, element: $0.element, rank: rank(summary($0.element))) }
+            .sorted { $0.rank != $1.rank ? $0.rank < $1.rank : $0.offset < $1.offset }
+            .map(\.element)
     }
 }
 
@@ -99,7 +120,6 @@ struct PullRequestsSection: View, ThemedView {
     @State private var checksPopoverItemID: String?
 
     private static let title = "Pull Requests"
-    private static let symbol = "arrow.triangle.pull"
 
     private var linkedReferences: [PullRequestReference] { items.compactMap(\.reference) }
 
@@ -135,10 +155,11 @@ struct PullRequestsSection: View, ThemedView {
         let isExpanded = settings.infoPaneLinkedPullRequestsExpanded
         let leading = items.filter { $0.role != .mentioned }
         let mentioned = items.filter { $0.role == .mentioned }
-        return VStack(alignment: .leading, spacing: 0) {
+        return InfoPaneBracketedSection(isExpanded: isExpanded) {
             header(count: items.count, isExpanded: isExpanded) {
                 withAnimation(InfoPaneLayout.sectionAnimation) { settings.infoPaneLinkedPullRequestsExpanded.toggle() }
             }
+        } rows: {
             if isExpanded {
                 ForEach(leading) { row($0) }
                 if leading.isEmpty {
@@ -172,8 +193,9 @@ struct PullRequestsSection: View, ThemedView {
     }
 
     private func header(count: Int?, isExpanded: Bool, action: @escaping () -> Void) -> some View {
-        InfoPaneGroupHeader(
+        InfoPaneSectionHeader(
             title: Self.title,
+            icon: .gitHub,
             count: count,
             isExpanded: isExpanded,
             accessibilityID: AccessibilityID.infoPaneLinkedPullRequestsToggle,
@@ -181,47 +203,33 @@ struct PullRequestsSection: View, ThemedView {
             suppressesWash: isHoveringAdd,
             reservesTrailingControl: true,
             action: action
-        ) {
-            Image(systemName: Self.symbol)
-        }
+        )
         .overlay(alignment: .trailing) { addButton }
     }
 
     private var addButton: some View {
         Button { showsPinPopover = true } label: {
-            Image(systemName: "plus")
-                .frame(width: InfoPaneLayout.iconColumnWidth)
-                .modifier(OverlaidControlWash(isHovering: isHoveringAdd))
-                .contentShape(.rect)
+            InfoPaneHeaderPlus(isHovering: isHoveringAdd)
         }
         .buttonStyle(.plain)
         .foregroundStyle(colors.selection)
         .plumeHover { isHoveringAdd = $0 }
         .help("Pin a pull request to this conversation")
         .plumeID(AccessibilityID.infoPaneLinkedPullRequestAddButton)
+        .padding(-OverlaidControlWash.inset)
     }
 
     private func mentionedGroup(_ mentioned: [InfoPanePullRequestItem]) -> some View {
-        VStack(alignment: .leading, spacing: 0) {
-            Button {
+        InfoPaneBracketedSection(isExpanded: showsMentioned, level: .nested) {
+            InfoPaneSubgroupHeader(
+                title: "Mentioned",
+                count: mentioned.count,
+                isExpanded: showsMentioned,
+                accessibilityID: AccessibilityID.infoPaneLinkedPullRequestsMentionedToggle
+            ) {
                 withAnimation(InfoPaneLayout.sectionAnimation) { showsMentioned.toggle() }
-            } label: {
-                HStack(spacing: InfoPaneLayout.columnSpacing) {
-                    // Holds the first column without filling the row's height.
-                    InfoPaneIcon { DisclosureChevron(isExpanded: false).hidden() }
-                    Text("Mentioned")
-                    Text("\(mentioned.count)")
-                    DisclosureChevron(isExpanded: showsMentioned)
-                    Spacer(minLength: 0)
-                }
-                .emphasis(.subtle)
             }
-            .buttonStyle(InfoPaneRowButtonStyle())
-            .plumeID(
-                AccessibilityID.infoPaneLinkedPullRequestsMentionedToggle,
-                value: showsMentioned ? "expanded" : "collapsed"
-            )
-
+        } rows: {
             if showsMentioned {
                 ForEach(mentioned) { row($0) }
             }
@@ -260,7 +268,7 @@ private struct PullRequestRow: View, ThemedView {
                         Text(item.title)
                             .lineLimit(1)
                             .truncationMode(.tail)
-                            .emphasis(item.role == .mentioned ? .secondary : .primary)
+                            .emphasis(titleEmphasis)
                     }
                     Text(item.summary.map(PullRequestRowContent.detail) ?? label)
                         .lineLimit(1)
@@ -293,7 +301,7 @@ private struct PullRequestRow: View, ThemedView {
             PullRequestGlyphImage(glyph: PullRequestRowContent.leadingWithoutChecks(summary))
         } else {
             Image(systemName: "arrow.triangle.pull")
-                .emphasis(.secondary)
+                .emphasis(.subtle)
         }
     }
 
@@ -301,12 +309,14 @@ private struct PullRequestRow: View, ThemedView {
     private var forgeMark: some View {
         if let forge = item.forge, forge.markImageName != nil {
             ForgeMarkCell(forge: forge)
-                .emphasis(.secondary)
+                .emphasis(titleEmphasis)
         } else {
             Image(systemName: "arrow.triangle.pull")
-                .emphasis(.secondary)
+                .emphasis(titleEmphasis)
         }
     }
+
+    private var titleEmphasis: Emphasis { item.role == .mentioned ? .secondary : .primary }
 
     private var help: String {
         PullRequestRowContent.tooltip(item.summary, number: item.number, forgeName: forgeName)
@@ -322,18 +332,48 @@ private struct PullRequestRow: View, ThemedView {
 
     private var actionsMenu: some View {
         Menu { menuItems } label: {
-            Image(systemName: "ellipsis")
+            RowMenuLabel(isHovering: isHoveringMenu)
         }
-        .menuStyle(.borderlessButton)
+        .menuStyle(.button)
+        .buttonStyle(.plain)
         .menuIndicator(.hidden)
         .fixedSize()
-        .foregroundStyle(colors.selection)
-        .frame(width: InfoPaneLayout.iconColumnWidth)
-        .modifier(OverlaidControlWash(isHovering: isHoveringMenu))
+        .emphasis(.subtle)
         .plumeHover { isHoveringMenu = $0 }
+        .padding(-OverlaidControlWash.inset)
         .padding(.bottom, InfoPaneLayout.rowVerticalPadding)
         .help("Pull request actions")
         .plumeID(AccessibilityID.infoPaneLinkedPullRequestRowMenu, label: label)
+        .background { menuItemRegistrations }
+    }
+
+    private var menuItemRegistrations: some View {
+        let reference = item.reference
+        return Group {
+            if item.role == .mentioned, let reference {
+                Color.clear.plumeMenuItem(AccessibilityID.infoPaneLinkedPullRequestPinButton, label: label) { actions.pin(reference) }
+            }
+            Color.clear.plumeMenuItem(AccessibilityID.infoPaneLinkedPullRequestOpenButton, label: label, isEnabled: item.url != nil, invoke: open)
+            Color.clear.plumeMenuItem(AccessibilityID.infoPaneLinkedPullRequestCopyButton, label: label, isEnabled: item.url != nil, invoke: copyURL)
+            if item.role != .mentioned {
+                Color.clear.plumeMenuItem(
+                    AccessibilityID.infoPaneLinkedPullRequestUnpinButton,
+                    label: label,
+                    isEnabled: reference != nil
+                ) {
+                    if let reference { actions.unpin(reference) }
+                }
+            }
+            if let pinAnother {
+                Color.clear.plumeMenuItem(AccessibilityID.infoPaneLinkedPullRequestPinAnotherButton, label: label) { pinAnother() }
+            }
+        }
+    }
+
+    private func copyURL() {
+        guard let url = item.url else { return }
+        NSPasteboard.general.clearContents()
+        NSPasteboard.general.setString(url.absoluteString, forType: .string)
     }
 
     /// The branch's own pull request keeps a pinned one's menu, with Unpin
@@ -342,24 +382,20 @@ private struct PullRequestRow: View, ThemedView {
     private var menuItems: some View {
         let reference = item.reference
         if item.role == .mentioned, let reference {
-            menuItem("Pin to Conversation", AccessibilityID.infoPaneLinkedPullRequestPinButton) { actions.pin(reference) }
+            menuItem("Pin to Conversation") { actions.pin(reference) }
             Divider()
         }
-        menuItem("Open on \(forgeName)", AccessibilityID.infoPaneLinkedPullRequestOpenButton, isEnabled: item.url != nil, perform: open)
-        menuItem("Copy URL", AccessibilityID.infoPaneLinkedPullRequestCopyButton, isEnabled: item.url != nil) {
-            guard let url = item.url else { return }
-            NSPasteboard.general.clearContents()
-            NSPasteboard.general.setString(url.absoluteString, forType: .string)
-        }
+        menuItem("Open on \(forgeName)", isEnabled: item.url != nil, perform: open)
+        menuItem("Copy URL", isEnabled: item.url != nil, perform: copyURL)
         if item.role != .mentioned {
             Divider()
-            menuItem("Unpin from Conversation", AccessibilityID.infoPaneLinkedPullRequestUnpinButton, isEnabled: reference != nil) {
+            menuItem("Unpin from Conversation", isEnabled: reference != nil) {
                 if let reference { actions.unpin(reference) }
             }
         }
         if let pinAnother {
             Divider()
-            menuItem("Pin Another Pull Request…", AccessibilityID.infoPaneLinkedPullRequestPinAnotherButton) {
+            menuItem("Pin Another Pull Request…") {
                 // After the menu closes, so the popover has an anchor to present from.
                 Task { @MainActor in pinAnother() }
             }
@@ -368,12 +404,10 @@ private struct PullRequestRow: View, ThemedView {
 
     private func menuItem(
         _ title: String,
-        _ id: String,
         isEnabled: Bool = true,
         perform: @escaping () -> Void
     ) -> some View {
         Button(title, action: perform)
-            .plumeID(id, label: label, invoke: perform)
             .disabled(!isEnabled)
     }
 }
@@ -444,7 +478,11 @@ private struct PullRequestChecksPopover: View, ThemedView {
                         checkLine(entry)
                     }
                 }
+                // Room inside the scroll view's clip for each row's hover wash.
+                .padding(.horizontal, SubagentRow.Columns.washInset)
             }
+            .padding(.horizontal, -SubagentRow.Columns.washInset)
+            .environment(\.infoPaneRowWash, .rounded)
             .scrollBounceBehavior(.basedOnSize)
             .frame(maxHeight: 360)
             .fixedSize(horizontal: false, vertical: true)
@@ -453,27 +491,38 @@ private struct PullRequestChecksPopover: View, ThemedView {
         .frame(width: 320, alignment: .leading)
     }
 
+    /// Clicking opens the check's own page, when the forge gave one.
     private func checkLine(_ entry: CheckListEntry) -> some View {
         let glyph = CheckListContent.glyph(for: entry)
-        return HStack(spacing: 6) {
+        let value = entry.isIgnored ? "\(glyph.label) ignored" : glyph.label
+        let content = HStack(spacing: 6) {
             PullRequestGlyphImage(glyph: glyph)
             Text(entry.name)
                 .lineLimit(1)
                 .truncationMode(.middle)
-                .emphasis(entry.isIgnored ? .subtle : .secondary)
+                .emphasis(entry.isIgnored ? .subtle : .primary)
             if entry.isIgnored {
                 Image(systemName: "eye.slash")
                     .emphasis(.subtle)
                     .help("Ignored while pending, in Settings ▸ Projects")
             }
             Spacer(minLength: 0)
+            if entry.url != nil { LinkOpenIcon() }
         }
-        .padding(.vertical, 2)
-        .plumeID(
-            AccessibilityID.infoPanePullRequestCheck,
-            label: entry.name,
-            value: entry.isIgnored ? "\(glyph.label) ignored" : glyph.label
-        )
+        return Group {
+            if let url = entry.url {
+                let open = { ChatLinkOpener.open(.web(url)) }
+                Button(action: open) { content }
+                    .buttonStyle(InfoPaneRowButtonStyle())
+                    .help(url.absoluteString)
+                    .plumeID(AccessibilityID.infoPanePullRequestCheck, label: entry.name, value: value, invoke: open)
+            } else {
+                content
+                    .padding(.vertical, InfoPaneLayout.rowVerticalPadding)
+                    .plumeID(AccessibilityID.infoPanePullRequestCheck, label: entry.name, value: value)
+                    .disabled(true)
+            }
+        }
     }
 }
 

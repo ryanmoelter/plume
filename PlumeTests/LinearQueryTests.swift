@@ -10,7 +10,7 @@ struct LinearQueryTests {
         #expect(aliases == ["i0": "PLUME-1", "i1": "PLUME-2"])
         #expect(query.contains("i0: issue(id: \"PLUME-1\")"))
         #expect(query.contains("i1: issue(id: \"PLUME-2\")"))
-        #expect(query.contains("state { id name type color }"))
+        #expect(query.contains("state { id name type color position }"))
     }
 
     @Test func escapesIdentifiers() {

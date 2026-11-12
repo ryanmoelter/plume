@@ -78,7 +78,7 @@ extension HomeRowContext {
                     Reference(
                         id: link.identifier,
                         icon: LinearStore.shared.state(for: link.identifier)?.issue
-                            .map { .linear($0.stateType, colorHex: $0.stateColor) }
+                            .map { ReferenceChipIcon.linear($0) }
                     )
                 }
         }

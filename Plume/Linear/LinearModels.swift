@@ -55,6 +55,8 @@ nonisolated struct LinearWorkflowState: Sendable, Equatable, Hashable, Codable {
     let type: LinearStateType
     /// A `#rrggbb` hex string, as Linear reports it.
     let color: String
+    /// Order within the team's states; nil in caches written before it was fetched.
+    var position: Double? = nil
 }
 
 nonisolated struct LinearTeam: Sendable, Equatable, Codable {
@@ -63,6 +65,46 @@ nonisolated struct LinearTeam: Sendable, Equatable, Codable {
     let key: String
     let name: String
     let states: [LinearWorkflowState]
+}
+
+/// How far Linear fills a `started` state's circle, by where the state sits
+/// among its team's started states.
+nonisolated enum LinearStartedProgress: String, Sendable, Hashable, Codable {
+    case quarter, half, threeQuarters
+
+    /// A lone started state reads as half; two read as half and three
+    /// quarters; three or more run from a quarter to three quarters.
+    init(position: Double, among startedPositions: [Double]) {
+        let count = startedPositions.count
+        let rank = startedPositions.count { $0 < position }
+        switch count {
+        case ...1:
+            self = .half
+        case 2:
+            self = rank == 0 ? .half : .threeQuarters
+        default:
+            let fraction = Double(min(rank, count - 1)) / Double(count - 1)
+            self = fraction < 0.25 ? .quarter : fraction > 0.75 ? .threeQuarters : .half
+        }
+    }
+
+    /// Read from the first of `catalogs` that defines the team. Half for any
+    /// other state type, and when no catalog knows the team or the position.
+    init(stateType: LinearStateType, position: Double?, teamKey: String, catalogs: [LinearCatalog]) {
+        guard stateType == .started else {
+            self = .half
+            return
+        }
+        let team = catalogs.lazy.compactMap { $0.team(key: teamKey) }.first
+        self = team?.startedProgress(position: position) ?? .half
+    }
+}
+
+nonisolated extension LinearTeam {
+    func startedProgress(position: Double?) -> LinearStartedProgress {
+        guard let position else { return .half }
+        return LinearStartedProgress(position: position, among: states.filter { $0.type == .started }.compactMap(\.position))
+    }
 }
 
 /// One workspace's teams and their workflow states. Small and slow-changing,
@@ -76,6 +118,10 @@ nonisolated struct LinearCatalog: Sendable, Equatable, Codable {
     var viewerID: String?
 
     var teamKeys: Set<String> { Set(teams.map(\.key)) }
+
+    var hasStatePositions: Bool {
+        teams.allSatisfy { $0.states.allSatisfy { $0.position != nil } }
+    }
 
     func team(key: String) -> LinearTeam? {
         teams.first { $0.key == key.uppercased() }
@@ -101,12 +147,24 @@ nonisolated struct LinearIssue: Sendable, Equatable, Codable {
     let stateName: String
     let stateType: LinearStateType
     let stateColor: String
+    var statePosition: Double? = nil
     let assigneeName: String?
     let teamKey: String
     /// The description's opening lines, from `LinearIssue.summary(ofDescription:)`.
     var summary: String? = nil
     /// Linear's `TimelessDate`, `yyyy-MM-dd`.
     var dueDate: String? = nil
+    /// `LinearStore` sets it from the owning workspace's catalog when it
+    /// hands the issue out.
+    var startedProgress: LinearStartedProgress = .half
+
+    func resolvingProgress(in catalogs: [LinearCatalog]) -> LinearIssue {
+        var issue = self
+        issue.startedProgress = LinearStartedProgress(
+            stateType: stateType, position: statePosition, teamKey: teamKey, catalogs: catalogs
+        )
+        return issue
+    }
 }
 
 nonisolated extension LinearIssue {

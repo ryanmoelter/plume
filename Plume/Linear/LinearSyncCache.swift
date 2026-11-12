@@ -84,6 +84,7 @@ nonisolated struct LinearSyncCache: Sendable, Equatable, Codable {
             stateName: state.name,
             stateType: state.type,
             stateColor: state.color,
+            statePosition: state.position,
             assigneeName: issue.assigneeID.flatMap { users[$0]?.name },
             teamKey: issue.teamKey,
             summary: issue.summary,

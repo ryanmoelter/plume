@@ -29,7 +29,7 @@ enum ComposerDecorations {
         /// One per line the token occupies.
         var rects: [NSRect]
         var iconRect: NSRect
-        var symbol: String
+        var glyph: StatusGlyph
         var tint: NSColor
         var wash: NSColor
         var brandRect: NSRect?
@@ -118,9 +118,7 @@ enum ComposerDecorations {
             )
         }
         guard chip.iconRect.intersects(dirtyRect),
-              let image = NSImage(systemSymbolName: chip.symbol, accessibilityDescription: nil)?
-                .withSymbolConfiguration(NSImage.SymbolConfiguration(pointSize: chip.iconRect.height, weight: .regular)
-                    .applying(NSImage.SymbolConfiguration(paletteColors: [chip.tint]))),
+              let image = chip.glyph.image(side: chip.iconRect.height, color: chip.tint),
               image.size.width > 0, image.size.height > 0
         else { return }
         let scale = min(chip.iconRect.width / image.size.width, chip.iconRect.height / image.size.height)
@@ -413,7 +411,7 @@ enum ComposerDecorations {
             return ReferenceChip(
                 rects: rects,
                 iconRect: icons.status,
-                symbol: chip.symbol,
+                glyph: chip.glyph,
                 tint: chip.tint,
                 wash: chip.wash,
                 brandRect: icons.brand,

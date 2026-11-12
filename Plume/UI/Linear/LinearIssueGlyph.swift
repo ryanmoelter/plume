@@ -11,19 +11,33 @@ struct LinearIssueGlyph: View, ThemedView {
     let colorHex: String?
     /// Nil draws Linear's color unchanged.
     let strategy: LinearStateColorStrategy?
+    /// Only a `started` state reads it.
+    let progress: LinearStartedProgress
 
-    init(stateType: LinearStateType, colorHex: String?) {
-        self.init(stateType: stateType, colorHex: colorHex, strategy: AppSettings.shared.linearStateColors)
+    init(stateType: LinearStateType, progress: LinearStartedProgress, colorHex: String?) {
+        self.init(
+            stateType: stateType, progress: progress, colorHex: colorHex, strategy: AppSettings.shared.linearStateColors
+        )
     }
 
-    init(stateType: LinearStateType, colorHex: String?, strategy: LinearStateColorStrategy?) {
+    init(_ issue: LinearIssue) {
+        self.init(stateType: issue.stateType, progress: issue.startedProgress, colorHex: issue.stateColor)
+    }
+
+    init(
+        stateType: LinearStateType,
+        progress: LinearStartedProgress,
+        colorHex: String?,
+        strategy: LinearStateColorStrategy?
+    ) {
         self.stateType = stateType
         self.colorHex = colorHex
         self.strategy = strategy
+        self.progress = progress
     }
 
     var body: some View {
-        let image = Image(systemName: Self.symbolName(for: stateType))
+        let image = StatusGlyphView(Self.glyph(for: stateType, progress: progress))
         if let color {
             image.foregroundStyle(color)
         } else {
@@ -48,16 +62,16 @@ struct LinearIssueGlyph: View, ThemedView {
         }
     }
 
-    nonisolated static func symbolName(for stateType: LinearStateType) -> String {
+    nonisolated static func glyph(for stateType: LinearStateType, progress: LinearStartedProgress) -> StatusGlyph {
         switch stateType {
-        case .backlog: "circle.dashed"
-        case .unstarted: "circle"
-        case .started: "circle.righthalf.filled"
-        case .completed: "checkmark.circle.fill"
-        case .canceled: "xmark.circle.fill"
-        case .duplicate: "equal.circle.fill"
-        case .triage: "arrow.left.and.right.circle.fill"
-        case .other: "circle"
+        case .backlog: .symbol("circle.dashed")
+        case .unstarted: .symbol("circle")
+        case .started: .linearProgress(progress)
+        case .completed: .symbol("checkmark.circle.fill")
+        case .canceled: .symbol("xmark.circle.fill")
+        case .duplicate: .symbol("equal.circle.fill")
+        case .triage: .symbol("arrow.left.and.right.circle.fill")
+        case .other: .symbol("circle")
         }
     }
 }

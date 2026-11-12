@@ -667,7 +667,7 @@ private struct HomeRow: View, ThemedView {
         case .issue(let reference, let more), .pullRequest(let reference, let more):
             HStack(alignment: .firstTextBaseline, spacing: 3) {
                 if let icon = reference.icon {
-                    Image(systemName: icon.symbol)
+                    StatusGlyphView(icon.glyph)
                         .foregroundStyle(chipPalette.color(for: icon.tint))
                 }
                 Text(more > 0 ? "\(reference.id) +\(more)" : reference.id)

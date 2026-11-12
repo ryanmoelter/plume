@@ -38,7 +38,7 @@ struct MentionAutocompleteView: View, ThemedView {
                     .emphasis(.subtle)
                     .lineLimit(1)
             case .linear(let issue):
-                LinearIssueGlyph(stateType: issue.stateType, colorHex: issue.stateColor)
+                LinearIssueGlyph(stateType: issue.stateType, progress: issue.startedProgress, colorHex: issue.stateColor)
                     .imageScale(.small)
                 Text(issue.identifier)
                     .font(typography.caption.monoMedium)

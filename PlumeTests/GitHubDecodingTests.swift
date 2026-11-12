@@ -114,6 +114,24 @@ struct GitHubDecodingTests {
         #expect(pr.reviewDecision == .none)
     }
 
+    @Test func eachUnionMemberCarriesItsPageURL() throws {
+        let json = """
+        {"data":{"repository":{"owner":{"login":"me"},"b0":{"nodes":[
+        {"number":7,"state":"OPEN","isDraft":false,
+         "commits":{"nodes":[{"commit":{"statusCheckRollup":{"contexts":{"nodes":[
+           {"__typename":"CheckRun","name":"build","conclusion":"SUCCESS","detailsUrl":"https://example.com/run"},
+           {"__typename":"StatusContext","context":"ci/lint","state":"PENDING","targetUrl":"https://example.com/status"},
+           {"__typename":"CheckRun","name":"bare","conclusion":"SUCCESS"}
+         ]}}}}]}}]}}}}
+        """
+        let decoded = try GitHubQuery.decode(Data(json.utf8), aliasToBranch: ["b0": "main"])
+        let contexts = try #require(decoded["main"] ?? nil).checkContexts
+        let urls = Dictionary(uniqueKeysWithValues: contexts.map { ($0.name, $0.url) })
+        #expect(urls["build"] == URL(string: "https://example.com/run"))
+        #expect(urls["ci/lint"] == URL(string: "https://example.com/status"))
+        #expect(urls["bare"] == .some(nil))
+    }
+
     @Test func aRequestedOrPastReviewerCountsAsAssigned() throws {
         func decode(requests: Int, reviews: Int) throws -> Bool {
             let json = """

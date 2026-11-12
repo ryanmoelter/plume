@@ -94,7 +94,6 @@ struct FoldersSection: View, ThemedView {
             Spacer(minLength: 4)
             if canEdit { addCue }
         }
-        .emphasis(.secondary)
         Group {
             if canEdit {
                 Menu { addFolderMenuItems } label: { label }
@@ -117,22 +116,21 @@ struct FoldersSection: View, ThemedView {
 
     private var groupedSection: some View {
         let isExpanded = settings.infoPaneFoldersExpanded
-        return VStack(alignment: .leading, spacing: 0) {
-            InfoPaneGroupHeader(
+        return InfoPaneBracketedSection(isExpanded: isExpanded) {
+            InfoPaneSectionHeader(
                 title: "Folders",
+                icon: .symbol("folder"),
                 count: rows.count,
                 isExpanded: isExpanded,
                 accessibilityID: AccessibilityID.infoPaneFoldersToggle,
                 suppressesWash: isHoveringAdd,
                 reservesTrailingControl: canEdit,
                 action: toggleExpanded
-            ) {
-                Image(systemName: "folder")
-            }
+            )
             .overlay(alignment: .trailing) {
                 if canEdit { addMenu }
             }
-
+        } rows: {
             if isExpanded {
                 ForEach(rows) { row in
                     FolderRowView(
@@ -154,17 +152,17 @@ struct FoldersSection: View, ThemedView {
 
     private var addMenu: some View {
         Menu { addFolderMenuItems } label: {
-            Image(systemName: "plus")
+            InfoPaneHeaderPlus(isHovering: isHoveringAdd)
         }
-        .menuStyle(.borderlessButton)
+        .menuStyle(.button)
+        .buttonStyle(.plain)
         .menuIndicator(.hidden)
         .fixedSize()
         .foregroundStyle(theme.colors.selection)
-        .frame(width: InfoPaneLayout.iconColumnWidth)
-        .modifier(OverlaidControlWash(isHovering: isHoveringAdd))
         .plumeHover { isHoveringAdd = $0 }
         .help("Let this conversation reach another folder")
         .plumeID(AccessibilityID.infoPaneFoldersAddMenu)
+        .padding(-OverlaidControlWash.inset)
     }
 
     private func toggleExpanded() {
@@ -246,7 +244,7 @@ private struct FolderRowView: View, ThemedView {
                     .frame(width: InfoPaneLayout.iconColumnWidth)
                     .foregroundStyle(theme.colors.selection)
             }
-            .emphasis(isDimmed ? .subtle : .secondary)
+            .emphasis(isDimmed ? .subtle : .primary)
         }
         .modifier(InfoPaneRowMenuChrome())
         .opacity(row.pending == .removesAfterTurn ? 0.6 : 1)

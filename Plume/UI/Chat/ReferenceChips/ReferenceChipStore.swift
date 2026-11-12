@@ -254,7 +254,7 @@ final class ReferenceChipStore {
         }
         for (identifier, issue) in issues {
             let resolution = issue.map {
-                Resolution(title: $0.title, icon: .linear($0.stateType, colorHex: $0.stateColor), detail: .linear($0))
+                Resolution(title: $0.title, icon: .linear($0), detail: .linear($0))
             }
             publish(resolution, for: .linear(identifier: identifier))
         }
