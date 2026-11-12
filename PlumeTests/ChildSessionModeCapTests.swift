@@ -63,6 +63,8 @@ struct ChildSessionModeCapTests {
         #expect(ChildSessionPermissions.ceiling(parent: .bypassPermissions, launchedWith: .auto, showsBypassPermissions: false) == .auto)
         #expect(ChildSessionPermissions.capped(.auto, at: .acceptEdits) == .acceptEdits)
         #expect(ChildSessionPermissions.capped(.plan, at: .acceptEdits) == .plan)
+        #expect(ChildSessionPermissions.capped(.bypassPermissions, at: .manual, current: .auto) == .auto)
+        #expect(ChildSessionPermissions.capped(.auto, at: .manual, current: .plan) == .manual)
     }
 
     @Test func aChildFollowsItsLiveParentThenItsLaunchMode() throws {
@@ -127,6 +129,18 @@ struct ChildSessionModeCapTests {
     @Test func theUsersOwnPickIsNeverCapped() throws {
         let (session, lines) = makeSession(ceiling: .manual)
         session.setPermissionMode(.auto)
+
+        #expect(try requestedModes(lines) == [PermissionMode.auto.token])
+        #expect(session.permissionMode == .auto)
+    }
+
+    @Test func aCapNeverLowersAModeTheUserPicked() throws {
+        let (session, lines) = makeSession(ceiling: .manual)
+        session.setPermissionMode(.auto)
+        try receive(session, #"{"type":"control_request","request_id":"r1","request":{"subtype":"can_use_tool","tool_name":"Write","input":{},"permission_suggestions":[{"type":"setMode","mode":"acceptEdits","destination":"session"}]}}"#)
+        let permission = try #require(session.pendingPermissions.first)
+
+        session.resolve(permission, accepting: permission.suggestions[0])
 
         #expect(try requestedModes(lines) == [PermissionMode.auto.token])
         #expect(session.permissionMode == .auto)

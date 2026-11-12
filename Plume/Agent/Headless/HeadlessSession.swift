@@ -1114,7 +1114,8 @@ final class HeadlessSession: AgentSession {
            cappedForRaise(mode) != mode {
             // The suggestion names the CLI's mode, so the capped one goes as its own request.
             resolve(permission, with: .allow(updatedInput: permission.input))
-            setPermissionMode(cappedForRaise(mode))
+            let capped = cappedForRaise(mode)
+            if capped != permissionMode { setPermissionMode(capped) }
             return
         }
         resolve(permission, with: .allow(updatedInput: permission.input, updatedPermissions: [suggestion.raw]))
@@ -1146,7 +1147,7 @@ final class HeadlessSession: AgentSession {
 
     private func cappedForRaise(_ mode: PermissionMode) -> PermissionMode {
         guard let ceiling = permissionCeiling?() else { return mode }
-        return ChildSessionPermissions.capped(mode, at: ceiling)
+        return ChildSessionPermissions.capped(mode, at: ceiling, current: permissionMode)
     }
 
     /// Approves the plan and sends `feedback` as an ordinary user turn.
