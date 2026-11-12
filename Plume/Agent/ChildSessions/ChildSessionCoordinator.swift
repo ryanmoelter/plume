@@ -174,7 +174,8 @@ final class ChildSessionCoordinator {
         child.title = request.title
         child.titleSource = .custom
         TitleStore.shared.setTitle(request.title, forTab: child.id, source: .custom)
-        childNames[child.id] = request.name
+        let name = request.name ?? WorkspaceProvisioner.slugify(request.title)
+        childNames[child.id] = name
         if !request.wakeWhenDone { silentChildren.insert(child.id) }
 
         let isFork = request.context == .fork
@@ -222,7 +223,7 @@ final class ChildSessionCoordinator {
         return .success(ChildSessionFormats.started(
             title: request.title,
             sessionID: Self.sessionID(of: child),
-            name: request.name ?? WorkspaceProvisioner.slugify(request.title),
+            name: name,
             notesFolder: notes.path
         ))
     }
@@ -321,9 +322,9 @@ final class ChildSessionCoordinator {
         policies[parent.id] = policy
     }
 
-    /// Notes the user took off the parent's queue wait for the user's next
-    /// message. A parent's message taken off a child's queue goes back to
-    /// the parent as a held note saying so.
+    /// Notes the user took off the parent's queue are held for its next
+    /// turn, whoever starts it. A parent's message taken off a child's queue
+    /// goes back to the parent as a held note saying so.
     private func hostMessagesReturned(_ messages: [HostMessage], by tab: TaskTab) {
         for message in messages {
             switch message.origin {
