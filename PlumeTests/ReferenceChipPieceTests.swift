@@ -37,6 +37,16 @@ struct ReferenceChipPieceTests {
         return nil
     }
 
+    @Test func aBareLinkIsLookedUpAndWrittenAsAChip() {
+        let diff = "https://linear.review/o/r/pull/3"
+        let target = ReferenceTarget.pullRequest(owner: "o", repo: "r", number: 3)
+        let cache = ChatPieceCache()
+        _ = build(cache, "Review \(diff) please")
+        #expect(cache.referenceTargets == [target])
+        let text = paragraphText(build(cache, "Review \(diff) please", revision: 1, titles: [target: "Add chips"]))
+        #expect(text == "Review [\(chip)Add chips](\(diff)) please")
+    }
+
     @Test func anUnresolvedReferenceLeavesThePiecesAsTheyWere() {
         let text = "See [PLUME-1](\(issueURL))."
         let plain = ChatPieceCache().pieces(

@@ -58,6 +58,41 @@ struct ReferenceChipTextTests {
         #expect(rewritten == "See [\(chip)Add chips](https://linear.app/p/issue/PLUME-1) now.")
     }
 
+    private let pullURL = "https://github.com/o/r/pull/1"
+
+    @Test func aBareLinkWithATitleBecomesAChip() {
+        let rewritten = rewrite("See \(pullURL), then go.", titles: [pullURL: "Fix it"])
+        #expect(rewritten == "See [\(chip)Fix it](\(pullURL)), then go.")
+    }
+
+    @Test func aBareLinkDropsTrailingPunctuation() {
+        #expect(rewrite("Look: \(pullURL).", titles: [pullURL: "T"]) == "Look: [\(chip)T](\(pullURL)).")
+        #expect(rewrite("**\(pullURL)**", titles: [pullURL: "T"]) == "**[\(chip)T](\(pullURL))**")
+    }
+
+    @Test func anAngleBracketedBareLinkLosesItsBrackets() {
+        #expect(rewrite("<\(pullURL)>", titles: [pullURL: "T"]) == "[\(chip)T](\(pullURL))")
+    }
+
+    @Test func aBareLinkWithNoTitleIsLeftAlone() {
+        let text = "See \(pullURL) and https://example.com."
+        #expect(rewrite(text, titles: [:]) == text)
+        #expect(rewrite(text, titles: ["https://example.com": "Nope"]) == "See \(pullURL) and [\(chip)Nope](https://example.com).")
+    }
+
+    @Test func aBareLinkInCodeOrInsideALinkIsLeftAlone() {
+        let titles = [pullURL: "T"]
+        #expect(rewrite("`\(pullURL)`", titles: titles) == "`\(pullURL)`")
+        #expect(rewrite("[\(pullURL)](\(pullURL))", titles: titles) == "[\(chip)T](\(pullURL))")
+        #expect(rewrite("[see](https://example.com/\(pullURL))", titles: titles) == "[see](https://example.com/\(pullURL))")
+    }
+
+    @Test func aLabeledLinkAndABareLinkAreBothRewritten() {
+        let other = "https://github.com/o/r/pull/2"
+        let rewritten = rewrite("[#1](\(pullURL)) and \(other)", titles: [pullURL: "One", other: "Two"])
+        #expect(rewritten == "[\(chip)One](\(pullURL)) and [\(chip)Two](\(other))")
+    }
+
     @Test func aLinkWithNoTitleIsLeftAlone() {
         let text = "See [PLUME-1](https://linear.app/p/issue/PLUME-1)."
         #expect(rewrite(text, titles: [:]) == text)

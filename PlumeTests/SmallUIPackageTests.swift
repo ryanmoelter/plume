@@ -40,6 +40,12 @@ struct PullRequestDestinationTests {
         #expect(PullRequestDestination.github.openingURL(for: pull) == pull)
     }
 
+    @Test func githubOpensALinearDiffOnGitHub() {
+        let diff = URL(string: "https://linear.review/owner/repo/pull/123")!
+        #expect(PullRequestDestination.github.openingURL(for: diff) == pull)
+        #expect(PullRequestDestination.linearDiffs.openingURL(for: diff) == diff)
+    }
+
     @Test func linearDiffsLeavesOtherURLsAlone() {
         for raw in [
             "https://github.com/owner/repo",

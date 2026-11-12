@@ -107,7 +107,7 @@ final class ChatPieceCache {
                     return MarkdownBlock.parseWithSources(markdown)
                 }()
                 next[markdown] = blocks
-                guard markdown.contains("](") else { return blocks }
+                guard markdown.contains("](") || markdown.contains("://") else { return blocks }
 
                 let targets = nextTargets[markdown] ?? linkTargets[markdown] ?? Self.targets(in: blocks, base: linkBase)
                 nextTargets[markdown] = targets
@@ -150,10 +150,15 @@ final class ChatPieceCache {
         blocks.flatMap { entry -> [ReferenceTarget?] in
             if case .codeBlock = entry.block { return [] }
             let ns = entry.source as NSString
-            return MarkdownHighlighter.linkRanges(in: entry.source).filter { !$0.isImage }.map { link in
+            let labeled = MarkdownHighlighter.linkRanges(in: entry.source).filter { !$0.isImage }.map { link in
                 ReferenceChipText.url(forDestination: ns.substring(with: link.destination))
                     .flatMap { ReferenceTarget.classify($0, base: base) }
             }
+            let bare = MarkdownHighlighter.bareLinkRanges(in: entry.source).map { link in
+                ReferenceChipText.url(forDestination: ns.substring(with: link.url))
+                    .flatMap { ReferenceTarget.classify($0, base: base) }
+            }
+            return labeled + bare
         }
     }
 }

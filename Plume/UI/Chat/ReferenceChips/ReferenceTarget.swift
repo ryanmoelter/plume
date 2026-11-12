@@ -1,7 +1,8 @@
 import Foundation
 
 /// What a markdown link in the chat points at, when it is something Plume can
-/// show as a chip: a Linear issue, a GitHub pull request, or a file.
+/// show as a chip: a Linear issue, a GitHub pull request (or its Linear Diff, which lives at
+/// `linear.review` under the same path), or a file.
 nonisolated enum ReferenceTarget: Hashable, Sendable {
     /// Uppercased.
     case linear(identifier: String)
@@ -31,7 +32,7 @@ nonisolated enum ReferenceTarget: Hashable, Sendable {
             guard components.count >= 3, components[1] == "issue",
                   let identifier = LinearIdentifier.normalize(components[2]) else { return nil }
             return .linear(identifier: identifier)
-        case "github.com":
+        case "github.com", "linear.review":
             guard components.count >= 4, components[2] == "pull",
                   let number = PullRequestMentionSource.number(in: components[3]) else { return nil }
             return .pullRequest(owner: components[0], repo: components[1], number: number)
