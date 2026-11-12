@@ -192,4 +192,47 @@ struct ControlChildSessionCommandsTests {
         ])
         #expect(ChildSessionFormats.summary(ofNotes: notes) == "↳ fix finished a turn: Done\n↳ fix sent a message: Help")
     }
+
+    // MARK: - Proposals
+
+    @Test func theWireNamesTheProposalCommands() throws {
+        guard case .proposeChildSession(let propose) = try decode(
+            #"{"id":"1","command":"child-session.propose","parent":"Lead","title":"Fix","prompt":"Go","permission_mode":"plan"}"#
+        ), case .listChildSessionProposals(let list) = try decode(
+            #"{"id":"2","command":"child-session.proposals","parent":"Lead"}"#
+        ), case .startChildSessionProposal(let start) = try decode(
+            #"{"id":"3","command":"child-session.proposal.start","parent":"Lead","task_id":"task_0000abcd","by":"agent"}"#
+        ), case .dismissChildSessionProposal(let dismiss) = try decode(
+            #"{"id":"4","command":"child-session.proposal.dismiss","parent":"Lead","task_id":"task_0000abcd","reason":"done"}"#
+        ) else {
+            Issue.record("expected the four proposal commands")
+            return
+        }
+        #expect(propose == ChildSessionProposeParams(parent: "Lead", title: "Fix", prompt: "Go", permissionMode: "plan"))
+        #expect(list == ChildSessionProposalsParams(parent: "Lead"))
+        #expect(start == ChildSessionProposalParams(parent: "Lead", taskID: "task_0000abcd", by: .agent))
+        #expect(dismiss == ChildSessionProposalParams(parent: "Lead", taskID: "task_0000abcd", reason: "done"))
+    }
+
+    @Test func aProposalIsListedThenDismissedWithoutAModel() throws {
+        let task = TaskStore.createTask(in: context, title: "Task", siblings: [])
+        let parent = try #require(task.tabs.first)
+        parent.title = "Lead"
+        try context.save()
+
+        let proposed = try ControlChildSessionCommands.propose(.init(parent: "Lead", title: "Fix", prompt: "Go"), in: context)
+        let taskID = try #require(proposed.taskID)
+        #expect(proposed.message.contains("(task_id: \(taskID))"))
+        #expect(try ControlChildSessionCommands.proposals(.init(parent: "Lead"), in: context).proposals.map(\.state) == ["pending"])
+
+        _ = try ControlChildSessionCommands.dismissProposal(.init(parent: "Lead", taskID: taskID), in: context)
+
+        let listed = try ControlChildSessionCommands.proposals(.init(parent: "Lead"), in: context).proposals
+        #expect(listed.map(\.taskID) == [taskID])
+        #expect(listed.map(\.state) == ["dismissed"])
+        #expect(throws: ControlError.self) {
+            try ControlChildSessionCommands.dismissProposal(.init(parent: "Lead", taskID: taskID), in: context)
+        }
+        #expect(task.tabs.count == 1)
+    }
 }

@@ -90,6 +90,22 @@ enum ControlDispatcher {
                 result = .childSession(
                     try ControlChildSessionCommands.report(params, in: try ControlTabCommands.frontmostContext())
                 )
+            case .proposeChildSession(let params):
+                result = .childSession(
+                    try ControlChildSessionCommands.propose(params, in: try ControlTabCommands.frontmostContext())
+                )
+            case .listChildSessionProposals(let params):
+                result = .childSessionProposals(
+                    try ControlChildSessionCommands.proposals(params, in: try ControlTabCommands.frontmostContext())
+                )
+            case .startChildSessionProposal(let params):
+                result = .childSession(
+                    try await ControlChildSessionCommands.startProposal(params, in: try ControlTabCommands.frontmostContext())
+                )
+            case .dismissChildSessionProposal(let params):
+                result = .childSession(
+                    try ControlChildSessionCommands.dismissProposal(params, in: try ControlTabCommands.frontmostContext())
+                )
             }
             return .success(id: request.id, result)
         } catch {
