@@ -16,8 +16,8 @@ nonisolated enum GitHubQuery {
         reviewRequests(first: 1) { totalCount } latestReviews(first: 1) { totalCount } \
         headRepositoryOwner { login } \
         commits(last: 1) { nodes { commit { statusCheckRollup { contexts(first: 100) \
-        { nodes { __typename ... on StatusContext { context state createdAt } \
-        ... on CheckRun { name conclusion status startedAt } } } } } } }
+        { nodes { __typename ... on StatusContext { context state createdAt targetUrl } \
+        ... on CheckRun { name conclusion status startedAt detailsUrl } } } } } } }
         """
 
     private static let stackFields = "stack { number size } stackEntry { position }"
@@ -92,6 +92,8 @@ nonisolated struct GitHubPRNode: Decodable, Sendable {
         let createdAt: String?
         /// A `CheckRun`'s.
         let startedAt: String?
+        let targetUrl: String?
+        let detailsUrl: String?
 
         var checkContext: CheckContext {
             CheckContext(
@@ -100,7 +102,8 @@ nonisolated struct GitHubPRNode: Decodable, Sendable {
                 name: name,
                 conclusion: conclusion,
                 status: status,
-                startedAt: startedAt ?? createdAt
+                startedAt: startedAt ?? createdAt,
+                url: detailsUrl ?? targetUrl
             )
         }
     }

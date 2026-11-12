@@ -153,6 +153,7 @@ nonisolated struct CheckListEntry: Equatable, Sendable {
     /// Named in the repository's ignored checks, so its pending never holds
     /// up the rollup.
     let isIgnored: Bool
+    var url: URL?
 }
 
 /// Every check on a pull request, for the list under its row.
@@ -160,7 +161,9 @@ nonisolated enum CheckListContent {
     /// Failing first, then pending, passed and skipped, each by name.
     static func entries(_ contexts: [CheckContext], ignored: Set<String>) -> [CheckListEntry] {
         contexts
-            .map { CheckListEntry(name: $0.name, verdict: $0.verdict, isIgnored: ignored.contains($0.name)) }
+            .map {
+                CheckListEntry(name: $0.name, verdict: $0.verdict, isIgnored: ignored.contains($0.name), url: $0.url)
+            }
             .sorted {
                 $0.verdict != $1.verdict
                     ? $0.verdict < $1.verdict

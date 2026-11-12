@@ -455,7 +455,11 @@ private struct PullRequestChecksPopover: View, ThemedView {
                         checkLine(entry)
                     }
                 }
+                // Room inside the scroll view's clip for each row's hover wash.
+                .padding(.horizontal, SubagentRow.Columns.washInset)
             }
+            .padding(.horizontal, -SubagentRow.Columns.washInset)
+            .environment(\.infoPaneWashLeadingInset, SubagentRow.Columns.washInset)
             .scrollBounceBehavior(.basedOnSize)
             .frame(maxHeight: 360)
             .fixedSize(horizontal: false, vertical: true)
@@ -464,27 +468,35 @@ private struct PullRequestChecksPopover: View, ThemedView {
         .frame(width: 320, alignment: .leading)
     }
 
+    /// Clicking opens the check's own page, when the forge gave one.
     private func checkLine(_ entry: CheckListEntry) -> some View {
         let glyph = CheckListContent.glyph(for: entry)
-        return HStack(spacing: 6) {
-            PullRequestGlyphImage(glyph: glyph)
-            Text(entry.name)
-                .lineLimit(1)
-                .truncationMode(.middle)
-                .emphasis(entry.isIgnored ? .subtle : .secondary)
-            if entry.isIgnored {
-                Image(systemName: "eye.slash")
-                    .emphasis(.subtle)
-                    .help("Ignored while pending, in Settings ▸ Projects")
+        let open = { if let url = entry.url { ChatLinkOpener.open(.web(url)) } }
+        return Button(action: open) {
+            HStack(spacing: 6) {
+                PullRequestGlyphImage(glyph: glyph)
+                Text(entry.name)
+                    .lineLimit(1)
+                    .truncationMode(.middle)
+                    .emphasis(entry.isIgnored ? .subtle : .primary)
+                if entry.isIgnored {
+                    Image(systemName: "eye.slash")
+                        .emphasis(.subtle)
+                        .help("Ignored while pending, in Settings ▸ Projects")
+                }
+                Spacer(minLength: 0)
+                if entry.url != nil { LinkOpenIcon() }
             }
-            Spacer(minLength: 0)
         }
-        .padding(.vertical, 2)
+        .buttonStyle(InfoPaneRowButtonStyle())
+        .help(entry.url?.absoluteString ?? "")
         .plumeID(
             AccessibilityID.infoPanePullRequestCheck,
             label: entry.name,
-            value: entry.isIgnored ? "\(glyph.label) ignored" : glyph.label
+            value: entry.isIgnored ? "\(glyph.label) ignored" : glyph.label,
+            invoke: open
         )
+        .disabled(entry.url == nil)
     }
 }
 
