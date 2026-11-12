@@ -69,6 +69,10 @@ struct TaskRowView: View {
         let directories = task.agentTabDirectories(of: tabs)
         let titles = tabs.map { TitleStore.shared.chipTitle(for: $0) }
         let labels = TaskRowDetails.distinctLabels(titles)
+        let depths = Dictionary(
+            uniqueKeysWithValues: TaskStore.nestedByParent(tabs, id: \.id, parentID: \.parentTabID)
+                .map { ($0.item.id, $0.depth) }
+        )
         var groupsByDirectory: [String: TaskRowDetails.DirectoryGroup] = [:]
         return tabs.indices.map { index in
             let tab = tabs[index]
@@ -80,13 +84,13 @@ struct TaskRowView: View {
                 workspace = TaskRowDetails.DirectoryGroup(directory: nil)
             }
             return TaskRowDetails.AgentGroup(
-                header: header(for: tab, title: titles[index], label: labels[index]),
+                header: header(for: tab, title: titles[index], label: labels[index], depth: depths[tab.id] ?? 0),
                 workspace: workspace
             )
         }
     }
 
-    private func header(for tab: TaskTab, title: String, label: String) -> TaskRowDetails.AgentHeader {
+    private func header(for tab: TaskTab, title: String, label: String, depth: Int) -> TaskRowDetails.AgentHeader {
         let status = Self.status(of: tab)
         let held = DeviceLeaseStore.shared.leases(ownedBy: [tab.id])
         return TaskRowDetails.AgentHeader(
@@ -98,6 +102,7 @@ struct TaskRowView: View {
                 taskStatus: status,
                 hasUnreadTab: UnreadStore.shared.isUnread(tabID: tab.id)
             ),
+            depth: depth,
             isRemotelyControlled: Self.isRemoteControlled(tabIDs: [tab.id]),
             heldDevices: held.isEmpty ? nil : DeviceLeaseStore.summary(held)
         )
@@ -173,8 +178,11 @@ struct TaskRowView: View {
         return held.isEmpty ? nil : DeviceLeaseStore.summary(held)
     }
 
+    /// A child session sits right after the agent that started it.
     private var agentTabs: [TaskTab] {
-        task.orderedLiveTabs.filter { $0.kind == .agent }
+        TaskStore.nestedByParent(
+            task.orderedLiveTabs.filter { $0.kind == .agent }, id: \.id, parentID: \.parentTabID
+        ).map(\.item)
     }
 
     /// Whether any of these tabs can be driven from elsewhere. Only the
