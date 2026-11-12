@@ -178,6 +178,10 @@ nonisolated struct ControlRequest {
     /// `AskUserQuestion` and `ExitPlanMode`. No allowlist can route past one.
     let requiresUserInteraction: Bool
     var permissionSuggestions: [PermissionSuggestion] = []
+    /// The SDK MCP server an `mcp_message` is for.
+    var serverName: String?
+    /// An `mcp_message`'s JSON-RPC message.
+    var message: JSONValue?
 }
 
 nonisolated struct ControlResponse {

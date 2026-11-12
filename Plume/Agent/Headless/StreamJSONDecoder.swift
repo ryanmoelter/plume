@@ -180,7 +180,9 @@ nonisolated enum StreamJSONDecoder {
             permissionSuggestions: PermissionSuggestion.decoding(
                 body["permission_suggestions"],
                 suppressingRules: body["suppress_always_allow_rule"]?.boolValue ?? false
-            )
+            ),
+            serverName: body["server_name"]?.stringValue,
+            message: body["message"]
         )
     }
 }

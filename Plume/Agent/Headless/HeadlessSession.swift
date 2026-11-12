@@ -273,6 +273,18 @@ final class HeadlessSession: AgentSession {
     /// launch for stopping something that never ran.
     private var hasUserSubmitted = false
 
+    /// Plume's own MCP tools, served over the control plane. Set before
+    /// `start`, because the `initialize` request names the server.
+    @ObservationIgnored var mcpServer: PlumeMCPServer?
+    /// Told at the end of every turn, once the session has moved on to
+    /// whatever comes next.
+    @ObservationIgnored var onTurnFinished: ((AgentTurnOutcome) -> Void)?
+    /// Read as the user sends a message, which carries the text in front.
+    @ObservationIgnored var userMessagePreamble: (() -> String?)?
+    /// Messages `submitFromHost` sent or queued that no turn has carried yet.
+    @ObservationIgnored private var pendingHostMessages: [[UserContentBlock]] = []
+    @ObservationIgnored private var turnCarriesHostMessage = false
+
     @ObservationIgnored private let statusEngine: StatusEngine
     @ObservationIgnored private let quotaStore: QuotaStore
     @ObservationIgnored private let backgroundTasks: BackgroundTaskTracker
@@ -324,6 +336,7 @@ final class HeadlessSession: AgentSession {
         isModelExplicitlyChosen: Bool = true,
         environment: [String: String] = [:],
         fork: HeadlessCommand.Fork? = nil,
+        sessionID: String? = nil,
         addDirectories: [String] = []
     ) {
         guard process == nil else { return }
@@ -340,6 +353,7 @@ final class HeadlessSession: AgentSession {
             model: model,
             isModelExplicitlyChosen: isModelExplicitlyChosen,
             fork: fork,
+            sessionID: sessionID,
             addDirectories: addDirectories,
             systemPromptRulePath: AgentPromptRule.formattingPath
         )
@@ -374,7 +388,10 @@ final class HeadlessSession: AgentSession {
         // slash commands.
         let requestID = nextRequestID()
         pendingControlRequests[requestID] = .initialize
-        send(StreamJSONEncoder.initialize(requestID: requestID))
+        send(StreamJSONEncoder.initialize(
+            requestID: requestID,
+            sdkMcpServers: mcpServer.map { [$0.name] } ?? []
+        ))
     }
 
     /// The running agent's pid, or nil when this session has none.
@@ -460,7 +477,32 @@ final class HeadlessSession: AgentSession {
 
     @discardableResult
     func submit(blocks: [UserContentBlock]) -> Delivery {
-        submit(blocks: blocks, midTurn: queuedMessageDelivery())
+        submit(blocks: withPreamble(blocks), midTurn: queuedMessageDelivery())
+    }
+
+    /// A message Plume writes on another session's behalf. It queues like a
+    /// user's message, and the turn that carries it reports as host-driven.
+    @discardableResult
+    func submitFromHost(blocks: [UserContentBlock]) -> Delivery {
+        let normalized = blocks.normalized
+        guard normalized.hasContent else { return .queued }
+        pendingHostMessages.append(normalized)
+        return submit(blocks: normalized, midTurn: queuedMessageDelivery())
+    }
+
+    private func withPreamble(_ blocks: [UserContentBlock]) -> [UserContentBlock] {
+        guard blocks.normalized.hasContent,
+              let preamble = userMessagePreamble?(), !preamble.isEmpty
+        else { return blocks }
+        return [[.text(preamble)], blocks].mergedIntoOneTurn
+    }
+
+    private func noteCarried(_ messages: [[UserContentBlock]]) {
+        for message in messages {
+            guard let index = pendingHostMessages.firstIndex(of: message) else { continue }
+            pendingHostMessages.remove(at: index)
+            turnCarriesHostMessage = true
+        }
     }
 
     private func submit(blocks: [UserContentBlock], midTurn delivery: QueuedMessageDelivery) -> Delivery {
@@ -478,6 +520,7 @@ final class HeadlessSession: AgentSession {
         if openingMessage == nil { openingMessage = normalized.plainText }
         hasUserSubmitted = true
         beginTurn()
+        noteCarried([normalized])
         guard send(StreamJSONEncoder.userTurn(blocks: normalized)) else {
             // The process died before the text reached it. Keeping the
             // message queued means a restart can still deliver it, instead of
@@ -497,7 +540,9 @@ final class HeadlessSession: AgentSession {
     @discardableResult
     func removeQueuedMessage(at index: Int) -> [UserContentBlock]? {
         guard queuedMessages.indices.contains(index) else { return nil }
-        return queuedMessages.remove(at: index)
+        let removed = queuedMessages.remove(at: index)
+        pendingHostMessages.removeAll { $0 == removed }
+        return removed
     }
 
     /// Mid-turn, the merged message joins the running turn rather than
@@ -508,7 +553,7 @@ final class HeadlessSession: AgentSession {
         if normalized.hasContent { queuedMessages.append(normalized) }
         guard !queuedMessages.isEmpty, !isRestarting else { return }
         guard isWorking else {
-            submit(blocks: takeQueueAsOneTurn())
+            submit(blocks: withPreamble(takeQueueAsOneTurn()), midTurn: queuedMessageDelivery())
             return
         }
         sendQueueIntoRunningTurn()
@@ -576,6 +621,7 @@ final class HeadlessSession: AgentSession {
     }
 
     private func takeQueueAsOneTurn() -> [UserContentBlock] {
+        noteCarried(queuedMessages)
         defer { queuedMessages = [] }
         return queuedMessages.mergedIntoOneTurn
     }
@@ -1121,7 +1167,18 @@ final class HeadlessSession: AgentSession {
             send(StreamJSONEncoder.controlSuccess(requestID: request.requestID))
             return
         }
+        if request.subtype == "mcp_message" {
+            handleMCPMessage(request)
+            return
+        }
         guard request.subtype == "can_use_tool" else { return }
+        if let server = mcpServer, let tool = request.toolName, server.isAutoAllowed(toolName: tool) {
+            send(StreamJSONEncoder.permissionResponse(
+                requestID: request.requestID,
+                decision: .allow(updatedInput: request.input)
+            ))
+            return
+        }
         let name = request.toolName ?? "Tool"
         pendingPermissions.append(PendingPermission(
             id: request.requestID,
@@ -1136,6 +1193,22 @@ final class HeadlessSession: AgentSession {
             suggestions: request.permissionSuggestions
         ))
         reportPendingPermissions()
+    }
+
+    /// The CLI sends the first of these before it answers `initialize`, so
+    /// they are answered whatever state the handshake is in.
+    private func handleMCPMessage(_ request: ControlRequest) {
+        guard let server = mcpServer, request.serverName == server.name, let message = request.message else {
+            send(StreamJSONEncoder.mcpResponse(
+                requestID: request.requestID,
+                message: PlumeMCPServer.unknownServerReply(to: request.message, named: request.serverName)
+            ))
+            return
+        }
+        Task { [weak self] in
+            let reply = await server.handle(message)
+            self?.send(StreamJSONEncoder.mcpResponse(requestID: request.requestID, message: reply))
+        }
     }
 
     /// Tells the status engine what the tab is waiting on, derived from every
@@ -1411,6 +1484,15 @@ final class HeadlessSession: AgentSession {
     }
 
     private func finishTurn(_ result: TurnResult) {
+        let outcome = AgentTurnOutcome(
+            text: result.text,
+            isError: result.isError && !wasInterrupted,
+            wasInterrupted: wasInterrupted,
+            isHostDriven: turnCarriesHostMessage
+        )
+        turnCarriesHostMessage = false
+        // Last, so a message the observer sends finds the queue already moved on.
+        defer { onTurnFinished?(outcome) }
         isWorking = false
         // The streamed text is not cleared here — see its declaration.
         if wasInterrupted {
@@ -1486,6 +1568,7 @@ final class HeadlessSession: AgentSession {
         guard !queuedMessages.isEmpty else { return }
         let next = queuedMessages.removeFirst()
         beginTurn()
+        noteCarried([next])
         guard send(StreamJSONEncoder.userTurn(blocks: next)) else {
             queuedMessages.insert(next, at: 0)
             isWorking = false
@@ -1592,4 +1675,14 @@ struct DeliveringMessage: Identifiable, Equatable {
     let id: String
     let blocks: [UserContentBlock]
     var state = State.delivering
+}
+
+/// How a turn ended, for whoever watches a session from outside its tab.
+struct AgentTurnOutcome: Equatable {
+    /// The turn's final reply, or its error.
+    let text: String?
+    let isError: Bool
+    let wasInterrupted: Bool
+    /// Whether a message from `submitFromHost` was part of the turn.
+    let isHostDriven: Bool
 }

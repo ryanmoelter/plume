@@ -56,11 +56,15 @@ nonisolated enum StreamJSONEncoder {
         ])
     }
 
-    static func initialize(requestID: String) -> String? {
-        controlRequest(id: requestID, body: [
+    /// `sdkMcpServers` names the MCP servers the host serves itself over the
+    /// control plane; the CLI then sends each one `mcp_message` requests.
+    static func initialize(requestID: String, sdkMcpServers: [String] = []) -> String? {
+        var body: [String: JSONValue] = [
             "subtype": .string("initialize"),
             "hooks": .object([:])
-        ])
+        ]
+        if !sdkMcpServers.isEmpty { body["sdkMcpServers"] = .array(sdkMcpServers.map(JSONValue.string)) }
+        return controlRequest(id: requestID, body: body)
     }
 
     /// `cancelQueued` also drops the user turns the CLI holds behind the
@@ -160,15 +164,21 @@ nonisolated enum StreamJSONEncoder {
 
     /// A bare success, for answering a CLI-originated request Plume has
     /// nothing to say about. Dropping one instead leaves the CLI waiting.
-    static func controlSuccess(requestID: String) -> String? {
+    static func controlSuccess(requestID: String, response: [String: JSONValue] = [:]) -> String? {
         line([
             "type": .string("control_response"),
             "response": .object([
                 "subtype": .string("success"),
                 "request_id": .string(requestID),
-                "response": .object([:])
+                "response": .object(response)
             ])
         ])
+    }
+
+    /// Answers an `mcp_message`. A JSON-RPC notification has no reply, and
+    /// takes an empty `response` instead.
+    static func mcpResponse(requestID: String, message: JSONValue?) -> String? {
+        controlSuccess(requestID: requestID, response: message.map { ["mcp_response": $0] } ?? [:])
     }
 
     static func permissionResponse(requestID: String, decision: PermissionDecision) -> String? {
