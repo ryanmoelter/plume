@@ -179,15 +179,15 @@ final class LinearStore: LinearActivitySink {
 
     /// `issue` with its started progress read from the catalog of the
     /// workspace that answered with it, or of the first one defining its team.
-    private func resolvingProgress(_ issue: LinearIssue) -> LinearIssue {
-        let owner = issueOwner[issue.identifier.uppercased()]
+    private func resolvingProgress(_ issue: LinearIssue, requestedAs identifier: String) -> LinearIssue {
+        let owner = issueOwner[identifier]
         return issue.resolvingProgress(in: owner.map { id in orderedCatalogs.filter { $0.orgID == id } } ?? orderedCatalogs)
     }
 
-    private func resolvingProgress(_ state: LinearIssueFetchState) -> LinearIssueFetchState {
+    private func resolvingProgress(_ state: LinearIssueFetchState, requestedAs identifier: String) -> LinearIssueFetchState {
         switch state {
-        case .issue(let issue): .issue(resolvingProgress(issue))
-        case .stale(let issue, let reason): .stale(resolvingProgress(issue), reason: reason)
+        case .issue(let issue): .issue(resolvingProgress(issue, requestedAs: identifier))
+        case .stale(let issue, let reason): .stale(resolvingProgress(issue, requestedAs: identifier), reason: reason)
         default: state
         }
     }
@@ -1221,7 +1221,7 @@ final class LinearStore: LinearActivitySink {
     // MARK: - Bookkeeping
 
     private func publish(_ state: LinearIssueFetchState, for identifier: String) {
-        let state = resolvingProgress(state)
+        let state = resolvingProgress(state, requestedAs: identifier)
         guard wantCounts[identifier] != nil, currentState(identifier) != state else { return }
         stateBox(for: identifier).value = state
     }

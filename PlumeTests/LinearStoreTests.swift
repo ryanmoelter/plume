@@ -649,6 +649,20 @@ struct LinearStoreTests {
         #expect(issue.startedProgress == (issue.title == "from A" ? .threeQuarters : .half))
     }
 
+    @Test func aMovedIssueReadsProgressFromTheWorkspaceThatAnsweredTheRequest() async throws {
+        let a = FakeLinearWorkspace(orgID: "A", teamKeys: ["PLUME"])
+        let b = FakeLinearWorkspace(orgID: "B", teamKeys: ["PLUME"])
+        await a.set(catalog: startedCatalog("A", positions: [1, 2]))
+        await b.set(catalog: startedCatalog("B", positions: [1, 2, 3]))
+        await b.set(issues: ["PLUME-1": startedIssue("PLUME-5", position: 2)])
+        let harness = try await makeHarness([a, b])
+        harness.store.setWanted(["PLUME-1"], owner: UUID())
+        await harness.store.settle()
+
+        #expect(harness.store.state(for: "PLUME-1")?.issue?.identifier == "PLUME-5")
+        #expect(harness.store.state(for: "PLUME-1")?.issue?.startedProgress == .half)
+    }
+
     @Test func aCatalogChangeReResolvesPublishedProgress() async throws {
         let a = FakeLinearWorkspace(orgID: "A", teamKeys: ["PLUME"])
         await a.set(catalog: startedCatalog("A", positions: [1, 2]))
