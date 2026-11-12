@@ -277,9 +277,8 @@ extension HomeComposerInputs {
         self.groups = groups.map {
             HomeDestinationCatalog.GroupOption(id: $0.id, name: $0.name, tintRaw: $0.tintRaw, iconName: $0.iconName)
         }
-        let directories = TabDirectoryStore.shared
         self.tasks = tasks.map { task in
-            let workspace = directories.workspaceSource(in: task).map(directories.currentWorkspace(of:))
+            let workspace = TabDirectoryStore.savedWorkspaceSource(in: task)?.workspace
             return TaskInput(
                 id: task.id,
                 groupID: task.group?.id,
