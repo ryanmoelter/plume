@@ -60,7 +60,8 @@ private struct ReferenceChipToolTipOverlay: ViewModifier {
             for: target,
             detail: store.detail(for: target),
             title: store.title(for: target),
-            directory: linkDirectory?.path
+            directory: linkDirectory?.path,
+            url: url
         )
     }
 }

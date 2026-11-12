@@ -38,7 +38,7 @@ struct ComposerReferenceChip: Equatable {
                 } else {
                     ReferenceChipStore.shared.lookUpDetail(of: target)
                 }
-            case .file:
+            case .artifact, .file:
                 break
             }
             return ReferenceChipTooltip.text(for: target, detail: detail, title: title, directory: directory)

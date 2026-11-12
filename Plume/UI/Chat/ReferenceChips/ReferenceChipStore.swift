@@ -135,7 +135,7 @@ final class ReferenceChipStore {
         var files: [String] = []
         for target in targets where !inFlight.contains(target) && nextLookups[target].map({ now >= $0 }) ?? true {
             switch target {
-            case .linear: continue
+            case .linear, .artifact: continue
             case .pullRequest: pendingPullRequests.insert(target)
             case .file(let path): files.append(path)
             }

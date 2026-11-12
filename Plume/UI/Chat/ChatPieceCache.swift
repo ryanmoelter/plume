@@ -95,6 +95,11 @@ final class ChatPieceCache {
         var nextTargets: [String: [ReferenceTarget?]] = [:]
         var nextRewritten: [RewriteKey: [MarkdownBlock.Parsed]] = [:]
         var foundTargets = Set<ReferenceTarget>()
+        let artifactTitles = ArtifactChipTitles(messages: messages)
+        func chipTitle(_ target: ReferenceTarget) -> String? {
+            if case .artifact(let id) = target { return artifactTitles.title(forArtifact: id) }
+            return referenceTitle(target)
+        }
         let pieces = ChatPieceSplitter.pieces(
             for: messages,
             status: status,
@@ -112,7 +117,7 @@ final class ChatPieceCache {
                 let targets = nextTargets[markdown] ?? linkTargets[markdown] ?? Self.targets(in: blocks, base: linkBase)
                 nextTargets[markdown] = targets
                 foundTargets.formUnion(targets.compactMap { $0 })
-                let titles = targets.map { $0.flatMap(referenceTitle) }
+                let titles = targets.map { $0.flatMap(chipTitle) }
                 guard titles.contains(where: { $0 != nil }) else { return blocks }
 
                 let key = RewriteKey(source: markdown, titles: titles)
@@ -126,7 +131,7 @@ final class ChatPieceCache {
                             ReferenceChipText.rewrite(text) { destination in
                                 ReferenceChipText.url(forDestination: destination)
                                     .flatMap { ReferenceTarget.classify($0, base: linkBase) }
-                                    .flatMap(referenceTitle)
+                                    .flatMap(chipTitle)
                             }
                         },
                         source: entry.source
