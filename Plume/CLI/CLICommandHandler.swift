@@ -18,6 +18,7 @@ final class CLICommandHandler {
         var context: ModelContext
         /// Shows the task in this window, for `tab new --select`.
         var reveal: (UUID) -> Void
+        var selectedTaskID: () -> UUID? = { nil }
         var openSettings: () -> Void = {}
     }
 

@@ -170,6 +170,7 @@ struct MainWindow: View {
             taskIDForTab: { tabID in tasks.first { $0.tabs.contains { $0.id == tabID } }?.id },
             context: context,
             reveal: { taskID in choose(.task(taskID)) },
+            selectedTaskID: { selection?.taskID },
             openSettings: { openSettings() }
         ))
     }

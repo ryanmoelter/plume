@@ -816,7 +816,7 @@ final class ChatListController: NSObject {
         publishVisibleIDs(offset: offset)
         logPass(offset: offset, viewport: viewport)
         #if DEBUG
-        if !hosts.isEmpty { SwitchLatencyProbe.noteRowsPlaced(tabID: inputs.tabID) }
+        if hosts.keys.contains(where: { $0 != Self.dockID }) { SwitchLatencyProbe.noteRowsPlaced(tabID: inputs.tabID) }
         #endif
     }
 

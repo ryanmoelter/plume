@@ -4,13 +4,13 @@ import SwiftData
 
 extension InProcessControlBackend {
     func tasks() throws -> TaskListResult {
-        let selected = selectedTaskTitles()
+        let selected = CLICommandHandler.shared.frontmostWindow?.selectedTaskID()
         return TaskListResult(tasks: try windowTasks().map { task in
             let tab = focusedTab(of: task)
             return TaskDescription(
                 id: task.id.uuidString,
                 title: TitleStore.shared.displayTitle(for: task),
-                isSelected: selected.contains(TitleStore.shared.displayTitle(for: task)),
+                isSelected: task.id == selected,
                 tabKind: tab?.kind.rawValue,
                 expectsRows: tab.map(expectsRows) ?? false
             )
@@ -25,7 +25,7 @@ extension InProcessControlBackend {
         let fromID = try params.from.map { try TaskQuery.match($0, in: candidates) }
         guard let target = all.first(where: { $0.id == targetID }) else { throw ControlError.notFound(params.task) }
         if fromID == targetID { throw ControlError.badParams("task and from name the same task") }
-        if fromID == nil, selectedTaskTitles().contains(TitleStore.shared.displayTitle(for: target)) {
+        if fromID == nil, window.selectedTaskID() == targetID {
             throw ControlError.badParams("\(params.task) is already selected; pass from")
         }
         let source = fromID.flatMap { id in all.first { $0.id == id } }
@@ -37,8 +37,10 @@ extension InProcessControlBackend {
         )
         defer { ProcessInfo.processInfo.endActivity(activity) }
         var samples: [SwitchLatencyMeasurement] = []
-        for _ in 0..<params.repeatCount {
-            if let source {
+        for round in 0..<params.repeatCount {
+            // Switching to a task already selected never places rows, so the
+            // round would wait out the timeout.
+            if let source, round > 0 || window.selectedTaskID() != source.id {
                 _ = await measureSwitch(to: source, in: window, timeout: params.timeout)
                 try await Task.sleep(for: .seconds(params.settle))
             }
@@ -70,14 +72,6 @@ extension InProcessControlBackend {
             sortBy: [SortDescriptor(\.orderIndex)]
         )
         return try window.context.fetch(descriptor)
-    }
-
-    /// The selected sidebar row registers `value: "selected"`, labelled with the
-    /// task's display title.
-    private func selectedTaskTitles() -> Set<String> {
-        Set(ControlRegistry.shared.entries(id: AccessibilityID.taskRow)
-            .filter { $0.entry.value == "selected" }
-            .compactMap(\.entry.label))
     }
 
     private func focusedTab(of task: WorkTask) -> TaskTab? {
