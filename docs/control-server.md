@@ -92,7 +92,7 @@ With `from`, each round first selects `from`, unmeasured, so every sample is the
 - `firstTurnMs`: the end of the first main-thread turn.
 - `rowsPlacedMs`: when the chat list first placed rows.
 - `visibleMs`: the end of the turn whose commit showed them. This is the number to compare.
-- `turns`, and `spans`: time and call counts for the instrumented sections, `reveal` (the selection change itself, which writes `LastOpenTask` to user defaults), `rebuildPieces`, `listUpdate`, `layoutPass`, `realizeMeasure`, and counts for `pieceCacheHit` and `pieceCacheMiss`. Spans nest: `realizeMeasure` runs inside `layoutPass`.
+- `turns`, and `spans`: time and call counts for the instrumented sections, `reveal` (the selection change itself), `rebuildPieces`, `listUpdate`, `layoutPass`, `realizeMeasure`, and counts for `pieceCacheHit` and `pieceCacheMiss`. Spans nest: `realizeMeasure` runs inside `layoutPass`.
 
 The report summarizes `visibleMs`, `firstTurnMs`, `rowsPlacedMs` and each span as `{count, median, p90, min, max}` (p90 by nearest rank), leaving timed-out samples out. Every switch also logs a `switch-latency …` line under the `app` category, `SmokeHarness`'s `PLUME_CYCLE_SELECTION` cycling included.
 

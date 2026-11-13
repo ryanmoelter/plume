@@ -310,11 +310,11 @@ struct MainWindow: View {
         selection = .home
     }
 
-    /// A selection the user or a route chose, which the next launch reopens.
-    /// Writing `selection` directly leaves the saved value alone.
+    /// A selection the user or a route chose, which Home's composer starts
+    /// from. Writing `selection` directly leaves the remembered task alone.
     private func choose(_ newSelection: SidebarSelection?) {
         selection = newSelection
-        LastOpenTask.save(newSelection)
+        LastOpenTask.shared.record(newSelection)
     }
 
     /// Entry point for both the sidebar's context menu and ⌘⌃A. A task with an
