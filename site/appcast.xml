@@ -3,6 +3,56 @@
   <channel>
     <title>Plume</title>
     <item>
+      <title>Plume 0.20.0-beta.1</title>
+      <pubDate>Fri, 13 Nov 2026 01:07:31 +0000</pubDate>
+      <sparkle:channel>beta</sparkle:channel>
+      <sparkle:version>41</sparkle:version>
+      <sparkle:shortVersionString>0.20.0-beta.1</sparkle:shortVersionString>
+      <sparkle:minimumSystemVersion>26.2</sparkle:minimumSystemVersion>
+      <sparkle:fullReleaseNotesLink>https://github.com/ryanmoelter/plume/releases/tag/v0.20.0-beta.1</sparkle:fullReleaseNotesLink>
+      <description sparkle:format="markdown"><![CDATA[
+
+### New
+
+- Clean up the info pane
+  - Show sections more clearly
+  - Make it less overwhelming
+  - Sort pull requests and Linear issues by status
+  - Open a check's page when clicking it
+- Show link chips for more links
+  - Bare GitHub PR and Linear links
+  - Linear Diffs PR links
+  - claude.ai artifact links
+- Optionally open all PR links in GitHub or Linear Diffs, in Settings > Projects
+- Show files an agent sends: images inline, other files as cards
+- Restart a conversation's Claude process from its tab to clear transient bugs
+- Rebind the composer's formatting shortcuts (Bold, Italic, Code, Link) in Settings > Shortcuts
+- Page the transcript with Page Up and Page Down while typing
+- Let agents link a Linear issue to their task with `plume issue link`
+- Place a device tab's toolbar on the side that leaves the device the most room
+- Order Home's Idle section by most recently opened
+- Link to the running version's release notes from Settings > About
+- Misc fixes
+  - Show Linear's in-progress states as a progress pie, matching Linear
+  - Click a subagent row in the chat to open its transcript
+  - Offer "Always allow" choices on permission requests
+  - Use far less CPU when an agent runs many subagents
+  - Keep a task's branch row when another task in the same folder is deleted
+  - Stop child processes from outliving Plume through inherited pipes
+
+### Recently
+
+- Include agent skills for Plume's CLI tools
+- Get Beta updates through Settings > Updates > Update source
+- Add Home page, to keep track of all your chats
+- Host Android emulators, physical devices, and remote devices in a tab
+- Mention Linear issues, pull requests, and files in the composer with `@` and `#`
+
+
+]]></description>
+      <enclosure url="https://github.com/ryanmoelter/plume/releases/download/v0.20.0-beta.1/Plume-0.20.0-beta.1.dmg" sparkle:edSignature="pN6SSnmIsNy41kBSxeCsZejU6q+b43RlGvWDDTpNPQYhwvVrs7lyODqyWTzCQQY5yEMIU6/4mMwFw2uPjwVuBQ==" length="36420009" type="application/octet-stream" />
+    </item>
+    <item>
       <title>Plume 0.19.1</title>
       <pubDate>Wed, 11 Nov 2026 10:28:13 +0000</pubDate>
       <sparkle:version>40</sparkle:version>
