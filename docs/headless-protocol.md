@@ -550,6 +550,7 @@ Observed in order, from a real run:
 
 1. **`rate_limit_event`** — arrives **before** `system/init`, so quota can land before its session is known. `rate_limit_info` carries `unifiedWindows.five_hour` / `.seven_day`, each `{utilization, resetsAt}`, plus `overageStatus`, `overageResetsAt`, `isUsingOverage`. **`utilization` is 0–1**, where the statusline payload's `used_percentage` was 0–100.
 2. **`system` / `init`** — `session_id`, `cwd`, `model`, `permissionMode`, `tools`, `slash_commands`, `agents`, `skills`, `mcp_servers` (each `{name, status}`), `memory_paths`, `plugins`, `output_style`, `claude_code_version`, `apiKeySource`.
+   `tools` is a flat list of names with no deferred marker. `HeadlessSession.toolNames` keeps the latest one in memory and logs it when it changes. In a Debug build the info pane's Tools section shows it, and the control server's `list` with `plumeID: "info-pane-tools-toggle"` returns the names, comma-joined, as `value`.
 3. **`system` / `status`** — coarse activity (`"requesting"`).
 4. **`stream_event`** — raw Anthropic streaming events under `.event` (`message_start`, `content_block_start`, `content_block_delta`, `content_block_stop`, `message_delta`, `message_stop`). Only with `--include-partial-messages`. This is the live token feed.
 5. **`assistant`** / **`user`** — complete message envelopes, content blocks identical to the transcript's. `parent_tool_use_id` attributes a message to a subagent. Tool results arrive as `user` messages carrying `tool_result` blocks.

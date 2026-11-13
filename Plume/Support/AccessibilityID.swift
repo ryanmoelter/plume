@@ -392,6 +392,8 @@ enum AccessibilityID {
     static let infoPaneArtifactRow = "info-pane-artifact-row"
     static let infoPaneFoldersToggle = "info-pane-folders-toggle"
     static let infoPaneFoldersAddMenu = "info-pane-folders-add-menu"
+    static let infoPaneToolsToggle = "info-pane-tools-toggle"
+    static let infoPaneToolRow = "info-pane-tool-row"
     static let infoPaneFolderRow = "info-pane-folder-row"
     static let infoPaneFolderRevealButton = "info-pane-folder-reveal-button"
     static let infoPaneFolderCopyButton = "info-pane-folder-copy-button"

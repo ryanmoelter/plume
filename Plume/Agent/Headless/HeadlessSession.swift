@@ -134,6 +134,8 @@ final class HeadlessSession: AgentSession {
     /// model is picked — before `contextWindow` has anything reported.
     var nominalContextWindow: Int? { model?.nominalContextWindow }
     private(set) var slashCommands: [SlashCommand] = []
+    /// The tool names the CLI's latest `init` reported; in memory only.
+    private(set) var toolNames: [String] = []
     private(set) var lastError: String?
     /// Set when a refusal was decided before any process existed, so
     /// `startFailure` reports it rather than classifying a stderr line there
@@ -1019,6 +1021,7 @@ final class HeadlessSession: AgentSession {
         case .initialized(let info):
             if !info.sessionID.isEmpty { sessionID = info.sessionID }
             hasReportedModeAndModel = true
+            recordTools(info.tools)
             adoptReportedDirectories(info.additionalDirectories)
             if let reported = info.model, let recognized = AgentModel.recognizing(reported) {
                 model = recognized
@@ -1236,6 +1239,12 @@ final class HeadlessSession: AgentSession {
               !title.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
         else { return }
         TitleStore.shared.setTitle(title, forTab: tabID, source: .reply)
+    }
+
+    private func recordTools(_ names: [String]) {
+        guard names != toolNames else { return }
+        toolNames = names
+        Log.agent.info("Tools for tab \(self.tabID.uuidString, privacy: .public) (\(names.count)): \(names.joined(separator: ", "), privacy: .public)")
     }
 
     private func applyReportedCommands(in response: ControlResponse) {
