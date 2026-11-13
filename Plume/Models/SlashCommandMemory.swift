@@ -24,8 +24,9 @@ import os
 @MainActor
 @Observable
 final class SlashCommandMemory {
-    /// The test host is the Debug app, so without a scratch file and defaults
-    /// a test would migrate and overwrite the Debug build's own list.
+    /// The test host has no bundle ID, so `AppPaths` falls back to the
+    /// installed app's directory. Without a scratch file and defaults, a test
+    /// would migrate and overwrite the Release app's file and legacy key.
     static let shared: SlashCommandMemory = {
         guard NSClassFromString("XCTestCase") == nil else {
             return SlashCommandMemory(
@@ -215,7 +216,7 @@ final class SlashCommandMemory {
 
     private nonisolated static func load(from file: URL, legacy: Data?) -> Loaded {
         if let data = try? Data(contentsOf: file) {
-            return Loaded(stored: decode(data), migrated: false)
+            return Loaded(stored: decode(data), migrated: legacy != nil)
         }
         guard let legacy else { return Loaded(stored: [], migrated: false) }
         let stored = decode(legacy)

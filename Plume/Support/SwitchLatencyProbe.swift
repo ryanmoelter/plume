@@ -83,6 +83,12 @@ enum SwitchLatencyProbe {
         self.observer = observer
     }
 
+    private static func removeObserver() {
+        guard let observer else { return }
+        CFRunLoopRemoveObserver(CFRunLoopGetMain(), observer, .commonModes)
+        self.observer = nil
+    }
+
     private static func turnEnded() {
         guard var current = run else { return }
         let now = CACurrentMediaTime()
@@ -99,6 +105,7 @@ enum SwitchLatencyProbe {
     private static func finish(at now: CFTimeInterval, timedOut: Bool) {
         guard let current = run else { return }
         run = nil
+        removeObserver()
         let ms = { (t: CFTimeInterval) in (t - current.start) * 1000 }
         let measurement = SwitchLatencyMeasurement(
             label: current.label,

@@ -782,7 +782,7 @@ final class ChatListController: NSObject {
         if width > 0, viewport > 0 {
             // With no rows yet the scroll view's offset means nothing, so a
             // fresh list starts where its policy is headed, not at the top.
-            let hasRows = hosts.keys.contains { $0 != Self.dockID }
+            let hasRows = hasRealizedRows
             let start = hasRows ? actual : min(max(0, resolvedOffset()), model.maxOffset)
             realizeWindow(around: easedOffset ?? start)
         }
@@ -816,9 +816,11 @@ final class ChatListController: NSObject {
         publishVisibleIDs(offset: offset)
         logPass(offset: offset, viewport: viewport)
         #if DEBUG
-        if hosts.keys.contains(where: { $0 != Self.dockID }) { SwitchLatencyProbe.noteRowsPlaced(tabID: inputs.tabID) }
+        if hasRealizedRows { SwitchLatencyProbe.noteRowsPlaced(tabID: inputs.tabID) }
         #endif
     }
+
+    private var hasRealizedRows: Bool { hosts.keys.contains { $0 != Self.dockID } }
 
     /// Sizes the document and writes the offset the policy resolves, when
     /// that answer changed. Returns the offset the viewport is left at.

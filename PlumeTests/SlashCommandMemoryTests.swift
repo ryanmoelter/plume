@@ -191,6 +191,18 @@ struct SlashCommandMemoryTests {
         #expect(await loadedMemory(removesLegacyKey: false).commands(inDirectory: "/repo").map(\.name) == ["compact"])
     }
 
+    @Test func aLoadFindingTheFileAndTheLegacyKeyRemovesTheKey() async throws {
+        let original = await loadedMemory()
+        original.remember([command("compact")], inDirectory: "/repo")
+        await original.waitForWrites()
+        defaults.set(try Data(contentsOf: file), forKey: SlashCommandMemory.legacyKey)
+
+        let memory = await loadedMemory()
+
+        #expect(memory.commands(inDirectory: "/repo").map(\.name) == ["compact"])
+        #expect(defaults.data(forKey: SlashCommandMemory.legacyKey) == nil)
+    }
+
     /// A session can report before the file has loaded; its list is newer
     /// than the file's for that directory, and the rest of the file survives.
     @Test func aReportBeforeTheLoadMergesWithTheFile() async {
