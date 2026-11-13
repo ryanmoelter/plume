@@ -39,6 +39,7 @@ On the release branch:
 - The script makes a draft prerelease. Ask the user to publish it, or publish it once they say so. Then run the feed command the script prints (`scripts/publish-feed.sh`), with `CO_AUTHOR` set to the model's trailer identity.
 - Betas never reach Homebrew. Don't run `update-tap.sh`.
 - Add the GitHub prerelease link to the `Release <version>` issue's description, under the stable release's placeholder line. Leave the issue In Progress.
+- Through the `roadmap` skill, create a `Release <version>-beta.<n>` issue: a sub-issue of `Release <version>`, in project Admin and the current cycle, state Done. Its description is `GitHub release: <prerelease link>`. Its `relatedTo` lists the previous release or beta's issue and every issue that shipped in this beta. For beta 2 and later, list only the issues that are new since the previous beta. Check that `Release <version>`'s `relatedTo` names them too.
 
 ## 5. Continue the cycle
 
