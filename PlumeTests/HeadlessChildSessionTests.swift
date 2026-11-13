@@ -329,6 +329,67 @@ struct HeadlessChildSessionTests {
         #expect(ChildSessionFormats.reportText(of: outcome) == "The session exited before finishing its turn: API down")
     }
 
+    @Test func aForkWhoseCutIsRefusedHandsOverInsteadOfReporting() {
+        let (session, recorder) = makeSession()
+        var handedOver = 0
+        session.onCutRefused = { handedOver += 1; return true }
+        session.debugMarkAsFork(cut: "gone")
+        session.submitFromHost(blocks: [.text("brief")])
+        session.debugExit(status: 1, errorLine: "No message found with message.uuid of: gone")
+
+        #expect(handedOver == 1)
+        #expect(recorder.outcomes.isEmpty)
+    }
+
+    @Test func aRefusedCutNobodyTookOverReportsAsUsual() {
+        let (session, recorder) = makeSession()
+        session.onCutRefused = { false }
+        session.debugMarkAsFork(cut: "gone")
+        session.submitFromHost(blocks: [.text("brief")])
+        session.debugExit(status: 1, errorLine: "No message found with message.uuid of: gone")
+
+        #expect(recorder.outcomes.map(\.exitedMidTurn) == [true])
+    }
+
+    @Test func sendingATurnMovesTheForkCutToItsUUID() throws {
+        let (session, recorder) = makeSession()
+        session.submit(text: "Do two things in parallel")
+
+        let sent = try json(try #require(recorder.lines.last))
+        let uuid = try #require(sent["uuid"]?.stringValue)
+        #expect(session.latestForkCut == uuid)
+    }
+
+    @Test func aResentBriefIsNotAlsoCarriedInTheQueue() {
+        let brief = QueuedMessage.Part.host(HostMessage(display: [.text("shown")], wire: [.text("wire")], origin: nil))
+        let typed = QueuedMessage.Part.user([.text("typed")])
+        let carried = AgentLauncher.carriedQueue(
+            [QueuedMessage(parts: [brief, typed]), QueuedMessage(parts: [brief])],
+            resending: [QueuedMessage(parts: [brief])]
+        )
+        #expect(carried.map(\.parts) == [[typed]])
+    }
+
+    @Test func aSlashCommandLeavesTheForkCut() throws {
+        let (session, recorder) = makeSession()
+        session.submit(text: "/compact")
+
+        #expect(try json(try #require(recorder.lines.last))["uuid"] != nil)
+        #expect(session.latestForkCut == nil)
+    }
+
+    @Test func aForkWithACutThatDiesForAnotherReasonReportsIt() {
+        let (session, recorder) = makeSession()
+        var handedOver = 0
+        session.onCutRefused = { handedOver += 1; return true }
+        session.debugMarkAsFork(cut: "kept")
+        session.submitFromHost(blocks: [.text("brief")])
+        session.debugExit(status: 1, errorLine: "API down")
+
+        #expect(handedOver == 0)
+        #expect(recorder.outcomes.map(\.exitedMidTurn) == [true])
+    }
+
     @Test func anExitBetweenTurnsReportsNothing() {
         let (session, recorder) = makeSession()
         session.debugExit(status: 0, errorLine: nil)

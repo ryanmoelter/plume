@@ -119,6 +119,41 @@ enum AgentLauncher {
         return resume(task: task, tab: tab, inheriting: previous, queued: queued)
     }
 
+    /// Relaunches a fork whose cut the CLI refused, keeping the whole
+    /// conversation instead. The refused launch wrote nothing, so the fork
+    /// keeps its session id. `resending` goes first: the opening turn the
+    /// refused process was sent, which no session keeps once sent.
+    @discardableResult
+    static func relaunchForkWithoutCut(
+        task: WorkTask,
+        tab: TaskTab,
+        resumeSessionID: String,
+        newSessionID: String,
+        effort: AgentEffort?,
+        resending: [QueuedMessage]
+    ) -> (any AgentSession)? {
+        let previous = AgentSessionManager.shared.existingSession(for: tab.id)
+        let queued = resending + carriedQueue(queue(of: previous), resending: resending)
+        if previous != nil { AgentSessionManager.shared.closeSession(for: tab.id) }
+        return resume(task: task, tab: tab, inheriting: previous, queued: queued) {
+            launch(
+                blocks: [], task: task, tab: tab, resumeSessionID: resumeSessionID,
+                fork: HeadlessCommand.Fork(newSessionID: newSessionID, cutAfterMessageUUID: nil), effort: effort
+            )
+        }
+    }
+
+    /// `queue` without any part of `resending`, which a send that failed may
+    /// already have put back.
+    static func carriedQueue(_ queue: [QueuedMessage], resending: [QueuedMessage]) -> [QueuedMessage] {
+        let resent = resending.flatMap(\.parts)
+        return queue.compactMap { message in
+            let parts = message.parts.filter { !resent.contains($0) }
+            if parts.count == message.parts.count { return message }
+            return parts.isEmpty ? nil : QueuedMessage(parts: parts)
+        }
+    }
+
     /// Restarts a running headless session so it relaunches with the tab's
     /// current settings. The resumed process starts only once the old one
     /// has exited.
@@ -162,9 +197,14 @@ enum AgentLauncher {
         task: WorkTask,
         tab: TaskTab,
         inheriting previous: (any AgentSession)?,
-        queued: [QueuedMessage]
+        queued: [QueuedMessage],
+        launching: (() -> Void)? = nil
     ) -> (any AgentSession)? {
-        launch(message: nil, task: task, tab: tab, resumeSessionID: tab.agentSessionID)
+        if let launching {
+            launching()
+        } else {
+            launch(message: nil, task: task, tab: tab, resumeSessionID: tab.agentSessionID)
+        }
         let resumed = AgentSessionManager.shared.existingSession(for: tab.id)
         if let previous = previous as? HeadlessSession, let resumed = resumed as? HeadlessSession {
             resumed.inherit(from: previous)

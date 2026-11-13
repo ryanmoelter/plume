@@ -75,6 +75,16 @@ The user started your proposal task_0f3a9c21 ("Fix login") as session 6F1C…. I
 
   The chat renders it as "↳ fix-login started from its proposal". A start by `proposal_id` sends no note, since the agent made it. Dismissing from the card tells the parent nothing: Desktop's `dismiss_task` description says a card the user answered "has already left", and no transcript shows Desktop sending a note for it.
 
+### Fork proposals
+
+A proposal with `context: "fork"` forks the parent's conversation as it was when the agent proposed it, not as it is when the user starts it.
+
+- **The fork point.** `HeadlessSession` tracks the latest main-thread row a fork can cut at (`ForkCutPoint`): the prompt that starts a turn, or a `tool_result` row that leaves no tool call open. Plume sends every turn it starts with a fresh `uuid`, which the CLI writes as the prompt row's uuid, and records it as the cut when it sends it. A slash command is not recorded, since it may write no row. A message delivered mid-turn is learned from the next assistant row's `user_message_uuid`. The `start_session` call is itself open while the proposal is recorded, so the point is the row just before the assistant row that made it. The proposal stores it as `forkCut`.
+- **The cut keeps nothing from that assistant row.** Text or thinking the agent wrote before its `start_session` call is not in the fork. The brief carries the task.
+- **A proposal made first thing in a turn cuts at that turn's prompt row, and keeps it.** The fork then holds the user's request that led to the proposal, followed by the brief.
+- **No `forkCut` forks the whole conversation as it is at the start.** That applies to a proposal from an older build, one made over the control server, and a session that had produced no rows yet. Plume logs it.
+- **If the CLI refuses the cut, the child relaunches without it.** The CLI exits 1 with `No message found with message.uuid of: …` when the row is no longer on the parent's live branch, as after a rewind. A withdrawn `--resume-session-at` exits with `error: unknown option`. Either way `HeadlessSession.onCutRefused` takes over from the exit report before the fork's first turn, and `AgentLauncher.relaunchForkWithoutCut` relaunches the same tab with the same session id and resends the brief, dropping it from the carried queue so it is sent once. The parent gets no "exited" note for the refusal. If the relaunch itself fails, as on a pre-flight refusal, the parent gets the usual note that the session exited before finishing its turn. If the child's tab has closed, the handler does not take over and the session reports its exit as usual.
+
 ## Starting a child
 
 `ChildSessionCoordinator.startSession`:
@@ -84,7 +94,7 @@ The user started your proposal task_0f3a9c21 ("Fix login") as session 6F1C…. I
 3. Copies the parent's `TabLaunchChoices`, then the mode, model and effort its running session reports, then applies `model`, `effort` and the capped `permission_mode`. A chosen effort launches with `--effort`.
 4. Adds the **notes folder** with `--add-dir`: `~/Library/Application Support/Plume/side-session-notes/<parent tab ID>/`, shared by every child of one parent and outside every repository. The parent learns the path from the tool result. A parent that launches while it has children gets the folder with `--add-dir` too (`ChildSessionCoordinator.launchDirectories`); a running parent is never restarted for it.
 5. Mints the child's CLI session id and records it on the tab before the process exists, as Fork to New Tab does, because a hidden chat tab is unmounted and records nothing.
-6. Launches with no prompt, then submits the brief with `submitFromHost`. A fresh child launches with `--session-id`; a fork with `--resume <parent> --fork-session --session-id <new>` and no `--resume-session-at`, which works while the parent is mid tool call.
+6. Launches with no prompt, then submits the brief with `submitFromHost`. A fresh child launches with `--session-id`; a fork with `--resume <parent> --fork-session --session-id <new>`. A fork the agent starts at once has no `--resume-session-at`, which works while the parent is mid tool call. A fork proposal adds `--resume-session-at <forkCut>` (see Fork proposals).
 7. If the launch fails, the tool returns the failure, the tab closes, and a worktree this call cut is removed with its branch. The task records the worktree in `ownedWorktrees` only once the child has launched, so archive and delete offer to remove it.
 
 The brief uses Desktop's layout:

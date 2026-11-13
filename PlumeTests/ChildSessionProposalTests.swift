@@ -157,6 +157,26 @@ struct ChildSessionProposalStoreTests {
         #expect(store.json == "not json")
     }
 
+    @Test func onlyAForkKeepsWhereItWasProposed() throws {
+        let fork = ChildSessionProposal(
+            id: "task_00000001", request: try request(["context": .string("fork")]), createdAt: Self.created, forkCut: "row-1"
+        )
+        let fresh = ChildSessionProposal(id: "task_00000002", request: try request(), createdAt: Self.created, forkCut: "row-1")
+        #expect(fork.forkCut == "row-1")
+        #expect(fresh.forkCut == nil)
+
+        var store = ChildSessionProposalStore()
+        store.add(fork)
+        #expect(ChildSessionProposalStore(json: store.json).proposal(id: "task_00000001")?.forkCut == "row-1")
+    }
+
+    @Test func anEntryFromBeforeForkCutsForksAtTheStart() throws {
+        let older = #"[{"id":"task_00000001","title":"Fix login","prompt":"Fix the login race","context":"fork","createdAt":"2027-01-15T08:00:00Z","status":"pending"}]"#
+        let proposal = try #require(ChildSessionProposalStore(json: older).proposal(id: "task_00000001"))
+        #expect(proposal.forkCut == nil)
+        #expect(proposal.status == .pending)
+    }
+
     @Test func aDismissedProposalCannotBeDismissedOrStarted() throws {
         var store = try store()
         let now = Self.created.addingTimeInterval(Self.day)
@@ -386,6 +406,24 @@ struct ChildSessionProposalCoordinatorTests {
         #expect(stored.title == "Fix login")
         #expect(stored.prompt == "Fix the login race")
         #expect(stored.status == .pending)
+    }
+
+    @Test func aForkProposalRecordsWhereTheConversationStoodWhenProposed() async throws {
+        let (_, parent, session) = try makeParent()
+        defer { ChildSessionCoordinator.shared.tabForgotten(parent.id) }
+        for line in [
+            #"{"type":"assistant","uuid":"a1","user_message_uuid":"prompt-1","parent_tool_use_id":null,"message":{"role":"assistant","content":[{"type":"tool_use","id":"t1","name":"Bash","input":{}}]}}"#,
+            #"{"type":"user","uuid":"result-1","parent_tool_use_id":null,"message":{"role":"user","content":[{"type":"tool_result","tool_use_id":"t1","content":"hi"}]}}"#,
+            #"{"type":"assistant","uuid":"a2","parent_tool_use_id":null,"message":{"role":"assistant","content":[{"type":"tool_use","id":"t2","name":"mcp__plume__start_session","input":{}}]}}"#
+        ] {
+            session.handle(try #require(StreamJSONDecoder.decode(line: line)))
+        }
+
+        let reply = try await call(session, "start_session", Self.proposal.merging(["context": .string("fork")]) { $1 })
+
+        #expect(!reply.isError)
+        let stored = try #require(ChildSessionProposalStore(json: parent.childProposalsJSON).proposals.first)
+        #expect(stored.forkCut == "result-1")
     }
 
     @Test func dismissTaskWithdrawsAPendingProposal() async throws {

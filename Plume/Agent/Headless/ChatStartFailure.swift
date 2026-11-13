@@ -77,14 +77,25 @@ nonisolated struct ChatStartFailure: Equatable {
     static func forkRefusal(error: String?) -> ChatStartFailure {
         guard let error = error?.trimmingCharacters(in: .whitespacesAndNewlines),
               !error.isEmpty else { return .forkFailed(detail: nil) }
-        let lowered = error.lowercased()
-        if lowered.contains("unknown option"), lowered.contains("resume-session-at") {
-            return .forkUnavailable(detail: error)
-        }
-        if lowered.contains("no message found with message.uuid") {
-            return .forkTargetMissing(detail: error)
-        }
+        if lacksCutFlag(error) { return .forkUnavailable(detail: error) }
+        if lacksCutTarget(error) { return .forkTargetMissing(detail: error) }
         return .forkFailed(detail: error)
+    }
+
+    /// Whether a fork died refusing its `--resume-session-at` cut, which the
+    /// same fork without the cut would not.
+    static func refusesCut(error: String?) -> Bool {
+        guard let error else { return false }
+        return lacksCutFlag(error) || lacksCutTarget(error)
+    }
+
+    private static func lacksCutFlag(_ error: String) -> Bool {
+        let lowered = error.lowercased()
+        return lowered.contains("unknown option") && lowered.contains("resume-session-at")
+    }
+
+    private static func lacksCutTarget(_ error: String) -> Bool {
+        error.lowercased().contains("no message found with message.uuid")
     }
 
     let title: String

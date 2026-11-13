@@ -151,6 +151,16 @@ final class HeadlessSession: AgentSession {
     /// line a refused fork dies with is only interpretable as a fork refusal
     /// by a launch that asked for one.
     private var didRequestFork = false
+    /// The `--resume-session-at` this launch passed, if any.
+    private var launchCut: String?
+    private var forkCutPoint = ForkCutPoint()
+    /// Where a fork of this conversation can cut now. While a tool call is
+    /// open, that is the row before the call.
+    var latestForkCut: String? { forkCutPoint.uuid }
+    /// Asked when the CLI refused this fork's cut before it began, to
+    /// relaunch without the cut. True when it took over from the exit report;
+    /// false leaves this session to report the exit as usual.
+    @ObservationIgnored var onCutRefused: (() -> Bool)?
 
     /// Whether this conversation is published to claude.ai/code. In memory
     /// only — the bridge belongs to the process, not to the tab.
@@ -328,8 +338,9 @@ final class HeadlessSession: AgentSession {
     }
 
     #if DEBUG
-    func debugMarkAsFork() {
+    func debugMarkAsFork(cut: String? = nil) {
         didRequestFork = true
+        launchCut = cut
     }
 
     func debugExit(status: Int32, errorLine: String?) {
@@ -365,6 +376,7 @@ final class HeadlessSession: AgentSession {
         guard process == nil else { return }
         launchAdditionalDirectories = addDirectories
         didRequestFork = fork != nil
+        launchCut = fork?.cutAfterMessageUUID
         launchDirectory = workingDirectory
         self.permissionMode = permissionMode
         permissionModeRequests.confirm(HeadlessCommand.launchPermissionMode(permissionMode))
@@ -581,10 +593,16 @@ final class HeadlessSession: AgentSession {
     private func startTurn(carrying messages: [QueuedMessage], requeueAtFront: Bool = true) -> Bool {
         beginTurn()
         let turn = outgoing(messages)
-        guard send(StreamJSONEncoder.userTurn(blocks: turn.wire)) else {
+        // The CLI writes the prompt row under this uuid, which is how a fork learns it.
+        let uuid = UUID().uuidString.lowercased()
+        guard send(StreamJSONEncoder.userTurn(blocks: turn.wire, uuid: uuid)) else {
             requeue(turn, atFront: requeueAtFront)
             isWorking = false
             return false
+        }
+        // A slash command may write no row under the uuid.
+        if !turn.wire.plainText.trimmingCharacters(in: .whitespacesAndNewlines).hasPrefix("/") {
+            forkCutPoint.promptSent(uuid)
         }
         turnHostMessageCount += turn.hosts.count
         return true
@@ -1273,13 +1291,15 @@ final class HeadlessSession: AgentSession {
             // A background subagent streams its own envelopes between the
             // main agent's turns, and no `result` follows them.
             guard envelope.parentToolUseID == nil else { break }
+            forkCutPoint.assistant(envelope)
             if !isWorking, !hasExited { beginUnpromptedTurn() }
             if let id = envelope.raw["id"]?.stringValue { lastAssistantMessageID = id }
 
-        case .user:
-            break
+        case .user(let envelope):
+            if envelope.parentToolUseID == nil { forkCutPoint.user(envelope) }
 
         case .result(let result):
+            forkCutPoint.turnEnded()
             endTurn(result)
 
         case .controlRequest(let request):
@@ -1736,6 +1756,8 @@ final class HeadlessSession: AgentSession {
         } else if status != 0, lastError == nil {
             lastError = errorLine ?? "claude exited with status \(status)"
         }
+        let refusedCut = launchCut != nil && !hasCompletedTurn && status != 0
+            && ChatStartFailure.refusesCut(error: errorLine)
         // Anything still pending will never be answered now.
         pendingPermissions.removeAll()
         failUnansweredSideQuestions()
@@ -1756,6 +1778,10 @@ final class HeadlessSession: AgentSession {
             .interrupted
         } else {
             .error
+        }
+        if refusedCut, onCutRefused?() == true {
+            Log.agent.info("The CLI refused the fork's cut for tab \(self.tabID, privacy: .public); relaunched without it")
+            return
         }
         reportStatus(reported, notifiable: reported != .error || hasUserSubmitted)
         if unfinished {

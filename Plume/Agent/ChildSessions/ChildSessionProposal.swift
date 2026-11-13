@@ -23,6 +23,10 @@ nonisolated struct ChildSessionProposal: Codable, Equatable, Identifiable {
     var effort: String?
     var permissionMode: String?
     var wakeWhenDone: Bool?
+    /// For a fork, where the parent's conversation stood when it was
+    /// proposed: the row before the `start_session` call, for
+    /// `--resume-session-at`. Nil forks the conversation as it is at the start.
+    var forkCut: String?
     var createdAt: Date
     var status: Status = .pending
     /// When it was started or dismissed.
@@ -33,7 +37,7 @@ nonisolated struct ChildSessionProposal: Codable, Equatable, Identifiable {
     var dismissReason: String?
     var dismissedByUser: Bool?
 
-    init(id: String, request: StartSessionRequest, createdAt: Date) {
+    init(id: String, request: StartSessionRequest, createdAt: Date, forkCut: String? = nil) {
         self.id = id
         title = request.title
         prompt = request.prompt
@@ -45,6 +49,7 @@ nonisolated struct ChildSessionProposal: Codable, Equatable, Identifiable {
         effort = request.effort?.token
         permissionMode = request.permissionMode?.token
         wakeWhenDone = request.wakeWhenDone ? nil : false
+        self.forkCut = request.context == .fork ? forkCut : nil
         self.createdAt = createdAt
     }
 

@@ -110,6 +110,10 @@ nonisolated struct MessageEnvelope {
     /// Set when the message belongs to a subagent rather than the main thread.
     let parentToolUseID: String?
     let sessionID: String?
+    /// The row's uuid in the transcript.
+    var uuid: String? = nil
+    /// On an assistant row, the uuid of the user message its turn answers.
+    var userMessageUUID: String? = nil
 }
 
 /// A token-level delta from `--include-partial-messages`.

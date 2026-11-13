@@ -32,11 +32,11 @@ final class ChildSessionCoordinator {
                 guard let tab, tab.isChildSession else { return .parent }
                 return .child(parentID: tab.parentTabIDRaw)
             },
-            callTool: { [weak self, weak tab] call in
+            callTool: { [weak self, weak tab, weak session] call in
                 guard let self, let tab, tab.isLive else {
                     return .failure("This session's tab is closed.")
                 }
-                return await self.handle(call, from: tab)
+                return await self.handle(call, from: tab, forkCut: session?.latestForkCut)
             }
         )
         session.onTurnFinished = { [weak self, weak tab] outcome in
@@ -124,14 +124,16 @@ final class ChildSessionCoordinator {
 
     // MARK: - Tools
 
-    private func handle(_ call: PlumeMCPServer.ToolCall, from tab: TaskTab) async -> PlumeMCPServer.ToolResult {
+    private func handle(
+        _ call: PlumeMCPServer.ToolCall, from tab: TaskTab, forkCut: String?
+    ) async -> PlumeMCPServer.ToolResult {
         let result: Result<String, ChildSessionError>
         switch call.tool {
         case .startSession:
             switch StartSessionCall.parse(call.arguments) {
             case .success(.start(let request)): result = await startSession(request, from: tab)
             case .success(.propose(let request)):
-                result = propose(request, from: tab).map { ChildSessionFormats.proposed(title: $0.title, taskID: $0.id) }
+                result = propose(request, from: tab, forkCut: forkCut).map { ChildSessionFormats.proposed(title: $0.title, taskID: $0.id) }
             case .success(.startProposal(let id, let wakeWhenDone, let settings)):
                 result = await startProposal(id, from: tab, wakeWhenDone: wakeWhenDone, settings: settings, byUser: false)
             case .failure(let error): result = .failure(error)
@@ -172,9 +174,11 @@ final class ChildSessionCoordinator {
 
     /// `proposalID` names the proposal this launch starts. It is recorded as
     /// started in the same step that opens the child's tab, so no later
-    /// failure or crash can let it start twice.
+    /// failure or crash can let it start twice. A fork cuts the parent's
+    /// conversation at `forkCut`, or relaunches without it if the CLI
+    /// refuses it.
     private func launchChild(
-        _ request: StartSessionRequest, from parent: TaskTab, proposalID: String? = nil
+        _ request: StartSessionRequest, from parent: TaskTab, proposalID: String? = nil, forkCut: String? = nil
     ) async -> Result<TaskTab, ChildSessionError> {
         guard !parent.isChildSession else { return .failure(.failed("This session cannot start sessions of its own.")) }
         guard let task = parent.task, let context = parent.modelContext else {
@@ -272,7 +276,7 @@ final class ChildSessionCoordinator {
             task: task,
             tab: child,
             resumeSessionID: isFork ? parentSessionID : nil,
-            fork: isFork ? HeadlessCommand.Fork(newSessionID: newSessionID, cutAfterMessageUUID: nil) : nil,
+            fork: isFork ? HeadlessCommand.Fork(newSessionID: newSessionID, cutAfterMessageUUID: forkCut) : nil,
             sessionID: isFork ? nil : newSessionID,
             effort: child.isEffortUserChosen ? child.effort : nil
         )
@@ -285,14 +289,40 @@ final class ChildSessionCoordinator {
             return .failure(.failed("The session could not start: \(reason)"))
         }
         if let worktree { ChildSessionWorkspace.recordOwnership(of: worktree, in: task) }
-        session.submitFromHost(blocks: [.text(brief)], display: [.text(request.prompt)], origin: .fromParent(text: request.prompt))
+        let opening = HostMessage(
+            display: [UserContentBlock.text(request.prompt)].normalized,
+            wire: [UserContentBlock.text(brief)].normalized,
+            origin: .fromParent(text: request.prompt)
+        )
+        if isFork, forkCut != nil {
+            session.onCutRefused = { [weak self, weak child] in
+                guard let self, let child, child.isLive, let task = child.task else { return false }
+                let relaunched = AgentLauncher.relaunchForkWithoutCut(
+                    task: task, tab: child, resumeSessionID: parentSessionID, newSessionID: newSessionID,
+                    effort: child.isEffortUserChosen ? child.effort : nil,
+                    resending: [QueuedMessage(parts: [.host(opening)])]
+                ) as? HeadlessSession
+                if relaunched == nil || relaunched?.hasExited == true {
+                    let reason = relaunched.map(Self.launchFailure) ?? "no session was created"
+                    self.turnFinished(in: child, outcome: AgentTurnOutcome(
+                        text: reason,
+                        isError: true, wasInterrupted: false, isHostDriven: true, exitedMidTurn: true
+                    ))
+                }
+                return true
+            }
+        }
+        session.submitFromHost(blocks: opening.wire, display: opening.display, origin: opening.origin)
         return .success(child)
     }
 
     // MARK: - Proposals
 
     /// Records a card for the user to start, and starts nothing.
-    func propose(_ request: StartSessionRequest, from parent: TaskTab, now: Date = .now) -> Result<ChildSessionProposal, ChildSessionError> {
+    /// `forkCut` is where a fork proposal's conversation stands now.
+    func propose(
+        _ request: StartSessionRequest, from parent: TaskTab, forkCut: String? = nil, now: Date = .now
+    ) -> Result<ChildSessionProposal, ChildSessionError> {
         guard !parent.isChildSession else { return .failure(.failed("This session cannot start sessions of its own.")) }
         guard ChildSessionProposalStore(json: parent.childProposalsJSON).isWritable else {
             return .failure(.failed("This session's stored proposals could not be read, so no new one can be recorded."))
@@ -300,7 +330,7 @@ final class ChildSessionCoordinator {
         return .success(withProposals(of: parent, now: now) { store in
             var id = ChildSessionProposalStore.makeID()
             while store.proposal(id: id) != nil { id = ChildSessionProposalStore.makeID() }
-            let proposal = ChildSessionProposal(id: id, request: request, createdAt: now)
+            let proposal = ChildSessionProposal(id: id, request: request, createdAt: now, forkCut: forkCut)
             store.add(proposal)
             return proposal
         })
@@ -338,9 +368,12 @@ final class ChildSessionCoordinator {
         case .failure(let error): return refuse(error)
         }
 
+        if request.context == .fork, proposal.forkCut == nil {
+            Log.agent.info("Proposal \(id, privacy: .public) recorded no fork point; forking the conversation as it is now")
+        }
         activity.begin(id, in: parent.id)
         let child: TaskTab
-        switch await launchChild(request, from: parent, proposalID: id) {
+        switch await launchChild(request, from: parent, proposalID: id, forkCut: proposal.forkCut) {
         case .success(let launched):
             activity.end(id, in: parent.id, failure: nil)
             child = launched

@@ -123,7 +123,9 @@ nonisolated enum StreamJSONDecoder {
         MessageEnvelope(
             raw: root["message"]?.objectValue ?? [:],
             parentToolUseID: root["parent_tool_use_id"]?.stringValue,
-            sessionID: root["session_id"]?.stringValue
+            sessionID: root["session_id"]?.stringValue,
+            uuid: root["uuid"]?.stringValue,
+            userMessageUUID: root["user_message_uuid"]?.stringValue
         )
     }
 
