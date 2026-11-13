@@ -57,4 +57,12 @@ struct ForkFailureTests {
         let failure = ChatStartFailure.forkRefusal(error: "error: unknown option '--verbose'")
         #expect(failure != ChatStartFailure.forkUnavailable(detail: "error: unknown option '--verbose'"))
     }
+
+    @Test func onlyARefusedCutCanBeRetriedWithoutIt() {
+        #expect(ChatStartFailure.refusesCut(error: Self.withdrawnFlag))
+        #expect(ChatStartFailure.refusesCut(error: Self.missingTarget))
+        #expect(!ChatStartFailure.refusesCut(error: "error: unknown option '--verbose'"))
+        #expect(!ChatStartFailure.refusesCut(error: "API down"))
+        #expect(!ChatStartFailure.refusesCut(error: nil))
+    }
 }
