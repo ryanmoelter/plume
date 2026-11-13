@@ -42,8 +42,13 @@ struct ChatTabView: View, ThemedView {
     /// The measured height of the floating bottom chrome — the queued-message
     /// chips plus the panel beneath them — so the list can inset its content
     /// past it. Nothing in that subtree is sized from it, so measuring
-    /// cannot feed back into the measurement.
-    @State private var panelHeight: CGFloat = 0
+    /// cannot feed back into the measurement. Starts from the last chat
+    /// measured, since the chrome mounts a turn after the list.
+    @State private var panelHeight = Self.lastPanelHeight
+    private static var lastPanelHeight: CGFloat = 0
+    /// The bottom chrome mounts a turn after the conversation, so the frame
+    /// that first shows a chat carries only its rows.
+    @State private var mountsBottomChrome = false
     @State private var chatHeight: CGFloat = 0
     /// Set to pull a queued message back into the composer for editing, from
     /// the chip's own edit button. `ChatComposer` owns the actual draft/state
@@ -607,7 +612,10 @@ struct ChatTabView: View, ThemedView {
             }
             composerPanel(transcript: transcript)
         }
-        .onGeometryChange(for: CGFloat.self) { $0.size.height } action: { panelHeight = $0 }
+        .onGeometryChange(for: CGFloat.self) { $0.size.height } action: { height in
+            panelHeight = height
+            Self.lastPanelHeight = height
+        }
         // A queued run is retired by the session taking its text off the
         // queue, which the session does without knowing runs exist. Watched
         // from here rather than the chip list, which retiring the last run
@@ -1128,10 +1136,18 @@ struct ChatTabView: View, ThemedView {
         .environment(\.chatSubagentOpener, subagentOpener)
         .overlay(alignment: .bottom) {
             let reserve = geometry.chatTrailingReserve
-            // Moves with the chat's own horizontal shift.
-            bottomChrome(transcript: transcript)
-                .padding(.trailing, reserve)
-                .animation(.easeOut(duration: 0.22), value: reserve)
+            if mountsBottomChrome {
+                // Moves with the chat's own horizontal shift.
+                bottomChrome(transcript: transcript)
+                    .padding(.trailing, reserve)
+                    .animation(.easeOut(duration: 0.22), value: reserve)
+                    .transition(.opacity)
+            }
+        }
+        .onAppear {
+            AfterCommit.perform {
+                withAnimation(.easeIn(duration: 0.15)) { mountsBottomChrome = true }
+            }
         }
         .onGeometryChange(for: CGFloat.self) { $0.size.width } action: { width in
             conversationWidth = width
