@@ -40,36 +40,69 @@ final class SlashCommandMemory {
     /// Most recently reported first. A path map would grow an entry per
     /// directory forever, including worktrees that are long gone, so the
     /// oldest report falls off the end once the list is full.
+    ///
+    /// Empty until the file has loaded, which happens off the main thread.
     private(set) var entries: [Entry] = []
 
     /// Enough for every repository and worktree in flight at once.
-    static let capacity = 20
+    nonisolated static let capacity = 20
 
     static var defaultFile: URL {
         AppPaths.applicationSupport.appending(path: "slash-commands.json")
     }
 
-    private static let legacyKey = "rememberedSlashCommandsByDirectory"
+    static let legacyKey = "rememberedSlashCommandsByDirectory"
+
+    /// Debug builds keep a file per worktree but share one defaults domain,
+    /// so removing the key would hand the list to whichever worktree launched
+    /// first and leave every other debug build without it.
+    #if DEBUG
+    static let migrationRemovesLegacyKey = false
+    #else
+    static let migrationRemovesLegacyKey = true
+    #endif
 
     @ObservationIgnored private let file: URL
-    @ObservationIgnored private var lastWrite: Task<Void, Never>?
+    @ObservationIgnored private let defaults: UserDefaults
+    @ObservationIgnored private let removesLegacyKey: Bool
+    @ObservationIgnored private let writeDelay: Duration
+    /// Serial, so the load and every write land on disk in order, and
+    /// `flush()` can wait for them all.
+    @ObservationIgnored private let disk = DispatchQueue(label: "SlashCommandMemory", qos: .utility)
+    @ObservationIgnored private var loading: Task<Void, Never>?
+    @ObservationIgnored private var isLoaded = false
+    /// Set by `forget()` before the load lands, whose entries are then stale.
+    @ObservationIgnored private var discardsLoad = false
+    @ObservationIgnored private var isDirty = false
+    @ObservationIgnored private var pendingWrite: Task<Void, Never>?
+    @ObservationIgnored private(set) var diskWrites = 0
 
-    /// A full list runs past a megabyte, so it lives in a file written off the
-    /// main thread rather than in user defaults, where every write posts a
-    /// change notification that AppKit answers on the main thread.
-    init(file: URL = SlashCommandMemory.defaultFile, defaults: UserDefaults = .standard) {
+    /// A full list runs past a megabyte, so it lives in a file read and
+    /// written off the main thread rather than in user defaults, where every
+    /// write posts a change notification that AppKit answers on the main
+    /// thread.
+    init(
+        file: URL = SlashCommandMemory.defaultFile,
+        defaults: UserDefaults = .standard,
+        removesLegacyKey: Bool = SlashCommandMemory.migrationRemovesLegacyKey,
+        writeDelay: Duration = .milliseconds(500)
+    ) {
         self.file = file
-        if let data = try? Data(contentsOf: file) {
-            entries = Self.decode(data)
-        } else if let legacy = defaults.data(forKey: Self.legacyKey) {
-            entries = Self.decode(legacy)
-            Self.write(entries.map(Stored.init), to: file)
-            defaults.removeObject(forKey: Self.legacyKey)
-        }
+        self.defaults = defaults
+        self.removesLegacyKey = removesLegacyKey
+        self.writeDelay = writeDelay
         // The pre-directory list recorded no directory, and guessing one
         // reintroduces the bug: it would offer some project's commands
         // everywhere else. It costs one cold tab its autocomplete, once.
         defaults.removeObject(forKey: "rememberedSlashCommands")
+        let legacy = defaults.data(forKey: Self.legacyKey)
+        let disk = disk
+        loading = Task { [weak self] in
+            let loaded = await withCheckedContinuation { continuation in
+                disk.async { continuation.resume(returning: Self.load(from: file, legacy: legacy)) }
+            }
+            self?.finishLoading(loaded)
+        }
     }
 
     func commands(inDirectory directory: String?) -> [SlashCommand] {
@@ -90,47 +123,135 @@ final class SlashCommandMemory {
         if let existing { entries.remove(at: existing) }
         entries.insert(Entry(directory: directory, commands: cliProvided), at: 0)
         entries = Array(entries.prefix(Self.capacity))
-        save(entries.map(Stored.init))
+        scheduleWrite()
     }
 
     func forget() {
         entries = []
-        save(nil)
+        if !isLoaded { discardsLoad = true }
+        scheduleWrite()
     }
 
-    /// Writes land in the order they were asked for.
+    func waitForLoad() async {
+        await loading?.value
+    }
+
+    /// Waits for the pending write, if any, and everything queued before it.
     func waitForWrites() async {
-        await lastWrite?.value
+        await loading?.value
+        await pendingWrite?.value
+        await withCheckedContinuation { continuation in disk.async { continuation.resume() } }
     }
 
-    /// A nil list removes the file.
-    private func save(_ stored: [Stored]?) {
-        let previous = lastWrite
+    /// Writes any pending change now, blocking until it is on disk. For
+    /// termination, when a delayed write would never run.
+    func flush() {
+        pendingWrite?.cancel()
+        pendingWrite = nil
+        if !isLoaded {
+            let file = file
+            let legacy = defaults.data(forKey: Self.legacyKey)
+            finishLoading(disk.sync { Self.load(from: file, legacy: legacy) })
+        }
+        guard isDirty else {
+            disk.sync {}
+            return
+        }
+        isDirty = false
+        diskWrites += 1
+        let stored = snapshot()
         let file = file
-        lastWrite = Task.detached(priority: .utility) {
-            await previous?.value
-            if let stored {
-                Self.write(stored, to: file)
-            } else {
-                try? FileManager.default.removeItem(at: file)
+        disk.sync { _ = Self.persist(stored, to: file) }
+    }
+
+    private func finishLoading(_ loaded: Loaded) {
+        guard !isLoaded else { return }
+        isLoaded = true
+        if !discardsLoad {
+            let reported = Set(entries.map(\.directory))
+            let older = loaded.stored.map(\.entry).filter { !reported.contains($0.directory) }
+            entries = Array((entries + older).prefix(Self.capacity))
+        }
+        if loaded.migrated, removesLegacyKey {
+            defaults.removeObject(forKey: Self.legacyKey)
+        }
+    }
+
+    /// Latest wins: one write is pending at a time, and it takes whatever the
+    /// list holds when it runs.
+    private func scheduleWrite() {
+        isDirty = true
+        guard pendingWrite == nil else { return }
+        pendingWrite = Task { [weak self, writeDelay] in
+            do { try await Task.sleep(for: writeDelay) } catch { return }
+            await self?.writeIfDirty()
+        }
+    }
+
+    private func writeIfDirty() async {
+        // Writing before the load lands would replace the file with only
+        // what was reported since launch.
+        await loading?.value
+        guard !Task.isCancelled else { return }
+        pendingWrite = nil
+        guard isDirty else { return }
+        isDirty = false
+        diskWrites += 1
+        let stored = snapshot()
+        let file = file
+        await withCheckedContinuation { continuation in
+            disk.async {
+                _ = Self.persist(stored, to: file)
+                continuation.resume()
             }
         }
     }
 
-    private nonisolated static func write(_ stored: [Stored], to file: URL) {
+    /// Nil removes the file.
+    private func snapshot() -> [Stored]? {
+        entries.isEmpty ? nil : entries.map(Stored.init)
+    }
+
+    private nonisolated struct Loaded: Sendable {
+        var stored: [Stored]
+        /// The legacy list reached the file, so the key may go.
+        var migrated: Bool
+    }
+
+    private nonisolated static func load(from file: URL, legacy: Data?) -> Loaded {
+        if let data = try? Data(contentsOf: file) {
+            return Loaded(stored: decode(data), migrated: false)
+        }
+        guard let legacy else { return Loaded(stored: [], migrated: false) }
+        let stored = decode(legacy)
+        return Loaded(stored: stored, migrated: persist(stored, to: file))
+    }
+
+    private nonisolated static func persist(_ stored: [Stored]?, to file: URL) -> Bool {
+        guard let stored else {
+            try? FileManager.default.removeItem(at: file)
+            return true
+        }
+        return write(stored, to: file)
+    }
+
+    /// Returns whether the list reached the file.
+    private nonisolated static func write(_ stored: [Stored], to file: URL) -> Bool {
         do {
             try FileManager.default.createDirectory(
                 at: file.deletingLastPathComponent(), withIntermediateDirectories: true
             )
             try JSONEncoder().encode(stored).write(to: file, options: .atomic)
+            return true
         } catch {
             Log.app.error("Could not write the remembered slash commands: \(error, privacy: .public)")
+            return false
         }
     }
 
-    private static func decode(_ data: Data) -> [Entry] {
+    private nonisolated static func decode(_ data: Data) -> [Stored] {
         guard let stored = try? JSONDecoder().decode([Stored].self, from: data) else { return [] }
-        return stored.prefix(capacity).map(\.entry)
+        return Array(stored.prefix(capacity))
     }
 
     struct Entry: Equatable {
