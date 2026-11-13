@@ -40,6 +40,8 @@ nonisolated struct ControlServerRequest: Decodable {
         case "menu": command = .menu
         case "selection": command = .selection
         case "selectText": command = .selectText(try SelectTextParams(from: decoder))
+        case "tasks": command = .tasks
+        case "selectTask": command = .selectTask(try SelectTaskParams(from: decoder))
         default:
             throw DecodingError.dataCorruptedError(
                 forKey: .command, in: container, debugDescription: "unknown command \"\(name)\""
@@ -68,6 +70,79 @@ nonisolated enum ControlCommand {
     case menu
     case selection
     case selectText(SelectTextParams)
+    case tasks
+    case selectTask(SelectTaskParams)
+}
+
+/// Selects `task` and measures the switch with `SwitchLatencyProbe`,
+/// `repeat` times. With `from`, each round first selects `from`, unmeasured,
+/// so every measured switch starts from the same task. Tasks match by id,
+/// then by exact title, then by a unique title substring, ignoring case.
+nonisolated struct SelectTaskParams: Decodable, Equatable {
+    static let repeatLimit = 200
+
+    var task: String
+    var from: String?
+    var repeatCount: Int = 1
+    /// Seconds a switch may take to place rows before it counts as timed out.
+    var timeout: Double = 5
+    /// Seconds to wait after each switch, so work it deferred doesn't land
+    /// in the next one's measurement.
+    var settle: Double = 0.3
+
+    private enum CodingKeys: String, CodingKey {
+        case task, from, timeout, settle
+        case repeatCount = "repeat"
+    }
+
+    init(task: String, from: String? = nil, repeatCount: Int = 1, timeout: Double = 5, settle: Double = 0.3) {
+        self.task = task
+        self.from = from
+        self.repeatCount = min(max(repeatCount, 1), Self.repeatLimit)
+        self.timeout = max(timeout, 0.1)
+        self.settle = max(settle, 0)
+    }
+
+    init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        self.init(
+            task: try c.decode(String.self, forKey: .task),
+            from: try c.decodeIfPresent(String.self, forKey: .from),
+            repeatCount: try c.decodeIfPresent(Int.self, forKey: .repeatCount) ?? 1,
+            timeout: try c.decodeIfPresent(Double.self, forKey: .timeout) ?? 5,
+            settle: try c.decodeIfPresent(Double.self, forKey: .settle) ?? 0.3
+        )
+    }
+}
+
+nonisolated struct TaskDescription: Codable, Equatable {
+    var id: String
+    var title: String
+    var isSelected: Bool
+    /// The focused tab's kind, nil for a task with no tabs.
+    var tabKind: String?
+    /// Whether the focused tab has a transcript, so a switch to it waits for
+    /// chat rows rather than ending with its first turn.
+    var expectsRows: Bool
+}
+
+nonisolated struct TaskListResult: Codable, Equatable {
+    var tasks: [TaskDescription]
+}
+
+/// Resolves a `selectTask` query against the window's tasks.
+nonisolated enum TaskQuery {
+    static func match(_ query: String, in tasks: [(id: UUID, title: String)]) throws -> UUID {
+        if let id = UUID(uuidString: query), tasks.contains(where: { $0.id == id }) { return id }
+        let exact = tasks.filter { $0.title.caseInsensitiveCompare(query) == .orderedSame }
+        if exact.count == 1 { return exact[0].id }
+        let partial = tasks.filter { $0.title.localizedCaseInsensitiveContains(query) }
+        switch partial.count {
+        case 1: return partial[0].id
+        case 0: throw ControlError.notFound("task \"\(query)\"")
+        default: throw ControlError.badParams("\(partial.count) tasks match \"\(query)\"; pass an id")
+        }
+    }
 }
 
 /// `matching` selects one span. `from` and `to` select from the start of
@@ -560,6 +635,8 @@ nonisolated enum ControlResult: Encodable {
     case key(KeyResult)
     case menu(MenuResult)
     case selection(SelectionResult)
+    case tasks(TaskListResult)
+    case switchLatency(SwitchLatencyReport)
 
     func encode(to encoder: Encoder) throws {
         switch self {
@@ -578,6 +655,8 @@ nonisolated enum ControlResult: Encodable {
         case .key(let v): try v.encode(to: encoder)
         case .menu(let v): try v.encode(to: encoder)
         case .selection(let v): try v.encode(to: encoder)
+        case .tasks(let v): try v.encode(to: encoder)
+        case .switchLatency(let v): try v.encode(to: encoder)
         }
     }
 }

@@ -87,7 +87,15 @@ final class ChatPieceCache {
             referenceRevision: referenceRevision,
             linkBase: linkBase
         )
-        if let lastBuild, lastBuild.inputs == inputs { return lastBuild.pieces }
+        if let lastBuild, lastBuild.inputs == inputs {
+            #if DEBUG
+            SwitchLatencyProbe.note("pieceCacheHit")
+            #endif
+            return lastBuild.pieces
+        }
+        #if DEBUG
+        SwitchLatencyProbe.note("pieceCacheMiss")
+        #endif
         if lastBuild?.inputs.linkBase != linkBase { linkTargets = [:] }
 
         var next: [String: [MarkdownBlock.Parsed]] = [:]

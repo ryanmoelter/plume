@@ -272,6 +272,14 @@ final class ChatListController: NSObject {
     // MARK: - Inputs
 
     func update(_ new: ChatListInputs) {
+        #if DEBUG
+        SwitchLatencyProbe.time("listUpdate") { updateNow(new) }
+        #else
+        updateNow(new)
+        #endif
+    }
+
+    private func updateNow(_ new: ChatListInputs) {
         let old = inputs
         if new.tabID != old.tabID {
             if let tabID = old.tabID { readingPositions[tabID] = readingPosition }
@@ -740,6 +748,14 @@ final class ChatListController: NSObject {
     /// One pass: measurements in, the window realized, one offset policy
     /// resolved, the document committed, the offset set, hosts placed.
     func layoutPass() {
+        #if DEBUG
+        SwitchLatencyProbe.time("layoutPass") { layoutPassNow() }
+        #else
+        layoutPassNow()
+        #endif
+    }
+
+    private func layoutPassNow() {
         guard !isLayingOut else { return }
         isLayingOut = true
         defer { isLayingOut = false }
@@ -793,6 +809,9 @@ final class ChatListController: NSObject {
         }
         publishVisibleIDs(offset: offset)
         logPass(offset: offset, viewport: viewport)
+        #if DEBUG
+        if !hosts.isEmpty { SwitchLatencyProbe.noteRowsPlaced(tabID: inputs.tabID) }
+        #endif
     }
 
     /// Sizes the document and writes the offset the policy resolves, when
@@ -900,7 +919,11 @@ final class ChatListController: NSObject {
         hosts[id] = host
         let hadMeasurement = model.hasMeasurement(id)
         let before = model.displayHeight(of: id)
+        #if DEBUG
+        let measured = SwitchLatencyProbe.time("realizeMeasure") { naturalHeight(of: view) }
+        #else
         let measured = naturalHeight(of: view)
+        #endif
         model.setTargetHeight(measured, for: id, width: model.measurementWidth, generation: generation)
         if !hadMeasurement { notePinMeasurement(id) }
 

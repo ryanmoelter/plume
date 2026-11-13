@@ -7,7 +7,7 @@
 
 Commands: list, describe, invoke, setValue, readText, clickSpan, click,
 pointerDrag, hover, clear, drag, screenshot, recordStart, recordStop,
-hierarchy, key, menu, selection, selectText. Values parse as JSON when they can, so
+hierarchy, key, menu, selection, selectText, tasks, selectTask. Values parse as JSON when they can, so
 `target='{"id":"composer-field"}'` and `x=10` work; anything else is a
 string. Prints the response; exit 1 when the app reports an error.
 
@@ -121,9 +121,17 @@ def build_params(pairs, extra_json):
     return params
 
 
+def response_timeout(request):
+    if request["command"] != "selectTask":
+        return 30
+    switches = request.get("repeat", 1) * (2 if request.get("from") else 1)
+    per_switch = request.get("timeout", 5) + request.get("settle", 0.3)
+    return 30 + switches * per_switch
+
+
 def send(path, request):
     with socket.socket(socket.AF_UNIX, socket.SOCK_STREAM) as sock:
-        sock.settimeout(30)
+        sock.settimeout(response_timeout(request))
         try:
             sock.connect(path)
         except OSError as error:

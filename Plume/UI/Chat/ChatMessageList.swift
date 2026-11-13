@@ -239,6 +239,14 @@ struct ChatMessageList<SidePane: View>: View, ThemedView {
     }
 
     private func rebuildPieces() {
+        #if DEBUG
+        SwitchLatencyProbe.time("rebuildPieces") { rebuildPiecesNow() }
+        #else
+        rebuildPiecesNow()
+        #endif
+    }
+
+    private func rebuildPiecesNow() {
         let merged = ChatStreamHandoff.merge(messages, live: live)
         let cache = tabID.map(ChatPieceCache.forTab) ?? untabbedCache
         let store = ReferenceChipStore.shared
