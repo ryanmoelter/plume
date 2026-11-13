@@ -131,6 +131,7 @@ struct SidebarTintTests {
 
 /// The resolver puts the bar under the color bar setting, the icon under the
 /// icon setting, and the title under colored names only.
+@MainActor
 struct SidebarTaskAppearanceTests {
     private let tint = SidebarTint.palette(slot: 3)
 
@@ -176,6 +177,7 @@ struct SidebarTaskAppearanceTests {
 }
 
 /// The recent list is deduplicated, capped, most recent first and custom-only.
+@MainActor
 struct SidebarIconsTests {
     @Test func renderingModeIsExplicitForBothSettings() {
         let describe = { (mode: SymbolRenderingMode) in String(describing: mode) }

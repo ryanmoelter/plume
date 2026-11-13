@@ -22,7 +22,7 @@ struct TabContentView: View {
     @State private var dropSide: TaskStore.SplitSide?
     @State private var drag = InAppDrag.shared
 
-    static let coordinateSpace = "tabContent"
+    nonisolated static let coordinateSpace = "tabContent"
 
     var body: some View {
         GeometryReader { proxy in

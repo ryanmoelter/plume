@@ -2,7 +2,7 @@ import Foundation
 
 /// A JSON value of unknown shape, for fields like `tool_use.input` whose
 /// keys are tool-specific. Decodes any JSON; encodes back losslessly.
-nonisolated enum JSONValue: Decodable, Encodable, Equatable {
+nonisolated enum JSONValue: Decodable, Encodable, Equatable, Sendable {
     case string(String)
     case number(Double)
     case bool(Bool)
@@ -83,7 +83,7 @@ nonisolated enum JSONValue: Decodable, Encodable, Equatable {
 /// Forgiving like `HookEvent`: unknown `type`s and unknown content block
 /// types decode to an ignored case rather than throwing, since a transcript
 /// is mostly line shapes Plume does not model.
-nonisolated struct TranscriptEntry: Decodable {
+nonisolated struct TranscriptEntry: Decodable, Sendable {
     let type: String
     let uuid: String?
     let parentUuid: String?
@@ -209,14 +209,15 @@ nonisolated struct TranscriptEntry: Decodable {
         return object["type"]?.stringValue
     }
 
-    private static let isoFormatter: ISO8601DateFormatter = {
+    // ISO8601DateFormatter is thread-safe once configured, but not marked Sendable.
+    nonisolated(unsafe) private static let isoFormatter: ISO8601DateFormatter = {
         let formatter = ISO8601DateFormatter()
         formatter.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
         return formatter
     }()
 }
 
-nonisolated struct TranscriptMessage: Decodable {
+nonisolated struct TranscriptMessage: Decodable, Sendable {
     /// The API message id, shared by every line one response wrote.
     let id: String?
     let role: String?
@@ -244,7 +245,7 @@ nonisolated struct TranscriptMessage: Decodable {
     }
 }
 
-nonisolated struct TranscriptUsage: Decodable, Equatable {
+nonisolated struct TranscriptUsage: Decodable, Equatable, Sendable {
     let inputTokens: Int?
     let cacheCreationInputTokens: Int?
     let cacheReadInputTokens: Int?
@@ -270,7 +271,7 @@ nonisolated struct TranscriptUsage: Decodable, Equatable {
 /// A message's `content` is either a bare string (plain user messages) or an
 /// array of typed blocks (assistant messages, and user messages carrying
 /// tool results).
-nonisolated struct TranscriptContent: Decodable {
+nonisolated struct TranscriptContent: Decodable, Sendable {
     let blocks: [TranscriptBlock]
 
     init(from decoder: Decoder) throws {
@@ -288,7 +289,7 @@ nonisolated struct TranscriptContent: Decodable {
 /// A tool call's structured outcome. Only the fields that identify a spawned
 /// subagent and its fate are modeled; the rest of the payload is the report
 /// text and token accounting, which the chat renders from the message blocks.
-nonisolated struct TranscriptToolUseResult: Decodable {
+nonisolated struct TranscriptToolUseResult: Decodable, Sendable {
     let agentID: String?
     let status: String?
     /// Set on a `SendMessage` result that woke a finished subagent back up.
@@ -310,7 +311,7 @@ nonisolated struct TranscriptToolUseResult: Decodable {
     }
 }
 
-nonisolated struct TranscriptTaskOutput: Decodable {
+nonisolated struct TranscriptTaskOutput: Decodable, Sendable {
     let taskID: String
     /// `completed` once the agent finished, `running` when the wait timed out.
     let status: String?
@@ -322,7 +323,7 @@ nonisolated struct TranscriptTaskOutput: Decodable {
 
 /// How a background agent's completion reaches the parent when the parent
 /// never blocked on the spawning call. `taskId` is the agent's own id.
-nonisolated struct TranscriptTaskStatus: Decodable {
+nonisolated struct TranscriptTaskStatus: Decodable, Sendable {
     let taskID: String
     let status: String?
 }
@@ -334,7 +335,7 @@ nonisolated struct TranscriptTaskStatus: Decodable {
 /// no signal rather than to a wrong one: anything it does not recognize yields
 /// nil. Tags are read only from the header, before the `<result>` body, since
 /// an agent's own report can quote the same tags.
-nonisolated struct TranscriptTaskNotification: Equatable {
+nonisolated struct TranscriptTaskNotification: Equatable, Sendable {
     let taskID: String
     /// `completed`, `failed`, `killed` or `stopped` in the corpus. Left as
     /// written so the reader decides what an unfamiliar word means.
@@ -369,7 +370,7 @@ nonisolated struct TranscriptTaskNotification: Equatable {
 /// first two carry a `planFilePath` recording where Claude Code intended to
 /// write the plan, whether or not it exists on disk at the time the line was
 /// written.
-nonisolated struct TranscriptAttachment: Decodable {
+nonisolated struct TranscriptAttachment: Decodable, Sendable {
     let planFilePath: String?
     let taskStatus: TranscriptTaskStatus?
     /// A message the user sent while a turn ran, which the CLI records as a
@@ -420,7 +421,7 @@ nonisolated struct TranscriptAttachment: Decodable {
     }
 }
 
-nonisolated enum TranscriptBlock: Decodable {
+nonisolated enum TranscriptBlock: Decodable, Sendable {
     case text(String)
     case thinking(String)
     case toolUse(id: String, name: String, input: [String: JSONValue])

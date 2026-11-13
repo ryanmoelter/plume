@@ -229,7 +229,7 @@ struct CLITaskAndSettingsRequestTests {
         defer { defaults.removePersistentDomain(forName: suite) }
         var opened = 0
         var activated = 0
-        let handler = makeHandler(tasks: []) { opened += 1 }
+        let handler = makeHandler(tasks: [], openedSettings: { opened += 1 })
         handler.settingsDefaults = defaults
         handler.activateApp = { activated += 1 }
 

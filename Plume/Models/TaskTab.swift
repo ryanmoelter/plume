@@ -243,4 +243,4 @@ final class TaskTab {
     }
 }
 
-let ClaudeCodeProviderID = AgentProviderKind.claudeCode.rawValue
+nonisolated let ClaudeCodeProviderID = AgentProviderKind.claudeCode.rawValue

@@ -13,6 +13,9 @@ final class WorkTask {
     var iconName: String? = nil
     var orderIndex: Int = 0
     var createdAt: Date = Date()
+    /// Stamped when the task is selected and again when it is left, so Home
+    /// can list the most recently used first. Nil for a task never opened.
+    var lastOpenedAt: Date? = nil
 
     /// nil means the task lives in the "Ungrouped" section.
     var group: TaskGroup?

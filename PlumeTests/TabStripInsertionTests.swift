@@ -3,6 +3,7 @@ import Testing
 @testable import Plume
 
 /// Three 100pt chips 6pt apart, starting at x = 8: 8...108, 114...214, 220...320.
+@MainActor
 struct TabStripInsertionTests {
     private let chips: [ClosedRange<CGFloat>] = [8...108, 114...214, 220...320]
 

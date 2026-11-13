@@ -7,6 +7,8 @@ nonisolated struct LinearStateGroups: Equatable {
         let state: LinearWorkflowState
         /// Keys of the teams that define this state, sorted.
         let teamKeys: [String]
+        /// As the first team defining the state ranks it.
+        let startedProgress: LinearStartedProgress
 
         var id: String { state.id }
     }
@@ -39,16 +41,18 @@ nonisolated struct LinearStateGroups: Equatable {
             let type: LinearStateType
             let color: String
         }
-        var firstState: [Key: LinearWorkflowState] = [:]
+        var firstState: [Key: (state: LinearWorkflowState, progress: LinearStartedProgress)] = [:]
         var teamKeys: [Key: Set<String>] = [:]
         for team in catalog.teams {
             for state in team.states {
                 let key = Key(name: state.name, type: state.type, color: state.color.lowercased())
-                firstState[key] = firstState[key] ?? state
+                firstState[key] = firstState[key] ?? (state, team.startedProgress(position: state.position))
                 teamKeys[key, default: []].insert(team.key)
             }
         }
-        let entries = firstState.map { key, state in Entry(state: state, teamKeys: teamKeys[key, default: []].sorted()) }
+        let entries = firstState.map { key, first in
+            Entry(state: first.state, teamKeys: teamKeys[key, default: []].sorted(), startedProgress: first.progress)
+        }
 
         let teams = catalog.teams.sorted { $0.key < $1.key }
         if teams.count <= 1 {

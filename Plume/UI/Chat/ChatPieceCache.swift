@@ -95,6 +95,11 @@ final class ChatPieceCache {
         var nextTargets: [String: [ReferenceTarget?]] = [:]
         var nextRewritten: [RewriteKey: [MarkdownBlock.Parsed]] = [:]
         var foundTargets = Set<ReferenceTarget>()
+        let artifactTitles = ArtifactChipTitles(messages: messages)
+        func chipTitle(_ target: ReferenceTarget) -> String? {
+            if case .artifact(let id) = target { return artifactTitles.title(forArtifact: id) ?? "" }
+            return referenceTitle(target)
+        }
         let pieces = ChatPieceSplitter.pieces(
             for: messages,
             status: status,
@@ -107,12 +112,12 @@ final class ChatPieceCache {
                     return MarkdownBlock.parseWithSources(markdown)
                 }()
                 next[markdown] = blocks
-                guard markdown.contains("](") else { return blocks }
+                guard markdown.contains("](") || markdown.contains("://") else { return blocks }
 
                 let targets = nextTargets[markdown] ?? linkTargets[markdown] ?? Self.targets(in: blocks, base: linkBase)
                 nextTargets[markdown] = targets
                 foundTargets.formUnion(targets.compactMap { $0 })
-                let titles = targets.map { $0.flatMap(referenceTitle) }
+                let titles = targets.map { $0.flatMap(chipTitle) }
                 guard titles.contains(where: { $0 != nil }) else { return blocks }
 
                 let key = RewriteKey(source: markdown, titles: titles)
@@ -123,10 +128,13 @@ final class ChatPieceCache {
                 let chipped = blocks.map { entry in
                     MarkdownBlock.Parsed(
                         block: entry.block.mappingInline { text in
-                            ReferenceChipText.rewrite(text) { destination in
-                                ReferenceChipText.url(forDestination: destination)
+                            ReferenceChipText.rewrite(text) { destination, label in
+                                let target = ReferenceChipText.url(forDestination: destination)
                                     .flatMap { ReferenceTarget.classify($0, base: linkBase) }
-                                    .flatMap(referenceTitle)
+                                if case .artifact(let id) = target {
+                                    return artifactTitles.title(forArtifact: id, label: label, destination: destination)
+                                }
+                                return target.flatMap(chipTitle)
                             }
                         },
                         source: entry.source
@@ -150,10 +158,15 @@ final class ChatPieceCache {
         blocks.flatMap { entry -> [ReferenceTarget?] in
             if case .codeBlock = entry.block { return [] }
             let ns = entry.source as NSString
-            return MarkdownHighlighter.linkRanges(in: entry.source).filter { !$0.isImage }.map { link in
+            let labeled = MarkdownHighlighter.linkRanges(in: entry.source).filter { !$0.isImage }.map { link in
                 ReferenceChipText.url(forDestination: ns.substring(with: link.destination))
                     .flatMap { ReferenceTarget.classify($0, base: base) }
             }
+            let bare = MarkdownHighlighter.bareLinkRanges(in: entry.source).map { link in
+                ReferenceChipText.url(forDestination: ns.substring(with: link.url))
+                    .flatMap { ReferenceTarget.classify($0, base: base) }
+            }
+            return labeled + bare
         }
     }
 }

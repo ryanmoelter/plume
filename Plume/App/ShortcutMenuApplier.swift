@@ -15,12 +15,12 @@ import AppKit
 @MainActor
 enum ShortcutMenuApplier {
     /// Applies `bindings` to `menu`, and reports the actions whose item was
-    /// found. A caller can compare that against `ShortcutAction.allCases` to
+    /// found. A caller can compare that against `ShortcutAction.menuActions` to
     /// notice a title that drifted out of step.
     @discardableResult
     static func apply(_ bindings: ShortcutBindings, to menu: NSMenu) -> Set<ShortcutAction> {
         var applied: Set<ShortcutAction> = []
-        for action in ShortcutAction.allCases {
+        for action in ShortcutAction.menuActions {
             guard let item = item(titled: action.label, in: menu) else { continue }
             applied.insert(action)
             if let shortcut = bindings[action] {

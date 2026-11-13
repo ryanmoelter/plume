@@ -398,7 +398,7 @@ final class DaemonLidSleepOverride: LidSleepOverride {
         await withCheckedContinuation { continuation in
             DispatchQueue.global(qos: .utility).async {
                 let process = Process()
-                let stdout = Pipe()
+                let stdout = Pipe.closeOnExec()
                 process.executableURL = URL(fileURLWithPath: "/bin/launchctl")
                 process.arguments = ["print", "system/\(sleepHelperServiceName)"]
                 process.standardOutput = stdout

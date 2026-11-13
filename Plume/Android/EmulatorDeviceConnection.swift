@@ -119,7 +119,7 @@ nonisolated final class EmulatorDeviceConnection: DeviceConnecting {
     func terminate() {}
 }
 
-private extension DeviceButton {
+private nonisolated extension DeviceButton {
     nonisolated var hardwareButton: HardwareButton {
         switch self {
         case .back: .back
@@ -132,7 +132,7 @@ private extension DeviceButton {
     }
 }
 
-extension DevicePosture {
+nonisolated extension DevicePosture {
     /// Nil for the postures Plume offers no control for, such as tent.
     nonisolated init?(_ posture: EmulatorPosture) {
         switch posture {
@@ -152,7 +152,7 @@ extension DevicePosture {
     }
 }
 
-private extension DeviceKey {
+private nonisolated extension DeviceKey {
     nonisolated var input: KeyInput {
         switch self {
         case .mac(let keyCode, let phase): .mac(keyCode: keyCode, phase: phase.keyPhase)
@@ -161,7 +161,7 @@ private extension DeviceKey {
     }
 }
 
-private extension DeviceKeyPhase {
+private nonisolated extension DeviceKeyPhase {
     nonisolated var keyPhase: KeyPhase {
         switch self {
         case .down: .down

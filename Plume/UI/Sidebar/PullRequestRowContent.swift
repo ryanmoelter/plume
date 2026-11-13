@@ -93,13 +93,21 @@ nonisolated enum PullRequestRowContent {
     }
 
     /// The info pane's status glyph: checks have their own row there, so it
-    /// takes draft, else review, else plain open.
+    /// takes draft, else review, else plain open. A draft reads dim there, as
+    /// inactive.
     static func leadingWithoutChecks(_ pull: PullRequestSummary) -> PullRequestGlyph {
         if let finished = PullRequestChipContent.finishedGlyph(pull.state) { return finished }
-        if pull.isDraft { return PullRequestChipContent.draft }
+        if pull.isDraft { return dimDraft }
         return PullRequestChipContent.reviewGlyph(pull.reviewDecision, hasReviewers: pull.hasReviewers)
             ?? PullRequestChipContent.open
     }
+
+    private static let dimDraft = PullRequestGlyph(
+        symbol: PullRequestChipContent.draft.symbol,
+        tint: .neutral,
+        label: PullRequestChipContent.draft.label,
+        isDim: true
+    )
 
     /// Nil for a finished pull request, whose review no longer matters, and
     /// for one nobody was asked to review.
@@ -145,6 +153,7 @@ nonisolated struct CheckListEntry: Equatable, Sendable {
     /// Named in the repository's ignored checks, so its pending never holds
     /// up the rollup.
     let isIgnored: Bool
+    var url: URL?
 }
 
 /// Every check on a pull request, for the list under its row.
@@ -152,7 +161,9 @@ nonisolated enum CheckListContent {
     /// Failing first, then pending, passed and skipped, each by name.
     static func entries(_ contexts: [CheckContext], ignored: Set<String>) -> [CheckListEntry] {
         contexts
-            .map { CheckListEntry(name: $0.name, verdict: $0.verdict, isIgnored: ignored.contains($0.name)) }
+            .map {
+                CheckListEntry(name: $0.name, verdict: $0.verdict, isIgnored: ignored.contains($0.name), url: $0.url)
+            }
             .sorted {
                 $0.verdict != $1.verdict
                     ? $0.verdict < $1.verdict

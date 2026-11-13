@@ -3,6 +3,7 @@ import SwiftUI
 import Testing
 @testable import Plume
 
+@MainActor
 struct ElapsedTimeTests {
     @Test(arguments: [
         (0.0, "0s"),
@@ -29,6 +30,7 @@ struct ElapsedTimeTests {
     }
 }
 
+@MainActor
 struct ElapsedScheduleTests {
     /// The schedule has to slow down as the clock ages. A fixed-rate
     /// `.periodic` would keep a label that started young redrawing every
@@ -78,6 +80,7 @@ struct ElapsedScheduleTests {
     }
 }
 
+@MainActor
 struct WorkingVerbTests {
     @Test func everyVerbIsAPresentParticiple() {
         #expect(!WorkingVerb.all.isEmpty)
@@ -246,6 +249,7 @@ struct StatusEngineClockTests {
     }
 }
 
+@MainActor
 struct WorkingEllipsisTests {
     /// Every instance steps off one shared epoch, so two indicators on screen
     /// light the same dot at the same moment.

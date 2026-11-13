@@ -43,7 +43,7 @@ final class ReferenceChipStore {
     /// How long a missing file or a failed pull request lookup waits before
     /// it is asked about again.
     static let retryInterval: TimeInterval = 30
-    static let coalescing: Duration = .milliseconds(250)
+    nonisolated static let coalescing: Duration = .milliseconds(250)
     static let pullRequestDebounce: Duration = .milliseconds(100)
 
     @Observable
@@ -135,7 +135,7 @@ final class ReferenceChipStore {
         var files: [String] = []
         for target in targets where !inFlight.contains(target) && nextLookups[target].map({ now >= $0 }) ?? true {
             switch target {
-            case .linear: continue
+            case .linear, .artifact: continue
             case .pullRequest: pendingPullRequests.insert(target)
             case .file(let path): files.append(path)
             }
@@ -189,7 +189,7 @@ final class ReferenceChipStore {
                 inFlight.remove(target)
                 if let isDirectory = kinds[path] {
                     nextLookups[target] = .distantFuture
-                    publish(Resolution(title: target.canonicalLabel, icon: .file(isDirectory: isDirectory)), for: target)
+                    publish(Resolution(title: (path as NSString).lastPathComponent, icon: .file(isDirectory: isDirectory)), for: target)
                 } else {
                     nextLookups[target] = now.addingTimeInterval(Self.retryInterval)
                     publish(nil, for: target)
@@ -254,7 +254,7 @@ final class ReferenceChipStore {
         }
         for (identifier, issue) in issues {
             let resolution = issue.map {
-                Resolution(title: $0.title, icon: .linear($0.stateType, colorHex: $0.stateColor), detail: .linear($0))
+                Resolution(title: $0.title, icon: .linear($0), detail: .linear($0))
             }
             publish(resolution, for: .linear(identifier: identifier))
         }

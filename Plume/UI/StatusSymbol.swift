@@ -8,7 +8,7 @@ import Foundation
 /// inline marker beside text that already says what it is. Never mix families
 /// for one concept — a question is a bubble everywhere, not a bubble in the
 /// chat and a circle in the sidebar.
-enum StatusSymbol: CaseIterable {
+nonisolated enum StatusSymbol: CaseIterable {
     case question
     case plan
     case permission

@@ -66,7 +66,7 @@ extension ReferenceTarget {
         switch self {
         case .linear: .linear
         case .pullRequest: .github
-        case .file: nil
+        case .artifact, .file: nil
         }
     }
 }

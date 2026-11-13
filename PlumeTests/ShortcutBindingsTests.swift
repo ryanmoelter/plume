@@ -58,7 +58,7 @@ struct ShortcutBindingsTests {
         #expect(ShortcutAction.allCases.contains(.sendNow))
         #expect(ShortcutAction.sendNow.defaultShortcut == nil)
         #expect(defaults[.sendNow] == nil)
-        #expect(defaults.all.count == ShortcutAction.allCases.count - 1)
+        #expect(defaults.all.count == ShortcutAction.menuActions.count - 1)
     }
 
     @Test func aRecordedSendNowChordJoinsTheClaimedShortcuts() {

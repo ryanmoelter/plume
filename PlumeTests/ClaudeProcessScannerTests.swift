@@ -4,6 +4,7 @@ import Testing
 /// The scan matches on Plume's own settings path, which is what separates its
 /// agents from a `claude` the user runs themselves and from the Claude desktop
 /// app's helper processes.
+@MainActor
 struct ClaudeProcessScannerTests {
     private let settings = "/Users/x/Library/Application Support/Plume/hooks/settings.json"
 

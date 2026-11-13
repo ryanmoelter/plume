@@ -2,6 +2,7 @@ import Testing
 import Foundation
 @testable import Plume
 
+@MainActor
 struct TaskRowDetailsTests {
     private func group(
         _ directory: String?,
@@ -153,6 +154,7 @@ struct TaskRowDetailsTests {
     }
 }
 
+@MainActor
 struct TaskRowDirectoryGroupingTests {
     @Test func twoTabsInOneFolderCollapseToOneGroup() {
         let directories = TaskRowDetails.distinctDirectories(
@@ -207,6 +209,7 @@ struct TaskRowAgentTabFilterTests {
     }
 }
 
+@MainActor
 struct DirectoryWatchSetTests {
     @Test func addingADirectoryTakesExactlyOneNewWatch() {
         let watched = DirectoryWatchSet(git: ["/a"], pullRequests: ["/a"])
@@ -286,6 +289,7 @@ struct DirectoryWatchRefcountTests {
 
 }
 
+@MainActor
 struct TaskRowLinearLinesTests {
     private func linked(_ id: String, role: LinearLinkRole = .working) -> LinkedLinearIssue {
         LinkedLinearIssue(identifier: id, role: role, sources: [.manual], subagents: [], touchedByMainAgent: false)
@@ -337,6 +341,7 @@ struct TaskRowLinearLinesTests {
     }
 }
 
+@MainActor
 struct TaskRowPinnedPullRequestLinesTests {
     private func ref(_ number: Int) -> PullRequestReference {
         PullRequestReference(owner: "a", repo: "b", number: number)

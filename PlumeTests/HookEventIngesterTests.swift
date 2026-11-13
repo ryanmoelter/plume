@@ -2,6 +2,7 @@ import Testing
 import Foundation
 @testable import Plume
 
+@MainActor
 struct HookEventIngesterTests {
     private func makeFile() -> URL {
         FileManager.default.temporaryDirectory

@@ -153,14 +153,14 @@ nonisolated protocol DeviceConnecting: AnyObject, Sendable {
     func setPosture(_ posture: DevicePosture) async throws
 }
 
-extension DeviceConnecting {
+nonisolated extension DeviceConnecting {
     func posture() async -> DevicePosture? { nil }
     func setPosture(_ posture: DevicePosture) async throws {
         throw DeviceConnectionError(message: "This device has no hinge.")
     }
 }
 
-extension AsyncThrowingStream where Failure == Error {
+nonisolated extension AsyncThrowingStream where Failure == Error {
     /// Cancelling the result stops iterating `source`, so a consumer leaving releases the source too.
     nonisolated static func mapping<Source: Sendable>(
         _ source: AsyncThrowingStream<Source, Error>,

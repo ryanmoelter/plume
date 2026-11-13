@@ -105,7 +105,7 @@ private struct CollapsedTailFade: ViewModifier, ThemedView {
 /// Cuts at the view's bottom edge when clipping, and nowhere else — a shape
 /// rather than a conditional `.clipped()`, so toggling never restructures
 /// the chain.
-private struct TailClip: Shape {
+private nonisolated struct TailClip: Shape {
     let clips: Bool
 
     func path(in rect: CGRect) -> Path {

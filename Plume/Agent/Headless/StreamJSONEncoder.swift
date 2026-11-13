@@ -1,16 +1,17 @@
 import Foundation
 
 /// How the host answers a `can_use_tool` control request.
-enum PermissionDecision: Equatable {
+nonisolated enum PermissionDecision: Equatable {
     /// `updatedInput` is the hook for editing a call before it runs, and for
-    /// carrying an `AskUserQuestion`'s answers.
-    case allow(updatedInput: [String: JSONValue])
+    /// carrying an `AskUserQuestion`'s answers. `updatedPermissions` carries
+    /// the accepted `PermissionSuggestion`s, each as the CLI sent it.
+    case allow(updatedInput: [String: JSONValue], updatedPermissions: [JSONValue] = [])
     case deny(message: String)
 }
 
 /// When a user message written while a turn runs reaches the model.
 /// `docs/headless-protocol.md` has the measured behavior of each.
-enum UserTurnPriority: String {
+nonisolated enum UserTurnPriority: String {
     /// Ends the running turn, then runs the message as a new one.
     case now
     /// Joins the running turn at its next API request, which is usually
@@ -21,7 +22,7 @@ enum UserTurnPriority: String {
 }
 
 /// Builds the NDJSON lines Plume writes to `claude -p`'s stdin.
-enum StreamJSONEncoder {
+nonisolated enum StreamJSONEncoder {
     static func userTurn(text: String) -> String? {
         userTurn(blocks: [.text(text)])
     }
@@ -173,8 +174,10 @@ enum StreamJSONEncoder {
     static func permissionResponse(requestID: String, decision: PermissionDecision) -> String? {
         let payload: [String: JSONValue]
         switch decision {
-        case .allow(let updatedInput):
-            payload = ["behavior": .string("allow"), "updatedInput": .object(updatedInput)]
+        case .allow(let updatedInput, let updatedPermissions):
+            var allow: [String: JSONValue] = ["behavior": .string("allow"), "updatedInput": .object(updatedInput)]
+            if !updatedPermissions.isEmpty { allow["updatedPermissions"] = .array(updatedPermissions) }
+            payload = allow
         case .deny(let message):
             payload = ["behavior": .string("deny"), "message": .string(message)]
         }

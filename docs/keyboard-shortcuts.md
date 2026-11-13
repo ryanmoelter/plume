@@ -1,6 +1,6 @@
 # Keyboard shortcuts
 
-Plume binds two kinds of chord. The fixed ones (⌘N, ⌘T, ⌘W, ⌘1…⌘9, `⌘\` to split or close the split, `⌥⌘\` to focus the other pane) live as `static let`s on `PlumeShortcuts`. The four cycling commands — next/previous tab, next/previous task — plus Send Now and Home are rebindable, stored per action in `ShortcutBindings` and persisted to `UserDefaults` as one JSON blob.
+Plume binds two kinds of chord. The fixed ones (⌘N, ⌘T, ⌘W, ⌘1…⌘9, `⌘\` to split or close the split, `⌥⌘\` to focus the other pane) live as `static let`s on `PlumeShortcuts`. The four cycling commands — next/previous tab, next/previous task — plus Send Now, Home and the composer's four formatting keys are rebindable, stored per action in `ShortcutBindings` and persisted to `UserDefaults` as one JSON blob.
 
 ## Home
 
@@ -25,6 +25,10 @@ Three layers have to agree for a chord to work.
 That shipped as a complete failure of the feature: every chord recorded in Settings did nothing, and the chord it replaced went on working. Holding `AppSettings` as `@State` on the `Commands` struct does not fix it — the body still is not re-evaluated.
 
 So `ShortcutMenuApplier` sets `keyEquivalent` and `keyEquivalentModifierMask` on the `NSMenuItem` directly. `AppDelegate` drives it from `AppSettings.shortcutBindingsStream`, once at launch and again on every change. Items are found by title, because a `Commands` `Button` carries no tag or identifier into AppKit — renaming a menu item means renaming `ShortcutAction.label` with it, and `apply` returns the actions it found so a drifted title is visible rather than silent.
+
+## Composer formatting chords have no menu item
+
+Bold, Italic, Code and Link (⌘B, ⌘I, ⌘E, ⌘K by default) are `ShortcutAction`s too, but `MarkdownComposerTextView.performKeyEquivalent` handles them, reading `AppSettings.shared.shortcutBindings` at event time through `ComposerInlineFormatting.Style.init(characters:flags:bindings:)`. `ShortcutAction.menuActions` is what `ShortcutMenuApplier` walks, and `ShortcutBindings.all` leaves the composer actions out, so the terminal monitor never claims them. Settings ▸ Shortcuts lists them in their own section. Delete is a valid key: it is stored as `MenuShortcut.backspace` and shown as ⌫.
 
 ## An Option chord is a usable binding
 

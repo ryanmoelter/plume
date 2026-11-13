@@ -78,7 +78,7 @@ extension HomeRowContext {
                     Reference(
                         id: link.identifier,
                         icon: LinearStore.shared.state(for: link.identifier)?.issue
-                            .map { .linear($0.stateType, colorHex: $0.stateColor) }
+                            .map { ReferenceChipIcon.linear($0) }
                     )
                 }
         }
@@ -137,6 +137,7 @@ extension HomeFeed {
                 isUnread: isUnread,
                 hasSession: tab.hasAgentSession,
                 isDormant: source.isDormant(tab.id),
+                lastOpenedAt: task.lastOpenedAt ?? task.createdAt,
                 permissionToolName: source.permissionToolName(tab.id),
                 workStartedAt: source.workStarted(tab.id),
                 preview: isUnread ? source.preview(tab) : nil,

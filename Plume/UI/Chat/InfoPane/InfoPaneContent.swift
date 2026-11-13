@@ -5,8 +5,9 @@ import UniformTypeIdentifiers
 /// the conversation runs — shared by every presentation.
 ///
 /// Every icon centers in a column `InfoPaneLayout.iconColumnWidth` wide, so
-/// the text beside the icons starts on one edge. A collapsible section ends
-/// with its disclosure chevron, and its rows start on that text edge.
+/// the text beside the icons starts on one edge. A collapsible section's
+/// stub is its header's icon, and its bar sits in the pane's padding to the
+/// left (`InfoPaneBracketedSection`).
 struct InfoPaneContent: View, ThemedView {
     @Environment(\.theme) var theme
 
@@ -41,6 +42,7 @@ struct InfoPaneContent: View, ThemedView {
             }
         }
         .font(typography.caption.font)
+        .environment(\.infoPaneRowWash, .paneWidth)
         .overlay {
             if isFolderDropTargeted {
                 RoundedRectangle(cornerRadius: 8)
@@ -92,27 +94,21 @@ struct InfoPaneContent: View, ThemedView {
 
     private var subagents: some View {
         let isExpanded = settings.infoPaneSubagentsExpanded
-        return VStack(alignment: .leading, spacing: 0) {
-            Button {
+        return InfoPaneBracketedSection(isExpanded: isExpanded) {
+            InfoPaneSectionHeader(
+                title: "Subagents",
+                icon: .symbol(StatusSymbol.subagents.name),
+                isExpanded: isExpanded,
+                accessibilityID: AccessibilityID.infoPaneSubagentsToggle
+            ) {
                 withAnimation(InfoPaneLayout.sectionAnimation) { settings.infoPaneSubagentsExpanded.toggle() }
-            } label: {
-                HStack(spacing: InfoPaneLayout.columnSpacing) {
-                    InfoPaneIcon { Image(systemName: StatusSymbol.subagents.name) }
-                    // Collapsed, the running subagents say more than the
-                    // section's name does.
-                    if !isExpanded, !facts.liveSubagents.isEmpty {
-                        SubagentGlyphs(subagents: facts.liveSubagents)
-                    } else {
-                        Text("Subagents")
-                    }
-                    DisclosureChevron(isExpanded: isExpanded)
-                    Spacer(minLength: 0)
+            } accessory: {
+                if !isExpanded, !facts.liveSubagents.isEmpty {
+                    SubagentGlyphs(subagents: facts.liveSubagents)
+                        .layoutPriority(1)
                 }
-                .emphasis(.secondary)
             }
-            .buttonStyle(InfoPaneRowButtonStyle())
-            .plumeID(AccessibilityID.infoPaneSubagentsToggle, value: isExpanded ? "expanded" : "collapsed")
-
+        } rows: {
             if isExpanded {
                 ForEach(facts.liveSubagents) { subagentRow($0) }
                 if !facts.completedSubagents.isEmpty {
@@ -123,23 +119,16 @@ struct InfoPaneContent: View, ThemedView {
     }
 
     private var completedSubagents: some View {
-        VStack(alignment: .leading, spacing: 0) {
-            Button {
+        InfoPaneBracketedSection(isExpanded: showsCompleted, level: .nested) {
+            InfoPaneSubgroupHeader(
+                title: "Completed",
+                count: facts.completedSubagents.count,
+                isExpanded: showsCompleted,
+                accessibilityID: AccessibilityID.infoPaneCompletedToggle
+            ) {
                 withAnimation(InfoPaneLayout.sectionAnimation) { showsCompleted.toggle() }
-            } label: {
-                HStack(spacing: InfoPaneLayout.columnSpacing) {
-                    // Holds the first column without filling the row's height.
-                    InfoPaneIcon { DisclosureChevron(isExpanded: false).hidden() }
-                    Text("Completed")
-                    Text("\(facts.completedSubagents.count)")
-                    DisclosureChevron(isExpanded: showsCompleted)
-                    Spacer(minLength: 0)
-                }
-                .emphasis(.subtle)
             }
-            .buttonStyle(InfoPaneRowButtonStyle())
-            .plumeID(AccessibilityID.infoPaneCompletedToggle, value: showsCompleted ? "expanded" : "collapsed")
-
+        } rows: {
             if showsCompleted {
                 ForEach(facts.completedSubagents) { subagentRow($0) }
             }
@@ -147,11 +136,8 @@ struct InfoPaneContent: View, ThemedView {
     }
 
     private func subagentRow(_ subagent: SubagentTranscript) -> some View {
-        SubagentRow(subagent: subagent, tabID: facts.tabID, columns: .infoPane) { onOpenSubagent(subagent) }
+        InfoPaneSubagentRow(subagent: subagent, tabID: facts.tabID) { onOpenSubagent(subagent) }
             .id(subagent.id)
-            // The row insets itself for its hover wash; pulling it out puts
-            // its badge back in the pane's icon column.
-            .padding(.horizontal, -SubagentRow.Columns.washInset)
     }
 
     // MARK: Background tasks
@@ -162,7 +148,6 @@ struct InfoPaneContent: View, ThemedView {
             if !isGrouped, let entry = facts.backgroundTasks.first {
                 HStack(spacing: InfoPaneLayout.columnSpacing) {
                     InfoPaneIcon { Image(systemName: StatusSymbol.backgroundTasks.name) }
-                        .emphasis(.secondary)
                     backgroundTaskRow(entry)
                 }
                 .padding(.vertical, InfoPaneLayout.rowVerticalPadding)
@@ -180,22 +165,17 @@ struct InfoPaneContent: View, ThemedView {
 
     private var backgroundTaskSection: some View {
         let isExpanded = settings.infoPaneBackgroundTasksExpanded
-        return VStack(alignment: .leading, spacing: 0) {
-            Button {
+        return InfoPaneBracketedSection(isExpanded: isExpanded) {
+            InfoPaneSectionHeader(
+                title: "Background Tasks",
+                icon: .symbol(StatusSymbol.backgroundTasks.name),
+                count: facts.backgroundTasks.count,
+                isExpanded: isExpanded,
+                accessibilityID: AccessibilityID.infoPaneBackgroundTasksToggle
+            ) {
                 withAnimation(InfoPaneLayout.sectionAnimation) { settings.infoPaneBackgroundTasksExpanded.toggle() }
-            } label: {
-                HStack(spacing: InfoPaneLayout.columnSpacing) {
-                    InfoPaneIcon { Image(systemName: StatusSymbol.backgroundTasks.name) }
-                    Text("Background Tasks")
-                    Text("\(facts.backgroundTasks.count)")
-                    DisclosureChevron(isExpanded: isExpanded)
-                    Spacer(minLength: 0)
-                }
-                .emphasis(.secondary)
             }
-            .buttonStyle(InfoPaneRowButtonStyle())
-            .plumeID(AccessibilityID.infoPaneBackgroundTasksToggle, value: isExpanded ? "expanded" : "collapsed")
-
+        } rows: {
             if isExpanded {
                 ForEach(facts.backgroundTasks) { entry in
                     HStack(spacing: InfoPaneLayout.columnSpacing) {
@@ -227,7 +207,6 @@ struct InfoPaneContent: View, ThemedView {
         Button(action: onOpenPlan) {
             HStack(spacing: InfoPaneLayout.columnSpacing) {
                 InfoPaneIcon { Image(systemName: StatusSymbol.plan.name) }
-                    .emphasis(.secondary)
                 Text(facts.planTitle ?? "Plan")
                     .lineLimit(1)
                     .truncationMode(.tail)
@@ -251,17 +230,17 @@ struct InfoPaneContent: View, ThemedView {
         ) {
             if let artifact = facts.artifacts.first { artifactRow(artifact, showsIcon: true) }
         } grouped: {
-            VStack(alignment: .leading, spacing: 0) {
-                InfoPaneGroupHeader(
+            InfoPaneBracketedSection(isExpanded: isExpanded) {
+                InfoPaneSectionHeader(
                     title: "Artifacts",
+                    icon: .symbol(ArtifactSymbol.outline),
                     count: facts.artifacts.count,
                     isExpanded: isExpanded,
                     accessibilityID: AccessibilityID.infoPaneArtifactsToggle
                 ) {
                     withAnimation(InfoPaneLayout.sectionAnimation) { settings.infoPaneArtifactsExpanded.toggle() }
-                } icon: {
-                    Image(systemName: ArtifactSymbol.outline)
                 }
+            } rows: {
                 if isExpanded {
                     ForEach(facts.artifacts) { artifactRow($0, showsIcon: false) }
                 }
@@ -276,7 +255,6 @@ struct InfoPaneContent: View, ThemedView {
         } label: {
             HStack(spacing: InfoPaneLayout.columnSpacing) {
                 InfoPaneIcon { Image(systemName: ArtifactSymbol.outline) }
-                    .emphasis(.secondary)
                     .opacity(showsIcon ? 1 : 0)
                 Text(title)
                     .lineLimit(1)
@@ -298,7 +276,6 @@ struct InfoPaneContent: View, ThemedView {
         Button(action: onOpenSideChat) {
             HStack(spacing: InfoPaneLayout.columnSpacing) {
                 InfoPaneIcon { Image(systemName: SideQuestionChip.symbol) }
-                    .emphasis(.secondary)
                 Text("Side chats")
                 Text("\(facts.sideChatCount)")
                     .emphasis(.subtle)
@@ -323,15 +300,17 @@ struct InfoPaneContent: View, ThemedView {
                     .lineLimit(1)
                     .truncationMode(.middle)
                 Spacer(minLength: 4)
-                if let ahead = branch.ahead, ahead > 0 { Text("↑\(ahead)") }
-                if let behind = branch.behind, behind > 0 { Text("↓\(behind)") }
-                if branch.isDirty {
-                    Image(systemName: "circle.fill")
-                        .imageScale(.small)
-                        .help("Uncommitted changes")
+                Group {
+                    if let ahead = branch.ahead, ahead > 0 { Text("↑\(ahead)") }
+                    if let behind = branch.behind, behind > 0 { Text("↓\(behind)") }
+                    if branch.isDirty {
+                        Image(systemName: "circle.fill")
+                            .imageScale(.small)
+                            .help("Uncommitted changes")
+                    }
                 }
+                .emphasis(.subtle)
             }
-            .emphasis(.secondary)
             .padding(.vertical, InfoPaneLayout.rowVerticalPadding)
         }
     }
@@ -475,8 +454,9 @@ private struct SubagentGlyphs: View, ThemedView {
     }
 }
 
-/// A clickable pane row: insets that give its hover wash room, pulled back
-/// out so the row's icon and text stay on the pane's columns.
+/// A clickable pane row: insets that give its hover wash and click target
+/// room, pulled back out so the row's icon and text stay on the pane's
+/// columns.
 struct InfoPaneRowButtonStyle: ButtonStyle {
     /// True while a control laid over the row is hovered and shows its own
     /// wash instead.
@@ -489,6 +469,7 @@ struct InfoPaneRowButtonStyle: ButtonStyle {
     private struct RowBody: View, ThemedView {
         @Environment(\.theme) var theme
         @Environment(\.isEnabled) private var isEnabled
+        @Environment(\.infoPaneRowWash) private var wash
         @State private var isHovering = false
         let configuration: ButtonStyleConfiguration
         let suppressesWash: Bool
@@ -496,14 +477,53 @@ struct InfoPaneRowButtonStyle: ButtonStyle {
         var body: some View {
             let showsWash = isEnabled && !suppressesWash && (isHovering || configuration.isPressed)
             configuration.label
-                .padding(.horizontal, SubagentRow.Columns.washInset)
+                .padding(.horizontal, wash.inset)
                 .padding(.vertical, InfoPaneLayout.rowVerticalPadding)
-                .contentShape(.rect(cornerRadius: 6))
-                .background(showsWash ? colors.surfaceTint : Color.clear, in: .rect(cornerRadius: 6))
+                .contentShape(.rect(cornerRadius: wash.cornerRadius))
+                .background(showsWash ? colors.surfaceTint : Color.clear, in: .rect(cornerRadius: wash.cornerRadius))
                 .plumeHover { isHovering = $0 }
-                .padding(.horizontal, -SubagentRow.Columns.washInset)
+                .padding(.horizontal, -wash.inset)
         }
     }
+}
+
+/// A subagent row on the pane's columns. The row insets itself for its hover
+/// wash; pulling it back out puts its badge in the pane's icon column.
+private struct InfoPaneSubagentRow: View {
+    @Environment(\.infoPaneRowWash) private var wash
+
+    let subagent: SubagentTranscript
+    let tabID: UUID
+    let onOpen: () -> Void
+
+    var body: some View {
+        SubagentRow(subagent: subagent, tabID: tabID, columns: columns, onOpen: onOpen)
+            .padding(.horizontal, -wash.inset)
+    }
+
+    private var columns: SubagentRow.Columns {
+        var columns = SubagentRow.Columns.infoPane
+        columns.leadingWashInset = wash.inset
+        columns.trailingWashInset = wash.inset
+        columns.washCornerRadius = wash.cornerRadius
+        return columns
+    }
+}
+
+/// How far a clickable row's hover wash and click target reach past its
+/// content on each side.
+struct InfoPaneRowWash {
+    var inset: CGFloat
+    var cornerRadius: CGFloat
+
+    static let rounded = InfoPaneRowWash(inset: SubagentRow.Columns.washInset, cornerRadius: 6)
+    /// Spans the pane edge to edge, across the brackets in its padding, which
+    /// draw over the wash. The pane's own corners round it, so it has none.
+    static let paneWidth = InfoPaneRowWash(inset: InfoPaneLayout.panePadding, cornerRadius: 0)
+}
+
+extension EnvironmentValues {
+    @Entry var infoPaneRowWash = InfoPaneRowWash.rounded
 }
 
 /// One cell of the pane's icon column.

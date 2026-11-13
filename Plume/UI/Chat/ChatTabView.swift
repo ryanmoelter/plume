@@ -51,6 +51,8 @@ struct ChatTabView: View, ThemedView {
     /// recall path; this only carries the request across.
     @State private var editQueuedMessageIndex: Int?
     @State private var withdrawnMessageToEdit: [UserContentBlock]?
+    /// Held here so the composer can page the list above it.
+    @State private var listCommands = ChatListCommands()
     @State private var sendNowRequested = false
     /// The conversation's width and the collapsed side pane's height, which
     /// decide whether the pane pins beside the chat and how far the first
@@ -167,6 +169,20 @@ struct ChatTabView: View, ThemedView {
         case .claudeCode: TranscriptStore.shared.subagents(forTab: tab.id)
         case .codex: CodexSubagentStore.shared.subagents(forTab: tab.id)
         }
+    }
+
+    private var subagentOpener: ChatSubagentOpener {
+        let tab = tab
+        return ChatSubagentOpener(
+            tabID: tab.id,
+            subagents: {
+                switch tab.provider {
+                case .claudeCode: TranscriptStore.shared.subagents(forTab: tab.id)
+                case .codex: CodexSubagentStore.shared.subagents(forTab: tab.id)
+                }
+            },
+            open: { openSubagentID = $0.id }
+        )
     }
 
     private var openSubagent: SubagentTranscript? {
@@ -717,7 +733,8 @@ struct ChatTabView: View, ThemedView {
                 hasContentBelow: true,
                 editQueuedMessageIndex: $editQueuedMessageIndex,
                 withdrawnMessageToEdit: $withdrawnMessageToEdit,
-                sendNowRequested: $sendNowRequested
+                sendNowRequested: $sendNowRequested,
+                onPageScroll: { listCommands.page(up: $0) }
             )
             Divider()
             statuslineFooter(transcript: transcript)
@@ -1104,9 +1121,11 @@ struct ChatTabView: View, ThemedView {
                 chatHeight: chatHeight
             ),
             trailingReserve: geometry.chatTrailingReserve,
-            sidePane: sideInfoPane(geometry: geometry, linearLinks: linearLinks)
+            sidePane: sideInfoPane(geometry: geometry, linearLinks: linearLinks),
+            commands: listCommands
         )
         .onGeometryChange(for: CGFloat.self) { $0.size.height } action: { chatHeight = $0 }
+        .environment(\.chatSubagentOpener, subagentOpener)
         .overlay(alignment: .bottom) {
             let reserve = geometry.chatTrailingReserve
             // Moves with the chat's own horizontal shift.

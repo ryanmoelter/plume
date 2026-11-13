@@ -73,6 +73,9 @@ nonisolated struct ToolCallSummary: Equatable {
             guard action == "publish" else { return (action, .code) }
             guard let title = input["title"]?.stringValue else { return nil }
             return (title, .prose)
+        case SentUserFiles.toolName:
+            guard let sent = SentUserFiles(name: name, input: input) else { return nil }
+            return (sent.caption ?? sent.files.map(\.lastPathComponent).joined(separator: ", "), .prose)
         case "WebFetch":
             guard let urlString = input["url"]?.stringValue else { return nil }
             return (URL(string: urlString)?.host ?? urlString, .code)

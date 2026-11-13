@@ -7,7 +7,7 @@ import Foundation
 /// and removed after, so remembering one fills the list with directories that
 /// no longer exist. Callers pass the project it belongs to instead — see
 /// `CheckoutFacts.projectRoot`.
-enum RecentFolders {
+nonisolated enum RecentFolders {
     private static let key = "recentRepositories"
     private static let limit = 8
 

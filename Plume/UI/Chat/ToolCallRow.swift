@@ -15,6 +15,8 @@ struct ToolCallRow: View, ThemedView {
     /// plan to show.
     var onOpenPlan: (() -> Void)? = nil
 
+    @Environment(\.chatSubagentOpener) private var subagentOpener
+
     @State private var expanded = false
     @State private var isHoveringArtifact = false
 
@@ -23,9 +25,27 @@ struct ToolCallRow: View, ThemedView {
             InteractiveToolRow(payload: interactive, isPending: isPending, resultText: call.result, openPlan: onOpenPlan)
         } else if let artifactURL = call.artifactURL {
             artifactButton(artifactURL)
+        } else if let sent = call.sentFiles, !call.didFail {
+            SentFilesView(sent: sent)
+        } else if let subagentOpener, let subagent = spawnedSubagent(opener: subagentOpener) {
+            SubagentRow(
+                subagent: subagent,
+                tabID: subagentOpener.tabID,
+                controlID: AccessibilityID.toolCallSubagentRow
+            ) { subagentOpener.open(subagent) }
+                // The hover wash hangs into the gutter, so the badge lines up
+                // with the glyphs of the tool rows around it.
+                .padding(.horizontal, -SubagentRow.Columns.washInset)
+                .listItemPadding(vertical: false)
         } else {
             collapsibleBody
         }
+    }
+
+    /// The subagent this call spawned, once its transcript exists.
+    private func spawnedSubagent(opener: ChatSubagentOpener) -> SubagentTranscript? {
+        guard ChatSubagentOpener.spawnToolNames.contains(call.name) else { return nil }
+        return opener.subagent(forToolUseID: call.id)
     }
 
     private var collapsibleBody: some View {

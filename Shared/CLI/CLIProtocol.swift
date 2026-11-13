@@ -15,6 +15,8 @@ nonisolated enum CLIRequest: Equatable, Sendable {
     case reserveDevice(ReserveDevice)
     case releaseDevice(ReleaseDevice)
     case extendDevice(ExtendDevice)
+    case linkIssue(LinkIssue)
+    case unlinkIssue(LinkIssue)
 
     struct Notify: Codable, Equatable, Sendable {
         var tabID: UUID
@@ -83,6 +85,14 @@ nonisolated enum CLIRequest: Equatable, Sendable {
         var key: String
         var ttl: TimeInterval
     }
+
+    /// Links `issue`, an identifier or issue URL, to a task named as `NewTab` names one, or
+    /// unlinks it. The app validates `issue`.
+    struct LinkIssue: Codable, Equatable, Sendable {
+        var issue: String
+        var taskID: UUID?
+        var tabID: UUID?
+    }
 }
 
 nonisolated extension CLIRequest: Codable {
@@ -99,6 +109,8 @@ nonisolated extension CLIRequest: Codable {
         case reserveDevice = "devices.reserve"
         case releaseDevice = "devices.release"
         case extendDevice = "devices.extend"
+        case linkIssue = "issue.link"
+        case unlinkIssue = "issue.unlink"
     }
 
     init(from decoder: any Decoder) throws {
@@ -119,6 +131,8 @@ nonisolated extension CLIRequest: Codable {
         case .reserveDevice: self = .reserveDevice(try container.decode(ReserveDevice.self, forKey: .params))
         case .releaseDevice: self = .releaseDevice(try container.decode(ReleaseDevice.self, forKey: .params))
         case .extendDevice: self = .extendDevice(try container.decode(ExtendDevice.self, forKey: .params))
+        case .linkIssue: self = .linkIssue(try container.decode(LinkIssue.self, forKey: .params))
+        case .unlinkIssue: self = .unlinkIssue(try container.decode(LinkIssue.self, forKey: .params))
         }
     }
 
@@ -151,6 +165,12 @@ nonisolated extension CLIRequest: Codable {
         case .extendDevice(let params):
             try container.encode(Command.extendDevice, forKey: .command)
             try container.encode(params, forKey: .params)
+        case .linkIssue(let params):
+            try container.encode(Command.linkIssue, forKey: .command)
+            try container.encode(params, forKey: .params)
+        case .unlinkIssue(let params):
+            try container.encode(Command.unlinkIssue, forKey: .command)
+            try container.encode(params, forKey: .params)
         }
     }
 }
@@ -167,6 +187,8 @@ nonisolated struct CLIResponse: Codable, Equatable, Sendable {
     var created: Bool?
     /// The pending claim `devices.reserve` recorded, which names the lease once it connects.
     var claimID: UUID?
+    /// The Linear identifier `issue.link` or `issue.unlink` acted on, uppercased.
+    var issue: String?
 
     static let success = CLIResponse(ok: true)
 

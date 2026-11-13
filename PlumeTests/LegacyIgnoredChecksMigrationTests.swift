@@ -87,6 +87,7 @@ struct LegacyIgnoredChecksMigrationTests {
 /// A project's unset list shows the defaults row's names as inherited, and
 /// "Use Default" appears only once the project has its own list. The
 /// defaults row has nothing to inherit, so it never offers it.
+@MainActor
 struct NameListDisplayTests {
     @Test func anUnsetProjectListShowsTheInheritedNames() {
         let display = NameListDisplay(own: nil, inherited: ["a", "b"], isDefaults: false)

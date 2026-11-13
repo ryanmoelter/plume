@@ -28,11 +28,33 @@ struct ReferenceTargetTests {
         #expect(classify("https://www.github.com/ryanmoelter/Plume/pull/12") == expected)
     }
 
+    @Test func aLinearDiffURLNamesTheSamePullRequestAsItsGitHubURL() {
+        let expected = ReferenceTarget.pullRequest(owner: "ryanmoelter", repo: "Plume", number: 12)
+        #expect(classify("https://linear.review/ryanmoelter/Plume/pull/12") == expected)
+        #expect(classify("https://linear.review/ryanmoelter/Plume/pull/12/files") == expected)
+        #expect(classify("https://linear.review/ryanmoelter/Plume") == nil)
+    }
+
     @Test func anIssueOrAnotherHostIsNotAPullRequest() {
         #expect(classify("https://github.com/ryanmoelter/Plume/issues/12") == nil)
         #expect(classify("https://gitlab.com/ryanmoelter/Plume/pull/12") == nil)
         #expect(classify("https://example.com/a") == nil)
         #expect(classify("mailto:someone@example.com") == nil)
+    }
+
+    @Test func bothArtifactURLShapesNameTheArtifactByID() {
+        #expect(classify("https://claude.ai/artifact/abc-12_3") == .artifact(id: "abc-12_3"))
+        #expect(classify("https://claude.ai/code/artifact/0f2c-9e") == .artifact(id: "0f2c-9e"))
+        #expect(classify("https://claude.ai/code/artifact/0f2c-9e?tab=1#top") == .artifact(id: "0f2c-9e"))
+        #expect(classify("https://www.claude.ai/artifact/abc") == .artifact(id: "abc"))
+    }
+
+    @Test func otherClaudePagesAreNotArtifacts() {
+        #expect(classify("https://claude.ai/artifact") == nil)
+        #expect(classify("https://claude.ai/artifact/abc/edit") == nil)
+        #expect(classify("https://claude.ai/chat/abc") == nil)
+        #expect(classify("https://claude.ai/code/artifacts") == nil)
+        #expect(classify("https://example.com/artifact/abc") == nil)
     }
 
     @Test func aRelativePathResolvesAgainstTheBase() {
@@ -60,5 +82,6 @@ struct ReferenceTargetTests {
         #expect(ReferenceTarget.linear(identifier: "PLUME-101").canonicalLabel == "PLUME-101")
         #expect(ReferenceTarget.pullRequest(owner: "o", repo: "r", number: 12).canonicalLabel == "#12")
         #expect(ReferenceTarget.file(path: "/repo/Sources/App.swift").canonicalLabel == "App.swift")
+        #expect(ReferenceTarget.artifact(id: "abc").canonicalLabel == nil)
     }
 }

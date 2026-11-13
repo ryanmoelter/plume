@@ -126,3 +126,39 @@ struct ConversationArtifactTests {
         #expect(ConversationArtifact.artifacts(in: messages).isEmpty)
     }
 }
+
+/// Artifact chips take the latest title the tab's own calls gave each
+/// artifact, and fall back to the author's label or the URL for one they never named.
+struct ArtifactChipTitlesTests {
+    private func call(_ input: [String: JSONValue], result: String?, title: String?) -> ChatMessage {
+        let call = ToolCall(
+            id: UUID().uuidString,
+            name: "Artifact",
+            summary: ToolCallSummary(name: "Artifact"),
+            input: .json("{}"),
+            result: result,
+            artifact: ArtifactToolCall(name: "Artifact", input: input, readsPageTitle: { _ in title })
+        )
+        return ChatMessage(id: UUID().uuidString, role: .assistant, blocks: [.toolCall(call)], timestamp: nil)
+    }
+
+    @Test func aRepublishRenamesTheChip() {
+        let url = "https://claude.ai/code/artifact/aaa"
+        let titles = ArtifactChipTitles(messages: [
+            call(["file_path": .string("/tmp/a.html")], result: "Published \(url)", title: "Draft"),
+            call(["file_path": .string("/tmp/a.html"), "url": .string(url)], result: "Published \(url)", title: "Final"),
+        ])
+        #expect(titles.title(forArtifact: "aaa") == "Final")
+    }
+
+    @Test func anArtifactNoCallNamedFallsBackToItsLabelThenItsURL() {
+        let titles = ArtifactChipTitles(messages: [
+            call(["file_path": .string("/tmp/a.html")], result: "Published https://claude.ai/artifact/aaa", title: nil),
+        ])
+        let url = "https://claude.ai/artifact/zzz"
+        #expect(titles.title(forArtifact: "aaa") == nil)
+        #expect(titles.title(forArtifact: "zzz", label: "old deck", destination: url) == "old deck")
+        #expect(titles.title(forArtifact: "zzz", label: "  ", destination: url) == "claude.ai/artifact/zzz")
+        #expect(titles.title(forArtifact: "zzz", label: nil, destination: url) == "claude.ai/artifact/zzz")
+    }
+}

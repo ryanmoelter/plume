@@ -7,6 +7,7 @@ import GhosttyTheme
 /// from (`MeterView.dot`), so a themed palette's warning/danger reaching it
 /// is what keeps the dot in step with the fill it annotates rather than
 /// falling back to the system `.orange`/`.red` PLUME-146 found elsewhere.
+@MainActor
 struct StatuslineColorsTests {
     private let definitions = GhosttyThemeResolver.ResolvedDefinitions(
         light: GhosttyThemeDefinition(

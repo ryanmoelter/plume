@@ -10,11 +10,15 @@ nonisolated struct CheckContext: Sendable, Hashable {
     /// When the run started, or the status was posted. Nil for a run still
     /// queued.
     let startedAt: Date?
+    /// The check's own page: a check run's `detailsUrl`, or a status's
+    /// `targetUrl`.
+    let url: URL?
 
-    init(name: String, status: String, startedAt: Date? = nil) {
+    init(name: String, status: String, startedAt: Date? = nil, url: URL? = nil) {
         self.name = name
         self.status = status.uppercased()
         self.startedAt = startedAt
+        self.url = url
     }
 
     /// Flattens the two union members GitHub's rollup returns.
@@ -28,12 +32,14 @@ nonisolated struct CheckContext: Sendable, Hashable {
         name: String? = nil,
         conclusion: String? = nil,
         status: String? = nil,
-        startedAt: String? = nil
+        startedAt: String? = nil,
+        url: String? = nil
     ) {
         self.init(
             name: name ?? context ?? "",
             status: conclusion ?? state ?? status ?? "",
-            startedAt: startedAt.flatMap { try? Date.ISO8601FormatStyle().parse($0) }
+            startedAt: startedAt.flatMap { try? Date.ISO8601FormatStyle().parse($0) },
+            url: url.flatMap(URL.init(string:))
         )
     }
 

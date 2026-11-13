@@ -203,6 +203,15 @@ struct LinearSyncCacheTests {
         #expect(await disk.loadIssues(orgID: "A") == nil)
     }
 
+    @Test func aStatePositionSurvivesAndAnOldStateWithoutOneStillDecodes() throws {
+        let positioned = LinearWorkflowState(id: "s", name: "In Review", type: .started, color: "#111111", position: 2.5)
+        let decoded = try JSONDecoder().decode(LinearWorkflowState.self, from: JSONEncoder().encode(positioned))
+        #expect(decoded.position == 2.5)
+
+        let old = Data(##"{"id":"s","name":"Todo","type":"unstarted","color":"#e2e2e2"}"##.utf8)
+        #expect(try JSONDecoder().decode(LinearWorkflowState.self, from: old).position == nil)
+    }
+
     @Test func aCacheFromAnotherFormatVersionIsDiscarded() async throws {
         let directory = scratchDirectory()
         defer { try? FileManager.default.removeItem(at: directory) }

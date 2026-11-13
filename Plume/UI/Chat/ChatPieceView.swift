@@ -282,7 +282,7 @@ private struct HeightSource: ViewModifier {
 ///
 /// An open path rather than a rectangle, so a middle piece strokes its two
 /// sides and draws nothing across the joins.
-private struct SegmentBorder: Shape {
+private nonisolated struct SegmentBorder: Shape {
     let segment: ChatPiece.Segment
     let radius: CGFloat
 

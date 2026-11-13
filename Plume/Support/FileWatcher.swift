@@ -24,7 +24,7 @@ final class FileWatcher {
         self.onChange = onChange
     }
 
-    deinit {
+    isolated deinit {
         stop()
     }
 

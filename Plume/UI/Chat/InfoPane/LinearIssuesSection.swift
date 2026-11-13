@@ -33,8 +33,9 @@ struct LinearIssuesSection: View, ThemedView {
     var body: some View {
         if let linear {
             let isExpanded = settings.infoPaneLinearExpanded && !linear.isEmpty
-            VStack(alignment: .leading, spacing: 0) {
+            InfoPaneBracketedSection(isExpanded: isExpanded, isDisclosable: !linear.isEmpty) {
                 header(linear, isExpanded: isExpanded)
+            } rows: {
                 if isExpanded {
                     let cap = LinearIssueCap.layout(total: linear.main.count, isExpanded: showsAllIssues)
                     ForEach(linear.main.prefix(cap.visibleCount)) {
@@ -57,41 +58,36 @@ struct LinearIssuesSection: View, ThemedView {
 
     private func header(_ linear: InfoPaneFacts.LinearFacts, isExpanded: Bool) -> some View {
         let hoveringAdd = isHoveringAdd && !linear.isEmpty
-        return Button {
+        return InfoPaneSectionHeader(
+            title: "Linear",
+            icon: .linear,
+            isExpanded: isExpanded,
+            accessibilityID: AccessibilityID.infoPaneLinearToggle,
+            accessibilityValue: linear.isEmpty ? "empty" : nil,
+            suppressesWash: hoveringAdd,
+            reservesTrailingControl: true
+        ) {
             if linear.isEmpty {
                 showsLinkPopover = true
             } else {
                 withAnimation(InfoPaneLayout.sectionAnimation) { settings.infoPaneLinearExpanded.toggle() }
             }
-        } label: {
-            HStack(spacing: InfoPaneLayout.columnSpacing) {
-                InfoPaneIcon { LinearLogo() }
-                Text("Linear")
-                if !isExpanded, linear.workingCount > 0 {
-                    Text("\(linear.workingCount)")
-                }
-                if !linear.isEmpty {
-                    DisclosureChevron(isExpanded: isExpanded)
-                }
-                Spacer(minLength: 0)
-                OverlaidControlSpace()
+        } accessory: {
+            if !isExpanded, linear.workingCount > 0 {
+                Text("\(linear.workingCount)")
+                    .emphasis(.subtle)
             }
-            .emphasis(.secondary)
         }
-        .buttonStyle(InfoPaneRowButtonStyle(suppressesWash: hoveringAdd))
-        .plumeID(AccessibilityID.infoPaneLinearToggle, value: linear.isEmpty ? "empty" : isExpanded ? "expanded" : "collapsed")
         .overlay(alignment: .trailing) {
             Button { showsLinkPopover = true } label: {
-                Image(systemName: "plus")
-                    .frame(width: InfoPaneLayout.iconColumnWidth)
-                    .modifier(OverlaidControlWash(isHovering: hoveringAdd))
-                    .contentShape(.rect)
+                InfoPaneHeaderPlus(isHovering: hoveringAdd)
             }
             .buttonStyle(.plain)
             .foregroundStyle(theme.colors.selection)
             .plumeHover { isHoveringAdd = $0 }
             .help("Pin a Linear issue to this conversation")
             .plumeID(AccessibilityID.infoPaneLinearAddButton)
+            .padding(-OverlaidControlWash.inset)
             .popover(isPresented: $showsLinkPopover, arrowEdge: .bottom) {
                 LinkIssuePopover(actions: actions, isPresented: $showsLinkPopover)
             }
@@ -114,23 +110,16 @@ struct LinearIssuesSection: View, ThemedView {
     }
 
     private func mentioned(_ issues: [InfoPaneFacts.LinearIssueFacts]) -> some View {
-        VStack(alignment: .leading, spacing: 0) {
-            Button {
+        InfoPaneBracketedSection(isExpanded: showsMentioned, level: .nested) {
+            InfoPaneSubgroupHeader(
+                title: "Mentioned",
+                count: issues.count,
+                isExpanded: showsMentioned,
+                accessibilityID: AccessibilityID.infoPaneLinearMentionedToggle
+            ) {
                 withAnimation(InfoPaneLayout.sectionAnimation) { showsMentioned.toggle() }
-            } label: {
-                HStack(spacing: InfoPaneLayout.columnSpacing) {
-                    // Holds the first column without filling the row's height.
-                    InfoPaneIcon { DisclosureChevron(isExpanded: false).hidden() }
-                    Text("Mentioned")
-                    Text("\(issues.count)")
-                    DisclosureChevron(isExpanded: showsMentioned)
-                    Spacer(minLength: 0)
-                }
-                .emphasis(.subtle)
             }
-            .buttonStyle(InfoPaneRowButtonStyle())
-            .plumeID(AccessibilityID.infoPaneLinearMentionedToggle, value: showsMentioned ? "expanded" : "collapsed")
-
+        } rows: {
             if showsMentioned {
                 ForEach(issues) { IssueRow(issue: $0, showsBubble: false, actions: actions) }
             }
@@ -139,8 +128,9 @@ struct LinearIssuesSection: View, ThemedView {
 }
 
 /// Clicking opens the issue in Linear, which the open mark atop the trailing
-/// edge shows. A mentioned issue, or one with no URL yet, opens its menu
-/// instead, since there is nothing linked to open, and shows no mark.
+/// edge shows, with the actions menu below it. A mentioned issue opens its
+/// menu instead, so the menu takes the open mark's place. A working issue
+/// with no URL yet also opens its menu, and shows no mark.
 private struct IssueRow: View, ThemedView {
     @Environment(\.theme) var theme
 
@@ -150,6 +140,9 @@ private struct IssueRow: View, ThemedView {
     let actions: InfoPaneLinearActions
 
     @State private var isHoveringMenu = false
+    @State private var titleHeight: CGFloat?
+
+    private var menuIsPrimary: Bool { issue.role == .mentioned }
 
     var body: some View {
         Button(action: activate) {
@@ -160,6 +153,7 @@ private struct IssueRow: View, ThemedView {
                         .lineLimit(1)
                         .truncationMode(.tail)
                         .emphasis(showsBubble ? .secondary : .primary)
+                        .onGeometryChange(for: CGFloat.self) { $0.size.height } action: { titleHeight = $0 }
                     detailLine
                 }
                 Spacer(minLength: 4)
@@ -177,7 +171,7 @@ private struct IssueRow: View, ThemedView {
             value: issue.statusWord ?? issue.stateName,
             invoke: activate
         )
-        .overlay(alignment: .bottomTrailing) { actionsMenu }
+        .overlay(alignment: menuIsPrimary ? .topTrailing : .bottomTrailing) { actionsMenu }
     }
 
     private var opensIssue: Bool { issue.role == .working && issue.url != nil }
@@ -187,7 +181,7 @@ private struct IssueRow: View, ThemedView {
         if showsBubble {
             Image(systemName: "questionmark.bubble").emphasis(.secondary)
         } else if let type = issue.stateType {
-            LinearIssueGlyph(stateType: type, colorHex: issue.stateColor)
+            LinearIssueGlyph(stateType: type, progress: issue.startedProgress, colorHex: issue.stateColor)
         } else {
             Image(systemName: "circle.dotted").emphasis(.subtle)
         }
@@ -221,18 +215,20 @@ private struct IssueRow: View, ThemedView {
 
     private var actionsMenu: some View {
         Menu { menuItems } label: {
-            Image(systemName: "ellipsis")
+            // On the title's line when it stands in for the open mark.
+            RowMenuLabel(lineHeight: menuIsPrimary ? titleHeight : nil, isHovering: isHoveringMenu)
         }
-        .menuStyle(.borderlessButton)
+        .menuStyle(.button)
+        .buttonStyle(.plain)
         .menuIndicator(.hidden)
         .fixedSize()
-        .foregroundStyle(theme.colors.selection)
-        .frame(width: InfoPaneLayout.iconColumnWidth)
-        .modifier(OverlaidControlWash(isHovering: isHoveringMenu))
+        .foregroundStyle(AnyShapeStyle.role(theme.colors.selection, when: menuIsPrimary, otherwise: .subtle))
         .plumeHover { isHoveringMenu = $0 }
-        .padding(.bottom, InfoPaneLayout.rowVerticalPadding)
+        .padding(-OverlaidControlWash.inset)
+        .padding(menuIsPrimary ? .top : .bottom, InfoPaneLayout.rowVerticalPadding)
         .help("Linear issue actions")
         .plumeID(AccessibilityID.infoPaneLinearRowMenu, label: issue.identifier)
+        .background { menuItemRegistrations }
     }
 
     @ViewBuilder
@@ -241,10 +237,17 @@ private struct IssueRow: View, ThemedView {
             switch entry {
             case .divider:
                 Divider()
-            case .action(let title, let id, let isEnabled, let perform):
+            case .action(let title, _, let isEnabled, let perform):
                 Button(title, action: perform)
-                    .plumeID(id, label: issue.identifier, invoke: perform)
                     .disabled(!isEnabled)
+            }
+        }
+    }
+
+    private var menuItemRegistrations: some View {
+        ForEach(Array(menuEntries.enumerated()), id: \.offset) { _, entry in
+            if case .action(_, let id, let isEnabled, let perform) = entry {
+                Color.clear.plumeMenuItem(id, label: issue.identifier, isEnabled: isEnabled, invoke: perform)
             }
         }
     }
@@ -310,10 +313,12 @@ private enum IssueMenu {
     }
 }
 
-private final class ClosureMenuItem: NSMenuItem {
+// Nonisolated so the stubs Swift synthesizes for NSMenuItem's other designated
+// initializers match the nonisolated originals.
+private nonisolated final class ClosureMenuItem: NSMenuItem {
     private let perform: () -> Void
 
-    init(title: String, perform: @escaping () -> Void) {
+    @MainActor init(title: String, perform: @escaping () -> Void) {
         self.perform = perform
         super.init(title: title, action: #selector(invoke), keyEquivalent: "")
         target = self
@@ -321,7 +326,7 @@ private final class ClosureMenuItem: NSMenuItem {
 
     required init(coder: NSCoder) { fatalError("init(coder:) has not been implemented") }
 
-    @objc private func invoke() { perform() }
+    @MainActor @objc private func invoke() { perform() }
 }
 
 /// Keeps a row's content clear of the control laid over its trailing edge.
@@ -332,15 +337,20 @@ struct OverlaidControlSpace: View {
 }
 
 /// The hover wash of a control laid over a row, which replaces the row's own.
+/// It goes inside the control's label, so the control's bounds, and so what
+/// a click and the hover reach, are the washed rect. The control then takes
+/// back the room with `.padding(-inset)`, so it lays out at its glyph's size.
 struct OverlaidControlWash: ViewModifier, ThemedView {
+    static let inset: CGFloat = 3
+
     @Environment(\.theme) var theme
     let isHovering: Bool
 
     func body(content: Content) -> some View {
         content
-            .padding(3)
+            .padding(Self.inset)
+            .contentShape(.rect)
             .background(isHovering ? colors.surfaceTint : Color.clear, in: .rect(cornerRadius: 4))
-            .padding(-3)
     }
 }
 

@@ -33,18 +33,20 @@ struct ReferenceChipIconPlacementTests {
         #expect(MentionReference.Kind.file(path: "a", isDirectory: false).brand == nil)
     }
 
-    /// A font size and a status symbol the chips really draw.
-    static let drawnIcons: [(CGFloat, String)] = [
-        (13, "circle.fill"),
-        (17, "circle.dashed"),
-        (13, "arrow.trianglehead.pull"),
-        (13, "checkmark.circle.fill"),
+    /// A font size and a status glyph the chips really draw.
+    nonisolated static let drawnIcons: [(CGFloat, StatusGlyph)] = [
+        (13, .symbol("circle.fill")),
+        (17, .symbol("circle.dashed")),
+        (13, .symbol("arrow.trianglehead.pull")),
+        (13, .symbol("checkmark.circle.fill")),
+        (13, .linearProgress(.quarter)),
+        (17, .linearProgress(.threeQuarters)),
     ]
 
     // MARK: - Chat
 
     @Test(arguments: Self.drawnIcons)
-    func aChatChipsIconDrawsOnItsMidpoint(_ fontSize: CGFloat, symbol: String) throws {
+    func aChatChipsIconDrawsOnItsMidpoint(_ fontSize: CGFloat, glyph: StatusGlyph) throws {
         let url = try #require(URL(string: "https://github.com/o/r/pull/7"))
         let styled = MarkdownCache.chippedInline("See [\u{202F}Fix it](\(url)) now", fontSize: fontSize)
         let chips = InlineChips(
@@ -53,7 +55,7 @@ struct ReferenceChipIconPlacementTests {
             references: ReferenceChipDrawing(
                 wash: .clear,
                 brandColor: Color(red: 0, green: 0, blue: 1),
-                icons: [url: .init(symbol: symbol, color: Color(red: 1, green: 0, blue: 0), brand: .github)],
+                icons: [url: .init(glyph: glyph, color: Color(red: 1, green: 0, blue: 0), brand: .github)],
                 metrics: ReferenceChipMetrics(fontSize: fontSize)
             )
         )
@@ -110,12 +112,12 @@ struct ReferenceChipIconPlacementTests {
     // MARK: - Composer
 
     @Test(arguments: Self.drawnIcons)
-    func aComposerChipsIconsDrawOnItsMidpoint(_ fontSize: CGFloat, symbol: String) throws {
+    func aComposerChipsIconsDrawOnItsMidpoint(_ fontSize: CGFloat, glyph: StatusGlyph) throws {
         let metrics = ComposerMarkdownMetrics(fontSize: fontSize)
         let text = "See #12 now"
         let chip = ComposerReferenceChip(
             range: NSRange(location: 4, length: 3),
-            symbol: symbol,
+            glyph: glyph,
             tint: NSColor(srgbRed: 1, green: 0, blue: 0, alpha: 1),
             wash: .clear,
             brand: .github,
@@ -151,7 +153,7 @@ struct ReferenceChipIconPlacementTests {
         func iconWidth(_ brand: ReferenceChipBrand?) -> CGFloat {
             let text = "See @PLUME-1 now"
             let storage = NSTextStorage(string: text)
-            let chip = ComposerReferenceChip(range: NSRange(location: 4, length: 8), symbol: "circle", tint: .red, wash: .clear, brand: brand)
+            let chip = ComposerReferenceChip(range: NSRange(location: 4, length: 8), glyph: .symbol("circle"), tint: .red, wash: .clear, brand: brand)
             MarkdownComposerStyler.style(storage, text: text, fontSize: metrics.fontSize, references: [chip])
             return storage.attribute(.kern, at: 4, effectiveRange: nil) as? CGFloat ?? 0
         }
@@ -210,7 +212,8 @@ private final class PlacementBox {
 
 /// Keeps the last draw's placements: SwiftUI draws once to size the `Text`
 /// before the pass that lays out every line.
-private struct PlacementRecorder: TextRenderer {
+@MainActor
+private struct PlacementRecorder: @MainActor TextRenderer {
     let chips: InlineChips
     let box = PlacementBox()
 

@@ -89,6 +89,9 @@ final class CLICommandHandler {
         return Checkout(facts: facts, branch: branch == "HEAD" ? nil : branch)
     }
 
+    /// Lets an issue on a team the catalog hasn't seen resolve, as linking from the info pane does.
+    var refreshLinearTeam: (_ teamKey: String) -> Void = { LinearStore.shared.refreshCatalogIfUnknown(teamKey: $0) }
+
     /// Where `SettingsView` keeps its selected pane.
     var settingsDefaults: UserDefaults = .standard
     var activateApp: () -> Void = { NSApp.activate() }
@@ -118,6 +121,10 @@ final class CLICommandHandler {
             return await releaseDevice(params)
         case .extendDevice(let params):
             return await extendDevice(params)
+        case .linkIssue(let params):
+            return linkIssue(params, action: .link)
+        case .unlinkIssue(let params):
+            return linkIssue(params, action: .unlink)
         }
     }
 
@@ -402,6 +409,38 @@ final class CLICommandHandler {
         activateApp()
         window.openSettings()
         return .success
+    }
+
+    private func linkIssue(_ params: CLIRequest.LinkIssue, action: IssueAction) -> CLIResponse {
+        guard let identifier = LinearIdentifier.normalize(params.issue) else {
+            return .failure("not a Linear issue identifier or URL: \(params.issue)")
+        }
+        let windows = frontmostFirst
+        let taskID: UUID
+        if let requested = params.taskID {
+            taskID = requested
+        } else if let tabID = params.tabID {
+            guard let owner = windows.lazy.compactMap({ $0.taskIDForTab(tabID) }).first else {
+                return .failure("no Plume tab \(tabID.uuidString)")
+            }
+            taskID = owner
+        } else {
+            return .failure("issue.\(action.rawValue) needs a taskID or tabID")
+        }
+        guard let task = windows.lazy.compactMap({ $0.task(taskID) }).first else {
+            return .failure("no Plume task \(taskID.uuidString)")
+        }
+        switch action {
+        case .link:
+            TaskStore.linkLinearIssue(identifier, to: task)
+            refreshLinearTeam(LinearIdentifier.teamKey(of: identifier))
+        case .unlink:
+            TaskStore.unlinkLinearIssue(identifier, from: task)
+        }
+        var response = CLIResponse.success
+        response.taskID = task.id
+        response.issue = identifier
+        return response
     }
 
     private func newTab(_ params: CLIRequest.NewTab) -> CLIResponse {

@@ -2,6 +2,7 @@ import Testing
 import GhosttyTheme
 @testable import Plume
 
+@MainActor
 struct AppAppearanceTests {
     @Test func noThemeFollowsSystem() {
         #expect(AppAppearance.decision(for: nil) == .followSystem)

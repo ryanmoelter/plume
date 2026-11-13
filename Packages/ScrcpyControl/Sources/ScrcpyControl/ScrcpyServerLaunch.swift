@@ -321,7 +321,7 @@ public final class ScrcpyServerLaunch: @unchecked Sendable {
         let process = Process()
         process.executableURL = adbURL
         process.arguments = ["-s", serial, "shell"] + serverArguments
-        let pipe = Pipe()
+        let pipe = Pipe.closeOnExec()
         process.standardOutput = pipe
         process.standardError = pipe
         process.standardInput = FileHandle.nullDevice
@@ -429,7 +429,7 @@ final class ADBInvocation: @unchecked Sendable {
     }
 
     private let process = Process()
-    private let pipe = Pipe()
+    private let pipe = Pipe.closeOnExec()
     private let commandDescription: String
     private let lock = NSLock()
     private var aborted: Abort?

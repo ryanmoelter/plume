@@ -168,7 +168,7 @@ struct PullRequestChip: View {
                         // nothing below the baseline, so it centers on its
                         // cap height rather than its line box.
                         Text(text)
-                            .alignmentGuide(VerticalAlignment.center) {
+                            .alignmentGuide(VerticalAlignment.center) { [capHeight] in
                                 $0[.firstTextBaseline] - capHeight / 2
                             }
                             .foregroundStyle(emphasis.textHierarchy)

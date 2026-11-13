@@ -9,7 +9,7 @@ nonisolated enum ReferenceChipDetail: Equatable, Sendable {
 /// The text a reference chip's tooltip shows: the full title, then the facts
 /// the chip has no room for.
 nonisolated enum ReferenceChipTooltip {
-    static func text(for target: ReferenceTarget, detail: ReferenceChipDetail?, title: String?, directory: String?) -> String {
+    static func text(for target: ReferenceTarget, detail: ReferenceChipDetail?, title: String?, directory: String?, url: URL? = nil) -> String {
         switch (target, detail) {
         case (.linear, .linear(let issue)):
             return linear(issue)
@@ -19,6 +19,8 @@ nonisolated enum ReferenceChipTooltip {
             return pullRequest(entry, owner: owner, repo: repo)
         case (.pullRequest(let owner, let repo, let number), _):
             return lines([title, "\(owner)/\(repo) #\(number)"])
+        case (.artifact, _):
+            return lines([title, url?.absoluteString])
         case (.file(let path), _):
             return (path as NSString).standardizingPath
         }

@@ -105,6 +105,10 @@ git branch -D <prefix>/<slug> worktree-agent-<id>
 
 **Keep the worktree of any package whose work is not finished**, even if some of it merged. A package that was partly cherry-picked still holds the dropped commits, and they are the starting point for the follow-up agent.
 
+**A test chat's permission answers can persist outside the worktree.** The debug build runs a real `claude`, and an accepted "Always allow … in this project" suggestion makes that CLI write the rule to the primary checkout's `.claude/settings.local.json`, not the worktree's. Tell any agent that drives the app to start its test chats in a temporary folder outside any repository (the `drive-plume` skill says so too), and check that file after the run.
+
+**Keep a worktree while anything the package started still runs.** An implementer's report can mention a verification agent it handed off to, and that agent keeps driving the worktree's build after the implementer's turn ends. In the 0.20.0 run, removing the worktree mid-check stranded a debug instance and left a test binding in the shared debug defaults. Wait for that agent's report, and look for a running app with `pgrep -f "<DerivedData dir>"` as well as the worktree path, since the app runs from DerivedData.
+
 ## 4. Debug build for manual evaluation
 
 Delegate to a Sonnet verifier, on the release branch in the primary checkout:
@@ -119,6 +123,8 @@ Delegate to a Sonnet verifier, on the release branch in the primary checkout:
 Publish a review page with the `Artifact` tool before telling the user (load `artifact-design` first). It has one section per package: the issue identifier and title, its checklist, and that package's screenshots and recordings from `~/Library/Caches/Plume-agent-media/<issue>/`, each captioned with what it shows. `files` accepts only paths under the working directory or the scratchpad, so copy each package's media into a folder in the scratchpad and publish from there. Republish the same page path as later packages land, so the user keeps one link for the release.
 
 Tell the user the app is running, give the review page's link, and give a per-package checklist of what to try. Each round of feedback becomes targeted agents on the release branch (Sonnet for tweaks, Opus for behavior bugs), then rebuild and relaunch through the verifier. The verifier recaptures the media a fix changed, and the coordinator republishes the review page.
+
+If the user wants what has merged so far in beta users' hands before the cycle ends, use the `release-beta` skill. It ships a beta from `main` and keeps the cycle going on the same release branch.
 
 ## 5. Release
 

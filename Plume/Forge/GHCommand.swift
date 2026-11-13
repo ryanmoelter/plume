@@ -83,8 +83,8 @@ nonisolated enum GHCommand {
         process.arguments = ["-mc", LoginShellCommand.wrap("exec " + command)]
         process.currentDirectoryURL = URL(fileURLWithPath: directory)
 
-        let output = Pipe()
-        let error = Pipe()
+        let output = Pipe.closeOnExec()
+        let error = Pipe.closeOnExec()
         process.standardOutput = output
         process.standardError = error
 
@@ -125,7 +125,7 @@ nonisolated enum GHCommand {
     }
 }
 
-private extension Duration {
+nonisolated private extension Duration {
     var seconds: Double {
         Double(components.seconds) + Double(components.attoseconds) / 1e18
     }

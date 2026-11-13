@@ -83,6 +83,22 @@ enum AgentLauncher {
         launch(message: nil, task: task, tab: tab, resumeSessionID: tab.agentSessionID)
     }
 
+    /// Ends the tab's process and starts a new one on the same transport,
+    /// resuming the same conversation, so the CLI rereads its settings,
+    /// skills and MCP servers.
+    static func refresh(task: WorkTask, tab: TaskTab) {
+        switch (tab.provider, tab.transport) {
+        case (.claudeCode, .headless):
+            if !restartHeadless(task: task, tab: tab) { relaunchHeadless(task: task, tab: tab) }
+        case (.codex, .headless):
+            AgentSessionManager.shared.closeSession(for: tab.id)
+            launch(message: nil, task: task, tab: tab, resumeSessionID: tab.agentSessionID)
+        case (_, .terminal):
+            SurfaceManager.shared.closeSession(for: tab.id)
+            launch(message: nil, task: task, tab: tab, resumeSessionID: tab.agentSessionID)
+        }
+    }
+
     /// Replaces the tab's headless session with a new process resuming the
     /// same conversation. Unsent messages, side chats, the title policy and
     /// Remote Control live only in the old session, so they move across.
@@ -272,6 +288,10 @@ enum AgentLauncher {
         session.onAdoptDirectories = { [weak tab] paths in
             guard let tab else { return }
             AdditionalDirectoryStore.adopt(paths, into: tab)
+        }
+        session.onGrantDirectories = { [weak tab] paths in
+            guard let tab else { return }
+            AdditionalDirectoryStore.grant(paths, to: tab)
         }
         session.declinedDirectories = { [weak tab] in tab?.removedAdditionalDirectories ?? [] }
         if blocks.hasContent {

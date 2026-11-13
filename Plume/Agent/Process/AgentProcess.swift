@@ -8,9 +8,9 @@ import os
 /// owns it supplies meaning.
 nonisolated final class AgentProcess: @unchecked Sendable {
     private let process = Process()
-    private let inPipe = Pipe()
-    private let outPipe = Pipe()
-    private let errPipe = Pipe()
+    private let inPipe = Pipe.closeOnExec()
+    private let outPipe = Pipe.closeOnExec()
+    private let errPipe = Pipe.closeOnExec()
     private let queue = DispatchQueue(label: "com.ryanmoelter.Plume.agent-process")
 
     /// Partial trailing line carried between reads: a pipe read can split a
@@ -55,18 +55,6 @@ nonisolated final class AgentProcess: @unchecked Sendable {
         self.ledger = ledger
         self.onLine = onLine
         self.onExit = onExit
-        for pipe in [inPipe, outPipe, errPipe] { Self.closeOnExec(pipe) }
-    }
-
-    /// `Process` leaves its pipes inheritable, and libghostty forks every
-    /// terminal's shell without closing descriptors, so each shell — and
-    /// anything it launches — would hold this agent's stdin open. Then the
-    /// agent never sees EOF when the app dies, and outlives it. The child's
-    /// own ends are unaffected: `dup2` onto its stdio clears the flag.
-    static func closeOnExec(_ pipe: Pipe) {
-        for descriptor in [pipe.fileHandleForReading.fileDescriptor, pipe.fileHandleForWriting.fileDescriptor] {
-            _ = fcntl(descriptor, F_SETFD, fcntl(descriptor, F_GETFD) | FD_CLOEXEC)
-        }
     }
 
     func start(arguments: [String], workingDirectory: String?, environment: [String: String]) throws {
@@ -101,12 +89,12 @@ nonisolated final class AgentProcess: @unchecked Sendable {
             guard !data.isEmpty else { return }
             let text = String(decoding: data, as: UTF8.self)
                 .trimmingCharacters(in: .whitespacesAndNewlines)
-            guard !text.isEmpty else { return }
-            Log.agent.error("\(self?.label ?? "agent", privacy: .public) stderr: \(text, privacy: .public)")
+            guard !text.isEmpty, let self else { return }
+            Log.agent.error("\(self.label, privacy: .public) stderr: \(text, privacy: .public)")
             let reported = Self.reportedError(in: text)
-            self?.queue.async {
-                self?.lastErrorLine = text
-                if let reported { self?.lastReportedError = reported }
+            queue.async {
+                self.lastErrorLine = text
+                if let reported { self.lastReportedError = reported }
             }
         }
         process.terminationHandler = { [weak self] process in

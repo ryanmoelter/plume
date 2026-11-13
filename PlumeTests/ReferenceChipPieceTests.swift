@@ -37,6 +37,16 @@ struct ReferenceChipPieceTests {
         return nil
     }
 
+    @Test func aBareLinkIsLookedUpAndWrittenAsAChip() {
+        let diff = "https://linear.review/o/r/pull/3"
+        let target = ReferenceTarget.pullRequest(owner: "o", repo: "r", number: 3)
+        let cache = ChatPieceCache()
+        _ = build(cache, "Review \(diff) please")
+        #expect(cache.referenceTargets == [target])
+        let text = paragraphText(build(cache, "Review \(diff) please", revision: 1, titles: [target: "Add chips"]))
+        #expect(text == "Review [\(chip)Add chips](\(diff)) please")
+    }
+
     @Test func anUnresolvedReferenceLeavesThePiecesAsTheyWere() {
         let text = "See [PLUME-1](\(issueURL))."
         let plain = ChatPieceCache().pieces(
@@ -59,6 +69,46 @@ struct ReferenceChipPieceTests {
         )
         #expect(cache.referenceTargets == [.linear(identifier: "PLUME-1")])
         #expect(paragraphText(pieces) == "See [\(chip)Add chips](\(issueURL)) and `x`.")
+    }
+
+    private func artifactMessages(_ text: String, published url: String, title: String) -> [ChatMessage] {
+        let call = ToolCall(
+            id: "t",
+            name: "Artifact",
+            summary: ToolCallSummary(name: "Artifact"),
+            input: .json("{}"),
+            result: "Published \(url)",
+            artifact: ArtifactToolCall(name: "Artifact", input: ["file_path": .string("/tmp/a.html")], readsPageTitle: { _ in title })
+        )
+        return [
+            ChatMessage(id: "c", role: .assistant, blocks: [.toolCall(call)], timestamp: nil, isLive: false),
+            ChatMessage(id: "a", role: .assistant, blocks: [.markdown(text)], timestamp: nil, isLive: false),
+        ]
+    }
+
+    @Test func anArtifactLinkTakesTheTitleTheTabsArtifactCallGaveIt() {
+        let url = "https://claude.ai/code/artifact/0f2c"
+        let pieces = ChatPieceCache().pieces(
+            for: artifactMessages("See [the page](\(url)) or \(url).", published: url, title: "Release notes"),
+            status: .awaitingReply,
+            hiddenToolUseIDs: [],
+            dimensions: dimensions
+        )
+        #expect(paragraphText(pieces) == "See [\(chip)Release notes](\(url)) or [\(chip)Release notes](\(url)).")
+    }
+
+    @Test func anUnnamedArtifactLinkShowsItsLabelOrItsURL() {
+        let url = "https://claude.ai/artifact/xyz"
+        let cache = ChatPieceCache()
+        let pieces = build(cache, "See [old deck](\(url)) or \(url).")
+        #expect(cache.referenceTargets == [.artifact(id: "xyz")])
+        #expect(paragraphText(pieces) == "See [\(chip)old deck](\(url)) or [\(chip)claude.ai/artifact/xyz](\(url)).")
+    }
+
+    @Test func aLongBareArtifactURLIsTruncated() {
+        let url = "https://claude.ai/code/artifact/0f2c1d9e-8a7b-4c3d-9e1f-123456789abc"
+        let pieces = build(ChatPieceCache(), url)
+        #expect(paragraphText(pieces) == "[\(chip)claude.ai/code/artifact/0f2c1d9e-8a7b-4…](\(url))")
     }
 
     @Test func aResolvedReferenceIsRewrittenAndCopiesAsWritten() throws {

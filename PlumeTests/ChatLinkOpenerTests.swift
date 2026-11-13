@@ -5,6 +5,7 @@ import Foundation
 /// Covers how a clicked link's URL resolves to something openable. The agent
 /// writes file citations as bare paths, which arrive with no scheme at all,
 /// so most of these are about the scheme-less cases.
+@MainActor
 struct ChatLinkOpenerTests {
     /// A directory with a file in it, to resolve paths against.
     private func makeDirectory() throws -> URL {

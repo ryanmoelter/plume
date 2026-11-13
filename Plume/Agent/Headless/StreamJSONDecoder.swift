@@ -3,7 +3,7 @@ import Foundation
 /// Turns one NDJSON line from `claude -p` into a `StreamJSONMessage`.
 ///
 /// Pure and synchronous so the wire format can be tested without a process.
-enum StreamJSONDecoder {
+nonisolated enum StreamJSONDecoder {
     static func decode(line: String) -> StreamJSONMessage? {
         let trimmed = line.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmed.isEmpty, let data = trimmed.data(using: .utf8) else { return nil }
@@ -176,7 +176,11 @@ enum StreamJSONDecoder {
             decisionReason: body["decision_reason"]?.stringValue,
             toolUseID: body["tool_use_id"]?.stringValue,
             agentID: body["agent_id"]?.stringValue,
-            requiresUserInteraction: body["requires_user_interaction"]?.boolValue ?? false
+            requiresUserInteraction: body["requires_user_interaction"]?.boolValue ?? false,
+            permissionSuggestions: PermissionSuggestion.decoding(
+                body["permission_suggestions"],
+                suppressingRules: body["suppress_always_allow_rule"]?.boolValue ?? false
+            )
         )
     }
 }

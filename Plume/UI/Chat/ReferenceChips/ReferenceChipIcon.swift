@@ -1,6 +1,6 @@
 import Foundation
 
-/// The symbol a reference chip leads with, before any color scheme is known.
+/// The glyph a reference chip leads with, before any color scheme is known.
 nonisolated struct ReferenceChipIcon: Hashable, Sendable {
     enum Tint: Hashable, Sendable {
         case neutral
@@ -14,11 +14,24 @@ nonisolated struct ReferenceChipIcon: Hashable, Sendable {
         case linear(colorHex: String)
     }
 
-    let symbol: String
+    let glyph: StatusGlyph
     let tint: Tint
 
-    static func linear(_ stateType: LinearStateType, colorHex: String) -> ReferenceChipIcon {
-        ReferenceChipIcon(symbol: LinearIssueGlyph.symbolName(for: stateType), tint: .linear(colorHex: colorHex))
+    init(glyph: StatusGlyph, tint: Tint) {
+        self.glyph = glyph
+        self.tint = tint
+    }
+
+    init(symbol: String, tint: Tint) {
+        self.init(glyph: .symbol(symbol), tint: tint)
+    }
+
+    static func linear(_ stateType: LinearStateType, progress: LinearStartedProgress, colorHex: String) -> ReferenceChipIcon {
+        ReferenceChipIcon(glyph: LinearIssueGlyph.glyph(for: stateType, progress: progress), tint: .linear(colorHex: colorHex))
+    }
+
+    static func linear(_ issue: LinearIssue) -> ReferenceChipIcon {
+        .linear(issue.stateType, progress: issue.startedProgress, colorHex: issue.stateColor)
     }
 
     /// The pull request chip's own state mark: merged, closed, draft or open.
@@ -40,20 +53,24 @@ nonisolated struct ReferenceChipIcon: Hashable, Sendable {
         ReferenceChipIcon(symbol: isDirectory ? "folder" : "doc", tint: .link)
     }
 
-    /// Before anything has vouched for the target.
+    static let artifact = ReferenceChipIcon(symbol: ArtifactSymbol.filled, tint: .link)
+
+    /// Before anything has vouched for the target. An artifact needs no
+    /// lookup, so this is its icon for good.
     static func placeholder(for target: ReferenceTarget) -> ReferenceChipIcon {
         switch target {
         case .linear: ReferenceChipIcon(symbol: "circle.dashed", tint: .neutral)
         case .pullRequest: ReferenceChipIcon(symbol: "arrow.triangle.pull", tint: .neutral)
+        case .artifact: .artifact
         case .file: .file(isDirectory: false)
         }
     }
 }
 
-extension ResolvedMention.State {
+nonisolated extension ResolvedMention.State {
     nonisolated func chipIcon(number: Int?) -> ReferenceChipIcon {
         switch self {
-        case let .linear(stateType, colorHex): .linear(stateType, colorHex: colorHex)
+        case let .linear(stateType, progress, colorHex): .linear(stateType, progress: progress, colorHex: colorHex)
         case let .pullRequest(state, isDraft): .pullRequest(number: number ?? 0, state: state, isDraft: isDraft)
         case let .file(isDirectory): .file(isDirectory: isDirectory)
         }

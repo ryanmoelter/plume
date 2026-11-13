@@ -47,6 +47,7 @@ nonisolated struct ToolCall: Identifiable, Equatable {
     /// Images the tool returned — a screenshot tool returns exactly this.
     var resultImages: [ChatImage] = []
     var artifact: ArtifactToolCall?
+    var sentFiles: SentUserFiles?
 
     /// The claude.ai page an Artifact call worked on, to link from its row.
     var artifactURL: URL? {

@@ -7,6 +7,7 @@ import Foundation
 /// The span is measured from the transcript's own line timestamps, so it
 /// survives a relaunch — the same rule the linger clock follows for the
 /// opposite reason.
+@MainActor
 struct SubagentCaptionTests {
     private func line(at timestamp: String, model: String? = nil, contextTokens: Int? = nil) -> String {
         let modelField = model.map { #""model":"\#($0)","# } ?? ""

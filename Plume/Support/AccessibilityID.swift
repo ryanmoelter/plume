@@ -82,6 +82,9 @@ enum AccessibilityID {
     static let linearAccountInfoButton = "linear-account-info-button"
     static let linearAccountRefreshButton = "linear-account-refresh-button"
     static let linearCreateKeyLink = "linear-create-key-link"
+    static let deviceToolbarPlacement = "device-toolbar-placement"
+    static let pullRequestDestinationPicker = "pull-request-destination-picker"
+    static let settingsAboutReleaseNotesLink = "settings-about-release-notes-link"
     static let linearShowIssuesToggle = "linear-show-issues-toggle"
     static let linearStateColorsPicker = "linear-state-colors-picker"
     static let linearShowAddFormButton = "linear-show-add-form-button"
@@ -314,6 +317,12 @@ enum AccessibilityID {
     // MARK: Permission request
 
     static let permissionDenialReasonField = "permission-denial-reason-field"
+    static let permissionAllowButton = "permission-allow-button"
+    static let permissionDenyButton = "permission-deny-button"
+    static let permissionSuggestionButton = "permission-suggestion-button"
+    static let refreshConversationMenuItem = "refresh-conversation-menu-item"
+    static let refreshConversationConfirm = "refresh-conversation-confirm"
+    static let refreshConversationCancel = "refresh-conversation-cancel"
 
     // MARK: Markdown
 
@@ -323,6 +332,10 @@ enum AccessibilityID {
     // MARK: Tool calls
 
     static let toolCallArtifactLink = "tool-call-artifact-link"
+    static let toolCallSubagentRow = "tool-call-subagent-row"
+    static let sentFileImage = "sent-file-image"
+    static let sentFileCard = "sent-file-card"
+    static let sentFileReveal = "sent-file-reveal"
 
     // MARK: Subagents
 

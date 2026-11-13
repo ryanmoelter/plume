@@ -2,6 +2,7 @@ import Foundation
 import Testing
 @testable import Plume
 
+@MainActor
 struct TabVisibilityTests {
     @Test func onlyTheSelectedTabIsOnScreenWithoutASplit() {
         let (selected, other) = (UUID(), UUID())

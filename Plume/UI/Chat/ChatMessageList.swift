@@ -117,7 +117,7 @@ struct ChatMessageList<SidePane: View>: View, ThemedView {
 
     /// The list's handle, and the message ids of the last rebuild so a
     /// prompt the user just sent can be told from a transcript loading.
-    @State private var commands = ChatListCommands()
+    let commands: ChatListCommands
     @State private var previousMessageIDs: [String] = []
     /// The pane's width, which decides how much room the rail gives itself.
     @State private var viewportWidth: CGFloat = 0

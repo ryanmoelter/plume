@@ -7,7 +7,7 @@ import Foundation
 /// its raw payload as `.unknown` rather than failing the stream, because the
 /// CLI adds event kinds between releases and a hard failure would strand a
 /// live conversation.
-enum StreamJSONMessage {
+nonisolated enum StreamJSONMessage {
     case rateLimit(RateLimitInfo)
     case initialized(SessionInit)
     case status(String)
@@ -28,7 +28,7 @@ enum StreamJSONMessage {
     case unknown(type: String)
 }
 
-struct RateLimitInfo: Equatable, Codable {
+nonisolated struct RateLimitInfo: Equatable, Codable {
     struct Window: Equatable, Codable {
         /// 0–1, not a percentage. The statusline payload this replaces
         /// reported 0–100, so every display scales it here rather than
@@ -42,7 +42,7 @@ struct RateLimitInfo: Equatable, Codable {
     let isUsingOverage: Bool
 }
 
-struct SessionInit: Equatable {
+nonisolated struct SessionInit: Equatable {
     let sessionID: String
     let cwd: String?
     let model: String?
@@ -55,7 +55,7 @@ struct SessionInit: Equatable {
 }
 
 /// A slash command the session can run, from the `initialize` handshake reply.
-struct SlashCommand: Equatable, Identifiable, Sendable {
+nonisolated struct SlashCommand: Equatable, Identifiable, Sendable {
     let name: String
     let description: String
     let argumentHint: String
@@ -73,7 +73,7 @@ struct SlashCommand: Equatable, Identifiable, Sendable {
 /// grows between releases; `RemoteControlState` is the one place that
 /// interprets it. `epoch` is absent on the first event of a connect and
 /// present from the second on.
-struct BridgeState: Equatable {
+nonisolated struct BridgeState: Equatable {
     let state: String
     let detail: String?
     let epoch: Int?
@@ -81,7 +81,7 @@ struct BridgeState: Equatable {
 
 /// One entry of `background_tasks_changed`. See "The live background-task
 /// list" in docs/headless-protocol.md.
-struct LiveBackgroundTask: Equatable {
+nonisolated struct LiveBackgroundTask: Equatable {
     let id: String
     let taskType: String
     let description: String?
@@ -103,7 +103,7 @@ struct LiveBackgroundTask: Equatable {
     }
 }
 
-struct MessageEnvelope {
+nonisolated struct MessageEnvelope {
     let raw: [String: JSONValue]
     /// Set when the message belongs to a subagent rather than the main thread.
     let parentToolUseID: String?
@@ -111,7 +111,7 @@ struct MessageEnvelope {
 }
 
 /// A token-level delta from `--include-partial-messages`.
-struct PartialEvent {
+nonisolated struct PartialEvent {
     let eventType: String
     let index: Int?
     let textDelta: String?
@@ -122,7 +122,7 @@ struct PartialEvent {
     let messageID: String?
 }
 
-struct TurnResult {
+nonisolated struct TurnResult {
     let subtype: String
     let isError: Bool
     let text: String?
@@ -164,7 +164,7 @@ nonisolated enum ContextUsage {
     }
 }
 
-struct ControlRequest {
+nonisolated struct ControlRequest {
     let requestID: String
     let subtype: String
     let toolName: String?
@@ -177,9 +177,10 @@ struct ControlRequest {
     /// True for tools that reach the host even when an allow rule matches —
     /// `AskUserQuestion` and `ExitPlanMode`. No allowlist can route past one.
     let requiresUserInteraction: Bool
+    var permissionSuggestions: [PermissionSuggestion] = []
 }
 
-struct ControlResponse {
+nonisolated struct ControlResponse {
     let requestID: String
     let subtype: String
     let payload: [String: JSONValue]

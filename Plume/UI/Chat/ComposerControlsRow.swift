@@ -212,7 +212,11 @@ private struct PermissionModeControl: View, ThemedView {
             .help(state.modeAndModelHelp("Permission mode: \(preset.label)"))
             .accessibilityLabel("Permission mode")
             .accessibilityValue(preset.label)
-            .plumeID(AccessibilityID.composerPermissionModeControl)
+            .plumeID(AccessibilityID.composerPermissionModeControl, value: preset.label, setValue: { label in
+                if let option = state.permissionPresets.first(where: { $0.label == label }) {
+                    state.setPermissionPreset(option)
+                }
+            })
         }
     }
 

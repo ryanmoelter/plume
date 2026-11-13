@@ -87,7 +87,7 @@ nonisolated enum AVDCatalog {
         process.executableURL = emulatorURL
         process.arguments = ["-list-avds"]
         process.environment = ProcessInfo.processInfo.environment.merging(sdk.launchEnvironment) { _, new in new }
-        let pipe = Pipe()
+        let pipe = Pipe.closeOnExec()
         process.standardOutput = pipe
         process.standardError = FileHandle.nullDevice
         process.standardInput = FileHandle.nullDevice

@@ -621,6 +621,6 @@ private extension JSONEncoder {
     }
 }
 
-private extension String {
+nonisolated private extension String {
     var nonEmpty: String? { isEmpty ? nil : self }
 }

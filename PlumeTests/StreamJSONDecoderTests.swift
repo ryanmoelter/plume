@@ -5,6 +5,7 @@ import Foundation
 /// Fixtures are real captures of `claude -p --output-format stream-json`,
 /// under `PlumeTests/Fixtures/Headless`. `docs/headless-protocol.md` is the
 /// reference this locks the decoder and encoder against.
+@MainActor
 struct StreamJSONDecoderTests {
     private static func fixtureDirectory() -> URL {
         URL(fileURLWithPath: #filePath)

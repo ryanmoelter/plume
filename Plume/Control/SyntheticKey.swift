@@ -17,12 +17,31 @@ enum SyntheticKey {
     /// Found by translating every key code rather than from a fixed table, so
     /// a non-US layout resolves to whatever key is labelled that character.
     static func keyCode(for character: Character) -> CGKeyCode? {
+        if let named = named.first(where: { $0.character == character }) { return named.code }
         guard let layout = currentLayoutData() else { return nil }
         let wanted = String(character).lowercased()
         for code in CGKeyCode(0)...CGKeyCode(127) where translate(code, layout: layout)?.lowercased() == wanted {
             return code
         }
         return nil
+    }
+
+    /// Keys that type no character on a layout, addressed by name over the
+    /// control socket. The characters are what AppKit reports for them, which
+    /// its key bindings match on (Page Up becomes `scrollPageUp:` in a text
+    /// view).
+    static let named: [(name: String, character: Character, code: CGKeyCode)] = [
+        ("pageup", "\u{F72C}", 116),
+        ("pagedown", "\u{F72D}", 121),
+        ("delete", MenuShortcut.backspace, 51),
+    ]
+
+    static func character(named name: String) -> Character? {
+        named.first { $0.name == name.lowercased() }?.character
+    }
+
+    private static func isFunctionKey(_ character: Character) -> Bool {
+        character == "\u{F72C}" || character == "\u{F72D}"
     }
 
     /// Delivers `shortcut` as a down/up pair to `window`.
@@ -34,7 +53,8 @@ enum SyntheticKey {
         guard let code = keyCode(for: shortcut.key) else {
             throw ControlError.badParams("no key on this layout types \"\(shortcut.key)\"")
         }
-        let flags = MenuShortcut.appKitFlags(shortcut.modifiers)
+        var flags = MenuShortcut.appKitFlags(shortcut.modifiers)
+        if isFunctionKey(shortcut.key) { flags.insert(.function) }
         // `charactersIgnoringModifiers` is what both the menu and
         // `TerminalShortcutMonitor` match on, so it carries the unmodified
         // character while `characters` carries what the chord composes to.
@@ -43,7 +63,7 @@ enum SyntheticKey {
             NSEvent.keyEvent(
                 with: type, location: .zero, modifierFlags: flags,
                 timestamp: ProcessInfo.processInfo.systemUptime, windowNumber: window.windowNumber,
-                context: nil, characters: composed(code, flags: flags) ?? bare,
+                context: nil, characters: Self.named.contains { $0.character == shortcut.key } ? bare : (composed(code, flags: flags) ?? bare),
                 charactersIgnoringModifiers: bare, isARepeat: false, keyCode: UInt16(code)
             )
         }

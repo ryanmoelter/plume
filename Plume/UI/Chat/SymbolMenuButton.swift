@@ -64,10 +64,12 @@ final class SymbolMenuPopupButton: NSButton {
     }
 }
 
-private final class SymbolMenuItem: NSMenuItem {
+// Nonisolated so the stubs Swift synthesizes for NSMenuItem's other designated
+// initializers match the nonisolated originals.
+private nonisolated final class SymbolMenuItem: NSMenuItem {
     private let perform: () -> Void
 
-    init(title: String, perform: @escaping () -> Void) {
+    @MainActor init(title: String, perform: @escaping () -> Void) {
         self.perform = perform
         super.init(title: title, action: #selector(invoke), keyEquivalent: "")
         target = self
@@ -75,5 +77,5 @@ private final class SymbolMenuItem: NSMenuItem {
 
     required init(coder: NSCoder) { fatalError("init(coder:) has not been implemented") }
 
-    @objc private func invoke() { perform() }
+    @MainActor @objc private func invoke() { perform() }
 }

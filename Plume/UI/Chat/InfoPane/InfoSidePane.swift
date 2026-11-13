@@ -163,7 +163,7 @@ struct InfoSidePane: View, ThemedView {
         )
         .environment(\.infoPaneIsOpen, isOpen)
         .onPreferenceChange(InfoPaneHoldsOpenKey.self) { holdsHoverOpen = $0 }
-        .padding(12)
+        .padding(InfoPaneLayout.panePadding)
         .frame(width: geometry.paneWidth, alignment: .leading)
         .fixedSize(horizontal: false, vertical: true)
         .onGeometryChange(for: CGFloat.self) { $0.size.height } action: { old, height in

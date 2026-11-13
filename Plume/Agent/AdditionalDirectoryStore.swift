@@ -52,6 +52,14 @@ enum AdditionalDirectoryStore {
         RecentLinkedFolders.remember(paths, in: history)
     }
 
+    /// Folders the running process was granted from a permission request.
+    /// The session has already counted them as launched, so no restart
+    /// follows, and the grant overrides an earlier removal.
+    static func grant(_ paths: [String], to tab: TaskTab, history: UserDefaults = .standard) {
+        undecline(paths, on: tab)
+        adopt(paths, into: tab, history: history)
+    }
+
     private static func undecline(_ paths: [String], on tab: TaskTab) {
         let base = runningSession(of: tab)?.launchDirectory ?? TabDirectoryStore.shared.directory(for: tab)
         let added = Set(paths.compactMap { AdditionalDirectories.normalized($0, relativeTo: base) })

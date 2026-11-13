@@ -13,6 +13,8 @@ struct AboutSettingsPane: View {
                         .font(.title2)
                     Text("Version \(shortVersion) (\(buildVersion))")
                         .foregroundStyle(.secondary)
+                    Link("Release notes", destination: ReleaseNotesLink.current)
+                        .plumeID(AccessibilityID.settingsAboutReleaseNotesLink, value: ReleaseNotesLink.current.absoluteString)
                     Text("Made by Ryan Moelter")
                         .foregroundStyle(.secondary)
                 }

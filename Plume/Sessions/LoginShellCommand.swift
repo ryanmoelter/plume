@@ -10,20 +10,20 @@ import Foundation
 /// `claude` at `~/.local/bin`) is "not found". Wrapping the command in
 /// `$SHELL -lic '<command>'` restores login-shell semantics for both plain
 /// terminals and agent tabs.
-enum LoginShellCommand {
+nonisolated enum LoginShellCommand {
     /// Set on every tab's shell — terminal and agent, both transports — so a
     /// script or prompt can tell it's running inside Plume. Callers merge
     /// this into their own env dict; `wrap`/`loginShell` only build the
     /// command string and have no environment to carry it in.
     static let plumeEnvironment: [String: String] = ["PLUME": "1"]
 
-    nonisolated static let cliEnvironmentKey = "PLUME_CLI"
+    static let cliEnvironmentKey = "PLUME_CLI"
 
     /// `plumeEnvironment` plus the socket the `plume` tool reaches this app
     /// through, when this app serves one, this app's bundle ID, whose
     /// defaults domain holds the settings the tool reads. For a process serving many tabs,
     /// which has no one tab to name.
-    static func sharedPlumeEnvironment() -> [String: String] {
+    @MainActor static func sharedPlumeEnvironment() -> [String: String] {
         sharedPlumeEnvironment(
             socketPath: CLIServer.shared.socketPath,
             bundleID: Bundle.main.bundleIdentifier
@@ -44,7 +44,7 @@ enum LoginShellCommand {
 
     /// Everything `plume` needs inside one tab: the shared environment, and
     /// which tab and task it runs in.
-    static func plumeEnvironment(taskID: UUID?, tabID: UUID) -> [String: String] {
+    @MainActor static func plumeEnvironment(taskID: UUID?, tabID: UUID) -> [String: String] {
         plumeEnvironment(
             taskID: taskID,
             tabID: tabID,
@@ -68,7 +68,7 @@ enum LoginShellCommand {
     /// Keys that name a Plume instance, tab or task. A Plume launched from
     /// another Plume's tab inherits that one's values, which would route a
     /// child's `plume` calls and hook events to the wrong app.
-    nonisolated static let instanceKeys = [
+    static let instanceKeys = [
         CLISocket.pathEnvironmentKey,
         CLISocket.tabIDEnvironmentKey,
         CLISocket.taskIDEnvironmentKey,
@@ -83,7 +83,7 @@ enum LoginShellCommand {
     /// When `overrides` set no `PATH`, this process's loses every app bundle's
     /// `Contents/MacOS` and `Contents/Helpers`, and the bundled tool's
     /// directory is appended.
-    nonisolated static func childEnvironment(
+    static func childEnvironment(
         overrides: [String: String],
         helpersDirectory: URL? = CommandLineHelper.bundledDirectory
     ) -> [String: String] {

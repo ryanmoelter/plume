@@ -21,7 +21,7 @@ struct ReferenceChipAttribute: TextAttribute, Hashable {
 /// icons each link's chip leads with.
 struct ReferenceChipDrawing {
     struct Icon {
-        var symbol: String
+        var glyph: StatusGlyph
         var color: Color
         var brand: ReferenceChipBrand?
     }
@@ -52,7 +52,7 @@ struct InlineChips {
     var lineGap: CGFloat = 1
     var radius: CGFloat = 4
 
-    static let defaultVerticalPad: CGFloat = 2
+    nonisolated static let defaultVerticalPad: CGFloat = 2
 
     enum Chip: Equatable {
         case code(Int)
@@ -135,10 +135,17 @@ struct InlineChips {
                 let inset = brandRect.width * (1 - ReferenceChipMetrics.brandScale) / 2
                 drawLogo(brand, color: references.brandColor, in: brandRect.insetBy(dx: inset, dy: inset), context: &chipContext)
             }
-            var symbol = chipContext.resolve(Image(systemName: icon.symbol))
-            symbol.shading = .color(icon.color)
-            if let rect = Self.fitted(symbol.size, in: rects.status) {
-                chipContext.draw(symbol, in: rect)
+            switch icon.glyph {
+            case .symbol(let name):
+                var symbol = chipContext.resolve(Image(systemName: name))
+                symbol.shading = .color(icon.color)
+                if let rect = Self.fitted(symbol.size, in: rects.status) {
+                    chipContext.draw(symbol, in: rect)
+                }
+            case .linearProgress(let progress):
+                let side = min(rects.status.width, rects.status.height)
+                let path = LinearProgressGlyphMetrics(boxSide: side).path(progress: progress, in: rects.status)
+                chipContext.fill(path, with: .color(icon.color))
             }
         }
     }
