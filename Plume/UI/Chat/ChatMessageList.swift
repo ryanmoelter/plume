@@ -292,7 +292,7 @@ struct ChatMessageList<SidePane: View>: View, ThemedView {
         if !heldTurnTargets.isEmpty { rebuilt = split(status == .waitingOnSubagents ? status : .working) }
         pieces = rebuilt
         showRevealedPieces()
-        outline = ChatOutlineBuilder.outline(from: rebuilt)
+        outline = cache.outline
         pinSentPrompt()
     }
 

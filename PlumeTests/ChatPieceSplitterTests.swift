@@ -717,6 +717,23 @@ struct ChatPieceSplitterTests {
         #expect(cache.parseCount == 3)
     }
 
+    @Test func theCachesOutlineFollowsItsLastBuild() {
+        let cache = ChatPieceCache()
+        func build(_ messages: [ChatMessage]) -> [ChatPiece] {
+            cache.pieces(for: messages, status: .awaitingReply, hiddenToolUseIDs: [], dimensions: dimensions)
+        }
+        let first = build([message("u", .user, [.markdown("Question?")]), message("a", .assistant, [.markdown("One.")])])
+        #expect(cache.outline == ChatOutlineBuilder.outline(from: first))
+
+        let second = build([
+            message("u", .user, [.markdown("Question?")]),
+            message("a", .assistant, [.markdown("One.")]),
+            message("v", .user, [.markdown("Another?")])
+        ])
+        #expect(cache.outline == ChatOutlineBuilder.outline(from: second))
+        #expect(cache.outline != ChatOutlineBuilder.outline(from: first))
+    }
+
     @Test func aTabKeepsItsCacheUntilForgotten() {
         let tab = UUID()
         let cache = ChatPieceCache.forTab(tab)
