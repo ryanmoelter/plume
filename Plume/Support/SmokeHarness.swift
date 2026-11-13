@@ -239,7 +239,12 @@ enum SmokeHarness {
             }
 
             let task = tasks[index % tasks.count]
-            SwitchLatencyProbe.begin(task.title)
+            let tab = task.orderedTabs.first { $0.id == task.selectedTabID } ?? task.orderedTabs.first
+            SwitchLatencyProbe.begin(
+                task.title,
+                tabID: tab?.id,
+                expectsRows: tab.map { $0.kind == .agent && ($0.sessionJSONLPath != nil || $0.agentSessionID != nil) } ?? false
+            )
             selection.wrappedValue = task.id
             Log.app.info("Smoke harness selected task \(index % tasks.count + 1) of \(tasks.count)")
         }

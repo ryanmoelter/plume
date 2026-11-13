@@ -60,8 +60,6 @@ struct ChatListReadingPositionTests {
         #expect(offset(of: controller) == bottom(of: controller))
     }
 
-    /// Compared by the rows on screen rather than offset: where the anchor
-    /// sits in the document depends on which rows above it have measured.
     @Test func aScrolledUpReaderReturnsToTheSameRows() async throws {
         let positions = ChatReadingPositions()
         let pieces = underestimatedPieces(count: 80)
@@ -118,9 +116,6 @@ struct ChatListReadingPositionTests {
         #expect(offset(of: controller) == bottom(of: controller))
     }
 
-    /// Compared with the first visit by reading position rather than offset:
-    /// which rows above the anchor have measured, and so where it sits in the
-    /// document, depends on where each mount first realized.
     @Test func theComposerRoomArrivingAfterMountLeavesARestoredReaderInPlace() throws {
         let positions = ChatReadingPositions()
         let pieces = underestimatedPieces(count: 80)

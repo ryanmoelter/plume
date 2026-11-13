@@ -146,23 +146,23 @@ struct SlashCommandMemoryTests {
         #expect(memory.commands(inDirectory: "/repo/1").isEmpty)
     }
 
-    @Test func forgettingClearsBothMemoryAndStorage() async {
-        let memory = makeMemory()
-        memory.remember([command("compact")], inDirectory: "/repo")
-
-        memory.forget()
-        await memory.waitForWrites()
-
-        #expect(memory.entries.isEmpty)
-        #expect(await loadedMemory().entries.isEmpty)
-    }
-
     @Test func aListInUserDefaultsMovesToTheFileOnce() async throws {
         try await storeLegacyList(["compact"], inDirectory: "/repo")
 
         #expect(await loadedMemory().commands(inDirectory: "/repo").map(\.name) == ["compact"])
         #expect(defaults.data(forKey: SlashCommandMemory.legacyKey) == nil)
         #expect(await loadedMemory().commands(inDirectory: "/repo").map(\.name) == ["compact"])
+    }
+
+    @Test func aFlushBeforeTheLoadLandsStillRemovesTheLegacyList() async throws {
+        try await storeLegacyList(["compact"], inDirectory: "/repo")
+        let memory = makeMemory()
+
+        memory.flush()
+        await memory.waitForLoad()
+
+        #expect(memory.commands(inDirectory: "/repo").map(\.name) == ["compact"])
+        #expect(defaults.data(forKey: SlashCommandMemory.legacyKey) == nil)
     }
 
     /// Losing the key with nothing on disk would lose the list.
@@ -206,19 +206,6 @@ struct SlashCommandMemoryTests {
         #expect(memory.entries.map(\.directory) == ["/repo", "/other"])
         #expect(memory.commands(inDirectory: "/repo").map(\.name) == ["migrate"])
         #expect(await loadedMemory().entries.map(\.directory) == ["/repo", "/other"])
-    }
-
-    @Test func forgettingBeforeTheLoadDiscardsTheFile() async {
-        let original = await loadedMemory()
-        original.remember([command("compact")], inDirectory: "/repo")
-        await original.waitForWrites()
-
-        let memory = makeMemory()
-        memory.forget()
-        await memory.waitForWrites()
-
-        #expect(memory.entries.isEmpty)
-        #expect(await loadedMemory().entries.isEmpty)
     }
 
     @Test func reportsInQuickSuccessionWriteOnce() async {

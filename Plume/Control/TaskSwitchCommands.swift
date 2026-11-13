@@ -25,6 +25,9 @@ extension InProcessControlBackend {
         let fromID = try params.from.map { try TaskQuery.match($0, in: candidates) }
         guard let target = all.first(where: { $0.id == targetID }) else { throw ControlError.notFound(params.task) }
         if fromID == targetID { throw ControlError.badParams("task and from name the same task") }
+        if fromID == nil, params.repeatCount > 1 {
+            throw ControlError.badParams("repeat needs from, or every round after the first re-selects the target")
+        }
         if fromID == nil, window.selectedTaskID() == targetID {
             throw ControlError.badParams("\(params.task) is already selected; pass from")
         }
@@ -67,11 +70,14 @@ extension InProcessControlBackend {
 
     private func windowTasks() throws -> [WorkTask] {
         guard let window = CLICommandHandler.shared.frontmostWindow else { throw ControlError.noWindow }
-        let descriptor = FetchDescriptor<WorkTask>(
-            predicate: #Predicate { !$0.isArchived },
-            sortBy: [SortDescriptor(\.orderIndex)]
-        )
-        return try window.context.fetch(descriptor)
+        let descriptor = FetchDescriptor<WorkTask>(predicate: #Predicate { !$0.isArchived })
+        // The sidebar's order: groups by `orderIndex`, then ungrouped, each
+        // section's tasks by `orderIndex`.
+        return try window.context.fetch(descriptor).sorted { lhs, rhs in
+            let left = lhs.group?.orderIndex ?? .max
+            let right = rhs.group?.orderIndex ?? .max
+            return left != right ? left < right : lhs.orderIndex < rhs.orderIndex
+        }
     }
 
     private func focusedTab(of task: WorkTask) -> TaskTab? {

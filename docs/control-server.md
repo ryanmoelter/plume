@@ -87,7 +87,7 @@ c tasks
 c selectTask task="Task 1" from="Task 3" repeat=15
 ```
 
-With `from`, each round first selects `from`, unmeasured, so every sample is the same switch. `settle` seconds pass after each selection, so work a switch defers doesn't land in the next sample. Each sample reports, in milliseconds from the selection change:
+`repeat` above 1 needs `from`: without it every round after the first would re-select the target. With `from`, each round first selects `from`, unmeasured, so every sample is the same switch. `settle` seconds pass after each selection, so work a switch defers doesn't land in the next sample. Each sample reports, in milliseconds from the selection change:
 
 - `firstTurnMs`: the end of the first main-thread turn.
 - `rowsPlacedMs`: when the chat list first placed rows.

@@ -71,8 +71,10 @@ final class SlashCommandMemory {
     @ObservationIgnored private let disk = DispatchQueue(label: "SlashCommandMemory", qos: .utility)
     @ObservationIgnored private var loading: Task<Void, Never>?
     @ObservationIgnored private var isLoaded = false
-    /// Set by `forget()` before the load lands, whose entries are then stale.
-    @ObservationIgnored private var discardsLoad = false
+    /// Whether any load moved the legacy list into the file. `flush()` can
+    /// finish loading before the first load's result arrives, and that second
+    /// load reads the file the first one wrote.
+    @ObservationIgnored private var migrated = false
     @ObservationIgnored private var isDirty = false
     @ObservationIgnored private var pendingWrite: Task<Void, Never>?
     @ObservationIgnored private(set) var diskWrites = 0
@@ -126,12 +128,6 @@ final class SlashCommandMemory {
         scheduleWrite()
     }
 
-    func forget() {
-        entries = []
-        if !isLoaded { discardsLoad = true }
-        scheduleWrite()
-    }
-
     func waitForLoad() async {
         await loading?.value
     }
@@ -165,16 +161,15 @@ final class SlashCommandMemory {
     }
 
     private func finishLoading(_ loaded: Loaded) {
-        guard !isLoaded else { return }
-        isLoaded = true
-        if !discardsLoad {
-            let reported = Set(entries.map(\.directory))
-            let older = loaded.stored.map(\.entry).filter { !reported.contains($0.directory) }
-            entries = Array((entries + older).prefix(Self.capacity))
-        }
-        if loaded.migrated, removesLegacyKey {
+        if loaded.migrated { migrated = true }
+        if migrated, removesLegacyKey {
             defaults.removeObject(forKey: Self.legacyKey)
         }
+        guard !isLoaded else { return }
+        isLoaded = true
+        let reported = Set(entries.map(\.directory))
+        let older = loaded.stored.map(\.entry).filter { !reported.contains($0.directory) }
+        entries = Array((entries + older).prefix(Self.capacity))
     }
 
     /// Latest wins: one write is pending at a time, and it takes whatever the

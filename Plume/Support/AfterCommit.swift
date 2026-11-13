@@ -12,5 +12,7 @@ enum AfterCommit {
             DispatchQueue.main.async { body() }
         }
         CFRunLoopAddObserver(CFRunLoopGetMain(), observer, .commonModes)
+        // An observer added during a `beforeWaiting` callout misses that pass.
+        CFRunLoopWakeUp(CFRunLoopGetMain())
     }
 }
