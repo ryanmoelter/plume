@@ -54,6 +54,8 @@ A pass realizes around the offset it started at, then again around the offset it
 
 Both numbers come from measuring the real cost. Creating and measuring one host for a real piece is about 1.3 ms, and laying out 150 of them costs about 50 ms more on top of that. Half a viewport of overscan each side is enough headroom that a normal scroll never outruns realization; the 120-host cap exists so a pathological case, a huge viewport, or many tiny pieces, can't make a single pass do unbounded work.
 
+A list with no rows realized yet, the permission dock aside, realizes its first pass around the offset its policy resolves rather than the scroll view's. The scroll view still sits at the top, and realizing there would build and measure a viewport of rows the reader never sees. This halves the rows measured on a task switch into a long chat. It also means a test can compare two mounts only by the rows on screen, not by offset: where a row sits in the document depends on which rows above it have measured.
+
 ## Measurement
 
 A piece is measured twice, on purpose.

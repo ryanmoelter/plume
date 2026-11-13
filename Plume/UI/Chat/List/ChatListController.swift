@@ -686,6 +686,8 @@ final class ChatListController: NSObject {
     }
 
     var realizedIDs: Set<String> { Set(hosts.keys) }
+    /// Every row built since the list was created, freed or not.
+    private(set) var realizations = 0
 
     /// A working indicator that leaves while showing fades and collapses
     /// rather than vanishing, which would jump everything below it. So do
@@ -778,7 +780,11 @@ final class ChatListController: NSObject {
 
         let actual = clip.bounds.origin.y
         if width > 0, viewport > 0 {
-            realizeWindow(around: easedOffset ?? actual)
+            // With no rows yet the scroll view's offset means nothing, so a
+            // fresh list starts where its policy is headed, not at the top.
+            let hasRows = hosts.keys.contains { $0 != Self.dockID }
+            let start = hasRows ? actual : min(max(0, resolvedOffset()), model.maxOffset)
+            realizeWindow(around: easedOffset ?? start)
         }
 
         var offset = commitOffset(in: clip, viewport: viewport)
@@ -910,6 +916,7 @@ final class ChatListController: NSObject {
     }
 
     private func realize(id: String, item: Item) {
+        realizations += 1
         let state = ChatListItemState()
         let generation = model.realize(id)
         let view = dequeueHost()
