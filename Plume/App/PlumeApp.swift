@@ -89,7 +89,10 @@ struct PlumeApp: App {
     }
 
     var body: some Scene {
-        WindowGroup {
+        // Without an id, SwiftUI names the window's saved frames after its
+        // content's type, which spells a private modifier by its address, so
+        // every build writes a new pair of keys to user defaults.
+        WindowGroup(id: "main") {
             MainWindow()
                 .plumeAccentTint()
         }
