@@ -40,6 +40,11 @@ struct InfoPaneContent: View, ThemedView {
             ForEach(facts.sections, id: \.self) { section in
                 self.section(section)
             }
+            #if DEBUG
+            if let headless = remoteControlSession as? HeadlessSession, !headless.toolNames.isEmpty {
+                AgentToolsSection(names: headless.toolNames)
+            }
+            #endif
         }
         .font(typography.caption.font)
         .environment(\.infoPaneRowWash, .paneWidth)
