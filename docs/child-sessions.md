@@ -28,7 +28,7 @@ Plume answers `can_use_tool` for its own tools (`PlumeMCPServer.decision`). In m
 | `name` | no | A handle of `a-z`, `0-9` and `-`, at most 24 characters. Names the worktree branch, and the child in event rows |
 | `background` | no | What the child needs from this conversation, at least 80 characters. Ignored for a fork |
 | `context` | no | `fresh` (default) or `fork`, which copies the parent's whole conversation |
-| `use_worktree` | no | A worktree of its own, cut from the parent's HEAD. Defaults to whether the parent works in a worktree |
+| `use_worktree` | no | A worktree of its own, cut from the parent's HEAD. Defaults to whether the parent works in a worktree. A fork never gets one: `true` is ignored, and the result says so |
 | `model`, `effort`, `permission_mode` | no | Override the launch settings copied from the parent. `permission_mode` is capped at the parent's |
 | `wake_when_done` | no | Defaults to true. False holds every report for the parent's next turn |
 
@@ -72,7 +72,7 @@ Task:
 Shared notes folder for this group of sessions (outside the repo; read siblings' notes there, leave hand-over notes or large findings there instead of pasting them into messages): <path>
 ```
 
-A fork has no background block. A fork that gets a worktree still launches where the parent's conversation lives, since that is where its transcript is, so its prompt gains a line naming the worktree's folder and branch, and the worktree joins its `--add-dir` list. Its tab records the worktree folder, where it is told to work, so the sidebar groups it there; its transcript path is recorded from the launch folder, so a resume finds it.
+A fork has no background block, and no worktree. It launches where the parent's conversation lives, since that is where its transcript is, and works in the parent's folder. Its tab records the parent's current folder; its transcript path is recorded from the launch folder, so a resume finds it. A fork called with `use_worktree: true` starts anyway, and its result ends "use_worktree was ignored: a forked session shares this session's folder."
 
 The notes folder is never deleted, so the notes stay for the user to read after the sessions end.
 

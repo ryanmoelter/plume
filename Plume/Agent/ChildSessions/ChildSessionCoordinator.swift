@@ -179,7 +179,6 @@ final class ChildSessionCoordinator {
         let notes = AppPaths.sideSessionNotesDirectory(parentTabID: parent.id)
         try? FileManager.default.createDirectory(at: notes, withIntermediateDirectories: true)
         var directories = parent.additionalDirectories
-        if let worktree, request.context == .fork { directories.append(worktree.path) }
         directories.append(notes.path)
         child.additionalDirectories = AdditionalDirectories.list(directories, excluding: nil)
 
@@ -204,12 +203,8 @@ final class ChildSessionCoordinator {
             )
         }
 
-        var prompt = request.prompt
-        if let worktree, request.context == .fork {
-            prompt += "\n\n" + ChildSessionFormats.worktreeNote(path: worktree.workingDirectory, branch: worktree.branch)
-        }
         let brief = ChildSessionFormats.firstMessage(
-            prompt: prompt, background: request.background, notesFolder: notes.path
+            prompt: request.prompt, background: request.background, notesFolder: notes.path
         )
         PendingFirstMessageStore.shared.set(OptimisticFirstMessage(text: brief), forTab: child.id)
 
@@ -232,12 +227,14 @@ final class ChildSessionCoordinator {
         if let worktree { ChildSessionWorkspace.recordOwnership(of: worktree, in: task) }
         session.submitFromHost(blocks: [.text(brief)], display: [.text(request.prompt)], origin: .fromParent(text: request.prompt))
 
-        return .success(ChildSessionFormats.started(
+        var started = ChildSessionFormats.started(
             title: request.title,
             sessionID: Self.sessionID(of: child),
             name: name,
             notesFolder: notes.path
-        ))
+        )
+        if request.ignoresWorktreeRequest { started += " " + ChildSessionFormats.forkWorktreeIgnored }
+        return .success(started)
     }
 
     private static func launchFailure(of session: HeadlessSession) -> String {
@@ -509,9 +506,10 @@ nonisolated enum ChildSessionWorkspace {
     }
 
     /// The child's own worktree, cut from the parent's HEAD, or nil when it
-    /// shares the parent's folder.
+    /// shares the parent's folder, as a fork always does.
     @MainActor
     static func worktree(for request: StartSessionRequest, parent: TaskTab) async -> Result<Worktree?, ChildSessionError> {
+        guard request.context == .fresh else { return .success(nil) }
         guard let directory = TabDirectoryStore.shared.directory(for: parent) else {
             return request.useWorktree == true ? .failure(.failed("This session has no folder to cut a worktree from.")) : .success(nil)
         }
