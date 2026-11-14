@@ -36,6 +36,9 @@ object Fixture {
       )
     )
 
+  fun module(directory: String): ModuleInput =
+    ModuleInput(name = ":$directory", sources = sources(directory), classpath = libraries)
+
   val sites: List<CallSite> by lazy { AltitudeSession.open(input).use(::collectCallSites) }
 
   private fun sources(directory: String): List<SourceInput> =

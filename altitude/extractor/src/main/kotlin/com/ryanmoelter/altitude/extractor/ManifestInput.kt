@@ -55,7 +55,9 @@ private fun Compilation.toModuleInput(projects: Set<String>, compilerPlugins: Bo
       else emptyList(),
     compilerPluginOptions =
       if (compilerPlugins) {
-        this.compilerPlugins.options.map { "plugin:${it.pluginId}:${it.key}=${it.value}" }
+        this.compilerPlugins.options
+          .filter { it.pluginId != COMPOSE_PLUGIN_ID }
+          .map { "plugin:${it.pluginId}:${it.key}=${it.value}" }
       } else {
         emptyList()
       },
@@ -74,10 +76,17 @@ private fun Compilation.fragments(): List<FragmentInput> {
     .sortedWith(compareBy({ it.dependsOn.size }, { it.name }))
 }
 
-/** Scripting registers through the same service, but only serves `.kts` files. */
+private const val COMPOSE_PLUGIN_ID = "androidx.compose.compiler.plugins.kotlin"
+
+/**
+ * Scripting registers through the same service, but only serves `.kts` files. Compose declares
+ * nothing a call resolves to, and in a standalone session it makes composable lambdas passed to
+ * library functions fail to type-check.
+ */
 private fun isResolutionPlugin(jar: Path): Boolean =
   jar.isRegularFile() &&
     !jar.name.startsWith("kotlin-scripting-") &&
+    !jar.name.startsWith("kotlin-compose-compiler-plugin") &&
     ZipFile(jar.toFile()).use { it.getEntry(PLUGIN_SERVICE) != null }
 
 /** Drops the arguments that name files, which the manifest already carries in its own fields. */

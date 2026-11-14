@@ -61,12 +61,16 @@ dependencies {
     implementation(libs.kotlin.analysis.api.standalone) { isTransitive = false }
     implementation(libs.kotlin.low.level.api.fir) { isTransitive = false }
     implementation(libs.kotlin.symbol.light.classes) { isTransitive = false }
+    // Stand in for the -embeddable plugin jars a target build names; see bundledPlugin.
+    runtimeOnly(libs.kotlin.compose.compiler.plugin) { isTransitive = false }
+    runtimeOnly(libs.kotlin.serialization.compiler.plugin) { isTransitive = false }
     runtimeOnly(libs.caffeine)
     runtimeOnly(libs.kotlinx.serialization.core)
     runtimeOnly(libs.kotlinx.coroutines.core.intellij)
 
     fixtureClasspath(kotlin("stdlib"))
     fixtureClasspath(libs.kotlinx.coroutines.core)
+    fixtureClasspath(libs.kotlinx.serialization.core)
 
     testImplementation(kotlin("test"))
 }
@@ -79,6 +83,14 @@ tasks.test {
     jvmArgumentProviders.add(
         CommandLineArgumentProvider { listOf("-Daltitude.fixtureClasspath=${fixtureJars.asPath}") },
     )
+}
+
+tasks.startScripts {
+    classpath = intellijCoreFiles.get() + classpath!!
+}
+
+distributions.main {
+    contents { from(intellijCoreFiles) { into("lib") } }
 }
 
 tasks.named<JavaExec>("run") {

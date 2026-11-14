@@ -2,6 +2,7 @@ package com.ryanmoelter.altitude.extractor
 
 import com.intellij.openapi.Disposable
 import com.intellij.openapi.util.Disposer
+import java.io.File
 import java.nio.file.Path
 import kotlin.io.path.exists
 import org.jetbrains.kotlin.analysis.api.platform.projectStructure.KotlinCompilerPluginsProvider
@@ -14,6 +15,7 @@ import org.jetbrains.kotlin.analysis.project.structure.builder.KaModuleContainer
 import org.jetbrains.kotlin.analysis.project.structure.builder.buildKtLibraryModule
 import org.jetbrains.kotlin.analysis.project.structure.builder.buildKtSdkModule
 import org.jetbrains.kotlin.analysis.project.structure.builder.buildKtSourceModule
+import org.jetbrains.kotlin.cli.common.ExitCode
 import org.jetbrains.kotlin.cli.common.arguments.K2JVMCompilerArguments
 import org.jetbrains.kotlin.cli.common.arguments.parseCommandLineArguments
 import org.jetbrains.kotlin.cli.common.setupLanguageVersionSettings
@@ -214,16 +216,39 @@ private fun pluginConfiguration(
   modules: List<ModuleInput>,
   disposable: Disposable,
 ): CompilerConfiguration? {
-  val classpath = modules.flatMap { it.compilerPluginClasspath }.distinct().filter { it.exists() }
+  val classpath =
+    modules
+      .flatMap { it.compilerPluginClasspath }
+      .filter { it.exists() }
+      .map { bundledPlugin(it) ?: it }
+      .distinct()
   if (classpath.isEmpty()) return null
   val options = modules.flatMap { it.compilerPluginOptions }.distinct()
   return CompilerConfiguration.create().apply {
-    PluginCliParser.loadPluginsSafe(
-      classpath.map { it.toString() },
-      options,
-      emptyList(),
-      this,
-      disposable,
-    )
+    val exit =
+      PluginCliParser.loadPluginsSafe(
+        classpath.map { it.toString() },
+        options,
+        emptyList(),
+        this,
+        disposable,
+      )
+    check(exit == ExitCode.OK) { "Compiler plugins failed to load: $exit" }
   }
+}
+
+private val EMBEDDABLE_PLUGIN = Regex("""(kotlin-.+-compiler-plugin)-embeddable-\d.*\.jar""")
+
+/**
+ * A build names the `-embeddable` plugin jars, which refer to IntelliJ classes under the package
+ * kotlin-compiler-embeddable relocates them to. This session runs the unrelocated compiler, so it
+ * swaps in the unrelocated jar of the same plugin from its own classpath.
+ */
+private fun bundledPlugin(jar: Path): Path? {
+  val artifact = EMBEDDABLE_PLUGIN.matchEntire(jar.fileName.toString())?.groupValues?.get(1)
+  val bundled = Regex(Regex.escape(artifact ?: return null) + """-\d.*\.jar""")
+  return System.getProperty("java.class.path")
+    .split(File.pathSeparator)
+    .map(Path::of)
+    .firstOrNull { bundled.matches(it.fileName.toString()) }
 }

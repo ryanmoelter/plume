@@ -14,10 +14,16 @@ fun main(args: Array<String>) {
   val manifest = options["--manifest"] ?: fail(USAGE)
   val out = options["--out"] ?: fail(USAGE)
 
-  val input = Manifest.read(Path.of(manifest)).toAnalysisInput(compilerPlugins = flags.isEmpty())
-  val report = AltitudeSession.open(input).use { ResolveReport(collectCallSites(it)) }
-  report.write(Path.of(out))
-  println("call-like, hand-written: ${report.callLikeResolved().percent()}% resolved")
+  // The session leaves non-daemon threads behind, so every path out names its exit code.
+  try {
+    val input = Manifest.read(Path.of(manifest)).toAnalysisInput(compilerPlugins = flags.isEmpty())
+    val report = AltitudeSession.open(input).use { ResolveReport(collectCallSites(it)) }
+    report.write(Path.of(out))
+    println("call-like, hand-written: ${report.callLikeResolved().percent()}% resolved")
+  } catch (e: Throwable) {
+    e.printStackTrace()
+    exitProcess(1)
+  }
   exitProcess(0)
 }
 
