@@ -17,6 +17,9 @@ final class ChildSessionCoordinator {
     private var childNames: [UUID: String] = [:]
     private var silentChildren: Set<UUID> = []
     private var launchModes: [UUID: PermissionMode] = [:]
+    /// Per parent, the wake check due when a working child reaches
+    /// `ChildSessionWakePolicy.workingLimit`.
+    private var limitChecks: [UUID: Task<Void, Never>] = [:]
 
     // MARK: - Wiring a session
 
@@ -58,18 +61,21 @@ final class ChildSessionCoordinator {
         childNames.removeValue(forKey: tabID)
         silentChildren.remove(tabID)
         launchModes.removeValue(forKey: tabID)
+        limitChecks.removeValue(forKey: tabID)?.cancel()
     }
 
     /// A parent's message still unread in a closing child goes back to the
-    /// parent as a held note. Call before the child's session is discarded.
+    /// parent as a held note, and a closing child stops holding the parent's
+    /// wakes. Call before the child's session is discarded.
     func childClosing(_ child: TaskTab) {
-        guard let parent = parent(of: child),
-              let session = AgentSessionManager.shared.existingSession(for: child.id) as? HeadlessSession
-        else { return }
-        for case .fromParent(let text)? in session.unreadHostMessages.map(\.origin) {
-            let note = ChildSessionFormats.messageRemovedNote(child: participant(child), text: text, .closed)
-            hold([.init(childID: child.id, text: note, kind: .message)], for: parent)
+        guard let parent = parent(of: child) else { return }
+        if let session = AgentSessionManager.shared.existingSession(for: child.id) as? HeadlessSession {
+            for case .fromParent(let text)? in session.unreadHostMessages.map(\.origin) {
+                let note = ChildSessionFormats.messageRemovedNote(child: participant(child), text: text, .closed)
+                hold([.init(childID: child.id, text: note, kind: .message)], for: parent)
+            }
         }
+        recheckWake(of: parent, excluding: child.id)
     }
 
     private func permissionCeiling(forChild child: TaskTab) -> PermissionMode {
@@ -280,12 +286,14 @@ final class ChildSessionCoordinator {
         if let parent, target.id == parent.id {
             let text = ChildSessionFormats.messageFromChildNote(child: participant(sender), text: message)
             let note = ChildSessionWakePolicy.Note(childID: sender.id, text: text, kind: .message)
-            let queued = isWorking(parent)
             deliver(note, toParent: parent, wakes: true)
-            let delivery: ChildSessionFormats.Delivery = if policies[parent.id]?.waitsForUser(note) == true {
+            let policy = policies[parent.id]
+            let delivery: ChildSessionFormats.Delivery = if policy?.waitsForUser(note) == true {
                 .heldForUser
+            } else if policy?.waking.contains(note) != true {
+                .sent
             } else {
-                queued ? .queued : .sent
+                activity(of: parent).childIsWorking ? .awaitingSessions : .queued
             }
             return .success(ChildSessionFormats.delivered(to: TitleStore.shared.chipTitle(for: parent), delivery))
         }
@@ -305,22 +313,69 @@ final class ChildSessionCoordinator {
             let note = ChildSessionFormats.turnFinishedNote(
                 child: participant(tab), text: ChildSessionFormats.reportText(of: outcome)
             )
-            let wakes = outcome.isHostDriven && !outcome.wasInterrupted && !silentChildren.contains(tab.id)
+            let wakes = !outcome.wasInterrupted && !silentChildren.contains(tab.id)
             deliver(.init(childID: tab.id, text: note), toParent: parent, wakes: wakes)
         }
         guard var policy = policies[tab.id] else { return }
         // The user's queued message already answered the interrupt.
         let interrupted = outcome.wasInterrupted && !outcome.userTurnFollows
-        let due = policy.parentTurnFinished(interrupted: interrupted, parentIsWorking: isWorking(tab))
+        let due = policy.parentTurnFinished(interrupted: interrupted, activity(of: tab))
         policies[tab.id] = policy
-        if let due { wake(tab, with: due) }
+        settle(tab, due)
     }
 
     private func deliver(_ note: ChildSessionWakePolicy.Note, toParent parent: TaskTab, wakes: Bool) {
         var policy = policies[parent.id] ?? ChildSessionWakePolicy()
-        let due = policy.noteArrived(note, wakes: wakes, parentIsWorking: isWorking(parent))
+        let due = policy.noteArrived(note, wakes: wakes, activity(of: parent))
         policies[parent.id] = policy
+        settle(parent, due)
+    }
+
+    private func recheckWake(of parent: TaskTab, excluding childID: UUID? = nil) {
+        guard var policy = policies[parent.id] else { return }
+        let due = policy.childrenChanged(activity(of: parent, excluding: childID))
+        policies[parent.id] = policy
+        settle(parent, due)
+    }
+
+    /// Delivers `due`, and while notes still wait on a working child,
+    /// schedules the check for when that child reaches the limit.
+    private func settle(_ parent: TaskTab, _ due: [ChildSessionWakePolicy.Note]?) {
         if let due { wake(parent, with: due) }
+        limitChecks.removeValue(forKey: parent.id)?.cancel()
+        let now = Date()
+        guard policies[parent.id]?.hasWakingNotes == true,
+              let deadline = workingChildren(of: parent).compactMap(\.workingSince)
+                .filter({ ChildSessionWakePolicy.holdsWakes(workingSince: $0, now: now) }).min()?
+                .addingTimeInterval(ChildSessionWakePolicy.workingLimit)
+        else { return }
+        let parentID = parent.id
+        limitChecks[parentID] = Task { [weak self, weak parent] in
+            try? await Task.sleep(for: .seconds(max(1, deadline.timeIntervalSinceNow)))
+            guard !Task.isCancelled, let self, let parent, parent.isLive else { return }
+            self.limitChecks[parentID] = nil
+            self.recheckWake(of: parent)
+        }
+    }
+
+    private func activity(of parent: TaskTab, excluding childID: UUID? = nil) -> ChildSessionWakePolicy.Activity {
+        let now = Date()
+        let working = workingChildren(of: parent).filter { session in
+            session.tabID != childID && ChildSessionWakePolicy.holdsWakes(workingSince: session.workingSince, now: now)
+        }
+        return .init(parentIsWorking: isWorking(parent), childIsWorking: !working.isEmpty)
+    }
+
+    /// The running sessions of `parent`'s open children that are mid-turn.
+    private func workingChildren(of parent: TaskTab) -> [HeadlessSession] {
+        let parentID = parent.id
+        return (parent.task?.liveTabs ?? []).compactMap { tab in
+            guard tab.parentTabID == parentID,
+                  let session = AgentSessionManager.shared.existingSession(for: tab.id) as? HeadlessSession,
+                  !session.hasExited, session.isWorking
+            else { return nil }
+            return session
+        }
     }
 
     /// A wake that cannot reach the parent leaves its notes held, for the
@@ -329,7 +384,8 @@ final class ChildSessionCoordinator {
         guard !notes.isEmpty else { return }
         let joined = Self.joined(notes)
         let display = ChildSessionFormats.summary(ofNotes: joined)
-        if let task = parent.task, submitFromHost(joined, display: display, origin: .notes(notes), to: parent, in: task) {
+        let wire = joined + "\n\n" + ChildSessionFormats.wakeFooter
+        if let task = parent.task, submitFromHost(wire, display: display, origin: .notes(notes), to: parent, in: task) {
             return
         }
         Log.agent.error("Could not deliver child-session notes to tab \(parent.id, privacy: .public)")
@@ -445,9 +501,9 @@ final class ChildSessionCoordinator {
     #if DEBUG
     /// Reports a turn as if `child` had just finished one, for the control
     /// server.
-    func simulateTurnFinished(in child: TaskTab, text: String, hostDriven: Bool) {
+    func simulateTurnFinished(in child: TaskTab, text: String, wakes: Bool) {
         turnFinished(in: child, outcome: AgentTurnOutcome(
-            text: text, isError: false, wasInterrupted: false, isHostDriven: hostDriven
+            text: text, isError: false, wasInterrupted: !wakes, isHostDriven: true
         ))
     }
     #endif

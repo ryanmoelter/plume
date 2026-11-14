@@ -182,6 +182,16 @@ struct ChildSessionFormatsTests {
         #expect(SideSessionEvent.decoding(body: "None of the sessions you started is working.").kind == .other)
     }
 
+    @Test func theWakeFooterIsDesktopsProseEvent() {
+        guard case .sideSessionEvent(let event) = InjectedContent.classify(text: ChildSessionFormats.wakeFooter, isMeta: false) else {
+            Issue.record("the footer is not a side-sessions event")
+            return
+        }
+        #expect(event.kind == .other)
+        #expect(event.text.hasPrefix("None of the sessions you started is working now; their notes are above."))
+        #expect(event.text.hasSuffix("Start nothing the user did not ask for."))
+    }
+
     @Test func aNoteIsClassifiedAsAnEventNotProse() {
         let footer = SideSessionEvent(kind: .message, sessionID: "C1", title: "T", text: "hi").footer
         guard case .sideSessionEvent(let event) = InjectedContent.classify(text: footer, isMeta: false) else {

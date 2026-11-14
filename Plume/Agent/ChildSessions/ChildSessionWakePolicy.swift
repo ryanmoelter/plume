@@ -2,11 +2,13 @@ import Foundation
 
 /// When notes from child sessions reach their parent, for one parent tab.
 ///
-/// - A note that wakes reaches an idle parent at once, as a turn of its own.
-///   While the parent works, such notes batch until its turn ends.
-/// - A note that does not wake (a turn the user drove in the child) is held
-///   and rides in front of the parent's next turn. A turn report replaces
-///   the same child's held report; a message is never dropped or replaced.
+/// - A note that wakes reaches the parent once the parent is idle and none of
+///   its children is working, as a turn of its own. Until then such notes
+///   batch.
+/// - A note that does not wake (an interrupted child turn, or a child started
+///   with `wake_when_done: false`) is held and rides in front of the parent's
+///   next turn. A turn report replaces the same child's held report; a
+///   message is never dropped or replaced.
 /// - After the user interrupts the parent, nothing wakes it: every note waits
 ///   for the user's next message.
 nonisolated struct ChildSessionWakePolicy: Equatable {
@@ -22,31 +24,53 @@ nonisolated struct ChildSessionWakePolicy: Equatable {
         var kind: Kind = .turnReport
     }
 
+    /// What decides whether a batch may wake the parent now.
+    struct Activity: Equatable {
+        var parentIsWorking = false
+        var childIsWorking = false
+    }
+
+    /// A child working longer than this stops holding its parent's wakes, so
+    /// one that never finishes cannot hold them forever.
+    static let workingLimit: TimeInterval = 30 * 60
+
+    /// Whether a child mid-turn since `workingSince` still holds wakes at
+    /// `now`. A turn with no start time counts as just begun.
+    static func holdsWakes(workingSince: Date?, now: Date) -> Bool {
+        guard let workingSince else { return true }
+        return now.timeIntervalSince(workingSince) < workingLimit
+    }
+
     private(set) var held: [Note] = []
     private(set) var waking: [Note] = []
     private(set) var isInterrupted = false
 
     var isEmpty: Bool { held.isEmpty && waking.isEmpty }
+    var hasWakingNotes: Bool { !waking.isEmpty }
 
     /// The notes to deliver now as a turn of their own, or nil.
-    mutating func noteArrived(_ note: Note, wakes: Bool, parentIsWorking: Bool) -> [Note]? {
+    mutating func noteArrived(_ note: Note, wakes: Bool, _ activity: Activity) -> [Note]? {
         if note.kind == .turnReport { held.removeAll { $0.isTurnReport(from: note.childID) } }
         guard wakes else {
             held.append(note)
             return nil
         }
         waking.append(note)
-        guard !isInterrupted, !parentIsWorking else { return nil }
-        return takeAll()
+        return dueWake(activity)
     }
 
     /// The notes to deliver now that the parent's turn has ended, or nil.
-    /// `parentIsWorking` is true when the parent went straight on to a
-    /// queued message, whose end delivers them instead.
-    mutating func parentTurnFinished(interrupted: Bool, parentIsWorking: Bool) -> [Note]? {
+    /// `activity.parentIsWorking` is true when the parent went straight on to
+    /// a queued message, whose end delivers them instead.
+    mutating func parentTurnFinished(interrupted: Bool, _ activity: Activity) -> [Note]? {
         if interrupted { isInterrupted = true }
-        guard !isInterrupted, !parentIsWorking, !waking.isEmpty else { return nil }
-        return takeAll()
+        return dueWake(activity)
+    }
+
+    /// The notes to deliver now that a child stopped counting as working
+    /// without finishing a turn: it closed, or it ran past the limit.
+    mutating func childrenChanged(_ activity: Activity) -> [Note]? {
+        dueWake(activity)
     }
 
     /// Notes a wake could not deliver, held for the user's next message.
@@ -65,6 +89,11 @@ nonisolated struct ChildSessionWakePolicy: Equatable {
     /// Every note, to go in front of the message the user is sending.
     mutating func userWillSend() -> [Note] {
         isInterrupted = false
+        return takeAll()
+    }
+
+    private mutating func dueWake(_ activity: Activity) -> [Note]? {
+        guard !isInterrupted, !activity.parentIsWorking, !activity.childIsWorking, !waking.isEmpty else { return nil }
         return takeAll()
     }
 
