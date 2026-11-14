@@ -28,7 +28,8 @@ struct ChildSessionOfferCard: View, ThemedView {
         return ChildSessionOfferCard(call: call, state: state, text: text, failure: live?.failure)
     }
 
-    static let briefLineLimit = 3
+    @State private var isBriefExpanded = false
+    @State private var isBriefTruncated = false
 
     var body: some View {
         VStack(alignment: .leading, spacing: DecisionCard.rowSpacing) {
@@ -42,13 +43,12 @@ struct ChildSessionOfferCard: View, ThemedView {
                 .lineLimit(1)
                 .truncationMode(.tail)
                 .chatTextColumn()
-            Text(MarkdownCache.inline(text.prompt))
-                .font(typography.caption.font)
-                .emphasis(.secondary)
-                .lineLimit(Self.briefLineLimit)
-                .truncationMode(.tail)
+            DecisionCardBrief(text: text.prompt, isExpanded: isBriefExpanded, isTruncated: $isBriefTruncated)
                 .chatTextColumn()
             footer
+            if !state.isLive {
+                briefToggle.chatTextColumn()
+            }
             if let failure, state == .pending {
                 Label(failure, systemImage: "exclamationmark.triangle")
                     .font(typography.caption.font)
@@ -67,6 +67,7 @@ struct ChildSessionOfferCard: View, ThemedView {
         case .pending, .starting:
             let isStarting = state == .starting
             HStack(spacing: DecisionCard.nestedPadding) {
+                briefToggle
                 if isStarting {
                     Text("Starting…").emphasis(.secondary)
                 }
@@ -109,6 +110,13 @@ struct ChildSessionOfferCard: View, ThemedView {
             settled("Never answered")
         case .waiting:
             settled("Waiting…")
+        }
+    }
+
+    @ViewBuilder
+    private var briefToggle: some View {
+        if isBriefTruncated {
+            DecisionCardBriefToggle(isExpanded: $isBriefExpanded, plumeID: AccessibilityID.offerBriefToggle, label: call.id)
         }
     }
 

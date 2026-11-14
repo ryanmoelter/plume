@@ -54,7 +54,8 @@ struct ChildSessionProposalCard: View, ThemedView {
     /// The call's own title and brief, for a proposal the store doesn't hold.
     let fallback: () -> (title: String, prompt: String)
 
-    static let briefLineLimit = 3
+    @State private var isBriefExpanded = false
+    @State private var isBriefTruncated = false
 
     var body: some View {
         let stored = board.store()
@@ -83,13 +84,12 @@ struct ChildSessionProposalCard: View, ThemedView {
                 .lineLimit(1)
                 .truncationMode(.tail)
                 .chatTextColumn()
-            Text(MarkdownCache.inline(text.prompt))
-                .font(typography.caption.font)
-                .emphasis(.secondary)
-                .lineLimit(Self.briefLineLimit)
-                .truncationMode(.tail)
+            DecisionCardBrief(text: text.prompt, isExpanded: isBriefExpanded, isTruncated: $isBriefTruncated)
                 .chatTextColumn()
             footer(state: state, isStarting: isStarting)
+            if state != .pending {
+                briefToggle.chatTextColumn()
+            }
             if let failure = activity.failure(of: proposalID, in: board.tabID, showing: state) {
                 Label(failure, systemImage: "exclamationmark.triangle")
                     .font(typography.caption.font)
@@ -107,6 +107,7 @@ struct ChildSessionProposalCard: View, ThemedView {
         switch state {
         case .pending:
             HStack(spacing: DecisionCard.nestedPadding) {
+                briefToggle
                 if isStarting {
                     Text("Starting…").emphasis(.secondary)
                 }
@@ -146,6 +147,13 @@ struct ChildSessionProposalCard: View, ThemedView {
             settled("Expired")
         case .elsewhere:
             settled("Proposed in another session")
+        }
+    }
+
+    @ViewBuilder
+    private var briefToggle: some View {
+        if isBriefTruncated {
+            DecisionCardBriefToggle(isExpanded: $isBriefExpanded, plumeID: AccessibilityID.proposalBriefToggle, label: proposalID)
         }
     }
 
