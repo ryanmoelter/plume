@@ -2,6 +2,7 @@ package com.ryanmoelter.altitude.trace
 
 import com.ryanmoelter.altitude.facts.CallEdgeFact
 import com.ryanmoelter.altitude.facts.CallFact
+import com.ryanmoelter.altitude.facts.CellFact
 import com.ryanmoelter.altitude.facts.DeclFact
 import com.ryanmoelter.altitude.facts.Derived
 import com.ryanmoelter.altitude.facts.Facts
@@ -13,6 +14,9 @@ private val CALLABLE_KINDS = setOf("fun", "ctor", "lambda", "getter", "setter")
 private val CLASS_KINDS = setOf("class", "interface", "object", "enumEntry")
 private val PSEUDO = Regex("""#<[^>]*>$""")
 private val POSITIONAL = Regex("""^(.*):(\d+):(\d+)-(\d+):(\d+):(\w+)$""")
+private val CALL_SELECTOR = Regex("""^(.+):(\d+):call\(([^)]+)\)$""")
+private val VALUE_KINDS = setOf("prop", "param", "local")
+private const val ELEMENT = "#<elem>"
 private val PACKAGE_PREFIX = Regex("""\b(?:[a-z_][A-Za-z0-9_]*\.)+(?=[A-Z])""")
 
 /** A source position parsed from `relpath:line:col-line:col[:kind]`. */
@@ -69,10 +73,27 @@ class Program(val facts: Facts, val derived: Derived) {
           .sortedWith(compareBy({ it.site }, { it.callee }))
       }
 
+  val cells: Map<String, CellFact> = derived.cells.associateBy { it.id }
+
+  /** Every flow edge, extracted and derived, by the location it leaves. */
+  val valueEdges: Map<String, List<FlowFact>> =
+    (facts.flows + derived.flows)
+      .groupBy { it.from }
+      .mapValues { (_, edges) ->
+        edges.distinct().sortedWith(compareBy({ it.to }, { it.kind }, { it.at }, { it.ruleId }))
+      }
+
+  val valueSources: Map<String, Int> =
+    valueEdges.values.flatten().groupBy { it.to }.mapValues { (_, edges) -> edges.map { it.from }.distinct().size }
+
+  private val summariesBySite: Map<String, List<FlowFact>> =
+    derived.flows.filter { it.ruleId != null }.groupBy { it.at }
+
   /** Calls into code outside the analysed sources, by the declaration that makes them. */
   val boundaryCalls: Map<String, List<CallFact>> =
     facts.calls
       .filter { !it.targetInSource && it.target != UNRESOLVED_TARGET && it.dispatch != "invokeFnValue" }
+      .filter { !it.target.endsWith("#<get>") && !it.target.endsWith("#<set>") }
       .groupBy { it.callerDecl }
       .mapValues { it.value.sortedWith(compareBy({ Site.of(it.id) }, { it.id })) }
 
@@ -109,6 +130,11 @@ class Program(val facts: Facts, val derived: Derived) {
   fun display(sym: String): String {
     val decl = decls[sym]
     if (decl == null) {
+      if (sym.endsWith(ELEMENT)) {
+        val root = sym.removeSuffix(ELEMENT)
+        val cell = cells[root] ?: return "element of ${display(root)}"
+        return "cell ${cell.mechanism} ${cell.sym?.let(::qualifiedName) ?: display(root)}"
+      }
       PSEUDO.find(sym)?.let { return display(sym.removeSuffix(it.value)) + it.value }
       val node = nodes[sym]
       val positional = POSITIONAL.matchEntire(sym)
@@ -170,9 +196,59 @@ class Program(val facts: Facts, val derived: Derived) {
     return Selection(selector, emptyList(), library)
   }
 
+  /**
+   * The locations a value selector names: `File.kt:LINE:call(name)`, a location ID, or a property,
+   * parameter or local by `Owner.name`. A call starts a trace at its result and ends one at any of
+   * its ports.
+   */
+  fun selectValue(selector: String, goal: Boolean): ValueSelection {
+    val callSelector = CALL_SELECTOR.matchEntire(selector)
+    if (callSelector != null) {
+      val (path, line, name) = callSelector.destructured
+      val matching =
+        facts.calls
+          .filter { call ->
+            val site = Site.of(call.id) ?: return@filter false
+            site.line == line.toInt() &&
+              (site.path == path || site.path.endsWith("/$path")) &&
+              calleeName(call.target) == name
+          }
+          .sortedBy { it.id }
+      val call = matching.singleOrNull()
+        ?: return ValueSelection(selector, emptySet(), matching.map { it.id })
+      val site = call.id.substringBeforeLast(':')
+      val arguments = facts.args.filter { it.call == call.id }.map { it.node }
+      val locations =
+        if (goal) {
+          arguments + call.receiver + call.extReceiver + listOfNotNull(call.result) +
+            summariesBySite[site].orEmpty().flatMap { listOf(it.from, it.to) }
+        } else {
+          listOfNotNull(call.result).ifEmpty { arguments }
+        }
+      return ValueSelection("${Site.of(call.id)} ${display(call.target)}", locations.toSet(), emptyList())
+    }
+    if (selector in decls || selector in nodes || selector in valueEdges) {
+      return ValueSelection(display(selector), setOf(selector), emptyList())
+    }
+    val named =
+      decls.values
+        .filter { it.kind in VALUE_KINDS && matches(qualifiedName(it.sym), selector) }
+        .map { it.sym }
+        .sorted()
+    val one = named.singleOrNull() ?: return ValueSelection(selector, emptySet(), named)
+    return ValueSelection(display(one), setOf(one), emptyList())
+  }
+
+  private fun calleeName(target: String): String =
+    decls[target]?.name
+      ?: libraryName(target.replace(PSEUDO, "")).substringAfterLast('/').substringAfterLast('.')
+
   private fun matches(name: String, selector: String): Boolean =
     name == selector || name.endsWith(".$selector")
 }
+
+/** [candidates] lists what an ambiguous selector matched. */
+class ValueSelection(val label: String, val locations: Set<String>, val candidates: List<String>)
 
 class Selection(val selector: String, val decls: List<String>, val library: List<String>) {
   val isUnique: Boolean

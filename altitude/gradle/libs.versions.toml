@@ -4,6 +4,8 @@ kotlinx-serialization-json = "1.13.0"
 kotlinx-coroutines = "1.11.0"
 kotlinx-coroutines-intellij = "1.11.0-intellij-1"
 caffeine = "2.9.3"
+snakeyaml = "2.5"
+compose-runtime = "1.8.2"
 # Must equal versions.intellijSdk in the Kotlin repository at the tag of the kotlin version.
 intellij-platform = "251.27812.49"
 
@@ -25,6 +27,9 @@ kotlinx-coroutines-core-intellij = { module = "org.jetbrains.intellij.deps.kotli
 kotlinx-serialization-core = { module = "org.jetbrains.kotlinx:kotlinx-serialization-core", version.ref = "kotlinx-serialization-json" }
 caffeine = { module = "com.github.ben-manes.caffeine:caffeine", version.ref = "caffeine" }
 kotlinx-serialization-json = { module = "org.jetbrains.kotlinx:kotlinx-serialization-json", version.ref = "kotlinx-serialization-json" }
+
+snakeyaml = { module = "org.yaml:snakeyaml", version.ref = "snakeyaml" }
+compose-runtime-desktop = { module = "org.jetbrains.compose.runtime:runtime-desktop", version.ref = "compose-runtime" }
 
 [plugins]
 kotlin-jvm = { id = "org.jetbrains.kotlin.jvm", version.ref = "kotlin" }

@@ -1,5 +1,6 @@
 package com.ryanmoelter.altitude.trace
 
+import com.ryanmoelter.altitude.facts.CallEdgeFact
 import com.ryanmoelter.altitude.facts.CallFact
 import com.ryanmoelter.altitude.facts.FlowFact
 
@@ -15,6 +16,7 @@ class TraceOptions(
 )
 
 private const val INDENT = "      "
+private const val PATH_COUNT_CAP = 1_000_000L
 
 /** Text reports over a [Program]. Every report says what it left out. */
 class Tracer(private val program: Program, private val options: TraceOptions = TraceOptions()) {
@@ -73,6 +75,111 @@ class Tracer(private val program: Program, private val options: TraceOptions = T
         boundary(calls.first(), calls.size - 1)
       }
     }
+  }
+
+  /** The shortest chain of flow edges from one value to another. */
+  fun traceValue(from: String, to: String): String = buildString {
+    val start = program.selectValue(from, goal = false)
+    val goal = program.selectValue(to, goal = true)
+    if (!requireLocations(start, "--from") || !requireLocations(goal, "--to")) return@buildString
+    appendLine("Value trace from ${start.label}")
+    appendLine("              to ${goal.label}")
+    appendLine()
+
+    // Breadth-first by layer, counting the shortest paths into each location.
+    val depth = LinkedHashMap<String, Int>()
+    val paths = HashMap<String, Long>()
+    val via = HashMap<String, FlowFact>()
+    val counted = HashSet<Pair<String, String>>()
+    val queue = ArrayDeque<String>()
+    for (location in start.locations.sorted()) {
+      depth[location] = 0
+      paths[location] = 1
+      queue += location
+    }
+    var found: String? = null
+    while (queue.isNotEmpty()) {
+      val current = queue.removeFirst()
+      val next = depth.getValue(current) + 1
+      if (found != null && next > depth.getValue(found)) break
+      for (edge in program.valueEdges[current].orEmpty()) {
+        val known = depth[edge.to]
+        if (known == null) {
+          depth[edge.to] = next
+          paths[edge.to] = paths.getValue(current)
+          via[edge.to] = edge
+          counted += edge.from to edge.to
+          queue += edge.to
+          if (found == null && edge.to in goal.locations) found = edge.to
+        } else if (known == next && counted.add(edge.from to edge.to)) {
+          paths[edge.to] = minOf(paths.getValue(edge.to) + paths.getValue(current), PATH_COUNT_CAP)
+        }
+      }
+    }
+    val end = found ?: start.locations.sorted().firstOrNull { it in goal.locations }
+    if (end == null) {
+      appendLine("No path. The start reaches ${depth.size} locations.")
+      val reaching = reachingGoal(goal.locations)
+      appendLine("${reaching.size} locations reach the goal.")
+      val frontier =
+        depth.keys.filter { location -> program.valueEdges[location].isNullOrEmpty() }.sorted()
+      appendLine("${frontier.size} reached locations have no outgoing edge. The first 40:")
+      for (location in frontier.take(40)) appendLine("  ${program.display(location)}  =  $location")
+      return@buildString
+    }
+    val hops = ArrayList<FlowFact>()
+    var current: String = end
+    while (true) {
+      val edge = via[current] ?: break
+      hops += edge
+      current = edge.from
+    }
+    hops.reverse()
+    val ends = goal.locations.filter { depth[it] == depth[end] }
+    val count = ends.sumOf { paths[it] ?: 0 }
+    val total = if (count >= PATH_COUNT_CAP) "at least $PATH_COUNT_CAP" else "$count"
+    appendLine(
+      "Shortest path: ${hops.size} hops. $total shortest paths exist; the first in sorted order is shown."
+    )
+    appendLine(
+      "`N sources` after a hop counts the locations with an edge into its target, this one included."
+    )
+    appendLine()
+    for (hop in hops) valueHop(hop)
+  }
+
+  private fun StringBuilder.valueHop(hop: FlowFact) {
+    val rule = hop.ruleId?.let { " $it" }.orEmpty()
+    val sources = program.valueSources[hop.to] ?: 1
+    val note = if (sources > 1) "  ($sources sources)" else ""
+    appendLine(
+      "${Site.of(hop.at) ?: hop.at}  ${program.display(hop.from)}  --${hop.kind}$rule-->  " +
+        program.display(hop.to) + note
+    )
+  }
+
+  private fun reachingGoal(goals: Set<String>): Set<String> {
+    val sources = HashMap<String, MutableList<String>>()
+    for (edges in program.valueEdges.values) {
+      for (edge in edges) sources.getOrPut(edge.to) { ArrayList() } += edge.from
+    }
+    val seen = HashSet(goals)
+    val queue = ArrayDeque(goals.sorted())
+    while (queue.isNotEmpty()) {
+      for (source in sources[queue.removeFirst()].orEmpty()) if (seen.add(source)) queue += source
+    }
+    return seen
+  }
+
+  private fun StringBuilder.requireLocations(selection: ValueSelection, option: String): Boolean {
+    if (selection.locations.isNotEmpty()) return true
+    if (selection.candidates.isEmpty()) {
+      appendLine("$option ${selection.label}: nothing matches.")
+    } else {
+      appendLine("$option ${selection.label}: ${selection.candidates.size} match; pass one ID:")
+      for (candidate in selection.candidates) appendLine("  $candidate")
+    }
+    return false
   }
 
   fun forward(from: String): String = buildString {
@@ -148,7 +255,7 @@ class Tracer(private val program: Program, private val options: TraceOptions = T
           program.display(call.target)
       )
       for (edge in edges[call.id].orEmpty().sortedBy { it.callee }) {
-        appendLine("$INDENT--${describe(edge.via, call)}-->  ${program.display(edge.callee)}")
+        appendLine("$INDENT--${describe(edge, call)}-->  ${program.display(edge.callee)}")
       }
     }
     appendLine()
@@ -174,7 +281,7 @@ class Tracer(private val program: Program, private val options: TraceOptions = T
     val call = program.calls[hop.edge.call]
     val more = if (hop.otherSites > 0) "  (+${hop.otherSites} more call sites)" else ""
     appendLine(
-      "${hop.site ?: "?"}  ${program.display(hop.caller)}  --${describe(hop.edge.via, call)}-->  " +
+      "${hop.site ?: "?"}  ${program.display(hop.caller)}  --${describe(hop.edge, call)}-->  " +
         program.display(hop.callee) + more
     )
     if (hop.edge.via == "fnValue") {
@@ -195,12 +302,27 @@ class Tracer(private val program: Program, private val options: TraceOptions = T
   private fun StringBuilder.flow(flow: FlowFact, indent: String) {
     appendLine(
       "$indent${Site.of(flow.at) ?: flow.at}  ${program.display(flow.from)}  " +
-        "--flow [${flow.kind}]-->  ${program.display(flow.to)}"
+        "--flow [${flow.kind}${flow.ruleId?.let { " $it" }.orEmpty()}]-->  ${program.display(flow.to)}"
     )
   }
 
-  private fun describe(via: String, call: CallFact?): String =
-    when (via) {
+  private fun describe(edge: CallEdgeFact, call: CallFact?): String =
+    when (val via = edge.via) {
+      "invoke" ->
+        "invoke [${edge.role} of ${edge.invoker?.let(program::display) ?: "?"}; ${edge.ruleId}]"
+      "cell" -> {
+        val cell = edge.cell?.let { program.cells[it] }
+        val name =
+          if (cell != null) "${cell.mechanism} ${cell.sym?.let(program::qualifiedName) ?: program.display(cell.id)}"
+          else "stream ${edge.cell?.let(program::display)}"
+        val through =
+          when (edge.through) {
+            0 -> ""
+            1 -> ", through 1 operator"
+            else -> ", through ${edge.through} operators"
+          }
+        "cell $name: ${edge.op}$through"
+      }
       "static" -> "call [static]"
       "cha" ->
         (program.chaCandidates[call?.id] ?: 0).let {

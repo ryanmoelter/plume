@@ -1,0 +1,726 @@
+# kotlin-stdlib: scope functions, Result, Lazy, Pair, collections and sequences.
+# A Map has one element slot for its values; an entry stands for its value.
+entries:
+  # Scope functions
+
+  - id: let
+    match: fun:kotlin/let
+    flows:
+      - receiver -> arg[0].param[0]
+      - arg[0].return -> result
+    invokes:
+      - lambda: "arg[0]"
+        role: block, run once in place
+
+  - id: run
+    match: fun:kotlin/run
+    flows:
+      - receiver -> arg[0].receiver
+      - arg[0].return -> result
+    invokes:
+      - lambda: "arg[0]"
+        role: block, run once in place
+
+  - id: with
+    match: fun:kotlin/with
+    flows:
+      - arg[0] -> arg[1].receiver
+      - arg[1].return -> result
+    invokes:
+      - lambda: "arg[1]"
+        role: block, run once in place
+
+  - id: apply
+    match: fun:kotlin/apply
+    flows:
+      - receiver -> arg[0].receiver
+      - receiver -> result
+    invokes:
+      - lambda: "arg[0]"
+        role: block, run once in place
+
+  - id: also
+    match: fun:kotlin/also
+    flows:
+      - receiver -> arg[0].param[0]
+      - receiver -> result
+    invokes:
+      - lambda: "arg[0]"
+        role: block, run once in place
+
+  - id: takeIf
+    match: [fun:kotlin/takeIf, fun:kotlin/takeUnless]
+    flows:
+      - receiver -> arg[0].param[0]
+      - receiver -> result
+    invokes:
+      - lambda: "arg[0]"
+        role: predicate, run once in place
+
+  - id: repeat
+    match: fun:kotlin/repeat
+    invokes:
+      - lambda: "arg[action]"
+        role: action, run in place for each index
+
+  - id: synchronized
+    match: fun:kotlin/synchronized
+    flows:
+      - arg[block].return -> result
+    invokes:
+      - lambda: "arg[block]"
+        role: block, run once in place
+
+  - id: use
+    match: [fun:kotlin/use, fun:kotlin/io/use]
+    flows:
+      - receiver -> arg[0].param[0]
+      - arg[0].return -> result
+    invokes:
+      - lambda: "arg[0]"
+        role: block, run once in place
+
+  - id: check
+    match: [fun:kotlin/check, fun:kotlin/require, fun:kotlin/checkNotNull, fun:kotlin/requireNotNull]
+    flows:
+      - arg[value] -> result
+    invokes:
+      - lambda: "arg[lazyMessage]"
+        role: message, run when the check fails
+
+  # Lazy
+
+  - id: lazy
+    match: fun:kotlin/lazy
+    flows:
+      - arg[initializer].return -> result.element
+    invokes:
+      - lambda: "arg[initializer]"
+        role: initializer, run on the first read
+
+  - id: Lazy.getValue
+    match: fun:kotlin/getValue
+    receiver: kotlin/Lazy
+    flows:
+      - receiver.element -> result
+
+  - id: Lazy.value
+    match: "prop:kotlin/Lazy.value#<get>"
+    flows:
+      - receiver.element -> result
+
+  # Result
+
+  - id: runCatching
+    match: fun:kotlin/runCatching
+    flows:
+      - receiver -> arg[0].receiver
+      - arg[0].return -> result.element
+    invokes:
+      - lambda: "arg[0]"
+        role: block, run once in place
+
+  - id: Result.getOrElse
+    match: [fun:kotlin/getOrElse, fun:kotlin/recover, fun:kotlin/recoverCatching]
+    receiver: kotlin/Result
+    flows:
+      - receiver.element -> result
+      - arg[0].return -> result
+    invokes:
+      - lambda: "arg[0]"
+        role: failure handler, run in place
+
+  - id: Result.get
+    match:
+      - fun:kotlin/getOrNull
+      - fun:kotlin/getOrThrow
+      - fun:kotlin/getOrDefault
+      - fun:kotlin/Result.getOrNull
+    flows:
+      - receiver.element -> result
+      - arg[defaultValue] -> result
+
+  - id: Result.fold
+    match: fun:kotlin/fold
+    receiver: kotlin/Result
+    flows:
+      - receiver.element -> arg[onSuccess].param[0]
+      - arg[*].return -> result
+    invokes:
+      - lambda: "arg[*]"
+        role: result handler, run in place
+
+  - id: Result.map
+    match: [fun:kotlin/map, fun:kotlin/mapCatching]
+    receiver: kotlin/Result
+    flows:
+      - receiver.element -> arg[0].param[0]
+      - arg[0].return -> result.element
+    invokes:
+      - lambda: "arg[0]"
+        role: transform, run in place on success
+
+  - id: Result.onSuccess
+    match: [fun:kotlin/onSuccess, fun:kotlin/onFailure]
+    receiver: kotlin/Result
+    flows:
+      - receiver.element -> arg[0].param[0]
+      - receiver -> result
+    invokes:
+      - lambda: "arg[0]"
+        role: result handler, run in place
+
+  - id: Result.success
+    match: fun:kotlin/Result.Companion.success
+    flows:
+      - arg[0] -> result.element
+
+  # Pair and Triple: one element slot holds every component.
+
+  - id: to
+    match: fun:kotlin/to
+    flows:
+      - receiver -> result.element
+      - arg[0] -> result.element
+
+  - id: Pair
+    match: [ctor:kotlin/Pair, ctor:kotlin/Triple]
+    flows:
+      - arg[*] -> result.element
+
+  - id: Pair.component
+    match:
+      - fun:kotlin/Pair.component1
+      - fun:kotlin/Pair.component2
+      - fun:kotlin/Triple.component1
+      - fun:kotlin/Triple.component2
+      - fun:kotlin/Triple.component3
+      - "prop:kotlin/Pair.first#<get>"
+      - "prop:kotlin/Pair.second#<get>"
+      - "prop:kotlin/Triple.first#<get>"
+      - "prop:kotlin/Triple.second#<get>"
+      - "prop:kotlin/Triple.third#<get>"
+    flows:
+      - receiver.element -> result
+
+  # Map entries stand for their value.
+
+  - id: Map.Entry.component
+    match:
+      - fun:kotlin/collections/component1
+      - fun:kotlin/collections/component2
+      - fun:kotlin/collections/toPair
+    receiver: kotlin/collections/Map.Entry
+    flows:
+      - receiver -> result
+
+  - id: Map.Entry.member
+    match:
+      - "prop:kotlin/collections/Map.Entry.key#<get>"
+      - "prop:kotlin/collections/Map.Entry.value#<get>"
+    flows:
+      - receiver -> result
+
+  - id: List.component
+    match:
+      - fun:kotlin/collections/component1
+      - fun:kotlin/collections/component2
+      - fun:kotlin/collections/component3
+      - fun:kotlin/collections/component4
+      - fun:kotlin/collections/component5
+    flows:
+      - receiver.element -> result
+
+  # Collection builders
+
+  - id: listOf
+    match:
+      - fun:kotlin/collections/listOf
+      - fun:kotlin/collections/listOfNotNull
+      - fun:kotlin/collections/mutableListOf
+      - fun:kotlin/collections/arrayListOf
+      - fun:kotlin/collections/setOf
+      - fun:kotlin/collections/setOfNotNull
+      - fun:kotlin/collections/mutableSetOf
+      - fun:kotlin/collections/hashSetOf
+      - fun:kotlin/collections/linkedSetOf
+      - fun:kotlin/arrayOf
+      - fun:kotlin/sequences/sequenceOf
+    flows:
+      - arg[*] -> result.element
+
+  - id: mapOf
+    match:
+      - fun:kotlin/collections/mapOf
+      - fun:kotlin/collections/mutableMapOf
+      - fun:kotlin/collections/hashMapOf
+      - fun:kotlin/collections/linkedMapOf
+    flows:
+      - arg[*].element -> result.element
+
+  - id: buildList
+    match:
+      - fun:kotlin/collections/buildList
+      - fun:kotlin/collections/buildSet
+      - fun:kotlin/collections/buildMap
+      - fun:kotlin/sequences/sequence
+    flows:
+      - arg[*].receiver.element -> result.element
+    invokes:
+      - lambda: "arg[*]"
+        role: builder, run once in place
+
+  - id: List
+    match: [fun:kotlin/collections/List, fun:kotlin/collections/MutableList]
+    flows:
+      - arg[init].return -> result.element
+    invokes:
+      - lambda: "arg[init]"
+        role: initializer, run in place for each index
+
+  # Writes into a collection
+
+  - id: add
+    match:
+      - fun:kotlin/collections/MutableList.add
+      - fun:kotlin/collections/MutableSet.add
+      - fun:kotlin/collections/MutableCollection.add
+      - fun:kotlin/collections/MutableList.set
+      - fun:kotlin/collections/MutableMap.put
+      - fun:kotlin/collections/set
+      - fun:kotlin/sequences/SequenceScope.yield
+      - fun:kotlin/collections/ArrayDeque.add
+      - fun:kotlin/collections/ArrayDeque.addLast
+      - fun:kotlin/collections/ArrayDeque.addFirst
+    flows:
+      - arg[element] -> receiver.element
+      - arg[value] -> receiver.element
+
+  - id: addAll
+    match:
+      - fun:kotlin/collections/MutableList.addAll
+      - fun:kotlin/collections/MutableSet.addAll
+      - fun:kotlin/collections/MutableCollection.addAll
+      - fun:kotlin/collections/addAll
+      - fun:kotlin/collections/MutableMap.putAll
+      - fun:kotlin/collections/putAll
+      - fun:kotlin/sequences/SequenceScope.yieldAll
+    flows:
+      - arg[*].element -> receiver.element
+
+  - id: plusAssign
+    match: fun:kotlin/collections/plusAssign
+    flows:
+      - arg[0] -> receiver.element
+      - arg[0].element -> receiver.element
+
+  - id: getOrPut
+    match: fun:kotlin/collections/getOrPut
+    flows:
+      - receiver.element -> result
+      - arg[defaultValue].return -> result
+      - arg[defaultValue].return -> receiver.element
+    invokes:
+      - lambda: "arg[defaultValue]"
+        role: default, run in place when the key is absent
+
+  # Reads of one element
+
+  - id: get
+    match:
+      - fun:kotlin/collections/Map.get
+      - fun:kotlin/collections/MutableMap.get
+      - fun:kotlin/collections/Map.getOrDefault
+      - fun:kotlin/collections/MutableMap.remove
+      - fun:kotlin/collections/getValue
+      - fun:kotlin/collections/List.get
+      - fun:kotlin/collections/MutableList.get
+      - fun:kotlin/collections/MutableList.removeAt
+      - fun:kotlin/collections/getOrNull
+      - fun:kotlin/collections/elementAt
+      - fun:kotlin/collections/elementAtOrNull
+      - fun:kotlin/collections/random
+      - fun:kotlin/collections/randomOrNull
+      - fun:kotlin/collections/max
+      - fun:kotlin/collections/min
+      - fun:kotlin/collections/maxOrNull
+      - fun:kotlin/collections/minOrNull
+      - fun:kotlin/collections/removeFirst
+      - fun:kotlin/collections/removeLast
+      - fun:kotlin/collections/removeFirstOrNull
+      - fun:kotlin/collections/removeLastOrNull
+      - fun:kotlin/collections/Iterator.next
+      - fun:kotlin/collections/MutableIterator.next
+      - fun:kotlin/collections/ListIterator.next
+      - fun:kotlin/Array.get
+    flows:
+      - receiver.element -> result
+      - arg[defaultValue] -> result
+
+  - id: first
+    match:
+      - fun:kotlin/collections/first
+      - fun:kotlin/collections/firstOrNull
+      - fun:kotlin/collections/find
+      - fun:kotlin/collections/findLast
+      - fun:kotlin/collections/last
+      - fun:kotlin/collections/lastOrNull
+      - fun:kotlin/collections/single
+      - fun:kotlin/collections/singleOrNull
+      - fun:kotlin/collections/maxByOrNull
+      - fun:kotlin/collections/minByOrNull
+      - fun:kotlin/collections/maxBy
+      - fun:kotlin/collections/minBy
+      - fun:kotlin/collections/maxWithOrNull
+      - fun:kotlin/collections/minWithOrNull
+      - fun:kotlin/sequences/first
+      - fun:kotlin/sequences/firstOrNull
+      - fun:kotlin/sequences/find
+      - fun:kotlin/sequences/last
+      - fun:kotlin/sequences/lastOrNull
+      - fun:kotlin/sequences/single
+      - fun:kotlin/sequences/singleOrNull
+      - fun:kotlin/sequences/maxByOrNull
+      - fun:kotlin/sequences/minByOrNull
+    flows:
+      - receiver.element -> arg[0].param[0]
+      - receiver.element -> result
+    invokes:
+      - lambda: "arg[0]"
+        role: predicate or selector, run in place for each element
+
+  - id: getOrElse
+    match: [fun:kotlin/collections/getOrElse, fun:kotlin/collections/elementAtOrElse]
+    flows:
+      - receiver.element -> result
+      - arg[defaultValue].return -> result
+    invokes:
+      - lambda: "arg[defaultValue]"
+        role: default, run in place when the element is absent
+
+  - id: firstNotNullOf
+    match:
+      - fun:kotlin/collections/firstNotNullOf
+      - fun:kotlin/collections/firstNotNullOfOrNull
+      - fun:kotlin/collections/sumOf
+      - fun:kotlin/collections/maxOf
+      - fun:kotlin/collections/minOf
+      - fun:kotlin/collections/maxOfOrNull
+      - fun:kotlin/collections/minOfOrNull
+      - fun:kotlin/sequences/firstNotNullOfOrNull
+      - fun:kotlin/sequences/sumOf
+    flows:
+      - receiver.element -> arg[0].param[0]
+      - arg[0].return -> result
+    invokes:
+      - lambda: "arg[0]"
+        role: selector, run in place for each element
+
+  # Predicates and actions over every element
+
+  - id: any
+    match:
+      - fun:kotlin/collections/any
+      - fun:kotlin/collections/all
+      - fun:kotlin/collections/none
+      - fun:kotlin/collections/count
+      - fun:kotlin/collections/indexOfFirst
+      - fun:kotlin/collections/indexOfLast
+      - fun:kotlin/collections/removeAll
+      - fun:kotlin/collections/retainAll
+      - fun:kotlin/collections/MutableCollection.removeIf
+      - fun:kotlin/sequences/any
+      - fun:kotlin/sequences/all
+      - fun:kotlin/sequences/none
+      - fun:kotlin/sequences/count
+    flows:
+      - receiver.element -> arg[0].param[0]
+    invokes:
+      - lambda: "arg[0]"
+        role: predicate, run in place for each element
+
+  - id: forEach
+    match:
+      - fun:kotlin/collections/forEach
+      - fun:kotlin/sequences/forEach
+      - fun:kotlin/collections/Iterable.forEach
+      - fun:kotlin/collections/Map.forEach
+    flows:
+      - receiver.element -> arg[0].param[*]
+    invokes:
+      - lambda: "arg[0]"
+        role: action, run in place for each element
+
+  - id: forEachIndexed
+    match: [fun:kotlin/collections/forEachIndexed, fun:kotlin/sequences/forEachIndexed]
+    flows:
+      - receiver.element -> arg[0].param[1]
+    invokes:
+      - lambda: "arg[0]"
+        role: action, run in place for each element
+
+  - id: onEach
+    match: [fun:kotlin/collections/onEach, fun:kotlin/sequences/onEach]
+    flows:
+      - receiver.element -> arg[0].param[0]
+      - receiver -> result
+    invokes:
+      - lambda: "arg[0]"
+        role: action, run in place for each element
+
+  # Operators that keep the elements
+
+  - id: filter
+    match:
+      - fun:kotlin/collections/filter
+      - fun:kotlin/collections/filterNot
+      - fun:kotlin/collections/filterValues
+      - fun:kotlin/collections/filterKeys
+      - fun:kotlin/collections/sortedBy
+      - fun:kotlin/collections/sortedByDescending
+      - fun:kotlin/collections/distinctBy
+      - fun:kotlin/collections/takeWhile
+      - fun:kotlin/collections/dropWhile
+      - fun:kotlin/collections/takeLastWhile
+      - fun:kotlin/collections/dropLastWhile
+      - fun:kotlin/collections/partition
+      - fun:kotlin/sequences/filter
+      - fun:kotlin/sequences/filterNot
+      - fun:kotlin/sequences/sortedBy
+      - fun:kotlin/sequences/sortedByDescending
+      - fun:kotlin/sequences/distinctBy
+      - fun:kotlin/sequences/takeWhile
+      - fun:kotlin/sequences/dropWhile
+    flows:
+      - receiver.element -> arg[0].param[0]
+      - receiver.element -> result.element
+    invokes:
+      - lambda: "arg[0]"
+        role: predicate or selector, run in place for each element
+
+  - id: toList
+    match:
+      - fun:kotlin/collections/toList
+      - fun:kotlin/collections/toMutableList
+      - fun:kotlin/collections/toSet
+      - fun:kotlin/collections/toMutableSet
+      - fun:kotlin/collections/toHashSet
+      - fun:kotlin/collections/toSortedSet
+      - fun:kotlin/collections/toMap
+      - fun:kotlin/collections/toMutableMap
+      - fun:kotlin/collections/toTypedArray
+      - fun:kotlin/collections/toCollection
+      - fun:kotlin/collections/filterNotNull
+      - fun:kotlin/collections/filterIsInstance
+      - fun:kotlin/collections/sorted
+      - fun:kotlin/collections/sortedDescending
+      - fun:kotlin/collections/sortedWith
+      - fun:kotlin/collections/reversed
+      - fun:kotlin/collections/asReversed
+      - fun:kotlin/collections/shuffled
+      - fun:kotlin/collections/distinct
+      - fun:kotlin/collections/take
+      - fun:kotlin/collections/takeLast
+      - fun:kotlin/collections/drop
+      - fun:kotlin/collections/dropLast
+      - fun:kotlin/collections/minus
+      - fun:kotlin/collections/intersect
+      - fun:kotlin/collections/subtract
+      - fun:kotlin/collections/asSequence
+      - fun:kotlin/collections/asIterable
+      - fun:kotlin/collections/orEmpty
+      - fun:kotlin/collections/ifEmpty
+      - fun:kotlin/collections/List.subList
+      - fun:kotlin/collections/slice
+      - fun:kotlin/collections/withIndex
+      - fun:kotlin/collections/iterator
+      - fun:kotlin/collections/Iterable.iterator
+      - fun:kotlin/collections/Collection.iterator
+      - fun:kotlin/collections/List.iterator
+      - fun:kotlin/collections/Set.iterator
+      - fun:kotlin/collections/MutableList.iterator
+      - fun:kotlin/collections/MutableSet.iterator
+      - fun:kotlin/collections/MutableList.listIterator
+      - fun:kotlin/collections/List.listIterator
+      - fun:kotlin/sequences/Sequence.iterator
+      - fun:kotlin/Array.iterator
+      - fun:kotlin/sequences/toList
+      - fun:kotlin/sequences/toMutableList
+      - fun:kotlin/sequences/toSet
+      - fun:kotlin/sequences/filterNotNull
+      - fun:kotlin/sequences/filterIsInstance
+      - fun:kotlin/sequences/sorted
+      - fun:kotlin/sequences/sortedWith
+      - fun:kotlin/sequences/distinct
+      - fun:kotlin/sequences/take
+      - fun:kotlin/sequences/drop
+      - fun:kotlin/sequences/asIterable
+      - "prop:kotlin/collections/Map.values#<get>"
+      - "prop:kotlin/collections/Map.entries#<get>"
+      - "prop:kotlin/collections/Map.keys#<get>"
+      - "prop:kotlin/collections/MutableMap.values#<get>"
+      - "prop:kotlin/collections/MutableMap.entries#<get>"
+      - "prop:kotlin/collections/MutableMap.keys#<get>"
+    flows:
+      - receiver.element -> result.element
+      - arg[destination] -> result
+
+  - id: plus
+    match: [fun:kotlin/collections/plus, fun:kotlin/collections/union, fun:kotlin/sequences/plus]
+    flows:
+      - receiver.element -> result.element
+      - arg[0] -> result.element
+      - arg[0].element -> result.element
+
+  - id: chunked
+    match:
+      - fun:kotlin/collections/chunked
+      - fun:kotlin/collections/windowed
+      - fun:kotlin/sequences/chunked
+    flows:
+      - receiver -> result.element
+
+  - id: flatten
+    match: [fun:kotlin/collections/flatten, fun:kotlin/sequences/flatten]
+    flows:
+      - receiver.element -> result
+
+  - id: zip
+    match: [fun:kotlin/collections/zip, fun:kotlin/sequences/zip]
+    flows:
+      - receiver -> result.element
+      - arg[other] -> result.element
+      - receiver.element -> arg[transform].param[0]
+      - arg[other].element -> arg[transform].param[1]
+      - arg[transform].return -> result.element
+    invokes:
+      - lambda: "arg[transform]"
+        role: transform, run in place for each pair
+
+  # Operators that transform the elements
+
+  - id: map
+    match:
+      - fun:kotlin/collections/map
+      - fun:kotlin/collections/mapNotNull
+      - fun:kotlin/collections/mapTo
+      - fun:kotlin/collections/mapValues
+      - fun:kotlin/sequences/map
+      - fun:kotlin/sequences/mapNotNull
+    flows:
+      - receiver.element -> arg[transform].param[0]
+      - arg[transform].return -> result.element
+      - arg[destination] -> result
+      - arg[transform].return -> arg[destination].element
+    invokes:
+      - lambda: "arg[transform]"
+        role: transform, run in place for each element
+
+  - id: mapIndexed
+    match:
+      - fun:kotlin/collections/mapIndexed
+      - fun:kotlin/collections/mapIndexedNotNull
+      - fun:kotlin/sequences/mapIndexed
+    flows:
+      - receiver.element -> arg[transform].param[1]
+      - arg[transform].return -> result.element
+    invokes:
+      - lambda: "arg[transform]"
+        role: transform, run in place for each element
+
+  - id: mapKeys
+    match: fun:kotlin/collections/mapKeys
+    flows:
+      - receiver.element -> arg[transform].param[0]
+      - receiver.element -> result.element
+    invokes:
+      - lambda: "arg[transform]"
+        role: transform, run in place for each entry
+
+  - id: flatMap
+    match: [fun:kotlin/collections/flatMap, fun:kotlin/sequences/flatMap]
+    flows:
+      - receiver.element -> arg[transform].param[0]
+      - arg[transform].return.element -> result.element
+    invokes:
+      - lambda: "arg[transform]"
+        role: transform, run in place for each element
+
+  - id: associate
+    match: [fun:kotlin/collections/associate, fun:kotlin/sequences/associate]
+    flows:
+      - receiver.element -> arg[transform].param[0]
+      - arg[transform].return.element -> result.element
+    invokes:
+      - lambda: "arg[transform]"
+        role: transform, run in place for each element
+
+  - id: associateBy
+    match: [fun:kotlin/collections/associateBy, fun:kotlin/sequences/associateBy]
+    flows:
+      - receiver.element -> arg[*].param[0]
+      - receiver.element -> result.element
+      - arg[valueTransform].return -> result.element
+    invokes:
+      - lambda: "arg[*]"
+        role: selector, run in place for each element
+
+  - id: associateWith
+    match: [fun:kotlin/collections/associateWith, fun:kotlin/sequences/associateWith]
+    flows:
+      - receiver.element -> arg[valueSelector].param[0]
+      - arg[valueSelector].return -> result.element
+    invokes:
+      - lambda: "arg[valueSelector]"
+        role: selector, run in place for each element
+
+  # A group is the receiver again: its elements are the receiver's.
+  - id: groupBy
+    match: [fun:kotlin/collections/groupBy, fun:kotlin/sequences/groupBy]
+    flows:
+      - receiver.element -> arg[*].param[0]
+      - receiver -> result.element
+    invokes:
+      - lambda: "arg[*]"
+        role: selector, run in place for each element
+
+  - id: fold
+    match:
+      - fun:kotlin/collections/fold
+      - fun:kotlin/sequences/fold
+    flows:
+      - arg[initial] -> arg[operation].param[0]
+      - arg[operation].return -> arg[operation].param[0]
+      - receiver.element -> arg[operation].param[1]
+      - arg[initial] -> result
+      - arg[operation].return -> result
+    invokes:
+      - lambda: "arg[operation]"
+        role: operation, run in place for each element
+
+  - id: reduce
+    match: [fun:kotlin/collections/reduce, fun:kotlin/collections/reduceOrNull]
+    flows:
+      - receiver.element -> arg[operation].param[*]
+      - arg[operation].return -> arg[operation].param[0]
+      - receiver.element -> result
+      - arg[operation].return -> result
+    invokes:
+      - lambda: "arg[operation]"
+        role: operation, run in place for each element
+
+  - id: joinToString
+    match: [fun:kotlin/collections/joinToString, fun:kotlin/sequences/joinToString]
+    flows:
+      - receiver.element -> arg[transform].param[0]
+      - receiver.element -> result
+      - arg[transform].return -> result
+    invokes:
+      - lambda: "arg[transform]"
+        role: transform, run in place for each element
+
+  - id: compareBy
+    match: [fun:kotlin/comparisons/compareBy, fun:kotlin/comparisons/compareByDescending, fun:kotlin/comparisons/thenBy]
+    invokes:
+      - lambda: "arg[*]"
+        role: selector, run by the comparator

@@ -3,6 +3,7 @@ package com.ryanmoelter.altitude.extractor
 import com.ryanmoelter.altitude.facts.FactStore
 import com.ryanmoelter.altitude.facts.MetaFact
 import com.ryanmoelter.altitude.manifest.Manifest
+import com.ryanmoelter.altitude.model.Models
 import com.ryanmoelter.altitude.solver.solve
 import com.ryanmoelter.altitude.trace.Program
 import com.ryanmoelter.altitude.trace.TraceOptions
@@ -18,18 +19,22 @@ private val USAGE =
     solve   --facts <dir>
     trace   --facts <dir> --from <selector> --to <selector> [--max-depth N] [--alternates N]
     trace   --facts <dir> --from <selector> --forward [--max-depth N] [--limit N]
+    trace   --facts <dir> --value --from <value> --to <value>
     show    --facts <dir> --file <relpath>
   A selector is a symbol ID, or an `Owner.member` suffix that names one declaration.
+  A value is `File.kt:LINE:call(name)`, a location ID, or a property, parameter or local.
+  facts and solve take --models <dir> to replace the built-in library models.
   """
     .trimIndent()
 
-private val FLAGS = setOf("--no-compiler-plugins", "--forward")
+private val FLAGS = setOf("--no-compiler-plugins", "--forward", "--value")
 
 fun main(args: Array<String>) {
   val command = args.firstOrNull() ?: fail(USAGE)
   val flags = args.drop(1).filter { it in FLAGS }.toSet()
   val options = args.drop(1).filter { it !in FLAGS }.chunked(2).associate { it.first() to it.getOrNull(1) }
   fun required(name: String): String = options[name] ?: fail(USAGE)
+  fun models(): Models = options["--models"]?.let { Models.load(Path.of(it)) } ?: Models.bundled()
 
   // The session leaves non-daemon threads behind, so every path out names its exit code.
   try {
@@ -56,12 +61,12 @@ fun main(args: Array<String>) {
           )
         FactStore.write(out, facts, meta)
         // Solving what was read back keeps `facts` and a later `solve` byte-identical.
-        FactStore.writeDerived(out, solve(FactStore.read(out)))
+        FactStore.writeDerived(out, solve(FactStore.read(out), models()))
         println("facts: ${facts.decls.size} decls, ${facts.calls.size} calls, ${facts.flows.size} flows")
       }
       "solve" -> {
         val dir = Path.of(required("--facts"))
-        val derived = solve(FactStore.read(dir))
+        val derived = solve(FactStore.read(dir), models())
         FactStore.writeDerived(dir, derived)
         println("solved: ${derived.callEdges.size} call edges, ${derived.fnValues.size} fn values")
       }
@@ -78,8 +83,11 @@ fun main(args: Array<String>) {
             ),
           )
         print(
-          if ("--forward" in flags) tracer.forward(required("--from"))
-          else tracer.trace(required("--from"), required("--to"))
+          when {
+            "--value" in flags -> tracer.traceValue(required("--from"), required("--to"))
+            "--forward" in flags -> tracer.forward(required("--from"))
+            else -> tracer.trace(required("--from"), required("--to"))
+          }
         )
       }
       "show" -> {

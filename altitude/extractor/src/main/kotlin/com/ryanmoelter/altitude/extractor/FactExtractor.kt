@@ -14,12 +14,12 @@ import com.ryanmoelter.altitude.facts.DeclFact
 import com.ryanmoelter.altitude.facts.Facts
 import com.ryanmoelter.altitude.facts.FileFact
 import com.ryanmoelter.altitude.facts.FlowFact
+import com.ryanmoelter.altitude.facts.LambdaCallFact
 import com.ryanmoelter.altitude.facts.ModuleFact
 import com.ryanmoelter.altitude.facts.NodeFact
 import com.ryanmoelter.altitude.facts.OverrideFact
 import com.ryanmoelter.altitude.facts.SupertypeFact
 import com.ryanmoelter.altitude.facts.UNRESOLVED_TARGET
-import com.ryanmoelter.altitude.facts.UnmodelledLambdaCallFact
 import com.ryanmoelter.altitude.facts.UnresolvedFact
 import java.util.IdentityHashMap
 import org.jetbrains.kotlin.analysis.api.KaIdeApi
@@ -181,7 +181,7 @@ private class FactSink {
   val calls = ArrayList<CallFact>()
   val args = ArrayList<ArgFact>()
   val flows = ArrayList<FlowFact>()
-  val unmodelled = ArrayList<UnmodelledLambdaCallFact>()
+  val libraryLambdaCalls = ArrayList<LambdaCallFact>()
   val unresolved = ArrayList<UnresolvedFact>()
 
   fun toFacts() =
@@ -197,7 +197,7 @@ private class FactSink {
       calls,
       args,
       flows,
-      unmodelled,
+      libraryLambdaCalls,
       unresolved,
     )
 }
@@ -420,10 +420,11 @@ private class FileExtractor(private val ids: SymbolIds, private val out: FactSin
       annotations(id, parameter)
       val default = parameterPsi?.defaultValue ?: return@forEachIndexed
       for (value in visit(default, scope)) flow(value, id, "default", default)
-      parameterPsi.destructuringDeclaration?.let { destructuring(it, scope) }
     }
-    psi.forEach { parameter ->
-      parameter.destructuringDeclaration?.let { destructuring(it, scope) }
+    psi.forEachIndexed { index, parameter ->
+      val destructured = parameter.destructuringDeclaration ?: return@forEachIndexed
+      val source = symbol.valueParameters.getOrNull(index)?.let { "$ownerId#${it.name.asString()}" }
+      destructuring(destructured, scope, listOfNotNull(source))
     }
   }
 
@@ -553,9 +554,10 @@ private class FileExtractor(private val ids: SymbolIds, private val out: FactSin
       val targetId = id(target)
       val inSource = isSource(target)
       val result = if (suffix == GETTER) ids.positional(delegate, "callResult") else null
+      val callId = ids.positional(delegate, if (suffix == GETTER) "getValue" else "setValue")
       out.calls +=
         CallFact(
-          id = ids.positional(delegate, if (suffix == GETTER) "getValue" else "setValue"),
+          id = callId,
           callerDecl = id,
           target = targetId,
           dispatch = "delegateAccessor",
@@ -563,6 +565,12 @@ private class FileExtractor(private val ids: SymbolIds, private val out: FactSin
           receiver = listOf(propertyId + DELEGATE),
           result = result,
         )
+      if (suffix == SETTER && !inSource) {
+        target.valueParameters.lastOrNull()?.let {
+          out.args +=
+            ArgFact(callId, "$targetId#${it.name.asString()}", target.valueParameters.lastIndex, propertyId, "operand")
+        }
+      }
       if (inSource) {
         val receiver = if (target.isExtension) RECEIVER else THIS
         flow(propertyId + DELEGATE, targetId + receiver, "receiver", delegate)
@@ -627,8 +635,13 @@ private class FileExtractor(private val ids: SymbolIds, private val out: FactSin
     decl(id, "local", name, psi, scope, listOf(if (isVal) "val" else "var"), type)
   }
 
-  private fun KaSession.destructuring(declaration: KtDestructuringDeclaration, scope: Scope) {
-    val values = visit(declaration.initializer, scope)
+  /** [source] is what a destructured lambda or loop parameter takes apart. */
+  private fun KaSession.destructuring(
+    declaration: KtDestructuringDeclaration,
+    scope: Scope,
+    source: List<String> = NONE,
+  ) {
+    val values = visit(declaration.initializer, scope) + source
     for (entry in declaration.entries) {
       val symbol = entry.symbol
       val id = id(symbol)
@@ -647,7 +660,9 @@ private class FileExtractor(private val ids: SymbolIds, private val out: FactSin
           target = targetId,
           dispatch = "static",
           targetInSource = inSource,
-          receiver = values,
+          receiver = if (target.isExtension) NONE else values,
+          extReceiver = if (target.isExtension) values else NONE,
+          result = if (inSource) null else id,
         )
       // A data class's componentN is generated from the constructor property it returns.
       val parameter = target.psi as? KtParameter
@@ -904,7 +919,9 @@ private class FileExtractor(private val ids: SymbolIds, private val out: FactSin
     }
     val id = id(variable)
     val kind = if (variable is KaLocalVariableSymbol || variable is KaValueParameterSymbol) "assign" else "fieldWrite"
-    for (value in values) flow(value, id, kind, element)
+    if (!libraryAccess(name, variable, id, SETTER, receiverValues, values, scope)) {
+      for (value in values) flow(value, id, kind, element)
+    }
     accessorCall(name, variable, id, SETTER, receiver, receiverValues, scope)
   }
 
@@ -970,9 +987,55 @@ private class FileExtractor(private val ids: SymbolIds, private val out: FactSin
         ownerOfLocal[id]?.let { it != scope.decl } == true -> "capture"
         else -> "read"
       }
-    flow(id, node, flowKind, name)
+    if (!libraryAccess(name, variable, id, GETTER, receiverValues, listOf(node), scope)) {
+      flow(id, node, flowKind, name)
+      if (variable is KaPropertySymbol && !isLocalProperty(variable)) {
+        val receivers = accessReceivers(name, variable, receiverValues, scope)
+        for (value in receivers.dispatch + receivers.extension) flow(value, node, "memberOf", name)
+      }
+    }
     accessorCall(name, variable, id, GETTER, receiver, receiverValues, scope)
     return listOf(node)
+  }
+
+  /**
+   * A property of an object declared outside the sources is read and written through a call a
+   * model can match, and is not one field shared by every object of its class. [values] is the
+   * node of a read, or what a write assigns. Returns whether the access is such a call.
+   */
+  private fun KaSession.libraryAccess(
+    name: KtNameReferenceExpression,
+    variable: KaVariableSymbol,
+    id: String,
+    suffix: String,
+    receiverValues: List<String>,
+    values: List<String>,
+    scope: Scope,
+  ): Boolean {
+    if (variable !is KaPropertySymbol || isSource(variable)) return false
+    val receivers = accessReceivers(name, variable, receiverValues, scope)
+    val dispatch = receivers.dispatch
+    val extension = receivers.extension
+    val implicit = receivers.implicit
+    if (dispatch.isEmpty() && extension.isEmpty()) return false
+    val callId = ids.positional(name, if (suffix == GETTER) "get" else "set")
+    out.calls +=
+      CallFact(
+        id = callId,
+        callerDecl = scope.decl,
+        target = id + suffix,
+        dispatch = "static",
+        receiver = dispatch,
+        extReceiver = extension,
+        implicit = implicit,
+        result = if (suffix == GETTER) values.single() else null,
+      )
+    if (suffix == GETTER) {
+      for (receiver in dispatch + extension) flow(receiver, values.single(), "memberOf", name)
+    } else {
+      for (value in values) out.args += ArgFact(callId, "$id$suffix#value", 0, value, "operand")
+    }
+    return true
   }
 
   /** A read or write runs code when the property has an accessor body, a delegate or overriders. */
@@ -1012,6 +1075,38 @@ private class FileExtractor(private val ids: SymbolIds, private val out: FactSin
         implicit = if (implicit) listOf("dispatch") else emptyList(),
         receiverType = if (virtual) ids.run { classOf(dispatch?.type) } else null,
       )
+  }
+
+  private class Receivers(val dispatch: List<String>, val extension: List<String>, val implicit: List<String>)
+
+  /** The objects a property access reads from or writes to, written or implicit. */
+  private fun KaSession.accessReceivers(
+    name: KtNameReferenceExpression,
+    variable: KaPropertySymbol,
+    receiverValues: List<String>,
+    scope: Scope,
+  ): Receivers {
+    val access =
+      attempt(name, null) { (name.resolveToCall() as? KaSuccessCallInfo)?.call as? KaVariableAccessCall }
+    // The name on the left of an assignment may not resolve to an access by itself.
+    if (access == null) {
+      return if (variable.isExtension) Receivers(NONE, receiverValues, NONE) else Receivers(receiverValues, NONE, NONE)
+    }
+    val implicit = ArrayList<String>()
+    fun receivers(value: KaReceiverValue?, role: String): List<String> =
+      when (val unwrapped = value.unwrapped()) {
+        null -> NONE
+        is KaImplicitReceiverValue -> {
+          implicit += role
+          listOfNotNull(receiverLocation(unwrapped.symbol, scope))
+        }
+        else -> receiverValues
+      }
+    return Receivers(
+      receivers(access.partiallyAppliedSymbol.dispatchReceiver, "dispatch"),
+      receivers(access.partiallyAppliedSymbol.extensionReceiver, "extension"),
+      implicit,
+    )
   }
 
   private fun KaReceiverValue?.unwrapped(): KaReceiverValue? {
@@ -1056,10 +1151,20 @@ private class FileExtractor(private val ids: SymbolIds, private val out: FactSin
       attempt(loop, null) { (loop.resolveToCall() as? KaSuccessCallInfo)?.call as? KaForLoopCall }
     var element: String? = null
     if (call != null && range != null) {
+      // The iterator and each element are nodes, so a model can carry the range's elements over.
+      val iterator = ids.positional(range, "iteratorResult")
+      val next = ids.positional(range, "nextResult")
       for ((kind, operator) in
         listOf("iterator" to call.iteratorCall, "hasNext" to call.hasNextCall, "next" to call.nextCall)) {
         val target = original(operator.partiallyAppliedSymbol.symbol)
         val inSource = isSource(target)
+        val receiver = if (kind == "iterator") values else listOf(iterator)
+        val result =
+          when (kind) {
+            "iterator" -> iterator
+            "next" -> next
+            else -> null
+          }
         out.calls +=
           CallFact(
             id = ids.positional(range, kind),
@@ -1067,16 +1172,22 @@ private class FileExtractor(private val ids: SymbolIds, private val out: FactSin
             target = id(target),
             dispatch = dispatch(target, operator, null),
             targetInSource = inSource,
-            receiver = if (kind == "iterator") values else NONE,
+            receiver = if (target.isExtension) NONE else receiver,
+            extReceiver = if (target.isExtension) receiver else NONE,
+            result = result,
           )
-        if (kind == "next" && inSource) element = id(target) + RETURN
+        if (result != null) {
+          val type = render(operator.partiallyAppliedSymbol.signature.returnType)
+          out.nodes += NodeFact(result, "callResult", scope.decl, type)
+        }
+        if (kind == "next") element = if (inSource) id(target) + RETURN else next
       }
     }
     loop.loopParameter?.let { parameter ->
       attempt(parameter, Unit) {
         val destructured = parameter.destructuringDeclaration
         if (destructured != null) {
-          destructuring(destructured, scope)
+          destructuring(destructured, scope, listOfNotNull(element))
         } else {
           val symbol = parameter.symbol
           val id = id(symbol)
@@ -1276,6 +1387,16 @@ private class FileExtractor(private val ids: SymbolIds, private val out: FactSin
       for (value in extensionValues) flow(value, targetId + RECEIVER, "receiver", element)
       if (result != null) flow(targetId + RETURN, result, "return", element)
     }
+    // A data class's `copy` has no body in the sources: the result is the receiver with the
+    // arguments stored in the properties they are named after.
+    val copiedClass =
+      targetId.takeIf {
+        inSource && target.origin == KaSymbolOrigin.SOURCE_MEMBER_GENERATED &&
+          (target as? KaNamedFunctionSymbol)?.name?.asString() == "copy"
+      }?.removePrefix("fun:")?.substringBefore('(')?.removeSuffix(".copy")
+    if (copiedClass != null && result != null) {
+      for (value in dispatchValues) flow(value, result, "copy", element)
+    }
 
     val parameterNames = target.valueParameters.map { it.name }
     var takesFunction = false
@@ -1299,9 +1420,11 @@ private class FileExtractor(private val ids: SymbolIds, private val out: FactSin
         continue
       }
       val parameterId = "$targetId#${parameter.name.asString()}"
+      val typeAnnotations = typeAnnotations(parameter.returnType)
       for (value in lookup(expression) ?: NONE) {
-        out.args += ArgFact(callId, parameterId, index, value, form)
+        out.args += ArgFact(callId, parameterId, index, value, form, typeAnnotations)
         if (inSource) flow(value, parameterId, "arg", expression)
+        if (copiedClass != null) flow(value, "prop:$copiedClass.${parameter.name.asString()}", "copy", expression)
         if (target is KaSamConstructorSymbol && result != null) flow(value, result, "sam", expression)
       }
     }
@@ -1320,7 +1443,7 @@ private class FileExtractor(private val ids: SymbolIds, private val out: FactSin
       }
     }
     if (!inSource && !isInvoke && takesFunction) {
-      out.unmodelled += UnmodelledLambdaCallFact(callId, targetId)
+      out.libraryLambdaCalls += LambdaCallFact(callId, targetId)
     }
     return listOfNotNull(result)
   }
@@ -1384,8 +1507,10 @@ private class FileExtractor(private val ids: SymbolIds, private val out: FactSin
     type?.render(KaTypeRendererForSource.WITH_QUALIFIED_NAMES, Variance.INVARIANT)
 
   /** Annotations on a type, which is where `@Composable` sits on a function type. */
-  private fun typeModifiers(type: KaType): List<String> =
-    type.annotations.mapNotNull { it.classId?.asString() }.distinct().sorted().map { "typeAnnotation:$it" }
+  private fun typeModifiers(type: KaType): List<String> = typeAnnotations(type).map { "typeAnnotation:$it" }
+
+  private fun typeAnnotations(type: KaType): List<String> =
+    type.annotations.mapNotNull { it.classId?.asString() }.distinct().sorted()
 
   private fun commonModifiers(symbol: KaDeclarationSymbol): List<String> = buildList {
     when (symbol.visibility) {

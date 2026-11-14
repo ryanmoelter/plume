@@ -1,0 +1,473 @@
+# kotlinx-coroutines: builders, Flow, StateFlow, SharedFlow and Channel.
+# A stream's element slot holds every value it emits.
+entries:
+  # Coroutine builders
+
+  - id: launch
+    match: fun:kotlinx/coroutines/launch
+    flows:
+      - receiver -> arg[block].receiver
+    invokes:
+      - lambda: "arg[block]"
+        role: coroutine body, run asynchronously in the receiver scope
+
+  - id: async
+    match: [fun:kotlinx/coroutines/async, fun:kotlinx/coroutines/future/future]
+    flows:
+      - receiver -> arg[block].receiver
+      - arg[block].return -> result.element
+    invokes:
+      - lambda: "arg[block]"
+        role: coroutine body, run asynchronously in the receiver scope
+
+  - id: await
+    match: [fun:kotlinx/coroutines/Deferred.await, fun:kotlinx/coroutines/future/await]
+    flows:
+      - receiver.element -> result
+
+  - id: withContext
+    match:
+      - fun:kotlinx/coroutines/withContext
+      - fun:kotlinx/coroutines/coroutineScope
+      - fun:kotlinx/coroutines/supervisorScope
+      - fun:kotlinx/coroutines/runBlocking
+      - fun:kotlinx/coroutines/withTimeout
+      - fun:kotlinx/coroutines/withTimeoutOrNull
+      - fun:kotlinx/coroutines/test/runTest
+    flows:
+      - arg[block].return -> result
+    invokes:
+      - lambda: "arg[block]"
+        role: block, run once before the call returns
+
+  - id: withLock
+    match: fun:kotlinx/coroutines/sync/withLock
+    flows:
+      - arg[action].return -> result
+    invokes:
+      - lambda: "arg[action]"
+        role: block, run once under the lock
+
+  - id: invokeOnCompletion
+    match: fun:kotlinx/coroutines/Job.invokeOnCompletion
+    invokes:
+      - lambda: "arg[handler]"
+        role: event, run when the job completes
+
+  # Flow builders
+
+  - id: flow
+    match:
+      - fun:kotlinx/coroutines/flow/flow
+      - fun:kotlinx/coroutines/flow/channelFlow
+      - fun:kotlinx/coroutines/flow/callbackFlow
+    flows:
+      - arg[block].receiver.element -> result.element
+    invokes:
+      - lambda: "arg[block]"
+        role: flow body, run for each collector
+
+  - id: emit
+    match: fun:kotlinx/coroutines/flow/FlowCollector.emit
+    flows:
+      - arg[value] -> receiver.element
+    writes:
+      - port: receiver.element
+        op: emit
+
+  - id: emitAll
+    match: fun:kotlinx/coroutines/flow/emitAll
+    flows:
+      - arg[0].element -> receiver.element
+
+  - id: flowOf
+    match: fun:kotlinx/coroutines/flow/flowOf
+    flows:
+      - arg[*] -> result.element
+
+  - id: asFlow
+    match: fun:kotlinx/coroutines/flow/asFlow
+    flows:
+      - receiver.element -> result.element
+
+  - id: awaitClose
+    match: fun:kotlinx/coroutines/channels/awaitClose
+    invokes:
+      - lambda: "arg[block]"
+        role: event, run when the flow is closed
+
+  # Cells
+
+  - id: MutableStateFlow
+    match: fun:kotlinx/coroutines/flow/MutableStateFlow
+    cell: MutableStateFlow
+    flows:
+      - arg[value] -> result.element
+    writes:
+      - port: result.element
+        op: initial
+
+  - id: MutableSharedFlow
+    match: fun:kotlinx/coroutines/flow/MutableSharedFlow
+    cell: MutableSharedFlow
+
+  - id: Channel
+    match: fun:kotlinx/coroutines/channels/Channel
+    cell: Channel
+
+  - id: stateIn
+    match: fun:kotlinx/coroutines/flow/stateIn
+    cell: StateFlow by stateIn
+    flows:
+      - receiver.element -> result.element
+      - arg[initialValue] -> result.element
+    writes:
+      - port: result.element
+        op: initial
+    reads:
+      - port: receiver.element
+        op: stateIn
+
+  - id: shareIn
+    match: fun:kotlinx/coroutines/flow/shareIn
+    cell: SharedFlow by shareIn
+    flows:
+      - receiver.element -> result.element
+    reads:
+      - port: receiver.element
+        op: shareIn
+
+  # The read-only view is the same cell.
+  - id: asStateFlow
+    match:
+      - fun:kotlinx/coroutines/flow/asStateFlow
+      - fun:kotlinx/coroutines/flow/asSharedFlow
+      - fun:kotlinx/coroutines/flow/receiveAsFlow
+      - fun:kotlinx/coroutines/flow/consumeAsFlow
+    flows:
+      - receiver -> result
+
+  - id: StateFlow.value
+    match:
+      - "prop:kotlinx/coroutines/flow/StateFlow.value#<get>"
+      - "prop:kotlinx/coroutines/flow/MutableStateFlow.value#<get>"
+    flows:
+      - receiver.element -> result
+    reads:
+      - port: receiver.element
+        op: value
+
+  - id: MutableStateFlow.value=
+    match: "prop:kotlinx/coroutines/flow/MutableStateFlow.value#<set>"
+    flows:
+      - arg[value] -> receiver.element
+    writes:
+      - port: receiver.element
+        op: value=
+
+  - id: update
+    match:
+      - fun:kotlinx/coroutines/flow/update
+      - fun:kotlinx/coroutines/flow/updateAndGet
+      - fun:kotlinx/coroutines/flow/getAndUpdate
+    flows:
+      - receiver.element -> arg[function].param[0]
+      - arg[function].return -> receiver.element
+      - receiver.element -> result
+    invokes:
+      - lambda: "arg[function]"
+        role: update function, run in place with the current value
+    writes:
+      - port: receiver.element
+        op: update
+    reads:
+      - port: receiver.element
+        op: update
+
+  - id: compareAndSet
+    match: fun:kotlinx/coroutines/flow/MutableStateFlow.compareAndSet
+    flows:
+      - arg[update] -> receiver.element
+    writes:
+      - port: receiver.element
+        op: compareAndSet
+
+  - id: tryEmit
+    match: fun:kotlinx/coroutines/flow/MutableSharedFlow.tryEmit
+    flows:
+      - arg[value] -> receiver.element
+    writes:
+      - port: receiver.element
+        op: tryEmit
+
+  - id: SharedFlow.emit
+    match: fun:kotlinx/coroutines/flow/MutableSharedFlow.emit
+    flows:
+      - arg[value] -> receiver.element
+    writes:
+      - port: receiver.element
+        op: emit
+
+  - id: send
+    match:
+      - fun:kotlinx/coroutines/channels/SendChannel.send
+      - fun:kotlinx/coroutines/channels/SendChannel.trySend
+      - fun:kotlinx/coroutines/channels/trySendBlocking
+    flows:
+      - arg[element] -> receiver.element
+    writes:
+      - port: receiver.element
+        op: send
+
+  - id: receive
+    match:
+      - fun:kotlinx/coroutines/channels/ReceiveChannel.receive
+      - fun:kotlinx/coroutines/channels/ReceiveChannel.tryReceive
+      - fun:kotlinx/coroutines/channels/ReceiveChannel.receiveCatching
+    flows:
+      - receiver.element -> result
+    reads:
+      - port: receiver.element
+        op: receive
+
+  # Terminal operators
+
+  - id: collect
+    match:
+      - fun:kotlinx/coroutines/flow/Flow.collect
+      - fun:kotlinx/coroutines/flow/SharedFlow.collect
+      - fun:kotlinx/coroutines/flow/StateFlow.collect
+      - fun:kotlinx/coroutines/flow/collect
+      - fun:kotlinx/coroutines/flow/collectLatest
+    flows:
+      - receiver.element -> arg[*].param[0]
+    invokes:
+      - lambda: "arg[*]"
+        role: collector, run for each value
+        perValueOf: receiver.element
+    reads:
+      - port: receiver.element
+        op: collect
+
+  - id: collectIndexed
+    match: fun:kotlinx/coroutines/flow/collectIndexed
+    flows:
+      - receiver.element -> arg[action].param[1]
+    invokes:
+      - lambda: "arg[action]"
+        role: collector, run for each value
+        perValueOf: receiver.element
+    reads:
+      - port: receiver.element
+        op: collect
+
+  - id: launchIn
+    match: fun:kotlinx/coroutines/flow/launchIn
+    reads:
+      - port: receiver.element
+        op: collect
+
+  - id: first
+    match:
+      - fun:kotlinx/coroutines/flow/first
+      - fun:kotlinx/coroutines/flow/firstOrNull
+      - fun:kotlinx/coroutines/flow/single
+      - fun:kotlinx/coroutines/flow/singleOrNull
+      - fun:kotlinx/coroutines/flow/last
+      - fun:kotlinx/coroutines/flow/lastOrNull
+    flows:
+      - receiver.element -> arg[predicate].param[0]
+      - receiver.element -> result
+    invokes:
+      - lambda: "arg[predicate]"
+        role: predicate, run for each value
+        perValueOf: receiver.element
+    reads:
+      - port: receiver.element
+        op: first
+
+  - id: toList
+    match: [fun:kotlinx/coroutines/flow/toList, fun:kotlinx/coroutines/flow/toSet]
+    flows:
+      - receiver.element -> result.element
+      - receiver.element -> arg[destination].element
+    reads:
+      - port: receiver.element
+        op: collect
+
+  # Operators that keep the values
+
+  - id: filter
+    match:
+      - fun:kotlinx/coroutines/flow/filter
+      - fun:kotlinx/coroutines/flow/filterNot
+      - fun:kotlinx/coroutines/flow/onEach
+      - fun:kotlinx/coroutines/flow/takeWhile
+      - fun:kotlinx/coroutines/flow/dropWhile
+      - fun:kotlinx/coroutines/flow/distinctUntilChangedBy
+      - fun:kotlinx/coroutines/flow/debounce
+    flows:
+      - receiver.element -> arg[*].param[0]
+      - receiver.element -> result.element
+    invokes:
+      - lambda: "arg[*]"
+        role: predicate or action, run for each value
+        perValueOf: receiver.element
+    reads:
+      - port: receiver.element
+        op: operator
+
+  - id: distinctUntilChanged
+    match:
+      - fun:kotlinx/coroutines/flow/distinctUntilChanged
+      - fun:kotlinx/coroutines/flow/filterNotNull
+      - fun:kotlinx/coroutines/flow/filterIsInstance
+      - fun:kotlinx/coroutines/flow/take
+      - fun:kotlinx/coroutines/flow/drop
+      - fun:kotlinx/coroutines/flow/flowOn
+      - fun:kotlinx/coroutines/flow/buffer
+      - fun:kotlinx/coroutines/flow/conflate
+      - fun:kotlinx/coroutines/flow/sample
+      - fun:kotlinx/coroutines/flow/cancellable
+      - fun:kotlinx/coroutines/flow/retry
+      - fun:kotlinx/coroutines/flow/onSubscription
+    flows:
+      - receiver.element -> result.element
+    reads:
+      - port: receiver.element
+        op: operator
+
+  - id: onStart
+    match:
+      - fun:kotlinx/coroutines/flow/onStart
+      - fun:kotlinx/coroutines/flow/onCompletion
+      - fun:kotlinx/coroutines/flow/onEmpty
+      - fun:kotlinx/coroutines/flow/catch
+      - fun:kotlinx/coroutines/flow/retryWhen
+    flows:
+      - receiver.element -> result.element
+      - arg[*].receiver.element -> result.element
+    invokes:
+      - lambda: "arg[*]"
+        role: event, run when the flow starts, completes or fails
+    reads:
+      - port: receiver.element
+        op: operator
+
+  - id: merge
+    match: fun:kotlinx/coroutines/flow/merge
+    flows:
+      - arg[*].element -> result.element
+
+  # Operators that transform the values
+
+  - id: map
+    match:
+      - fun:kotlinx/coroutines/flow/map
+      - fun:kotlinx/coroutines/flow/mapNotNull
+      - fun:kotlinx/coroutines/flow/mapLatest
+    flows:
+      - receiver.element -> arg[transform].param[0]
+      - arg[transform].return -> result.element
+    triggers:
+      - receiver.element -> result.element
+    invokes:
+      - lambda: "arg[transform]"
+        role: transform, run for each value
+        perValueOf: receiver.element
+    reads:
+      - port: receiver.element
+        op: operator
+
+  - id: flatMapLatest
+    match:
+      - fun:kotlinx/coroutines/flow/flatMapLatest
+      - fun:kotlinx/coroutines/flow/flatMapConcat
+      - fun:kotlinx/coroutines/flow/flatMapMerge
+    flows:
+      - receiver.element -> arg[transform].param[0]
+      - arg[transform].return.element -> result.element
+    triggers:
+      - receiver.element -> result.element
+    invokes:
+      - lambda: "arg[transform]"
+        role: transform, run for each value
+        perValueOf: receiver.element
+    reads:
+      - port: receiver.element
+        op: operator
+
+  - id: transform
+    match:
+      - fun:kotlinx/coroutines/flow/transform
+      - fun:kotlinx/coroutines/flow/transformLatest
+      - fun:kotlinx/coroutines/flow/transformWhile
+    flows:
+      - receiver.element -> arg[transform].param[0]
+      - arg[transform].receiver.element -> result.element
+    triggers:
+      - receiver.element -> result.element
+    invokes:
+      - lambda: "arg[transform]"
+        role: transform, run for each value
+        perValueOf: receiver.element
+    reads:
+      - port: receiver.element
+        op: operator
+
+  - id: combine
+    match: [fun:kotlinx/coroutines/flow/combine, fun:kotlinx/coroutines/flow/zip]
+    receiver: kotlinx/coroutines/flow/Flow
+    flows:
+      - receiver.element -> arg[transform].param[0]
+      - arg[0].element -> arg[transform].param[1]
+      - arg[transform].return -> result.element
+    triggers:
+      - receiver.element -> result.element
+      - arg[0].element -> result.element
+    invokes:
+      - lambda: "arg[transform]"
+        role: transform, run for each change of an input
+        perValueOf: [receiver.element, "arg[0].element"]
+    reads:
+      - port: receiver.element
+        op: combine input
+      - port: "arg[0].element"
+        op: combine input
+
+  - id: combine-n
+    match: fun:kotlinx/coroutines/flow/combine
+    flows:
+      - arg[flow].element -> arg[transform].param[0]
+      - arg[flow2].element -> arg[transform].param[1]
+      - arg[flow3].element -> arg[transform].param[2]
+      - arg[flow4].element -> arg[transform].param[3]
+      - arg[flow5].element -> arg[transform].param[4]
+      - arg[transform].return -> result.element
+    triggers:
+      - arg[flow*].element -> result.element
+    invokes:
+      - lambda: "arg[transform]"
+        role: transform, run for each change of an input
+        perValueOf: "arg[flow*].element"
+    reads:
+      - port: "arg[flow*].element"
+        op: combine input
+
+  - id: scan
+    match: [fun:kotlinx/coroutines/flow/scan, fun:kotlinx/coroutines/flow/runningFold, fun:kotlinx/coroutines/flow/fold]
+    flows:
+      - arg[initial] -> arg[operation].param[0]
+      - arg[operation].return -> arg[operation].param[0]
+      - receiver.element -> arg[operation].param[1]
+      - arg[initial] -> result.element
+      - arg[operation].return -> result.element
+    triggers:
+      - receiver.element -> result.element
+    invokes:
+      - lambda: "arg[operation]"
+        role: operation, run for each value
+        perValueOf: receiver.element
+    reads:
+      - port: receiver.element
+        op: operator

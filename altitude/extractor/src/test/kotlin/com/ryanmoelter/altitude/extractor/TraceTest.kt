@@ -38,10 +38,11 @@ class TraceTest {
   }
 
   @Test
-  fun assumedInvokeIsNamedInTheHop() {
+  fun modelledInvokeNamesItsRoleAndRule() {
     assertContains(
       tracer.trace("eachReported", "report"),
-      "--assumedInvoke [lambda passed to kotlin/collections/forEach [library]]-->  lambda@Args.kt:26:18",
+      "--invoke [action, run in place for each element of kotlin/collections/forEach [library]; " +
+        "kotlin-stdlib.yaml#forEach]-->  lambda@Args.kt:26:18",
     )
   }
 

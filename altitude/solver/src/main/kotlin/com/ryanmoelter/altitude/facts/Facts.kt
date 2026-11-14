@@ -3,7 +3,7 @@ package com.ryanmoelter.altitude.facts
 import kotlinx.serialization.Serializable
 
 /** The relations are documented in `altitude/docs/facts.md`. */
-const val SCHEMA_VERSION = 1
+const val SCHEMA_VERSION = 2
 
 /** A target of a call that did not resolve. */
 const val UNRESOLVED_TARGET = "UNRESOLVED"
@@ -96,12 +96,22 @@ data class ArgFact(
   val node: String,
   /** `positional`, `named`, `vararg`, `spread`, `trailingLambda`, `receiver` or `operand`. */
   val form: String,
+  /** Annotations on the parameter's type, such as `androidx/compose/runtime/Composable`. */
+  val typeAnnotations: List<String> = emptyList(),
 )
 
 @Serializable
-data class FlowFact(val from: String, val to: String, val kind: String, val at: String)
+data class FlowFact(
+  val from: String,
+  val to: String,
+  val kind: String,
+  val at: String,
+  /** The model entry behind a `summary` or `contentOf` edge, as `<file>#<entry>`. */
+  val ruleId: String? = null,
+)
 
-@Serializable data class UnmodelledLambdaCallFact(val call: String, val callee: String)
+/** A call of a function outside the sources that takes a function value. */
+@Serializable data class LambdaCallFact(val call: String, val callee: String)
 
 @Serializable
 data class UnresolvedFact(
@@ -125,9 +135,33 @@ data class CallEdgeFact(
   val call: String,
   val caller: String,
   val callee: String,
-  /** `static`, `cha`, `fnValue`, `assumedInvoke`, `actual`, `delegateAccessor` or `init`. */
+  /** `static`, `cha`, `fnValue`, `invoke`, `assumedInvoke`, `cell`, `actual`, `delegateAccessor` or `init`. */
   val via: String,
+  /** The model entry behind an `invoke` edge. */
+  val ruleId: String? = null,
+  /** What an `invoke` edge's lambda is to its invoker: `block`, `content`, `event` and the like. */
+  val role: String? = null,
+  /** The library callable that runs the lambda of an `invoke` edge. */
+  val invoker: String? = null,
+  /** The object a `cell` edge's caller writes; a `cell` row when it is a state cell. */
+  val cell: String? = null,
+  /** A `cell` edge's write and read operations, as `tryEmit → collect`. */
+  val op: String? = null,
+  /** Derived streams between the written object and the one the callee reads. */
+  val through: Int = 0,
 )
+
+/** A state holder or stream created by a modelled call, named by the call's result node. */
+@Serializable
+data class CellFact(
+  val id: String,
+  /** The property or local that holds the cell. */
+  val sym: String? = null,
+  val mechanism: String,
+)
+
+/** [node] is the call that writes or reads the element of [cell]. */
+@Serializable data class CellAccessFact(val cell: String, val node: String, val op: String)
 
 @Serializable data class FanOutFact(val call: String, val count: Int)
 
@@ -156,7 +190,7 @@ data class Facts(
   val calls: List<CallFact> = emptyList(),
   val args: List<ArgFact> = emptyList(),
   val flows: List<FlowFact> = emptyList(),
-  val unmodelledLambdaCalls: List<UnmodelledLambdaCallFact> = emptyList(),
+  val libraryLambdaCalls: List<LambdaCallFact> = emptyList(),
   val unresolved: List<UnresolvedFact> = emptyList(),
 )
 
@@ -166,4 +200,8 @@ data class Derived(
   val fnValues: List<FnValueFact> = emptyList(),
   val callEdges: List<CallEdgeFact> = emptyList(),
   val fanOuts: List<FanOutFact> = emptyList(),
+  val unmodelledLambdaCalls: List<LambdaCallFact> = emptyList(),
+  val cells: List<CellFact> = emptyList(),
+  val cellWrites: List<CellAccessFact> = emptyList(),
+  val cellReads: List<CellAccessFact> = emptyList(),
 )

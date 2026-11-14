@@ -1,0 +1,37 @@
+# magellanx: lifecycle-attached fields and composable steps.
+entries:
+  # The delegate holds the attached child, or what the getter makes of it.
+  - id: attachFieldToLifecycle
+    match: fun:com/ryanmoelter/magellanx/core/lifecycle/attachFieldToLifecycle
+    flows:
+      - arg[0] -> result.element
+      - arg[0] -> arg[1].param[0]
+      - arg[1].return -> result.element
+    invokes:
+      - lambda: "arg[1]"
+        role: getter, run on each read of the delegated property
+
+  - id: AttachFieldToLifecycleDelegate.getValue
+    match: fun:com/ryanmoelter/magellanx/core/lifecycle/AttachFieldToLifecycleDelegate.getValue
+    flows:
+      - receiver.element -> result
+
+  - id: AttachFieldToLifecycleDelegate.setValue
+    match: fun:com/ryanmoelter/magellanx/core/lifecycle/AttachFieldToLifecycleDelegate.setValue
+    flows:
+      - arg[value] -> receiver.element
+
+  - id: attachToLifecycle
+    match: fun:com/ryanmoelter/magellanx/core/lifecycle/LifecycleAwareComponent.attachToLifecycle
+    flows:
+      - arg[0] -> result
+
+  # A step or section built from a composable lambda shows it while the step is shown.
+  - id: composable
+    match: ["fun:com/ryanmoelter/magellanx/compose/**", "ctor:com/ryanmoelter/magellanx/compose/**"]
+    invokes:
+      - lambda: "arg[*]"
+        whenAnnotated: androidx/compose/runtime/Composable
+        role: content, composed while the step is shown
+      - lambda: "arg[on*]"
+        role: event, run when the user or the system triggers it

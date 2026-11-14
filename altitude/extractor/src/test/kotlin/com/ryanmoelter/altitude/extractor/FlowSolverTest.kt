@@ -178,13 +178,14 @@ class FlowSolverTest {
   }
 
   @Test
-  fun lambdaPassedToALibraryFunctionIsAssumedInvoked() {
+  fun lambdaPassedToAModelledLibraryFunctionIsInvokedByIt() {
     val forEach = facts.calls.single { it.target.startsWith("fun:kotlin/collections/forEach") }.id
-    assertEquals(mapOf("lambda@Args.kt:26:18" to "assumedInvoke"), edges(forEach))
+    assertEquals(mapOf("lambda@Args.kt:26:18" to "invoke"), edges(forEach))
     assertEquals(
       listOf("fun:kotlin/collections/forEach"),
-      facts.unmodelledLambdaCalls.filter { it.call == forEach }.map { it.callee.substringBefore('@') },
+      facts.libraryLambdaCalls.filter { it.call == forEach }.map { it.callee.substringBefore('@') },
     )
+    assertTrue(derived.unmodelledLambdaCalls.none { it.call == forEach })
   }
 
   @Test

@@ -1,0 +1,212 @@
+# Jetpack Compose: runtime state and effects, then every composable that takes content or events.
+entries:
+  # State
+
+  - id: remember
+    match: [fun:androidx/compose/runtime/remember, fun:androidx/compose/runtime/saveable/rememberSaveable]
+    flows:
+      - arg[calculation].return -> result
+      - arg[init].return -> result
+    invokes:
+      - lambda: "arg[calculation]"
+        role: calculation, run on the first composition and when a key changes
+      - lambda: "arg[init]"
+        role: calculation, run on the first composition and when a key changes
+
+  - id: mutableStateOf
+    match:
+      - fun:androidx/compose/runtime/mutableStateOf
+      - fun:androidx/compose/runtime/mutableIntStateOf
+      - fun:androidx/compose/runtime/mutableLongStateOf
+      - fun:androidx/compose/runtime/mutableFloatStateOf
+      - fun:androidx/compose/runtime/mutableDoubleStateOf
+    cell: Compose MutableState
+    flows:
+      - arg[value] -> result.element
+    writes:
+      - port: result.element
+        op: initial
+
+  - id: rememberUpdatedState
+    match: fun:androidx/compose/runtime/rememberUpdatedState
+    cell: Compose State by rememberUpdatedState
+    flows:
+      - arg[newValue] -> result.element
+    writes:
+      - port: result.element
+        op: value=
+
+  - id: derivedStateOf
+    match: fun:androidx/compose/runtime/derivedStateOf
+    cell: Compose State by derivedStateOf
+    flows:
+      - arg[calculation].return -> result.element
+    invokes:
+      - lambda: "arg[calculation]"
+        role: calculation, run when a state it reads changes
+
+  - id: produceState
+    match: fun:androidx/compose/runtime/produceState
+    cell: Compose State by produceState
+    flows:
+      - arg[initialValue] -> result.element
+      - arg[producer].receiver.element -> result.element
+    invokes:
+      - lambda: "arg[producer]"
+        role: effect, run in a coroutine when the composable enters or a key changes
+
+  - id: collectAsState
+    match:
+      - fun:androidx/compose/runtime/collectAsState
+      - fun:androidx/lifecycle/compose/collectAsStateWithLifecycle
+    cell: Compose State by collectAsState
+    flows:
+      - receiver.element -> result.element
+      - arg[initial] -> result.element
+      - arg[initialValue] -> result.element
+    reads:
+      - port: receiver.element
+        op: collectAsState
+
+  - id: State.getValue
+    match: fun:androidx/compose/runtime/getValue
+    flows:
+      - receiver.element -> result
+    reads:
+      - port: receiver.element
+        op: by read
+
+  - id: State.setValue
+    match: fun:androidx/compose/runtime/setValue
+    flows:
+      - arg[value] -> receiver.element
+    writes:
+      - port: receiver.element
+        op: by write
+
+  - id: State.value
+    match:
+      - "prop:androidx/compose/runtime/State.value#<get>"
+      - "prop:androidx/compose/runtime/MutableState.value#<get>"
+      - "prop:androidx/compose/runtime/IntState.intValue#<get>"
+      - "prop:androidx/compose/runtime/MutableIntState.intValue#<get>"
+      - "prop:androidx/compose/runtime/FloatState.floatValue#<get>"
+      - "prop:androidx/compose/runtime/MutableFloatState.floatValue#<get>"
+      - fun:androidx/compose/runtime/MutableState.component1
+    flows:
+      - receiver.element -> result
+    reads:
+      - port: receiver.element
+        op: value
+
+  - id: MutableState.value=
+    match:
+      - "prop:androidx/compose/runtime/MutableState.value#<set>"
+      - "prop:androidx/compose/runtime/MutableIntState.intValue#<set>"
+      - "prop:androidx/compose/runtime/MutableFloatState.floatValue#<set>"
+    flows:
+      - arg[value] -> receiver.element
+    writes:
+      - port: receiver.element
+        op: value=
+
+  - id: snapshotFlow
+    match: fun:androidx/compose/runtime/snapshotFlow
+    flows:
+      - arg[block].return -> result.element
+    invokes:
+      - lambda: "arg[block]"
+        role: calculation, run when a state it reads changes
+
+  # Effects
+
+  - id: LaunchedEffect
+    match: fun:androidx/compose/runtime/LaunchedEffect
+    invokes:
+      - lambda: "arg[block]"
+        role: effect, run in a coroutine when the composable enters or a key changes
+
+  - id: DisposableEffect
+    match: fun:androidx/compose/runtime/DisposableEffect
+    invokes:
+      - lambda: "arg[effect]"
+        role: effect, run when the composable enters or a key changes
+
+  - id: onDispose
+    match: fun:androidx/compose/runtime/DisposableEffectScope.onDispose
+    invokes:
+      - lambda: "arg[onDisposeEffect]"
+        role: event, run when the composable leaves or a key changes
+
+  - id: SideEffect
+    match: fun:androidx/compose/runtime/SideEffect
+    invokes:
+      - lambda: "arg[effect]"
+        role: effect, run after every successful composition
+
+  - id: key
+    match: fun:androidx/compose/runtime/key
+    flows:
+      - arg[block].return -> result
+    invokes:
+      - lambda: "arg[block]"
+        role: content, composed in place
+
+  # Composables whose content takes a value
+
+  - id: items
+    match:
+      - fun:androidx/compose/foundation/lazy/items
+      - fun:androidx/compose/foundation/lazy/grid/items
+    flows:
+      - arg[items].element -> arg[itemContent].param[0]
+      - arg[items].element -> arg[key].param[0]
+      - arg[items].element -> arg[contentType].param[0]
+      - arg[items].element -> arg[span].param[0]
+    invokes:
+      - lambda: "arg[itemContent]"
+        role: content, composed for each visible item
+      - lambda: "arg[*]"
+        role: selector, run for each item
+
+  - id: itemsIndexed
+    match:
+      - fun:androidx/compose/foundation/lazy/itemsIndexed
+      - fun:androidx/compose/foundation/lazy/grid/itemsIndexed
+    flows:
+      - arg[items].element -> arg[itemContent].param[1]
+      - arg[items].element -> arg[key].param[1]
+      - arg[items].element -> arg[contentType].param[1]
+    invokes:
+      - lambda: "arg[itemContent]"
+        role: content, composed for each visible item
+      - lambda: "arg[*]"
+        role: selector, run for each item
+
+  - id: AnimatedContent
+    match:
+      - fun:androidx/compose/animation/AnimatedContent
+      - fun:androidx/compose/animation/Crossfade
+    flows:
+      - arg[targetState] -> arg[content].param[0]
+      - arg[targetState] -> arg[contentKey].param[0]
+    invokes:
+      - lambda: "arg[content]"
+        role: content, composed for each state shown
+      - lambda: "arg[contentKey]"
+        role: selector, run for each state
+      - lambda: "arg[transitionSpec]"
+        role: selector, run when the state changes
+
+  # Every other composable: a @Composable parameter is content, an `on…` parameter an event.
+  # Other function parameters, such as a draw or layout block, stay unmodelled.
+  - id: composable
+    match: ["fun:androidx/compose/**", "ctor:androidx/compose/**"]
+    invokes:
+      - lambda: "arg[*]"
+        whenAnnotated: androidx/compose/runtime/Composable
+        role: content, composed when the composable is
+      - lambda: "arg[on*]"
+        role: event, run when the user or the system triggers it
+      - lambda: "arg[keyboardActions]"
+        role: event, run when the user or the system triggers it

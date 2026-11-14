@@ -41,11 +41,7 @@ object FactStore {
     relation("call", CallFact.serializer(), facts.calls)
     relation("arg", ArgFact.serializer(), facts.args)
     relation("flow", FlowFact.serializer(), facts.flows)
-    relation(
-      "unmodelledLambdaCall",
-      UnmodelledLambdaCallFact.serializer(),
-      facts.unmodelledLambdaCalls,
-    )
+    relation("libraryLambdaCall", LambdaCallFact.serializer(), facts.libraryLambdaCalls)
     relation("unresolved", UnresolvedFact.serializer(), facts.unresolved)
     dir
       .resolve("meta.json")
@@ -58,6 +54,10 @@ object FactStore {
     writeRelation(dir, "fnValue", FnValueFact.serializer(), derived.fnValues)
     writeRelation(dir, "callEdge", CallEdgeFact.serializer(), derived.callEdges)
     writeRelation(dir, "fanOut", FanOutFact.serializer(), derived.fanOuts)
+    writeRelation(dir, "unmodelledLambdaCall", LambdaCallFact.serializer(), derived.unmodelledLambdaCalls)
+    writeRelation(dir, "cell", CellFact.serializer(), derived.cells)
+    writeRelation(dir, "cellWrite", CellAccessFact.serializer(), derived.cellWrites)
+    writeRelation(dir, "cellRead", CellAccessFact.serializer(), derived.cellReads)
   }
 
   fun read(dir: Path): Facts =
@@ -73,8 +73,7 @@ object FactStore {
       calls = readRelation(dir, "call", CallFact.serializer()),
       args = readRelation(dir, "arg", ArgFact.serializer()),
       flows = readRelation(dir, "flow", FlowFact.serializer()),
-      unmodelledLambdaCalls =
-        readRelation(dir, "unmodelledLambdaCall", UnmodelledLambdaCallFact.serializer()),
+      libraryLambdaCalls = readRelation(dir, "libraryLambdaCall", LambdaCallFact.serializer()),
       unresolved = readRelation(dir, "unresolved", UnresolvedFact.serializer()),
     )
 
@@ -84,6 +83,10 @@ object FactStore {
       fnValues = readRelation(dir, "fnValue", FnValueFact.serializer()),
       callEdges = readRelation(dir, "callEdge", CallEdgeFact.serializer()),
       fanOuts = readRelation(dir, "fanOut", FanOutFact.serializer()),
+      unmodelledLambdaCalls = readRelation(dir, "unmodelledLambdaCall", LambdaCallFact.serializer()),
+      cells = readRelation(dir, "cell", CellFact.serializer()),
+      cellWrites = readRelation(dir, "cellWrite", CellAccessFact.serializer()),
+      cellReads = readRelation(dir, "cellRead", CellAccessFact.serializer()),
     )
 
   fun readMeta(dir: Path): MetaFact =
