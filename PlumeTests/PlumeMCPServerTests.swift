@@ -191,6 +191,38 @@ struct PlumeMCPServerTests {
             == .allow(updatedInput: message))
     }
 
+    @Test func startingAProposalAsksInManualMode() {
+        let input: [String: JSONValue] = ["proposal_id": .string("task_0000abcd")]
+        #expect(PlumeMCPServer.decision(toolName: "mcp__plume__start_session", input: input, permissionMode: .manual) == nil)
+    }
+
+    /// The CLI cancels a pending call this way when the user interrupts.
+    @Test func aCancelledNotificationEndsItsCall() async throws {
+        let calls = Calls()
+        let server = PlumeMCPServer(role: { .parent }) { call in
+            calls.received.append(call)
+            do {
+                try await Task.sleep(for: .seconds(60))
+                return .success("answered")
+            } catch {
+                return .failure("cancelled")
+            }
+        }
+        let reply = Task {
+            await server.handle(request(7, "tools/call", ["name": .string("start_session"), "arguments": .object([:])]))
+        }
+        while calls.received.isEmpty { await Task.yield() }
+        let cancel: JSONValue = .object([
+            "jsonrpc": .string("2.0"), "method": .string("notifications/cancelled"),
+            "params": .object(["requestId": .number(7), "reason": .string("AbortError: remote-cancel")])
+        ])
+        #expect(await server.handle(cancel) == nil)
+
+        let result = try #require(await reply.value?["result"])
+        #expect(result["isError"] == .bool(true))
+        #expect(result["content"]?.arrayValue?.first?["text"]?.stringValue == "cancelled")
+    }
+
     @Test func planModeRefusesAStart() {
         let input: [String: JSONValue] = ["initiation": .string("user_asked")]
         #expect(PlumeMCPServer.decision(toolName: "mcp__plume__start_session", input: input, permissionMode: .plan)

@@ -56,6 +56,9 @@ nonisolated struct ControlServerRequest: Decodable {
         case "child-session.proposals": command = .listChildSessionProposals(try ChildSessionProposalsParams(from: decoder))
         case "child-session.proposal.start": command = .startChildSessionProposal(try ChildSessionProposalParams(from: decoder))
         case "child-session.proposal.dismiss": command = .dismissChildSessionProposal(try ChildSessionProposalParams(from: decoder))
+        case "child-session.offer": command = .offerChildSession(try ChildSessionProposeParams(from: decoder))
+        case "child-session.offers": command = .listChildSessionOffers(try ChildSessionProposalsParams(from: decoder))
+        case "child-session.offer.answer": command = .answerChildSessionOffer(try ChildSessionOfferAnswerParams(from: decoder))
         default:
             throw DecodingError.dataCorruptedError(
                 forKey: .command, in: container, debugDescription: "unknown command \"\(name)\""
@@ -100,6 +103,9 @@ nonisolated enum ControlCommand {
     case listChildSessionProposals(ChildSessionProposalsParams)
     case startChildSessionProposal(ChildSessionProposalParams)
     case dismissChildSessionProposal(ChildSessionProposalParams)
+    case offerChildSession(ChildSessionProposeParams)
+    case listChildSessionOffers(ChildSessionProposalsParams)
+    case answerChildSessionOffer(ChildSessionOfferAnswerParams)
 }
 
 /// Sets the window's content size, in points. With `live`, the size steps
@@ -895,6 +901,7 @@ nonisolated enum ControlResult: Encodable {
     case tabStatus(TabStatusResult)
     case childSession(ChildSessionResult)
     case childSessionProposals(ChildSessionProposalsResult)
+    case childSessionOffers(ChildSessionOffersResult)
 
     func encode(to encoder: Encoder) throws {
         switch self {
@@ -923,6 +930,7 @@ nonisolated enum ControlResult: Encodable {
         case .tabStatus(let v): try v.encode(to: encoder)
         case .childSession(let v): try v.encode(to: encoder)
         case .childSessionProposals(let v): try v.encode(to: encoder)
+        case .childSessionOffers(let v): try v.encode(to: encoder)
         }
     }
 }

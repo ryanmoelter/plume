@@ -46,6 +46,9 @@ final class PlumeMCPServer {
 
     private let role: () -> Role
     private let callTool: (ToolCall) async -> ToolResult
+    /// Running `tools/call`s by JSON-RPC id, which the CLI's
+    /// `notifications/cancelled` names when an interrupt stops one.
+    private var inFlight: [String: Task<ToolResult, Never>] = [:]
 
     init(role: @escaping () -> Role, callTool: @escaping (ToolCall) async -> ToolResult) {
         self.role = role
@@ -96,8 +99,13 @@ final class PlumeMCPServer {
         guard let object = message.objectValue, let method = object["method"]?.stringValue else {
             return Self.error(id: message.objectValue?["id"] ?? .null, code: -32600, message: "Invalid request")
         }
-        guard let id = object["id"] else { return nil }
         let params = object["params"]?.objectValue ?? [:]
+        guard let id = object["id"] else {
+            if method == "notifications/cancelled", let requestID = params["requestId"] {
+                inFlight[Self.key(requestID)]?.cancel()
+            }
+            return nil
+        }
         switch method {
         case "initialize":
             return Self.result(id: id, initializeResult(params: params))
@@ -109,6 +117,20 @@ final class PlumeMCPServer {
             return Self.result(id: id, .object([:]))
         default:
             return Self.error(id: id, code: -32601, message: "Method not found: \(method)")
+        }
+    }
+
+    /// Cancels every call still running, for a process that has gone. Only an
+    /// offer waits long enough to notice.
+    func cancelAllCalls() {
+        for running in inFlight.values { running.cancel() }
+    }
+
+    private static func key(_ id: JSONValue) -> String {
+        switch id {
+        case .string(let text): "s:\(text)"
+        case .number(let number): "n:\(number)"
+        default: "?"
         }
     }
 
@@ -134,11 +156,16 @@ final class PlumeMCPServer {
         }
         let result: ToolResult
         if tools(for: role()).contains(tool) {
-            result = await callTool(ToolCall(
+            let call = ToolCall(
                 tool: tool,
                 arguments: params["arguments"]?.objectValue ?? [:],
                 toolUseID: params["_meta"]?.objectValue?["claudecode/toolUseId"]?.stringValue
-            ))
+            )
+            let running = Task { await callTool(call) }
+            let key = Self.key(id)
+            inFlight[key] = running
+            result = await running.value
+            inFlight[key] = nil
         } else {
             result = .failure("\(tool.rawValue) is not available here: a session another session started cannot start sessions of its own.")
         }

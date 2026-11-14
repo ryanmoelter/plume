@@ -26,8 +26,10 @@ nonisolated struct ChildSessionReportParams: Decodable, Equatable {
     var wakes: Bool?
 }
 
-/// `child-session.propose`: the `start_session` arguments of an
-/// `own_initiative` call, from `parent`.
+/// `child-session.propose` and `child-session.offer`: the `start_session`
+/// arguments of an `own_initiative` or `offer` call, from `parent`. An offer's
+/// `tool_use_id` names the call whose chat row shows the card; without one
+/// the offer gets a minted id and no card.
 nonisolated struct ChildSessionProposeParams: Decodable, Equatable {
     var parent: String?
     var title: String?
@@ -39,12 +41,40 @@ nonisolated struct ChildSessionProposeParams: Decodable, Equatable {
     var model: String?
     var effort: String?
     var permissionMode: String?
+    var toolUseID: String?
 
     private enum CodingKeys: String, CodingKey {
         case parent, title, prompt, background, name, context, model, effort
         case useWorktree = "use_worktree"
         case permissionMode = "permission_mode"
+        case toolUseID = "tool_use_id"
     }
+}
+
+/// `child-session.offer.answer`: `answer` is `new_session`, `do_it_here` or
+/// `withdraw`.
+nonisolated struct ChildSessionOfferAnswerParams: Decodable, Equatable {
+    var toolUseID: String?
+    var answer: String?
+
+    private enum CodingKeys: String, CodingKey {
+        case answer
+        case toolUseID = "tool_use_id"
+    }
+}
+
+nonisolated struct ChildSessionOffersResult: Encodable, Equatable {
+    struct Entry: Encodable, Equatable {
+        let toolUseID: String
+        let title: String
+        /// `ChildSessionOfferCardState.word`.
+        let state: String
+        let failure: String?
+        let result: String?
+    }
+
+    let parentTabID: UUID
+    let offers: [Entry]
 }
 
 /// `child-session.proposal.start` and `.dismiss`. `by` is `user` (default),
@@ -134,20 +164,7 @@ enum ControlChildSessionCommands {
 
     static func propose(_ params: ChildSessionProposeParams, in context: ModelContext) throws -> ChildSessionResult {
         let parent = try tab(params.parent, in: context)
-        var arguments: [String: JSONValue] = ["initiation": .string(StartSessionRequest.Initiation.ownInitiative.rawValue)]
-        for (key, value) in [
-            ("title", params.title), ("prompt", params.prompt), ("background", params.background),
-            ("name", params.name), ("context", params.context), ("model", params.model),
-            ("effort", params.effort), ("permission_mode", params.permissionMode)
-        ] {
-            if let value { arguments[key] = .string(value) }
-        }
-        if let useWorktree = params.useWorktree { arguments["use_worktree"] = .bool(useWorktree) }
-        let request: StartSessionRequest
-        switch StartSessionRequest.parse(arguments) {
-        case .success(let parsed): request = parsed
-        case .failure(let error): throw ControlError.badParams(error.message)
-        }
+        let request = try request(params, initiation: .ownInitiative)
         switch ChildSessionCoordinator.shared.propose(request, from: parent) {
         case .success(let proposal):
             let message = ChildSessionFormats.proposed(title: proposal.title, taskID: proposal.id)
@@ -200,6 +217,66 @@ enum ControlChildSessionCommands {
             return ChildSessionResult(parentTabID: parent.id, childTabID: nil, message: message, taskID: taskID)
         case .failure(let error):
             throw ControlError.badParams(error.message)
+        }
+    }
+
+    /// Raises the card and returns at once. The call's answer lands in
+    /// `child-session.offers` once the offer is answered.
+    static func offer(_ params: ChildSessionProposeParams, in context: ModelContext) throws -> ChildSessionResult {
+        let parent = try tab(params.parent, in: context)
+        let request = try request(params, initiation: .offer)
+        let toolUseID = params.toolUseID ?? ChildSessionCoordinator.mintOfferID()
+        let coordinator = ChildSessionCoordinator.shared
+        if let refusal = coordinator.raiseOffer(request, from: parent, toolUseID: toolUseID) {
+            throw ControlError.badParams(refusal.message)
+        }
+        Task { _ = await coordinator.awaitOffer(request, from: parent, toolUseID: toolUseID) }
+        return ChildSessionResult(parentTabID: parent.id, childTabID: nil, message: "offered", taskID: toolUseID)
+    }
+
+    static func offers(_ params: ChildSessionProposalsParams, in context: ModelContext) throws -> ChildSessionOffersResult {
+        let parent = try tab(params.parent, in: context)
+        let entries = ChildSessionOfferBoard.shared.offers
+            .filter { $0.value.parentTabID == parent.id }
+            .sorted { $0.key < $1.key }
+            .map { id, offer in
+                ChildSessionOffersResult.Entry(
+                    toolUseID: id, title: offer.request.title, state: offer.state.word,
+                    failure: offer.failure, result: offer.result
+                )
+            }
+        return ChildSessionOffersResult(parentTabID: parent.id, offers: entries)
+    }
+
+    static func answerOffer(_ params: ChildSessionOfferAnswerParams) throws -> ChildSessionResult {
+        guard let toolUseID = params.toolUseID else { throw ControlError.badParams("name the offer by its tool_use_id") }
+        guard let answer = params.answer.flatMap(ChildSessionOfferAction.init(rawValue:)) else {
+            throw ControlError.badParams("answer is new_session, do_it_here or withdraw")
+        }
+        let board = ChildSessionOfferBoard.shared
+        guard let offer = board.offer(toolUseID) else { throw ControlError.notFound("an offer \(toolUseID)") }
+        guard offer.state == .pending || (answer == .withdraw && offer.state.isLive) else {
+            throw ControlError.badParams("the offer is \(offer.state.word), not pending")
+        }
+        board.answer(toolUseID, answer)
+        return ChildSessionResult(parentTabID: offer.parentTabID, childTabID: nil, message: "answered", taskID: toolUseID)
+    }
+
+    private static func request(
+        _ params: ChildSessionProposeParams, initiation: StartSessionRequest.Initiation
+    ) throws -> StartSessionRequest {
+        var arguments: [String: JSONValue] = ["initiation": .string(initiation.rawValue)]
+        for (key, value) in [
+            ("title", params.title), ("prompt", params.prompt), ("background", params.background),
+            ("name", params.name), ("context", params.context), ("model", params.model),
+            ("effort", params.effort), ("permission_mode", params.permissionMode)
+        ] {
+            if let value { arguments[key] = .string(value) }
+        }
+        if let useWorktree = params.useWorktree { arguments["use_worktree"] = .bool(useWorktree) }
+        switch StartSessionRequest.parse(arguments) {
+        case .success(let parsed): return parsed
+        case .failure(let error): throw ControlError.badParams(error.message)
         }
     }
 

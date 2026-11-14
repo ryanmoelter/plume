@@ -243,16 +243,16 @@ struct ChildSessionProposalStoreTests {
 
     // MARK: - start_session calls
 
-    @Test func aCallIsAStartAProposalOrTheStartOfOne() throws {
+    @Test func aCallIsAStartAProposalAnOfferOrTheStartOfAProposal() throws {
         let base: [String: JSONValue] = ["title": .string("T"), "prompt": .string("P")]
         func parse(_ extra: [String: JSONValue]) -> Result<StartSessionCall, ChildSessionError> {
             StartSessionCall.parse(base.merging(extra) { _, new in new })
         }
         guard case .success(.start) = parse(["initiation": .string("user_asked")]),
               case .success(.propose(let proposed)) = parse(["initiation": .string("own_initiative")]),
-              case .success(.propose) = parse(["initiation": .string("offer")])
+              case .success(.offer) = parse(["initiation": .string("offer")])
         else {
-            Issue.record("expected a start and two proposals")
+            Issue.record("expected a start, a proposal and an offer")
             return
         }
         #expect(proposed.initiation == .ownInitiative)
