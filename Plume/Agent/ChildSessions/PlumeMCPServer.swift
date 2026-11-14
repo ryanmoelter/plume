@@ -72,7 +72,8 @@ final class PlumeMCPServer {
 
     /// How to answer `can_use_tool`, or nil to ask the user. Only Plume's own
     /// tools get an answer. The CLI asks even in plan mode, where starting a
-    /// session is refused; a proposal starts nothing, so plan mode allows it.
+    /// session or offering one is refused; a proposal starts nothing, so plan
+    /// mode allows it.
     /// In manual mode, or a mode Plume does not recognize (`nil`), a call
     /// that starts a session now asks like any other action; everything else
     /// acts only inside Plume and is allowed.
@@ -84,7 +85,7 @@ final class PlumeMCPServer {
         guard isPlumeTool(toolName) else { return nil }
         if toolName == PlumeMCPTool.startSession.qualifiedName {
             let startsNow = !StartSessionCall.isProposal(input)
-            if permissionMode == .plan, startsNow {
+            if permissionMode == .plan, startsNow || StartSessionCall.isOffer(input) {
                 return .deny(message: ChildSessionError.parentInPlanMode.message)
             }
             if permissionMode == .manual || permissionMode == nil, startsNow {

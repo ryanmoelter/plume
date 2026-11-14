@@ -371,12 +371,23 @@ nonisolated enum StartSessionCall: Equatable {
     }
 
     /// Whether the call only shows a card, a proposal's or an offer's, so it
-    /// starts nothing without the user. Plan and manual mode allow it.
+    /// starts nothing without the user. Manual mode allows it.
     static func isProposal(_ arguments: [String: JSONValue]) -> Bool {
-        guard !hasProposalID(arguments),
-              let raw = arguments["initiation"]?.stringValue?.trimmingCharacters(in: .whitespacesAndNewlines),
-              let initiation = StartSessionRequest.Initiation(rawValue: raw)
-        else { return false }
+        guard let initiation = cardInitiation(arguments) else { return false }
         return initiation != .userAsked
+    }
+
+    /// Whether the call raises an offer card, which plan mode refuses because
+    /// the user can start the session from it.
+    static func isOffer(_ arguments: [String: JSONValue]) -> Bool {
+        cardInitiation(arguments) == .offer
+    }
+
+    /// The call's recognized initiation, unless it starts a proposal by id.
+    private static func cardInitiation(_ arguments: [String: JSONValue]) -> StartSessionRequest.Initiation? {
+        guard !hasProposalID(arguments),
+              let raw = arguments["initiation"]?.stringValue?.trimmingCharacters(in: .whitespacesAndNewlines)
+        else { return nil }
+        return StartSessionRequest.Initiation(rawValue: raw)
     }
 }
