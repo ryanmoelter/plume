@@ -1,0 +1,40 @@
+#!/usr/bin/env bash
+# Usage: altitude-manifest <target-worktree> <out-dir> [extra gradle args...]
+# Writes <out-dir>/manifest.json. Picks the JDK from the target's .sdkmanrc and sets ANDROID_HOME
+# for an Android build when it is unset.
+set -euo pipefail
+
+if [[ $# -lt 2 ]]; then
+  echo "usage: $0 <target-worktree> <out-dir> [gradle args...]" >&2
+  exit 2
+fi
+
+target=$(cd "$1" && pwd)
+mkdir -p "$2"
+out=$(cd "$2" && pwd)
+shift 2
+init_script="$(cd "$(dirname "$0")/.." && pwd)/gradle/altitude.init.gradle"
+
+if [[ -f "$target/.sdkmanrc" ]]; then
+  java_version=$(sed -n 's/^java=//p' "$target/.sdkmanrc" | tr -d '[:space:]')
+  candidates="${SDKMAN_DIR:-$HOME/.sdkman}/candidates/java"
+  if [[ -n "$java_version" && -d "$candidates/$java_version" ]]; then
+    export JAVA_HOME="$candidates/$java_version"
+  elif [[ -n "$java_version" ]]; then
+    major=${java_version%%.*}
+    match=$(ls -d "$candidates/$major".*-zulu 2>/dev/null | sort -V | tail -1 || true)
+    if [[ -n "$match" ]]; then
+      echo "altitude-manifest: $java_version is not installed, using $(basename "$match")" >&2
+      export JAVA_HOME="$match"
+    fi
+  fi
+fi
+
+if [[ -z "${ANDROID_HOME:-}" ]] && grep -rqs --include='*.gradle.kts' --include='*.gradle' 'com.android\|androidApplication\|androidLibrary' "$target"/*/build.gradle* "$target"/build.gradle* 2>/dev/null; then
+  for sdk in "$HOME/Library/Android/sdk" "$HOME/Android/Sdk"; do
+    if [[ -d "$sdk" ]]; then export ANDROID_HOME="$sdk"; break; fi
+  done
+fi
+
+cd "$target"
+exec ./gradlew --console=plain -I "$init_script" altitudeManifest "-Paltitude.out=$out" "$@"

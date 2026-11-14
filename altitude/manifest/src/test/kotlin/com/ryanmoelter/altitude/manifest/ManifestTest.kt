@@ -27,7 +27,8 @@ class ManifestTest {
       listOf(true, false),
       shared.sourceFiles.map { it.generated },
     )
-    assertEquals("commonMain", shared.sourceFiles.first().sourceSet)
+    assertEquals("commonMain", shared.sourceFiles.first().fragment)
+    assertNull(shared.sourceFiles.last().fragment)
   }
 
   @Test

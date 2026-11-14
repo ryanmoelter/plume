@@ -111,7 +111,14 @@ data class SourceFile(
   val generated: Boolean,
   /** The [SourceRoot.path] holding the file. */
   val root: String? = null,
+  /** The source set declaring [root], or else the K2 fragment holding the file. */
   val sourceSet: String? = null,
+  /**
+   * The K2 multiplatform fragment the compiler puts the file in, null outside multiplatform. Every
+   * platform source set (`androidMain`, `androidDebug`) shares the compilation's default fragment,
+   * so this separates common from platform code where [sourceSet] separates declaring source sets.
+   */
+  val fragment: String? = null,
 )
 
 @Serializable

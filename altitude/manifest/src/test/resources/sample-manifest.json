@@ -55,7 +55,8 @@
                     "relativePath": "shared/build/generated/ksp/metadata/commonMain/kotlin/a/InjectAppComponent.kt",
                     "generated": true,
                     "root": "/work/sample/shared/build/generated/ksp/metadata/commonMain/kotlin",
-                    "sourceSet": "commonMain"
+                    "sourceSet": "commonMain",
+                    "fragment": "commonMain"
                 },
                 {
                     "path": "/work/sample/shared/src/commonMain/kotlin/a/AppComponent.kt",

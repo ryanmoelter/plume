@@ -1,0 +1,369 @@
+// Exports Altitude's compilation manifest (schema: altitude/manifest) without touching the build.
+//
+//   ./gradlew -I <abs>/altitude.init.gradle altitudeManifest -Paltitude.out=<dir>
+//
+// Selection: per project, every Kotlin compilation on a `jvm` target named `main`, and on an
+// `androidJvm` target named after `-Paltitude.androidVariant` (default `debug`). Test,
+// metadata and native compilations are skipped. `-Paltitude.compileTasks=:app:compileDebugKotlin,
+// :compileKotlin` replaces the rule with an explicit list of compile tasks.
+//
+// The task depends on what the selected compile tasks depend on (source generators, jars of other
+// projects), never on the compile tasks themselves. A project-to-project classpath entry still
+// compiles the producing project.
+//
+// Groovy, because an init script cannot see the Kotlin and Android plugin classes; every read of
+// their objects is dynamic.
+
+import groovy.json.JsonOutput
+import groovy.json.JsonSlurperClassic
+import org.gradle.api.DefaultTask
+import org.gradle.api.Project
+import org.gradle.api.Task
+import org.gradle.api.file.FileCollection
+import org.gradle.api.provider.Provider
+import org.gradle.api.tasks.Internal
+import org.gradle.api.tasks.TaskAction
+
+class AltitudeManifestTask extends DefaultTask {
+  @Internal String outDir
+  @Internal String repoRoot
+  @Internal Map<String, Object> header = [:]
+  @Internal Provider<String> gitSha
+  @Internal Provider<String> gitStatus
+  @Internal List<String> parts = []
+
+  @TaskAction
+  void write() {
+    def manifest = new LinkedHashMap<String, Object>()
+    manifest.schemaVersion = 1
+    manifest.repoRoot = repoRoot
+    def sha = gitSha.getOrElse('').trim()
+    if (sha) manifest.git = [sha: sha, dirty: !gitStatus.getOrElse('').trim().isEmpty()]
+    header.each { k, v -> if (v != null) manifest[k] = v }
+    manifest.compilations = parts.collectMany { new JsonSlurperClassic().parse(new File(it), 'UTF-8') as List }
+
+    def file = new File(outDir, 'manifest.json')
+    file.setText(JsonOutput.prettyPrint(JsonOutput.toJson(manifest)) + '\n', 'UTF-8')
+    parts.each { new File(it).delete() }
+    new File(outDir, 'parts').delete()
+    logger.lifecycle("Altitude manifest: ${file} (${manifest.compilations.size()} compilations)")
+  }
+}
+
+// One per project, so each task serializes only file collections its own project owns.
+class AltitudeCompilationsTask extends DefaultTask {
+  @Internal String partFile
+  @Internal String repoRoot
+  @Internal Map<String, String> buildDirs = [:]
+  @Internal List<Map<String, Object>> specs = []
+
+  @TaskAction
+  void write() {
+    def file = new File(partFile)
+    file.parentFile.mkdirs()
+    file.setText(JsonOutput.toJson(specs.collect { compilation(it) }), 'UTF-8')
+  }
+
+  Map<String, Object> compilation(Map<String, Object> spec) {
+    Map<String, String> declaredRoots = spec.declaredRoots
+    Map<String, String> fileFragments = [:]
+    spec.fragments.each { String name, FileCollection files ->
+      files.files.each { fileFragments[it.absolutePath] = name }
+    }
+
+    def roots = new TreeMap<String, Map<String, Object>>()
+    declaredRoots.each { path, sourceSet ->
+      roots[path] = root(path, sourceSet, new File(path).exists())
+    }
+    def sortedDeclared = declaredRoots.keySet().sort { -it.length() }
+
+    def files = new TreeMap<String, Map<String, Object>>()
+    ((FileCollection) spec.sources).files.each { File f ->
+      if (!(f.name.endsWith('.kt') || f.name.endsWith('.java'))) return
+      def path = f.absolutePath
+      def rootPath = sortedDeclared.find { path.startsWith(it + File.separator) }
+      if (rootPath == null) {
+        rootPath = inferRoot(f)
+        if (!roots.containsKey(rootPath)) roots[rootPath] = root(rootPath, null, true)
+      }
+      def fragment = fileFragments[path]
+      def sourceSet = declaredRoots[rootPath] ?: fragment
+      def entry = new LinkedHashMap<String, Object>()
+      entry.path = path
+      entry.relativePath = relative(path)
+      entry.generated = isGenerated(path)
+      entry.root = rootPath
+      if (sourceSet) entry.sourceSet = sourceSet
+      if (fragment) entry.fragment = fragment
+      files[path] = entry
+    }
+
+    def classpath = ((FileCollection) spec.libraries).files.collect { File f ->
+      def entry = new LinkedHashMap<String, Object>()
+      entry.path = f.absolutePath
+      def ref = moduleRef(f.absolutePath)
+      if (ref) entry.moduleRef = ref
+      if (!f.exists()) entry.exists = false
+      entry
+    }
+
+    def out = new LinkedHashMap<String, Object>()
+    spec.info.each { k, v -> if (v != null) out[k] = v }
+    out.compilerPlugins = [
+      classpath: ((FileCollection) spec.pluginClasspath).files.collect { it.absolutePath },
+      options: spec.pluginOptions,
+    ]
+    out.sourceSets = spec.sourceSets
+    out.sourceRoots = new ArrayList(roots.values())
+    out.sourceFiles = new ArrayList(files.values())
+    out.classpath = classpath
+    out.friendPaths = ((FileCollection) spec.friendPaths).files.collect { it.absolutePath }.sort()
+    if (spec.jdkHome) out.jdkHome = spec.jdkHome
+    out.bootClasspath = spec.bootClasspath
+    out
+  }
+
+  Map<String, Object> root(String path, String sourceSet, boolean exists) {
+    def entry = new LinkedHashMap<String, Object>()
+    entry.path = path
+    entry.relativePath = relative(path)
+    entry.generated = isGenerated(path)
+    if (sourceSet) entry.sourceSet = sourceSet
+    if (!exists) entry.exists = false
+    entry
+  }
+
+  // A file no source set declares (AGP's BuildConfig, say) is rooted where its package path starts.
+  static String inferRoot(File f) {
+    def dir = f.parentFile
+    def pkg = null
+    f.withReader('UTF-8') { reader ->
+      String line
+      while ((line = reader.readLine()) != null) {
+        def m = line =~ /^\s*package\s+([\w.`]+)/
+        if (m.find()) { pkg = m.group(1).replace('`', ''); break }
+      }
+    }
+    if (pkg) {
+      def suffix = File.separator + pkg.replace('.', File.separator)
+      if (dir.absolutePath.endsWith(suffix)) {
+        return dir.absolutePath.substring(0, dir.absolutePath.length() - suffix.length())
+      }
+    }
+    dir.absolutePath
+  }
+
+  String relative(String path) {
+    if (path == repoRoot) return ''
+    path.startsWith(repoRoot + File.separator) ?
+      path.substring(repoRoot.length() + 1).replace(File.separator, '/') : null
+  }
+
+  boolean isGenerated(String path) {
+    buildDirs.values().any { path == it || path.startsWith(it + File.separator) }
+  }
+
+  String moduleRef(String path) {
+    def match = buildDirs.findAll { _, dir -> path == dir || path.startsWith(dir + File.separator) }
+      .max { it.value.length() }
+    match?.key
+  }
+}
+
+class AltitudeConfigure {
+  static void configure(AltitudeManifestTask task, Project root) {
+    task.group = 'altitude'
+    task.description = 'Writes the Altitude compilation manifest to -Paltitude.out.'
+    task.outDir = outDir(root)
+    task.repoRoot = root.rootDir.absolutePath
+    task.gitSha = root.providers.exec {
+      it.commandLine('git', 'rev-parse', 'HEAD')
+      it.workingDir(root.rootDir)
+      it.ignoreExitValue = true
+    }.standardOutput.asText
+    task.gitStatus = root.providers.exec {
+      it.commandLine('git', 'status', '--porcelain')
+      it.workingDir(root.rootDir)
+      it.ignoreExitValue = true
+    }.standardOutput.asText
+
+    def override = override(root)
+    def found = [] as Set
+    task.header.gradleVersion = root.gradle.gradleVersion
+    root.allprojects.sort { it.path }.each { Project p ->
+      def selected = selectedCompilations(p, override, variant(root))
+      if (selected) {
+        task.parts << partFile(root, p)
+        task.dependsOn(taskPath(p.path, 'altitudeCompilations'))
+        selected.each { _, compilation -> found << taskPath(p.path, compilation.compileKotlinTaskName) }
+      }
+      if (!task.header.kotlinPluginVersion) task.header.kotlinPluginVersion = kotlinPluginVersion(p)
+      if (!task.header.androidPluginVersion) task.header.androidPluginVersion = androidPluginVersion(p)
+    }
+    def missing = (override ?: [] as Set) - found
+    if (missing) throw new IllegalArgumentException("altitude.compileTasks names no Kotlin compilation: ${missing.sort()}")
+  }
+
+  static void configure(AltitudeCompilationsTask task, Project p) {
+    def root = p.rootProject
+    task.group = 'altitude'
+    task.description = "Writes this project's part of the Altitude manifest."
+    task.partFile = partFile(root, p)
+    task.repoRoot = root.rootDir.absolutePath
+    root.allprojects.each { task.buildDirs[it.path] = it.layout.buildDirectory.get().asFile.absolutePath }
+    selectedCompilations(p, override(root), variant(root)).each { target, compilation ->
+      task.specs << spec(p, root, target, compilation)
+      def compileTask = compilation.compileTaskProvider.get()
+      task.dependsOn(p.provider { inputProducers(compileTask) })
+    }
+  }
+
+  static String outDir(Project root) {
+    root.findProperty('altitude.out') ?: new File(root.layout.buildDirectory.get().asFile, 'altitude').absolutePath
+  }
+
+  static String partFile(Project root, Project p) {
+    def name = p.path == ':' ? 'root' : p.path.substring(1).replace(':', '_')
+    new File(new File(outDir(root), 'parts'), "${name}.json").absolutePath
+  }
+
+  static Set<String> override(Project root) {
+    root.findProperty('altitude.compileTasks')?.toString()?.split(',')?.collect { it.trim() }?.findAll { it } as Set
+  }
+
+  static String variant(Project root) {
+    root.findProperty('altitude.androidVariant') ?: 'debug'
+  }
+
+  static String taskPath(String projectPath, String taskName) {
+    projectPath == ':' ? ":${taskName}" : "${projectPath}:${taskName}"
+  }
+
+  static List selectedCompilations(Project p, Set<String> override, String variant) {
+    def kotlin = p.extensions.findByName('kotlin')
+    if (kotlin == null) return []
+    def targets = kotlin.metaClass.respondsTo(kotlin, 'getTargets') ? kotlin.targets.toList() :
+      (kotlin.metaClass.respondsTo(kotlin, 'getTarget') ? [kotlin.target] : [])
+    def selected = []
+    targets.sort { it.name }.each { target ->
+      def platform = target.platformType.name
+      if (!(platform in ['jvm', 'androidJvm'])) return
+      target.compilations.toList().sort { it.name }.each { compilation ->
+        def chosen = override ?
+          taskPath(p.path, compilation.compileKotlinTaskName) in override :
+          compilation.name == (platform == 'jvm' ? 'main' : variant)
+        if (chosen) selected << [target, compilation]
+      }
+    }
+    selected
+  }
+
+  static Map<String, Object> spec(Project p, Project root, target, compilation) {
+    def compileTask = compilation.compileTaskProvider.get()
+    def options = compileTask.compilerOptions
+    def info = new LinkedHashMap<String, Object>()
+    info.projectPath = p.path
+    info.projectDir = p.projectDir == root.rootDir ? '' :
+      root.rootDir.toPath().relativize(p.projectDir.toPath()).toString().replace(File.separator, '/')
+    info.compileTask = compileTask.name
+    info.compilationName = compilation.name
+    info.targetName = target.name ?: null
+    info.platform = target.platformType.name
+    info.moduleName = options.moduleName.getOrNull() ?: compileTask.moduleName.getOrNull()
+    info.languageVersion = options.languageVersion.getOrNull()?.version
+    info.apiVersion = options.apiVersion.getOrNull()?.version
+    info.jvmTarget = options.jvmTarget.getOrNull()?.target
+    info.freeCompilerArgs = options.freeCompilerArgs.get().toList()
+    info.optIn = options.optIn.get().toList().sort()
+
+    def declaredRoots = new TreeMap<String, String>()
+    def sourceSets = compilation.allKotlinSourceSets.toList().sort { it.name }.collect { ss ->
+      ss.kotlin.srcDirs.each { declaredRoots.putIfAbsent(it.absolutePath, ss.name) }
+      [name: ss.name, dependsOn: ss.dependsOn.collect { it.name }.sort()]
+    }
+
+    def fragments = new TreeMap<String, FileCollection>()
+    if (compileTask.metaClass.respondsTo(compileTask, 'getMultiplatformStructure')) {
+      compileTask.multiplatformStructure.fragments.getOrElse([]).each {
+        fragments[it.fragmentName] = it.sources
+      }
+    }
+
+    [
+      info: info,
+      sources: compileTask.metaClass.respondsTo(compileTask, 'getJavaSources') ?
+        compileTask.sources + compileTask.javaSources : compileTask.sources,
+      libraries: compileTask.libraries,
+      pluginClasspath: compileTask.pluginClasspath,
+      friendPaths: compileTask.friendPaths,
+      pluginOptions: pluginOptions(compileTask),
+      sourceSets: sourceSets,
+      declaredRoots: declaredRoots,
+      fragments: fragments,
+      jdkHome: jdkHome(compileTask),
+      bootClasspath: bootClasspath(p),
+    ]
+  }
+
+  static List<Map<String, String>> pluginOptions(compileTask) {
+    def out = []
+    compileTask.pluginOptions.get().each { config ->
+      config.allOptions().each { String pluginId, List options ->
+        options.each { out << [pluginId: pluginId, key: it.key, value: it.value] }
+      }
+    }
+    out.sort { a, b -> a.pluginId <=> b.pluginId ?: a.key <=> b.key ?: a.value <=> b.value }
+  }
+
+  static String jdkHome(compileTask) {
+    try {
+      def toolchain = compileTask.kotlinJavaToolchainProvider.get()
+      return toolchain.'getBuildJvm$kotlin_gradle_plugin_common'().get().javaHome.absolutePath
+    } catch (Exception ignored) {
+      return null
+    }
+  }
+
+  static List<String> bootClasspath(Project p) {
+    def android = p.extensions.findByName('android')
+    if (android == null) return []
+    try {
+      return android.bootClasspath.collect { it.absolutePath }
+    } catch (Exception ignored) {
+      return []
+    }
+  }
+
+  // What the compile task needs built first, minus the Kotlin compile tasks of its own project.
+  static Set<Task> inputProducers(Task compileTask) {
+    compileTask.taskDependencies.getDependencies(compileTask).findAll { Task t ->
+      !(t.project == compileTask.project && t.class.name.contains('KotlinCompile'))
+    }
+  }
+
+  static String kotlinPluginVersion(Project p) {
+    def plugin = p.plugins.find { it.class.name.startsWith('org.jetbrains.kotlin.gradle.plugin.') && it.metaClass.respondsTo(it, 'getPluginVersion') }
+    plugin?.pluginVersion
+  }
+
+  static String androidPluginVersion(Project p) {
+    def android = p.extensions.findByName('android')
+    if (android == null) return null
+    try {
+      return android.class.classLoader.loadClass('com.android.Version').getField('ANDROID_GRADLE_PLUGIN_VERSION').get(null)
+    } catch (Exception ignored) {
+      return null
+    }
+  }
+}
+
+gradle.allprojects { Project p ->
+  p.tasks.register('altitudeCompilations', AltitudeCompilationsTask) { AltitudeCompilationsTask t ->
+    AltitudeConfigure.configure(t, p)
+  }
+  if (p == p.rootProject) {
+    p.tasks.register('altitudeManifest', AltitudeManifestTask) { AltitudeManifestTask t ->
+      AltitudeConfigure.configure(t, p)
+    }
+  }
+}
