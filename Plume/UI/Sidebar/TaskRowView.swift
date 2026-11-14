@@ -124,23 +124,20 @@ struct TaskRowView: View {
         working: [LinkedLinearIssue],
         pinned: [PullRequestReference]
     ) -> [TaskRowDetails.Line] {
-        let groups: [TaskRowDetails.DirectoryGroup]
-        let groupLines: [TaskRowDetails.Line]
-        if agentTabs.count <= 1 {
-            groups = directories.map(group(for:))
-            groupLines = TaskRowDetails.lines(groups: groups)
-        } else {
-            let agents = agentGroups(for: agentTabs)
-            groups = agents.map(\.workspace)
-            groupLines = TaskRowDetails.lines(agents: agents)
-        }
-        return groupLines
-            + TaskRowDetails.pinnedPullRequestLines(
+        func taskLines(groups: [TaskRowDetails.DirectoryGroup]) -> [TaskRowDetails.Line] {
+            TaskRowDetails.pinnedPullRequestLines(
                 pinned,
                 groups: groups,
                 details: { LinkedPullRequestStore.shared.detail(for: $0) }
             )
-            + TaskRowDetails.linearLines(working, states: { LinearStore.shared.state(for: $0) })
+                + TaskRowDetails.linearLines(working, states: { LinearStore.shared.state(for: $0) })
+        }
+        if agentTabs.count <= 1 {
+            let groups = directories.map(group(for:))
+            return TaskRowDetails.lines(groups: groups) + taskLines(groups: groups)
+        }
+        let agents = agentGroups(for: agentTabs)
+        return TaskRowDetails.lines(agents: agents, taskLines: taskLines(groups: agents.map(\.workspace)))
     }
 
     /// The remote-control and device icons of a task with one agent tab. Its
@@ -206,7 +203,8 @@ struct TaskRowView: View {
                 StatusBadge(
                     status: status,
                     workStartedAt: StatusEngine.shared.workStarted(forTask: task.id),
-                    isUnread: isUnread
+                    isUnread: isUnread,
+                    glyphWidth: hasSeveralAgents ? Self.badgeColumnWidth : nil
                 )
             }
 
@@ -351,25 +349,22 @@ struct TaskRowView: View {
         }
     }
 
-    /// The first header shares the status badge's lines, so a badge glyph
-    /// taller than the title never changes the row's height.
+    /// The first project line shares the status badge's lines, so a badge
+    /// glyph taller than the title never changes the row's height. An agent
+    /// header never does: its own badge sits in the same trailing column.
     private static func badgeLineCount(of lines: [TaskRowDetails.Line]) -> Int {
         switch lines.first {
-        case .project, .agentHeader: 1
+        case .project: 1
         default: 0
         }
     }
 
-    /// Fixed so every agent's title starts at the same x, whatever its
-    /// status draws.
-    static let agentBadgeWidth: CGFloat = 14
+    /// The trailing column the task's badge and every agent's badge are
+    /// centered in. The agent's is drawn smaller, so the task's reads first.
+    static let badgeColumnWidth: CGFloat = 16
 
     private func agentHeaderLine(_ header: TaskRowDetails.AgentHeader) -> some View {
         HStack(spacing: 4) {
-            StatusBadge(status: header.status, isUnread: header.isUnread, showsElapsed: false)
-                .font(.caption)
-                .imageScale(.small)
-                .frame(width: Self.agentBadgeWidth)
             Text(header.title)
                 .font(.caption)
                 .emphasis(.secondary)
@@ -381,6 +376,11 @@ struct TaskRowView: View {
             if let heldDevices = header.heldDevices {
                 deviceLeaseIcon(heldDevices, label: header.label)
             }
+            Spacer(minLength: 4)
+            StatusBadge(status: header.status, isUnread: header.isUnread, showsElapsed: false)
+                .font(.caption)
+                .imageScale(.small)
+                .frame(width: Self.badgeColumnWidth)
         }
         .plumeID(AccessibilityID.taskAgentGroup, label: header.label, value: header.statusText)
     }

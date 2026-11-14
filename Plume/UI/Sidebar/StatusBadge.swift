@@ -10,6 +10,9 @@ struct StatusBadge: View {
     var isUnread = false
     /// Off when the caller places the elapsed time itself.
     var showsElapsed = true
+    /// Centers the glyph in a column this wide, so badges of different sizes
+    /// stacked in one column share a center.
+    var glyphWidth: CGFloat?
     @Environment(\.colorScheme) private var colorScheme
 
     var body: some View {
@@ -19,10 +22,10 @@ struct StatusBadge: View {
                     ElapsedLabel(since: workStartedAt)
                         .font(.caption)
                         .emphasis(.secondary)
-                    glyph
+                    columnGlyph
                 }
             } else {
-                glyph
+                columnGlyph
             }
         }
         .animation(.default, value: status)
@@ -34,6 +37,15 @@ struct StatusBadge: View {
         switch status {
         case .notStarted, .awaitingReply: return !isUnread
         default: return false
+        }
+    }
+
+    @ViewBuilder
+    private var columnGlyph: some View {
+        if let glyphWidth {
+            glyph.frame(width: glyphWidth)
+        } else {
+            glyph
         }
     }
 

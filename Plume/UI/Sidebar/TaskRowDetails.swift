@@ -121,50 +121,45 @@ enum TaskRowDetails {
         groups.flatMap(lines(for:))
     }
 
-    /// A header per agent, followed by only what its directory says that the
-    /// agent above did not, so agents sharing a folder stack without
-    /// repeating it. An agent in another folder always shows at least its
-    /// branch: a second clone on the same branch reads the same as the first,
-    /// and showing only its pull request, or nothing, would make it look like
-    /// it shared the first one's folder.
-    static func lines(agents: [AgentGroup]) -> [Line] {
-        var lines: [Line] = []
-        var previous: (directory: String?, lines: [Line])?
-        for agent in agents {
-            let current = self.lines(for: agent.workspace)
+    /// One kind of line a directory contributes.
+    enum Attribute: CaseIterable {
+        case project, branch, pullRequest
+    }
+
+    static func attribute(of line: Line) -> Attribute? {
+        switch line {
+        case .project: .project
+        case .branch: .branch
+        case .pullRequest: .pullRequest
+        default: nil
+        }
+    }
+
+    /// Decided attribute by attribute: one every agent shares, absence
+    /// included, shows once at the task level, where a one-agent row shows it.
+    /// One that differs anywhere shows under each agent's header instead.
+    /// `taskLines` follow the shared lines, before the first header.
+    static func lines(agents: [AgentGroup], taskLines: [Line] = []) -> [Line] {
+        let perAgent = agents.map { lines(for: $0.workspace) }
+        let shared = Set(Attribute.allCases.filter { attribute in
+            let values = perAgent.map { $0.first { self.attribute(of: $0) == attribute } }
+            return values.allSatisfy { readsTheSame($0, values.first ?? nil) }
+        })
+        func isShared(_ line: Line) -> Bool {
+            attribute(of: line).map(shared.contains) ?? false
+        }
+        var lines = (perAgent.first ?? []).filter(isShared) + taskLines
+        for (agent, agentLines) in zip(agents, perAgent) {
             lines.append(.agentHeader(agent.header))
-            if let previous {
-                let differing = linesDiffering(current, from: previous.lines)
-                let isOtherFolder = agent.workspace.directory != previous.directory
-                lines.append(contentsOf: isOtherFolder && !startsAtFolderLine(differing) ? current : differing)
-            } else {
-                lines.append(contentsOf: current)
-            }
-            previous = (agent.workspace.directory, current)
+            lines.append(contentsOf: agentLines.filter { !isShared($0) })
         }
         return lines
-    }
-
-    private static func startsAtFolderLine(_ lines: [Line]) -> Bool {
-        switch lines.first {
-        case .project, .branch: true
-        default: false
-        }
-    }
-
-    /// `current` from its first line that reads differently from the same
-    /// position in `previous`. The lines nest — a branch belongs to its
-    /// project — so once one differs, everything under it is shown too.
-    static func linesDiffering(_ current: [Line], from previous: [Line]) -> [Line] {
-        let firstDifference = current.indices.first { $0 >= previous.count || !readsTheSame(current[$0], previous[$0]) }
-        guard let firstDifference else { return [] }
-        return Array(current[firstDifference...])
     }
 
     /// A pull request line carries its directory only so the chip can look up
     /// that repository's ignored checks; two folders showing one pull request
     /// read the same.
-    private static func readsTheSame(_ line: Line, _ other: Line) -> Bool {
+    private static func readsTheSame(_ line: Line?, _ other: Line?) -> Bool {
         if case .pullRequest(_, let state) = line, case .pullRequest(_, let otherState) = other {
             return state == otherState
         }
