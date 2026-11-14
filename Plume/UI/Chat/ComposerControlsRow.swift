@@ -203,21 +203,43 @@ private struct PermissionModeControl: View, ThemedView {
                 height: dimensions.composerControlHeight
             )
             .overlay {
-                SymbolMenuButton(title: "Permission mode", value: preset.label, options: state.permissionPresets.map { option in
-                    SymbolMenuOption(title: option.label, systemImage: option.symbol, isSelected: option == preset) {
-                        state.setPermissionPreset(option)
-                    }
-                })
+                SymbolMenuButton(
+                    title: "Permission mode",
+                    value: preset.label,
+                    options: state.permissionPresets.map { option in
+                        SymbolMenuOption(
+                            title: option.label,
+                            systemImage: option.symbol,
+                            isSelected: option == preset,
+                            isEnabled: state.isAllowed(option)
+                        ) {
+                            state.setPermissionPreset(option)
+                        }
+                    },
+                    footnote: isLimited ? Self.limitedFootnote : nil
+                )
             }
             .help(state.modeAndModelHelp("Permission mode: \(preset.label)"))
             .accessibilityLabel("Permission mode")
             .accessibilityValue(preset.label)
             .plumeID(AccessibilityID.composerPermissionModeControl, value: preset.label, setValue: { label in
-                if let option = state.permissionPresets.first(where: { $0.label == label }) {
+                if let option = state.permissionPresets.first(where: { $0.label == label }), state.isAllowed(option) {
                     state.setPermissionPreset(option)
                 }
             })
+            .plumeMenuItem(
+                AccessibilityID.composerPermissionModeLimitedNote,
+                label: Self.limitedFootnote,
+                isPresent: isLimited,
+                isEnabled: false
+            ) {}
         }
+    }
+
+    static let limitedFootnote = "Limited by the parent session"
+
+    private var isLimited: Bool {
+        state.permissionPresets.contains { !state.isAllowed($0) }
     }
 
     /// Bypassing every permission check is worth flagging; the rest are

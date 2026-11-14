@@ -68,18 +68,27 @@ nonisolated struct SideSessionEvent: Equatable, Codable {
 
     var displayName: String? { name ?? title }
 
-    /// The row's one line: "↳ fix-login finished a turn: Tests pass".
+    /// The note as one line of plain text: "↳ fix-login finished a turn:
+    /// Tests pass". A view draws `InjectedContent.markerSymbol` beside
+    /// `sentence` instead.
     var summary: String {
+        switch kind {
+        case .turnFinished, .message: "\(fromParent ? "↑" : "↳") \(sentence)"
+        case .other: sentence
+        }
+    }
+
+    /// "fix-login finished a turn: Tests pass".
+    var sentence: String {
         let firstLine = text.split(omittingEmptySubsequences: true) {
             $0 == "\n" || $0 == ChildSessionFormats.newlineMark
         }.first.map { $0.trimmingCharacters(in: .whitespaces) } ?? ""
         let who = displayName ?? "A session"
-        let marker = fromParent ? "↑" : "↳"
         switch kind {
         case .turnFinished:
-            return firstLine.isEmpty ? "\(marker) \(who) finished a turn" : "\(marker) \(who) finished a turn: \(firstLine)"
+            return firstLine.isEmpty ? "\(who) finished a turn" : "\(who) finished a turn: \(firstLine)"
         case .message:
-            return firstLine.isEmpty ? "\(marker) \(who) sent a message" : "\(marker) \(who) sent a message: \(firstLine)"
+            return firstLine.isEmpty ? "\(who) sent a message" : "\(who) sent a message: \(firstLine)"
         case .other:
             return firstLine.isEmpty ? "Sessions update" : firstLine
         }

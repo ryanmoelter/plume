@@ -173,7 +173,7 @@ enum AccessibilityID {
 
     static let tabChip = "tab-chip"
     static let tabChipClose = "tab-chip-close"
-    /// The ↳ in front of a child session's title.
+    /// The arrow in front of a child session's title.
     static let tabChipChildMarker = "tab-chip-child-marker"
     /// A note from another session in the chat, which selects its tab.
     static let sideSessionEventRow = "side-session-event-row"
@@ -265,6 +265,9 @@ enum AccessibilityID {
     static let composerModelControl = "composer-model-control"
     static let composerEffortControl = "composer-effort-control"
     static let composerPermissionModeControl = "composer-permission-mode-control"
+    /// The disabled line in a child session's mode menu, present while the
+    /// parent's mode disables some of the modes.
+    static let composerPermissionModeLimitedNote = "composer-permission-mode-limited-note"
     static let composerCollaborationModeControl = "composer-collaboration-mode-control"
     static let remoteControlToast = "remote-control-toast"
 

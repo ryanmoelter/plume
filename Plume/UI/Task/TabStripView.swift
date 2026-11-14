@@ -185,7 +185,7 @@ private struct TabChip: View {
     var body: some View {
         HStack(spacing: 5) {
             if isChildSession {
-                Text("↳")
+                Image(systemName: "arrow.turn.down.right")
                     .font(.callout)
                     .foregroundStyle(.secondary)
                     .help("Started by another session in this task")

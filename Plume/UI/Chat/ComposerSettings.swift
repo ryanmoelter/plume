@@ -102,6 +102,18 @@ struct ComposerSettings {
         return PermissionMode.offered(showsBypassPermissions: AppSettings.shared.showsBypassPermissions)
             .map { AgentPermissionPreset(id: $0.rawValue, label: $0.label) }
     }
+    /// The highest mode a child session's picker allows, nil when nothing
+    /// limits it.
+    var permissionCeiling: PermissionMode? {
+        guard provider == .claudeCode, tab.isChildSession else { return nil }
+        return ChildSessionCoordinator.shared.pickerCeiling(forChild: tab)
+    }
+
+    func isAllowed(_ preset: AgentPermissionPreset) -> Bool {
+        guard let ceiling = permissionCeiling, let mode = PermissionMode(rawValue: preset.id) else { return true }
+        return ChildSessionPermissions.allows(mode, under: ceiling)
+    }
+
     var permissionPreset: AgentPermissionPreset? {
         if provider == .claudeCode {
             return permissionMode.map { .init(id: $0.rawValue, label: $0.label) }
@@ -220,7 +232,13 @@ struct ComposerSettings {
         session?.setPermissionMode(mode)
     }
 
+    /// A mode above a child's ceiling lands on the ceiling, so leaving plan
+    /// mode for a remembered higher mode still leaves it.
     func setPermissionPreset(_ preset: AgentPermissionPreset) {
+        var preset = preset
+        if !isAllowed(preset), let ceiling = permissionCeiling {
+            preset = AgentPermissionPreset(id: ceiling.rawValue, label: ceiling.label)
+        }
         LastNonPlanModeStore.shared.remember(preset, forTab: tab.id)
         tab.permissionPreset = preset
         if provider == .claudeCode, let mode = PermissionMode(rawValue: preset.id) {

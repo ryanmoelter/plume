@@ -1,6 +1,6 @@
 import SwiftUI
 
-/// One line for a note another session sent this one: "↳ fix-login finished
+/// One line for a note another session sent this one: "fix-login finished
 /// a turn: Tests pass". Clicking it selects that session's tab; the note's
 /// full text stays out of the chat, since the model already has it.
 struct SideSessionEventRow: View, ThemedView {
@@ -11,7 +11,7 @@ struct SideSessionEventRow: View, ThemedView {
     var body: some View {
         Button(action: select) {
             Label {
-                Text(event.summary)
+                Text(event.sentence)
                     .lineLimit(1)
                     .truncationMode(.tail)
             } icon: {
@@ -27,8 +27,8 @@ struct SideSessionEventRow: View, ThemedView {
         .help(event.sessionID == nil ? "" : "Show this session")
         .plumeID(
             AccessibilityID.sideSessionEventRow,
-            label: event.displayName ?? event.summary,
-            value: event.summary,
+            label: event.displayName ?? event.sentence,
+            value: event.sentence,
             invoke: select
         )
         .disabled(event.sessionID == nil)
