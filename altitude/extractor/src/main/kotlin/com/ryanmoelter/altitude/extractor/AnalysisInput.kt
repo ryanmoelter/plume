@@ -39,6 +39,8 @@ data class SourceInput(
   val generated: Boolean,
   /** A [FragmentInput.name]; null puts the file in the module's last fragment. */
   val fragment: String? = null,
+  /** The source set that declares the file's root. */
+  val sourceSet: String? = null,
 )
 
 /**

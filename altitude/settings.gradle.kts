@@ -25,4 +25,4 @@ plugins {
 
 rootProject.name = "altitude"
 
-include("manifest", "extractor")
+include("manifest", "solver", "extractor")

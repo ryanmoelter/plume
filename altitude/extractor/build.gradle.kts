@@ -49,6 +49,7 @@ configurations.runtimeClasspath {
 
 dependencies {
     implementation(project(":manifest"))
+    implementation(project(":solver"))
     intellijCore(libs.intellij.platform.core) { isTransitive = false }
     implementation(libs.kotlin.compiler)
     // The *-for-ide poms name dependencies that are not published (KT-61639).

@@ -92,7 +92,11 @@ private constructor(private val disposable: Disposable, val modules: List<Loaded
           languageVersionSettings = settings
           addSourceRoots(
             input.sources
-              .filter { it.fragment == fragment.name || (it.fragment == null && isLast) }
+              .filter {
+                input.fragments.isEmpty() ||
+                  it.fragment == fragment.name ||
+                  (it.fragment == null && isLast)
+              }
               .map { it.path }
           )
           addRegularDependency(libraries.sdk(input, targetPlatform))
@@ -126,6 +130,13 @@ private constructor(private val disposable: Disposable, val modules: List<Loaded
                 ?: error("${psi.virtualFile.path} is not a source of ${input.name}")
             LoadedFile(source, psi)
           }
+      val expected = input.sources.filter { it.path.toString().endsWith(".kt") }
+      val missing =
+        expected.map { it.relativePath }.toSet() - files.map { it.source.relativePath }.toSet()
+      check(missing.isEmpty() && files.size == expected.size) {
+        "${input.name}: the input names ${expected.size} Kotlin files but the session loaded " +
+          "${files.size}; missing: ${missing.sorted().take(10)}"
+      }
       return LoadedModule(input, modules, files.sortedBy { it.source.relativePath })
     }
 
@@ -150,13 +161,13 @@ private constructor(private val disposable: Disposable, val modules: List<Loaded
 /** Builds each distinct SDK and classpath once, so modules that share one share its module. */
 private class LibraryModules(private val container: KaModuleContainerBuilder) {
   private val sdks = HashMap<Any, KaLibraryModule>()
-  private val classpaths = HashMap<List<Path>, KaLibraryModule>()
+  private val classpaths = HashMap<Any, KaLibraryModule>()
 
   fun sdk(input: ModuleInput, targetPlatform: TargetPlatform): KaLibraryModule =
     when (input.platform) {
       Platform.JVM -> {
         val home = input.jdkHome ?: Path.of(System.getProperty("java.home"))
-        sdks.getOrPut(home) {
+        sdks.getOrPut(targetPlatform to home) {
           container.buildKtSdkModule {
             platform = targetPlatform
             libraryName = "jdk"
@@ -165,7 +176,7 @@ private class LibraryModules(private val container: KaModuleContainerBuilder) {
         }
       }
       Platform.ANDROID ->
-        sdks.getOrPut(input.bootClasspath) {
+        sdks.getOrPut(targetPlatform to input.bootClasspath) {
           container.buildKtLibraryModule {
             platform = targetPlatform
             libraryName = "android-sdk"
@@ -177,7 +188,7 @@ private class LibraryModules(private val container: KaModuleContainerBuilder) {
   fun classpath(input: ModuleInput, targetPlatform: TargetPlatform): KaLibraryModule? {
     val roots = input.classpath.filter { it.exists() }
     if (roots.isEmpty()) return null
-    return classpaths.getOrPut(roots) {
+    return classpaths.getOrPut(targetPlatform to roots) {
       container.buildKtLibraryModule {
         platform = targetPlatform
         libraryName = "classpath-of-${input.name}"

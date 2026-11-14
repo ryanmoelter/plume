@@ -1,31 +1,105 @@
 package com.ryanmoelter.altitude.extractor
 
+import com.ryanmoelter.altitude.facts.FactStore
+import com.ryanmoelter.altitude.facts.MetaFact
 import com.ryanmoelter.altitude.manifest.Manifest
+import com.ryanmoelter.altitude.solver.solve
+import com.ryanmoelter.altitude.trace.Program
+import com.ryanmoelter.altitude.trace.TraceOptions
+import com.ryanmoelter.altitude.trace.Tracer
 import java.nio.file.Path
 import kotlin.system.exitProcess
 
-private const val USAGE =
-  "Usage: altitude-extractor resolve --manifest <manifest.json> --out <dir> [--no-compiler-plugins]"
+private val USAGE =
+  """
+  Usage: altitude-extractor <command>
+    resolve --manifest <manifest.json> --out <dir> [--no-compiler-plugins]
+    facts   --manifest <manifest.json> --out <dir> [--no-compiler-plugins]
+    solve   --facts <dir>
+    trace   --facts <dir> --from <selector> --to <selector> [--max-depth N] [--alternates N]
+    trace   --facts <dir> --from <selector> --forward [--max-depth N] [--limit N]
+    show    --facts <dir> --file <relpath>
+  A selector is a symbol ID, or an `Owner.member` suffix that names one declaration.
+  """
+    .trimIndent()
+
+private val FLAGS = setOf("--no-compiler-plugins", "--forward")
 
 fun main(args: Array<String>) {
-  if (args.firstOrNull() != "resolve") fail(USAGE)
-  val flags = args.drop(1).filter { it == "--no-compiler-plugins" }
-  val options = (args.drop(1) - flags.toSet()).chunked(2).associate { it.first() to it.getOrNull(1) }
-  val manifest = options["--manifest"] ?: fail(USAGE)
-  val out = options["--out"] ?: fail(USAGE)
+  val command = args.firstOrNull() ?: fail(USAGE)
+  val flags = args.drop(1).filter { it in FLAGS }.toSet()
+  val options = args.drop(1).filter { it !in FLAGS }.chunked(2).associate { it.first() to it.getOrNull(1) }
+  fun required(name: String): String = options[name] ?: fail(USAGE)
 
   // The session leaves non-daemon threads behind, so every path out names its exit code.
   try {
-    val input = Manifest.read(Path.of(manifest)).toAnalysisInput(compilerPlugins = flags.isEmpty())
-    val report = AltitudeSession.open(input).use { ResolveReport(collectCallSites(it)) }
-    report.write(Path.of(out))
-    println("call-like, hand-written: ${report.callLikeResolved().percent()}% resolved")
+    when (command) {
+      "resolve" -> {
+        val input = analysisInput(required("--manifest"), flags)
+        val report = AltitudeSession.open(input).use { ResolveReport(collectCallSites(it)) }
+        report.write(Path.of(required("--out")))
+        println("call-like, hand-written: ${report.callLikeResolved().percent()}% resolved")
+      }
+      "facts" -> {
+        val manifest = Manifest.read(Path.of(required("--manifest")))
+        val input = manifest.toAnalysisInput(compilerPlugins = "--no-compiler-plugins" !in flags)
+        val out = Path.of(required("--out"))
+        val facts = AltitudeSession.open(input).use(::extractFacts)
+        val meta =
+          MetaFact(
+            gitSha = manifest.git?.sha,
+            gitDirty = manifest.git?.dirty,
+            manifestKotlinFiles = input.modules.sumOf { m -> m.sources.count { it.isKotlin } },
+            loadedKotlinFiles = facts.files.size,
+            filesWithSyntaxErrors = facts.files.count { it.syntaxErrors > 0 },
+            duplicateDeclIds = facts.decls.groupingBy { it.sym }.eachCount().count { it.value > 1 },
+          )
+        FactStore.write(out, facts, meta)
+        // Solving what was read back keeps `facts` and a later `solve` byte-identical.
+        FactStore.writeDerived(out, solve(FactStore.read(out)))
+        println("facts: ${facts.decls.size} decls, ${facts.calls.size} calls, ${facts.flows.size} flows")
+      }
+      "solve" -> {
+        val dir = Path.of(required("--facts"))
+        val derived = solve(FactStore.read(dir))
+        FactStore.writeDerived(dir, derived)
+        println("solved: ${derived.callEdges.size} call edges, ${derived.fnValues.size} fn values")
+      }
+      "trace" -> {
+        val dir = Path.of(required("--facts"))
+        val defaults = TraceOptions()
+        val tracer =
+          Tracer(
+            Program(FactStore.read(dir), FactStore.readDerived(dir)),
+            TraceOptions(
+              maxDepth = options["--max-depth"]?.toInt() ?: defaults.maxDepth,
+              alternates = options["--alternates"]?.toInt() ?: defaults.alternates,
+              forwardLimit = options["--limit"]?.toInt() ?: defaults.forwardLimit,
+            ),
+          )
+        print(
+          if ("--forward" in flags) tracer.forward(required("--from"))
+          else tracer.trace(required("--from"), required("--to"))
+        )
+      }
+      "show" -> {
+        val dir = Path.of(required("--facts"))
+        print(Tracer(Program(FactStore.read(dir), FactStore.readDerived(dir))).show(required("--file")))
+      }
+      else -> fail(USAGE)
+    }
   } catch (e: Throwable) {
     e.printStackTrace()
     exitProcess(1)
   }
   exitProcess(0)
 }
+
+private fun analysisInput(manifest: String, flags: Set<String>): AnalysisInput =
+  Manifest.read(Path.of(manifest)).toAnalysisInput(compilerPlugins = "--no-compiler-plugins" !in flags)
+
+private val SourceInput.isKotlin: Boolean
+  get() = path.toString().endsWith(".kt")
 
 private fun fail(message: String): Nothing {
   System.err.println(message)

@@ -38,7 +38,15 @@ private fun Compilation.toModuleInput(projects: Set<String>, compilerPlugins: Bo
     sources =
       sourceFiles
         .filter { it.path.endsWith(".kt") || it.path.endsWith(".java") }
-        .map { SourceInput(Path.of(it.path), it.relativePath ?: it.path, it.generated, it.fragment) },
+        .map {
+          SourceInput(
+            Path.of(it.path),
+            stablePath(it.relativePath ?: it.path, it.generated),
+            it.generated,
+            it.fragment,
+            it.sourceSet,
+          )
+        },
     fragments = fragments(),
     classpath =
       classpath.filter { it.moduleRef !in otherProjects && it.path !in boot }.map { Path.of(it.path) },
@@ -62,6 +70,19 @@ private fun Compilation.toModuleInput(projects: Set<String>, compilerPlugins: Bo
         emptyList()
       },
   )
+}
+
+/**
+ * A generated file's path names its Gradle project instead of the build directory, so facts do not
+ * change with where a build puts its output: `shared/build/generated/x` becomes
+ * `gen/shared/generated/x`, and the root project's `build/x` becomes `gen/_root/x`.
+ */
+private fun Compilation.stablePath(relativePath: String, generated: Boolean): String {
+  if (!generated) return relativePath
+  val buildDir = if (projectDir.isEmpty()) "build/" else "$projectDir/build/"
+  if (!relativePath.startsWith(buildDir)) return relativePath
+  val project = projectPath.trim(':').replace(':', '/').ifEmpty { "_root" }
+  return "gen/$project/${relativePath.removePrefix(buildDir)}"
 }
 
 /** The fragments that hold files, each after the ones it depends on; empty when there is one. */
