@@ -38,32 +38,48 @@ struct AgentGroupBarFrames: PreferenceKey {
 extension View {
     /// Indents a line past the bars of `groups`, outermost first, and reports
     /// its frame to each of them.
+    @ViewBuilder
     func agentGroupMember(_ groups: [Int]) -> some View {
-        padding(.leading, CGFloat(groups.count) * AgentGroupBar.indent)
-            .anchorPreference(key: AgentGroupBarFrames.self, value: .bounds) { anchor in
-                Dictionary(uniqueKeysWithValues: groups.enumerated().map { level, group in
-                    (group, AgentGroupBarFrames.Group(level: level, lines: [anchor]))
-                })
-            }
+        if groups.isEmpty {
+            self
+        } else {
+            padding(.leading, CGFloat(groups.count) * AgentGroupBar.indent)
+                .anchorPreference(key: AgentGroupBarFrames.self, value: .bounds) { anchor in
+                    Dictionary(uniqueKeysWithValues: groups.enumerated().map { level, group in
+                        (group, AgentGroupBarFrames.Group(level: level, lines: [anchor]))
+                    })
+                }
+        }
     }
 
-    func agentGroupBars(color: Color, lineWidth: CGFloat) -> some View {
+    /// Draws the bars of the groups reported inside this view, and keeps their
+    /// frames from reaching any view above it.
+    func agentGroupBars(isEnabled: Bool, color: Color, lineWidth: CGFloat) -> some View {
         overlayPreferenceValue(AgentGroupBarFrames.self) { groups in
-            GeometryReader { proxy in
-                Path { path in
-                    for group in groups.values {
-                        guard let first = group.lines.first else { continue }
-                        let frame = group.lines.dropFirst().reduce(proxy[first]) { $0.union(proxy[$1]) }
-                        let x = frame.minX + CGFloat(group.level) * AgentGroupBar.indent + lineWidth / 2
-                        let inset = AgentGroupBar.endInset + lineWidth / 2
-                        guard frame.maxY - inset > frame.minY + inset else { continue }
-                        path.move(to: CGPoint(x: x, y: frame.minY + inset))
-                        path.addLine(to: CGPoint(x: x, y: frame.maxY - inset))
-                    }
-                }
-                .stroke(color, style: StrokeStyle(lineWidth: lineWidth, lineCap: .round))
+            if isEnabled, !groups.isEmpty {
+                AgentGroupBar.bars(groups, color: color, lineWidth: lineWidth)
             }
-            .allowsHitTesting(false)
         }
+        .transformPreference(AgentGroupBarFrames.self) { $0 = [:] }
+    }
+}
+
+extension AgentGroupBar {
+    fileprivate static func bars(_ groups: [Int: AgentGroupBarFrames.Group], color: Color, lineWidth: CGFloat) -> some View {
+        GeometryReader { proxy in
+            Path { path in
+                for group in groups.values {
+                    guard let first = group.lines.first else { continue }
+                    let frame = group.lines.dropFirst().reduce(proxy[first]) { $0.union(proxy[$1]) }
+                    let x = frame.minX + CGFloat(group.level) * AgentGroupBar.indent + lineWidth / 2
+                    let inset = AgentGroupBar.endInset + lineWidth / 2
+                    guard frame.maxY - inset > frame.minY + inset else { continue }
+                    path.move(to: CGPoint(x: x, y: frame.minY + inset))
+                    path.addLine(to: CGPoint(x: x, y: frame.maxY - inset))
+                }
+            }
+            .stroke(color, style: StrokeStyle(lineWidth: lineWidth, lineCap: .round))
+        }
+        .allowsHitTesting(false)
     }
 }

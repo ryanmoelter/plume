@@ -199,7 +199,7 @@ struct TaskRowView: View {
                     descriptionLine
                     ForEach(Array(lines.prefix(badgeLineCount)), id: \.offset) { index, line in
                         detailLine(line, at: index, owner: owners[index], icons: icons)
-                            .agentGroupMember(nesting[index])
+                            .agentGroupMember(hasSeveralAgents ? nesting[index] : [])
                     }
                 }
                 Spacer(minLength: 4)
@@ -212,12 +212,13 @@ struct TaskRowView: View {
 
             ForEach(Array(lines.dropFirst(badgeLineCount)), id: \.offset) { index, line in
                 detailLine(line, at: index, owner: owners[index], icons: icons)
-                    .agentGroupMember(nesting[index])
+                    .agentGroupMember(hasSeveralAgents ? nesting[index] : [])
             }
 
             TaskActivityRow(tabIDs: agentTabIDs)
         }
         .agentGroupBars(
+            isEnabled: hasSeveralAgents,
             color: theme.colors.surface(AgentGroupBar.emphasis),
             lineWidth: AgentGroupBar.lineWidth(captionSize: theme.typography.caption.size)
         )
