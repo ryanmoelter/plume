@@ -115,6 +115,11 @@ struct ChatMessageList<SidePane: View>: View, ThemedView {
     /// realized item.
     @State private var visiblePieceIDs: Set<String> = []
 
+    /// The minimap and the info pane mount a turn after the list, so the
+    /// frame that first shows a chat carries only its rows. Each costs tens
+    /// of milliseconds to build in a long chat.
+    @State private var mountsChrome = false
+
     /// The list's handle, and the message ids of the last rebuild so a
     /// prompt the user just sent can be told from a transcript loading.
     let commands: ChatListCommands
@@ -132,9 +137,13 @@ struct ChatMessageList<SidePane: View>: View, ThemedView {
     /// within.
     var body: some View {
         list
-            .overlay(alignment: .topTrailing) { sidePane }
+            .overlay(alignment: .topTrailing) {
+                if mountsChrome {
+                    sidePane.transition(.opacity)
+                }
+            }
             .overlay(alignment: .trailing) {
-                if !outline.isEmpty {
+                if mountsChrome, !outline.isEmpty {
                     ChatMinimap(
                         outline: outline,
                         visiblePieceIDs: visiblePieceIDs,
@@ -146,9 +155,16 @@ struct ChatMessageList<SidePane: View>: View, ThemedView {
                         viewportWidth: viewportWidth,
                         revealExclusionHeight: minimapExclusionHeight
                     )
+                    .transition(.opacity)
                 }
             }
             .onGeometryChange(for: CGFloat.self) { $0.size.width } action: { viewportWidth = $0 }
+            .onAppear {
+                AfterCommit.perform {
+                    // An opacity fade isn't motion, so it ignores animateChatMotion.
+                    withAnimation(.easeIn(duration: 0.15)) { mountsChrome = true }
+                }
+            }
     }
 
     private var list: some View {
@@ -239,6 +255,14 @@ struct ChatMessageList<SidePane: View>: View, ThemedView {
     }
 
     private func rebuildPieces() {
+        #if DEBUG
+        SwitchLatencyProbe.time("rebuildPieces") { rebuildPiecesNow() }
+        #else
+        rebuildPiecesNow()
+        #endif
+    }
+
+    private func rebuildPiecesNow() {
         let merged = ChatStreamHandoff.merge(messages, live: live)
         let cache = tabID.map(ChatPieceCache.forTab) ?? untabbedCache
         let store = ReferenceChipStore.shared
@@ -269,7 +293,7 @@ struct ChatMessageList<SidePane: View>: View, ThemedView {
         if !heldTurnTargets.isEmpty { rebuilt = split(status == .waitingOnSubagents ? status : .working) }
         pieces = rebuilt
         showRevealedPieces()
-        outline = ChatOutlineBuilder.outline(from: rebuilt)
+        outline = cache.outline
         pinSentPrompt()
     }
 

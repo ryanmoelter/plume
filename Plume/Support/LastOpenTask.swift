@@ -1,36 +1,51 @@
 import Foundation
 
-/// Remembers what the sidebar had selected, so Home can offer the task the
-/// user left off in.
+/// Remembers the last task the sidebar selected, so Home's composer can start
+/// on its group and project.
 ///
 /// Kept out of `AppSettings`, which holds preferences the Settings window
 /// offers — this is restored window state, and nobody sets it deliberately.
-nonisolated enum LastOpenTask {
-    private static let key = "lastOpenTaskID"
-    private static let homeValue = "home"
-    private static let lastTaskKey = "lastSelectedTaskID"
+///
+/// The write to user defaults waits until selection has been still for
+/// `writeDelay`. Every write posts a change notification that AppKit answers
+/// by rebuilding the merged domain on the main thread, at a cost that grows
+/// with its key count, in the middle of the task switch that caused it.
+@MainActor
+final class LastOpenTask {
+    static let shared = LastOpenTask()
 
-    static func load(from defaults: UserDefaults = .standard) -> SidebarSelection? {
-        guard let stored = defaults.string(forKey: key) else { return nil }
-        if stored == homeValue { return .home }
-        return UUID(uuidString: stored).map(SidebarSelection.task)
+    private static let key = "lastSelectedTaskID"
+
+    private let defaults: UserDefaults
+    private let writeDelay: Duration
+    private(set) var lastTask: UUID?
+    private var written: UUID?
+    private var pendingWrite: Task<Void, Never>?
+
+    init(defaults: UserDefaults = .standard, writeDelay: Duration = .seconds(2)) {
+        self.defaults = defaults
+        self.writeDelay = writeDelay
+        lastTask = defaults.string(forKey: Self.key).flatMap(UUID.init(uuidString:))
+        written = lastTask
     }
 
-    /// A nil selection clears the stored value, so deleting or archiving the
-    /// last open task doesn't leave the next launch pointing at it.
-    static func save(_ selection: SidebarSelection?, to defaults: UserDefaults = .standard) {
-        switch selection {
-        case nil: defaults.removeObject(forKey: key)
-        case .home: defaults.set(homeValue, forKey: key)
-        case .task(let id):
-            defaults.set(id.uuidString, forKey: key)
-            defaults.set(id.uuidString, forKey: lastTaskKey)
+    /// Choosing Home, or clearing the selection, leaves the last task in place.
+    func record(_ selection: SidebarSelection?) {
+        guard case .task(let id) = selection, id != lastTask else { return }
+        lastTask = id
+        pendingWrite?.cancel()
+        pendingWrite = Task { [weak self, writeDelay] in
+            try? await Task.sleep(for: writeDelay)
+            guard !Task.isCancelled else { return }
+            self?.flush()
         }
     }
 
-    /// The last task selected, which choosing Home leaves in place. Home's
-    /// composer starts on its group and project.
-    static func lastTask(from defaults: UserDefaults = .standard) -> UUID? {
-        defaults.string(forKey: lastTaskKey).flatMap(UUID.init(uuidString:))
+    func flush() {
+        pendingWrite?.cancel()
+        pendingWrite = nil
+        guard let lastTask, lastTask != written else { return }
+        defaults.set(lastTask.uuidString, forKey: Self.key)
+        written = lastTask
     }
 }

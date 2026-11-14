@@ -515,6 +515,7 @@ enum TaskStore {
         PendingFirstMessageStore.shared.forget(tabID: tabID)
         TranscriptStore.shared.stopWatching(tabID: tabID)
         ChatPieceCache.forget(tabID: tabID)
+        ChatPanelHeights.forget(tabID: tabID)
         HomePreviewCache.shared.forget(tabID: tabID)
         MentionResolver.shared.forgetTab(tabID)
         ReferenceChipStore.shared.forget(owner: tabID)

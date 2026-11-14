@@ -42,8 +42,9 @@ struct ChatTabView: View, ThemedView {
     /// The measured height of the floating bottom chrome — the queued-message
     /// chips plus the panel beneath them — so the list can inset its content
     /// past it. Nothing in that subtree is sized from it, so measuring
-    /// cannot feed back into the measurement.
-    @State private var panelHeight: CGFloat = 0
+    /// cannot feed back into the measurement. Nil until this mount measures
+    /// it; `floatingPanelHeight` falls back to the tab's last measurement.
+    @State private var panelHeight: CGFloat?
     @State private var chatHeight: CGFloat = 0
     /// Set to pull a queued message back into the composer for editing, from
     /// the chip's own edit button. `ChatComposer` owns the actual draft/state
@@ -607,7 +608,10 @@ struct ChatTabView: View, ThemedView {
             }
             composerPanel(transcript: transcript)
         }
-        .onGeometryChange(for: CGFloat.self) { $0.size.height } action: { panelHeight = $0 }
+        .onGeometryChange(for: CGFloat.self) { $0.size.height } action: { height in
+            panelHeight = height
+            ChatPanelHeights.record(height, forTab: tab.id)
+        }
         // A queued run is retired by the session taking its text off the
         // queue, which the session does without knowing runs exist. Watched
         // from here rather than the chip list, which retiring the last run
@@ -855,7 +859,7 @@ struct ChatTabView: View, ThemedView {
                 .contentShape(.rect)
                 .onTapGesture { dismiss() }
                 .plumeID(AccessibilityID.planBackgroundDismiss, invoke: dismiss)
-                .padding(.bottom, panelHeight)
+                .padding(.bottom, floatingPanelHeight)
             panel()
         }
         .transition(.opacity)
@@ -1101,6 +1105,12 @@ struct ChatTabView: View, ThemedView {
         planTint.map { Glass.regular.tint($0) } ?? .regular
     }
 
+    /// Seeded from the tab's last mount so a remounted chat's first frame
+    /// insets its rows past the panel before the panel has measured.
+    private var floatingPanelHeight: CGFloat {
+        panelHeight ?? ChatPanelHeights.height(forTab: tab.id)
+    }
+
     /// The conversation itself. Reached with only an optimistic message too,
     /// so the session facts below it fall back to an empty transcript — there
     /// is nothing on disk to read them from yet.
@@ -1111,7 +1121,7 @@ struct ChatTabView: View, ThemedView {
             messages: messages,
             status: status,
             bottomPadding: dimensions.listBottomPadding,
-            floatingPanelHeight: panelHeight,
+            floatingPanelHeight: floatingPanelHeight,
             tabID: tab.id,
             redoContext: redoContext(transcript: transcript),
             onOpenPlan: hasPlan ? { openPlan() } : nil,
@@ -1183,7 +1193,7 @@ struct ChatTabView: View, ThemedView {
             facts: infoPaneFacts(linearLinks: linearLinks),
             glass: planGlass,
             geometry: geometry,
-            bottomInset: panelHeight,
+            bottomInset: floatingPanelHeight,
             onCollapsedHeight: { height in
                 collapsedInfoPaneHeight = height
                 Self.lastCollapsedInfoPaneHeight = height

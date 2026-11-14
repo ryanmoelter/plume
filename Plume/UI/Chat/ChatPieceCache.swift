@@ -18,6 +18,7 @@ import Foundation
 final class ChatPieceCache {
     private var parsed: [String: [MarkdownBlock.Parsed]] = [:]
     private var lastBuild: (inputs: Inputs, pieces: [ChatPiece])?
+    private var builtOutline: ChatOutline?
     /// Each source's link targets, in order, nil where a link isn't one.
     private var linkTargets: [String: [ReferenceTarget?]] = [:]
     /// The parse with each chip's title written in, keyed by the titles it
@@ -63,6 +64,14 @@ final class ChatPieceCache {
         return cache
     }
 
+    /// The minimap's outline of the last build's pieces, made once per build.
+    var outline: ChatOutline {
+        if let builtOutline { return builtOutline }
+        let outline = ChatOutlineBuilder.outline(from: lastBuild?.pieces ?? [])
+        builtOutline = outline
+        return outline
+    }
+
     static func forget(tabID: UUID) {
         byTab.removeValue(forKey: tabID)
         recentTabs.removeAll { $0 == tabID }
@@ -87,7 +96,15 @@ final class ChatPieceCache {
             referenceRevision: referenceRevision,
             linkBase: linkBase
         )
-        if let lastBuild, lastBuild.inputs == inputs { return lastBuild.pieces }
+        if let lastBuild, lastBuild.inputs == inputs {
+            #if DEBUG
+            SwitchLatencyProbe.note("pieceCacheHit")
+            #endif
+            return lastBuild.pieces
+        }
+        #if DEBUG
+        SwitchLatencyProbe.note("pieceCacheMiss")
+        #endif
         if lastBuild?.inputs.linkBase != linkBase { linkTargets = [:] }
 
         var next: [String: [MarkdownBlock.Parsed]] = [:]
@@ -149,6 +166,7 @@ final class ChatPieceCache {
         rewritten = nextRewritten
         referenceTargets = foundTargets
         lastBuild = (inputs, pieces)
+        builtOutline = nil
         return pieces
     }
 

@@ -73,8 +73,28 @@ While split, a tab chip's label ends with its pane, counted from the left — `C
 | `menu` | — | `{items: [{path, keyEquivalent?, modifiers, isEnabled}]}` for the whole main menu |
 | `selection` | — | `{markdown, plainText, anchor?, focus?}` for the focused chat's transcript selection; anchor and focus are `{pieceID, offset}`, absent when nothing is selected |
 | `selectText` | `matching`, or `from` and `to?`; `occurrence = 0` | the same `{markdown, plainText, anchor, focus}` after selecting. `matching` selects that span; `from` and `to` select from the start of `from` to the end of the first `to` after it, across pieces. Searches the whole transcript, realized rows or not |
+| `tasks` | — | `{tasks: [{id, title, isSelected, tabKind?, expectsRows}]}` for the frontmost window's unarchived tasks, in sidebar order |
+| `selectTask` | `task`, `from?`, `repeat = 1` (at most 200), `timeout = 5`, `settle = 0.3` | `{samples, timedOut, visibleMs?, firstTurnMs?, rowsPlacedMs?, spans}`; see [Measuring a task switch](#measuring-a-task-switch) |
 
 `list` filters by `plumeID`, not `id`, because `id` at the top level is the request's correlation id.
+
+## Measuring a task switch
+
+`selectTask` selects a task the way a sidebar click does and times it with `SwitchLatencyProbe` (`Plume/Support/SwitchLatencyProbe.swift`). The clock starts at the selection change. A run-loop observer ordered after Core Animation's commit marks the end of each main-thread turn, and the switch ends with the first turn in which the target tab's chat list placed rows. A tab with no transcript (`expectsRows: false`: an empty chat, a terminal) ends with its first turn. A task matches by id, then by exact title, then by a unique title substring, ignoring case.
+
+```
+c tasks
+c selectTask task="Task 1" from="Task 3" repeat=15
+```
+
+`repeat` above 1 needs `from`: without it every round after the first would re-select the target. With `from`, each round first selects `from`, unmeasured, so every sample is the same switch. `settle` seconds pass after each selection, so work a switch defers doesn't land in the next sample. Each sample reports, in milliseconds from the selection change:
+
+- `firstTurnMs`: the end of the first main-thread turn.
+- `rowsPlacedMs`: when the chat list first placed rows.
+- `visibleMs`: the end of the turn whose commit showed them. This is the number to compare.
+- `turns`, and `spans`: time and call counts for the instrumented sections, `reveal` (the selection change itself), `rebuildPieces`, `listUpdate`, `layoutPass`, `realizeMeasure`, and counts for `pieceCacheHit` and `pieceCacheMiss`. Spans nest: `realizeMeasure` runs inside `layoutPass`.
+
+The report summarizes `visibleMs`, `firstTurnMs`, `rowsPlacedMs` and each span as `{count, median, p90, min, max}` (p90 by nearest rank), leaving timed-out samples out. Every switch also logs a `switch-latency …` line under the `app` category, `SmokeHarness`'s `PLUME_CYCLE_SELECTION` cycling included.
 
 ## How it works
 
@@ -115,4 +135,8 @@ Called with no point, `drag` instead surveys the window: every registered destin
 - `drag` proves the destination side only. A SwiftUI `.dropDestination(for:)` accepts the session and reports `performed: true` without the closure's payload decoding, because `Transferable` does not read a hand-built pasteboard item the way it reads a real drag's. `.onDrop` does run end to end, both with `fileURL` and with text read through `NSItemProvider.loadObject`, which is why the tab strip and sidebar drops use it: `drag text=plume-task:<uuid>` replays a real reorder. `drag` cannot drive a drag *source* — neither `.draggable` nor `.onDrag` installs anything at the AppKit layer. `pointerDrag` posts a real mouse-down, drag events and mouse-up inside the process, which drives selection and in-view tracking, but it does not start a window-server drag session. Drop feedback and the drop's fast path read `InAppDrag.shared`, which a real drag source fills from `onDrag`. A plain replay leaves it empty, so it draws nothing and the drop loads its payload. `inApp=true` with a Plume `text` payload records the item first, as the source would: the replay then takes the in-app path, and `feedbackAfterUpdate`/`feedbackAfterDrop` report what the drag would draw at each point. It proves the feedback state, not that the view renders it.
 - **A command gated on a `focusedSceneValue` reads disabled in a scratch instance, and its chord does nothing.** SwiftUI populates those values only while the app's scene is active, which a hidden, never-activated instance never is. Every item in the Tab menu and most of the File menu is affected, including chords that work fine for a real user. `key` still proves which item owns a chord; it cannot prove the item's action ran. Check `handledByEnabled` before reading a no-op as a bug.
 - The server runs on the main thread. A command that blocks the UI blocks the response.
+- **`selectTask` times only the main thread.** Work a switch moves off the main actor and publishes later is outside `visibleMs` unless it delays the first rows. A chat whose transcript is still being read places no rows until the read lands, so the first switch into a tab after launch measures the read too; discard it, or warm the tab with one unmeasured round. A sample that places no rows within `timeout` reports `timedOut: true` and is left out of the summaries; it means the target showed something other than chat rows, so check `tasks`' `expectsRows` and which tab the task has focused.
+- **A driven instance is never frontmost, so macOS throttles it.** Without an activity assertion, samples from one run swing between about 0.6 s and 3 s for the same switch, and every span slows together. `selectTask` holds a `userInitiated` + `latencyCritical` activity while it runs; time a switch any other way and the numbers are noise.
+- **A user-defaults write during a switch measures the defaults domain as much as Plume.** AppKit answers each write by rebuilding the merged domain on the main thread, at a cost that grows with its key count. Every debug build shares `com.ryanmoelter.Plume.debug`, which gathers thousands of keys over time, so one write there can cost hundreds of milliseconds that a user's machine never pays. `LastOpenTask` waits until selection has been still for two seconds for this reason. A span that jumps on one machine and not another is worth checking for a write.
+- **A chat's minimap and info pane mount a turn after its rows.** `visibleMs` ends with the frame that first shows the rows, and those two mount once it has committed (`AfterCommit`), fading in over 0.15 s. Their controls register then too, so a read sent the instant `selectTask` returns can miss them. Read again before calling one missing. The composer is never deferred: it must take keystrokes, and serve its focused scene value, from the first frame.
 - **A SwiftUI `Menu`'s items mount only while it is open, so a `plumeID` inside one never registers.** Put `plumeMenuItem(_:)` on the `Menu` instead. It registers an always-mounted entry that runs the item's action. The entry has the menu's frame, so it answers `invoke` and not `click`. The tab strip's `+` menu and the device tab's Shut Down Emulator use it. A menu built from a list of entries registers each one from a `ForEach` behind the menu, with the row's `label:`, as the info pane's Linear row menu does.

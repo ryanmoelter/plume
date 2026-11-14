@@ -31,6 +31,8 @@ struct PlumeApp: App {
         // A test host must never reach the real Keychain or Linear, nor take
         // the CLI socket from a debug app launched while tests run.
         if NSClassFromString("XCTestCase") == nil {
+            // Before the main window reads its saved frame.
+            StaleDefaultsCleanup.runOnce()
             LinearStore.shared.start()
             // Before any view exists: a tab's environment names this socket
             // when it is built, and keeps that environment for life.
@@ -89,7 +91,10 @@ struct PlumeApp: App {
     }
 
     var body: some Scene {
-        WindowGroup {
+        // Without an id, SwiftUI names the window's saved frames after its
+        // content's type, which spells a private modifier by its address, so
+        // every build writes a new pair of keys to user defaults.
+        WindowGroup(id: "main") {
             MainWindow()
                 .plumeAccentTint()
         }

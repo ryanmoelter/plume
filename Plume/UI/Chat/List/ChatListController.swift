@@ -272,6 +272,14 @@ final class ChatListController: NSObject {
     // MARK: - Inputs
 
     func update(_ new: ChatListInputs) {
+        #if DEBUG
+        SwitchLatencyProbe.time("listUpdate") { updateNow(new) }
+        #else
+        updateNow(new)
+        #endif
+    }
+
+    private func updateNow(_ new: ChatListInputs) {
         let old = inputs
         if new.tabID != old.tabID {
             if let tabID = old.tabID { readingPositions[tabID] = readingPosition }
@@ -678,6 +686,8 @@ final class ChatListController: NSObject {
     }
 
     var realizedIDs: Set<String> { Set(hosts.keys) }
+    /// Every row built since the list was created, freed or not.
+    private(set) var realizations = 0
 
     /// A working indicator that leaves while showing fades and collapses
     /// rather than vanishing, which would jump everything below it. So do
@@ -740,6 +750,14 @@ final class ChatListController: NSObject {
     /// One pass: measurements in, the window realized, one offset policy
     /// resolved, the document committed, the offset set, hosts placed.
     func layoutPass() {
+        #if DEBUG
+        SwitchLatencyProbe.time("layoutPass") { layoutPassNow() }
+        #else
+        layoutPassNow()
+        #endif
+    }
+
+    private func layoutPassNow() {
         guard !isLayingOut else { return }
         isLayingOut = true
         defer { isLayingOut = false }
@@ -762,7 +780,11 @@ final class ChatListController: NSObject {
 
         let actual = clip.bounds.origin.y
         if width > 0, viewport > 0 {
-            realizeWindow(around: easedOffset ?? actual)
+            // With no rows yet the scroll view's offset means nothing, so a
+            // fresh list starts where its policy is headed, not at the top.
+            let hasRows = hasRealizedRows
+            let start = hasRows ? actual : min(max(0, resolvedOffset()), model.maxOffset)
+            realizeWindow(around: easedOffset ?? start)
         }
 
         var offset = commitOffset(in: clip, viewport: viewport)
@@ -793,7 +815,12 @@ final class ChatListController: NSObject {
         }
         publishVisibleIDs(offset: offset)
         logPass(offset: offset, viewport: viewport)
+        #if DEBUG
+        if hasRealizedRows { SwitchLatencyProbe.noteRowsPlaced(tabID: inputs.tabID) }
+        #endif
     }
+
+    private var hasRealizedRows: Bool { hosts.keys.contains { $0 != Self.dockID } }
 
     /// Sizes the document and writes the offset the policy resolves, when
     /// that answer changed. Returns the offset the viewport is left at.
@@ -891,6 +918,7 @@ final class ChatListController: NSObject {
     }
 
     private func realize(id: String, item: Item) {
+        realizations += 1
         let state = ChatListItemState()
         let generation = model.realize(id)
         let view = dequeueHost()
@@ -900,7 +928,11 @@ final class ChatListController: NSObject {
         hosts[id] = host
         let hadMeasurement = model.hasMeasurement(id)
         let before = model.displayHeight(of: id)
+        #if DEBUG
+        let measured = SwitchLatencyProbe.time("realizeMeasure") { naturalHeight(of: view) }
+        #else
         let measured = naturalHeight(of: view)
+        #endif
         model.setTargetHeight(measured, for: id, width: model.measurementWidth, generation: generation)
         if !hadMeasurement { notePinMeasurement(id) }
 

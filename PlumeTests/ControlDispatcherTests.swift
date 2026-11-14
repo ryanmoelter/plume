@@ -26,13 +26,16 @@ struct ControlDispatcherTests {
             #"{"id":"13","command":"selectText","matching":"m"}"#,
             #"{"id":"14","command":"recordStart","fps":10}"#,
             #"{"id":"15","command":"recordStop"}"#,
+            #"{"id":"16","command":"tasks"}"#,
+            #"{"id":"17","command":"selectTask","task":"Task 1","from":"Task 2","repeat":3}"#,
         ]
         for line in lines {
             let response = await ControlDispatcher.handle(line: line, backend: backend)
             #expect(response.ok, "\(line) → \(response.error ?? "")")
         }
-        #expect(backend.calls == ["list", "describe", "invoke", "setValue", "readText", "clickSpan", "click", "screenshot", "hierarchy", "hover", "clear", "selection", "selectText", "recordStart", "recordStop"])
+        #expect(backend.calls == ["list", "describe", "invoke", "setValue", "readText", "clickSpan", "click", "screenshot", "hierarchy", "hover", "clear", "selection", "selectText", "recordStart", "recordStop", "tasks", "selectTask"])
         #expect(backend.lastValue == "v")
+        #expect(backend.lastSelectTask == SelectTaskParams(task: "Task 1", from: "Task 2", repeatCount: 3))
     }
 
     @Test func backendErrorsBecomeErrorResponsesOnTheSameID() async {
@@ -66,6 +69,7 @@ final class FakeControlBackend: ControlBackend {
     var lastValue: String?
     var failure: Error?
     var listResult: [ControlDescription] = []
+    var lastSelectTask: SelectTaskParams?
 
     private func record(_ name: String) throws {
         calls.append(name)
@@ -164,5 +168,16 @@ final class FakeControlBackend: ControlBackend {
     func selectText(_ params: SelectTextParams) throws -> SelectionResult {
         try record("selectText")
         return SelectionResult(markdown: "", plainText: "", anchor: nil, focus: nil)
+    }
+
+    func tasks() throws -> TaskListResult {
+        try record("tasks")
+        return TaskListResult(tasks: [])
+    }
+
+    func selectTask(_ params: SelectTaskParams) async throws -> SwitchLatencyReport {
+        try record("selectTask")
+        lastSelectTask = params
+        return SwitchLatencyReport(samples: [])
     }
 }

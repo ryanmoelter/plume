@@ -7,27 +7,48 @@ import Testing
 /// what a tab with no session yet autocompletes from.
 @MainActor
 struct SlashCommandMemoryTests {
-    private func makeDefaults() -> UserDefaults {
-        let defaults = UserDefaults(suiteName: "SlashCommandMemoryTests.\(UUID().uuidString)")!
-        defaults.removePersistentDomain(forName: defaults.description)
-        return defaults
+    private let defaults = UserDefaults(suiteName: "SlashCommandMemoryTests.\(UUID().uuidString)")!
+    private let file = FileManager.default.temporaryDirectory
+        .appending(path: "SlashCommandMemoryTests-\(UUID().uuidString)")
+        .appending(path: "slash-commands.json")
+
+    private func makeMemory(removesLegacyKey: Bool = true, at file: URL? = nil) -> SlashCommandMemory {
+        SlashCommandMemory(
+            file: file ?? self.file, defaults: defaults, removesLegacyKey: removesLegacyKey, writeDelay: .zero
+        )
+    }
+
+    private func loadedMemory(removesLegacyKey: Bool = true, at file: URL? = nil) async -> SlashCommandMemory {
+        let memory = makeMemory(removesLegacyKey: removesLegacyKey, at: file)
+        await memory.waitForLoad()
+        return memory
+    }
+
+    private func storeLegacyList(_ names: [String], inDirectory directory: String) async throws {
+        let scratch = FileManager.default.temporaryDirectory
+            .appending(path: "SlashCommandMemoryTests-\(UUID().uuidString).json")
+        let original = await loadedMemory(at: scratch)
+        original.remember(names.map(command), inDirectory: directory)
+        await original.waitForWrites()
+        defaults.set(try Data(contentsOf: scratch), forKey: SlashCommandMemory.legacyKey)
     }
 
     private func command(_ name: String) -> SlashCommand {
         SlashCommand(name: name, description: "", argumentHint: "")
     }
 
-    @Test func startsEmptyWithNothingRemembered() {
-        #expect(SlashCommandMemory(defaults: makeDefaults()).commands(inDirectory: "/repo").isEmpty)
+    @Test func startsEmptyWithNothingRemembered() async {
+        #expect(await loadedMemory().commands(inDirectory: "/repo").isEmpty)
     }
 
-    @Test func aRememberedListSurvivesIntoTheNextLaunch() {
-        let defaults = makeDefaults()
-        SlashCommandMemory(defaults: defaults).remember([
+    @Test func aRememberedListSurvivesIntoTheNextLaunch() async {
+        let memory = makeMemory()
+        memory.remember([
             SlashCommand(name: "compact", description: "Compact the context", argumentHint: "[instructions]")
         ], inDirectory: "/repo")
+        await memory.waitForWrites()
 
-        let reloaded = SlashCommandMemory(defaults: defaults)
+        let reloaded = await loadedMemory()
         #expect(reloaded.commands(inDirectory: "/repo") == [
             SlashCommand(name: "compact", description: "Compact the context", argumentHint: "[instructions]")
         ])
@@ -36,7 +57,7 @@ struct SlashCommandMemoryTests {
     /// The bug this keying fixes: one project's project-scoped commands were
     /// offered in every other project.
     @Test func twoDirectoriesKeepSeparateLists() {
-        let memory = SlashCommandMemory(defaults: makeDefaults())
+        let memory = makeMemory()
         memory.remember([command("compact"), command("deploy")], inDirectory: "/repo")
         memory.remember([command("compact"), command("migrate")], inDirectory: "/other")
 
@@ -47,7 +68,7 @@ struct SlashCommandMemoryTests {
     /// Nothing has reported there yet, which is the cold-start behaviour
     /// rather than a missing list.
     @Test func anUnknownDirectoryOffersNothing() {
-        let memory = SlashCommandMemory(defaults: makeDefaults())
+        let memory = makeMemory()
         memory.remember([command("compact")], inDirectory: "/repo")
 
         #expect(memory.commands(inDirectory: "/elsewhere").isEmpty)
@@ -57,7 +78,7 @@ struct SlashCommandMemoryTests {
     /// Without a directory there is no key to file the list under, and
     /// guessing one is the bug.
     @Test func aReportWithNoDirectoryIsNotRemembered() {
-        let memory = SlashCommandMemory(defaults: makeDefaults())
+        let memory = makeMemory()
 
         memory.remember([command("compact")], inDirectory: nil)
 
@@ -67,7 +88,7 @@ struct SlashCommandMemoryTests {
     /// `initialize` reports on every launch, so a command the user has since
     /// deleted must not linger from the previous list.
     @Test func aLaterReportReplacesAStaleList() {
-        let memory = SlashCommandMemory(defaults: makeDefaults())
+        let memory = makeMemory()
         memory.remember([command("compact"), command("deploy")], inDirectory: "/repo")
 
         memory.remember([command("compact")], inDirectory: "/repo")
@@ -78,7 +99,7 @@ struct SlashCommandMemoryTests {
     /// An absent `commands` array says nothing about the installation, so it
     /// must not read as "this CLI has no commands".
     @Test func anEmptyReportKeepsWhatWasRemembered() {
-        let memory = SlashCommandMemory(defaults: makeDefaults())
+        let memory = makeMemory()
         memory.remember([command("compact")], inDirectory: "/repo")
 
         memory.remember([], inDirectory: "/repo")
@@ -89,30 +110,30 @@ struct SlashCommandMemoryTests {
     /// Plume's own commands are listed from `PlumeSlashCommand.all`, and
     /// storing them would make them come back as CLI commands.
     @Test func plumeProvidedCommandsAreNeverRemembered() {
-        let memory = SlashCommandMemory(defaults: makeDefaults())
+        let memory = makeMemory()
 
         memory.remember(PlumeSlashCommand.all, inDirectory: "/repo")
 
         #expect(memory.commands(inDirectory: "/repo").isEmpty)
     }
 
-    @Test func theOldestDirectoryFallsOffOnceTheListIsFull() {
-        let defaults = makeDefaults()
-        let memory = SlashCommandMemory(defaults: defaults)
+    @Test func theOldestDirectoryFallsOffOnceTheListIsFull() async {
+        let memory = makeMemory()
         for index in 0...SlashCommandMemory.capacity {
             memory.remember([command("compact")], inDirectory: "/repo/\(index)")
         }
+        await memory.waitForWrites()
 
         #expect(memory.entries.count == SlashCommandMemory.capacity)
         #expect(memory.commands(inDirectory: "/repo/0").isEmpty)
         #expect(memory.commands(inDirectory: "/repo/\(SlashCommandMemory.capacity)").isEmpty == false)
-        #expect(SlashCommandMemory(defaults: defaults).entries.count == SlashCommandMemory.capacity)
+        #expect(await loadedMemory().entries.count == SlashCommandMemory.capacity)
     }
 
     /// Eviction is by last report, so a directory reported in again outlives
     /// the ones that have gone quiet.
     @Test func reportingAgainKeepsADirectoryFromBeingEvicted() {
-        let memory = SlashCommandMemory(defaults: makeDefaults())
+        let memory = makeMemory()
         memory.remember([command("compact")], inDirectory: "/repo/0")
         for index in 1..<SlashCommandMemory.capacity {
             memory.remember([command("compact")], inDirectory: "/repo/\(index)")
@@ -125,24 +146,122 @@ struct SlashCommandMemoryTests {
         #expect(memory.commands(inDirectory: "/repo/1").isEmpty)
     }
 
-    @Test func forgettingClearsBothMemoryAndStorage() {
-        let defaults = makeDefaults()
-        let memory = SlashCommandMemory(defaults: defaults)
+    @Test func aListInUserDefaultsMovesToTheFileOnce() async throws {
+        try await storeLegacyList(["compact"], inDirectory: "/repo")
+
+        #expect(await loadedMemory().commands(inDirectory: "/repo").map(\.name) == ["compact"])
+        #expect(defaults.data(forKey: SlashCommandMemory.legacyKey) == nil)
+        #expect(await loadedMemory().commands(inDirectory: "/repo").map(\.name) == ["compact"])
+    }
+
+    @Test func aFlushBeforeTheLoadLandsStillRemovesTheLegacyList() async throws {
+        try await storeLegacyList(["compact"], inDirectory: "/repo")
+        let memory = makeMemory()
+
+        memory.flush()
+        await memory.waitForLoad()
+
+        #expect(memory.commands(inDirectory: "/repo").map(\.name) == ["compact"])
+        #expect(defaults.data(forKey: SlashCommandMemory.legacyKey) == nil)
+    }
+
+    /// Losing the key with nothing on disk would lose the list.
+    @Test func aFailedMigrationKeepsTheLegacyList() async throws {
+        try await storeLegacyList(["compact"], inDirectory: "/repo")
+        let blocker = FileManager.default.temporaryDirectory
+            .appending(path: "SlashCommandMemoryTests-\(UUID().uuidString)")
+        try Data().write(to: blocker)
+        let unwritable = blocker.appending(path: "slash-commands.json")
+
+        let memory = await loadedMemory(at: unwritable)
+
+        #expect(memory.commands(inDirectory: "/repo").map(\.name) == ["compact"])
+        #expect(defaults.data(forKey: SlashCommandMemory.legacyKey) != nil)
+    }
+
+    /// Debug builds share one defaults domain across worktrees, so each one
+    /// copies the list rather than taking it.
+    @Test func aCopyingMigrationLeavesTheLegacyListForOtherBuilds() async throws {
+        try await storeLegacyList(["compact"], inDirectory: "/repo")
+
+        let memory = await loadedMemory(removesLegacyKey: false)
+
+        #expect(memory.commands(inDirectory: "/repo").map(\.name) == ["compact"])
+        #expect(defaults.data(forKey: SlashCommandMemory.legacyKey) != nil)
+        #expect(await loadedMemory(removesLegacyKey: false).commands(inDirectory: "/repo").map(\.name) == ["compact"])
+    }
+
+    @Test func aLoadFindingTheFileAndTheLegacyKeyRemovesTheKey() async throws {
+        let original = await loadedMemory()
+        original.remember([command("compact")], inDirectory: "/repo")
+        await original.waitForWrites()
+        defaults.set(try Data(contentsOf: file), forKey: SlashCommandMemory.legacyKey)
+
+        let memory = await loadedMemory()
+
+        #expect(memory.commands(inDirectory: "/repo").map(\.name) == ["compact"])
+        #expect(defaults.data(forKey: SlashCommandMemory.legacyKey) == nil)
+    }
+
+    @Test func aCorruptFileFallsBackToTheLegacyListAndKeepsTheKeyUntilWritten() async throws {
+        try await storeLegacyList(["compact"], inDirectory: "/repo")
+        try FileManager.default.createDirectory(
+            at: file.deletingLastPathComponent(), withIntermediateDirectories: true
+        )
+        try Data("not json".utf8).write(to: file)
+
+        let memory = await loadedMemory(removesLegacyKey: false)
+
+        #expect(memory.commands(inDirectory: "/repo").map(\.name) == ["compact"])
+        #expect(defaults.data(forKey: SlashCommandMemory.legacyKey) != nil)
+        #expect(await loadedMemory(removesLegacyKey: false).commands(inDirectory: "/repo").map(\.name) == ["compact"])
+    }
+
+    /// A session can report before the file has loaded; its list is newer
+    /// than the file's for that directory, and the rest of the file survives.
+    @Test func aReportBeforeTheLoadMergesWithTheFile() async {
+        let original = await loadedMemory()
+        original.remember([command("compact"), command("deploy")], inDirectory: "/repo")
+        original.remember([command("compact")], inDirectory: "/other")
+        await original.waitForWrites()
+
+        let memory = makeMemory()
+        memory.remember([command("migrate")], inDirectory: "/repo")
+        await memory.waitForWrites()
+
+        #expect(memory.entries.map(\.directory) == ["/repo", "/other"])
+        #expect(memory.commands(inDirectory: "/repo").map(\.name) == ["migrate"])
+        #expect(await loadedMemory().entries.map(\.directory) == ["/repo", "/other"])
+    }
+
+    @Test func reportsInQuickSuccessionWriteOnce() async {
+        let memory = await loadedMemory()
+
+        memory.remember([command("compact")], inDirectory: "/a")
+        memory.remember([command("compact")], inDirectory: "/b")
+        memory.remember([command("compact")], inDirectory: "/c")
+        await memory.waitForWrites()
+
+        #expect(memory.diskWrites == 1)
+        #expect(await loadedMemory().entries.map(\.directory) == ["/c", "/b", "/a"])
+    }
+
+    @Test func flushWritesWhatIsPending() async {
+        let memory = SlashCommandMemory(file: file, defaults: defaults, writeDelay: .seconds(60))
+        await memory.waitForLoad()
         memory.remember([command("compact")], inDirectory: "/repo")
 
-        memory.forget()
+        memory.flush()
 
-        #expect(memory.entries.isEmpty)
-        #expect(SlashCommandMemory(defaults: defaults).entries.isEmpty)
+        #expect(await loadedMemory().commands(inDirectory: "/repo").map(\.name) == ["compact"])
     }
 
     /// The pre-directory list recorded no directory, so it is dropped rather
     /// than filed under a guess.
-    @Test func theOldGlobalListIsDropped() {
-        let defaults = makeDefaults()
+    @Test func theOldGlobalListIsDropped() async {
         defaults.set(Data("[]".utf8), forKey: "rememberedSlashCommands")
 
-        _ = SlashCommandMemory(defaults: defaults)
+        _ = await loadedMemory()
 
         #expect(defaults.data(forKey: "rememberedSlashCommands") == nil)
     }

@@ -25,6 +25,8 @@ protocol ControlBackend {
     func menu() throws -> MenuResult
     func selection() throws -> SelectionResult
     func selectText(_ params: SelectTextParams) throws -> SelectionResult
+    func tasks() throws -> TaskListResult
+    func selectTask(_ params: SelectTaskParams) async throws -> SwitchLatencyReport
 }
 
 /// The one switch over `ControlCommand`, so a transport only moves bytes.
@@ -70,6 +72,8 @@ enum ControlDispatcher {
             case .menu: result = .menu(try backend.menu())
             case .selection: result = .selection(try backend.selection())
             case .selectText(let params): result = .selection(try backend.selectText(params))
+            case .tasks: result = .tasks(try backend.tasks())
+            case .selectTask(let params): result = .switchLatency(try await backend.selectTask(params))
             }
             return .success(id: request.id, result)
         } catch {
