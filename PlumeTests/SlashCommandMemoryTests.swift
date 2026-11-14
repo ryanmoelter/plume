@@ -203,6 +203,20 @@ struct SlashCommandMemoryTests {
         #expect(defaults.data(forKey: SlashCommandMemory.legacyKey) == nil)
     }
 
+    @Test func aCorruptFileFallsBackToTheLegacyListAndKeepsTheKeyUntilWritten() async throws {
+        try await storeLegacyList(["compact"], inDirectory: "/repo")
+        try FileManager.default.createDirectory(
+            at: file.deletingLastPathComponent(), withIntermediateDirectories: true
+        )
+        try Data("not json".utf8).write(to: file)
+
+        let memory = await loadedMemory(removesLegacyKey: false)
+
+        #expect(memory.commands(inDirectory: "/repo").map(\.name) == ["compact"])
+        #expect(defaults.data(forKey: SlashCommandMemory.legacyKey) != nil)
+        #expect(await loadedMemory(removesLegacyKey: false).commands(inDirectory: "/repo").map(\.name) == ["compact"])
+    }
+
     /// A session can report before the file has loaded; its list is newer
     /// than the file's for that directory, and the rest of the file survives.
     @Test func aReportBeforeTheLoadMergesWithTheFile() async {

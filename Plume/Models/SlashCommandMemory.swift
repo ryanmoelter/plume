@@ -27,7 +27,11 @@ final class SlashCommandMemory {
     /// The test host has no bundle ID, so `AppPaths` falls back to the
     /// installed app's directory. Without a scratch file and defaults, a test
     /// would migrate and overwrite the Release app's file and legacy key.
+    static var existing: SlashCommandMemory? { isSharedCreated ? shared : nil }
+    private static var isSharedCreated = false
+
     static let shared: SlashCommandMemory = {
+        isSharedCreated = true
         guard NSClassFromString("XCTestCase") == nil else {
             return SlashCommandMemory(
                 file: FileManager.default.temporaryDirectory
@@ -143,6 +147,7 @@ final class SlashCommandMemory {
     /// Writes any pending change now, blocking until it is on disk. For
     /// termination, when a delayed write would never run.
     func flush() {
+        guard isDirty || pendingWrite != nil else { return }
         pendingWrite?.cancel()
         pendingWrite = nil
         if !isLoaded {
@@ -215,11 +220,11 @@ final class SlashCommandMemory {
     }
 
     private nonisolated static func load(from file: URL, legacy: Data?) -> Loaded {
-        if let data = try? Data(contentsOf: file) {
-            return Loaded(stored: decode(data), migrated: legacy != nil)
+        if let data = try? Data(contentsOf: file), let stored = decode(data) {
+            return Loaded(stored: stored, migrated: legacy != nil)
         }
         guard let legacy else { return Loaded(stored: [], migrated: false) }
-        let stored = decode(legacy)
+        let stored = decode(legacy) ?? []
         return Loaded(stored: stored, migrated: persist(stored, to: file))
     }
 
@@ -245,8 +250,8 @@ final class SlashCommandMemory {
         }
     }
 
-    private nonisolated static func decode(_ data: Data) -> [Stored] {
-        guard let stored = try? JSONDecoder().decode([Stored].self, from: data) else { return [] }
+    private nonisolated static func decode(_ data: Data) -> [Stored]? {
+        guard let stored = try? JSONDecoder().decode([Stored].self, from: data) else { return nil }
         return Array(stored.prefix(capacity))
     }
 

@@ -82,7 +82,7 @@ struct StaleDefaultsCleanupTests {
         #expect(defaults.stringArray(forKey: StaleDefaultsCleanup.mainSplitViewFramesKey) == ["current split"])
     }
 
-    @Test func runsOncePerDomain() {
+    @Test func runsOncePerDomainInRelease() {
         let defaults = makeDefaults()
         runNow(defaults)
         #expect(defaults.integer(forKey: StaleDefaultsCleanup.versionKey) == StaleDefaultsCleanup.version)
@@ -91,8 +91,12 @@ struct StaleDefaultsCleanupTests {
         defaults.set("A1B2", forKey: "lastOpenTaskID")
         runNow(defaults)
 
+        #if DEBUG
+        #expect(defaults.string(forKey: "lastOpenTaskID") == nil)
+        #else
         #expect(defaults.string(forKey: Self.newestWindowKey) == "value")
         #expect(defaults.string(forKey: "lastOpenTaskID") == "A1B2")
         #expect(defaults.object(forKey: StaleDefaultsCleanup.mainWindowFrameKey) == nil)
+        #endif
     }
 }

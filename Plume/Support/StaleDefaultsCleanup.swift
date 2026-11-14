@@ -34,17 +34,19 @@ nonisolated enum StaleDefaultsCleanup {
         removal: (@escaping @Sendable () -> Void) -> Void = { DispatchQueue.global(qos: .utility).async(execute: $0) }
     ) {
         let defaults = suiteName.flatMap(UserDefaults.init(suiteName:)) ?? .standard
+        #if !DEBUG
         guard defaults.integer(forKey: versionKey) < version else { return }
+        #endif
         let stale = staleKeys(in: defaults.dictionaryRepresentation().keys)
         carryOverMainWindowFrames(from: stale, in: defaults)
 
         let doomed = stale + retiredKeys
-        let applicationID = suiteName ?? (kCFPreferencesCurrentApplication as String)
+        let applicationID = suiteName ?? Bundle.main.bundleIdentifier
         removal {
             CFPreferencesSetMultiple(
                 [versionKey: version] as CFDictionary,
                 doomed as CFArray,
-                applicationID as CFString,
+                (applicationID as CFString?) ?? kCFPreferencesCurrentApplication,
                 kCFPreferencesCurrentUser,
                 kCFPreferencesAnyHost
             )

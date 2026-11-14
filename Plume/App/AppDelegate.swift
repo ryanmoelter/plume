@@ -147,7 +147,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         // Before teardown, whose statuses describe the quit rather than the work.
         StatusPersistence.current?.flush()
         LastOpenTask.shared.flush()
-        SlashCommandMemory.shared.flush()
+        SlashCommandMemory.existing?.flush()
         CodexTerminalMonitor.shared.stopAll()
         AgentSessionManager.shared.closeAll()
         DeviceLeaseCoordinator.shared.dropRemoteLeasesForTermination()

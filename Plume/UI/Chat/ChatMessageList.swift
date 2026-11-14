@@ -161,6 +161,7 @@ struct ChatMessageList<SidePane: View>: View, ThemedView {
             .onGeometryChange(for: CGFloat.self) { $0.size.width } action: { viewportWidth = $0 }
             .onAppear {
                 AfterCommit.perform {
+                    // An opacity fade isn't motion, so it ignores animateChatMotion.
                     withAnimation(.easeIn(duration: 0.15)) { mountsChrome = true }
                 }
             }
