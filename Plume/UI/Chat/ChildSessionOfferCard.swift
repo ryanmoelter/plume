@@ -16,11 +16,13 @@ struct ChildSessionOfferCard: View, ThemedView {
     /// chat shows the row: a copy of the row in another tab's transcript,
     /// as a fork's, reads only from the call's result.
     @MainActor
-    static func card(for call: ToolCall, chatTabID: UUID, isPending: Bool) -> ChildSessionOfferCard? {
+    static func card(for call: ToolCall, chatTabID: UUID) -> ChildSessionOfferCard? {
         guard let arguments = ChildSessionFormats.offerArguments(of: call) else { return nil }
         let live = ChildSessionOfferBoard.shared.offer(call.id).flatMap { $0.parentTabID == chatTabID ? $0 : nil }
+        let session = AgentSessionManager.shared.existingSession(for: chatTabID) as? HeadlessSession
         guard let state = ChildSessionOfferCardState.reading(
-            live: live?.state, result: call.result, didFail: call.didFail, isPending: isPending
+            live: live?.state, result: call.result, didFail: call.didFail,
+            turnIsRunning: session.map { $0.isWorking && !$0.hasExited } ?? false
         ) else { return nil }
         let text = live.map { (title: $0.request.title, prompt: $0.request.prompt) } ?? arguments
         return ChildSessionOfferCard(call: call, state: state, text: text, failure: live?.failure)
