@@ -644,6 +644,35 @@ struct TaskRowAgentLinesTests {
         #expect(TaskRowDetails.controlValue(.project("Plume"), owner: nil) == nil)
     }
 
+    @Test func eachAgentsLinesFormOneGroup() {
+        let lines = TaskRowDetails.lines(agents: [
+            agent("One", "/Users/me/Plume", branch: "main"),
+            agent("Two", "/Users/me/Other", branch: "dev"),
+        ]) + [.linearOverflow(2)]
+        #expect(TaskRowDetails.agentGroupNesting(lines) == [[0], [0], [0], [3], [3], [3], []])
+    }
+
+    @Test func aChildsGroupSitsInsideItsParents() {
+        func header(_ title: String, depth: Int) -> TaskRowDetails.Line {
+            .agentHeader(TaskRowDetails.AgentHeader(tabID: UUID(), title: title, status: .working, depth: depth))
+        }
+        let lines: [TaskRowDetails.Line] = [
+            header("Parent", depth: 0),
+            .project("Plume"),
+            header("Child", depth: 1),
+            .branch("fix"),
+            header("Other child", depth: 1),
+            header("Sibling", depth: 0),
+            .branch("dev"),
+        ]
+        #expect(TaskRowDetails.agentGroupNesting(lines) == [[0], [0], [0, 2], [0, 2], [0, 4], [5], [5]])
+    }
+
+    @Test func aOneAgentRowHasNoGroups() {
+        let lines: [TaskRowDetails.Line] = [.project("Plume"), .branch("main"), .linearOverflow(1)]
+        #expect(TaskRowDetails.agentGroupNesting(lines) == [[], [], []])
+    }
+
     @Test func aLinesValueTellsTwoLinesWithTheSameTextApart() {
         #expect(TaskRowDetails.controlValue(.project("Plume"), owner: "Chat #2") == "agent: Chat #2")
         #expect(TaskRowDetails.controlValue(.branch("main", isWorktree: true, accompaniedBy: open), owner: "One")

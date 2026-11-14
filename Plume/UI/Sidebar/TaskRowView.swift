@@ -191,6 +191,7 @@ struct TaskRowView: View {
         let badgeLineCount = Self.badgeLineCount(of: rawLines)
         let icons = hasSeveralAgents ? nil : projectLineIcons(in: rawLines, agentTabIDs: agentTabIDs)
         let owners = TaskRowDetails.owningAgentLabels(rawLines)
+        let nesting = TaskRowDetails.agentGroupNesting(rawLines)
         VStack(alignment: .leading, spacing: 1) {
             HStack(alignment: .top, spacing: 6) {
                 VStack(alignment: .leading, spacing: 1) {
@@ -198,6 +199,7 @@ struct TaskRowView: View {
                     descriptionLine
                     ForEach(Array(lines.prefix(badgeLineCount)), id: \.offset) { index, line in
                         detailLine(line, at: index, owner: owners[index], icons: icons)
+                            .agentGroupMember(nesting[index])
                     }
                 }
                 Spacer(minLength: 4)
@@ -210,10 +212,15 @@ struct TaskRowView: View {
 
             ForEach(Array(lines.dropFirst(badgeLineCount)), id: \.offset) { index, line in
                 detailLine(line, at: index, owner: owners[index], icons: icons)
+                    .agentGroupMember(nesting[index])
             }
 
             TaskActivityRow(tabIDs: agentTabIDs)
         }
+        .agentGroupBars(
+            color: theme.colors.surface(AgentGroupBar.emphasis),
+            lineWidth: AgentGroupBar.lineWidth(captionSize: theme.typography.caption.size)
+        )
         .padding(.vertical, 2)
         .contentShape(.rect)
         .accessibilityElement(children: .combine)
@@ -355,7 +362,6 @@ struct TaskRowView: View {
     /// Fixed so every agent's title starts at the same x, whatever its
     /// status draws.
     static let agentBadgeWidth: CGFloat = 14
-    static let agentDepthIndent: CGFloat = 12
 
     private func agentHeaderLine(_ header: TaskRowDetails.AgentHeader) -> some View {
         HStack(spacing: 4) {
@@ -375,7 +381,6 @@ struct TaskRowView: View {
                 deviceLeaseIcon(heldDevices, label: header.label)
             }
         }
-        .padding(.leading, CGFloat(header.depth) * Self.agentDepthIndent)
         .plumeID(AccessibilityID.taskAgentGroup, label: header.label, value: header.statusText)
     }
 

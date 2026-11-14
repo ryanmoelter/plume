@@ -345,6 +345,25 @@ enum TaskRowDetails {
         }
     }
 
+    /// For each line, the agent groups it sits in, outermost first, each named
+    /// by its header's index. A child's group sits inside its parent's, so the
+    /// parent's group runs on past its children. Task-level lines sit in none.
+    static func agentGroupNesting(_ lines: [Line]) -> [[Int]] {
+        var open: [(index: Int, depth: Int)] = []
+        return lines.indices.map { index in
+            switch lines[index] {
+            case .agentHeader(let header):
+                open.removeAll { $0.depth >= header.depth }
+                open.append((index, header.depth))
+            case .project, .branch, .pullRequest:
+                break
+            default:
+                open = []
+            }
+            return open.map(\.index)
+        }
+    }
+
     /// The control-server label for a directory line: the text it shows.
     static func controlLabel(_ line: Line) -> String? {
         switch line {
