@@ -1425,6 +1425,7 @@ private class FileExtractor(private val ids: SymbolIds, private val out: FactSin
         out.args += ArgFact(callId, parameterId, index, value, form, typeAnnotations)
         if (inSource) flow(value, parameterId, "arg", expression)
         if (copiedClass != null) flow(value, "prop:$copiedClass.${parameter.name.asString()}", "copy", expression)
+        if ((isConstructor || copiedClass != null) && result != null) flow(value, result, "partOf", expression)
         if (target is KaSamConstructorSymbol && result != null) flow(value, result, "sam", expression)
       }
     }

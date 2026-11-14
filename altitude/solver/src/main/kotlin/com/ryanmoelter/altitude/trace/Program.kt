@@ -75,6 +75,14 @@ class Program(val facts: Facts, val derived: Derived) {
 
   val cells: Map<String, CellFact> = derived.cells.associateBy { it.id }
 
+  private val cellsPerHolder: Map<String, Int> = derived.cells.mapNotNull { it.sym }.groupingBy { it }.eachCount()
+
+  /** A holder that many cells pass through, such as a wrapper's local, names none of them. */
+  fun cellName(cell: CellFact): String {
+    val holder = cell.sym?.takeIf { cellsPerHolder[it] == 1 }
+    return "${cell.mechanism} ${holder?.let(::qualifiedName) ?: display(cell.id)}"
+  }
+
   /** Every flow edge, extracted and derived, by the location it leaves. */
   val valueEdges: Map<String, List<FlowFact>> =
     (facts.flows + derived.flows)
@@ -133,7 +141,7 @@ class Program(val facts: Facts, val derived: Derived) {
       if (sym.endsWith(ELEMENT)) {
         val root = sym.removeSuffix(ELEMENT)
         val cell = cells[root] ?: return "element of ${display(root)}"
-        return "cell ${cell.mechanism} ${cell.sym?.let(::qualifiedName) ?: display(root)}"
+        return "cell ${cellName(cell)}"
       }
       PSEUDO.find(sym)?.let { return display(sym.removeSuffix(it.value)) + it.value }
       val node = nodes[sym]
@@ -197,9 +205,9 @@ class Program(val facts: Facts, val derived: Derived) {
   }
 
   /**
-   * The locations a value selector names: `File.kt:LINE:call(name)`, a location ID, or a property,
-   * parameter or local by `Owner.name`. A call starts a trace at its result and ends one at any of
-   * its ports.
+   * The locations a value selector names: `File.kt:LINE:call(name)`, `cell(Owner.name)` for what a
+   * cell holds, a location ID, or a property, parameter or local by `Owner.name`. A call starts a
+   * trace at its result and ends one at any of its ports, or at what a model says it writes.
    */
   fun selectValue(selector: String, goal: Boolean): ValueSelection {
     val callSelector = CALL_SELECTOR.matchEntire(selector)
@@ -221,11 +229,19 @@ class Program(val facts: Facts, val derived: Derived) {
       val locations =
         if (goal) {
           arguments + call.receiver + call.extReceiver + listOfNotNull(call.result) +
-            summariesBySite[site].orEmpty().flatMap { listOf(it.from, it.to) }
+            summariesBySite[site].orEmpty().filter { it.kind == "summary" }.map { it.to }
         } else {
           listOfNotNull(call.result).ifEmpty { arguments }
         }
       return ValueSelection("${Site.of(call.id)} ${display(call.target)}", locations.toSet(), emptyList())
+    }
+    if (selector.startsWith("cell(") && selector.endsWith(")")) {
+      val name = selector.removePrefix("cell(").removeSuffix(")")
+      val matching =
+        derived.cells.filter { cell -> cell.sym?.let { it == name || matches(qualifiedName(it), name) } == true }
+      val slots = matching.map { it.id + ELEMENT }.toSet()
+      val label = matching.map { display(it.id + ELEMENT) }.distinct().joinToString().ifEmpty { selector }
+      return ValueSelection(label, slots, emptyList())
     }
     if (selector in decls || selector in nodes || selector in valueEdges) {
       return ValueSelection(display(selector), setOf(selector), emptyList())

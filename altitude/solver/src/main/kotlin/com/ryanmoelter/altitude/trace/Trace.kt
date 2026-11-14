@@ -78,10 +78,22 @@ class Tracer(private val program: Program, private val options: TraceOptions = T
   }
 
   /** The shortest chain of flow edges from one value to another. */
-  fun traceValue(from: String, to: String): String = buildString {
-    val start = program.selectValue(from, goal = false)
-    val goal = program.selectValue(to, goal = true)
-    if (!requireLocations(start, "--from") || !requireLocations(goal, "--to")) return@buildString
+  /** [via] names values the path must pass through, in order; each leg is traced by itself. */
+  fun traceValue(from: String, to: String, via: List<String> = emptyList()): String = buildString {
+    val stops = listOf(from) + via + to
+    val flags = listOf("--from") + via.map { "--via" } + "--to"
+    val starts = stops.dropLast(1).map { program.selectValue(it, goal = false) }
+    val goals = stops.drop(1).map { program.selectValue(it, goal = true) }
+    for ((index, selection) in (starts + goals.last()).withIndex()) {
+      if (!requireLocations(selection, flags[index])) return@buildString
+    }
+    for (index in starts.indices) {
+      if (index > 0) appendLine()
+      valueLeg(starts[index], goals[index])
+    }
+  }
+
+  private fun StringBuilder.valueLeg(start: ValueSelection, goal: ValueSelection) {
     appendLine("Value trace from ${start.label}")
     appendLine("              to ${goal.label}")
     appendLine()
@@ -125,7 +137,7 @@ class Tracer(private val program: Program, private val options: TraceOptions = T
         depth.keys.filter { location -> program.valueEdges[location].isNullOrEmpty() }.sorted()
       appendLine("${frontier.size} reached locations have no outgoing edge. The first 40:")
       for (location in frontier.take(40)) appendLine("  ${program.display(location)}  =  $location")
-      return@buildString
+      return
     }
     val hops = ArrayList<FlowFact>()
     var current: String = end
@@ -309,11 +321,11 @@ class Tracer(private val program: Program, private val options: TraceOptions = T
   private fun describe(edge: CallEdgeFact, call: CallFact?): String =
     when (val via = edge.via) {
       "invoke" ->
-        "invoke [${edge.role} of ${edge.invoker?.let(program::display) ?: "?"}; ${edge.ruleId}]"
+        "invoke [${edge.invoker?.let(program::display) ?: "?"} runs it as ${edge.role}; ${edge.ruleId}]"
       "cell" -> {
         val cell = edge.cell?.let { program.cells[it] }
         val name =
-          if (cell != null) "${cell.mechanism} ${cell.sym?.let(program::qualifiedName) ?: program.display(cell.id)}"
+          if (cell != null) program.cellName(cell)
           else "stream ${edge.cell?.let(program::display)}"
         val through =
           when (edge.through) {

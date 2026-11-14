@@ -19,10 +19,10 @@ private val USAGE =
     solve   --facts <dir>
     trace   --facts <dir> --from <selector> --to <selector> [--max-depth N] [--alternates N]
     trace   --facts <dir> --from <selector> --forward [--max-depth N] [--limit N]
-    trace   --facts <dir> --value --from <value> --to <value>
+    trace   --facts <dir> --value --from <value> --to <value> [--via <value>,<value>]
     show    --facts <dir> --file <relpath>
   A selector is a symbol ID, or an `Owner.member` suffix that names one declaration.
-  A value is `File.kt:LINE:call(name)`, a location ID, or a property, parameter or local.
+  A value is `File.kt:LINE:call(name)`, `cell(Owner.name)`, a location ID, or a property, parameter or local.
   facts and solve take --models <dir> to replace the built-in library models.
   """
     .trimIndent()
@@ -84,7 +84,7 @@ fun main(args: Array<String>) {
           )
         print(
           when {
-            "--value" in flags -> tracer.traceValue(required("--from"), required("--to"))
+            "--value" in flags -> tracer.traceValue(required("--from"), required("--to"), options["--via"]?.split(',').orEmpty())
             "--forward" in flags -> tracer.forward(required("--from"))
             else -> tracer.trace(required("--from"), required("--to"))
           }

@@ -36,7 +36,7 @@ private val ACCESSORS = listOf("#<get>", "#<set>")
 const val ELEMENT = "#<elem>"
 
 /** Edge kinds that derive one value from another; no function value or object moves along them. */
-val DERIVING_KINDS = setOf("memberOf", "contentOf")
+val DERIVING_KINDS = setOf("memberOf", "contentOf", "partOf")
 
 private val NOT_OBJECTS = setOf("literal", "lambdaExpr", "callableRef")
 
@@ -306,13 +306,19 @@ private class Solver(private val facts: Facts, private val models: Models) {
       val sources = incoming[location]
       if (sources != null) {
         stack += sources
-      } else if (nodeKinds[location] !in NOT_OBJECTS && roots.add(location)) {
+      } else if (nodeKinds[location] !in NOT_OBJECTS && !isNestedElement(location) && roots.add(location)) {
         arrive(location, Obj(location), Arrival(null))
         created = true
       }
     }
     return created
   }
+
+  /**
+   * A container's element may itself be a container that nothing in the sources fills, but the
+   * nesting stops there: one level deeper would repeat without end on `xs = xs.filter { }`.
+   */
+  private fun isNestedElement(location: String): Boolean = location.endsWith(ELEMENT + ELEMENT)
 
   private fun cells(): Map<String, CellFact> {
     val cells = LinkedHashMap<String, CellFact>()

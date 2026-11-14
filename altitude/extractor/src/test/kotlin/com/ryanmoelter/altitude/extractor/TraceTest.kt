@@ -41,7 +41,7 @@ class TraceTest {
   fun modelledInvokeNamesItsRoleAndRule() {
     assertContains(
       tracer.trace("eachReported", "report"),
-      "--invoke [action, run in place for each element of kotlin/collections/forEach [library]; " +
+      "--invoke [kotlin/collections/forEach [library] runs it as action, run in place for each element; " +
         "kotlin-stdlib.yaml#forEach]-->  lambda@Args.kt:26:18",
     )
   }

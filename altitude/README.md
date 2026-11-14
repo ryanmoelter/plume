@@ -28,7 +28,9 @@ It writes `<out-dir>/manifest.json`. The output is byte-identical across runs of
 
 ## Facts, solver and trace
 
-`extractor facts --manifest <manifest.json> --out <dir>` resolves the sources with the Analysis API and writes one sorted JSON Lines file per relation: declarations, calls, arguments and value-flow edges. It then runs the solver, which tracks function values to the calls that invoke them and resolves virtual calls by class hierarchy. `extractor trace` prints a call path between two declarations as text a reader can check against the source. `docs/facts.md` is the reference for the schema, the identifiers, the approximations and the trace format.
+`extractor facts --manifest <manifest.json> --out <dir>` resolves the sources with the Analysis API and writes one sorted JSON Lines file per relation: declarations, calls, arguments and value-flow edges. It then runs the solver, which tracks function values to the calls that invoke them and resolves virtual calls by class hierarchy. `extractor trace` prints a call path between two declarations as text a reader can check against the source, and `trace --value` prints the path a value takes. `docs/facts.md` is the reference for the schema, the identifiers, the approximations and the trace format.
+
+Library behavior comes from the models under `models/`: what `map`, `launch` or `MutableStateFlow.update` do with their arguments. `docs/models.md` is the reference.
 
 Build the command with `./gradlew :extractor:installDist`; it lands in `extractor/build/install/extractor/bin/extractor`.
 
