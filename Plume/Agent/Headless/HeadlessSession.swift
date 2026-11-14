@@ -1167,8 +1167,7 @@ final class HeadlessSession: AgentSession {
         resolve(permission, with: .allow(updatedInput: permission.input, updatedPermissions: [suggestion.raw]))
         switch suggestion.kind {
         case .setMode(let token):
-            permissionModeRequests.confirm(reported: token)
-            if let mode = PermissionMode.recognizing(token) { permissionMode = mode }
+            recordReportedMode(token)
         case .addDirectories(let directories):
             grantDirectories(directories)
         case .allowRules:
@@ -1388,10 +1387,19 @@ final class HeadlessSession: AgentSession {
     }
 
     func setOffer(_ toolUseID: String, waitsForUser: Bool) {
-        let changed = waitsForUser
-            ? pendingOffers.insert(toolUseID).inserted
-            : pendingOffers.remove(toolUseID) != nil
-        if changed { reportPendingPermissions() }
+        if waitsForUser {
+            if pendingOffers.insert(toolUseID).inserted { reportPendingPermissions() }
+            return
+        }
+        guard pendingOffers.remove(toolUseID) != nil, !hasExited else { return }
+        if Self.attentionStatus(for: pendingPermissions, hasPendingOffer: !pendingOffers.isEmpty) != nil || isWorking {
+            reportPendingPermissions()
+            return
+        }
+        // A turn that ended while the offer waited reported its own status
+        // over the offer's, as an interrupt does, and that status stands.
+        guard statusEngine.ownStatus(forTab: tabID) == .questionAsked else { return }
+        reportStatus(.awaitingReply, notifiable: false)
     }
 
     /// What the tab is waiting on, or nil when it is waiting on nothing.

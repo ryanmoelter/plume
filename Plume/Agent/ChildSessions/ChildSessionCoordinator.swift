@@ -347,7 +347,7 @@ final class ChildSessionCoordinator {
     func raiseOffer(_ request: StartSessionRequest, from parent: TaskTab, toolUseID: String) -> ChildSessionError? {
         guard !parent.isChildSession else { return .failed("This session cannot start sessions of its own.") }
         guard LiveSettings(of: parent).permissionMode != .plan else { return .parentInPlanMode }
-        guard ChildSessionOfferBoard.shared.offer(toolUseID)?.state.isLive != true else {
+        if let existing = ChildSessionOfferBoard.shared.offer(toolUseID), existing.result == nil {
             return .failed("An offer for this call is already waiting.")
         }
         ChildSessionOfferBoard.shared.raise(toolUseID, parentTabID: parent.id, request: request)
@@ -358,8 +358,10 @@ final class ChildSessionCoordinator {
     ///
     /// A withdrawal that arrives while the child is launching lets the
     /// launch finish: the card reads started, and the parent, whose call no
-    /// longer waits for the result, gets a note saying so. `launch` stands in
-    /// for opening the child's tab in tests.
+    /// longer waits for the result, gets a note saying so. The note rides the
+    /// parent's next turn rather than waking it, since the withdrawal usually
+    /// means the user just stopped that turn. `launch` stands in for opening
+    /// the child's tab in tests.
     func awaitOffer(
         _ request: StartSessionRequest, from parent: TaskTab, toolUseID: String, launch: ChildLauncher? = nil
     ) async -> Result<String, ChildSessionError> {
@@ -401,7 +403,7 @@ final class ChildSessionCoordinator {
                     let name = childNames[child.id] ?? WorkspaceProvisioner.slugify(request.title)
                     if withdrawn() {
                         let note = ChildSessionFormats.offerStartedNote(title: request.title, child: participant(child))
-                        deliver(.init(childID: child.id, text: note, kind: .message), toParent: parent, wakes: request.wakeWhenDone)
+                        deliver(.init(childID: child.id, text: note, kind: .message), toParent: parent, wakes: false)
                     }
                     board.settle(toolUseID, .started(sessionID: Self.sessionID(of: child), name: name), result: text)
                     return .success(text)

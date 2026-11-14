@@ -26,14 +26,15 @@ nonisolated enum ChildSessionOfferCardState: Equatable {
 
     /// Where Plume holds the offer, it reads as Plume holds it. Otherwise the
     /// call's result says what became of it, and a call with no result reads
-    /// as waiting only while the chat still shows it as pending. Nil for a
-    /// call that failed for another reason, such as a missing brief, which
-    /// renders as a plain tool row.
+    /// as waiting only while the chat's own session is running a turn: a
+    /// restored chat's call will never be answered. Nil for a call that
+    /// failed for another reason, such as a missing brief, which renders as a
+    /// plain tool row.
     static func reading(
-        live: ChildSessionOfferCardState?, result: String?, didFail: Bool, isPending: Bool
+        live: ChildSessionOfferCardState?, result: String?, didFail: Bool, turnIsRunning: Bool
     ) -> ChildSessionOfferCardState? {
         if let live { return live }
-        guard let result else { return isPending ? .waiting : .unanswered }
+        guard let result else { return turnIsRunning ? .waiting : .unanswered }
         if !didFail, let started = ChildSessionFormats.startedSession(in: result) {
             return .started(sessionID: started.sessionID, name: started.name)
         }

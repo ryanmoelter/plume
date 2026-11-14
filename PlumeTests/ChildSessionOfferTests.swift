@@ -59,12 +59,12 @@ struct ChildSessionOfferTests {
     // MARK: - Card state
 
     @Test func aLiveOfferReadsAsTheBoardHoldsIt() {
-        #expect(ChildSessionOfferCardState.reading(live: .starting, result: nil, didFail: false, isPending: false) == .starting)
+        #expect(ChildSessionOfferCardState.reading(live: .starting, result: nil, didFail: false, turnIsRunning: false) == .starting)
     }
 
-    @Test func anOfferWithNoResultWaitsWhileTheCallIsPendingAndIsNeverAnsweredAfter() {
-        #expect(ChildSessionOfferCardState.reading(live: nil, result: nil, didFail: false, isPending: true) == .waiting)
-        #expect(ChildSessionOfferCardState.reading(live: nil, result: nil, didFail: false, isPending: false) == .unanswered)
+    @Test func anOfferWithNoResultWaitsWhileTheTurnRunsAndIsNeverAnsweredAfter() {
+        #expect(ChildSessionOfferCardState.reading(live: nil, result: nil, didFail: false, turnIsRunning: true) == .waiting)
+        #expect(ChildSessionOfferCardState.reading(live: nil, result: nil, didFail: false, turnIsRunning: false) == .unanswered)
     }
 
     @Test func aResultSaysWhatBecameOfTheOffer() {
@@ -72,7 +72,7 @@ struct ChildSessionOfferTests {
         let declined = ChildSessionFormats.offerDeclined(title: "Fix login")
         let interrupted = "The user doesn't want to proceed with this tool use. The tool use was rejected."
         func read(_ result: String, didFail: Bool = false) -> ChildSessionOfferCardState? {
-            ChildSessionOfferCardState.reading(live: nil, result: result, didFail: didFail, isPending: false)
+            ChildSessionOfferCardState.reading(live: nil, result: result, didFail: didFail, turnIsRunning: false)
         }
 
         #expect(read(started) == .started(sessionID: Self.sessionID, name: "fix-login"))
@@ -164,6 +164,37 @@ struct ChildSessionOfferTests {
         #expect(engine.status(forTab: session.tabID) == .awaitingReply)
     }
 
+    @Test func theBoardDrivesTheTabsAttentionThroughItsSession() throws {
+        let offer = try makeOffer()
+        let (session, _) = try liveSession(for: offer)
+        defer { forget(offer) }
+        session.submit(text: "go")
+        #expect(status(of: offer) == .working)
+
+        raise(offer)
+        #expect(status(of: offer) == .questionAsked)
+
+        board.answer(offer.id, .newSession)
+        #expect(status(of: offer) == .working)
+    }
+
+    @Test func anInterruptedTurnKeepsItsStatusWhenItsOfferIsWithdrawn() async throws {
+        let offer = try makeOffer()
+        let (session, _) = try liveSession(for: offer)
+        defer { forget(offer) }
+        session.submit(text: "go")
+        raise(offer)
+        let waiting = awaitOffer(offer, launch: launcher(Launches(), offer))
+        await settle { false }
+
+        session.interrupt()
+        session.handle(try #require(StreamJSONDecoder.decode(line: Self.result)))
+
+        #expect(await waiting.value == .failure(.failed(ChildSessionFormats.offerWithdrawn)))
+        #expect(board.offer(offer.id)?.state == .withdrawn)
+        #expect(status(of: offer) == .interrupted)
+    }
+
     @Test func aPendingOfferRanksAsAQuestion() {
         #expect(HeadlessSession.attentionStatus(for: [], hasPendingOffer: true) == .questionAsked)
         #expect(HeadlessSession.attentionStatus(for: [], hasPendingOffer: false) == nil)
@@ -181,15 +212,52 @@ struct ChildSessionOfferTests {
         let id = "toolu_\(UUID().uuidString)"
     }
 
-    private func raiseOffer() throws -> Offer {
+    private func makeOffer() throws -> Offer {
         let task = TaskStore.createTask(in: context, title: "Task", siblings: [])
         let parent = try #require(task.tabs.first)
         parent.permissionMode = .acceptEdits
         try context.save()
-        let offer = Offer(task: task, parent: parent)
-        #expect(ChildSessionCoordinator.shared.raiseOffer(request(), from: parent, toolUseID: offer.id) == nil)
+        return Offer(task: task, parent: parent)
+    }
+
+    private func raise(_ offer: Offer) {
+        #expect(ChildSessionCoordinator.shared.raiseOffer(request(), from: offer.parent, toolUseID: offer.id) == nil)
+    }
+
+    private func raiseOffer() throws -> Offer {
+        let offer = try makeOffer()
+        raise(offer)
         return offer
     }
+
+    private final class Lines {
+        var all: [String] = []
+    }
+
+    /// The parent's session as the app holds it, so the board and the
+    /// coordinator reach it through `AgentSessionManager`.
+    private func liveSession(for offer: Offer) throws -> (HeadlessSession, Lines) {
+        let session = try #require(
+            AgentSessionManager.shared.session(for: offer.parent.id, taskID: offer.task.id) as? HeadlessSession
+        )
+        session.queuedMessageDelivery = { .endOfTurn }
+        let lines = Lines()
+        session.debugLineSink = { lines.all.append($0) }
+        ChildSessionCoordinator.shared.attach(to: session, task: offer.task, tab: offer.parent)
+        return (session, lines)
+    }
+
+    private func forget(_ offer: Offer) {
+        _ = AgentSessionManager.shared.detachSession(for: offer.parent.id)
+        ChildSessionCoordinator.shared.tabForgotten(offer.parent.id)
+        StatusEngine.shared.forget(tabID: offer.parent.id, taskID: offer.task.id)
+    }
+
+    private func status(of offer: Offer) -> TaskStatus {
+        StatusEngine.shared.ownStatus(forTab: offer.parent.id)
+    }
+
+    private static let result = #"{"type":"result","subtype":"success","is_error":false,"result":"DONE"}"#
 
     private func launcher(
         _ launches: Launches, _ offer: Offer, during: @escaping @MainActor (Int) -> Result<Void, ChildSessionError> = { _ in .success(()) }
@@ -281,21 +349,35 @@ struct ChildSessionOfferTests {
         #expect(launches.count == 2)
     }
 
-    @Test func aWithdrawalDuringTheLaunchStartsTheChildAndTellsTheParent() async throws {
+    enum Withdrawal: CaseIterable {
+        case boardAnswer
+        case taskCancelled
+    }
+
+    private final class Waiting {
+        var task: Task<Result<String, ChildSessionError>, Never>?
+    }
+
+    /// The parent is idle and reachable, so a note that woke it would be sent
+    /// at once instead of waiting in the preamble.
+    @Test(arguments: Withdrawal.allCases)
+    func aWithdrawalDuringTheLaunchStartsTheChildAndTellsTheParentWithoutWakingIt(_ withdrawal: Withdrawal) async throws {
         let offer = try raiseOffer()
-        let session = HeadlessSession(tabID: offer.parent.id, taskID: offer.task.id)
-        ChildSessionCoordinator.shared.attach(to: session, task: offer.task, tab: offer.parent)
-        defer { ChildSessionCoordinator.shared.tabForgotten(offer.parent.id) }
-        let launches = Launches()
+        let (session, lines) = try liveSession(for: offer)
+        defer { forget(offer) }
         let board = board
-        let waiting = awaitOffer(offer, launch: launcher(launches, offer) { _ in
-            board.answer(offer.id, .withdraw)
+        let waiting = Waiting()
+        waiting.task = awaitOffer(offer, launch: launcher(Launches(), offer) { _ in
+            switch withdrawal {
+            case .boardAnswer: board.answer(offer.id, .withdraw)
+            case .taskCancelled: waiting.task?.cancel()
+            }
             return .success(())
         })
 
         board.answer(offer.id, .newSession)
 
-        guard case .success = await waiting.value else {
+        guard case .success = await waiting.task?.value else {
             Issue.record("expected the child to start")
             return
         }
@@ -303,9 +385,21 @@ struct ChildSessionOfferTests {
             Issue.record("expected the card to read started")
             return
         }
+        #expect(lines.all.isEmpty)
+        #expect(!session.isWorking)
         let preamble = try #require(session.userMessagePreamble?())
         #expect(preamble.contains("started your offered session"))
         #expect(preamble.contains("offer_started"))
+    }
+
+    @Test func aReusedIDCannotReplaceAnAnsweredOfferTheCallHasNotTaken() throws {
+        let offer = try raiseOffer()
+        defer { ChildSessionCoordinator.shared.tabForgotten(offer.parent.id) }
+
+        board.answer(offer.id, .doItHere)
+
+        #expect(ChildSessionCoordinator.shared.raiseOffer(request(), from: offer.parent, toolUseID: offer.id) != nil)
+        #expect(board.offer(offer.id)?.state == .declined)
     }
 
     @Test func theTurnEndingWithdrawsTheOffer() async throws {
