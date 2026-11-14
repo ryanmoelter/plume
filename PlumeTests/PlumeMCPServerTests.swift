@@ -81,7 +81,7 @@ struct PlumeMCPServerTests {
         #expect(reply?["result"]?["isError"] == .bool(true))
     }
 
-    @Test func planModeAllowsAProposalButNotAStart() {
+    @Test func planModeAllowsAProposalButNotAStartOrAnOffer() {
         let (server, _) = makeServer()
         let start = PlumeMCPTool.startSession.qualifiedName
         let proposal: [String: JSONValue] = ["initiation": .string("own_initiative"), "title": .string("T"), "prompt": .string("P")]
@@ -90,7 +90,7 @@ struct PlumeMCPServerTests {
         let asked: [String: JSONValue] = ["initiation": .string("user_asked"), "title": .string("T"), "prompt": .string("P")]
 
         #expect(server.decision(toolName: start, input: proposal, permissionMode: .plan) == .allow(updatedInput: proposal))
-        #expect(server.decision(toolName: start, input: offer, permissionMode: .plan) == .allow(updatedInput: offer))
+        #expect(server.decision(toolName: start, input: offer, permissionMode: .plan) == .deny(message: ChildSessionError.parentInPlanMode.message))
         #expect(server.decision(toolName: start, input: byID, permissionMode: .plan) == .deny(message: ChildSessionError.parentInPlanMode.message))
         #expect(server.decision(toolName: start, input: asked, permissionMode: .plan) == .deny(message: ChildSessionError.parentInPlanMode.message))
         let dismiss = PlumeMCPTool.dismissTask.qualifiedName
