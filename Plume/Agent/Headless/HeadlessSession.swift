@@ -114,6 +114,10 @@ final class HeadlessSession: AgentSession {
     /// request stalls its tool call indefinitely, which is the whole reason
     /// the approval UI must exist.
     private(set) var pendingPermissions: [PendingPermission] = []
+    /// The tool use ids of this tab's offers still waiting on the user
+    /// (`ChildSessionOfferBoard`). A pending offer needs the user the way a
+    /// pending question does.
+    @ObservationIgnored private var pendingOffers: Set<String> = []
 
     /// Text of the turn in flight, assembled from partial-message deltas.
     ///
@@ -1379,16 +1383,23 @@ final class HeadlessSession: AgentSession {
     private func reportPendingPermissions() {
         guard !hasExited else { return }
         let resting: TaskStatus = isWorking ? .working : .awaitingReply
-        let status = Self.attentionStatus(for: pendingPermissions) ?? resting
+        let status = Self.attentionStatus(for: pendingPermissions, hasPendingOffer: !pendingOffers.isEmpty) ?? resting
         reportStatus(status)
+    }
+
+    func setOffer(_ toolUseID: String, waitsForUser: Bool) {
+        let changed = waitsForUser
+            ? pendingOffers.insert(toolUseID).inserted
+            : pendingOffers.remove(toolUseID) != nil
+        if changed { reportPendingPermissions() }
     }
 
     /// What the tab is waiting on, or nil when it is waiting on nothing.
     ///
     /// More than one request can be outstanding at once, so this ranks them:
     /// a plan gate decides the most and an ordinary tool call the least.
-    static func attentionStatus(for pending: [PendingPermission]) -> TaskStatus? {
-        var status: TaskStatus?
+    static func attentionStatus(for pending: [PendingPermission], hasPendingOffer: Bool = false) -> TaskStatus? {
+        var status: TaskStatus? = hasPendingOffer ? .questionAsked : nil
         for permission in pending {
             let candidate: TaskStatus = switch permission.interactive {
             case .plan: .planApproval

@@ -8,6 +8,8 @@ import SwiftUI
 struct ChatProposalBoard {
     /// The tab that owns the proposals.
     let tabID: UUID
+    /// The tab whose chat this is: the owner, or one of its children.
+    let chatTabID: UUID
     /// Reads the owner's persisted proposals, so a card calling this from
     /// `body` redraws when one is started or dismissed. Empty when the owner
     /// has closed.

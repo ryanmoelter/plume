@@ -12,16 +12,15 @@ struct ChildSessionOfferCard: View, ThemedView {
     let failure: String?
 
     /// The card for `call`, or nil when the call failed for another reason
-    /// and should render as a plain tool row. `ownerTabID` is the tab whose
-    /// session made the call.
+    /// and should render as a plain tool row. `chatTabID` is the tab whose
+    /// chat shows the row: a copy of the row in another tab's transcript,
+    /// as a fork's, reads only from the call's result.
     @MainActor
-    static func card(for call: ToolCall, ownerTabID: UUID) -> ChildSessionOfferCard? {
+    static func card(for call: ToolCall, chatTabID: UUID, isPending: Bool) -> ChildSessionOfferCard? {
         guard let arguments = ChildSessionFormats.offerArguments(of: call) else { return nil }
-        let live = ChildSessionOfferBoard.shared.offer(call.id)
-        let session = AgentSessionManager.shared.existingSession(for: ownerTabID) as? HeadlessSession
-        let isTurnRunning = session.map { !$0.hasExited && $0.isWorking } ?? false
+        let live = ChildSessionOfferBoard.shared.offer(call.id).flatMap { $0.parentTabID == chatTabID ? $0 : nil }
         guard let state = ChildSessionOfferCardState.reading(
-            live: live?.state, result: call.result, didFail: call.didFail, isTurnRunning: isTurnRunning
+            live: live?.state, result: call.result, didFail: call.didFail, isPending: isPending
         ) else { return nil }
         let text = live.map { (title: $0.request.title, prompt: $0.request.prompt) } ?? arguments
         return ChildSessionOfferCard(call: call, state: state, text: text, failure: live?.failure)
