@@ -2,7 +2,7 @@ import Foundation
 
 /// The permission mode a child session starts in, and how far it may be
 /// raised later. A child never runs with more freedom than its parent has,
-/// unless the user picks a higher mode in the child's own picker.
+/// unless it already ran with more before the parent's mode dropped.
 nonisolated enum ChildSessionPermissions {
     /// Strictest first.
     static let ordered: [PermissionMode] = [.plan, .manual, .acceptEdits, .auto, .bypassPermissions]
@@ -35,6 +35,10 @@ nonisolated enum ChildSessionPermissions {
         guard rank(of: mode) > rank(of: ceiling) else { return mode }
         guard let current, rank(of: current) > rank(of: ceiling) else { return ceiling }
         return current
+    }
+
+    static func allows(_ mode: PermissionMode, under ceiling: PermissionMode) -> Bool {
+        rank(of: mode) <= rank(of: ceiling)
     }
 
     private static func rank(of mode: PermissionMode) -> Int {

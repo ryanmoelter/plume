@@ -3,10 +3,10 @@ import SwiftData
 import Testing
 @testable import Plume
 
-/// A running child is raised past its parent's mode only by the user's own
-/// pick in the picker: an approved plan or an accepted mode suggestion stops
-/// at the parent's mode, or at the child's launch mode once the parent is
-/// gone. A mode the model enters itself is tracked from the CLI's `status`,
+/// A running child is never raised past its parent's mode while the parent
+/// is open: its picker disables the higher modes, and an approved plan or an
+/// accepted mode suggestion stops at the parent's mode, or at the child's
+/// launch mode once the parent is gone. A mode the model enters itself is tracked from the CLI's `status`,
 /// and in plan mode Plume refuses `start_session` at `can_use_tool`.
 @MainActor
 struct ChildSessionModeCapTests {
@@ -82,6 +82,32 @@ struct ChildSessionModeCapTests {
         #expect(session.permissionCeiling?() == .manual)
     }
 
+    @Test func theChildsPickerDisablesModesAboveItsOpenParents() throws {
+        let task = TaskStore.createTask(in: context, siblings: [])
+        let parent = try #require(task.tabs.first)
+        parent.permissionMode = .acceptEdits
+        let child = TaskStore.addChildTab(to: task, parent: parent, in: context)
+        child.permissionMode = .manual
+        let settings = ComposerSettings(session: nil, tab: child, defaults: .init(effort: .medium))
+        func preset(_ mode: PermissionMode) -> AgentPermissionPreset { .init(id: mode.rawValue, label: mode.label) }
+
+        #expect(settings.permissionCeiling == .acceptEdits)
+        #expect(settings.isAllowed(preset(.acceptEdits)))
+        #expect(!settings.isAllowed(preset(.auto)))
+        settings.setPermissionPreset(preset(.auto))
+        #expect(child.permissionMode == .acceptEdits)
+
+        child.parentTabIDRaw = UUID().uuidString
+        #expect(settings.permissionCeiling == nil)
+        #expect(settings.isAllowed(preset(.auto)))
+    }
+
+    @Test func aParentsPickerIsNotLimited() throws {
+        let task = TaskStore.createTask(in: context, siblings: [])
+        let parent = try #require(task.tabs.first)
+        #expect(ComposerSettings(session: nil, tab: parent, defaults: .init(effort: .medium)).permissionCeiling == nil)
+    }
+
     @Test func aParentHasNoCeiling() throws {
         let task = TaskStore.createTask(in: context, siblings: [])
         let parent = try #require(task.tabs.first)
@@ -126,7 +152,8 @@ struct ChildSessionModeCapTests {
         #expect(session.permissionMode == .manual)
     }
 
-    @Test func theUsersOwnPickIsNeverCapped() throws {
+    /// The picker enforces the cap; the session takes whatever it is given.
+    @Test func theSessionTakesAPickAboveTheCeiling() throws {
         let (session, lines) = makeSession(ceiling: .manual)
         session.setPermissionMode(.auto)
 

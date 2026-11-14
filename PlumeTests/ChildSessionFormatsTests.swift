@@ -176,6 +176,7 @@ struct ChildSessionFormatsTests {
     @Test func anEventSummarizesInOneLine() {
         let finished = SideSessionEvent(kind: .turnFinished, sessionID: "C1", name: "fix-login", text: "Tests pass⏎and more")
         #expect(finished.summary == "↳ fix-login finished a turn: Tests pass")
+        #expect(finished.sentence == "fix-login finished a turn: Tests pass")
         let message = SideSessionEvent(kind: .message, sessionID: "P", title: "Parent", text: "Stop", fromParent: true)
         #expect(message.summary == "↑ Parent sent a message: Stop")
         #expect(SideSessionEvent.decoding(body: "None of the sessions you started is working.").kind == .other)

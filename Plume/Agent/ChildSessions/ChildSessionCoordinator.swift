@@ -80,6 +80,17 @@ final class ChildSessionCoordinator {
         )
     }
 
+    /// The highest mode the child's own picker offers: the parent's live
+    /// mode while the parent is open, and no limit once it is gone.
+    func pickerCeiling(forChild child: TaskTab) -> PermissionMode? {
+        guard let parent = parent(of: child) else { return nil }
+        return ChildSessionPermissions.ceiling(
+            parent: LiveSettings(of: parent).permissionMode,
+            launchedWith: LiveSettings.recordedMode(of: child),
+            showsBypassPermissions: AppSettings.shared.showsBypassPermissions
+        )
+    }
+
     /// Selects the tab of the session a chat row names. False when no open
     /// window holds it.
     @discardableResult

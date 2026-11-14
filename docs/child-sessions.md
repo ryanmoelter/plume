@@ -46,7 +46,7 @@ A child's `tools/list` has only `send_message`, so a child cannot start sessions
 
 A child never starts with more freedom than its parent has at that moment. `ChildSessionPermissions` orders the modes from strictest to most permissive: plan, manual, accept edits, auto, bypass. The child gets the requested mode, or the parent's, capped at the parent's live mode. Bypass also needs Settings ▸ Agents ▸ "Show bypass permissions"; without it a child that would get bypass gets auto. A parent in plan mode cannot start a child: `can_use_tool` denies the call, and the tool itself returns the same error, telling it to exit plan mode first. A parent that entered plan mode on its own counts, since its `status` line reports the change. The parent's mode here is the one the gate reads, and a mode Plume does not recognize counts as manual.
 
-The cap holds after launch too. Approving a plan in the child, or accepting a mode suggestion there, raises its mode only as far as the parent's live mode (`HeadlessSession.permissionCeiling`). Once the parent is gone, the ceiling is the mode the child launched with. A parent in plan mode caps an approved plan at manual, so the plan can still start work. The user's own pick in the child's mode picker is consent and is never capped. A cap never lowers the child below the mode it is already in.
+The cap holds after launch too. Approving a plan in the child, or accepting a mode suggestion there, raises its mode only as far as the parent's live mode (`HeadlessSession.permissionCeiling`). Once the parent is gone, the ceiling is the mode the child launched with. A parent in plan mode caps an approved plan at manual, so the plan can still start work. The child's mode picker holds the same cap while the parent is open: it disables the modes above it and ends with a disabled "Limited by the parent session" line (`composer-permission-mode-limited-note`). Once the parent is gone, the picker offers every mode. A cap never lowers the child below the mode it is already in.
 
 ## Starting a child
 
@@ -116,8 +116,8 @@ A session whose process has exited is resumed to take a note through `AgentLaunc
 
 ## What the user sees
 
-- **The parent's chat shows each note as one row** (`SideSessionEventRow`, `side-session-event-row`): "↳ fix-login finished a turn: All green", or "sent a message". Clicking it selects the child's tab. `InjectedContent` recognizes `<side-sessions-event>`, so neither the reminder nor the footer renders as the user's prose. Desktop's own prose footers render the same way.
-- **A child's tab chip starts with ↳** (`tab-chip-child-marker`) while its parent is open.
+- **The parent's chat shows each note as one row** (`SideSessionEventRow`, `side-session-event-row`): an `arrow.turn.down.right` symbol, then "fix-login finished a turn: All green", or "sent a message". Clicking it selects the child's tab. A queued note shows the same line as text, marked "↳". `InjectedContent` recognizes `<side-sessions-event>`, so neither the reminder nor the footer renders as the user's prose. Desktop's own prose footers render the same way.
+- **A child's tab chip starts with an `arrow.turn.down.right` symbol** (`tab-chip-child-marker`) while its parent is open.
 - **The sidebar nests a child under its parent**, one level deep (`AgentHeader.depth`), right after the parent.
 
 ## What persists
