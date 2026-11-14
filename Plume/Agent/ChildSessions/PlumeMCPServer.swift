@@ -58,20 +58,33 @@ final class PlumeMCPServer {
         }
     }
 
-    /// Calls the CLI may make without asking the user. Each one acts only
-    /// inside Plume, and asking would stall a turn the user has already
-    /// asked for.
+    /// Plume's own tools, which `decision` answers rather than the user.
     func isAutoAllowed(toolName: String) -> Bool {
         PlumeMCPTool.allCases.contains { $0.qualifiedName == toolName }
     }
 
-    /// How to answer `can_use_tool` for one of Plume's tools, or nil for
-    /// any other tool. The CLI asks even in plan mode, where starting a
-    /// session is refused.
     func decision(toolName: String, input: [String: JSONValue], permissionMode: PermissionMode?) -> PermissionDecision? {
         guard isAutoAllowed(toolName: toolName) else { return nil }
-        if permissionMode == .plan, toolName == PlumeMCPTool.startSession.qualifiedName {
-            return .deny(message: ChildSessionError.parentInPlanMode.message)
+        return Self.decision(toolName: toolName, input: input, permissionMode: permissionMode)
+    }
+
+    /// How to answer `can_use_tool` for one of Plume's tools, or nil to ask
+    /// the user as for any other tool. The CLI asks even in plan mode, where
+    /// starting a session is refused. In manual mode, or a mode Plume does
+    /// not recognize, a call that starts a session now asks like any other
+    /// action; everything else acts only inside Plume and is allowed.
+    nonisolated static func decision(
+        toolName: String,
+        input: [String: JSONValue],
+        permissionMode: PermissionMode?
+    ) -> PermissionDecision? {
+        if toolName == PlumeMCPTool.startSession.qualifiedName {
+            if permissionMode == .plan {
+                return .deny(message: ChildSessionError.parentInPlanMode.message)
+            }
+            if permissionMode == .manual || permissionMode == nil, StartSessionRequest.startsNow(input) {
+                return nil
+            }
         }
         return .allow(updatedInput: input)
     }

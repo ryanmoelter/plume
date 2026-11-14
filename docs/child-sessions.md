@@ -16,7 +16,7 @@ A session's id, to the model, is its **tab's UUID**, not the CLI's session id. I
 
 ## The tools
 
-Plume allows both tools without asking, in the `can_use_tool` handler. They act only inside Plume, and a prompt would stall a turn the user already asked for.
+Plume answers `can_use_tool` for its own tools (`PlumeMCPServer.decision`). In manual mode, a `start_session` call that would start a session now (`initiation: "user_asked"`) asks through the usual permission prompt, like any other action; so does a mode Plume does not recognize. Every other call is allowed without asking: it acts only inside Plume, and a prompt would stall a turn the user already asked for. In auto, accept edits and bypass, a start is allowed too. Plan mode refuses a start (see Permissions).
 
 ### `mcp__plume__start_session`
 

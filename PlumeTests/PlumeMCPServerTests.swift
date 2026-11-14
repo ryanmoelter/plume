@@ -118,6 +118,36 @@ struct PlumeMCPServerTests {
         #expect(!server.isAutoAllowed(toolName: "Bash"))
     }
 
+    @Test(arguments: [PermissionMode.manual, nil])
+    func aStartAsksInManualMode(mode: PermissionMode?) {
+        let input: [String: JSONValue] = ["title": .string("Fix"), "prompt": .string("Go"), "initiation": .string("user_asked")]
+        #expect(PlumeMCPServer.decision(toolName: "mcp__plume__start_session", input: input, permissionMode: mode) == nil)
+    }
+
+    @Test(arguments: [PermissionMode.auto, .acceptEdits, .bypassPermissions])
+    func aStartIsAllowedInMorePermissiveModes(mode: PermissionMode) {
+        let input: [String: JSONValue] = ["initiation": .string("user_asked")]
+        #expect(PlumeMCPServer.decision(toolName: "mcp__plume__start_session", input: input, permissionMode: mode)
+            == .allow(updatedInput: input))
+    }
+
+    @Test func aCallThatStartsNothingIsAllowedInManualMode() {
+        for initiation in ["own_initiative", "offer"] {
+            let input: [String: JSONValue] = ["initiation": .string(initiation)]
+            #expect(PlumeMCPServer.decision(toolName: "mcp__plume__start_session", input: input, permissionMode: .manual)
+                == .allow(updatedInput: input))
+        }
+        let message: [String: JSONValue] = ["to": .string("parent"), "message": .string("hi")]
+        #expect(PlumeMCPServer.decision(toolName: "mcp__plume__send_message", input: message, permissionMode: .manual)
+            == .allow(updatedInput: message))
+    }
+
+    @Test func planModeRefusesAStart() {
+        let input: [String: JSONValue] = ["initiation": .string("user_asked")]
+        #expect(PlumeMCPServer.decision(toolName: "mcp__plume__start_session", input: input, permissionMode: .plan)
+            == .deny(message: ChildSessionError.parentInPlanMode.message))
+    }
+
     @Test func anUnknownServerAnswersRequestsOnly() {
         let reply = PlumeMCPServer.unknownServerReply(to: request(1, "tools/list"), named: "other")
         #expect(reply?["error"]?["code"] == .number(-32601))

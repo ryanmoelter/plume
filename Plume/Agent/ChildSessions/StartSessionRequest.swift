@@ -92,6 +92,12 @@ nonisolated struct StartSessionRequest: Equatable {
         return .success(request)
     }
 
+    /// Whether a call with these arguments would start a session at once,
+    /// read before validation, so a malformed call counts only if it asks to.
+    static func startsNow(_ arguments: [String: JSONValue]) -> Bool {
+        arguments["initiation"]?.stringValue?.trimmingCharacters(in: .whitespacesAndNewlines) == Initiation.userAsked.rawValue
+    }
+
     /// What the sidebar and the notes call the child.
     var displayName: String { name ?? title }
 }
