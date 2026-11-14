@@ -426,9 +426,9 @@ struct TaskRowPinnedPullRequestLinesTests {
     }
 }
 
-/// A task with one agent keeps the plain directory lines; a task with several
-/// heads each agent's lines with its own header and shows only what differs
-/// from the agent above.
+/// A task with one agent keeps the plain directory lines. A task with several
+/// shows each attribute every agent shares once at the task level, and each
+/// attribute that differs under every agent's header.
 @MainActor
 struct TaskRowAgentLinesTests {
     private let open = PullRequestFetchState.pullRequest(PullRequest(number: 42, state: .open, isDraft: false))
@@ -464,32 +464,32 @@ struct TaskRowAgentLinesTests {
         ])
     }
 
-    @Test func aSecondAgentInTheSameFolderTakesOnlyItsHeader() {
+    @Test func agentsSharingEverythingShowItOnceAtTheTaskLevel() {
         let first = agent("One", "/Users/me/Plume", branch: "main", pullRequest: open)
         let second = agent("Two", "/Users/me/Plume", branch: "main", pullRequest: open)
         let lines = TaskRowDetails.lines(agents: [first, second])
         #expect(lines == [
-            .agentHeader(first.header),
             .project("Plume"),
             .branch("main", accompaniedBy: nil),
             .pullRequest(directory: "/Users/me/Plume", state: open),
+            .agentHeader(first.header),
             .agentHeader(second.header),
         ])
     }
 
-    @Test func anAgentInAnotherFolderRepeatsProjectAndBranch() {
-        let first = agent("One", "/Users/me/Plume", branch: "main")
-        let second = agent("Two", "/Users/me/Other", branch: "main")
-        let lines = TaskRowDetails.lines(agents: [first, second])
-        #expect(lines == [
+    @Test func agentsDifferingEverywhereShowEverythingUnderEachHeader() {
+        let first = agent("One", "/Users/me/Plume", branch: "main", pullRequest: open)
+        let second = agent("Two", "/Users/me/Other", branch: "dev")
+        #expect(TaskRowDetails.lines(agents: [first, second]) == [
             .agentHeader(first.header), .project("Plume"), .branch("main", accompaniedBy: nil),
-            .agentHeader(second.header), .project("Other"), .branch("main", accompaniedBy: nil),
+            .pullRequest(directory: "/Users/me/Plume", state: open),
+            .agentHeader(second.header), .project("Other"), .branch("dev", accompaniedBy: nil),
         ])
     }
 
-    /// Two worktrees of one project share the header, so only the branch and
-    /// what follows it repeat.
-    @Test func aDifferentBranchOfTheSameProjectRepeatsFromTheBranch() {
+    /// Two worktrees of one project: the project shows once, each branch and
+    /// pull request under its own agent.
+    @Test func aSharedProjectWithDifferingBranchesSplitsByAttribute() {
         let project = "/Users/me/Plume"
         func worktree(_ title: String, _ name: String, pullRequest: PullRequestFetchState?) -> TaskRowDetails.AgentGroup {
             var group = agent(title, "/wt/\(name)", branch: "ryanm/\(name)", pullRequest: pullRequest)
@@ -498,26 +498,37 @@ struct TaskRowAgentLinesTests {
         }
         let first = worktree("One", "a", pullRequest: nil)
         let second = worktree("Two", "b", pullRequest: open)
-        let lines = TaskRowDetails.lines(agents: [first, second])
-        #expect(lines == [
-            .agentHeader(first.header), .project("Plume"), .branch("ryanm/a", isWorktree: true, accompaniedBy: nil),
+        #expect(TaskRowDetails.lines(agents: [first, second]) == [
+            .project("Plume"),
+            .agentHeader(first.header), .branch("ryanm/a", isWorktree: true, accompaniedBy: nil),
             .agentHeader(second.header), .branch("ryanm/b", isWorktree: true, accompaniedBy: nil),
             .pullRequest(directory: "/wt/b", state: open),
         ])
     }
 
-    @Test func returningToAnEarlierFolderRepeatsIt() {
-        let lines = TaskRowDetails.lines(agents: [
-            agent("One", "/Users/me/Plume"),
-            agent("Two", "/Users/me/Other"),
-            agent("Three", "/Users/me/Plume"),
+    @Test func aPullRequestOnlyOneAgentHasShowsUnderThatAgent() {
+        let first = agent("One", "/Users/me/Plume", branch: "main")
+        let second = agent("Two", "/Users/me/Plume", branch: "main", pullRequest: open)
+        #expect(TaskRowDetails.lines(agents: [first, second]) == [
+            .project("Plume"), .branch("main", accompaniedBy: nil),
+            .agentHeader(first.header),
+            .agentHeader(second.header), .pullRequest(directory: "/Users/me/Plume", state: open),
         ])
-        #expect(lines.filter { if case .project = $0 { true } else { false } }
-            == [.project("Plume"), .project("Other"), .project("Plume")])
-        #expect(headers(lines) == ["One", "Two", "Three"])
     }
 
-    @Test func anAgentWithNoFolderTakesOnlyItsHeader() {
+    /// Two folders showing one pull request read the same, so it is shared;
+    /// the task-level line takes the first agent's directory.
+    @Test func onePullRequestInTwoFoldersIsShared() {
+        let first = agent("One", "/Users/me/Plume", branch: "main", pullRequest: open)
+        let second = agent("Two", "/Users/me/elsewhere/Plume", branch: "main", pullRequest: open)
+        #expect(TaskRowDetails.lines(agents: [first, second]) == [
+            .project("Plume"), .branch("main", accompaniedBy: nil),
+            .pullRequest(directory: "/Users/me/Plume", state: open),
+            .agentHeader(first.header), .agentHeader(second.header),
+        ])
+    }
+
+    @Test func anAgentWithNoFolderSplitsEveryAttributeTheOthersHave() {
         let lone = agent("Lone", nil)
         let two = agent("Two", "/Users/me/Plume", branch: "main")
         #expect(TaskRowDetails.lines(agents: [lone, two]) == [
@@ -527,75 +538,18 @@ struct TaskRowAgentLinesTests {
         #expect(TaskRowDetails.lines(agents: [lone]) == [.agentHeader(lone.header)])
     }
 
-    @Test func anAgentWithNoFolderAfterOneWithAFolderTakesOnlyItsHeader() {
-        let one = agent("One", "/Users/me/Plume", branch: "main")
-        let lone = agent("Lone", nil)
-        #expect(TaskRowDetails.lines(agents: [one, lone]) == [
-            .agentHeader(one.header), .project("Plume"), .branch("main", accompaniedBy: nil),
-            .agentHeader(lone.header),
-        ])
-    }
-
-    /// Two clones on the same branch read identically, but they are not one
-    /// folder, so the second must not look like it shares the first's.
-    @Test func aSecondCloneThatReadsTheSameRepeatsItsLines() {
+    @Test func taskLinesSitBetweenTheSharedLinesAndTheFirstHeader() {
         let first = agent("One", "/Users/me/Plume", branch: "main")
-        let second = agent("Two", "/Users/me/elsewhere/Plume", branch: "main")
-        #expect(TaskRowDetails.lines(agents: [first, second]) == [
-            .agentHeader(first.header), .project("Plume"), .branch("main", accompaniedBy: nil),
-            .agentHeader(second.header), .project("Plume"), .branch("main", accompaniedBy: nil),
-        ])
-    }
-
-    @Test func twoClonesWithTheSamePullRequestBothShowTheirLines() {
-        let first = agent("One", "/Users/me/Plume", branch: "main", pullRequest: open)
-        let second = agent("Two", "/Users/me/elsewhere/Plume", branch: "main", pullRequest: open)
-        #expect(TaskRowDetails.lines(agents: [first, second]) == [
-            .agentHeader(first.header), .project("Plume"), .branch("main", accompaniedBy: nil),
-            .pullRequest(directory: "/Users/me/Plume", state: open),
-            .agentHeader(second.header), .project("Plume"), .branch("main", accompaniedBy: nil),
-            .pullRequest(directory: "/Users/me/elsewhere/Plume", state: open),
-        ])
-    }
-
-    /// Only the pull request differs, but a lone pull request line under the
-    /// header would read as the first clone's folder.
-    @Test func aCloneWithAPullRequestTheOtherLacksShowsItsLines() {
-        let first = agent("One", "/Users/me/Plume", branch: "main")
-        let second = agent("Two", "/Users/me/elsewhere/Plume", branch: "main", pullRequest: open)
-        #expect(TaskRowDetails.lines(agents: [first, second]) == [
-            .agentHeader(first.header), .project("Plume"), .branch("main", accompaniedBy: nil),
-            .agentHeader(second.header), .project("Plume"), .branch("main", accompaniedBy: nil),
-            .pullRequest(directory: "/Users/me/elsewhere/Plume", state: open),
-        ])
-        #expect(TaskRowDetails.lines(agents: [second, first]) == [
-            .agentHeader(second.header), .project("Plume"), .branch("main", accompaniedBy: nil),
-            .pullRequest(directory: "/Users/me/elsewhere/Plume", state: open),
-            .agentHeader(first.header), .project("Plume"), .branch("main", accompaniedBy: nil),
-        ])
-    }
-
-    @Test func twoAgentsInOneFolderShareAPullRequestLine() {
-        let first = agent("One", "/Users/me/Plume", branch: "main")
-        let second = agent("Two", "/Users/me/Plume", branch: "main", pullRequest: open)
-        #expect(TaskRowDetails.lines(agents: [first, second]) == [
-            .agentHeader(first.header), .project("Plume"), .branch("main", accompaniedBy: nil),
-            .agentHeader(second.header), .pullRequest(directory: "/Users/me/Plume", state: open),
+        let second = agent("Two", "/Users/me/Plume", branch: "dev")
+        #expect(TaskRowDetails.lines(agents: [first, second], taskLines: [.linearOverflow(2)]) == [
+            .project("Plume"), .linearOverflow(2),
+            .agentHeader(first.header), .branch("main", accompaniedBy: nil),
+            .agentHeader(second.header), .branch("dev", accompaniedBy: nil),
         ])
     }
 
     @Test func repeatedTitlesAreNumberedOnEveryCopy() {
         #expect(TaskRowDetails.distinctLabels(["Chat", "Fix", "Chat", "Chat"]) == ["Chat #1", "Fix", "Chat #2", "Chat #3"])
-    }
-
-    @Test func linesDifferingKeepsEverythingFromTheFirstDifference() {
-        let previous: [TaskRowDetails.Line] = [.project("P"), .branch("a"), .text("x")]
-        #expect(TaskRowDetails.linesDiffering([.project("P"), .branch("b"), .text("x")], from: previous)
-            == [.branch("b"), .text("x")])
-        #expect(TaskRowDetails.linesDiffering(previous, from: previous).isEmpty)
-        #expect(TaskRowDetails.linesDiffering(previous, from: []) == previous)
-        #expect(TaskRowDetails.linesDiffering([.project("P"), .branch("a"), .text("x"), .text("y")], from: previous)
-            == [.text("y")])
     }
 
     /// An agent with no folder never gets a pull request, so waiting on it
@@ -622,18 +576,17 @@ struct TaskRowAgentLinesTests {
 
     @Test func directoryLinesNameTheAgentTheySitUnder() {
         let first = agent("One", "/Users/me/Plume", branch: "main", pullRequest: open)
-        let second = agent("Two", "/Users/me/Other", branch: "dev")
+        let second = agent("Two", "/Users/me/Plume", branch: "dev")
         let lines = TaskRowDetails.lines(agents: [first, second])
         let owners = TaskRowDetails.owningAgentLabels(lines)
         #expect(zip(lines, owners).map { line, owner in
             TaskRowDetails.controlLabel(line).map { "\($0) @ \(owner ?? "-")" } ?? "header"
         } == [
+            "Plume @ -",
             "header",
-            "Plume @ One",
             "main @ One",
             "\(PullRequestChipContent.accessibilityText(for: open) ?? "") @ One",
             "header",
-            "Other @ Two",
             "dev @ Two",
         ])
     }
@@ -645,11 +598,14 @@ struct TaskRowAgentLinesTests {
     }
 
     @Test func eachAgentsLinesFormOneGroup() {
-        let lines = TaskRowDetails.lines(agents: [
-            agent("One", "/Users/me/Plume", branch: "main"),
-            agent("Two", "/Users/me/Other", branch: "dev"),
-        ]) + [.linearOverflow(2)]
-        #expect(TaskRowDetails.agentGroupNesting(lines) == [[0], [0], [0], [3], [3], [3], []])
+        let lines = TaskRowDetails.lines(
+            agents: [
+                agent("One", "/Users/me/Plume", branch: "main"),
+                agent("Two", "/Users/me/Plume", branch: "dev"),
+            ],
+            taskLines: [.linearOverflow(2)]
+        )
+        #expect(TaskRowDetails.agentGroupNesting(lines) == [[], [], [2], [2], [4], [4]])
     }
 
     @Test func aChildsGroupSitsInsideItsParents() {
