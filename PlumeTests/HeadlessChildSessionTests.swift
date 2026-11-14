@@ -80,7 +80,7 @@ struct HeadlessChildSessionTests {
 
     @Test func plumesToolsAreAllowedWithoutAsking() throws {
         let (session, recorder) = makeSession()
-        try receive(session, #"{"type":"control_request","request_id":"p1","request":{"subtype":"can_use_tool","tool_name":"mcp__plume__start_session","input":{"title":"t"},"mcp_server":{"name":"plume","source":"sdk"}}}"#)
+        try receive(session, #"{"type":"control_request","request_id":"p1","request":{"subtype":"can_use_tool","tool_name":"mcp__plume__start_session","input":{"initiation":"own_initiative","title":"t","prompt":"p"},"mcp_server":{"name":"plume","source":"sdk"}}}"#)
 
         let line = try json(try #require(recorder.lines.first))
         #expect(line["response"]?["request_id"]?.stringValue == "p1")
