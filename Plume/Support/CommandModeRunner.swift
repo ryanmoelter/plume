@@ -79,7 +79,7 @@ nonisolated enum CommandModeRunner {
         let handle = ProcessGroupHandle()
         return await withTaskCancellationHandler {
             await withCheckedContinuation { continuation in
-                DispatchQueue.global(qos: .userInitiated).async {
+                BlockingWork.start {
                     continuation.resume(
                         returning: runSynchronously(
                             command,
@@ -122,7 +122,7 @@ nonisolated enum CommandModeRunner {
         stdout.drain(in: finished)
         stderr.drain(in: finished)
         finished.enter()
-        DispatchQueue.global(qos: .userInitiated).async {
+        BlockingWork.start {
             exitStatus.withLock { $0 = waitForExit(pid) }
             finished.leave()
         }
@@ -300,7 +300,7 @@ nonisolated enum CommandModeRunner {
         func drain(in group: DispatchGroup) {
             group.enter()
             let descriptor = descriptor
-            DispatchQueue.global(qos: .userInitiated).async { [self] in
+            BlockingWork.start { [self] in
                 var chunk = [UInt8](repeating: 0, count: 16_384)
                 while true {
                     let count = read(descriptor, &chunk, chunk.count)
@@ -370,7 +370,7 @@ nonisolated private final class ProcessGroupHandle: Sendable {
     /// SIGTERM to the whole group, then SIGKILL for whatever ignored it.
     func terminate() {
         signal(SIGTERM)
-        DispatchQueue.global().asyncAfter(deadline: .now() + Self.killGrace) { [self] in
+        BlockingWork.timers.asyncAfter(deadline: .now() + Self.killGrace) { [self] in
             signal(SIGKILL)
         }
     }

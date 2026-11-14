@@ -1,0 +1,124 @@
+name: Tests
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+concurrency:
+  group: tests-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    name: Build and test
+    # The Xcode 27 image (macOS 27, Apple Silicon); macos-26 only has Xcode 26.
+    runs-on: xcode-27
+    timeout-minutes: 60
+    env:
+      XCODEBUILD_FLAGS: >-
+        -project Plume.xcodeproj
+        -scheme Plume
+        -destination platform=macOS
+        -derivedDataPath .build/DerivedData
+        -clonedSourcePackagesDirPath .build/SourcePackages
+        -skipPackagePluginValidation
+        -skipMacroValidation
+        CODE_SIGN_IDENTITY=-
+        CODE_SIGN_STYLE=Manual
+        DEVELOPMENT_TEAM=
+        ENABLE_HARDENED_RUNTIME=NO
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Select Xcode 27
+        run: |
+          ls -d /Applications/Xcode*.app
+          XCODE=$(ls -d /Applications/Xcode_27*.app 2>/dev/null | sort -V | tail -1 || true)
+          [ -n "$XCODE" ] && sudo xcode-select -s "$XCODE/Contents/Developer"
+          xcodebuild -version
+          xcodebuild -version | grep -q '^Xcode 27' || { echo "::error::Plume needs Xcode 27"; exit 1; }
+
+      - name: Cache Swift packages
+        uses: actions/cache@v4
+        with:
+          path: .build/SourcePackages
+          key: spm-${{ runner.os }}-${{ hashFiles('Plume.xcodeproj/project.xcworkspace/xcshareddata/swiftpm/Package.resolved') }}
+          restore-keys: spm-${{ runner.os }}-
+
+      - name: Build for testing
+        run: |
+          set -o pipefail
+          xcodebuild build-for-testing $XCODEBUILD_FLAGS
+
+      # One small suite first, so a run that can't start any test fails
+      # in minutes and is told apart from one stuck test.
+      - name: Smoke test
+        env:
+          WATCHDOG_MINUTES: "5"
+          WATCHDOG_LABEL: smoke
+          DIAGNOSTICS_DIR: .build/diagnostics
+        run: |
+          set -o pipefail
+          scripts/ci/run-with-watchdog.sh \
+            xcodebuild test-without-building $XCODEBUILD_FLAGS \
+              -only-testing:PlumeTests/HexColorTests \
+              -resultBundlePath .build/Smoke.xcresult
+
+      - name: Run PlumeTests
+        env:
+          WATCHDOG_MINUTES: "10"
+          WATCHDOG_LABEL: full
+          # Swift Testing's default width keeps far more tests in flight than
+          # a 3-core runner can serve, and a test resuming after a wait queues
+          # behind all of them, so timing-bound tests miss their limits. Three
+          # at a time runs the suite in about the same time with none missed.
+          # xcodebuild hands TEST_RUNNER_ variables to the test host with the
+          # prefix removed.
+          TEST_RUNNER_SWT_EXPERIMENTAL_MAXIMUM_PARALLELIZATION_WIDTH: "3"
+          DIAGNOSTICS_DIR: .build/diagnostics
+        run: |
+          set -o pipefail
+          scripts/ci/run-with-watchdog.sh \
+            xcodebuild test-without-building $XCODEBUILD_FLAGS \
+              -only-testing:PlumeTests \
+              -resultBundlePath .build/Tests.xcresult
+
+      - name: Summarize failures
+        if: failure()
+        run: |
+          [ -d .build/Tests.xcresult ] || exit 0
+          xcrun xcresulttool get test-results tests --path .build/Tests.xcresult \
+            | python3 -c '
+          import json, sys
+          def messages(node):
+              for k in node.get("children", []):
+                  if "Message" in k.get("nodeType", ""):
+                      yield k.get("name", "")
+                  yield from messages(k)
+          def walk(node, path):
+              name = node.get("name", "")
+              if node.get("nodeType") == "Test Case" and node.get("result") == "Failed":
+                  print("::error::" + " / ".join(path + [name]))
+                  for message in messages(node):
+                      print("    " + message.replace("\n", "\n    "))
+                  return
+              for k in node.get("children", []):
+                  walk(k, path + [name])
+          for n in json.load(sys.stdin).get("testNodes", []):
+              walk(n, [])
+          '
+
+      - name: Upload test results
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: test-results
+          path: |
+            .build/Tests.xcresult
+            .build/diagnostics
+          retention-days: 7

@@ -18,21 +18,29 @@ import Testing
 /// it builds real `NSWindow`s and surfaces.
 @MainActor
 @Suite struct TerminalShortcutReclaimTests {
-    /// A live terminal surface hosted in a real window, focused.
+    /// A live terminal surface hosted in a real window, focused, under a
+    /// Ghostty config the test pins rather than the developer's own.
+    ///
+    /// Whether a surface claims an Option chord is decided by the Ghostty
+    /// config: the wrapper's `performKeyEquivalent` takes a chord without
+    /// Command or Control only when `ghostty_surface_key_is_binding` says a
+    /// keybind names it. The shared runtime loads whatever config the
+    /// machine has, so a test built on it passes on a Mac whose config binds
+    /// ⌥J and fails on one with none, like CI. The surface gets its own
+    /// controller here, built from `config`, so the answer is the same
+    /// everywhere.
     @MainActor
     private struct FocusedTerminal {
         let window: NSWindow
-        let session: TerminalSession
+        let state: TerminalViewState
 
-        init() {
-            session = TerminalSession(
-                id: UUID(),
-                options: TerminalSurfaceOptions(
-                    workingDirectory: NSTemporaryDirectory(),
-                    command: "/bin/sh -c 'sleep 30'"
-                )
+        init(config: String) {
+            state = TerminalViewState(configSource: .generated(config))
+            state.configuration = TerminalSurfaceOptions(
+                workingDirectory: NSTemporaryDirectory(),
+                command: "/bin/sh -c 'sleep 30; true'"
             )
-            let host = NSHostingView(rootView: TerminalTabView(session: session))
+            let host = NSHostingView(rootView: TerminalSurfaceView(context: state))
             host.frame = NSRect(x: 0, y: 0, width: 400, height: 300)
             window = NSWindow(
                 contentRect: host.frame,
@@ -43,6 +51,18 @@ import Testing
             window.contentView = host
             window.orderFrontRegardless()
             window.makeKey()
+        }
+
+        /// Focuses the terminal's view once the surface has put one in the
+        /// window, which a loaded machine can take seconds to do. Nil if none
+        /// appears by the deadline.
+        func waitForFocus() async throws -> NSView? {
+            let deadline = ContinuousClock.now + .seconds(20)
+            while true {
+                if let view = focusTerminalView(), window.firstResponder === view { return view }
+                if ContinuousClock.now >= deadline { return focusTerminalView() }
+                try await Task.sleep(for: .milliseconds(100))
+            }
         }
 
         /// The deepest view that accepts first responder — the terminal's own
@@ -67,7 +87,22 @@ import Testing
         }
     }
 
-    private func keyDown(_ characters: String, flags: NSEvent.ModifierFlags, in window: NSWindow) -> NSEvent {
+    /// Binds ⌥J the way a config that switches tabs with it does, and leaves
+    /// every other Option chord unbound.
+    /// `macos-option-as-alt` is already false by default; it is spelled out
+    /// because it is the setting that decides what an unbound Option chord
+    /// does.
+    private static let optionJBound = """
+        keybind = performable:alt+j=next_tab
+        macos-option-as-alt = false
+        """
+
+    private func keyDown(
+        _ characters: String,
+        keyCode: UInt16 = 38,
+        flags: NSEvent.ModifierFlags,
+        in window: NSWindow
+    ) -> NSEvent {
         NSEvent.keyEvent(
             with: .keyDown,
             location: .zero,
@@ -78,7 +113,7 @@ import Testing
             characters: characters,
             charactersIgnoringModifiers: characters,
             isARepeat: false,
-            keyCode: 38
+            keyCode: keyCode
         )!
     }
 
@@ -119,11 +154,10 @@ import Testing
     /// it claims never reaches `performKeyEquivalent` on the terminal at all.
     /// Exercised through the real monitor rather than its filter alone.
     @Test func theMonitorClaimsAnOptionChordAheadOfAFocusedSurface() async throws {
-        let terminal = FocusedTerminal()
+        let terminal = FocusedTerminal(config: Self.optionJBound)
         defer { terminal.close() }
 
-        try await Task.sleep(for: .seconds(3))
-        _ = terminal.focusTerminalView()
+        _ = try await terminal.waitForFocus()
 
         let shortcuts = PlumeShortcuts.all(
             with: ShortcutBindings(overrides: [.nextTab: MenuShortcut("j", modifiers: [.option])])
@@ -143,22 +177,41 @@ import Testing
     /// Records what the surface does with an Option chord offered directly.
     /// Whatever the answer, the monitor has already had its turn by then; this
     /// documents how much the monitor is actually saving.
-    @Test func focusedSurfaceConsumesOptionChordsWithoutTheMonitor() async throws {
-        let terminal = FocusedTerminal()
+    @Test func focusedSurfaceConsumesBoundOptionChordsWithoutTheMonitor() async throws {
+        let terminal = FocusedTerminal(config: Self.optionJBound)
         defer { terminal.close() }
 
-        try await Task.sleep(for: .seconds(3))
-        let focused = terminal.focusTerminalView()
+        let focused = try await terminal.waitForFocus()
         #expect(focused != nil, "no view in the terminal hierarchy accepted first responder")
 
-        let event = keyDown("j", flags: [.option], in: terminal.window)
-        let consumedBySurface = terminal.window.contentView?.performKeyEquivalent(with: event) ?? false
+        // Offered until the surface takes it or the deadline passes, since a
+        // surface that has not finished coming up declines every chord.
+        let optionJ = keyDown("j", flags: [.option], in: terminal.window)
+        var consumedBySurface = false
+        let deadline = ContinuousClock.now + .seconds(10)
+        while !consumedBySurface, ContinuousClock.now < deadline {
+            consumedBySurface = terminal.window.contentView?.performKeyEquivalent(with: optionJ) ?? false
+            if !consumedBySurface { try await Task.sleep(for: .milliseconds(200)) }
+        }
 
-        // The surface claims ⌥J for itself, which is exactly why the binding
-        // cannot rely on menu dispatch alone: by the time
-        // `performKeyEquivalent` runs, the chord is gone. The local key-down
-        // monitor runs ahead of this, and that is the whole reason an Option
-        // binding works.
-        #expect(consumedBySurface, "surface no longer claims ⌥J; the monitor may be redundant")
+        // A surface whose config binds ⌥J claims it for itself, which is
+        // exactly why the binding cannot rely on menu dispatch alone: by the
+        // time `performKeyEquivalent` runs, the chord is gone. The local
+        // key-down monitor runs ahead of this, and that is the whole reason
+        // an Option binding works for anyone whose Ghostty config binds the
+        // same chord.
+        #expect(
+            consumedBySurface,
+            "surface no longer claims a bound ⌥J; the monitor may be redundant (key window: \(terminal.window.isKeyWindow), app active: \(NSApp.isActive), first responder: \(String(describing: terminal.window.firstResponder.map { type(of: $0) })))"
+        )
+
+        // The same surface, now known to be up, leaves an Option chord its
+        // config does not bind to the terminal as text, so it is the keybind
+        // and not the Option key that takes the chord.
+        let optionH = keyDown("h", keyCode: 4, flags: [.option], in: terminal.window)
+        #expect(
+            terminal.window.contentView?.performKeyEquivalent(with: optionH) == false,
+            "surface claimed ⌥H, which its config does not bind"
+        )
     }
 }

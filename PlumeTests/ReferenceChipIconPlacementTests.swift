@@ -139,9 +139,24 @@ struct ReferenceChipIconPlacementTests {
         #expect(brand.maxX < decoration.iconRect.minX)
         #expect(rect.minX < brand.minX)
 
-        let bitmap = try #require(view.bitmapImageRepForCachingDisplay(in: view.bounds))
+        // A fixed 2x, the way the chat test renders, rather than the screen's
+        // scale: on a 1x display a symbol snaps to whole points and can land a
+        // full point off the midpoint it was placed on.
+        let scale: CGFloat = 2
+        let bitmap = try #require(NSBitmapImageRep(
+            bitmapDataPlanes: nil,
+            pixelsWide: Int(view.bounds.width * scale),
+            pixelsHigh: Int(view.bounds.height * scale),
+            bitsPerSample: 8,
+            samplesPerPixel: 4,
+            hasAlpha: true,
+            isPlanar: false,
+            colorSpaceName: .deviceRGB,
+            bytesPerRow: 0,
+            bitsPerPixel: 0
+        ))
+        bitmap.size = view.bounds.size
         view.cacheDisplay(in: view.bounds, to: bitmap)
-        let scale = CGFloat(bitmap.pixelsWide) / bitmap.size.width
         let red = try #require(inkBounds(in: bitmap, scale: scale, columns: decoration.iconRect, rows: rect, matching: isRed))
         #expect(abs(red.midY - rect.midY) < 1)
         let blue = try #require(inkBounds(in: bitmap, scale: scale, columns: brand, rows: rect, matching: isBlue))
