@@ -88,6 +88,55 @@ struct HeadlessChildSessionTests {
         #expect(session.pendingPermissions.isEmpty)
     }
 
+    private static func startRequest(_ id: String) -> String {
+        #"{"type":"control_request","request_id":""# + id
+            + #"","request":{"subtype":"can_use_tool","tool_name":"mcp__plume__start_session","input":{"title":"t","prompt":"p","initiation":"user_asked"},"mcp_server":{"name":"plume","source":"sdk"}}}"#
+    }
+
+    @Test func aStartAsksInManualMode() throws {
+        let (session, recorder) = makeSession()
+        try receive(session, #"{"type":"system","subtype":"init","session_id":"s1","permissionMode":"manual"}"#)
+        try receive(session, Self.startRequest("p3"))
+
+        #expect(recorder.lines.isEmpty)
+        #expect(session.pendingPermissions.map(\.id) == ["p3"])
+    }
+
+    @Test(arguments: ["default", "dontAsk"])
+    func aStartAsksInAModePlumeDoesNotRecognize(mode: String) throws {
+        let (session, recorder) = makeSession()
+        try receive(session, #"{"type":"system","subtype":"init","session_id":"s1","permissionMode":"auto"}"#)
+        try receive(session, #"{"type":"system","subtype":"status","status":null,"permissionMode":""# + mode + #""}"#)
+        try receive(session, Self.startRequest("p4"))
+
+        #expect(session.permissionMode == .auto)
+        #expect(session.confirmedPermissionMode == .unrecognized(mode))
+        #expect(recorder.lines.isEmpty)
+        #expect(session.pendingPermissions.map(\.id) == ["p4"])
+    }
+
+    @Test func aModeChangeCountsOnlyOnceTheCLIConfirmsIt() throws {
+        let (session, recorder) = makeSession()
+        try receive(session, #"{"type":"system","subtype":"init","session_id":"s1","permissionMode":"manual"}"#)
+        session.setPermissionMode(.auto)
+        recorder.lines.removeAll()
+        try receive(session, Self.startRequest("p5"))
+
+        #expect(session.permissionMode == .auto)
+        #expect(session.confirmedPermissionMode == .known(.manual))
+        #expect(recorder.lines.isEmpty)
+        #expect(session.pendingPermissions.map(\.id) == ["p5"])
+    }
+
+    @Test func aSessionLaunchedWithoutAModeAllowsAStart() throws {
+        let (session, recorder) = makeSession()
+        #expect(session.permissionMode == nil)
+        try receive(session, Self.startRequest("p6"))
+
+        let line = try json(try #require(recorder.lines.first))
+        #expect(line["response"]?["response"]?["behavior"]?.stringValue == "allow")
+    }
+
     @Test func otherToolsStillAsk() throws {
         let (session, recorder) = makeSession()
         try receive(session, #"{"type":"control_request","request_id":"p2","request":{"subtype":"can_use_tool","tool_name":"Bash","input":{"command":"ls"}}}"#)

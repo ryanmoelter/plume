@@ -58,26 +58,25 @@ final class PlumeMCPServer {
         }
     }
 
-    /// Plume's own tools, which `decision` answers rather than the user.
-    func isAutoAllowed(toolName: String) -> Bool {
+    nonisolated static func isPlumeTool(_ toolName: String) -> Bool {
         PlumeMCPTool.allCases.contains { $0.qualifiedName == toolName }
     }
 
     func decision(toolName: String, input: [String: JSONValue], permissionMode: PermissionMode?) -> PermissionDecision? {
-        guard isAutoAllowed(toolName: toolName) else { return nil }
-        return Self.decision(toolName: toolName, input: input, permissionMode: permissionMode)
+        Self.decision(toolName: toolName, input: input, permissionMode: permissionMode)
     }
 
-    /// How to answer `can_use_tool` for one of Plume's tools, or nil to ask
-    /// the user as for any other tool. The CLI asks even in plan mode, where
-    /// starting a session is refused. In manual mode, or a mode Plume does
-    /// not recognize, a call that starts a session now asks like any other
-    /// action; everything else acts only inside Plume and is allowed.
+    /// How to answer `can_use_tool`, or nil to ask the user. Only Plume's own
+    /// tools get an answer. The CLI asks even in plan mode, where starting a
+    /// session is refused. In manual mode, or a mode Plume does not recognize
+    /// (`nil`), a call that starts a session now asks like any other action;
+    /// everything else acts only inside Plume and is allowed.
     nonisolated static func decision(
         toolName: String,
         input: [String: JSONValue],
         permissionMode: PermissionMode?
     ) -> PermissionDecision? {
+        guard isPlumeTool(toolName) else { return nil }
         if toolName == PlumeMCPTool.startSession.qualifiedName {
             if permissionMode == .plan {
                 return .deny(message: ChildSessionError.parentInPlanMode.message)

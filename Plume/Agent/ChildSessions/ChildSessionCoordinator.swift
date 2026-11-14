@@ -398,7 +398,9 @@ final class ChildSessionCoordinator {
     }
 
     /// What the parent's session runs on now, or what its tab records when
-    /// no session is running.
+    /// no session is running. The mode is the one the CLI confirmed, as the
+    /// permission gate reads it, and a mode Plume does not recognize counts
+    /// as manual.
     private struct LiveSettings {
         let permissionMode: PermissionMode
         let model: AgentModel?
@@ -407,7 +409,7 @@ final class ChildSessionCoordinator {
         init(of tab: TaskTab) {
             let session = AgentSessionManager.shared.existingSession(for: tab.id) as? HeadlessSession
             let running = session.flatMap { $0.hasExited ? nil : $0 }
-            permissionMode = running?.permissionMode ?? Self.recordedMode(of: tab)
+            permissionMode = running.map { $0.confirmedPermissionMode.known ?? .manual } ?? Self.recordedMode(of: tab)
             model = running?.model ?? tab.model
             effort = running?.effort ?? tab.effort
         }
