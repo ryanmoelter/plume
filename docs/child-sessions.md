@@ -16,7 +16,7 @@ A session's id, to the model, is its **tab's UUID**, not the CLI's session id. I
 
 ## The tools
 
-Plume answers `can_use_tool` for its own tools (`PlumeMCPServer.decision`). In manual mode, a `start_session` call that would start a session now (`initiation: "user_asked"`) asks through the usual permission prompt, like any other action; so does a mode Plume does not recognize. Every other call is allowed without asking: it acts only inside Plume, and a prompt would stall a turn the user already asked for. In auto, accept edits and bypass, a start is allowed too. Plan mode refuses a start (see Permissions).
+Plume answers `can_use_tool` for its own tools (`PlumeMCPServer.decision`). In manual mode, a `start_session` call that would start a session now (any call whose `initiation` is not `own_initiative` or `offer`) asks through the usual permission prompt, like any other action; so does a mode Plume does not recognize, such as `default` or `dontAsk`. The mode is the one the CLI last confirmed: its launch mode, `init`, a `status` line, or a `set_permission_mode` reply, never a change still in flight (`HeadlessSession.confirmedPermissionMode`). Every other call is allowed without asking: it acts only inside Plume, and a prompt would stall a turn the user already asked for. In auto, accept edits and bypass, a start is allowed too. Plan mode refuses a start (see Permissions).
 
 ### `mcp__plume__start_session`
 
@@ -44,7 +44,7 @@ A child's `tools/list` has only `send_message`, so a child cannot start sessions
 
 ### Permissions
 
-A child never starts with more freedom than its parent has at that moment. `ChildSessionPermissions` orders the modes from strictest to most permissive: plan, manual, accept edits, auto, bypass. The child gets the requested mode, or the parent's, capped at the parent's live mode. Bypass also needs Settings ▸ Agents ▸ "Show bypass permissions"; without it a child that would get bypass gets auto. A parent in plan mode cannot start a child: `can_use_tool` denies the call, and the tool itself returns the same error, telling it to exit plan mode first. A parent that entered plan mode on its own counts, since its `status` line reports the change.
+A child never starts with more freedom than its parent has at that moment. `ChildSessionPermissions` orders the modes from strictest to most permissive: plan, manual, accept edits, auto, bypass. The child gets the requested mode, or the parent's, capped at the parent's live mode. Bypass also needs Settings ▸ Agents ▸ "Show bypass permissions"; without it a child that would get bypass gets auto. A parent in plan mode cannot start a child: `can_use_tool` denies the call, and the tool itself returns the same error, telling it to exit plan mode first. A parent that entered plan mode on its own counts, since its `status` line reports the change. The parent's mode here is the one the gate reads, and a mode Plume does not recognize counts as manual.
 
 The cap holds after launch too. Approving a plan in the child, or accepting a mode suggestion there, raises its mode only as far as the parent's live mode (`HeadlessSession.permissionCeiling`). Once the parent is gone, the ceiling is the mode the child launched with. A parent in plan mode caps an approved plan at manual, so the plan can still start work. The user's own pick in the child's mode picker is consent and is never capped. A cap never lowers the child below the mode it is already in.
 

@@ -110,12 +110,21 @@ struct PlumeMCPServerTests {
         #expect(await server.handle(notification) == nil)
     }
 
-    @Test func onlyPlumesOwnToolsAreAutoAllowed() {
-        let (server, _) = makeServer()
-        #expect(server.isAutoAllowed(toolName: "mcp__plume__start_session"))
-        #expect(server.isAutoAllowed(toolName: "mcp__plume__send_message"))
-        #expect(!server.isAutoAllowed(toolName: "mcp__other__start_session"))
-        #expect(!server.isAutoAllowed(toolName: "Bash"))
+    @Test func onlyPlumesOwnToolsAreAnswered() {
+        #expect(PlumeMCPServer.isPlumeTool("mcp__plume__start_session"))
+        #expect(PlumeMCPServer.isPlumeTool("mcp__plume__send_message"))
+        #expect(!PlumeMCPServer.isPlumeTool("mcp__other__start_session"))
+        #expect(!PlumeMCPServer.isPlumeTool("Bash"))
+        for mode in [PermissionMode.auto, .bypassPermissions] {
+            #expect(PlumeMCPServer.decision(toolName: "Bash", input: [:], permissionMode: mode) == nil)
+            #expect(PlumeMCPServer.decision(toolName: "mcp__other__start_session", input: [:], permissionMode: mode) == nil)
+        }
+    }
+
+    @Test func aStartWithoutARecognizedInitiationAsksInManualMode() {
+        for input: [String: JSONValue] in [[:], ["initiation": .string("whenever")], ["title": .string("Fix")]] {
+            #expect(PlumeMCPServer.decision(toolName: "mcp__plume__start_session", input: input, permissionMode: .manual) == nil)
+        }
     }
 
     @Test(arguments: [PermissionMode.manual, nil])

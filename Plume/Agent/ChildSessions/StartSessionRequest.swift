@@ -93,10 +93,18 @@ nonisolated struct StartSessionRequest: Equatable {
     }
 
     /// Whether a call with these arguments would start a session at once,
-    /// read before validation, so a malformed call counts only if it asks to.
+    /// read before validation, so only a call that names a proposal or an
+    /// offer counts as starting nothing.
     static func startsNow(_ arguments: [String: JSONValue]) -> Bool {
-        arguments["initiation"]?.stringValue?.trimmingCharacters(in: .whitespacesAndNewlines) == Initiation.userAsked.rawValue
+        guard let raw = arguments["initiation"]?.stringValue?.trimmingCharacters(in: .whitespacesAndNewlines),
+              let initiation = Initiation(rawValue: raw)
+        else { return true }
+        return initiation == .userAsked
     }
+
+    /// A fork launches where the parent's transcript is, so it shares the
+    /// parent's folder whatever `use_worktree` says.
+    var ignoresWorktreeRequest: Bool { context == .fork && useWorktree == true }
 
     /// What the sidebar and the notes call the child.
     var displayName: String { name ?? title }

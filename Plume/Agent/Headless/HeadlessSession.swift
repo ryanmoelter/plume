@@ -893,6 +893,18 @@ final class HeadlessSession: AgentSession {
         if previous.restartedAtTurnEnd { requestTitleIfDue() }
     }
 
+    /// The mode the CLI last confirmed, which decides Plume's own tool
+    /// permissions. `permissionMode` moves before the CLI agrees, and keeps
+    /// the last recognized mode when the CLI reports one Plume doesn't know.
+    var confirmedPermissionMode: ReportedPermissionMode {
+        permissionModeRequests.reported ?? .known(HeadlessCommand.launchPermissionMode(permissionMode))
+    }
+
+    private func recordReportedMode(_ token: String) {
+        permissionModeRequests.confirm(reported: token)
+        if let mode = PermissionMode.recognizing(token) { permissionMode = mode }
+    }
+
     func setPermissionMode(_ mode: PermissionMode) {
         permissionMode = mode
         let requestID = nextRequestID()
@@ -1126,9 +1138,8 @@ final class HeadlessSession: AgentSession {
         resolve(permission, with: .allow(updatedInput: permission.input, updatedPermissions: [suggestion.raw]))
         switch suggestion.kind {
         case .setMode(let token):
-            guard let mode = PermissionMode.recognizing(token) else { return }
-            permissionMode = mode
-            permissionModeRequests.confirm(mode)
+            permissionModeRequests.confirm(reported: token)
+            if let mode = PermissionMode.recognizing(token) { permissionMode = mode }
         case .addDirectories(let directories):
             grantDirectories(directories)
         case .allowRules:
@@ -1196,16 +1207,10 @@ final class HeadlessSession: AgentSession {
             if let reported = info.model, let recognized = AgentModel.recognizing(reported) {
                 model = recognized
             }
-            if let reported = info.permissionMode, let recognized = PermissionMode.recognizing(reported) {
-                permissionMode = recognized
-                permissionModeRequests.confirm(recognized)
-            }
+            if let reported = info.permissionMode { recordReportedMode(reported) }
 
         case .status(let status, let reportedMode):
-            if let reportedMode, let mode = PermissionMode.recognizing(reportedMode) {
-                permissionMode = mode
-                permissionModeRequests.confirm(mode)
-            }
+            if let reportedMode { recordReportedMode(reportedMode) }
             // Only the main thread reports this, and a notification-woken
             // turn reports it seconds before its first envelope — long enough
             // for its subagent's finish to read as the task settling.
@@ -1301,7 +1306,7 @@ final class HeadlessSession: AgentSession {
         }
         guard request.subtype == "can_use_tool" else { return }
         if let server = mcpServer, let tool = request.toolName,
-           let decision = server.decision(toolName: tool, input: request.input, permissionMode: permissionMode) {
+           let decision = server.decision(toolName: tool, input: request.input, permissionMode: confirmedPermissionMode.known) {
             send(StreamJSONEncoder.permissionResponse(requestID: request.requestID, decision: decision))
             return
         }

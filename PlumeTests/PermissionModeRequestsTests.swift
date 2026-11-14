@@ -66,4 +66,25 @@ struct PermissionModeRequestsTests {
 
         #expect(outcome == .revert(to: .acceptEdits))
     }
+
+    @Test func anUnrecognizedModeIsReportedButLeavesTheConfirmedOne() {
+        var requests = tracker(confirmed: .auto)
+
+        requests.confirm(reported: "dontAsk")
+
+        #expect(requests.reported == .unrecognized("dontAsk"))
+        #expect(requests.confirmed == .auto)
+        requests.confirm(reported: "manual")
+        #expect(requests.reported == .known(.manual))
+    }
+
+    @Test func aRequestIsNotReportedUntilItsReplyArrives() {
+        var requests = tracker(confirmed: .manual)
+        requests.didRequest(id: "plume-2")
+        #expect(requests.reported == .known(.manual))
+
+        _ = requests.applyReply(requestID: "plume-2", mode: .auto, isError: false)
+
+        #expect(requests.reported == .known(.auto))
+    }
 }
