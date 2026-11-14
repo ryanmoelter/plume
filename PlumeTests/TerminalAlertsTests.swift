@@ -9,13 +9,13 @@ struct TerminalAlertsTests {
     private let task = UUID()
     private let tab = UUID()
 
-    @Test func aBellInTheFocusedTabIsAlreadyHeard() {
+    @Test func aBellInTheFocusedTabIsHeardNotNotifiedButUnread() {
         let audience = NotificationAudience(
             isAppActive: true, selectedTaskID: task, onScreenTabIDs: [tab], focusedTabID: tab
         )
 
         #expect(TerminalAlerts.response(toBellIn: tab, taskID: task, audience: audience)
-            == .init(marksBell: false, marksUnread: false, notifies: false))
+            == .init(marksBell: false, marksUnread: true, notifies: false))
     }
 
     @Test func aBellInTheUnfocusedPaneIsUnreadButNotNotified() {

@@ -2,6 +2,7 @@ import Foundation
 import Testing
 @testable import Plume
 
+@MainActor
 struct ChatScrollAnchorTests {
     @Test func autoScrollsWhenAtTheBottom() {
         #expect(ChatScrollAnchor.shouldAutoScroll(distanceFromBottom: 0))
@@ -23,6 +24,7 @@ struct ChatScrollAnchorTests {
     }
 }
 
+@MainActor
 @Suite
 struct ChatScrollGrowthTests {
     /// The jump-back button must not appear at the follow threshold, or it
@@ -68,6 +70,7 @@ struct ChatScrollGrowthTests {
 ///
 /// The band is what keeps the flag from flipping on every scroll frame while
 /// the reader rests near it — see `docs/chat-list.md`.
+@MainActor
 @Suite
 struct ChatDetachHysteresisTests {
     @Test func detachingStillTakesTheFullThreshold() {

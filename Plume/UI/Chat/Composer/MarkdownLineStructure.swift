@@ -33,6 +33,19 @@ nonisolated struct MarkdownLine: Equatable {
     var checkbox: NSRange?
     /// Nesting below the outermost list item at the same quote level.
     var depth = 0
+    /// For a fence or code line indented under a list item, that item.
+    var listContainer: ListContainer?
+
+    /// The list item a fenced block is indented under.
+    struct ListContainer: Equatable {
+        /// The item's depth.
+        var depth: Int
+        /// This line's share of the opening fence's indent, which places it
+        /// in the item rather than in the code.
+        var indent: NSRange
+        /// The opening fence's indent, in columns.
+        var columns: Int
+    }
 
     var contentStart: Int { marker.map(NSMaxRange) ?? NSMaxRange(indent) }
     var quoteLevel: Int { quoteMarkers.count }
@@ -56,9 +69,11 @@ nonisolated struct MarkdownLine: Equatable {
 
     /// The characters the caret skips as one unit: quote markers, the
     /// indent, and a hidden marker. Shown markers and plain indents only
-    /// count when a quote precedes them.
+    /// count when a quote precedes them. Code in a list item skips its list
+    /// container's indent, which the composer hides.
     var atomicPrefix: NSRange? {
-        let end = hidesMarker ? contentStart : (quoteMarkers.last.map(NSMaxRange) ?? range.location)
+        var end = hidesMarker ? contentStart : (quoteMarkers.last.map(NSMaxRange) ?? range.location)
+        if let listContainer { end = max(end, NSMaxRange(listContainer.indent)) }
         guard end > range.location else { return nil }
         return NSRange(location: range.location, length: end - range.location)
     }
@@ -74,7 +89,7 @@ nonisolated enum MarkdownLineStructure {
     static func lines(in text: String) -> [MarkdownLine] {
         let ns = text as NSString
         var result: [MarkdownLine] = []
-        var openFence: (character: unichar, length: Int, quoteLevel: Int)?
+        var openFence: (character: unichar, length: Int, quoteLevel: Int, container: (depth: Int, columns: Int)?)?
         var listStack: [(quoteLevel: Int, indentColumns: Int)] = []
 
         for lineRange in lineRanges(in: ns) {
@@ -108,6 +123,13 @@ nonisolated enum MarkdownLineStructure {
                 openFence = nil
             }
             if let fence = openFence {
+                if let container = fence.container {
+                    line.listContainer = .init(
+                        depth: container.depth,
+                        indent: leadingColumns(container.columns, of: line.indent, in: ns),
+                        columns: container.columns
+                    )
+                }
                 if let run = fenceRun(in: ns, body), run.character == fence.character, run.length >= fence.length,
                    run.trailingIsBlank {
                     line.kind = .fence
@@ -121,8 +143,21 @@ nonisolated enum MarkdownLineStructure {
 
             if let run = fenceRun(in: ns, body) {
                 line.kind = .fence
-                openFence = (run.character, run.length, quoteMarkers.count)
-                listStack.removeAll()
+                // A fence indented past a list item's marker belongs to that
+                // item, so the list continues after it.
+                while indentColumns > 0, let top = listStack.last,
+                      top.quoteLevel > line.quoteLevel || (top.quoteLevel == line.quoteLevel && top.indentColumns >= indentColumns) {
+                    listStack.removeLast()
+                }
+                var container: (depth: Int, columns: Int)?
+                if indentColumns > 0, let owner = listStack.last, owner.quoteLevel == line.quoteLevel {
+                    let depth = listStack.count(where: { $0.quoteLevel == line.quoteLevel }) - 1
+                    container = (depth, indentColumns)
+                    line.listContainer = .init(depth: depth, indent: line.indent, columns: indentColumns)
+                } else {
+                    listStack.removeAll()
+                }
+                openFence = (run.character, run.length, quoteMarkers.count, container)
                 result.append(line)
                 continue
             }
@@ -192,6 +227,17 @@ nonisolated enum MarkdownLineStructure {
             ranges.append(NSRange(location: ns.length, length: 0))
         }
         return ranges
+    }
+
+    /// The start of `indent` that spans at most `columns`.
+    private static func leadingColumns(_ columns: Int, of indent: NSRange, in ns: NSString) -> NSRange {
+        var total = 0
+        var length = 0
+        while length < indent.length, let width = whitespaceWidth(ns.character(at: indent.location + length)), total + width <= columns {
+            total += width
+            length += 1
+        }
+        return NSRange(location: indent.location, length: length)
     }
 
     private static func quoteMarker(in ns: NSString, at location: Int, end: Int) -> NSRange? {

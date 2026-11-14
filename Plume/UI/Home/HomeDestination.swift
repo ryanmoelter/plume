@@ -176,6 +176,20 @@ nonisolated struct HomeDestinationCatalog: Equatable, Sendable {
         return latest?.workspaceKind == .worktree ? .newWorktree : .projectFolder
     }
 
+    /// The project most of the group's tasks run in, the most recent winning
+    /// a tie. Nil when no task in the group has a known project.
+    func pluralityProject(inGroup groupID: UUID?) -> HomeProject? {
+        var counts: [String: Int] = [:]
+        var order: [String] = []
+        for task in tasks where task.groupID == groupID {
+            guard let path = task.projectPath, project(at: path) != nil else { continue }
+            if counts[path] == nil { order.append(path) }
+            counts[path, default: 0] += 1
+        }
+        let top = counts.values.max()
+        return order.first { counts[$0] == top }.flatMap { project(at: $0) }
+    }
+
     func choosingProject(_ path: String, in destination: HomeDestination) -> HomeDestination {
         var result = destination
         result.projectPath = path

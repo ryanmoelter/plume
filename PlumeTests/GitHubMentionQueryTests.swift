@@ -63,6 +63,23 @@ struct GitHubMentionQueryTests {
         #expect(try GitHubMentionQuery.decodePullRequest(data(found))?.number == 12)
     }
 
+    @Test func aLinkedLookupDecodesChecksAndReviewers() throws {
+        let request = GitHubMentionQuery.pullRequests(numbers: [5], owner: "o", name: "r")
+        #expect(request.query.contains("statusCheckRollup"))
+        #expect(request.query.contains("reviewRequests(first: 1) { totalCount }"))
+        let json = """
+        {"data":{"repository":{"p5":{"number":5,"title":"t","url":"https://github.com/o/r/pull/5",
+         "state":"OPEN","isDraft":false,"reviewDecision":"REVIEW_REQUIRED",
+         "reviewRequests":{"totalCount":1},"latestReviews":{"totalCount":0},
+         "commits":{"nodes":[{"commit":{"statusCheckRollup":{"contexts":{"nodes":[
+          {"__typename":"CheckRun","name":"build","conclusion":null,"status":"IN_PROGRESS"}]}}}}]}}}}}
+        """
+        let entry = try #require(try GitHubMentionQuery.decodePullRequests(data(json), numbers: [5])[5])
+        #expect(entry.hasReviewers)
+        #expect(entry.reviewDecision == .none)
+        #expect(entry.checkContexts == [CheckContext(name: "build", status: "IN_PROGRESS")])
+    }
+
     @Test func theRelatedListAsksForThreeSearchesInOneRequest() {
         let request = GitHubMentionQuery.relatedPullRequests(nameWithOwner: "o/r")
         #expect(request.query.hasPrefix("query($search0: String!, $search1: String!, $search2: String!) { "))

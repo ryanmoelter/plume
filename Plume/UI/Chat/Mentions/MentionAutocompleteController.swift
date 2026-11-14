@@ -203,13 +203,13 @@ final class MentionAutocompleteController: ComposerAutocompleteHandler {
         load = Task { [weak self] in
             await withTaskGroup(of: Answer.self) { group in
                 if wanted.contains(.files) {
-                    group.addTask { @MainActor in Answer(.files, await sources.files(for: query, in: directory)) }
+                    group.addTask { Answer(.files, await sources.files(for: query, in: directory)) }
                 }
                 if wanted.contains(.linear) {
-                    group.addTask { @MainActor in
+                    group.addTask {
                         Answer(.linear, await sources.cachedLinearIssues(matching: query.text, limit: limit, in: directory), isFinal: false)
                     }
-                    group.addTask { @MainActor in
+                    group.addTask {
                         do { try await sleep(debounce.linearSearch) } catch { return Answer(.linear, nil) }
                         await sources.searchLinear(query.text, in: directory)
                         if Task.isCancelled { return Answer(.linear, nil) }
@@ -218,7 +218,7 @@ final class MentionAutocompleteController: ComposerAutocompleteHandler {
                 }
                 if wanted.contains(.pullRequests) {
                     let lookupDelay = Self.pullRequestLookupDelay(for: query.text, debounce: debounce)
-                    group.addTask { @MainActor in
+                    group.addTask {
                         Answer(
                             .pullRequests,
                             await sources.pullRequests(for: query, in: directory, includingLookups: lookupDelay == nil),
@@ -226,7 +226,7 @@ final class MentionAutocompleteController: ComposerAutocompleteHandler {
                         )
                     }
                     if let lookupDelay {
-                        group.addTask { @MainActor in
+                        group.addTask {
                             do { try await sleep(lookupDelay) } catch { return Answer(.pullRequests, nil) }
                             return Answer(
                                 .pullRequests,
@@ -244,7 +244,7 @@ final class MentionAutocompleteController: ComposerAutocompleteHandler {
 
     /// One source's rows. An answer that is not final updates the rows but
     /// leaves the source loading, and is dropped if the final one came first.
-    private struct Answer: Sendable {
+    private nonisolated struct Answer: Sendable {
         let source: MentionCandidate.Source
         let ranked: [RankedMention]?
         let isFinal: Bool

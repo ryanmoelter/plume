@@ -40,12 +40,12 @@ nonisolated enum LinearQuery {
 
     static let statesQuery = """
         query($cursor: String) { workflowStates(first: 100, after: $cursor) { \
-        nodes { id name type color team { id } } pageInfo { hasNextPage endCursor } } }
+        nodes { id name type color position team { id } } pageInfo { hasNextPage endCursor } } }
         """
 
     static let issueFields = """
-        id identifier title url updatedAt archivedAt trashed \
-        state { id name type color } assignee { id displayName name } team { id key }
+        id identifier title url updatedAt archivedAt trashed description dueDate \
+        state { id name type color position } assignee { id displayName name } team { id key }
         """
 
     static let deltaPageSize = 100
@@ -172,6 +172,7 @@ nonisolated enum LinearQuery {
         let name: String
         let type: LinearStateType
         let color: String
+        let position: Double?
         let team: Team?
     }
 
@@ -202,7 +203,13 @@ nonisolated enum LinearQuery {
     }
 
     private struct IssueNode: Decodable {
-        struct State: Decodable { let id: String; let name: String; let type: LinearStateType; let color: String }
+        struct State: Decodable {
+            let id: String
+            let name: String
+            let type: LinearStateType
+            let color: String
+            let position: Double?
+        }
         struct Assignee: Decodable { let id: String; let displayName: String?; let name: String? }
         struct Team: Decodable { let id: String; let key: String }
         let id: String
@@ -212,6 +219,8 @@ nonisolated enum LinearQuery {
         let updatedAt: Date
         let archivedAt: Date?
         let trashed: Bool?
+        let description: String?
+        let dueDate: String?
         let state: State
         let assignee: Assignee?
         let team: Team
@@ -223,7 +232,9 @@ nonisolated enum LinearQuery {
                 updatedAt: updatedAt,
                 archivedAt: archivedAt,
                 isTrashed: trashed ?? false,
-                state: LinearWorkflowState(id: state.id, name: state.name, type: state.type, color: state.color),
+                state: LinearWorkflowState(
+                    id: state.id, name: state.name, type: state.type, color: state.color, position: state.position
+                ),
                 assignee: assignee.map { LinearUser(id: $0.id, name: assigneeName ?? "") },
                 teamID: team.id,
                 issue: LinearIssue(
@@ -233,8 +244,11 @@ nonisolated enum LinearQuery {
                     stateName: state.name,
                     stateType: state.type,
                     stateColor: state.color,
+                    statePosition: state.position,
                     assigneeName: assigneeName,
-                    teamKey: team.key
+                    teamKey: team.key,
+                    summary: LinearIssue.summary(ofDescription: description),
+                    dueDate: dueDate
                 )
             )
         }
@@ -375,7 +389,7 @@ nonisolated enum LinearQuery {
                 key: team.key.uppercased(),
                 name: team.name,
                 states: (statesByTeam[team.id] ?? []).map {
-                    LinearWorkflowState(id: $0.id, name: $0.name, type: $0.type, color: $0.color)
+                    LinearWorkflowState(id: $0.id, name: $0.name, type: $0.type, color: $0.color, position: $0.position)
                 }
             )
         }

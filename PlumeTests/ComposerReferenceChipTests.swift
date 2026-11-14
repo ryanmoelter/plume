@@ -18,7 +18,7 @@ struct ComposerReferenceChipTests {
     private let resolution = ResolvedMention(
         target: "https://linear.app/p/issue/PLUME-1",
         title: "Add chips",
-        state: .linear(.started, colorHex: "#f2c94c")
+        state: .linear(.started, progress: .half, colorHex: "#f2c94c")
     )
 
     private func chips(_ text: String, caret: Int? = nil) -> [ComposerReferenceChip] {
@@ -137,7 +137,7 @@ struct ComposerReferenceChipTests {
     }
 
     @Test func anUntitledReferenceShowsItsIdentifier() {
-        let untitled = ResolvedMention(target: "https://linear.app/p/issue/PLUME-1", title: nil, state: .linear(.started, colorHex: "#f2c94c"))
+        let untitled = ResolvedMention(target: "https://linear.app/p/issue/PLUME-1", title: nil, state: .linear(.started, progress: .half, colorHex: "#f2c94c"))
         #expect(found("@PLUME-1", [issue: untitled]).first?.title == nil)
         let text = "See @PLUME-1 now"
         let view = styledView(text, chips: found(text, [issue: untitled]))
@@ -145,7 +145,7 @@ struct ComposerReferenceChipTests {
     }
 
     @Test func aLongTitleIsCutLikeTheChats() {
-        let long = ResolvedMention(target: "x", title: String(repeating: "word ", count: 20), state: .linear(.started, colorHex: "#000000"))
+        let long = ResolvedMention(target: "x", title: String(repeating: "word ", count: 20), state: .linear(.started, progress: .half, colorHex: "#000000"))
         let title = found("@PLUME-1", [issue: long]).first?.title
         #expect(title == ReferenceChipText.truncatedTitle(String(repeating: "word ", count: 20)))
         #expect(title?.hasSuffix("…") == true)
@@ -192,7 +192,7 @@ struct ComposerReferenceChipTests {
             let view = styledView(text, chips: chips)
             return try #require(ComposerDecorations.rects(in: view, metrics: metrics, references: chips).referenceChips.first?.rects.first).width
         }
-        let long = ResolvedMention(target: "x", title: "A much longer title than the identifier", state: .linear(.started, colorHex: "#000000"))
+        let long = ResolvedMention(target: "x", title: "A much longer title than the identifier", state: .linear(.started, progress: .half, colorHex: "#000000"))
         #expect(try width(found(text, [issue: long])) > width(chips(text)) + 50)
     }
 

@@ -62,9 +62,10 @@ nonisolated enum LinearMentionMatcher {
     }
 }
 
-extension MentionCandidate.LinearIssue {
-    /// `state` is the cache's entry for the issue's `stateID`, when it has one.
-    nonisolated init(_ issue: LinearSyncCache.Issue, state: LinearWorkflowState?) {
+nonisolated extension MentionCandidate.LinearIssue {
+    /// `state` is the cache's entry for the issue's `stateID`, when it has
+    /// one, and `catalog` is the cache's workspace's.
+    nonisolated init(_ issue: LinearSyncCache.Issue, state: LinearWorkflowState?, catalog: LinearCatalog?) {
         let state = state ?? issue.fallbackState
         self.init(
             identifier: issue.identifier,
@@ -72,20 +73,25 @@ extension MentionCandidate.LinearIssue {
             url: issue.url,
             stateType: state.type,
             stateColor: state.color,
-            updatedAt: issue.updatedAt
+            updatedAt: issue.updatedAt,
+            startedProgress: LinearStartedProgress(
+                stateType: state.type, position: state.position, teamKey: issue.teamKey, catalogs: catalog.map { [$0] } ?? []
+            )
         )
     }
 }
 
-extension MentionCandidate.LinearIssue {
-    nonisolated init(_ snapshot: LinearIssueSnapshot) {
+nonisolated extension MentionCandidate.LinearIssue {
+    /// `catalog` is the workspace's that found the issue.
+    nonisolated init(_ snapshot: LinearIssueSnapshot, catalog: LinearCatalog?) {
         self.init(
             identifier: snapshot.issue.identifier.uppercased(),
             title: snapshot.issue.title,
             url: snapshot.issue.url,
             stateType: snapshot.state.type,
             stateColor: snapshot.state.color,
-            updatedAt: snapshot.updatedAt
+            updatedAt: snapshot.updatedAt,
+            startedProgress: snapshot.issue.resolvingProgress(in: catalog.map { [$0] } ?? []).startedProgress
         )
     }
 }

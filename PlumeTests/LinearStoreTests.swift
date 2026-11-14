@@ -1,6 +1,7 @@
 import Testing
 import Foundation
 import SwiftData
+import Synchronization
 @testable import Plume
 
 /// Routing, batching, delta sync and failure handling across several fake
@@ -139,17 +140,17 @@ struct LinearStoreTests {
         harness.store.setWanted(["PLUME-1"], owner: UUID())
         await harness.store.settle()
 
-        var publishes = 0
+        let publishes = Mutex(0)
         withObservationTracking {
             _ = harness.store.state(for: "PLUME-1")
         } onChange: {
-            publishes += 1
+            publishes.withLock { $0 += 1 }
         }
         harness.store.sync()
         await harness.store.settle()
 
         #expect(await a.deltaCalls.count == 1)
-        #expect(publishes == 0)
+        #expect(publishes.withLock { $0 } == 0)
     }
 
     @Test func aFailureKeepsTheLastGoodIssueAsStale() async throws {
@@ -420,11 +421,11 @@ struct LinearStoreTests {
         harness.store.setWanted(["PLUME-1", "PLUME-2"], owner: UUID())
         await harness.store.settle()
 
-        var invalidations = 0
+        let invalidations = Mutex(0)
         withObservationTracking {
             _ = harness.store.state(for: "PLUME-1")
         } onChange: {
-            invalidations += 1
+            invalidations.withLock { $0 += 1 }
         }
         let renamed = LinearTestFixtures.issue("PLUME-2", title: "Renamed")
         await a.set(issues: ["PLUME-1": LinearTestFixtures.issue("PLUME-1"), "PLUME-2": renamed])
@@ -432,7 +433,7 @@ struct LinearStoreTests {
         await harness.store.settle()
 
         #expect(harness.store.state(for: "PLUME-2") == .issue(renamed))
-        #expect(invalidations == 0)
+        #expect(invalidations.withLock { $0 } == 0)
     }
 
     @Test func aTeamKeyNoCatalogHasIsNoWorkspaceAndNeverFetched() async throws {
@@ -574,6 +575,140 @@ struct LinearStoreTests {
         defer { harness.store.reset() }
         await harness.store.settle()
         #expect(harness.store.teamKeys == ["CACHE"])
+    }
+
+    @Test func aCachedCatalogWithoutStatePositionsIsRefetchedOnTheNextSyncTick() async throws {
+        let directory = FileManager.default.temporaryDirectory.appending(path: "LinearStoreTests-\(UUID().uuidString)")
+        defer { try? FileManager.default.removeItem(at: directory) }
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        let cached = LinearCatalog(orgID: "A", teams: [LinearTestFixtures.team(key: "CACHE")], fetchedAt: Date())
+        #expect(!cached.hasStatePositions)
+        try JSONEncoder().encode(cached).write(to: directory.appending(path: "catalog-A.json"))
+
+        let a = FakeLinearWorkspace(orgID: "A", teamKeys: ["PLUME"])
+        await a.set(catalogError: LinearError.failed("offline"))
+        let harness = try await makeHarness([a], cacheDirectory: directory)
+        harness.store.start()
+        defer { harness.store.reset() }
+        await harness.store.settle()
+        #expect(harness.store.teamKeys == ["CACHE"])
+
+        await a.set(catalogError: nil)
+        harness.store.sync()
+        await harness.store.settle()
+        #expect(harness.store.teamKeys == ["PLUME"])
+    }
+
+    private func startedCatalog(_ orgID: String, positions: [Double]) -> LinearCatalog {
+        let states = positions.enumerated().map {
+            LinearWorkflowState(id: "\(orgID)\($0.offset)", name: "S", type: .started, color: "#000000", position: $0.element)
+        }
+        let team = LinearTeam(id: "t\(orgID)", key: "PLUME", name: "Plume", states: states)
+        return LinearCatalog(orgID: orgID, teams: [team], fetchedAt: Date())
+    }
+
+    private func startedIssue(_ identifier: String, position: Double, title: String = "An issue") -> LinearIssue {
+        LinearIssue(
+            identifier: identifier,
+            title: title,
+            url: "https://linear.app/x/issue/\(identifier)",
+            stateName: "In Progress",
+            stateType: .started,
+            stateColor: "#f2c94c",
+            statePosition: position,
+            assigneeName: nil,
+            teamKey: LinearIdentifier.teamKey(of: identifier)
+        )
+    }
+
+    @Test func aPublishedIssueReadsProgressFromItsOwnWorkspace() async throws {
+        let a = FakeLinearWorkspace(orgID: "A", teamKeys: ["PLUME"])
+        let b = FakeLinearWorkspace(orgID: "B", teamKeys: ["PLUME"])
+        await a.set(catalog: startedCatalog("A", positions: [1, 2]))
+        await b.set(catalog: startedCatalog("B", positions: [1, 2, 3]))
+        await b.set(issues: ["PLUME-1": startedIssue("PLUME-1", position: 2)])
+        let harness = try await makeHarness([a, b])
+        harness.store.setWanted(["PLUME-1"], owner: UUID())
+        await harness.store.settle()
+
+        #expect(harness.store.state(for: "PLUME-1")?.issue?.startedProgress == .half)
+    }
+
+    @Test func aPublishedIssueFollowsTheWorkspaceThatOwnsIt() async throws {
+        let a = FakeLinearWorkspace(orgID: "A", teamKeys: ["PLUME"])
+        let b = FakeLinearWorkspace(orgID: "B", teamKeys: ["PLUME"])
+        await a.set(catalog: startedCatalog("A", positions: [1, 2]))
+        await b.set(catalog: startedCatalog("B", positions: [1, 2, 3]))
+        await a.set(issues: ["PLUME-1": startedIssue("PLUME-1", position: 2, title: "from A")])
+        await b.set(issues: ["PLUME-1": startedIssue("PLUME-1", position: 2, title: "from B")])
+        let harness = try await makeHarness([a, b])
+        harness.store.setWanted(["PLUME-1"], owner: UUID())
+        await harness.store.settle()
+
+        let issue = try #require(harness.store.state(for: "PLUME-1")?.issue)
+        #expect(issue.startedProgress == (issue.title == "from A" ? .threeQuarters : .half))
+    }
+
+    @Test func aMovedIssueReadsProgressFromTheWorkspaceThatAnsweredTheRequest() async throws {
+        let a = FakeLinearWorkspace(orgID: "A", teamKeys: ["PLUME"])
+        let b = FakeLinearWorkspace(orgID: "B", teamKeys: ["PLUME"])
+        await a.set(catalog: startedCatalog("A", positions: [1, 2]))
+        await b.set(catalog: startedCatalog("B", positions: [1, 2, 3]))
+        await b.set(issues: ["PLUME-1": startedIssue("PLUME-5", position: 2)])
+        let harness = try await makeHarness([a, b])
+        harness.store.setWanted(["PLUME-1"], owner: UUID())
+        await harness.store.settle()
+
+        #expect(harness.store.state(for: "PLUME-1")?.issue?.identifier == "PLUME-5")
+        #expect(harness.store.state(for: "PLUME-1")?.issue?.startedProgress == .half)
+    }
+
+    @Test func aCatalogChangeReResolvesPublishedProgress() async throws {
+        let a = FakeLinearWorkspace(orgID: "A", teamKeys: ["PLUME"])
+        await a.set(catalog: startedCatalog("A", positions: [1, 2]))
+        await a.set(issues: ["PLUME-1": startedIssue("PLUME-1", position: 2)])
+        let harness = try await makeHarness([a])
+        harness.store.setWanted(["PLUME-1"], owner: UUID())
+        await harness.store.settle()
+        #expect(harness.store.state(for: "PLUME-1")?.issue?.startedProgress == .threeQuarters)
+
+        await a.set(catalog: startedCatalog("A", positions: [1, 2, 3]))
+        harness.store.refreshCatalog(orgID: "A")
+        await harness.store.settle()
+
+        #expect(harness.store.state(for: "PLUME-1")?.issue?.startedProgress == .half)
+    }
+
+    @Test func mentionsAndChipsCarryTheResolvedProgress() async throws {
+        let a = FakeLinearWorkspace(orgID: "A", teamKeys: ["PLUME"])
+        await a.set(catalog: startedCatalog("A", positions: [1, 2, 3]))
+        await a.set(issues: ["PLUME-1": startedIssue("PLUME-1", position: 1)])
+        let harness = try await makeHarness([a])
+        harness.store.setWanted(["PLUME-1"], owner: UUID())
+        await harness.store.settle()
+
+        let mention = try #require(harness.store.mentionIssue(identifier: "PLUME-1"))
+        #expect(mention.startedProgress == .quarter)
+        let chip = ResolvedMention(mention).state.chipIcon(number: nil)
+        #expect(chip.glyph == .linearProgress(.quarter))
+        let known = try #require(harness.store.knownIssue(identifier: "PLUME-1"))
+        #expect(ReferenceChipIcon.linear(known).glyph == chip.glyph)
+    }
+
+    @Test func rankedMentionCandidatesCarryTheResolvedProgress() async throws {
+        let a = FakeLinearWorkspace(orgID: "A", teamKeys: ["PLUME"])
+        await a.set(catalog: startedCatalog("A", positions: [1, 2, 3]))
+        await a.set(issues: ["PLUME-1": startedIssue("PLUME-1", position: 3, title: "Glyphs everywhere")])
+        let harness = try await makeHarness([a])
+        harness.store.setWanted(["PLUME-1"], owner: UUID())
+        await harness.store.settle()
+
+        let ranked = await harness.store.mentionCandidates(matching: "glyphs")
+        guard case .linear(let issue) = ranked.first?.candidate else {
+            Issue.record("expected a Linear candidate, got \(String(describing: ranked.first))")
+            return
+        }
+        #expect(issue.startedProgress == .threeQuarters)
     }
 
     @Test func aFetchedCatalogIsWrittenToTheCache() async throws {

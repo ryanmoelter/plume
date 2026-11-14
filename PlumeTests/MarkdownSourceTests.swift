@@ -5,6 +5,7 @@ import Testing
 /// Writing a parsed block back to markdown, which is what a piece the
 /// splitter divided copies. A block that stayed whole copies its own lines
 /// instead, so the round trip only has to be faithful, not byte-identical.
+@MainActor
 struct MarkdownSourceTests {
     private func roundTrip(_ text: String) -> [MarkdownBlock] {
         MarkdownBlock.parse(MarkdownBlock.parse(text).map(MarkdownSource.markdown(of:)).joined(separator: "\n\n"))

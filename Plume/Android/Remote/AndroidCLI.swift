@@ -38,7 +38,7 @@ nonisolated protocol AndroidCLIRunning: Sendable {
     ) async throws -> AndroidCLIResult
 }
 
-extension AndroidCLIRunning {
+nonisolated extension AndroidCLIRunning {
     func run(_ arguments: [String], timeout: Duration = AndroidCLI.defaultTimeout) async throws -> AndroidCLIResult {
         try await run(arguments, timeout: timeout, onOutput: nil)
     }

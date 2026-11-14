@@ -39,6 +39,14 @@ struct InfoPaneFacts: Equatable {
         let checkRollup: CheckRollup?
         /// Nil until the store has resolved the repository's origin.
         var forge: ForgeKind? = nil
+        /// The repository's checks ignored while pending, which the check
+        /// list marks.
+        var ignoredChecks: Set<String> = []
+
+        var summary: PullRequestSummary? {
+            guard case .pullRequest(let pullRequest) = state else { return nil }
+            return PullRequestSummary(pullRequest, ignoredChecks: ignoredChecks)
+        }
 
         var hasPullRequest: Bool {
             if case .pullRequest = state { true } else { false }
@@ -69,6 +77,9 @@ struct InfoPaneFacts: Equatable {
         var stateName: String?
         var stateType: LinearStateType?
         var stateColor: String?
+        var statePosition: Double?
+        var startedProgress: LinearStartedProgress = .half
+        var teamKey: String?
         var assignee: String?
         var url: URL?
         /// Who touched the issue, when a subagent did.
@@ -121,8 +132,9 @@ struct InfoPaneFacts: Equatable {
         var sections: [InfoPaneSection] = []
         if !liveSubagents.isEmpty || !completedSubagents.isEmpty { sections.append(.subagents) }
         if !backgroundTasks.isEmpty { sections.append(.backgroundTasks) }
-        if pullRequest?.hasPullRequest == true { sections.append(.pullRequest) }
-        if !linkedPullRequests.isEmpty || canPinPullRequests { sections.append(.linkedPullRequests) }
+        if pullRequest?.hasPullRequest == true || !linkedPullRequests.isEmpty || canPinPullRequests {
+            sections.append(.pullRequests)
+        }
         if linear != nil { sections.append(.linearIssues) }
         if planTitle != nil { sections.append(.plan) }
         if !artifacts.isEmpty { sections.append(.artifacts) }
@@ -142,8 +154,9 @@ struct InfoPaneFacts: Equatable {
             case .branch: branch?.isWorktree == true
             case .linearIssues: (linear?.workingCount ?? 0) > 0
             case .remoteControl: remoteControl == .on
-            case .folder, .sideChat, .linkedPullRequests: false
-            case .backgroundTasks, .plan, .pullRequest, .artifacts: true
+            case .pullRequests: pullRequest?.hasPullRequest == true
+            case .folder, .sideChat: false
+            case .backgroundTasks, .plan, .artifacts: true
             }
         }
     }
@@ -176,6 +189,7 @@ extension InfoPaneFacts {
     static func pullRequest(
         state: PullRequestFetchState?,
         forge: ForgeKind? = nil,
+        ignoredChecks: Set<String> = [],
         checkRollup: (PullRequest) -> CheckRollup
     ) -> PullRequestFacts? {
         guard let state else { return nil }
@@ -183,7 +197,12 @@ extension InfoPaneFacts {
         case .forgeUnsupported:
             return nil
         case .pullRequest(let pullRequest):
-            return PullRequestFacts(state: state, checkRollup: checkRollup(pullRequest), forge: forge)
+            return PullRequestFacts(
+                state: state,
+                checkRollup: checkRollup(pullRequest),
+                forge: forge,
+                ignoredChecks: ignoredChecks
+            )
         default:
             return PullRequestFacts(state: state, checkRollup: nil, forge: forge)
         }
@@ -192,7 +211,7 @@ extension InfoPaneFacts {
 
 extension InfoPaneFacts {
     /// Pinned first, then mentioned. Leaves out the branch's own pull
-    /// request, which has its own row.
+    /// request, which leads the section on its own.
     static func linkedPullRequests(
         pinned: [PullRequestReference],
         mentioned: [PullRequestReference],
@@ -226,7 +245,7 @@ extension InfoPaneFacts {
         return LinearFacts(main: issues.filter { !settledIDs.contains($0.identifier) }, mentioned: settled)
     }
 
-    /// Working issues first, then mentioned ones, each keeping its order.
+    /// Working issues first, then mentioned ones, each sorted by `LinearIssueOrder`.
     static func linearIssues(
         links: [LinkedLinearIssue],
         state: (String) -> LinearIssueFetchState?
@@ -241,13 +260,17 @@ extension InfoPaneFacts {
                 stateName: issue?.stateName,
                 stateType: issue?.stateType,
                 stateColor: issue?.stateColor,
+                statePosition: issue?.statePosition,
+                startedProgress: issue?.startedProgress ?? .half,
+                teamKey: issue?.teamKey,
                 assignee: issue?.assigneeName,
                 url: issue.flatMap { URL(string: $0.url) },
                 attribution: attribution(of: link),
                 statusWord: statusWord(for: fetch)
             )
         }
-        return facts.filter { $0.role == .working } + facts.filter { $0.role == .mentioned }
+        return LinearIssueOrder.sorted(facts.filter { $0.role == .working })
+            + LinearIssueOrder.sorted(facts.filter { $0.role == .mentioned })
     }
 
     static func attribution(of link: LinkedLinearIssue) -> String? {
@@ -269,6 +292,44 @@ extension InfoPaneFacts {
     }
 }
 
+/// Started issues first, then unstarted, backlog, triage, other types,
+/// completed, and canceled or duplicate. Within a type, issues group by team,
+/// teams ordered by first appearance across the whole list, and a later
+/// workflow state comes first within a team: positions only compare inside one team. Issues with no
+/// state yet go last.
+enum LinearIssueOrder {
+    static func typeRank(_ type: LinearStateType?) -> Int {
+        switch type {
+        case .started: 0
+        case .unstarted: 1
+        case .backlog: 2
+        case .triage: 3
+        case .other: 4
+        case .completed: 5
+        case .canceled, .duplicate: 6
+        case nil: 7
+        }
+    }
+
+    static func sorted(_ issues: [InfoPaneFacts.LinearIssueFacts]) -> [InfoPaneFacts.LinearIssueFacts] {
+        var teamOrder: [String: Int] = [:]
+        let keyed = issues.enumerated().map { offset, issue -> (offset: Int, issue: InfoPaneFacts.LinearIssueFacts, team: Int) in
+            let team = issue.teamKey ?? ""
+            let index = teamOrder[team] ?? teamOrder.count
+            teamOrder[team] = index
+            return (offset, issue, index)
+        }
+        return keyed.sorted { left, right in
+            let (leftRank, rightRank) = (typeRank(left.issue.stateType), typeRank(right.issue.stateType))
+            if leftRank != rightRank { return leftRank < rightRank }
+            if left.team != right.team { return left.team < right.team }
+            let (leftPosition, rightPosition) = (left.issue.statePosition ?? -.infinity, right.issue.statePosition ?? -.infinity)
+            if leftPosition != rightPosition { return leftPosition > rightPosition }
+            return left.offset < right.offset
+        }.map(\.issue)
+    }
+}
+
 enum InfoPaneSection: Equatable {
     case linearIssues
     case subagents
@@ -279,8 +340,8 @@ enum InfoPaneSection: Equatable {
     case remoteControl
     case folder
     case branch
-    case pullRequest
-    case linkedPullRequests
+    /// The branch's own pull request, then pinned and mentioned ones.
+    case pullRequests
 }
 
 enum InfoPaneLayout {
@@ -296,6 +357,16 @@ enum InfoPaneLayout {
     /// and plain rows keep the same rhythm.
     static let rowVerticalPadding: CGFloat = 5
     static let sectionAnimation: Animation = .snappy(duration: 0.22)
+    static let panePadding: CGFloat = 12
+    /// Above and below a section, and above a subgroup, which always ends
+    /// its section, so a bar still ends on the section's last row.
+    static let groupVerticalPadding: CGFloat = 4
+    /// Brackets sit in the pane's padding, measured from the content edge.
+    static let sectionBarX: CGFloat = 6 - panePadding
+    static let nestedBarX: CGFloat = sectionBarX + 2.5
+    static let bracketCornerRadius: CGFloat = 4
+    static let nestedBracketCornerRadius: CGFloat = 3
+    static let headerLogoSize: CGFloat = 10
 
     static func clampedPaneWidth(_ width: CGFloat) -> CGFloat {
         min(max(width, minimumPaneWidth), maximumPaneWidth)

@@ -18,6 +18,8 @@ struct HomeFeed: Equatable {
         var hasSession = false
         /// Restored from the last launch, with no live session reported yet.
         var isDormant = false
+        /// When the task was last opened, or created if never opened.
+        var lastOpenedAt: Date?
         /// What a pending, non-interactive permission request wants to run.
         var permissionToolName: String?
         var workStartedAt: Date?
@@ -27,6 +29,7 @@ struct HomeFeed: Equatable {
         var iconTint: SidebarTint?
         var barTint: SidebarTint?
         var context = HomeRowContext()
+        var sideWork: [HomeSideWork] = []
     }
 
     struct Item: Identifiable, Equatable {
@@ -47,6 +50,8 @@ struct HomeFeed: Equatable {
         /// Listed under "Not started", which the sidebar's rule dims: never
         /// messaged, or resumed mid-turn.
         let isInactive: Bool
+        /// Empty unless the tab is running.
+        let sideWork: [HomeSideWork]
 
         var id: UUID { tabID }
 
@@ -68,6 +73,7 @@ struct HomeFeed: Equatable {
     init(entries: [Entry]) {
         let agentTabCounts = Dictionary(entries.map { ($0.taskID, 1) }, uniquingKeysWith: +)
         var needsYou: [(index: Int, item: Item)] = []
+        var idle: [(index: Int, openedAt: Date?, item: Item)] = []
         for (index, entry) in entries.enumerated() {
             let isUnstarted = !entry.status.isActive
                 && !Self.needsYou(status: entry.status, isUnread: entry.isUnread)
@@ -85,7 +91,8 @@ struct HomeFeed: Equatable {
                 iconTint: entry.iconTint,
                 barTint: entry.barTint,
                 context: entry.context,
-                isInactive: isUnstarted
+                isInactive: isUnstarted,
+                sideWork: entry.sideWork
             )
             if entry.status.isActive {
                 running.append(item)
@@ -96,7 +103,7 @@ struct HomeFeed: Equatable {
             } else if entry.isDormant {
                 fromLastTime.append(item)
             } else {
-                idle.append(item)
+                idle.append((index, entry.lastOpenedAt, item))
             }
         }
         // A tab that wants an answer outranks one that only finished, and the
@@ -104,6 +111,14 @@ struct HomeFeed: Equatable {
         self.needsYou = needsYou.sorted { lhs, rhs in
             let left = Self.rank(lhs.item), right = Self.rank(rhs.item)
             return left != right ? left > right : lhs.index < rhs.index
+        }.map(\.item)
+        self.idle = idle.sorted { lhs, rhs in
+            switch (lhs.openedAt, rhs.openedAt) {
+            case let (left?, right?) where left != right: left > right
+            case (nil, _?): false
+            case (_?, nil): true
+            default: lhs.index < rhs.index
+            }
         }.map(\.item)
     }
 

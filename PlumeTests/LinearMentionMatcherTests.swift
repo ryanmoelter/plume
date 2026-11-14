@@ -137,10 +137,10 @@ struct LinearMentionMatcherTests {
             fallbackState: fallback
         )
         let done = LinearWorkflowState(id: "s1", name: "Done", type: .completed, color: "#222222")
-        let fromLookup = MentionCandidate.LinearIssue(cached, state: done)
+        let fromLookup = MentionCandidate.LinearIssue(cached, state: done, catalog: nil)
         #expect(fromLookup.stateType == .completed)
         #expect(fromLookup.stateColor == "#222222")
-        #expect(MentionCandidate.LinearIssue(cached, state: nil).stateType == .unstarted)
+        #expect(MentionCandidate.LinearIssue(cached, state: nil, catalog: nil).stateType == .unstarted)
     }
 
     @Test func aSearchTakesATeamPrefixAsItsFilter() {

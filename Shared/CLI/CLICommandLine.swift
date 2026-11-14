@@ -8,6 +8,7 @@ nonisolated enum CLIInvocation: Equatable, Sendable {
     case notify(title: String, body: String)
     case presence(json: Bool)
     case newTab(directory: String?, taskID: String?, select: Bool)
+    case issue(IssueAction, issue: String, taskID: String?)
     /// `aliasNames` are the bare commands to define, in the order asked.
     case shellInit(aliasNames: [String])
     /// `plume wt …`, or any arguments when invoked as `wt`.
@@ -16,6 +17,10 @@ nonisolated enum CLIInvocation: Equatable, Sendable {
     case stack([String])
     /// `plume devices …`.
     case devices([String])
+}
+
+nonisolated enum IssueAction: String, Equatable, Sendable {
+    case link, unlink
 }
 
 nonisolated struct CLIUsageError: Error, Equatable, Sendable {
@@ -46,6 +51,8 @@ nonisolated enum CLICommandLine {
           presence [--json]         Print whether the Mac is awake, asleep or locked
           tab new [--cwd DIR] [--task ID] [--select]
                                     Open a terminal tab in this task, print its ID
+          issue link|unlink <ID|URL> [--task ID]
+                                    Link a Linear issue to this task, or unlink it
           wt <command>              Manage worktrees (`plume wt help`)
           stack <command>           Manage stacked branches (`plume stack help`)
           devices <command>         Lease Android devices between agents (`plume devices help`)
@@ -68,6 +75,7 @@ nonisolated enum CLICommandLine {
         """
 
     static let tabUsage = "usage: plume tab new [--cwd DIR] [--task ID] [--select]"
+    static let issueUsage = "usage: plume issue link|unlink <ID|URL> [--task ID]"
     static let initUsage = "usage: plume init zsh [--aliases] [--alias wt|stack]..."
 
     /// `arguments` excludes argv[0]; `executableName` is its basename.
@@ -94,6 +102,8 @@ nonisolated enum CLICommandLine {
             return try parsePresence(rest)
         case "tab":
             return try parseTab(rest)
+        case "issue":
+            return try parseIssue(rest)
         case "init":
             return try parseInit(rest)
         case "wt":
@@ -184,6 +194,35 @@ nonisolated enum CLICommandLine {
             index += 1
         }
         return .newTab(directory: directory, taskID: taskID, select: select)
+    }
+
+    static func parseIssue(_ arguments: [String]) throws -> CLIInvocation {
+        guard let name = arguments.first, let action = IssueAction(rawValue: name) else {
+            throw CLIUsageError(message: "expected 'issue link' or 'issue unlink'", usage: issueUsage)
+        }
+        var issue: String?
+        var taskID: String?
+        var rest = arguments.dropFirst()
+        while let argument = rest.popFirst() {
+            switch argument {
+            case "--task":
+                guard let value = rest.popFirst() else {
+                    throw CLIUsageError(message: "--task needs a value", usage: issueUsage)
+                }
+                taskID = value
+            case "-h", "--help":
+                throw CLIUsageError(message: nil, usage: issueUsage)
+            default:
+                guard issue == nil, !argument.hasPrefix("-") else {
+                    throw CLIUsageError(message: "unexpected argument '\(argument)'", usage: issueUsage)
+                }
+                issue = argument
+            }
+        }
+        guard let issue, !issue.isEmpty else {
+            throw CLIUsageError(message: "an issue identifier or URL is required", usage: issueUsage)
+        }
+        return .issue(action, issue: issue, taskID: taskID)
     }
 
     static func parseInit(_ arguments: [String]) throws -> CLIInvocation {

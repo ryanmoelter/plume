@@ -9,7 +9,7 @@ import SwiftUI
 /// the same values. That shared origin is the point: a chord added to a menu
 /// item is claimed back from a focused terminal automatically, with no parallel
 /// list to keep in step.
-struct MenuShortcut: Equatable, Codable {
+nonisolated struct MenuShortcut: Equatable, Codable {
     /// The character the key produces with no modifiers applied — "a", "]",
     /// "1". Matching reads `charactersIgnoringModifiers`, so this is compared
     /// against what the key is labelled, not what the chord composes to.
@@ -20,6 +20,9 @@ struct MenuShortcut: Equatable, Codable {
         self.key = key
         self.modifiers = modifiers
     }
+
+    /// What a Delete key event reports as its unmodified character.
+    static let backspace: Character = "\u{7F}"
 
     var keyEquivalent: KeyEquivalent { KeyEquivalent(key) }
 
@@ -42,7 +45,7 @@ struct MenuShortcut: Equatable, Codable {
         if modifiers.contains(.option) { text += "⌥" }
         if modifiers.contains(.shift) { text += "⇧" }
         if modifiers.contains(.command) { text += "⌘" }
-        return text + String(key).uppercased()
+        return text + (key == Self.backspace ? "⌫" : String(key).uppercased())
     }
 
     /// Parses what `displayName` writes — "⌥⇧J", "⌘]". Nil when the text is
@@ -58,7 +61,7 @@ struct MenuShortcut: Equatable, Codable {
             remainder.removeFirst()
         }
         guard remainder.count == 1, let key = remainder.first else { return nil }
-        self.init(Character(String(key).lowercased()), modifiers: modifiers)
+        self.init(key == "⌫" ? Self.backspace : Character(String(key).lowercased()), modifiers: modifiers)
     }
 
     /// Whether `characters` and `flags` are this exact chord.
@@ -103,7 +106,7 @@ struct MenuShortcut: Equatable, Codable {
 /// `Codable`, so the stored form is a string key plus the modifier names —
 /// readable in `defaults read`, and stable if `EventModifiers`' bit values
 /// ever move.
-extension MenuShortcut {
+nonisolated extension MenuShortcut {
     private enum CodingKeys: String, CodingKey {
         case key
         case modifiers

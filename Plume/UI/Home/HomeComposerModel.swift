@@ -160,6 +160,9 @@ final class HomeComposerModel {
 
     func chooseGroup(_ id: UUID?) {
         destination.groupID = id
+        if let project = catalog.pluralityProject(inGroup: id), project.path != destination.projectPath {
+            chooseProject(project.path)
+        }
     }
 
     func chooseProject(_ path: String) {

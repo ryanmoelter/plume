@@ -51,7 +51,7 @@ nonisolated struct ForgeError: LocalizedError, Equatable {
     var errorDescription: String? { message }
 }
 
-extension PullRequestFetchState {
+nonisolated extension PullRequestFetchState {
     /// The state a thrown fetch error should render as.
     static func failing(_ error: any Error) -> PullRequestFetchState {
         if let forge = error as? ForgeError, forge.kind == .timedOut { return .timedOut }

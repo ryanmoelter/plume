@@ -80,15 +80,27 @@ public enum EmulatorInput: Sendable, Hashable {
     case key(KeyInput)
 }
 
+/// A foldable's physical configuration, as `Posture.PostureValue` numbers it.
+public enum EmulatorPosture: Int, Sendable, Hashable, CaseIterable {
+    case closed = 1
+    case halfOpen = 2
+    case open = 3
+    case flipped = 4
+    case tent = 5
+}
+
 public struct EmulatorStatusSnapshot: Sendable {
     public var booted: Bool
     public var version: String
     public var displaySize: CGSize?
+    /// Empty for a device without a hinge.
+    public var postures: [EmulatorPosture]
 
-    public init(booted: Bool, version: String, displaySize: CGSize?) {
+    public init(booted: Bool, version: String, displaySize: CGSize?, postures: [EmulatorPosture] = []) {
         self.booted = booted
         self.version = version
         self.displaySize = displaySize
+        self.postures = postures
     }
 }
 

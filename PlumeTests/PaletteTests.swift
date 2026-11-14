@@ -9,6 +9,7 @@ import GhosttyTheme
 /// covers the layer above: that a palette built with no theme falls all the
 /// way back to the system colors, and one built with a theme does not — which
 /// is the difference between a themed surface and an unthemed one.
+@MainActor
 struct PaletteTests {
     private let definitions = GhosttyThemeResolver.ResolvedDefinitions(
         light: GhosttyThemeDefinition(

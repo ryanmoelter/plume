@@ -8,9 +8,9 @@ import os
 /// owns it supplies meaning.
 nonisolated final class AgentProcess: @unchecked Sendable {
     private let process = Process()
-    private let inPipe = Pipe()
-    private let outPipe = Pipe()
-    private let errPipe = Pipe()
+    private let inPipe = Pipe.closeOnExec()
+    private let outPipe = Pipe.closeOnExec()
+    private let errPipe = Pipe.closeOnExec()
     private let queue = DispatchQueue(label: "com.ryanmoelter.Plume.agent-process")
 
     /// Partial trailing line carried between reads: a pipe read can split a
@@ -42,13 +42,17 @@ nonisolated final class AgentProcess: @unchecked Sendable {
     private let label: String
     private let onLine: @Sendable (String) -> Void
     private let onExit: @Sendable (Int32, String?) -> Void
+    private let ledger: AgentProcessLedger?
+    private var launchedPID: pid_t?
 
     init(
         label: String,
+        ledger: AgentProcessLedger? = nil,
         onLine: @escaping @Sendable (String) -> Void,
         onExit: @escaping @Sendable (Int32, String?) -> Void
     ) {
         self.label = label
+        self.ledger = ledger
         self.onLine = onLine
         self.onExit = onExit
     }
@@ -85,12 +89,12 @@ nonisolated final class AgentProcess: @unchecked Sendable {
             guard !data.isEmpty else { return }
             let text = String(decoding: data, as: UTF8.self)
                 .trimmingCharacters(in: .whitespacesAndNewlines)
-            guard !text.isEmpty else { return }
-            Log.agent.error("\(self?.label ?? "agent", privacy: .public) stderr: \(text, privacy: .public)")
+            guard !text.isEmpty, let self else { return }
+            Log.agent.error("\(self.label, privacy: .public) stderr: \(text, privacy: .public)")
             let reported = Self.reportedError(in: text)
-            self?.queue.async {
-                self?.lastErrorLine = text
-                if let reported { self?.lastReportedError = reported }
+            queue.async {
+                self.lastErrorLine = text
+                if let reported { self.lastReportedError = reported }
             }
         }
         process.terminationHandler = { [weak self] process in
@@ -99,10 +103,13 @@ nonisolated final class AgentProcess: @unchecked Sendable {
         }
 
         try process.run()
+        let pid = process.processIdentifier
         queue.sync {
             isRunning = true
             didLaunch = true
+            launchedPID = pid
         }
+        queue.async { [ledger] in ledger?.record(pid) }
     }
 
     /// Returns once the child has exited, which `terminate()` bounds by
@@ -122,6 +129,7 @@ nonisolated final class AgentProcess: @unchecked Sendable {
     private func recordExit() {
         queue.async { [self] in
             hasProcessExited = true
+            if let launchedPID { ledger?.remove(launchedPID) }
             let waiters = exitWaiters
             exitWaiters = []
             for waiter in waiters { waiter.resume() }

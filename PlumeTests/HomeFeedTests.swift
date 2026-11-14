@@ -6,6 +6,7 @@ import Testing
 /// Sorting live agent tabs into Home's sections: what needs the user (named
 /// requests first, then unread turns), what is running, and what can be
 /// resumed. Everything else stays off Home.
+@MainActor
 struct HomeFeedTests {
     private func entry(
         task: UUID = UUID(),

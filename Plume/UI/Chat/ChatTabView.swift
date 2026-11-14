@@ -51,6 +51,8 @@ struct ChatTabView: View, ThemedView {
     /// recall path; this only carries the request across.
     @State private var editQueuedMessageIndex: Int?
     @State private var withdrawnMessageToEdit: [UserContentBlock]?
+    /// Held here so the composer can page the list above it.
+    @State private var listCommands = ChatListCommands()
     @State private var sendNowRequested = false
     /// The conversation's width and the collapsed side pane's height, which
     /// decide whether the pane pins beside the chat and how far the first
@@ -169,6 +171,20 @@ struct ChatTabView: View, ThemedView {
         }
     }
 
+    private var subagentOpener: ChatSubagentOpener {
+        let tab = tab
+        return ChatSubagentOpener(
+            tabID: tab.id,
+            subagents: {
+                switch tab.provider {
+                case .claudeCode: TranscriptStore.shared.subagents(forTab: tab.id)
+                case .codex: CodexSubagentStore.shared.subagents(forTab: tab.id)
+                }
+            },
+            open: { openSubagentID = $0.id }
+        )
+    }
+
     private var openSubagent: SubagentTranscript? {
         guard let openSubagentID else { return nil }
         return subagents.first { $0.id == openSubagentID }
@@ -267,7 +283,8 @@ struct ChatTabView: View, ThemedView {
         let pullRequest = settings.showsPullRequestStatus
             ? InfoPaneFacts.pullRequest(
                 state: PullRequestStore.shared.state(for: gitDirectory),
-                forge: PullRequestStore.shared.forge(for: gitDirectory)
+                forge: PullRequestStore.shared.forge(for: gitDirectory),
+                ignoredChecks: PullRequestStore.shared.ignoredPendingChecks(for: gitDirectory)
             ) {
                 PullRequestStore.shared.checkRollup(for: gitDirectory, of: $0)
             }
@@ -716,7 +733,8 @@ struct ChatTabView: View, ThemedView {
                 hasContentBelow: true,
                 editQueuedMessageIndex: $editQueuedMessageIndex,
                 withdrawnMessageToEdit: $withdrawnMessageToEdit,
-                sendNowRequested: $sendNowRequested
+                sendNowRequested: $sendNowRequested,
+                onPageScroll: { listCommands.page(up: $0) }
             )
             Divider()
             statuslineFooter(transcript: transcript)
@@ -868,7 +886,7 @@ struct ChatTabView: View, ThemedView {
             }
             .padding(12)
             Divider()
-            MarkdownContentView(content: displayedPlanMarkdown)
+            PlanDocumentView(markdown: displayedPlanMarkdown)
             planFooter
         }
         .environment(\.chatFontSize, CGFloat(settings.chatFontSize))
@@ -1103,9 +1121,11 @@ struct ChatTabView: View, ThemedView {
                 chatHeight: chatHeight
             ),
             trailingReserve: geometry.chatTrailingReserve,
-            sidePane: sideInfoPane(geometry: geometry, linearLinks: linearLinks)
+            sidePane: sideInfoPane(geometry: geometry, linearLinks: linearLinks),
+            commands: listCommands
         )
         .onGeometryChange(for: CGFloat.self) { $0.size.height } action: { chatHeight = $0 }
+        .environment(\.chatSubagentOpener, subagentOpener)
         .overlay(alignment: .bottom) {
             let reserve = geometry.chatTrailingReserve
             // Moves with the chat's own horizontal shift.

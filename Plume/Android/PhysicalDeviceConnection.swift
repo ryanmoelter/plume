@@ -43,7 +43,10 @@ nonisolated final class PhysicalDeviceConnection: DeviceConnecting {
                 guard let image else { return nil }
                 contents = .image(image)
             }
-            return DeviceFrame(contents: contents, pixelSize: frame.pixelSize, rotation: .portrait, deviceSize: frame.videoSize)
+            return DeviceFrame(
+                contents: contents, pixelSize: frame.pixelSize, rotation: .portrait, deviceSize: frame.videoSize,
+                timing: DeviceFrameTiming(presentation: .microseconds(frame.pts), arrival: frame.arrival)
+            )
         }
     }
 
@@ -133,7 +136,7 @@ nonisolated final class PhysicalDeviceConnection: DeviceConnecting {
     }
 }
 
-private extension DeviceKeyPhase {
+private nonisolated extension DeviceKeyPhase {
     nonisolated var androidAction: UInt8 {
         switch self {
         case .down: Android.KeyAction.down

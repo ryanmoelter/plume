@@ -2,6 +2,7 @@ import Testing
 import Foundation
 @testable import Plume
 
+@MainActor
 struct ClaudeCodeProviderTests {
     private let provider = ClaudeCodeProvider()
 
@@ -26,6 +27,11 @@ struct ClaudeCodeProviderTests {
     @Test func resumeWithAMessageSendsBoth() {
         let launch = provider.launchCommand(firstMessage: "continue", resumeSessionID: "abc-123")
         #expect(launch.command == loginWrapped("claude --resume 'abc-123' 'continue'"))
+    }
+
+    @Test func neverAppendsTheSystemPromptRuleFile() {
+        let launch = provider.launchCommand(firstMessage: "hi", resumeSessionID: "abc")
+        #expect(!launch.command.contains("--append-system-prompt-file"))
     }
 
     @Test func noArgumentsStartsAPlainSession() {

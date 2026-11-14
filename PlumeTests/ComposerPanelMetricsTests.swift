@@ -2,6 +2,7 @@ import Foundation
 import Testing
 @testable import Plume
 
+@MainActor
 struct ComposerPanelMetricsTests {
     @Test func concentricRadiusLeavesAnEvenGapAroundTheCorner() {
         #expect(ComposerPanelMetrics.concentricRadius(outer: 18, inset: 8) == 10)

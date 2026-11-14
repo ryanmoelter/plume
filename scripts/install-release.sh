@@ -29,6 +29,8 @@ set -uo pipefail
 source "$(dirname "${BASH_SOURCE[0]}")/lib/sign-bundle.sh"
 # shellcheck source=lib/scrcpy-server.sh
 source "$(dirname "${BASH_SOURCE[0]}")/lib/scrcpy-server.sh"
+# shellcheck source=lib/appcast.sh
+source "$(dirname "${BASH_SOURCE[0]}")/lib/appcast.sh"
 
 LOG="${LOG:-/tmp/plume-install.log}"
 NOTARY_PROFILE="${NOTARY_PROFILE:-plume-notary}"
@@ -62,6 +64,10 @@ SRC="$(xcodebuild -scheme Plume -configuration Release -destination 'platform=ma
 
 SU_PUBLIC_KEY="$(/usr/libexec/PlistBuddy -c 'Print :SUPublicEDKey' "$SRC/Contents/Info.plist" 2>/dev/null || true)"
 [ -n "$SU_PUBLIC_KEY" ] || fail "no SUPublicEDKey in the built Info.plist — Configuration/Info.plist must carry it"
+SU_FEED_URL="$(/usr/libexec/PlistBuddy -c 'Print :SUFeedURL' "$SRC/Contents/Info.plist" 2>/dev/null || true)"
+[ -n "$SU_FEED_URL" ] || fail "no SUFeedURL in the built Info.plist"
+appcast_feed_url_is_placeholder "$SU_FEED_URL" \
+  && fail "the built SUFeedURL is the placeholder $SU_FEED_URL — this install would never update"
 
 IDENTITY="$(security find-identity -v -p codesigning \
   | sed -n 's/.*"\(Developer ID Application: [^"]*\)".*/\1/p' | head -1)"

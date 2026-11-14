@@ -11,7 +11,7 @@ struct LinearIssueLine: View {
             LinearLogo(size: 10)
                 .emphasis(.secondary)
             if let issue = state?.issue {
-                LinearIssueGlyph(stateType: issue.stateType, colorHex: issue.stateColor)
+                LinearIssueGlyph(issue)
                     .font(.caption)
                     .imageScale(.small)
                 Text(issue.title)

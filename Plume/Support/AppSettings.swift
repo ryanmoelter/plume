@@ -75,8 +75,10 @@ final class AppSettings {
         static let defaultCodexCollaborationModeRaw = "defaultCodexCollaborationModeRaw"
         static let shortcutBindings = "shortcutBindings"
         static let hasPromptedForFullDiskAccess = "hasPromptedForFullDiskAccess"
-        static let updateInstallSourceOverrideRaw = "updateInstallSourceOverrideRaw"
+        static let bundledSkillsPromptDismissed = "bundledSkillsPromptDismissed"
         static let automaticallyChecksForUpdates = "automaticallyChecksForUpdates"
+        static let updateChannelRaw = "updateChannelRaw"
+        static let pullRequestDestinationRaw = "pullRequestDestinationRaw"
         static let remoteDeviceProjectID = "remoteDeviceProjectID"
         static let remoteDeviceSignInTaskID = "remoteDeviceSignInTaskID"
     }
@@ -109,7 +111,7 @@ final class AppSettings {
     init(
         defaults: UserDefaults = .standard,
         domainName: String = Bundle.main.bundleIdentifier ?? "",
-        initialAccentPaletteSlot: () -> Int? = SystemAccent.paletteSlot
+        initialAccentPaletteSlot: @MainActor () -> Int? = SystemAccent.paletteSlot
     ) {
         self.defaults = defaults
         self.dismissedMissingProviders = Set((defaults.stringArray(forKey: Key.dismissedMissingProviders) ?? []).compactMap(AgentProviderKind.init(rawValue:)))
@@ -295,10 +297,16 @@ final class AppSettings {
             ?? ShortcutBindings()
 
         self.hasPromptedForFullDiskAccess = defaults.bool(forKey: Key.hasPromptedForFullDiskAccess)
+        self.bundledSkillsPromptDismissed = defaults.bool(forKey: Key.bundledSkillsPromptDismissed)
 
-        let projectsConfiguration = defaults.data(forKey: ProjectsConfiguration.userDefaultsKey)
+        var projectsConfiguration = defaults.data(forKey: ProjectsConfiguration.userDefaultsKey)
             .flatMap { try? JSONDecoder().decode(ProjectsConfiguration.self, from: $0) }
             ?? ProjectsConfiguration()
+        if let legacy = defaults.string(forKey: Key.pullRequestDestinationRaw) {
+            projectsConfiguration = Self.migratingPullRequestDestination(legacy: legacy, into: projectsConfiguration)
+            defaults.set(try? JSONEncoder().encode(projectsConfiguration), forKey: ProjectsConfiguration.userDefaultsKey)
+            defaults.removeObject(forKey: Key.pullRequestDestinationRaw)
+        }
         self.projectsConfiguration = projectsConfiguration
 
         let storedNerdFontMode = defaults.string(forKey: NerdFontMode.userDefaultsKey)
@@ -308,12 +316,10 @@ final class AppSettings {
             defaults.set(legacyNerdFontMode.rawValue, forKey: NerdFontMode.userDefaultsKey)
         }
 
-        self.updateInstallSourceOverride = defaults.string(forKey: Key.updateInstallSourceOverrideRaw)
-            .flatMap(UpdateInstallSource.init(rawValue:))
-
         self.automaticallyChecksForUpdates = defaults.object(forKey: Key.automaticallyChecksForUpdates) == nil
             ? true
             : defaults.bool(forKey: Key.automaticallyChecksForUpdates)
+        self.updateChannel = defaults.string(forKey: Key.updateChannelRaw).flatMap(UpdateChannel.init(rawValue:)) ?? .stable
     }
 
     /// Overrides where worktrees are created. Nil (the default) means
@@ -863,6 +869,19 @@ final class AppSettings {
         defaults.removeObject(forKey: Key.legacyIgnoredPendingChecks)
     }
 
+    /// The retired global destination becomes the defaults row's, unless the
+    /// row already has one.
+    nonisolated static func migratingPullRequestDestination(
+        legacy: String,
+        into configuration: ProjectsConfiguration
+    ) -> ProjectsConfiguration {
+        var updated = configuration
+        if updated.defaults.pullRequestDestination == nil {
+            updated.defaults.pullRequestDestination = PullRequestDestination(rawValue: legacy)
+        }
+        return updated
+    }
+
     /// `names` appended to the defaults row's list and to every project
     /// row that sets its own, skipping blanks and names already there. The
     /// legacy list applied everywhere, and a project's list replaces the
@@ -909,6 +928,14 @@ final class AppSettings {
         }
     }
 
+    /// Set by Not Now on Home's offer to install the bundled skills. Settings
+    /// still offers them.
+    var bundledSkillsPromptDismissed: Bool {
+        didSet {
+            defaults.set(bundledSkillsPromptDismissed, forKey: Key.bundledSkillsPromptDismissed)
+        }
+    }
+
     /// The model a new Claude tab runs on: the pinned default, else what the
     /// CLI's own settings configure. Nil when neither names one.
     var resolvedDefaultModel: AgentModel? {
@@ -942,17 +969,39 @@ final class AppSettings {
         }
     }
 
-    /// Overrides `UpdateController.isHomebrewInstall` detection. Nil (the
-    /// default) means "use whatever was detected".
-    var updateInstallSourceOverride: UpdateInstallSource? {
-        didSet {
-            defaults.set(updateInstallSourceOverride?.rawValue, forKey: Key.updateInstallSourceOverrideRaw)
-        }
-    }
-
     var automaticallyChecksForUpdates: Bool {
         didSet {
             defaults.set(automaticallyChecksForUpdates, forKey: Key.automaticallyChecksForUpdates)
+        }
+    }
+
+    var updateChannel: UpdateChannel {
+        didSet {
+            defaults.set(updateChannel.rawValue, forKey: Key.updateChannelRaw)
+        }
+    }
+
+}
+
+enum UpdateChannel: String, CaseIterable, Identifiable {
+    case stable
+    case beta
+
+    var id: String { rawValue }
+
+    var displayName: String {
+        switch self {
+        case .stable: "Stable (default)"
+        case .beta: "Beta"
+        }
+    }
+
+    /// The `<sparkle:channel>` names Sparkle may offer. An item with no
+    /// channel tag is always allowed, which is every stable release.
+    var sparkleChannels: Set<String> {
+        switch self {
+        case .stable: []
+        case .beta: ["beta"]
         }
     }
 }

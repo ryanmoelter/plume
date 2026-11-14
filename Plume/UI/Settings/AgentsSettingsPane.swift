@@ -68,6 +68,10 @@ struct AgentsSettingsPane: View {
                 }
             }
 
+            if isInstalled(.claudeCode) {
+                BundledSkillsSection()
+            }
+
             if isInstalled(.codex) {
                 Section("Codex") {
                     Picker("New tabs start in", selection: $settings.defaultCodexCollaborationMode) {

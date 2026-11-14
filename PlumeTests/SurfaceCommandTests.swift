@@ -40,7 +40,9 @@ import Testing
         let path = try String(contentsOf: output, encoding: .utf8)
         let executableDirectory = try #require(Bundle.main.executableURL).deletingLastPathComponent().path
         #expect(!path.split(separator: ":").contains { $0 == executableDirectory }, "PATH: \(path)")
-        #expect(path == ProcessInfo.processInfo.environment["PATH"])
+        let processPath = try #require(ProcessInfo.processInfo.environment["PATH"])
+        let helpersDirectory = CommandLineHelper.bundledURL?.deletingLastPathComponent()
+        #expect(path == CommandLineHelper.appending(helpersDirectory, toPath: processPath))
     }
 
     /// One terminal, its surface and window, running `script` under a marker

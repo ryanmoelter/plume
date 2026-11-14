@@ -1,5 +1,135 @@
 # Changelog
 
+## 0.20.0-beta.1 (41)
+
+### New
+
+- Clean up the info pane
+  - Show sections more clearly
+  - Make it less overwhelming
+  - Sort pull requests and Linear issues by status
+  - Open a check's page when clicking it
+- Show link chips for more links
+  - Bare GitHub PR and Linear links
+  - Linear Diffs PR links
+  - claude.ai artifact links
+- Optionally open all PR links in GitHub or Linear Diffs, in Settings > Projects
+- Show files an agent sends: images inline, other files as cards
+- Restart a conversation's Claude process from its tab to clear transient bugs
+- Rebind the composer's formatting shortcuts (Bold, Italic, Code, Link) in Settings > Shortcuts
+- Page the transcript with Page Up and Page Down while typing
+- Let agents link a Linear issue to their task with `plume issue link`
+- Place a device tab's toolbar on the side that leaves the device the most room
+- Order Home's Idle section by most recently opened
+- Link to the running version's release notes from Settings > About
+- Misc fixes
+  - Show Linear's in-progress states as a progress pie, matching Linear
+  - Click a subagent row in the chat to open its transcript
+  - Offer "Always allow" choices on permission requests
+  - Use far less CPU when an agent runs many subagents
+  - Keep a task's branch row when another task in the same folder is deleted
+  - Stop child processes from outliving Plume through inherited pipes
+
+### Recently
+
+- Include agent skills for Plume's CLI tools
+- Get Beta updates through Settings > Updates > Update source
+- Add Home page, to keep track of all your chats
+- Host Android emulators, physical devices, and remote devices in a tab
+- Mention Linear issues, pull requests, and files in the composer with `@` and `#`
+
+## 0.19.1 (40)
+
+### Fixed
+
+- Fix Beta updates
+
+### 0.19.0
+
+- Bundle Plume's agent skills, and offer to install them from Home
+  - Teach agents to use `plume`, `plume devices`, `plume wt`, and `plume stack`
+- Get Beta updates through Settings > Updates > Update source
+- Update using the built-in updater, even when installed via Homebrew
+- See subagents and background work on Home, as chips on each item
+- Update rendering of plans and subagent transcripts to share the chat's renderer
+  - This means all improvement to the main chat like copy/paste across items, link chips for GitHub/Linear, etc. all work in plans and subagents
+- Improve Android device tabs
+  - Pair a phone over Wi-Fi with a QR code or pairing code
+  - Render emulators on the GPU, using about 95% less CPU
+  - Copy/paste with the Mac clipboard into any device tab
+  - Fold and unfold foldable emulators from the tab
+  - Lower a physical device's video quality on a slow connection
+  - Use less memory/CPU when streaming physical devices
+  - Allow agents to specify phone/tablet/foldable instead of a specific model when reserving remote devices
+- Make the info pane clearer
+  - Show all PRs in the same section
+  - List all check statuses for a given PR
+  - Copy a Linear issue's link from its row
+- Add the extended color palette, and match Home's sun and moon to your theme
+- Misc fixes
+  - Polish the composer
+    - Keep code blocks and text inside list items, indented like CommonMark
+    - Paste a URL over selected text to link it
+  - Show a tooltip on file chips with the file's full path
+  - Show new project/worktree/folder options at the top of their dropdowns
+  - ⌘⇧H opens Home
+  - On Home, choosing a group picks its project
+  - Mark a task unread when its terminal rings the bell
+  - Stop agents from outliving Plume after a crash
+  - Fix a rare transcript issue when an agent moves into a worktree
+
+### Recently
+
+- Add Home page, to keep track of all your chats
+- Add `plume devices`, to manage Android devices and emulators for agents
+- Host Android emulators, physical devices, and remote devices in a tab
+- Mention Linear issues, pull requests, and files in the composer with `@` and `#`
+- Add the `plume` command-line tool, with `plume wt` and `plume stack`
+
+## 0.19.0 (39)
+
+### New
+
+- Bundle Plume's agent skills, and offer to install them from Home
+  - Teach agents to use `plume`, `plume devices`, `plume wt`, and `plume stack`
+- Get Beta updates through Settings > Updates > Update source
+- Update using the built-in updater, even when installed via Homebrew
+- See subagents and background work on Home, as chips on each item
+- Update rendering of plans and subagent transcripts to share the chat's renderer
+  - This means all improvement to the main chat like copy/paste across items, link chips for GitHub/Linear, etc. all work in plans and subagents
+- Improve Android device tabs
+  - Pair a phone over Wi-Fi with a QR code or pairing code
+  - Render emulators on the GPU, using about 95% less CPU
+  - Copy/paste with the Mac clipboard into any device tab
+  - Fold and unfold foldable emulators from the tab
+  - Lower a physical device's video quality on a slow connection
+  - Use less memory/CPU when streaming physical devices
+  - Allow agents to specify phone/tablet/foldable instead of a specific model when reserving remote devices
+- Make the info pane clearer
+  - Show all PRs in the same section
+  - List all check statuses for a given PR
+  - Copy a Linear issue's link from its row
+- Add the extended color palette, and match Home's sun and moon to your theme
+- Misc fixes
+  - Polish the composer
+    - Keep code blocks and text inside list items, indented like CommonMark
+    - Paste a URL over selected text to link it
+  - Show a tooltip on file chips with the file's full path
+  - Show new project/worktree/folder options at the top of their dropdowns
+  - ⌘⇧H opens Home
+  - On Home, choosing a group picks its project
+  - Mark a task unread when its terminal rings the bell
+  - Stop agents from outliving Plume after a crash
+  - Fix a rare transcript issue when an agent moves into a worktree
+
+### Recently
+
+- Add Home page, to keep track of all your chats
+- Add `plume devices`, to manage Android devices and emulators for agents
+- Host Android emulators, physical devices, and remote devices in a tab
+- Mention Linear issues, pull requests, and files in the composer with `@` and `#`
+- Add the `plume` command-line tool, with `plume wt` and `plume stack`
+
 ## 0.18.0 (38)
 
 ### New

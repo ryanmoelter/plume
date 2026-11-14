@@ -45,6 +45,21 @@ struct LinearSyncCacheTests {
         #expect(cache.issue(identifier: "p-1")?.title == "New")
     }
 
+    @Test func aSummaryAndDueDateSurviveTheCacheAndAJSONRoundTrip() throws {
+        let held = snapshot("P-1")
+        var issue = held.issue
+        issue.summary = "Opening line"
+        issue.dueDate = "2026-11-05"
+        var cache = LinearSyncCache(orgID: "A")
+        cache.upsert(LinearIssueSnapshot(
+            id: held.id, updatedAt: held.updatedAt, archivedAt: nil, isTrashed: false,
+            state: held.state, assignee: nil, teamID: held.teamID, issue: issue
+        ))
+        let decoded = try JSONDecoder().decode(LinearSyncCache.self, from: JSONEncoder().encode(cache))
+        #expect(decoded.issue(identifier: "P-1")?.summary == "Opening line")
+        #expect(decoded.issue(identifier: "P-1")?.dueDate == "2026-11-05")
+    }
+
     @Test func reapplyingTheSameSnapshotAtTheCursorEdgeIsIdempotent() {
         var cache = LinearSyncCache(orgID: "A")
         let issue = snapshot("P-1", at: 10)
@@ -186,6 +201,15 @@ struct LinearSyncCacheTests {
         await disk.save(LinearSyncCache(orgID: "A"), sequence: 2)
 
         #expect(await disk.loadIssues(orgID: "A") == nil)
+    }
+
+    @Test func aStatePositionSurvivesAndAnOldStateWithoutOneStillDecodes() throws {
+        let positioned = LinearWorkflowState(id: "s", name: "In Review", type: .started, color: "#111111", position: 2.5)
+        let decoded = try JSONDecoder().decode(LinearWorkflowState.self, from: JSONEncoder().encode(positioned))
+        #expect(decoded.position == 2.5)
+
+        let old = Data(##"{"id":"s","name":"Todo","type":"unstarted","color":"#e2e2e2"}"##.utf8)
+        #expect(try JSONDecoder().decode(LinearWorkflowState.self, from: old).position == nil)
     }
 
     @Test func aCacheFromAnotherFormatVersionIsDiscarded() async throws {

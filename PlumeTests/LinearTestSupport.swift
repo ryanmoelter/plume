@@ -62,6 +62,7 @@ actor FakeLinearWorkspace {
     }
     func set(issueFailures: [String: String]) { self.issueFailures = issueFailures }
     func set(issueError: Error?) { self.issueError = issueError }
+    func set(catalog: LinearCatalog) { self.catalog = catalog }
     func set(catalogError: Error?) { self.catalogError = catalogError }
     func set(viewerError: Error?) { self.viewerError = viewerError }
     func set(rateLimit: LinearRateLimit?) { self.rateLimit = rateLimit }
@@ -190,7 +191,8 @@ nonisolated enum LinearTestFixtures {
             archivedAt: nil,
             isTrashed: isTrashed,
             state: LinearWorkflowState(
-                id: "state-\(issue.stateName)", name: issue.stateName, type: issue.stateType, color: issue.stateColor),
+                id: "state-\(issue.stateName)", name: issue.stateName, type: issue.stateType, color: issue.stateColor,
+                position: issue.statePosition),
             assignee: issue.assigneeName.map { LinearUser(id: "user-\($0)", name: $0) },
             teamID: "team-\(issue.teamKey)",
             issue: issue

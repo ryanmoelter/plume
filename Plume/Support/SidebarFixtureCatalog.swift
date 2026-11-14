@@ -43,7 +43,7 @@ nonisolated struct SidebarFixtureCase: Equatable {
 /// of row to check — a new `PullRequestFetchState`, a problematic chat
 /// transcript — means appending a case here, not touching the seeding
 /// plumbing in `SidebarFixtures`.
-enum SidebarFixtureCatalog {
+nonisolated enum SidebarFixtureCatalog {
     /// A pull request in every review/check combination the chip draws
     /// differently. Draft, merged and closed intentionally leave checks and
     /// review off the fixture PR (`TaskRowDetails`/`PullRequestChip` don't

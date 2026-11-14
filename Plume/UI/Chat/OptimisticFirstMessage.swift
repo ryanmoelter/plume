@@ -116,7 +116,7 @@ final class PendingFirstMessageStore {
     }
 }
 
-extension ChatMessage {
+nonisolated extension ChatMessage {
     /// The message's plain prose, ignoring tool calls, thinking and injected
     /// content — what a user actually typed, when a user typed it.
     var prose: String {
@@ -130,7 +130,7 @@ extension ChatMessage {
     }
 }
 
-extension ChatMessage {
+nonisolated extension ChatMessage {
     /// The text of an injected line — a `!` command among them — which
     /// carries no prose to match a pending message against.
     var injectedText: String {

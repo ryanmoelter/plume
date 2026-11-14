@@ -1,5 +1,6 @@
 import Testing
 import Foundation
+import Synchronization
 @testable import Plume
 
 /// Records every request so the batching claim — one call per repository, not
@@ -144,16 +145,16 @@ struct PullRequestStoreTests {
         store.apply(gitState: Self.pushed("ryanm/branch"), for: "/repo/wt")
         await store.settle()
 
-        var publishes = 0
+        let publishes = Mutex(0)
         withObservationTracking {
             _ = store.state(for: "/repo/wt")
         } onChange: {
-            publishes += 1
+            publishes.withLock { $0 += 1 }
         }
 
         store.apply(gitState: Self.pushed("ryanm/branch"), for: "/repo/wt")
         await store.settle()
-        #expect(publishes == 0)
+        #expect(publishes.withLock { $0 } == 0)
     }
 
     @Test func releasingTheLastReferenceDropsTheDirectory() async {

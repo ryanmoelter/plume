@@ -172,7 +172,7 @@ Two files ship for it and the build puts both in place:
 - An unreachable helper is asked at most three times per launch and never reinstalled for its version.
 - A test host never changes the registration on its own. It is the Debug app, and launchd has one job for every install.
 
-**A Homebrew upgrade unloads the helper, and the app re-registers it.** A `brew upgrade` goes further than an in-place update. The cask's `uninstall launchctl:` step boots the job out of launchd, but Background Task Management keeps the approval, so `SMAppService.status` still reads `.enabled` while every connection fails at lookup (launchd logs `failed lookup: name = com.ryanmoelter.Plume.SleepHelper … error = 3: No such process`). `.enabled` therefore means approved, not loaded. `DaemonLidSleepOverride` checks `launchctl print system/com.ryanmoelter.Plume.SleepHelper`, which needs no root, at launch and after the first failed engage of a streak. If the job is missing, the app re-registers it once, through `SleepHelperReregistration`. A plain `register()` goes first. If launchd still has no job, the app unregisters, polls until the status reads not registered, and registers again, retrying a refused register after 0.5, 1, 2 and 4 s. An unregister does not reliably keep the approval: a register straight after one has been refused in the field, with `smd` logging `Job is not allowed to bootstrap`. If every attempt fails, the panel offers Install or Reinstall. The version reinstall and the Reinstall button take the same path, minus the plain register when the job is still loaded. Failed engages back off from one second to a one-minute cap (`SleepHelperRetryPolicy`). After three failures in a row the helper reads as not responding: the lid toggle disables, and Settings → Keep Awake offers "Reinstall", which runs the same sequence by hand. With no hold active nothing retries, so returning to Plume or opening the panel asks the helper again.
+**A Homebrew upgrade unloads the helper, and the app re-registers it.** Sparkle updates a Homebrew install too, so this happens only on `brew upgrade --greedy`, a reinstall through Homebrew, or the last brew-driven upgrade of an older Homebrew install. Either goes further than an in-place update. The cask's `uninstall launchctl:` step boots the job out of launchd, but Background Task Management keeps the approval, so `SMAppService.status` still reads `.enabled` while every connection fails at lookup (launchd logs `failed lookup: name = com.ryanmoelter.Plume.SleepHelper … error = 3: No such process`). `.enabled` therefore means approved, not loaded. `DaemonLidSleepOverride` checks `launchctl print system/com.ryanmoelter.Plume.SleepHelper`, which needs no root, at launch and after the first failed engage of a streak. If the job is missing, the app re-registers it once, through `SleepHelperReregistration`. A plain `register()` goes first. If launchd still has no job, the app unregisters, polls until the status reads not registered, and registers again, retrying a refused register after 0.5, 1, 2 and 4 s. An unregister does not reliably keep the approval: a register straight after one has been refused in the field, with `smd` logging `Job is not allowed to bootstrap`. If every attempt fails, the panel offers Install or Reinstall. The version reinstall and the Reinstall button take the same path, minus the plain register when the job is still loaded. Failed engages back off from one second to a one-minute cap (`SleepHelperRetryPolicy`). After three failures in a row the helper reads as not responding: the lid toggle disables, and Settings → Keep Awake offers "Reinstall", which runs the same sequence by hand. With no hold active nothing retries, so returning to Plume or opening the panel asks the helper again.
 
 Re-registering logs `Unknown key for plist importer (key: _Quarantined …)` and `(key: SHA256 …)` from launchd. They are harmless. They are bookkeeping keys that `smd` adds to the job it submits, launchd ignores them, and the job loads and runs regardless.
 
@@ -275,13 +275,15 @@ scripts/package-release.sh
 
 The second run reuses nothing — it rebuilds and re-notarizes, which takes the same few minutes. It also refuses if the tag points anywhere but `HEAD`, so the DMG and the tagged source always agree.
 
-**Before publishing, update a real install to the candidate.** On a second Mac or a VM, install the previous release's DMG. Serve the new DMG and `out/appcast.xml` locally, point that install at the feed (step 4 of *Testing an update end-to-end*), and install the update through Sparkle. Plume must relaunch as the new version. This is the only check of the Developer ID signature, the EdDSA signature and the installer together; a failure here strands every DMG user on the old version.
+**Before publishing, update a real install to the candidate.** On a second Mac or a VM, install the previous release's DMG. Serve the new DMG and `out/feed/appcast.xml` locally, point that install at the feed (step 4 of *Testing an update end-to-end*), and install the update through Sparkle. Plume must relaunch as the new version. This is the only check of the Developer ID signature, the EdDSA signature and the installer together; a failure here strands every DMG user on the old version.
 
-Then review the draft on GitHub and publish it:
+Then review the draft on GitHub, publish it, and publish the feed:
 
 ```
-gh release edit v0.5.1 --draft=false
+gh release edit v0.5.1 --draft=false && scripts/publish-feed.sh out/feed/appcast.xml
 ```
+
+The script prints this command with the real paths. Publish the feed only after the release: until then the DMG URL in the feed 404s. **Never change a GitHub release once it is published** — no upload, no `--clobber`, no edit. Immutable releases forbid it, and they may be turned back on. A mistake in a published release means a new version. *The appcast* covers the feed.
 
 ### The DMG is built with `hdiutil`, not `create-dmg`
 
@@ -319,7 +321,7 @@ First launch prompts for permissions the build machine granted long ago, since P
 
 ## Sparkle auto-updates
 
-A DMG install updates itself through Sparkle 2.10.0, pinned exactly. `package-release.sh` builds the appcast that drives it, on top of the DMG steps above.
+Every install updates itself through Sparkle 2.10.0, pinned exactly, whether it came from the DMG or from Homebrew. `package-release.sh` builds the appcast that drives it, on top of the DMG steps above.
 
 ### The EdDSA key
 
@@ -329,9 +331,43 @@ The private key that signs each update lives only in 1Password, at `op://Plume/P
 
 ### The appcast
 
-`SUFeedURL`, set in `Configuration/Info.plist`, is fixed: `https://github.com/ryanmoelter/plume/releases/latest/download/appcast.xml`. Every release has to publish an `appcast.xml` describing itself, as a release asset next to the DMG. `package-release.sh` signs the DMG with `sign_update` and writes the file.
+One appcast serves every install, stable and beta. Its URL is `SUFeedURL` in `Configuration/Info.plist`, and that is the only place it lives: `package-release.sh` and `publish-feed.sh` read it from there (`appcast_feed_url` in `scripts/lib/appcast.sh`). The feed is hosted at a URL the project controls, not on a GitHub release, because a release's assets can never change once immutable releases are on.
 
-The appcast goes live when the draft is published, same as the DMG — a draft or a prerelease never appears to it. Release notes live in `CHANGELOG.md`, one `## <version> (<build>)` section per release, newest first. The top section becomes the GitHub release body and, unchanged, the appcast's description in Sparkle's `markdown` format. Its `### Recently` list covers the releases a user may have skipped.
+**The feed is `site/appcast.xml` on `main`, served by GitHub Pages at `https://plumeformac.com/appcast.xml`.** `.github/workflows/pages.yml` deploys `site/` whenever `main` changes it. `scripts/publish-feed.sh` copies the new appcast there byte for byte, commits `Publish the <version> appcast`, pushes `main`, and waits until the URL serves the same bytes. It runs only on `main` with no uncommitted tracked changes, and it refuses an appcast whose newest build is below the published one. An agent sets `CO_AUTHOR="<model> <noreply@anthropic.com>"` so the commit carries its trailer. A bad feed rolls back with `git revert` of that commit and a push.
+
+The domain's DNS lives at DigitalOcean: four `A` records on the apex point at GitHub Pages (`185.199.108.153` through `185.199.111.153`). The repository's Pages settings hold the custom domain and use the GitHub Actions source.
+
+`package-release.sh` builds the appcast in three steps:
+
+1. It fetches the published appcast from `SUFeedURL`. If that 404s, it falls back to the latest stable release's `appcast.xml` asset.
+2. It fails unless the new build's `CFBundleVersion` is above every `sparkle:version` in it, beta or stable. Sparkle compares that number to decide an update exists.
+3. It adds the new item and writes `out/feed/appcast.xml` (`appcast_compose`). The file keeps the newest stable item and the newest beta item above it. Sparkle offers the highest build among the channels an install allows, so no install would ever pick an older item.
+
+A stable release also attaches that same file to its GitHub release as `appcast.xml`. Plume 0.19.0 and older read `https://github.com/ryanmoelter/plume/releases/latest/download/appcast.xml`, and this keeps them updating. They allow no channel, so they skip the beta item. A beta release attaches only its DMG, since `releases/latest` never points at a prerelease. A 0.19.0 install set to Beta reads the retired `beta-feed` URL instead, which can never be published again, so it gets no update until its user switches to Stable or downloads a DMG.
+
+Release notes live in `CHANGELOG.md`, one `## <version> (<build>)` section per release, newest first. The top section becomes the GitHub release body and, unchanged, the appcast item's description in Sparkle's `markdown` format. The item's `sparkle:fullReleaseNotesLink` points at the release's GitHub page. Its `### Recently` list covers the releases a user may have skipped.
+
+`scripts/test-appcast.sh` tests the merge without building or signing anything. Pass `--show` to print each composed appcast.
+
+### Beta releases
+
+Betas reach only users who set Settings ▸ Updates ▸ **Update source** to **Beta** (the default is **Stable**). A beta's appcast item carries `<sparkle:channel>beta</sparkle:channel>`. The picker sets `UpdateChannel`, and `UpdateController` returns its `sparkleChannels` from Sparkle's `allowedChannels(for:)`: `["beta"]` for Beta, none for Stable. An item without a channel is always allowed, so a beta user is offered whichever of the beta and the stable release has the higher build. A beta user therefore moves onto the stable release once it overtakes their beta. Changing the picker runs a background check at once, so the sidebar row drops a beta that Stable no longer allows.
+
+A user who switches back to Stable keeps their build. Sparkle offers them any stable release with a higher build. Usually that is the stable release the beta leads up to. But a hotfix shipped mid-cycle also has a higher build, so a user who opts out during a `0.20.0` beta can be offered `0.19.1`, a downgrade in marketing version.
+
+**A hotfix during a beta cycle reaches beta users too.** A `0.19.1` hotfix during the `0.20.0` betas needs a higher build than the live beta, and the beta channel also allows stable items. So Sparkle offers `0.19.1` to users on `0.20.0-beta.1`, a downgrade in marketing version, and the composed appcast drops the older beta item. Cut a new beta right after such a hotfix to move beta users forward again.
+
+Betas are tagged and released on `main`. `package-release.sh --beta` fails on any other branch. Another branch needs the maintainer's explicit approval, and only then may the run pass `--allow-branch`. Agents must never pass `--allow-branch` without that approval.
+
+To cut a beta:
+
+1. Set `MARKETING_VERSION` to the coming release with a `-beta.<n>` suffix: `0.20.0-beta.1`, then `0.20.0-beta.2`. Xcode quotes it in the project file; leave the quotes.
+2. Bump `CURRENT_PROJECT_VERSION` as for any release. Build numbers keep rising across betas and stable releases alike. The stable `0.20.0` takes a higher build than its last beta, or beta users never get it.
+3. Head the `CHANGELOG.md` section `## 0.20.0-beta.1 (<build>)`. The stable release gets its own `## 0.20.0 (<build>)` section later.
+4. Run `scripts/package-release.sh --beta` on `main`. It refuses a version without a `-beta.<n>` suffix, and the plain script refuses one with any suffix. The draft is its own prerelease tagged `v0.20.0-beta.1`, with its own DMG and its changelog section as the body.
+5. Publish the release and then the feed with the command the script prints.
+
+Betas never reach Homebrew. `update-tap.sh` refuses a version with a suffix.
 
 ### Signing
 
@@ -349,16 +385,16 @@ scripts/debug/serve-test-appcast.sh              # version 99.0.0, build 9999 by
 scripts/debug/serve-test-appcast.sh 1.2.3 42     # or pick your own
 ```
 
-It copies the built Debug app, bumps its version, re-signs it, signs the update with the EdDSA key at `SPARKLE_KEY_REF`, and serves an appcast on `http://localhost:8765`, pointing the Debug build's `PlumeUpdateFeedURLOverride` default at it. Launch the Debug build and open Settings ▸ **Debug** — `#if DEBUG` only — to override the install source, apply a feed URL without relaunching, run the scheduled background check now, or reset the skipped version and the last-check date. Ctrl-C stops the server, removes the temp dir, and clears the default. Installing the update replaces the DerivedData Debug app with the bumped copy; rebuild to restore the real one.
+It copies the built Debug app, bumps its version, re-signs it, signs the update with the EdDSA key at `SPARKLE_KEY_REF`, and serves an appcast on `http://localhost:8765`, pointing the Debug build's `PlumeUpdateFeedURLOverride` default at it. Launch the Debug build and open Settings ▸ **Debug** — `#if DEBUG` only — to apply a feed URL without relaunching, run the scheduled background check now, or reset the skipped version and the last-check date. The feed URL override replaces `SUFeedURL` but not the channel: a beta item in a served appcast shows only while the "Update source" picker is on Beta. Ctrl-C stops the server, removes the temp dir, and clears the default. Installing the update replaces the DerivedData Debug app with the bumped copy; rebuild to restore the real one.
 
-For an install-source test against a genuine **installed Release build** (Developer ID signed, not the script's ad hoc signature) — confirming the Homebrew-vs-Plume detection, say, or a real installer swap — there's no shortcut:
+For a test against a genuine **installed Release build** (Developer ID signed, not the script's ad hoc signature) — a real installer swap, say, or a Homebrew-installed copy updating in place — there's no shortcut:
 
 1. Install an older Release build (`scripts/install-release.sh`).
 2. Bump the version and build a higher-version signed DMG (`scripts/package-release.sh`, or the DMG steps above by hand).
-3. Serve the DMG and the `appcast.xml` that `package-release.sh` wrote — e.g. `python3 -m http.server 8000` from the `out/` directory.
+3. Serve the DMG and the `feed/appcast.xml` that `package-release.sh` wrote — e.g. `python3 -m http.server 8000` from the `out/` directory.
 4. Point the installed app at that local feed:
    ```
-   defaults write com.ryanmoelter.Plume PlumeUpdateFeedURLOverride http://localhost:8000/appcast.xml
+   defaults write com.ryanmoelter.Plume PlumeUpdateFeedURLOverride http://localhost:8000/feed/appcast.xml
    ```
 5. Launch the app and use Check for Updates….
 6. `defaults delete com.ryanmoelter.Plume PlumeUpdateFeedURLOverride` afterward, so the installed app goes back to the real feed.
@@ -369,17 +405,21 @@ Existing DMG installs have no updater yet, so the release that adds Sparkle reac
 
 ## Publishing to Homebrew
 
-`ryanmoelter/homebrew-tap` carries a cask, `Casks/plume.rb`, that installs the DMG built above: `brew install ryanmoelter/tap/plume`, `brew upgrade --cask ryanmoelter/tap/plume`. Casks and formulae coexist in that one repo.
+`ryanmoelter/homebrew-tap` carries a cask, `Casks/plume.rb`, that installs the DMG built above: `brew install ryanmoelter/tap/plume`. Casks and formulae coexist in that one repo.
 
-The cask carries no `auto_updates` and doesn't need one: Sparkle only tells a Homebrew install that an update exists (detected via a `Caskroom/plume` directory) and offers to run `brew upgrade --cask ryanmoelter/tap/plume` in Terminal.app, rather than installing anything itself. The script reopens Plume afterwards, because the cask's `uninstall quit:` quits it during the upgrade. Brew stays the actual update path for cask users.
+**Homebrew installs Plume; Sparkle updates it.** The cask declares `auto_updates true` (the 0.19.0 tap bump adds it), so `brew upgrade` skips Plume, and the app updates itself in place like a DMG install. Sparkle can write over `/Applications/Plume.app` even though Homebrew put it there. The Caskroom's recorded version goes stale, which matters only to `brew upgrade --greedy`. The cask keeps `uninstall quit:` and its `launchctl` step, because `brew uninstall` still needs them.
 
-After a release is public (not a draft), bump the cask:
+An older Homebrew install still has its own update window, which runs `brew upgrade --cask ryanmoelter/tap/plume`. Naming the cask upgrades it even with `auto_updates true`, so that last brew-driven upgrade installs a Sparkle-only build, and Sparkle updates it from then on.
+
+**The tap bump is mandatory for every stable release.** New downloads get the newest version, and `brew upgrade --greedy` works. Older builds that still update through Homebrew upgrade only through the tap, so if the cask names an older version, `brew upgrade` finds nothing and they stay stranded. The 0.19.0 bump is the one that adds `auto_updates true` to the cask: `update-tap.sh` inserts the line when it is missing and commits it with the version bump. After a stable release is public (not a draft), bump it:
 
 ```
 scripts/update-tap.sh <version>   # e.g. scripts/update-tap.sh 0.12.0
 ```
 
-It clones `ryanmoelter/homebrew-tap` into `mktemp -d`, downloads that version's DMG, computes its sha256, edits `version`/`sha256` in the cask, commits, and pushes — then deletes the temp clone. It refuses if the release for that version is still a draft, since the DMG URL 404s until publication and hashing then would hash bytes nobody can download.
+It clones `ryanmoelter/homebrew-tap` into `mktemp -d`, downloads that version's DMG, computes its sha256, edits `version`/`sha256` in the cask (and adds `auto_updates true` if absent), commits, and pushes — then deletes the temp clone. It refuses if the release for that version is still a draft, since the DMG URL 404s until publication and hashing then would hash bytes nobody can download.
+
+Homebrew links the `plume` tool through the cask's `binary "#{appdir}/Plume.app/Contents/Helpers/plume"` stanza, so `update-tap.sh` fails the bump if that line is missing. The Settings ▸ Command line switch is for DMG installs, and Home's skills install skips linking the tool on a Homebrew install.
 
 The script lives in this (public) repo, so it never references a tap checkout on any particular machine — only the tap's repo name.
 

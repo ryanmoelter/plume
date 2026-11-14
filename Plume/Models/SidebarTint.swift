@@ -5,7 +5,7 @@ import SwiftUI
 ///
 /// A palette slot or extended-palette hue rather than a resolved color, so a
 /// light/dark theme pair gives each appearance its own palette's version of it.
-enum SidebarTint: Hashable {
+nonisolated enum SidebarTint: Hashable {
     /// The theme's text color.
     case text
     case palette(slot: Int)
@@ -101,7 +101,7 @@ enum SidebarIcons {
     /// `popular` with each icon swapped for its `.fill` variant where the OS has one.
     static let popularFilled: [String] = popular.map(filledVariant(of:))
 
-    static func filledVariant(of name: String) -> String {
+    nonisolated static func filledVariant(of name: String) -> String {
         let filled = name + ".fill"
         return NSImage(systemSymbolName: filled, accessibilityDescription: nil) != nil ? filled : name
     }

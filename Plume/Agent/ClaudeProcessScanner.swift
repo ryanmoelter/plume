@@ -21,7 +21,7 @@ enum ClaudeProcessScanner {
         process.executableURL = URL(fileURLWithPath: "/bin/ps")
         process.arguments = ["-Ao", "pid=,command="]
 
-        let output = Pipe()
+        let output = Pipe.closeOnExec()
         process.standardOutput = output
         process.standardError = FileHandle.nullDevice
 
@@ -45,13 +45,15 @@ enum ClaudeProcessScanner {
             let trimmed = line.drop { $0 == " " }
             guard let separator = trimmed.firstIndex(of: " ") else { continue }
             guard let pid = pid_t(trimmed[trimmed.startIndex..<separator]) else { continue }
-            let command = trimmed[separator...]
-            guard command.contains(settingsPath) else { continue }
-            // The login shell that spawned the agent carries the same
-            // settings path on its own command line, and dies with it.
-            guard command.contains("claude") else { continue }
+            guard isPlumeAgent(command: trimmed[separator...], settingsPath: settingsPath) else { continue }
             pids.insert(pid)
         }
         return pids
+    }
+
+    nonisolated static func isPlumeAgent(command: Substring, settingsPath: String) -> Bool {
+        // The login shell that spawned the agent carries the same settings
+        // path on its own command line, and dies with it.
+        command.contains(settingsPath) && command.contains("claude")
     }
 }

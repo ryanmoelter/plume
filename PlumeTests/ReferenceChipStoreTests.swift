@@ -85,6 +85,27 @@ struct ReferenceChipStoreTests {
         #expect(store.icon(for: target) == .pullRequest(number: 7, state: .merged, isDraft: false))
     }
 
+    @Test func aPullRequestNoOwnerShowsIsLookedUpForItsDetail() async {
+        let key = PullRequestLinkSource.Key(owner: "o", repo: "r", number: 7)
+        let entry = PullRequestLinkSource.Entry(number: 7, title: "Fix it", state: .open, isDraft: false, author: "octocat")
+        let store = makeStore(pullRequests: [key: .found(entry)])
+        let target = ReferenceTarget.pullRequest(owner: "o", repo: "r", number: 7)
+        store.lookUpDetail(of: target)
+        store.lookUpDetail(of: .file(path: "/repo/Notes.md"))
+        await store.settled()
+        #expect(store.detail(for: target) == .pullRequest(entry))
+        #expect(store.icon(for: .file(path: "/repo/Notes.md")) == nil)
+        #expect(store.revision(for: ownerA) == 0)
+    }
+
+    @Test func aLinearIssueCarriesItselfAsDetail() async throws {
+        linear.issues["A-1"] = issue("A-1", title: "One")
+        let store = makeStore()
+        store.want([.linear(identifier: "A-1")], owner: ownerA)
+        await store.settled()
+        #expect(store.detail(for: .linear(identifier: "A-1")) == .linear(issue("A-1", title: "One")))
+    }
+
     @Test func onlyTheOwnerOfAnArrivalBumps() async {
         let store = makeStore(files: ["/repo/Notes.md": false])
         store.want([.file(path: "/repo/Notes.md")], owner: ownerA)

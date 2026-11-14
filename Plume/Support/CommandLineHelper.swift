@@ -31,6 +31,48 @@ nonisolated enum CommandLineHelper {
         bundleURL.appending(path: "Contents/Helpers/plume")
     }
 
+    /// The directory holding the bundled tool, when this bundle carries it.
+    static var bundledDirectory: URL? {
+        bundledURL?.deletingLastPathComponent()
+    }
+
+    /// `path` with `directory` last, so a `plume` the user linked still wins.
+    /// A path that already lists it is returned unchanged.
+    static func appending(_ directory: URL?, toPath path: String) -> String {
+        guard let directory else { return path }
+        let entries = path.split(separator: ":", omittingEmptySubsequences: true)
+        guard !entries.contains(where: { $0 == directory.path }) else { return path }
+        return entries.isEmpty ? directory.path : path + ":" + directory.path
+    }
+
+    /// `path` without any app bundle's `Contents/MacOS` or `Contents/Helpers`,
+    /// so another copy's tool can't shadow the one appended afterwards.
+    static func droppingAppDirectories(fromPath path: String) -> String {
+        path.split(separator: ":", omittingEmptySubsequences: false)
+            .filter { !isAppToolDirectory($0) }
+            .joined(separator: ":")
+    }
+
+    private static func isAppToolDirectory(_ entry: Substring) -> Bool {
+        var entry = entry
+        while entry.count > 1, entry.hasSuffix("/") { entry = entry.dropLast() }
+        return entry.hasSuffix(".app/Contents/MacOS") || entry.hasSuffix(".app/Contents/Helpers")
+    }
+
+    /// Posted on the main queue after something other than the Settings pane
+    /// links the tool, so an open pane rereads.
+    static let linksDidChangeNotification = Notification.Name("PlumeCommandLineLinksDidChange")
+
+    /// Whether Home's skills install also links the tool: only when `plume` is
+    /// absent or dangling, and Homebrew's cask isn't what links it.
+    static func linksWithSkillsInstall(plumeState: State?, isHomebrewInstall: Bool) -> Bool {
+        guard !isHomebrewInstall, let plumeState else { return false }
+        switch plumeState {
+        case .notInstalled, .brokenLink: return true
+        case .installed, .occupiedByOther, .ownedByOtherPlume, .outdated: return false
+        }
+    }
+
     /// Where the script lived before the tool replaced it.
     static func legacyScriptURL(inBundle bundleURL: URL) -> URL {
         bundleURL.appending(path: "Contents/Resources/plume-notify")
@@ -203,6 +245,28 @@ nonisolated enum CommandLineHelper {
             try FileManager.default.createSymbolicLink(at: url, withDestinationURL: bundledURL)
         }
         if let firstConflict { throw firstConflict }
+    }
+
+    /// Links every name that is absent, dangling or placed by Plume, and
+    /// skips a name another tool owns without reporting it.
+    static func installAvailable(
+        in directory: URL = installDirectory,
+        bundledURL: URL? = bundledURL
+    ) throws {
+        guard let bundledURL else { throw InstallError.notBundled }
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        for (name, state) in states(in: directory, bundledURL: bundledURL) {
+            let url = directory.appending(path: name)
+            switch state {
+            case .installed, .occupiedByOther:
+                continue
+            case .brokenLink, .outdated, .ownedByOtherPlume:
+                try FileManager.default.removeItem(at: url)
+            case .notInstalled:
+                break
+            }
+            try FileManager.default.createSymbolicLink(at: url, withDestinationURL: bundledURL)
+        }
     }
 
     /// Removes every link any copy of Plume placed, the opt-in commands

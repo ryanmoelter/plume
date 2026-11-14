@@ -4,6 +4,7 @@ import Testing
 /// The context line under a Home row: project, branch, then the first Linear
 /// issue and pull request with a count of the rest. A segment with no data is
 /// left out, and a context with none has no segments at all.
+@MainActor
 struct HomeRowContextTests {
     private typealias Reference = HomeRowContext.Reference
 
@@ -13,7 +14,7 @@ struct HomeRowContextTests {
     }
 
     @Test func everySegmentInOrder() {
-        let issue = Reference(id: "PLUME-334", icon: .linear(.started, colorHex: "#f2c94c"))
+        let issue = Reference(id: "PLUME-334", icon: .linear(.started, progress: .half, colorHex: "#f2c94c"))
         let pullRequest = Reference(id: "#12", icon: .pullRequest(number: 12, state: .open, isDraft: false))
         let context = HomeRowContext(
             project: "Plume",

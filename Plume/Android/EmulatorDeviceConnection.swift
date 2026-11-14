@@ -12,7 +12,8 @@ nonisolated final class EmulatorDeviceConnection: DeviceConnecting {
     }
 
     func connect() async throws -> DeviceConnectionInfo {
-        DeviceConnectionInfo(deviceSize: try await connection.status().displaySize)
+        let status = try await connection.status()
+        return DeviceConnectionInfo(deviceSize: status.displaySize, postures: status.postures.compactMap(DevicePosture.init))
     }
 
     func frames(maxPixelSize: CGSize) -> AsyncThrowingStream<DeviceFrame, Error> {
@@ -90,6 +91,19 @@ nonisolated final class EmulatorDeviceConnection: DeviceConnecting {
         try await connection.rotate(to: rotation.emulatorRotation)
     }
 
+    func posture() async -> DevicePosture? {
+        do {
+            return try await connection.posture().flatMap(DevicePosture.init)
+        } catch {
+            EmulatorLog.error("reading the emulator's posture failed: \(error)")
+            return nil
+        }
+    }
+
+    func setPosture(_ posture: DevicePosture) async throws {
+        try await connection.setPosture(posture.emulatorPosture)
+    }
+
     func autoRotate() async -> Bool? { nil }
     func setAutoRotate(_ enabled: Bool) async -> Bool { false }
 
@@ -105,7 +119,7 @@ nonisolated final class EmulatorDeviceConnection: DeviceConnecting {
     func terminate() {}
 }
 
-private extension DeviceButton {
+private nonisolated extension DeviceButton {
     nonisolated var hardwareButton: HardwareButton {
         switch self {
         case .back: .back
@@ -118,7 +132,27 @@ private extension DeviceButton {
     }
 }
 
-private extension DeviceKey {
+nonisolated extension DevicePosture {
+    /// Nil for the postures Plume offers no control for, such as tent.
+    nonisolated init?(_ posture: EmulatorPosture) {
+        switch posture {
+        case .closed: self = .closed
+        case .halfOpen: self = .halfOpen
+        case .open: self = .open
+        case .flipped, .tent: return nil
+        }
+    }
+
+    nonisolated var emulatorPosture: EmulatorPosture {
+        switch self {
+        case .closed: .closed
+        case .halfOpen: .halfOpen
+        case .open: .open
+        }
+    }
+}
+
+private nonisolated extension DeviceKey {
     nonisolated var input: KeyInput {
         switch self {
         case .mac(let keyCode, let phase): .mac(keyCode: keyCode, phase: phase.keyPhase)
@@ -127,7 +161,7 @@ private extension DeviceKey {
     }
 }
 
-private extension DeviceKeyPhase {
+private nonisolated extension DeviceKeyPhase {
     nonisolated var keyPhase: KeyPhase {
         switch self {
         case .down: .down

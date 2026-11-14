@@ -161,17 +161,17 @@ enum ThemeChrome {
         "666666", "d54e53", "b9ca4a", "e7c547", "7aa6da", "c397d8", "70c0b1", "eaeaea",
     ]
 
-    static let paletteSlots = 0..<16
+    nonisolated static let paletteSlots = 0..<16
 
     /// Names for the 16 ANSI slots, in slot order.
-    static let paletteSlotNames = [
+    nonisolated static let paletteSlotNames = [
         "Black", "Red", "Green", "Yellow", "Blue", "Magenta", "Cyan", "White",
         "Bright Black", "Bright Red", "Bright Green", "Bright Yellow",
         "Bright Blue", "Bright Magenta", "Bright Cyan", "Bright White",
     ]
 
     /// Lum's names for its six ANSI hues, by normal slot.
-    static let lumSlotNames: [Int: String] = [
+    nonisolated static let lumSlotNames: [Int: String] = [
         1: "Goji", 2: "Lime", 3: "Tangerine", 4: "Blue raspberry", 5: "Grape", 6: "Food coloring",
     ]
 

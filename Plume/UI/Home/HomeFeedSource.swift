@@ -12,6 +12,7 @@ struct HomeFeedSource {
     var taskTitle: (WorkTask) -> String
     var tabTitle: (TaskTab) -> String
     var context: (WorkTask, TaskTab) -> HomeRowContext = { _, _ in HomeRowContext() }
+    var sideWork: (TaskTab) -> [HomeSideWork] = { _ in [] }
 
     static var live: HomeFeedSource {
         HomeFeedSource(
@@ -33,7 +34,8 @@ struct HomeFeedSource {
             },
             taskTitle: { TitleStore.shared.displayTitle(for: $0) },
             tabTitle: { TitleStore.shared.title(forTab: $0.id) ?? $0.displayTitle },
-            context: HomeRowContext.live(task:tab:)
+            context: HomeRowContext.live(task:tab:),
+            sideWork: HomeSideWork.live(tab:)
         )
     }
 }
@@ -76,11 +78,27 @@ extension HomeRowContext {
                     Reference(
                         id: link.identifier,
                         icon: LinearStore.shared.state(for: link.identifier)?.issue
-                            .map { .linear($0.stateType, colorHex: $0.stateColor) }
+                            .map { ReferenceChipIcon.linear($0) }
                     )
                 }
         }
         return context
+    }
+}
+
+extension HomeSideWork {
+    /// Reads the stores that already feed `setSubagentActivity` and the
+    /// keep-awake reasons; Home tracks nothing of its own.
+    static func live(tab: TaskTab) -> [HomeSideWork] {
+        let subagents = switch tab.provider {
+        case .claudeCode: TranscriptStore.shared.subagents(forTab: tab.id)
+        case .codex: CodexSubagentStore.shared.subagents(forTab: tab.id)
+        }
+        return items(
+            subagents: subagents,
+            hasSettled: { SubagentCompletionTracker.shared.hasSettled($0, tabID: tab.id) },
+            backgroundTasks: BackgroundTaskTracker.shared.inFlight(tabID: tab.id)
+        )
     }
 }
 
@@ -109,22 +127,25 @@ extension HomeFeed {
         let entries = Self.liveAgentTabs(of: tasks).map { task, tab in
             let isUnread = source.isUnread(tab.id)
             let appearance = SidebarTaskAppearance(task: task, settings: .shared)
+            let status = source.status(tab.id)
             return Entry(
                 taskID: task.id,
                 tabID: tab.id,
                 taskTitle: source.taskTitle(task),
                 tabTitle: source.tabTitle(tab),
-                status: source.status(tab.id),
+                status: status,
                 isUnread: isUnread,
                 hasSession: tab.hasAgentSession,
                 isDormant: source.isDormant(tab.id),
+                lastOpenedAt: task.lastOpenedAt ?? task.createdAt,
                 permissionToolName: source.permissionToolName(tab.id),
                 workStartedAt: source.workStarted(tab.id),
                 preview: isUnread ? source.preview(tab) : nil,
                 iconName: task.iconName,
                 iconTint: appearance.iconTint,
                 barTint: appearance.barTint,
-                context: source.context(task, tab)
+                context: source.context(task, tab),
+                sideWork: source.sideWork(tab)
             )
         }
         self.init(entries: entries)

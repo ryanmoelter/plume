@@ -1,6 +1,7 @@
 import Testing
 @testable import Plume
 
+@MainActor
 struct AgentAutoResumeTests {
     @Test func resumesWhenSessionStoredDirectoryExistsAndNoLiveSession() {
         #expect(AgentAutoResume.shouldResume(

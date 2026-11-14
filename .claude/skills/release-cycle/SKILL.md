@@ -14,7 +14,7 @@ Run this when the user says "make the next release" or asks to work through the 
 
 ## 1. Plan the packages
 
-Pull `main` first (`git pull --ff-only`) and read the latest tag. A checkout can sit releases behind, and planning against it gets both the footprints and the version wrong. The next version follows the latest tag, not the version the user names from memory.
+Pull `main` first (`git pull --ff-only`) and read the latest `v*` tag without a suffix: `git tag --list 'v*' --sort=-v:refname | grep -v -e - | head -1`. Beta tags (`v0.20.0-beta.1`) are not releases, and neither is the retired `beta-feed` tag. A checkout can sit releases behind, and planning against it gets both the footprints and the version wrong. The next version follows that tag, not the version the user names from memory. This tag is `<last-tag>` below.
 
 Invoke the `roadmap` skill to list the To do queue, and read each issue's description. Group the queued issues into work packages so that **no two packages edit the same files**. An issue names files only where they matter, so read the code to find the real footprint before clustering.
 
@@ -47,15 +47,27 @@ Read CLAUDE.md at your worktree root first and follow it. Your assigned Linear i
   Confirm test names scroll past. Two suites fail in ANY worktree for environmental reasons:
   `SessionJSONLReaderTests.encodingResolvesADirectoryClaudeCodeHasUsed` and `SurfaceCommandTests`.
   Report those as environmental; anything else is yours to fix. Add tests for pure logic.
+- Build what an agent needs to drive your change in a running debug build, as part of the change:
+  `plumeID` on every new or touched control, `invoke:` where a click can't reach (hidden windows,
+  `List` rows, menu items via `plumeMenuItem`), and any control-server command or `SmokeHarness`
+  hook the check needs. See `docs/control-server.md`. A step only a human can perform is a gap
+  to close, not a hand-off.
 - Roadmap: do NOT touch Linear. Report which issue identifiers you completed; the coordinator moves
   them to Done.
 - Comments: terse, why-only, per CLAUDE.md. No changelog-style comments.
 - If you hit a decision only the user can make, stop and report it rather than guessing.
-- Do not take screenshots. (Only one agent may screenshot at a time; the coordinator runs any visual check as a single serial pass after the merge.)
+- Capture each new or changed behavior from your own debug build with the control server's
+  `screenshot` (`drive-plume` skill), into `~/Library/Caches/Plume-agent-media/<issue>/`, with
+  names that say what each shows. Use a before-and-after pair for a change in motion; a screenshot
+  sequence stands in for a recording until the control server can record (PLUME-383). Never take
+  a full-screen capture; the control server captures only your build's window. It can't capture
+  a hidden window, so launch with `open -g`, not `-j`.
 
 Report back: branch name, worktree absolute path, commit SHAs, a one-paragraph summary, test
-results, and anything left unverified.
+results, the media files with one line each on what they show, and anything left unverified.
 ```
+
+As soon as the agents launch, move every issue they own to **In Progress** through the `roadmap` skill. Do the same for an issue whose package launches later, at its launch, and for one already running in another agent that will fold into this release.
 
 Do not poll. Completion notifications arrive on their own. Use the wait to write or refine this skill and the plan.
 
@@ -70,11 +82,11 @@ If an agent used the auto-generated `worktree-agent-*` branch instead of creatin
 
 Then run the cross-cutting packages (step 1). **An `isolation: "worktree"` agent forks from `origin/main`, not from your current branch** — in the 0.13.0 run that was a commit dozens behind local `main`, since nothing had been pushed, so tell it to start with `git checkout -B <prefix>/<slug> <prefix>/release-<version>` before editing (a plain `git checkout <prefix>/release-<version>` fails because the primary checkout already has that branch out), or its annotations land on stale files and every shared file conflicts. Merge it the same way.
 
-An issue is Done once the user has reviewed and approved it directly, or once it merges into `main`, which needs the user's confirmation. Merging into a release branch is not Done. Move each issue to Done through the `roadmap` skill once it qualifies.
+When a package merges into the release branch, move its issues to **In Review**. An issue is Done once the user has reviewed and approved it directly, or once it merges into `main`, which needs the user's confirmation. Merging into a release branch is not Done. Move each issue to Done through the `roadmap` skill once it qualifies.
 
 ### Hand-offs from implement agents
 
-An agent running the `implement` skill may send a branch with `SendMessage` once the user approves it. The message names the issue, branch, worktree, commits, base, signing state and changelog bullets. Merge it like a package, re-signing any unsigned commit. Then reply to the sender with `SendMessage`, naming the merge SHA, so it can clean up its worktree. Its issue stays open until the release reaches `main`.
+An agent running the `implement` skill may send a branch with `SendMessage` once the user approves it. The message names the issue, branch, worktree, commits, base, signing state, changelog bullets and media folder. Merge it like a package, re-signing any unsigned commit. Then reply to the sender with `SendMessage`, naming the merge SHA, so it can clean up its worktree. Its issue stays open until the release reaches `main`.
 
 ### Clean up as each package lands
 
@@ -93,6 +105,10 @@ git branch -D <prefix>/<slug> worktree-agent-<id>
 
 **Keep the worktree of any package whose work is not finished**, even if some of it merged. A package that was partly cherry-picked still holds the dropped commits, and they are the starting point for the follow-up agent.
 
+**A test chat's permission answers can persist outside the worktree.** The debug build runs a real `claude`, and an accepted "Always allow … in this project" suggestion makes that CLI write the rule to the primary checkout's `.claude/settings.local.json`, not the worktree's. Tell any agent that drives the app to start its test chats in a temporary folder outside any repository (the `drive-plume` skill says so too), and check that file after the run.
+
+**Keep a worktree while anything the package started still runs.** An implementer's report can mention a verification agent it handed off to, and that agent keeps driving the worktree's build after the implementer's turn ends. In the 0.20.0 run, removing the worktree mid-check stranded a debug instance and left a test binding in the shared debug defaults. Wait for that agent's report, and look for a running app with `pgrep -f "<DerivedData dir>"` as well as the worktree path, since the app runs from DerivedData.
+
 ## 4. Debug build for manual evaluation
 
 Delegate to a Sonnet verifier, on the release branch in the primary checkout:
@@ -101,8 +117,14 @@ Delegate to a Sonnet verifier, on the release branch in the primary checkout:
 - Launch the built `Plume.app` from DerivedData (`-showBuildSettings | awk '$1 == "BUILT_PRODUCTS_DIR"'`). Debug writes to `Plume.debug/` (`Plume.debug-<worktree>/` from a worktree), so it runs beside the installed app.
 - **Launch it with `env -u CLAUDE_CODE_CHILD_SESSION -u CLAUDECODE`.** The app inherits the shell that started it and passes that to every terminal tab it spawns, so launching from an agent's shell leaves each tab's `claude` reading itself as a nested session and skipping its transcript — the chat UI then shows nothing.
 - Walk the process tree from Plume's own PID and read the unified log for errors. Never `pgrep -x Plume` or global-grep `claude`.
+- A verifier that starts chats must start them on Haiku. When it is done, it archives every chat it created. Leftover test tasks crowd the sidebar and slow down the next verifier.
+- Drive each package's behavior with the `drive-plume` skill and read back the result. If a step can't be reached, a targeted agent adds the missing hook on the release branch, and the verifier runs again before the user's checklist.
 
-Tell the user the app is running and give a per-package checklist of what to try. Each round of feedback becomes targeted agents on the release branch (Sonnet for tweaks, Opus for behavior bugs), then rebuild and relaunch through the verifier.
+Publish a review page with the `Artifact` tool before telling the user (load `artifact-design` first). It has one section per package: the issue identifier and title, its checklist, and that package's screenshots and recordings from `~/Library/Caches/Plume-agent-media/<issue>/`, each captioned with what it shows. `files` accepts only paths under the working directory or the scratchpad, so copy each package's media into a folder in the scratchpad and publish from there. Republish the same page path as later packages land, so the user keeps one link for the release.
+
+Tell the user the app is running, give the review page's link, and give a per-package checklist of what to try. Each round of feedback becomes targeted agents on the release branch (Sonnet for tweaks, Opus for behavior bugs), then rebuild and relaunch through the verifier. The verifier recaptures the media a fix changed, and the coordinator republishes the review page.
+
+If the user wants what has merged so far in beta users' hands before the cycle ends, use the `release-beta` skill. It ships a beta from `main` and keeps the cycle going on the same release branch.
 
 ## 5. Release
 
@@ -119,9 +141,9 @@ Only after the user approves. Follow `docs/releasing.md`; do not duplicate it he
 - Delegate the Release build and tests to Sonnet, telling it **not** to install — `xcodebuild -configuration Release clean build`, then `PlumeTests`, then verify the built bundle in `BUILT_PRODUCTS_DIR` (PlistBuddy, codesign, otool) rather than the installed one.
 - **If commits are signed here (`git config commit.gpgsign` prints `true`), check every one is signed before anything is pushed:** `git log --format='%G? %h %s' <last-tag>..main | grep -v '^G'` must print nothing. Agents fall back to `--no-gpg-sign` when the signing agent locks mid-run, and re-signing after the fact means rewriting every later commit and force-pushing the tag. Re-sign the offenders on the release branch before merging it (`git rebase --force-rebase --rebase-merges main` recreates and signs everything; resolve replayed conflicts by taking the file from the original merge commit, and confirm with `git diff <old-tip> HEAD --quiet` that the tree is unchanged).
 - Tag `v<version>` on `main`'s HEAD — the release merge — and push `main` with the tag. `package-release.sh` refuses unless the tag points at `HEAD`.
-- Publish through Sparkle and Homebrew, per `docs/releasing.md` → *Sharing a build*: `scripts/package-release.sh` (DMG, appcast, draft GitHub release), then the user publishes the draft, then `scripts/update-tap.sh <version>`. Ask before publishing and before bumping the tap; both are outward-facing.
+- Publish through Sparkle, per `docs/releasing.md` → *Sharing a build*: `scripts/package-release.sh` (DMG, `out/feed/appcast.xml`, draft GitHub release), then the user publishes the draft and then the feed (`scripts/publish-feed.sh`) with the command the script prints. Run it from the primary checkout on `main`, with `CO_AUTHOR` set to the model's trailer identity, since it commits `site/appcast.xml` and pushes `main`. Never change a GitHub release after it is published. Bump the Homebrew cask with `scripts/update-tap.sh <version>` for every stable release; it is mandatory, so new downloads get the newest version and `brew upgrade --greedy` works. The 0.19.0 bump adds `auto_updates true` to the cask. Betas release from `main` only: never pass `--allow-branch` to `package-release.sh --beta` without the maintainer's explicit approval. Ask before publishing and before bumping the tap; both are outward-facing.
 - Once the release is published, finish the `Release <version>` placeholder from step 1. Put the GitHub release link in its description, and check that `relatedTo` names every issue that shipped plus the previous release's issue, so the releases form a chain. Then mark it Done.
-- **Do not install.** Every install updates through Sparkle or Homebrew, so never run `scripts/install-release.sh` as part of a release.
+- **Do not install.** Every install updates through Sparkle, so never run `scripts/install-release.sh` as part of a release.
 - Clean up anything step 3 left: `git worktree list` and `git branch --list '<prefix>/*'` should hold nothing from this cycle, and no `Plume-*` DerivedData folder should point at a removed worktree.
 
 ## Gotchas

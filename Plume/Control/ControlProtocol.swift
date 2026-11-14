@@ -30,6 +30,8 @@ nonisolated struct ControlServerRequest: Decodable {
         case "click": command = .click(try ClickParams(from: decoder))
         case "pointerDrag": command = .pointerDrag(try PointerDragParams(from: decoder))
         case "screenshot": command = .screenshot(try ScreenshotParams(from: decoder))
+        case "recordStart": command = .recordStart(try RecordStartParams(from: decoder))
+        case "recordStop": command = .recordStop
         case "hierarchy": command = .hierarchy(try HierarchyParams(from: decoder))
         case "hover": command = .hover(try HoverParams(from: decoder))
         case "clear": command = .clear(try ClearParams(from: decoder))
@@ -56,6 +58,8 @@ nonisolated enum ControlCommand {
     case click(ClickParams)
     case pointerDrag(PointerDragParams)
     case screenshot(ScreenshotParams)
+    case recordStart(RecordStartParams)
+    case recordStop
     case hierarchy(HierarchyParams)
     case hover(HoverParams)
     case clear(ClearParams)
@@ -291,6 +295,40 @@ nonisolated struct ScreenshotParams: Decodable {
     var windowNumber: Int?
 }
 
+/// Out-of-range `fps` and `maxSeconds` are clamped rather than refused, so
+/// a forgotten recording always ends within `RecordStartParams.secondsLimit`.
+nonisolated struct RecordStartParams: Decodable, Equatable {
+    static let fpsRange = 1...60
+    static let secondsLimit = 300.0
+
+    var path: String?
+    var target: ControlTarget?
+    var windowNumber: Int?
+    var fps: Int = 30
+    var maxSeconds: Double = 30
+
+    private enum CodingKeys: String, CodingKey { case path, target, windowNumber, fps, maxSeconds }
+
+    init(path: String? = nil, target: ControlTarget? = nil, windowNumber: Int? = nil, fps: Int = 30, maxSeconds: Double = 30) {
+        self.path = path
+        self.target = target
+        self.windowNumber = windowNumber
+        self.fps = min(max(fps, Self.fpsRange.lowerBound), Self.fpsRange.upperBound)
+        self.maxSeconds = min(max(maxSeconds, 0.1), Self.secondsLimit)
+    }
+
+    init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        self.init(
+            path: try c.decodeIfPresent(String.self, forKey: .path),
+            target: try c.decodeIfPresent(ControlTarget.self, forKey: .target),
+            windowNumber: try c.decodeIfPresent(Int.self, forKey: .windowNumber),
+            fps: try c.decodeIfPresent(Int.self, forKey: .fps) ?? 30,
+            maxSeconds: try c.decodeIfPresent(Double.self, forKey: .maxSeconds) ?? 30
+        )
+    }
+}
+
 nonisolated enum HierarchyFormat: String, Codable {
     case text, json
 }
@@ -430,6 +468,31 @@ nonisolated struct ScreenshotResult: Codable, Equatable {
     var scale: Double
 }
 
+nonisolated struct RecordStartResult: Codable, Equatable {
+    var path: String
+    var width: Int
+    var height: Int
+    var scale: Double
+    var fps: Int
+    var maxSeconds: Double
+}
+
+nonisolated enum RecordingStopReason: String, Codable {
+    case request, limit, windowClosed
+}
+
+nonisolated struct RecordStopResult: Codable, Equatable {
+    var path: String
+    var width: Int
+    var height: Int
+    var frames: Int
+    /// Ticks skipped because the encoder was still busy with an earlier frame
+    /// or the window server had no image.
+    var dropped: Int
+    var duration: Double
+    var stoppedBy: RecordingStopReason
+}
+
 nonisolated struct KeyResult: Codable, Equatable {
     var chord: String
     var keyCode: Int
@@ -489,6 +552,8 @@ nonisolated enum ControlResult: Encodable {
     case text(TextResult)
     case click(ClickResult)
     case screenshot(ScreenshotResult)
+    case recordStart(RecordStartResult)
+    case recordStop(RecordStopResult)
     case hierarchy(HierarchyResult)
     case hover(HoverResult)
     case drag(DragResult)
@@ -505,6 +570,8 @@ nonisolated enum ControlResult: Encodable {
         case .text(let v): try v.encode(to: encoder)
         case .click(let v): try v.encode(to: encoder)
         case .screenshot(let v): try v.encode(to: encoder)
+        case .recordStart(let v): try v.encode(to: encoder)
+        case .recordStop(let v): try v.encode(to: encoder)
         case .hierarchy(let v): try v.encode(to: encoder)
         case .hover(let v): try v.encode(to: encoder)
         case .drag(let v): try v.encode(to: encoder)

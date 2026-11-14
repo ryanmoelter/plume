@@ -10,6 +10,14 @@ struct InjectedContentTests {
         #expect(InjectedContent.classify(text: "let's do the roadmap work", isMeta: false) == .userMessage)
     }
 
+    @Test func conductorInstructionsSplitFromTheTypedPrompt() {
+        let text = "<system_instruction>\nYou are working inside Conductor.\n</system_instruction>\n\nHi there"
+        #expect(InjectedContent.classify(text: text, isMeta: false) == .systemNote)
+        let split = InjectedContent.splittingLeadingSystemReminders(text)
+        #expect(split.reminders == ["<system_instruction>\nYou are working inside Conductor.\n</system_instruction>"])
+        #expect(split.rest == "Hi there")
+    }
+
     @Test func aSkillBodyIsNamedByItsBaseDirectory() {
         let text = """
         Base directory for this skill: /Users/example/.claude/skills/commit-message

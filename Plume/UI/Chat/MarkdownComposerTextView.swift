@@ -52,6 +52,9 @@ struct MarkdownComposerTextView: NSViewRepresentable {
     /// Called on Up when the composer is empty, to recall a queued message
     /// for editing. Nil when there's nothing queued.
     var onEditQueuedMessage: (() -> Void)?
+    /// Called on Page Up (true) and Page Down (false), to page the transcript
+    /// above the composer. Nil leaves the keys scrolling the composer.
+    var onPageScroll: ((_ up: Bool) -> Void)?
     /// Called on Esc the slash-command list didn't take, with its modifiers.
     /// Returns whether it consumed the key; false leaves Esc to `NSTextView`.
     var onEscape: ((NSEvent.ModifierFlags) -> Bool)?
@@ -117,6 +120,7 @@ struct MarkdownComposerTextView: NSViewRepresentable {
         textView.sendKey = sendKey
         textView.autocompleteHandler = autocompleteHandler
         textView.onEditQueuedMessage = onEditQueuedMessage
+        textView.onPageScroll = onPageScroll
         textView.onEscape = onEscape
         textView.onTogglePlanMode = onTogglePlanMode
         textView.onOptionReturn = onOptionReturn
@@ -288,6 +292,7 @@ struct MarkdownComposerTextView: NSViewRepresentable {
                 caret: caret,
                 palette: referencePalette,
                 textTint: ThemeChrome.accentNSColor(isActive: isActive),
+                directory: referenceResolver.directory,
                 resolution: referenceResolver.cached
             )
             lookUp(found.misses.filter { !attemptedReferences.contains($0) }, with: referenceResolver)
@@ -498,6 +503,16 @@ final class ComposerNSTextView: NSTextView {
     /// shell-history-style recall of the most recently queued send.
     var onEditQueuedMessage: (() -> Void)?
 
+    var onPageScroll: ((_ up: Bool) -> Void)?
+
+    override func scrollPageUp(_ sender: Any?) {
+        if let onPageScroll { onPageScroll(true) } else { super.scrollPageUp(sender) }
+    }
+
+    override func scrollPageDown(_ sender: Any?) {
+        if let onPageScroll { onPageScroll(false) } else { super.scrollPageDown(sender) }
+    }
+
     var onEscape: ((NSEvent.ModifierFlags) -> Bool)?
 
     var onTogglePlanMode: (() -> Void)?
@@ -533,6 +548,11 @@ final class ComposerNSTextView: NSTextView {
     /// `NSTextView` turns them into an attachment inside the text storage —
     /// the composer's `String` binding has no way to carry one.
     override func readSelection(from pasteboard: NSPasteboard) -> Bool {
+        if editsMarkdown, let pasted = pasteboard.string(forType: .string),
+           let result = ComposerInlineFormatting.pasteLink(pasted, in: string, selection: selectedRange()) {
+            apply(result)
+            return true
+        }
         let images = attachableImages(on: pasteboard)
         guard !images.isEmpty else { return super.readSelection(from: pasteboard) }
         onAttachImages?(images)
@@ -587,15 +607,19 @@ final class ComposerNSTextView: NSTextView {
         didSet { if referenceChips != oldValue { needsDisplay = true } }
     }
 
+    private let referenceToolTips = ComposerReferenceToolTips()
+
     /// Draws decorations and the placeholder here rather than in `draw(_:)`:
     /// overriding `draw(_:)` drops an `NSTextView` to TextKit 1, and the
     /// decorations read TextKit 2 layout. AppKit calls this before the glyphs
     /// even with `drawsBackground` off.
     override func drawBackground(in rect: NSRect) {
         super.drawBackground(in: rect)
-        if let markdownMetrics {
-            ComposerDecorations.draw(ComposerDecorations.rects(in: self, metrics: markdownMetrics), in: rect, metrics: markdownMetrics)
+        let decorations = markdownMetrics.map { ComposerDecorations.rects(in: self, metrics: $0) }
+        if let decorations, let markdownMetrics {
+            ComposerDecorations.draw(decorations, in: rect, metrics: markdownMetrics)
         }
+        referenceToolTips.update(decorations?.referenceChips ?? [], in: self)
         guard let placeholderText, let font = self.font else { return }
         let attributes: [NSAttributedString.Key: Any] = [
             .font: font,
@@ -668,8 +692,11 @@ final class ComposerNSTextView: NSTextView {
 
     override func performKeyEquivalent(with event: NSEvent) -> Bool {
         guard editsMarkdown, window?.firstResponder === self,
-              event.modifierFlags.intersection(.deviceIndependentFlagsMask) == .command,
-              let style = event.charactersIgnoringModifiers.flatMap(ComposerInlineFormatting.Style.init(characters:)),
+              let style = ComposerInlineFormatting.Style(
+                  characters: event.charactersIgnoringModifiers,
+                  flags: event.modifierFlags,
+                  bindings: AppSettings.shared.shortcutBindings
+              ),
               let result = ComposerInlineFormatting.apply(style, in: string, selection: selectedRange())
         else { return super.performKeyEquivalent(with: event) }
         apply(result)

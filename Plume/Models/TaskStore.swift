@@ -7,7 +7,7 @@ import SwiftUI // Array.move(fromOffsets:toOffset:)
 /// Ordering is stored as a dense `orderIndex` per section, rewritten on every
 /// move so drag-reorder and cross-group moves share one code path.
 enum TaskStore {
-    static let defaultGroupName = "New group"
+    nonisolated static let defaultGroupName = "New group"
 
     // MARK: - Create
 
@@ -422,8 +422,10 @@ enum TaskStore {
             forgetTab(tab)
         }
         // The row that took this watch is going away with the task, and a
-        // deleted row is not guaranteed to run its own teardown.
-        if let directory = task.workingDirectoryPath {
+        // deleted row is not guaranteed to run its own teardown. Tasks in the
+        // same directory still need the watch and the branch it publishes.
+        if let directory = task.workingDirectoryPath,
+           !isDirectoryShared(directory, excluding: task, in: context) {
             GitStateStore.shared.forget(directory: directory)
             PullRequestStore.shared.forget(directory: directory)
         }
@@ -431,6 +433,14 @@ enum TaskStore {
         LinearStore.shared.forget(taskID: task.id)
         LinkedPullRequestStore.shared.forget(taskID: task.id)
         context.delete(task)
+    }
+
+    static func isDirectoryShared(_ directory: String, excluding task: WorkTask, in context: ModelContext) -> Bool {
+        let taskID = task.id
+        let descriptor = FetchDescriptor<WorkTask>(predicate: #Predicate {
+            $0.workingDirectoryPath == directory && $0.id != taskID && !$0.isArchived
+        })
+        return ((try? context.fetchCount(descriptor)) ?? 0) > 0
     }
 
     // MARK: - Worktree removal (shared by delete and archive)

@@ -38,6 +38,7 @@ nonisolated enum MentionCandidate: Identifiable, Hashable, Sendable {
         /// A `#rrggbb` hex string, as Linear reports it.
         let stateColor: String
         let updatedAt: Date
+        var startedProgress: LinearStartedProgress = .half
 
         /// The identifier's prefix, `DROID` in `DROID-123`.
         var teamKey: String {
@@ -59,6 +60,11 @@ nonisolated enum MentionCandidate: Identifiable, Hashable, Sendable {
         let state: PullRequestState
         let isDraft: Bool
         let updatedAt: Date?
+        /// Filled only by the linked pull request fetch; mention queries
+        /// leave them at their defaults.
+        var reviewDecision: ReviewDecision = .none
+        var hasReviewers = false
+        var checkContexts: [CheckContext] = []
     }
 
     var id: String {

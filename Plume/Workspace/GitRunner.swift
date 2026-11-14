@@ -120,7 +120,7 @@ nonisolated struct CheckoutFacts: Sendable, Equatable {
     }
 }
 
-extension GitRunner {
+nonisolated extension GitRunner {
     static func checkoutFacts(containing path: String) -> CheckoutFacts? {
         guard let output = try? run(
             ["rev-parse", "--path-format=absolute", "--git-common-dir", "--show-toplevel"],
@@ -138,7 +138,7 @@ nonisolated struct GitWorktree: Hashable, Sendable {
     let isMain: Bool
 }
 
-extension GitRunner {
+nonisolated extension GitRunner {
     static func worktrees(in repository: String) -> [GitWorktree] {
         guard let output = try? run(["worktree", "list", "--porcelain"], in: repository) else {
             return []
@@ -163,7 +163,7 @@ extension GitRunner {
     }
 }
 
-private extension Substring {
+private nonisolated extension Substring {
     func dropPrefix(_ prefix: String) -> String? {
         hasPrefix(prefix) ? String(dropFirst(prefix.count)) : nil
     }
@@ -178,7 +178,7 @@ nonisolated struct RepositoryFacts: Sendable, Equatable {
     let defaultBranch: String?
 }
 
-extension GitRunner {
+nonisolated extension GitRunner {
     static func originURL(in repository: String) -> String? {
         try? run(["remote", "get-url", "origin"], in: repository)
     }

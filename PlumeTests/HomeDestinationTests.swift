@@ -23,6 +23,46 @@ struct HomeDestinationTests {
         HomeDestinationCatalog(groups: [work, side], projects: [notes, plume], tasks: tasks)
     }
 
+    // MARK: Group's plurality project
+
+    @Test func aGroupsPluralityProjectIsTheOneMostOfItsTasksRunIn() {
+        let tasks = [
+            facts(group: work.id, project: notes.path, .directory),
+            facts(group: work.id, project: plume.path, .directory),
+            facts(group: work.id, project: plume.path, .directory),
+            facts(group: side.id, project: notes.path, .directory),
+            facts(group: side.id, project: notes.path, .directory),
+        ]
+        #expect(catalog(tasks: tasks).pluralityProject(inGroup: work.id) == plume)
+    }
+
+    @Test func aTieGoesToTheMoreRecentTask() {
+        let tasks = [
+            facts(group: work.id, project: notes.path, .directory),
+            facts(group: work.id, project: plume.path, .directory),
+        ]
+        #expect(catalog(tasks: tasks).pluralityProject(inGroup: work.id) == notes)
+    }
+
+    @Test func aGroupWithNoKnownProjectHasNoPlurality() {
+        let tasks = [
+            facts(group: work.id, project: nil, .directory),
+            facts(group: work.id, project: "/gone", .directory),
+            facts(group: side.id, project: plume.path, .directory),
+        ]
+        #expect(catalog(tasks: tasks).pluralityProject(inGroup: work.id) == nil)
+        #expect(catalog(tasks: tasks).pluralityProject(inGroup: nil) == nil)
+    }
+
+    @Test func noGroupCountsOnlyUngroupedTasks() {
+        let tasks = [
+            facts(group: nil, project: notes.path, .directory),
+            facts(group: work.id, project: plume.path, .directory),
+            facts(group: work.id, project: plume.path, .directory),
+        ]
+        #expect(catalog(tasks: tasks).pluralityProject(inGroup: nil) == notes)
+    }
+
     // MARK: Defaults
 
     @Test func startsOnTheRecentTasksGroupAndProject() {

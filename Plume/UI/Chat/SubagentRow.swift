@@ -13,6 +13,8 @@ struct SubagentRow: View, ThemedView {
     let onOverride: (SubagentStatusOverrides.Override?) -> Void
     let currentOverride: SubagentStatusOverrides.Override?
     let columns: Columns
+    /// Separate in the chat, so a driver can tell its row from the info pane's.
+    let controlID: String
 
     /// Where the badge and the text start, so a host with its own icon column
     /// can line the row up with it.
@@ -20,6 +22,9 @@ struct SubagentRow: View, ThemedView {
         var leadingIndent: CGFloat = 0
         var badgeWidth: CGFloat = 12
         var spacing: CGFloat = 8
+        var leadingWashInset: CGFloat = Columns.washInset
+        var trailingWashInset: CGFloat = Columns.washInset
+        var washCornerRadius: CGFloat = 6
 
         /// How far the hover wash reaches past the badge and the chevron.
         static let washInset: CGFloat = 8
@@ -32,9 +37,16 @@ struct SubagentRow: View, ThemedView {
     }
 
     /// Routes a status override to the store that owns this subagent.
-    init(subagent: SubagentTranscript, tabID: UUID, columns: Columns = Columns(), onOpen: @escaping () -> Void) {
+    init(
+        subagent: SubagentTranscript,
+        tabID: UUID,
+        columns: Columns = Columns(),
+        controlID: String = AccessibilityID.subagentRow,
+        onOpen: @escaping () -> Void
+    ) {
         self.subagent = subagent
         self.columns = columns
+        self.controlID = controlID
         self.onOpen = onOpen
         self.onOverride = { override in
             switch subagent.provider {
@@ -79,18 +91,19 @@ struct SubagentRow: View, ThemedView {
                     .foregroundStyle(colors.selection)
             }
             .padding(.leading, columns.leadingIndent)
-            .padding(.horizontal, Columns.washInset)
+            .padding(.leading, columns.leadingWashInset)
+            .padding(.trailing, columns.trailingWashInset)
             .padding(.vertical, 5)
-            .contentShape(.rect(cornerRadius: 6))
+            .contentShape(.rect(cornerRadius: columns.washCornerRadius))
             .background(
                 isHovering ? colors.surfaceTint : Color.clear,
-                in: .rect(cornerRadius: 6)
+                in: .rect(cornerRadius: columns.washCornerRadius)
             )
         }
         .buttonStyle(.plain)
         .plumeHover { isHovering = $0 }
         .help(subagent.descriptor?.description ?? subagent.id)
-        .plumeID(AccessibilityID.subagentRow, label: subagent.title)
+        .plumeID(controlID, label: subagent.title, value: subagent.status.rawValue, invoke: onOpen)
         .contextMenu { menu }
     }
 

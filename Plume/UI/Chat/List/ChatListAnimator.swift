@@ -68,7 +68,7 @@ final class ChatListAnimator: NSObject {
         super.init()
     }
 
-    deinit {
+    isolated deinit {
         displayLink?.invalidate()
         fallback?.invalidate()
     }
@@ -161,4 +161,6 @@ nonisolated enum ChatListScrollTarget: Equatable {
     case bottom
     /// The item's slot at the top of the viewport.
     case item(String)
+    /// A document offset, clamped to the scrollable range when resolved.
+    case offset(CGFloat)
 }

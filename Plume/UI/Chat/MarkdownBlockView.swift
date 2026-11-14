@@ -269,6 +269,7 @@ struct InlineMarkdownText: View, ThemedView {
             let styled = chipped(MarkdownCache.chippedInline(source, fontSize: size))
             styled.text()
                 .revealFade(styled, chipFill: colors.surfaceTint, references: references(in: styled, fontSize: size))
+                .referenceChipToolTips(styled)
         } else {
             let attributed = flat(MarkdownCache.styledInline(source, fontSize: size, tint: colors.surfaceTint))
             Text(attributed)
@@ -287,7 +288,7 @@ struct InlineMarkdownText: View, ThemedView {
             let target = ReferenceTarget.classify(url, base: linkDirectory)
             let icon = target.map { ReferenceChipStore.shared.icon(for: $0) ?? .placeholder(for: $0) }
                 ?? ReferenceChipIcon(symbol: "link", tint: .link)
-            icons[url] = ReferenceChipDrawing.Icon(symbol: icon.symbol, color: palette.color(for: icon.tint), brand: target?.brand)
+            icons[url] = ReferenceChipDrawing.Icon(glyph: icon.glyph, color: palette.color(for: icon.tint), brand: target?.brand)
         }
         return ReferenceChipDrawing(
             wash: palette.accentWash,

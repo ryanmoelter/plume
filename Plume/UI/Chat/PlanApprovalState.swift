@@ -7,7 +7,7 @@ import Foundation
 /// from a `plan_mode` line as well as `plan_mode_exit`, so a plan the agent
 /// merely wrote is already on disk and already viewable — file presence says
 /// nothing about whether it was ever proposed.
-enum PlanApprovalState: Equatable {
+nonisolated enum PlanApprovalState: Equatable {
     /// Proposed and waiting on the user. The footer offers the approval options.
     case awaitingDecision
     case approved
@@ -59,7 +59,7 @@ enum PlanApprovalState: Equatable {
 }
 
 /// The one-line gist of a plan, for the inline row that stands in for it.
-enum PlanSummary {
+nonisolated enum PlanSummary {
     /// The plan's first non-empty line, with any leading heading marker
     /// removed. Falls back to a fixed label rather than rendering an empty
     /// row for a plan that is all whitespace or all punctuation.

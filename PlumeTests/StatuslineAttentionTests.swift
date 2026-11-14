@@ -1,6 +1,7 @@
 import Testing
 @testable import Plume
 
+@MainActor
 struct StatuslineAttentionTests {
     @Test func percentBoundaries() {
         #expect(StatuslineAttention.attention(percent: 0) == .neutral)

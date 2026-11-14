@@ -1,3 +1,4 @@
+import AppKit
 import Foundation
 
 /// The composer's ⌘B, ⌘I, ⌘E and ⌘K, as pure text transforms. The text stays
@@ -25,14 +26,12 @@ nonisolated enum ComposerInlineFormatting {
             }
         }
 
-        init?(characters: String) {
-            switch characters {
-            case "b": self = .bold
-            case "i": self = .italic
-            case "e": self = .code
-            case "k": self = .link
-            default: return nil
-            }
+        /// The style whose chord in `bindings` is this key event.
+        init?(characters: String?, flags: NSEvent.ModifierFlags, bindings: ShortcutBindings) {
+            guard let style = ShortcutAction.composerFormattingActions.first(where: {
+                bindings[$0]?.matches(characters: characters, flags: flags) == true
+            })?.composerStyle else { return nil }
+            self = style
         }
     }
 
@@ -191,6 +190,32 @@ nonisolated enum ComposerInlineFormatting {
             text: ns.replacingCharacters(in: target, with: "[\(label)]()"),
             selection: NSRange(location: target.location + (label as NSString).length + 3, length: 0)
         )
+    }
+
+    /// Pasting a URL over selected text links the text to it, with the caret
+    /// after the link. Nil when the paste is not a lone URL, the selection
+    /// spans lines or is itself a URL, or it touches code.
+    static func pasteLink(_ pasted: String, in text: String, selection: NSRange) -> ComposerMarkdownEditing.Result? {
+        let ns = text as NSString
+        guard selection.length > 0, NSMaxRange(selection) <= ns.length else { return nil }
+        let url = pasted.trimmingCharacters(in: .whitespacesAndNewlines)
+        let label = ns.substring(with: selection)
+        guard isLinkTarget(url), !isLinkTarget(label), !label.contains(where: \.isNewline),
+              !touchesCode(selection, in: text)
+        else { return nil }
+        let link = "[\(label)](\(url))"
+        return .init(
+            text: ns.replacingCharacters(in: selection, with: link),
+            selection: NSRange(location: selection.location + (link as NSString).length, length: 0)
+        )
+    }
+
+    private static func isLinkTarget(_ candidate: String) -> Bool {
+        guard !candidate.isEmpty, !candidate.contains(where: { $0.isWhitespace || $0 == "<" || $0 == ">" }),
+              let url = URL(string: candidate), let scheme = url.scheme?.lowercased()
+        else { return false }
+        if scheme == "mailto" { return candidate.count > "mailto:".count }
+        return candidate.lowercased().hasPrefix(scheme + "://") && url.host?.isEmpty == false
     }
 
     /// Unwrapping keeps the label and drops the target.

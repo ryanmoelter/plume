@@ -1,3 +1,5 @@
+import AppKit
+import CoreGraphics
 import Foundation
 import Testing
 @testable import Plume
@@ -24,7 +26,7 @@ struct InfoPaneFactsTests {
 
         var facts = InfoPaneFacts(tabID: UUID())
         facts.linkedPullRequests = linked
-        #expect(facts.sections == [.linkedPullRequests])
+        #expect(facts.sections == [.pullRequests])
         #expect(facts.collapsedSections.isEmpty)
     }
 
@@ -57,7 +59,7 @@ struct InfoPaneFactsTests {
     @Test func thePinButtonKeepsAnEmptyPullRequestSection() {
         var facts = InfoPaneFacts(tabID: UUID())
         facts.canPinPullRequests = true
-        #expect(facts.sections == [.linkedPullRequests])
+        #expect(facts.sections == [.pullRequests])
         #expect(facts.collapsedSections.isEmpty)
     }
 
@@ -75,7 +77,7 @@ struct InfoPaneFactsTests {
             branch: .init(name: "main", isWorktree: false, ahead: nil, behind: nil, isDirty: false),
             pullRequest: .init(state: .pullRequest(PullRequest(number: 7, state: .open, isDraft: false)), checkRollup: nil)
         )
-        #expect(facts.sections == [.subagents, .backgroundTasks, .pullRequest, .plan, .folder, .branch])
+        #expect(facts.sections == [.subagents, .backgroundTasks, .pullRequests, .plan, .folder, .branch])
     }
 
     @Test func sideChatsShowOnceAQuestionIsAskedButNotWhenCollapsed() {
@@ -144,7 +146,7 @@ struct InfoPaneFactsTests {
     @Test func aPullRequestRowNeedsAPullRequest() {
         let open = PullRequest(number: 7, state: .open, isDraft: false)
         let withPR = InfoPaneFacts(tabID: UUID(), pullRequest: .init(state: .pullRequest(open), checkRollup: .success))
-        #expect(withPR.collapsedSections == [.pullRequest])
+        #expect(withPR.collapsedSections == [.pullRequests])
         for state in [PullRequestFetchState.noPR, .localOnly, .loading] {
             let facts = InfoPaneFacts(tabID: UUID(), pullRequest: .init(state: state, checkRollup: nil))
             #expect(facts.sections.isEmpty)
@@ -277,6 +279,7 @@ struct InfoPaneFactsTests {
     }
 }
 
+@MainActor
 struct InfoPaneLayoutTests {
     private let chatColumn: CGFloat = 672
     private let comfortable: CGFloat = 400
@@ -425,5 +428,156 @@ struct InfoPaneLayoutTests {
         #expect(RemoteControlStatus(claude: .failed("nope")) == .failed("nope"))
         #expect(RemoteControlStatus.off.title == "Remote control is off")
         #expect(RemoteControlStatus.on.title == "Remote control is on")
+    }
+}
+
+/// A section's bracket: a stub in the header's icon column while collapsed,
+/// which runs left, curls down and grows into a bar ending at the last row's
+/// content once expanded. x is measured from the content edge, so the bar
+/// sits at a negative x in the padding.
+struct InfoPaneBracketGeometryTests {
+    private func geometry(
+        progress: CGFloat,
+        barX: CGFloat = -6,
+        bottom: CGFloat = 100
+    ) -> InfoPaneBracketGeometry {
+        InfoPaneBracketGeometry(
+            barX: barX,
+            stubStartX: 4,
+            stubEndX: 12,
+            stubY: 12,
+            bottom: bottom,
+            progress: progress,
+            cornerRadius: 4,
+            barEndInset: 5
+        )
+    }
+
+    private let reach = InfoPaneBracketGeometry.reachShare
+
+    @Test func collapsedIsAStubInTheIconColumn() {
+        let collapsed = geometry(progress: 0)
+        #expect(collapsed.stubEnd == CGPoint(x: 12, y: 12))
+        #expect(collapsed.runEnd == CGPoint(x: 4, y: 12))
+        #expect(collapsed.cornerTurn == 0)
+        #expect(collapsed.barEnd == collapsed.barStart)
+    }
+
+    // The run is 6 long (from 4 to the corner's start at -2), the corner 2π.
+    @Test func expandingRunsLeftBeforeTheCorner() {
+        let early = geometry(progress: reach * 0.25)
+        #expect(early.runEnd.x < 4)
+        #expect(early.runEnd.x > -2)
+        #expect(early.cornerTurn == 0)
+        #expect(early.barEnd == early.barStart)
+    }
+
+    @Test func theCornerFinishesBeforeTheBarGrows() {
+        let reached = geometry(progress: reach)
+        #expect(reached.runEnd == CGPoint(x: -2, y: 12))
+        #expect(abs(reached.cornerTurn - 1) < 0.0001)
+        #expect(reached.barEnd == reached.barStart)
+    }
+
+    // 95 is the section's 100 less the last row's 5 of padding.
+    @Test func expandedCurlsIntoABarEndingAtTheLastRow() {
+        let expanded = geometry(progress: 1)
+        #expect(expanded.runEnd == CGPoint(x: -2, y: 12))
+        #expect(expanded.cornerCenter == CGPoint(x: -2, y: 16))
+        #expect(abs(expanded.cornerTurn - 1) < 0.0001)
+        #expect(expanded.barStart == CGPoint(x: -6, y: 16))
+        #expect(expanded.barEnd == CGPoint(x: -6, y: 95))
+    }
+
+    // Half of the bar's 79: 95 less the corner's end at 16.
+    @Test func halfwayThroughTheBarIsHalfItsLength() {
+        let half = geometry(progress: reach + (1 - reach) / 2)
+        #expect(abs(half.barEnd.y - (16 + 39.5)) < 0.0001)
+    }
+
+    @Test func aShortSectionShrinksTheCorner() {
+        let short = geometry(progress: 1, bottom: 19)
+        #expect(short.cornerRadius == 2)
+        #expect(short.barStart.y == 14)
+        #expect(short.barEnd.y == 14)
+    }
+
+    // The stub starts only 2 right of this bar, under the radius of 4.
+    @Test func aShortRunShrinksTheCorner() {
+        let near = geometry(progress: 1, barX: 2)
+        #expect(near.cornerRadius == 2)
+        #expect(near.runEnd == CGPoint(x: 4, y: 12))
+        #expect(near.barStart == CGPoint(x: 2, y: 14))
+    }
+
+    @Test func theStrokeFadesWithProgressAndClamps() {
+        #expect(InfoPaneBracketGeometry.lineFade(progress: -0.5) == 0)
+        #expect(InfoPaneBracketGeometry.lineFade(progress: 0) == 0)
+        #expect(InfoPaneBracketGeometry.lineFade(progress: 0.25) == 0.25)
+        #expect(InfoPaneBracketGeometry.lineFade(progress: 1) == 1)
+        #expect(InfoPaneBracketGeometry.lineFade(progress: 1.2) == 1)
+    }
+
+    // Each line's edge is its center ± half the line width.
+    @MainActor @Test func barsFitThePaddingClearOfEachOther() {
+        let pointSize = Typography(bodySize: AppSettings.defaultChatFontSize).caption.size
+        let half = InfoPaneBracketStub(pointSize: pointSize, centerX: 0).lineWidth / 2
+        #expect(InfoPaneLayout.sectionBarX + InfoPaneLayout.panePadding == 6)
+        #expect(InfoPaneLayout.sectionBarX + half < InfoPaneLayout.nestedBarX - half)
+        #expect(InfoPaneLayout.nestedBarX + half < 0)
+    }
+
+    // 8.05 long cap to cap at 10 pt: 0.88 of it is the two half caps.
+    @Test func theStubMatchesThePlusArm() {
+        let stub = InfoPaneBracketStub(pointSize: 10, centerX: 8)
+        #expect(abs(stub.lineWidth - 0.88) < 0.0001)
+        #expect(abs(stub.startX - (8 - 3.585)) < 0.0001)
+        #expect(abs(stub.endX - (8 + 3.585)) < 0.0001)
+    }
+
+    // The default chat font's caption.
+    @MainActor @Test func theStubSitsInTheIconColumn() {
+        let pointSize = Typography(bodySize: AppSettings.defaultChatFontSize).caption.size
+        let stub = InfoPaneBracketStub(pointSize: pointSize, centerX: InfoPaneLayout.iconColumnWidth / 2)
+        #expect(stub.startX - stub.lineWidth / 2 >= 0)
+        #expect(stub.endX + stub.lineWidth / 2 <= InfoPaneLayout.iconColumnWidth)
+        #expect(abs((stub.startX + stub.endX) / 2 - InfoPaneLayout.iconColumnWidth / 2) < 0.0001)
+    }
+
+    @MainActor @Test func thePlusRatiosMatchTheRenderedSymbol() throws {
+        let pointSize: CGFloat = 16
+        let arm = try Self.renderedPlusArm(pointSize: pointSize)
+        #expect(abs(arm.stroke / pointSize - InfoPaneBracketStub.plusStrokeRatio) < 0.003)
+        #expect(abs(arm.length / pointSize - InfoPaneBracketStub.plusArmLengthRatio) < 0.01)
+    }
+
+    /// Sums the alpha coverage of `plus` drawn at 2x, along the row through
+    /// its horizontal arm and down a column a tenth of the way along it.
+    @MainActor private static func renderedPlusArm(pointSize: CGFloat) throws -> (length: CGFloat, stroke: CGFloat) {
+        let configuration = NSImage.SymbolConfiguration(pointSize: pointSize, weight: .regular, scale: .medium)
+        let image = try #require(
+            NSImage(systemSymbolName: "plus", accessibilityDescription: nil)?.withSymbolConfiguration(configuration)
+        )
+        let scale: CGFloat = 2
+        let width = Int(ceil(image.size.width * scale))
+        let height = Int(ceil(image.size.height * scale))
+        let bitmap = try #require(NSBitmapImageRep(
+            bitmapDataPlanes: nil, pixelsWide: width, pixelsHigh: height, bitsPerSample: 8, samplesPerPixel: 4,
+            hasAlpha: true, isPlanar: false, colorSpaceName: .deviceRGB, bytesPerRow: 0, bitsPerPixel: 0
+        ))
+        bitmap.size = image.size
+        NSGraphicsContext.saveGraphicsState()
+        NSGraphicsContext.current = NSGraphicsContext(bitmapImageRep: bitmap)
+        image.draw(in: NSRect(origin: .zero, size: image.size))
+        NSGraphicsContext.restoreGraphicsState()
+
+        func alpha(_ x: Int, _ y: Int) -> CGFloat { bitmap.colorAt(x: x, y: y)?.alphaComponent ?? 0 }
+        let rowSums = (0..<height).map { y in (0..<width).reduce(0) { $0 + alpha($1, y) } }
+        let armRow = try #require(rowSums.indices.max { rowSums[$0] < rowSums[$1] })
+        let firstX = try #require((0..<width).first { alpha($0, armRow) >= 0.5 })
+        let lastX = try #require((0..<width).last { alpha($0, armRow) >= 0.5 })
+        let column = firstX + (lastX - firstX) / 10 + 1
+        let columnSum = (0..<height).reduce(0) { $0 + alpha(column, $1) }
+        return (rowSums[armRow] / scale, columnSum / scale)
     }
 }

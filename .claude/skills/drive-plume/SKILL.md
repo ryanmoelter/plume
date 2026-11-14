@@ -1,6 +1,6 @@
 ---
 name: drive-plume
-description: Drive and inspect a running debug build of Plume from an agent — read what is on screen as text, click, type, hover, and screenshot — without stealing focus or needing an Accessibility grant. Use whenever verifying a UI change, reproducing a UI bug, or checking what the app shows, before reaching for a screenshot or a process tree.
+description: Drive and inspect a running debug build of Plume from an agent — read what is on screen as text, click, type, hover, screenshot, and record video — without stealing focus or needing an Accessibility grant. Use whenever verifying a UI change, reproducing a UI bug, or checking what the app shows, before reaching for a screenshot or a process tree.
 ---
 
 # Drive the debug app
@@ -39,7 +39,7 @@ Each step is cheaper than the next to read. Stop at the first one that answers t
 1. `hierarchy` — the whole window as an indented outline: every text view with its text, every control with its enabled state and frame. Pass `target=` to scope it.
 2. `readText target='{"kind":"composer"}'` or `'{"kind":"chatList"}'` — one surface's text, row by row.
 3. `list plumeID=<id>` / `describe` — one control's frame, label, value and enabled state.
-4. `screenshot` — only for a question about layout or rendering that text cannot answer. Pass `target=` to crop to one control. Read the PNG in a sub-agent, never in the main conversation.
+4. `screenshot` — only for a question about layout or rendering that text cannot answer, or for the media an `implement` or `release-cycle` verifier captures of new behavior. Pass `target=` to crop to one control. Read the PNG in a sub-agent, never in the main conversation.
 
 ## Act
 
@@ -61,11 +61,25 @@ c clear
 
 **Confirm which tab is selected before every chat-list or composer read.** A hidden agent tab renders nothing, so its controls read disabled and `readText` on its chat list returns "not found". That is a correctly hidden tab, not a broken one. Forking selects the new tab on its own. Run `c list plumeID=tab-chip`, find the chip with `value: "selected"`, and say which tab each reading came from.
 
+**Start test chats in a temporary folder outside any repository** (`mktemp -d`), unless the check needs a repository or the user asks for one. A chat runs a real `claude`, and an accepted "Always allow … in this project" suggestion writes a rule to that project's `.claude/settings.local.json`. For a worktree, the project is the primary checkout.
+
 `key` posts a real `NSEvent` down the whole dispatch path, so it is how a keyboard shortcut gets tested. Its `handledBy` names the menu item that owns the chord, and `menu` dumps every item with the chord AppKit actually holds — which is the thing to check when a shortcut does nothing, not what the source asked for.
 
 **Never drive a repro with `CGEventPostToPid`, `cliclick`, or by exec'ing the binary from a shell.** All three activate the app and take over the user's pointer and frontmost window. For a click the control server can't express, synthesize it *inside* the process: post `NSEvent`s through `NSApp.postEvent` after `window.makeKey()`. Post mouse-down and mouse-up about 150 ms apart, so AppKit's tracking loop pumps the run loop. `LinkClickHarness` is the shipped example and `docs/selectable-text-link-hang.md` has the recipe.
 
-**Only one agent may screenshot at a time.** Parallel screenshot attempts fail, so when several agents run at once, give screenshot duty to at most one or run visual checks as a single pass afterwards.
+## Record
+
+For anything that only shows over time — a fade, a transition, a scroll hitch, a row that jumps — record a video instead of a screenshot sequence:
+
+```
+c recordStart path=$HOME/Library/Caches/Plume-agent-media/<issue>/what-it-shows.mp4 maxSeconds=10
+c invoke target='{"id":"…"}'      # drive the change while it records
+c recordStop                      # {path, frames, dropped, duration, stoppedBy}
+```
+
+It captures the window the way `screenshot` does, so it needs no grant, never takes focus, and cannot record a hidden (`open -j`) window. `target=` crops to one control or surface, fixed at the start. `fps` (default 30) is a ceiling; read `frames` and `duration` from the result rather than assuming it. A recording stops itself at `maxSeconds` (default 30, at most 300), and `recordStop` afterwards returns that recording with `stoppedBy: "limit"`. Only one recording runs at a time. Check the clip with `ffprobe -count_frames` before handing it over.
+
+**Screenshots can run in parallel.** Each one captures its own window from the window server, so four `screenshot` calls fired at once against one app all succeed, each in under a quarter of a second. Parallel captures against two apps at once are not yet measured.
 
 ## When a control is missing
 

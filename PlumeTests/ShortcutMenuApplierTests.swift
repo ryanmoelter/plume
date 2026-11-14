@@ -13,7 +13,7 @@ struct ShortcutMenuApplierTests {
         let root = NSMenu()
         let tab = NSMenuItem(title: "Tab", action: nil, keyEquivalent: "")
         let submenu = NSMenu(title: "Tab")
-        for action in ShortcutAction.allCases {
+        for action in ShortcutAction.menuActions {
             submenu.addItem(NSMenuItem(title: action.label, action: nil, keyEquivalent: ""))
         }
         tab.submenu = submenu
@@ -26,13 +26,13 @@ struct ShortcutMenuApplierTests {
     }
 
     @Test func everyRebindableActionFindsItsItem() {
-        #expect(ShortcutMenuApplier.apply(ShortcutBindings(), to: tabMenu()) == Set(ShortcutAction.allCases))
+        #expect(ShortcutMenuApplier.apply(ShortcutBindings(), to: tabMenu()) == Set(ShortcutAction.menuActions))
     }
 
     @Test func defaultsReachTheItems() {
         let menu = tabMenu()
         ShortcutMenuApplier.apply(ShortcutBindings(), to: menu)
-        for action in ShortcutAction.allCases {
+        for action in ShortcutAction.menuActions {
             let found = item(action, in: menu)
             #expect(found?.keyEquivalent == action.defaultShortcut.map { String($0.key) } ?? "")
             #expect(found?.keyEquivalentModifierMask == action.defaultShortcut.map { MenuShortcut.appKitFlags($0.modifiers) } ?? [])

@@ -22,7 +22,7 @@ struct TabContentView: View {
     @State private var dropSide: TaskStore.SplitSide?
     @State private var drag = InAppDrag.shared
 
-    static let coordinateSpace = "tabContent"
+    nonisolated static let coordinateSpace = "tabContent"
 
     var body: some View {
         GeometryReader { proxy in
@@ -265,10 +265,17 @@ private struct HeadlessAgentTabContent: View {
             guard isVisible else { return }
             resumeIfNeeded()
         }
+        .onChange(of: OrphanedAgentReaper.shared.hasFinished) { _, _ in
+            guard isVisible else { return }
+            resumeIfNeeded()
+        }
     }
 
     private func resumeIfNeeded() {
         guard !hasResumed else { return }
+        let reaper = OrphanedAgentReaper.shared
+        reaper.start()
+        guard reaper.hasFinished else { return }
         guard AgentAutoResume.shouldResume(
             agentSessionID: tab.agentSessionID,
             workingDirectoryPath: TabDirectoryStore.shared.directory(for: tab),

@@ -4,6 +4,7 @@ import Foundation
 
 /// Arrow-key stepping, which the sidebar took over from `List` when the rows
 /// disabled its selection.
+@MainActor
 struct SidebarKeyboardNavigationTests {
     private let a = UUID(), b = UUID(), c = UUID()
     private var ordered: [UUID] { [a, b, c] }

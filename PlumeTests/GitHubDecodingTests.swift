@@ -35,9 +35,12 @@ struct GitHubDecodingTests {
         #expect(try decodeFixture().reviewDecision == .none)
     }
 
-    @Test func everyRollupContextDecodes() throws {
+    /// The capture's 50 contexts carry 27 names: label-triggered workflows
+    /// ran the same checks up to five times on one commit.
+    @Test func everyRollupContextDecodesOncePerName() throws {
         let pr = try decodeFixture()
-        #expect(pr.checkContexts.count == 50)
+        #expect(pr.checkContexts.count == 27)
+        #expect(Set(pr.checkContexts.map(\.name)).count == 27)
         #expect(pr.checkContexts.allSatisfy { !$0.name.isEmpty })
         #expect(pr.checkContexts.allSatisfy { !$0.status.isEmpty })
     }
@@ -76,6 +79,24 @@ struct GitHubDecodingTests {
         #expect(pr.checkRollup(ignoredWhenPending: unsettled) == .success)
     }
 
+    @Test func aRerunReplacesTheRunBeforeIt() throws {
+        let json = """
+        {"data":{"repository":{"owner":{"login":"me"},"b0":{"nodes":[
+        {"number":7,"state":"OPEN","isDraft":false,
+         "commits":{"nodes":[{"commit":{"statusCheckRollup":{"contexts":{"nodes":[
+          {"__typename":"CheckRun","name":"build","conclusion":"SUCCESS","status":"COMPLETED","startedAt":"2026-11-10T10:05:00Z"},
+          {"__typename":"CheckRun","name":"build","conclusion":"FAILURE","status":"COMPLETED","startedAt":"2026-11-10T10:00:00Z"},
+          {"__typename":"StatusContext","context":"ci/lint","state":"SUCCESS","createdAt":"2026-11-10T10:00:00Z"}
+         ]}}}}]}}]}}}}
+        """
+        let decoded = try GitHubQuery.decode(Data(json.utf8), aliasToBranch: ["b0": "main"])
+        let pr = try #require(decoded["main"] ?? nil)
+        #expect(pr.checkContexts.map(\.name) == ["build", "ci/lint"])
+        #expect(pr.checkContexts.first?.status == "SUCCESS")
+        #expect(pr.checkContexts.last?.startedAt != nil)
+        #expect(pr.checkRollup() == .success)
+    }
+
     // MARK: - Null shapes
 
     @Test func aNullRollupDecodesAsNoChecks() throws {
@@ -91,6 +112,39 @@ struct GitHubDecodingTests {
         #expect(pr.checkContexts.isEmpty)
         #expect(pr.checkRollup() == .none)
         #expect(pr.reviewDecision == .none)
+    }
+
+    @Test func eachUnionMemberCarriesItsPageURL() throws {
+        let json = """
+        {"data":{"repository":{"owner":{"login":"me"},"b0":{"nodes":[
+        {"number":7,"state":"OPEN","isDraft":false,
+         "commits":{"nodes":[{"commit":{"statusCheckRollup":{"contexts":{"nodes":[
+           {"__typename":"CheckRun","name":"build","conclusion":"SUCCESS","detailsUrl":"https://example.com/run"},
+           {"__typename":"StatusContext","context":"ci/lint","state":"PENDING","targetUrl":"https://example.com/status"},
+           {"__typename":"CheckRun","name":"bare","conclusion":"SUCCESS"}
+         ]}}}}]}}]}}}}
+        """
+        let decoded = try GitHubQuery.decode(Data(json.utf8), aliasToBranch: ["b0": "main"])
+        let contexts = try #require(decoded["main"] ?? nil).checkContexts
+        let urls = Dictionary(uniqueKeysWithValues: contexts.map { ($0.name, $0.url) })
+        #expect(urls["build"] == URL(string: "https://example.com/run"))
+        #expect(urls["ci/lint"] == URL(string: "https://example.com/status"))
+        #expect(urls["bare"] == .some(nil))
+    }
+
+    @Test func aRequestedOrPastReviewerCountsAsAssigned() throws {
+        func decode(requests: Int, reviews: Int) throws -> Bool {
+            let json = """
+            {"data":{"repository":{"owner":{"login":"me"},"b0":{"nodes":[
+            {"number":7,"state":"OPEN","isDraft":false,
+             "reviewRequests":{"totalCount":\(requests)},"latestReviews":{"totalCount":\(reviews)}}]}}}}
+            """
+            let decoded = try GitHubQuery.decode(Data(json.utf8), aliasToBranch: ["b0": "main"])
+            return try #require(decoded["main"] ?? nil).hasReviewers
+        }
+        #expect(try decode(requests: 1, reviews: 0))
+        #expect(try decode(requests: 0, reviews: 2))
+        #expect(try !decode(requests: 0, reviews: 0))
     }
 
     @Test func aBranchWithNoPullRequestMapsToNil() throws {

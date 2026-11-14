@@ -16,6 +16,7 @@ final class ReferenceChipStore {
     struct Resolution: Equatable {
         let title: String
         let icon: ReferenceChipIcon
+        var detail: ReferenceChipDetail? = nil
     }
 
     struct Dependencies {
@@ -42,7 +43,7 @@ final class ReferenceChipStore {
     /// How long a missing file or a failed pull request lookup waits before
     /// it is asked about again.
     static let retryInterval: TimeInterval = 30
-    static let coalescing: Duration = .milliseconds(250)
+    nonisolated static let coalescing: Duration = .milliseconds(250)
     static let pullRequestDebounce: Duration = .milliseconds(100)
 
     @Observable
@@ -90,6 +91,12 @@ final class ReferenceChipStore {
         box(for: target).resolution?.icon
     }
 
+    /// What the chip's tooltip shows beyond its title. Nil for a file, and
+    /// for a target nothing has vouched for yet.
+    func detail(for target: ReferenceTarget) -> ReferenceChipDetail? {
+        box(for: target).resolution?.detail
+    }
+
     func revision(for owner: UUID) -> Int {
         revisionBox(for: owner).value
     }
@@ -113,12 +120,22 @@ final class ReferenceChipStore {
             refreshLinear()
         }
         if targets.isEmpty { return }
+        lookUp(targets)
+    }
 
+    /// Looks up a pull request no owner shows, for a tooltip that wants its
+    /// author and review. Anything else is left alone.
+    func lookUpDetail(of target: ReferenceTarget) {
+        guard case .pullRequest = target else { return }
+        lookUp([target])
+    }
+
+    private func lookUp(_ targets: Set<ReferenceTarget>) {
         let now = dependencies.now()
         var files: [String] = []
         for target in targets where !inFlight.contains(target) && nextLookups[target].map({ now >= $0 }) ?? true {
             switch target {
-            case .linear: continue
+            case .linear, .artifact: continue
             case .pullRequest: pendingPullRequests.insert(target)
             case .file(let path): files.append(path)
             }
@@ -172,7 +189,7 @@ final class ReferenceChipStore {
                 inFlight.remove(target)
                 if let isDirectory = kinds[path] {
                     nextLookups[target] = .distantFuture
-                    publish(Resolution(title: target.canonicalLabel, icon: .file(isDirectory: isDirectory)), for: target)
+                    publish(Resolution(title: (path as NSString).lastPathComponent, icon: .file(isDirectory: isDirectory)), for: target)
                 } else {
                     nextLookups[target] = now.addingTimeInterval(Self.retryInterval)
                     publish(nil, for: target)
@@ -205,7 +222,8 @@ final class ReferenceChipStore {
                     nextLookups[target] = now.addingTimeInterval(lifetime)
                     publish(Resolution(
                         title: entry.title,
-                        icon: .pullRequest(number: entry.number, state: entry.state, isDraft: entry.isDraft)
+                        icon: .pullRequest(number: entry.number, state: entry.state, isDraft: entry.isDraft),
+                        detail: .pullRequest(entry)
                     ), for: target)
                 case .missing:
                     nextLookups[target] = now.addingTimeInterval(PullRequestLinkSource.missLifetime)
@@ -236,7 +254,7 @@ final class ReferenceChipStore {
         }
         for (identifier, issue) in issues {
             let resolution = issue.map {
-                Resolution(title: $0.title, icon: .linear($0.stateType, colorHex: $0.stateColor))
+                Resolution(title: $0.title, icon: .linear($0), detail: .linear($0))
             }
             publish(resolution, for: .linear(identifier: identifier))
         }

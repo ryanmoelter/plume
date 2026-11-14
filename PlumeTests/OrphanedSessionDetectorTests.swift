@@ -6,6 +6,7 @@ import Testing
 /// process exists *and* the transcript is still changing. Either alone is
 /// ordinary: a finished orphan leaves a stale file, and an owned process is
 /// this app's own agent.
+@MainActor
 struct OrphanedSessionDetectorTests {
     private let now = Date(timeIntervalSince1970: 1_000_000)
 

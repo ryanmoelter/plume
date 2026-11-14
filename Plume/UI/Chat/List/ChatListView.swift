@@ -10,6 +10,8 @@ struct ChatListView: NSViewRepresentable {
     var revealModel: ChatRevealModel?
     var paneFocus: PaneFocusState?
     var commands: ChatListCommands
+    /// Where a list with no tab opens; a tab's list reopens where it was left.
+    var initialPosition: ChatReadingPosition = .bottom
     /// Passed beside `inputs` rather than within it: it carries a closure, so
     /// it cannot be compared. The controller restages rows itself when what
     /// they draw from it changes.
@@ -26,12 +28,15 @@ struct ChatListView: NSViewRepresentable {
     func makeNSView(context: Context) -> NSScrollView {
         let controller = context.coordinator
         commands.controller = controller
+        controller.open(at: initialPosition)
         apply(to: controller)
+        controller.subagentOpener = context.environment.chatSubagentOpener
         return controller.scrollView
     }
 
     func updateNSView(_ nsView: NSScrollView, context: Context) {
         apply(to: context.coordinator)
+        context.coordinator.subagentOpener = context.environment.chatSubagentOpener
     }
 
     static func dismantleNSView(_ nsView: NSScrollView, coordinator: ChatListController) {

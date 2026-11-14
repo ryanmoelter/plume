@@ -1,6 +1,7 @@
 import Testing
 @testable import Plume
 
+@MainActor
 struct PullRequestChipTests {
     private func labels(
         _ state: PullRequestFetchState,
@@ -59,6 +60,11 @@ struct PullRequestChipTests {
         )
         #expect(labels(.pullRequest(pullRequest), rollup: .failure)
             == ["PR #6", "checks fail", "changes requested"])
+    }
+
+    @Test func anAssignedReviewerWithNoDecisionShowsAsAwaitingReview() {
+        let pullRequest = PullRequest(number: 9, state: .open, isDraft: false, hasReviewers: true)
+        #expect(labels(.pullRequest(pullRequest), rollup: .none) == ["PR #9", "awaiting review"])
     }
 
     /// Every non-GitHub repository lands here, so it must not draw an error.

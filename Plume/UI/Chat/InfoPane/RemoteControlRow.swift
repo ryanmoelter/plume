@@ -116,7 +116,6 @@ struct RemoteControlRow: View, ThemedView {
                 Text(status.title)
                     .lineLimit(1)
                     .truncationMode(.tail)
-                    .emphasis(.secondary)
                 Spacer(minLength: 4)
                 Image(systemName: "ellipsis")
                     .foregroundStyle(colors.selection)
@@ -142,11 +141,11 @@ struct RemoteControlRow: View, ThemedView {
         }
     }
 
-    private var tint: Color {
+    private var tint: AnyShapeStyle {
         switch status {
-        case .on: colors.attention
-        case .failed: colors.danger
-        case .connecting, .off: colors.foreground.opacity(colors.emphasis[.secondary])
+        case .on: AnyShapeStyle(colors.attention)
+        case .failed: AnyShapeStyle(colors.danger)
+        case .connecting, .off: AnyShapeStyle(Emphasis.primary.textHierarchy)
         }
     }
 

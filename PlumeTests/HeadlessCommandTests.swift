@@ -2,6 +2,7 @@ import Testing
 import Foundation
 @testable import Plume
 
+@MainActor
 struct HeadlessCommandTests {
     private func permissionModeToken(in arguments: [String]) -> String? {
         guard let flagIndex = arguments.firstIndex(of: "--permission-mode") else { return nil }
@@ -68,6 +69,22 @@ struct HeadlessCommandTests {
         #expect(!arguments.contains("--dangerously-skip-permissions"))
     }
 
+    @Test func appendsTheSystemPromptRuleFile() throws {
+        let arguments = HeadlessCommand.arguments(
+            resumeSessionID: nil,
+            permissionMode: nil,
+            settingsPath: nil,
+            systemPromptRulePath: "/rules/plume.md"
+        )
+        let flag = try #require(arguments.firstIndex(of: "--append-system-prompt-file"))
+        #expect(arguments[flag + 1] == "/rules/plume.md")
+    }
+
+    @Test func omitsTheSystemPromptRuleWithoutAFile() {
+        let arguments = HeadlessCommand.arguments(resumeSessionID: nil, permissionMode: nil, settingsPath: nil)
+        #expect(!arguments.contains("--append-system-prompt-file"))
+    }
+
     @Test func environmentOptsIntoArtifactsAndKeepsThePlumeMarker() {
         #expect(HeadlessCommand.environment["CLAUDE_CODE_ARTIFACT"] == "1")
         #expect(HeadlessCommand.environment["PLUME"] == "1")
@@ -77,6 +94,7 @@ struct HeadlessCommandTests {
 
 /// `--model` carries the tab's pre-launch choice, so the first turn runs on
 /// the model the user picked rather than the CLI's default.
+@MainActor
 struct HeadlessCommandModelTests {
     private func modelToken(in arguments: [String]) -> String? {
         guard let flagIndex = arguments.firstIndex(of: "--model") else { return nil }
@@ -178,6 +196,7 @@ struct HeadlessCommandModelTests {
 /// Locks down the login-shell wrap that puts `claude` on PATH. A GUI-launched
 /// app inherits launchd's minimal PATH, so exec'ing `claude` directly fails
 /// with "No such file or directory" even though a terminal finds it.
+@MainActor
 struct HeadlessLoginShellCommandTests {
     @Test func argumentsRunThroughALoginShell() {
         let command = LoginShellCommand.wrap(arguments: ["claude", "-p"])

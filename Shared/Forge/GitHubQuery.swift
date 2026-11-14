@@ -13,10 +13,11 @@ nonisolated enum GitHubQuery {
 
     private static let prNodeFields = """
         number state isDraft baseRefName url title headRefOid reviewDecision \
+        reviewRequests(first: 1) { totalCount } latestReviews(first: 1) { totalCount } \
         headRepositoryOwner { login } \
         commits(last: 1) { nodes { commit { statusCheckRollup { contexts(first: 100) \
-        { nodes { __typename ... on StatusContext { context state } \
-        ... on CheckRun { name conclusion status } } } } } } }
+        { nodes { __typename ... on StatusContext { context state createdAt targetUrl } \
+        ... on CheckRun { name conclusion status startedAt detailsUrl } } } } } } }
         """
 
     private static let stackFields = "stack { number size } stackEntry { position }"
@@ -87,6 +88,24 @@ nonisolated struct GitHubPRNode: Decodable, Sendable {
         let name: String?
         let conclusion: String?
         let status: String?
+        /// A `StatusContext`'s.
+        let createdAt: String?
+        /// A `CheckRun`'s.
+        let startedAt: String?
+        let targetUrl: String?
+        let detailsUrl: String?
+
+        var checkContext: CheckContext {
+            CheckContext(
+                context: context,
+                state: state,
+                name: name,
+                conclusion: conclusion,
+                status: status,
+                startedAt: startedAt ?? createdAt,
+                url: detailsUrl ?? targetUrl
+            )
+        }
     }
     struct Contexts: Decodable, Sendable { let nodes: [RollupContext]? }
     struct Rollup: Decodable, Sendable { let contexts: Contexts? }
@@ -98,6 +117,7 @@ nonisolated struct GitHubPRNode: Decodable, Sendable {
         let size: Int?
     }
     struct NativeStackEntry: Decodable, Sendable { let position: Int? }
+    struct Count: Decodable, Sendable { let totalCount: Int? }
 
     let number: Int
     let state: String?
@@ -107,6 +127,8 @@ nonisolated struct GitHubPRNode: Decodable, Sendable {
     let title: String?
     let headRefOid: String?
     let reviewDecision: String?
+    let reviewRequests: Count?
+    let latestReviews: Count?
     let headRepositoryOwner: Owner?
     let commits: Commits?
     let stack: NativeStack?
@@ -149,16 +171,9 @@ nonisolated extension PullRequest {
     /// nil for a node whose `state` isn't one GitHub documents.
     init?(node: GitHubPRNode) {
         guard let state = PullRequestState(rawValue: node.state ?? "") else { return nil }
-        let contexts = (node.commits?.nodes?.first?.commit?.statusCheckRollup?.contexts?.nodes ?? [])
-            .map {
-                CheckContext(
-                    context: $0.context,
-                    state: $0.state,
-                    name: $0.name,
-                    conclusion: $0.conclusion,
-                    status: $0.status
-                )
-            }
+        let contexts = CheckContext.latestRuns(
+            (node.commits?.nodes?.first?.commit?.statusCheckRollup?.contexts?.nodes ?? []).map(\.checkContext)
+        )
         self.init(
             number: node.number,
             state: state,
@@ -168,6 +183,7 @@ nonisolated extension PullRequest {
             baseRefName: node.baseRefName,
             headRefOid: node.headRefOid,
             reviewDecision: ReviewDecision(rawValue: node.reviewDecision),
+            hasReviewers: (node.reviewRequests?.totalCount ?? 0) + (node.latestReviews?.totalCount ?? 0) > 0,
             checkContexts: contexts,
             githubStack: Self.stackMembership(node)
         )

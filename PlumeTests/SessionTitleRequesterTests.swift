@@ -5,6 +5,7 @@ import Foundation
 /// The policy that decides when a headless conversation is titled: as soon as
 /// it has something to describe, and again when a plan describes it better.
 /// Never on a terminal tab or a user-named task.
+@MainActor
 struct SessionTitleRequesterTests {
     private func context(
         transport: AgentTransport = .headless,

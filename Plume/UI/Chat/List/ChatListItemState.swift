@@ -14,7 +14,7 @@ final class ChatListItemState {
 
     /// How far a row's host reaches past the item's own frame, above and
     /// below, so a chat chip on its first or last line is not cut off.
-    static let overhang = InlineChips.defaultVerticalPad
+    nonisolated static let overhang = InlineChips.defaultVerticalPad
 
     init(containerHeight: CGFloat? = nil) {
         self.containerHeight = containerHeight
@@ -53,7 +53,7 @@ private struct ContainerHeight: ViewModifier {
 
 /// The view's own bounds plus the row's overhang, or those bounds extended
 /// far enough downward that nothing below them is clipped.
-private struct OverflowClip: Shape {
+private nonisolated struct OverflowClip: Shape {
     let allowsOverflow: Bool
 
     func path(in rect: CGRect) -> Path {

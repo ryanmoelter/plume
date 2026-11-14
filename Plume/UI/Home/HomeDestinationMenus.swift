@@ -20,16 +20,16 @@ struct HomeDestinationMenus {
     /// menu shows its folders.
     @ViewBuilder
     var projectItems: some View {
+        Button("Choose Folder…", action: chooseFolder)
+        if !model.catalog.projects.isEmpty {
+            Divider()
+        }
         ForEach(model.catalog.projects) { project in
             Toggle(isOn: selecting(project.path == model.destination.projectPath) { model.chooseProject(project.path) }) {
                 Text(project.name)
                 Text(HomeDestinationPath.abbreviated(project.path))
             }
         }
-        if !model.catalog.projects.isEmpty {
-            Divider()
-        }
-        Button("Choose Folder…", action: chooseFolder)
     }
 
     var subfolderItems: some View {
@@ -41,11 +41,16 @@ struct HomeDestinationMenus {
         )
     }
 
-    /// Each worktree over its branch, then a new one, as the new conversation
+    /// A new worktree, then each existing one over its branch, as the new conversation
     /// screen's worktree menu lists them.
     @ViewBuilder
     var workspaceItems: some View {
         let existing = model.workspaceChoices.filter { $0 != .newWorktree }
+        Toggle(
+            HomeWorkspaceChoice.newWorktreeTitle,
+            isOn: selecting(model.destination.workspace == .newWorktree) { model.chooseWorkspace(.newWorktree) }
+        )
+        Divider()
         ForEach(existing, id: \.self) { choice in
             Toggle(isOn: selecting(choice == model.destination.workspace) { model.chooseWorkspace(choice) }) {
                 Text(model.workspaceTitle(for: choice))
@@ -54,11 +59,6 @@ struct HomeDestinationMenus {
                 }
             }
         }
-        Divider()
-        Toggle(
-            HomeWorkspaceChoice.newWorktreeTitle,
-            isOn: selecting(model.destination.workspace == .newWorktree) { model.chooseWorkspace(.newWorktree) }
-        )
     }
 
     /// A menu item's checkmark: choosing it selects, and choosing it again

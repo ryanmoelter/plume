@@ -25,7 +25,7 @@ nonisolated struct PullRequestTaskLinks: Codable, Equatable {
     }
 }
 
-extension PullRequestReference: Codable {
+nonisolated extension PullRequestReference: Codable {
     private enum CodingKeys: String, CodingKey {
         case owner, repo, number
     }

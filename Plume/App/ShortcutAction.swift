@@ -3,15 +3,21 @@ import SwiftUI
 
 /// A menu command whose chord the user can reassign.
 ///
-/// The four cycling commands and Send Now are rebindable. Every other chord
+/// The four cycling commands, Send Now, Home and the composer's formatting
+/// keys are rebindable. Every other chord
 /// `PlumeCommands` binds stays fixed, because it either matches a macOS-wide
 /// convention (⌘N, ⌘T, ⌘W) or is positional (⌘1…⌘9).
-enum ShortcutAction: String, CaseIterable, Identifiable, Codable {
+nonisolated enum ShortcutAction: String, CaseIterable, Identifiable, Codable {
     case nextTab
     case previousTab
     case nextTask
     case previousTask
     case sendNow
+    case showHome
+    case formatBold
+    case formatItalic
+    case formatCode
+    case formatLink
 
     var id: String { rawValue }
 
@@ -22,8 +28,30 @@ enum ShortcutAction: String, CaseIterable, Identifiable, Codable {
         case .nextTask: "Next Task"
         case .previousTask: "Previous Task"
         case .sendNow: "Send Now"
+        case .showHome: "Home"
+        case .formatBold: "Bold"
+        case .formatItalic: "Italic"
+        case .formatCode: "Code"
+        case .formatLink: "Link"
         }
     }
+
+    /// The composer's text view handles these chords itself. They have no
+    /// menu item, and a terminal must never be made to give them up.
+    var isComposerFormatting: Bool { composerStyle != nil }
+
+    var composerStyle: ComposerInlineFormatting.Style? {
+        switch self {
+        case .formatBold: .bold
+        case .formatItalic: .italic
+        case .formatCode: .code
+        case .formatLink: .link
+        default: nil
+        }
+    }
+
+    static var menuActions: [ShortcutAction] { allCases.filter { !$0.isComposerFormatting } }
+    static var composerFormattingActions: [ShortcutAction] { allCases.filter(\.isComposerFormatting) }
 
     /// Nil for an action that ships unbound and gets a chord only when the
     /// user records one.
@@ -34,6 +62,11 @@ enum ShortcutAction: String, CaseIterable, Identifiable, Codable {
         case .nextTask: MenuShortcut("]")
         case .previousTask: MenuShortcut("[")
         case .sendNow: nil
+        case .showHome: MenuShortcut("h", modifiers: [.command, .shift])
+        case .formatBold: MenuShortcut("b")
+        case .formatItalic: MenuShortcut("i")
+        case .formatCode: MenuShortcut("e")
+        case .formatLink: MenuShortcut("k")
         }
     }
 }
@@ -46,7 +79,7 @@ enum ShortcutAction: String, CaseIterable, Identifiable, Codable {
 /// as one JSON blob, rather than a key per action: the set is small and always
 /// read together, and one blob keeps a partial write from leaving half the
 /// bindings stale.
-struct ShortcutBindings: Equatable, Codable {
+nonisolated struct ShortcutBindings: Equatable, Codable {
     /// An action present here with a nil value is deliberately unbound: its
     /// chord went to another action, and falling back to its default would
     /// hand it a chord that action now owns.
@@ -61,7 +94,9 @@ struct ShortcutBindings: Equatable, Codable {
         overrides[action] ?? action.defaultShortcut
     }
 
-    var all: [MenuShortcut] { ShortcutAction.allCases.compactMap { self[$0] } }
+    /// The menu actions' chords, which is what a terminal may be asked to give
+    /// up. Composer formatting chords stay out.
+    var all: [MenuShortcut] { ShortcutAction.menuActions.compactMap { self[$0] } }
 
     func isCustomized(_ action: ShortcutAction) -> Bool { overrides[action] != nil }
 
@@ -92,7 +127,7 @@ struct ShortcutBindings: Equatable, Codable {
 /// Encoded as an object keyed by action, whose value is the chord or `null`
 /// for a deliberately unbound action. Written by hand because a dictionary of
 /// optionals keyed by a non-`String` type encodes as a flat array otherwise.
-extension ShortcutBindings {
+nonisolated extension ShortcutBindings {
     private struct ActionKey: CodingKey {
         let stringValue: String
         var intValue: Int? { nil }
