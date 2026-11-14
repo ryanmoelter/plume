@@ -24,7 +24,7 @@ class FlowSolverTest {
   fun constructorArgumentReachesTheInvokeThroughARenamedProperty() {
     val invoke = call("Edit.kt", 9, "invokeFnValue")
     assertEquals(
-      mapOf("lambda@Edit.kt:38" to "fnValue", "lambda@Edit.kt:40" to "fnValue"),
+      mapOf("lambda@Edit.kt:38:38" to "fnValue", "lambda@Edit.kt:40:31" to "fnValue"),
       edges(invoke),
     )
     assertEquals(2, fanOut(invoke))
@@ -33,7 +33,7 @@ class FlowSolverTest {
   @Test
   fun memberFunctionNamedLikeItsPropertyInvokesTheProperty() {
     val invoke = call("Edit.kt", 24, "invokeFnValue")
-    assertEquals(setOf("lambda@Edit.kt:38", "lambda@Edit.kt:40"), edges(invoke).keys)
+    assertEquals(setOf("lambda@Edit.kt:38:38", "lambda@Edit.kt:40:31"), edges(invoke).keys)
     // `editInGraph(Delta("touched"))` on line 28 is the function, not the property.
     assertEquals(
       mapOf("Graphable.editInGraph(Delta)" to "static", "Delta.<init>(String)" to "static"),
@@ -54,7 +54,7 @@ class FlowSolverTest {
     val through = witness.map { it.to }
     for (location in
       listOf(
-        "fun:fixture/flow/toGraph(kotlin/Function1)#edit",
+        "fun:fixture/flow/toGraph(kotlin/Function1<kotlin/collections/List<fixture/flow/Delta>,kotlin/Unit>)#edit",
         "prop:fixture/flow/Graph.edit",
         "prop:fixture/flow/Graph.editInGraph",
         "prop:fixture/flow/Data.editInGraph",
@@ -75,8 +75,8 @@ class FlowSolverTest {
   fun lambdaWithReceiverBindsTheReceiver() {
     val extensionForm = call("Receiver.kt", 11, "invokeFnValue")
     val callForm = call("Receiver.kt", 15, "invokeFnValue")
-    assertEquals(mapOf("lambda@Receiver.kt:20" to "fnValue"), edges(extensionForm))
-    assertEquals(mapOf("lambda@Receiver.kt:21" to "fnValue"), edges(callForm))
+    assertEquals(mapOf("lambda@Receiver.kt:20:15" to "fnValue"), edges(extensionForm))
+    assertEquals(mapOf("lambda@Receiver.kt:21:19" to "fnValue"), edges(callForm))
     val receivers = derived.flows.filter { it.kind == "invokeArg" && it.to.endsWith("#<recv>") }
     assertEquals(
       setOf("flow/Receiver.kt:20:15-20:34:lambda#<recv>", "flow/Receiver.kt:21:19-21:37:lambda#<recv>"),
@@ -102,19 +102,19 @@ class FlowSolverTest {
 
   @Test
   fun lambdaConvertedToAFunInterfaceIsCalledThroughIt() {
-    assertEquals(mapOf("lambda@Dispatch.kt:43" to "fnValue"), edges(call("Dispatch.kt", 40, "virtual")))
+    assertEquals(mapOf("lambda@Dispatch.kt:43:35" to "fnValue"), edges(call("Dispatch.kt", 40, "virtual")))
   }
 
   @Test
   fun trailingLambdaAndCallableReferenceBothReachTheInvoke() {
     val invoke = call("Args.kt", 11, "invokeFnValue")
-    assertEquals(mapOf("lambda@Args.kt:15" to "fnValue", "report(String)" to "fnValue"), edges(invoke))
+    assertEquals(mapOf("lambda@Args.kt:15:47" to "fnValue", "report(String)" to "fnValue"), edges(invoke))
     assertEquals(2, fanOut(invoke))
   }
 
   @Test
   fun namedAndDefaultArgumentsBindByParameter() {
-    val configure = "fun:fixture/flow/configure(kotlin/String,kotlin/Int,kotlin/String...,kotlin/Function1)"
+    val configure = "fun:fixture/flow/configure(kotlin/String,kotlin/Int,kotlin/String...,kotlin/Function1<kotlin/String,kotlin/Unit>)"
     val into = facts.flows.filter { it.to.startsWith("$configure#") }
     assertEquals(
       setOf("default" to "name", "default" to "retries", "arg" to "name", "arg" to "retries", "arg" to "tags", "arg" to "onDone"),
@@ -137,16 +137,16 @@ class FlowSolverTest {
 
   @Test
   fun lambdaStoredInAPropertyReachesASafeInvoke() {
-    assertEquals(mapOf("lambda@Args.kt:38" to "fnValue"), edges(call("Args.kt", 33, "invokeFnValue")))
+    assertEquals(mapOf("lambda@Args.kt:38:21" to "fnValue"), edges(call("Args.kt", 33, "invokeFnValue")))
   }
 
   @Test
   fun lambdaPassedToALibraryFunctionIsAssumedInvoked() {
     val forEach = facts.calls.single { it.target.startsWith("fun:kotlin/collections/forEach") }.id
-    assertEquals(mapOf("lambda@Args.kt:26" to "assumedInvoke"), edges(forEach))
+    assertEquals(mapOf("lambda@Args.kt:26:18" to "assumedInvoke"), edges(forEach))
     assertEquals(
       listOf("fun:kotlin/collections/forEach"),
-      facts.unmodelledLambdaCalls.filter { it.call == forEach }.map { it.callee.substringBefore('@').substringBefore('(') },
+      facts.unmodelledLambdaCalls.filter { it.call == forEach }.map { it.callee.substringBefore('@') },
     )
   }
 

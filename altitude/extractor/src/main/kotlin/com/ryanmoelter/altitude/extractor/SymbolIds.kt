@@ -33,7 +33,9 @@ import org.jetbrains.kotlin.analysis.api.types.KaDefinitelyNotNullType
 import org.jetbrains.kotlin.analysis.api.types.KaErrorType
 import org.jetbrains.kotlin.analysis.api.types.KaFlexibleType
 import org.jetbrains.kotlin.analysis.api.types.KaType
+import org.jetbrains.kotlin.analysis.api.types.KaTypeArgumentWithVariance
 import org.jetbrains.kotlin.analysis.api.types.KaTypeParameterType
+import org.jetbrains.kotlin.types.Variance
 
 const val THIS = "#<this>"
 const val RECEIVER = "#<recv>"
@@ -44,7 +46,7 @@ const val DELEGATE = "#<delegate>"
 const val EXPECT = "|expect"
 
 /**
- * Stable identifiers. A declaration with a qualified name is named by kind, owner, name and erased
+ * Stable identifiers. A declaration with a qualified name is named by kind, owner, name and
  * parameter types, so the same symbol gets the same ID from every file that refers to it. A local
  * declaration is named by its position.
  */
@@ -149,11 +151,40 @@ class SymbolIds(private val relativePaths: Map<String, String>) {
 
   private fun KaSession.parameters(symbol: KaFunctionSymbol): String =
     symbol.valueParameters.joinToString(",") {
-      erased(it.returnType) + if (it.isVararg) "..." else ""
+      signature(it.returnType) + if (it.isVararg) "..." else ""
     }
 
   private fun KaSession.receiver(symbol: KaCallableSymbol): String =
-    symbol.receiverParameter?.let { "@" + erased(it.returnType) }.orEmpty()
+    symbol.receiverParameter?.let { "@" + signature(it.returnType) }.orEmpty()
+
+  /**
+   * A type as it appears in an ID. Type arguments stay, because two overloads may differ only in
+   * them (`List<Expense>.total()` and `List<Group>.total()`).
+   */
+  private fun KaSession.signature(type: KaType): String =
+    when (val expanded = type.fullyExpandedType) {
+      is KaClassType -> {
+        val arguments =
+          expanded.typeArguments.joinToString(",") { argument ->
+            val variance =
+              when ((argument as? KaTypeArgumentWithVariance)?.variance) {
+                Variance.IN_VARIANCE -> "in "
+                Variance.OUT_VARIANCE -> "out "
+                else -> ""
+              }
+            argument.type?.let { variance + signature(it) } ?: "*"
+          }
+        (expanded.classId.takeUnless { it.isLocal }?.asString() ?: "<local>") +
+          (if (arguments.isEmpty()) "" else "<$arguments>") +
+          if (expanded.isMarkedNullable) "?" else ""
+      }
+      is KaTypeParameterType ->
+        expanded.name.asString() + if (expanded.isMarkedNullable) "?" else ""
+      is KaFlexibleType -> signature(expanded.lowerBound).removeSuffix("?")
+      is KaDefinitelyNotNullType -> signature(expanded.original).removeSuffix("?")
+      is KaErrorType -> "<error>"
+      else -> "<other>"
+    }
 
   private fun expect(symbol: KaDeclarationSymbol): String = if (symbol.isExpect) EXPECT else ""
 

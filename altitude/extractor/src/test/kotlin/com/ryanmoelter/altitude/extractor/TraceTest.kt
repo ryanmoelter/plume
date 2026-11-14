@@ -20,12 +20,12 @@ class TraceTest {
     )
     assertContains(
       text,
-      "flow/Edit.kt:24  Graphable.editInGraph(Delta)  --call [via fnValue, fan-out 2]-->  lambda@Edit.kt:38",
+      "flow/Edit.kt:24  Graphable.editInGraph(Delta)  --call [via fnValue, fan-out 2]-->  lambda@Edit.kt:38:38",
     )
     assertContains(text, "the value reaches the invoke over")
     assertContains(
       text,
-      "flow/Edit.kt:38  lambda@Edit.kt:38  --call [static]-->  Queue.submit(List<Delta>)",
+      "flow/Edit.kt:38  lambda@Edit.kt:38:38  --call [static]-->  Queue.submit(List<Delta>)",
     )
   }
 
@@ -41,7 +41,7 @@ class TraceTest {
   fun assumedInvokeIsNamedInTheHop() {
     assertContains(
       tracer.trace("eachReported", "report"),
-      "--assumedInvoke [lambda passed to kotlin/collections/forEach [library]]-->  lambda@Args.kt:26",
+      "--assumedInvoke [lambda passed to kotlin/collections/forEach [library]]-->  lambda@Args.kt:26:18",
     )
   }
 
@@ -49,7 +49,7 @@ class TraceTest {
   fun ambiguousSelectorListsItsCandidates() {
     val text = tracer.trace("submit", "report")
     assertContains(text, "--from submit: 4 declarations match; pass one symbol ID:")
-    assertContains(text, "=  fun:fixture/flow/Queue.submit(kotlin/collections/List)")
+    assertContains(text, "=  fun:fixture/flow/Queue.submit(kotlin/collections/List<fixture/flow/Delta>)")
   }
 
   @Test
@@ -68,7 +68,7 @@ class TraceTest {
   fun libraryGoalEndsOnTheBoundaryCall() {
     assertContains(
       tracer.trace("eachReported", "kotlin.Int.toString"),
-      "flow/Args.kt:26  lambda@Args.kt:26  --call [library]-->  kotlin/Int.toString [library]",
+      "flow/Args.kt:26  lambda@Args.kt:26:18  --call [library]-->  kotlin/Int.toString [library]",
     )
   }
 

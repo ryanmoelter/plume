@@ -90,7 +90,8 @@ class Program(val facts: Facts, val derived: Derived) {
           ownerIsClass -> "${qualifiedName(owner!!.sym)}.${decl.name}"
           else -> decl.name
         }
-      "lambda" -> "lambda@${shortSite(decl)}"
+      "lambda" ->
+        "lambda@${decl.file.orEmpty().substringAfterLast('/')}:${decl.span.orEmpty().substringBefore('-')}"
       "local" -> "${decl.name}@${shortSite(decl)}"
       "param" -> "${qualifiedName(decl.owner!!)}#${decl.name}"
       "getter",
@@ -128,6 +129,11 @@ class Program(val facts: Facts, val derived: Derived) {
 
   private val parameters: Map<String, List<DeclFact>> =
     facts.decls.filter { it.kind == "param" && it.owner != null }.groupBy { it.owner!! }
+
+  private val constructors: Map<String, List<String>> =
+    facts.decls.filter { it.kind == "ctor" && it.owner != null }.groupBy({ it.owner!! }, { it.sym })
+
+  fun constructorsOf(sym: String): List<String> = constructors[sym].orEmpty().sorted()
 
   private fun parameterTypes(sym: String): String =
     parameters[sym]

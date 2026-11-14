@@ -28,6 +28,9 @@ class Tracer(private val program: Program, private val options: TraceOptions = T
     val goalName = goal.decls.singleOrNull()?.let(program::display) ?: program.display(libraryGoal!!)
     appendLine("Trace from ${program.display(source)}")
     appendLine("        to $goalName")
+    if (libraryGoal == null && program.constructorsOf(goal.decls.single()).isNotEmpty()) {
+      appendLine("        (a class: the paths end at its constructors)")
+    }
     appendLine()
 
     val ends: Map<String, List<CallFact>> =
@@ -36,7 +39,7 @@ class Tracer(private val program: Program, private val options: TraceOptions = T
           .mapValues { (_, calls) -> calls.filter { it.target == libraryGoal } }
           .filterValues { it.isNotEmpty() }
       } else {
-        mapOf(goal.decls.single() to emptyList())
+        program.constructorsOf(goal.decls.single()).ifEmpty { goal.decls }.associateWith { emptyList() }
       }
     val distance = distancesTo(ends.keys)
     if (source !in distance || distance.getValue(source) > options.maxDepth) {
