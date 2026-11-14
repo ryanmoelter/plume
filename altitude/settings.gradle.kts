@@ -13,6 +13,9 @@ dependencyResolutionManagement {
         gradlePluginPortal()
         google()
         maven("https://packages.jetbrains.team/maven/p/ij/intellij-dependencies")
+        maven("https://www.jetbrains.com/intellij-repository/releases") {
+            content { includeGroupAndSubgroups("com.jetbrains.intellij") }
+        }
     }
 }
 

@@ -1,8 +1,27 @@
 [versions]
 kotlin = "2.4.20"
 kotlinx-serialization-json = "1.13.0"
+kotlinx-coroutines = "1.11.0"
+kotlinx-coroutines-intellij = "1.11.0-intellij-1"
+caffeine = "2.9.3"
+# Must equal versions.intellijSdk in the Kotlin repository at the tag of the kotlin version.
+intellij-platform = "251.27812.49"
 
 [libraries]
+kotlin-compiler = { module = "org.jetbrains.kotlin:kotlin-compiler", version.ref = "kotlin" }
+intellij-platform-core = { module = "com.jetbrains.intellij.platform:core", version.ref = "intellij-platform" }
+kotlin-compiler-common = { module = "org.jetbrains.kotlin:kotlin-compiler-common-for-ide", version.ref = "kotlin" }
+kotlin-analysis-api = { module = "org.jetbrains.kotlin:analysis-api-for-ide", version.ref = "kotlin" }
+kotlin-analysis-api-k2 = { module = "org.jetbrains.kotlin:analysis-api-k2-for-ide", version.ref = "kotlin" }
+kotlin-analysis-api-impl-base = { module = "org.jetbrains.kotlin:analysis-api-impl-base-for-ide", version.ref = "kotlin" }
+kotlin-analysis-api-platform-interface = { module = "org.jetbrains.kotlin:analysis-api-platform-interface-for-ide", version.ref = "kotlin" }
+kotlin-analysis-api-standalone = { module = "org.jetbrains.kotlin:analysis-api-standalone-for-ide", version.ref = "kotlin" }
+kotlin-low-level-api-fir = { module = "org.jetbrains.kotlin:low-level-api-fir-for-ide", version.ref = "kotlin" }
+kotlin-symbol-light-classes = { module = "org.jetbrains.kotlin:symbol-light-classes-for-ide", version.ref = "kotlin" }
+kotlinx-coroutines-core = { module = "org.jetbrains.kotlinx:kotlinx-coroutines-core", version.ref = "kotlinx-coroutines" }
+kotlinx-coroutines-core-intellij = { module = "org.jetbrains.intellij.deps.kotlinx:kotlinx-coroutines-core", version.ref = "kotlinx-coroutines-intellij" }
+kotlinx-serialization-core = { module = "org.jetbrains.kotlinx:kotlinx-serialization-core", version.ref = "kotlinx-serialization-json" }
+caffeine = { module = "com.github.ben-manes.caffeine:caffeine", version.ref = "caffeine" }
 kotlinx-serialization-json = { module = "org.jetbrains.kotlinx:kotlinx-serialization-json", version.ref = "kotlinx-serialization-json" }
 
 [plugins]
