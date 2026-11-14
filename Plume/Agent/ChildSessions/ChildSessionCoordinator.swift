@@ -64,6 +64,7 @@ final class ChildSessionCoordinator {
         limitChecks.removeValue(forKey: tabID)?.cancel()
         ChildSessionProposalActivity.shared.forget(tabID)
         ChildSessionProposalStoreCache.shared.forget(tabID)
+        ChildSessionOfferBoard.shared.forget(tabID)
     }
 
     /// A parent's message still unread in a closing child goes back to the
@@ -134,6 +135,8 @@ final class ChildSessionCoordinator {
             case .success(.start(let request)): result = await startSession(request, from: tab)
             case .success(.propose(let request)):
                 result = propose(request, from: tab, forkCut: forkCut).map { ChildSessionFormats.proposed(title: $0.title, taskID: $0.id) }
+            case .success(.offer(let request)):
+                result = await offer(request, from: tab, toolUseID: call.toolUseID ?? Self.mintOfferID())
             case .success(.startProposal(let id, let wakeWhenDone, let settings)):
                 result = await startProposal(id, from: tab, wakeWhenDone: wakeWhenDone, settings: settings, byUser: false)
             case .failure(let error): result = .failure(error)
@@ -314,6 +317,71 @@ final class ChildSessionCoordinator {
         }
         session.submitFromHost(blocks: opening.wire, display: opening.display, origin: opening.origin)
         return .success(child)
+    }
+
+    // MARK: - Offers
+
+    nonisolated static func mintOfferID() -> String { "offer_\(UUID().uuidString.lowercased())" }
+
+    /// Shows a card asking the user whether to start the session or have the
+    /// agent do the work itself, and answers the call only once they choose.
+    /// The card's click is the user's approval, so a start asks nothing more.
+    /// A start that fails leaves the card pending with the reason. The task
+    /// cancelling, which the CLI's `notifications/cancelled` and the
+    /// session's exit cause, withdraws the offer.
+    func offer(
+        _ request: StartSessionRequest, from parent: TaskTab, toolUseID: String
+    ) async -> Result<String, ChildSessionError> {
+        if let refusal = raiseOffer(request, from: parent, toolUseID: toolUseID) { return .failure(refusal) }
+        return await awaitOffer(request, from: parent, toolUseID: toolUseID)
+    }
+
+    /// Puts the card up, or says why it can't go up.
+    func raiseOffer(_ request: StartSessionRequest, from parent: TaskTab, toolUseID: String) -> ChildSessionError? {
+        guard !parent.isChildSession else { return .failed("This session cannot start sessions of its own.") }
+        guard ChildSessionOfferBoard.shared.offer(toolUseID)?.state.isLive != true else {
+            return .failed("An offer for this call is already waiting.")
+        }
+        ChildSessionOfferBoard.shared.raise(toolUseID, parentTabID: parent.id, request: request)
+        return nil
+    }
+
+    /// Answers a raised offer once the user has chosen.
+    func awaitOffer(
+        _ request: StartSessionRequest, from parent: TaskTab, toolUseID: String
+    ) async -> Result<String, ChildSessionError> {
+        let board = ChildSessionOfferBoard.shared
+        while true {
+            let action = await withTaskCancellationHandler {
+                await board.nextAction(toolUseID)
+            } onCancel: {
+                Task { @MainActor in board.answer(toolUseID, .withdraw) }
+            }
+            switch action {
+            case .doItHere:
+                let text = ChildSessionFormats.offerDeclined(title: request.title)
+                board.settle(toolUseID, .declined, result: text)
+                return .success(text)
+            case .withdraw:
+                board.settle(toolUseID, .withdrawn, result: ChildSessionFormats.offerWithdrawn)
+                return .failure(.failed(ChildSessionFormats.offerWithdrawn))
+            case .newSession:
+                guard parent.isLive else {
+                    board.settle(toolUseID, .withdrawn, result: ChildSessionFormats.offerWithdrawn)
+                    return .failure(.parentClosed)
+                }
+                board.setStarting(toolUseID)
+                switch await launchChild(request, from: parent) {
+                case .success(let child):
+                    let text = startedText(for: child, request: request, parent: parent)
+                    let name = childNames[child.id] ?? WorkspaceProvisioner.slugify(request.title)
+                    board.settle(toolUseID, .started(sessionID: Self.sessionID(of: child), name: name), result: text)
+                    return .success(text)
+                case .failure(let error):
+                    board.fail(toolUseID, error.message)
+                }
+            }
+        }
     }
 
     // MARK: - Proposals
@@ -509,6 +577,9 @@ final class ChildSessionCoordinator {
     // MARK: - Notes
 
     private func turnFinished(in tab: TaskTab, outcome: AgentTurnOutcome) {
+        // A turn cannot end while a call waits, so the CLI has dropped any
+        // offer still pending in it.
+        ChildSessionOfferBoard.shared.withdrawAll(inTab: tab.id)
         if let parent = parent(of: tab) {
             let note = ChildSessionFormats.turnFinishedNote(
                 child: participant(tab), text: ChildSessionFormats.reportText(of: outcome)

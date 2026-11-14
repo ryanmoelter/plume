@@ -17,7 +17,7 @@ A session's id, to the model, is its **tab's UUID**, not the CLI's session id. I
 
 ## The tools
 
-Plume answers `can_use_tool` for its own tools (`PlumeMCPServer.decision`). In manual mode, a `start_session` call that would start a session now (a `proposal_id`, or any call whose `initiation` is not `own_initiative` or `offer`) asks through the usual permission prompt, like any other action; so does a mode Plume does not recognize, such as `default` or `dontAsk`. The mode is the one the CLI last confirmed: its launch mode, `init`, a `status` line, or a `set_permission_mode` reply, never a change still in flight (`HeadlessSession.confirmedPermissionMode`). Every other call is allowed without asking, a proposal included: it acts only inside Plume, and a prompt would stall a turn the user already asked for. In auto, accept edits and bypass, a start is allowed too. Plan mode refuses a start and allows a proposal (see Permissions). A start from a proposal's card never asks, since the click is the user's approval.
+Plume answers `can_use_tool` for its own tools (`PlumeMCPServer.decision`). In manual mode, a `start_session` call that would start a session now (a `proposal_id`, or any call whose `initiation` is not `own_initiative` or `offer`) asks through the usual permission prompt, like any other action; so does a mode Plume does not recognize, such as `default` or `dontAsk`. The mode is the one the CLI last confirmed: its launch mode, `init`, a `status` line, or a `set_permission_mode` reply, never a change still in flight (`HeadlessSession.confirmedPermissionMode`). Every other call is allowed without asking, a proposal and an offer included: it acts only inside Plume, and a prompt would stall a turn the user already asked for. In auto, accept edits and bypass, a start is allowed too. Plan mode refuses a start and allows a proposal or an offer (see Permissions). A start from a proposal's or an offer's card never asks, since the click is the user's approval.
 
 ### `mcp__plume__start_session`
 
@@ -25,7 +25,7 @@ Plume answers `can_use_tool` for its own tools (`PlumeMCPServer.decision`). In m
 |---|---|---|
 | `title` | yes, unless `proposal_id` | The tab's title, under 60 characters |
 | `prompt` | yes, unless `proposal_id` | The task, as a self-contained brief |
-| `initiation` | yes, unless `proposal_id` | `user_asked` starts the session now. `own_initiative` records a proposal instead (see Proposals). Plume treats `offer` as `own_initiative`: it does not wait for the user's answer, and it needs a `prompt` |
+| `initiation` | yes, unless `proposal_id` | `user_asked` starts the session now. `own_initiative` records a proposal instead (see Proposals). `offer` asks the user with a card and waits for their answer (see Offers) |
 | `proposal_id` | no | Starts that proposal exactly as proposed. `wake_when_done` may accompany it. A repeated brief or launch setting that matches the proposal is ignored, a differing one is refused, and a `null` or blank one counts as not sent |
 | `name` | no | A handle of `a-z`, `0-9` and `-`, at most 24 characters. Names the worktree branch, and the child in event rows |
 | `background` | no | What the child needs from this conversation, at least 80 characters. Ignored for a fork |
@@ -84,6 +84,19 @@ A proposal with `context: "fork"` forks the parent's conversation as it was when
 - **A proposal made first thing in a turn cuts at that turn's prompt row, and keeps it.** The fork then holds the user's request that led to the proposal, followed by the brief.
 - **No `forkCut` forks the whole conversation as it is at the start.** That applies to a proposal from an older build, one made over the control server, and a session that had produced no rows yet. Plume logs it.
 - **If the CLI refuses the cut, the child relaunches without it.** The CLI exits 1 with `No message found with message.uuid of: …` when the row is no longer on the parent's live branch, as after a rewind. A withdrawn `--resume-session-at` exits with `error: unknown option`. Either way `HeadlessSession.onCutRefused` takes over from the exit report before the fork's first turn, and `AgentLauncher.relaunchForkWithoutCut` relaunches the same tab with the same session id and resends the brief, dropping it from the carried queue so it is sent once. The parent gets no "exited" note for the refusal. If the relaunch itself fails, as on a pre-flight refusal, the parent gets the usual note that the session exited before finishing its turn. If the child's tab has closed, the handler does not take over and the session reports its exit as usual.
+
+## Offers
+
+A call with `initiation: "offer"` (and no `proposal_id`) asks the user and blocks until they answer. `ChildSessionCoordinator.offer` raises an entry on `ChildSessionOfferBoard`, keyed by the call's `tool_use` id, and the call's chat row draws `ChildSessionOfferCard` from it: "Offered session", the title, the brief cut to three lines, then "Do it here" and "New session".
+
+- **"New session"** starts the child as `user_asked` would, and the call returns the usual "Started session …" text. The click is the user's approval, so manual mode asks nothing more. While it launches the card reads "Starting…". If the launch fails, the card goes back to pending with the reason under it, and the call keeps waiting.
+- **"Do it here"** starts nothing. The call returns "The user chose "Do it here": they want you to do "<title>" yourself, in this session, rather than in a new one. Nothing was started. Go ahead with it now."
+- **An interrupt withdraws the offer.** The CLI cancels the pending `tools/call` with `notifications/cancelled` (see `docs/headless-protocol.md`). `PlumeMCPServer` cancels the call's task, and the coordinator settles the card as "Withdrawn". The CLI writes its own interrupt result to the transcript, which reads as withdrawn after a relaunch too.
+- **The session exiting, its turn ending, or its tab closing withdraws the offer the same way.** `HeadlessSession` cancels every call in flight when its process exits or closes, and `turnFinished` and `tabForgotten` withdraw what is left.
+- **A message the user types does not answer the offer.** It is sent with `priority: "next"`, so it waits behind the pending call, and the card stays live.
+- **After a relaunch the card reads from the call's result**, since the board is in memory. A started result reads as "Started as <name>" and still selects the child; the declined text reads "Doing it here"; a call with no result reads "Never answered".
+
+The card registers `offer-do-it-here-button` and `offer-new-session-button` while it waits, and `offer-state` throughout, each labelled with the `tool_use` id. `offer-state`'s value is `pending`, `starting`, `started: <name>`, `doing it here`, `withdrawn`, `never answered`, or `waiting` for a call Plume has not received yet.
 
 ## Starting a child
 
@@ -165,4 +178,4 @@ A session whose process has exited is resumed to take a note through `AgentLaunc
 
 ## Driving it
 
-The debug control server has `child-session.start`, `child-session.report`, `child-session.propose`, `child-session.proposals`, `child-session.proposal.start` and `child-session.proposal.dismiss`; `docs/control-server.md` has the parameters. `child-session.start` and `child-session.proposal.start` launch a real `claude`. `child-session.report` exercises the wake policy without a model, and the proposal commands exercise the store.
+The debug control server has `child-session.start`, `child-session.report`, `child-session.propose`, `child-session.proposals`, `child-session.proposal.start`, `child-session.proposal.dismiss`, `child-session.offer`, `child-session.offers` and `child-session.offer.answer`; `docs/control-server.md` has the parameters. `child-session.start`, `child-session.proposal.start` and an offer answered `new_session` launch a real `claude`. `child-session.report` exercises the wake policy without a model, the proposal commands exercise the store, and the offer commands exercise the board.

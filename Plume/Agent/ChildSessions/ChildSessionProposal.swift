@@ -314,11 +314,13 @@ nonisolated enum ChildSessionProposalError: Error, Equatable {
     }
 }
 
-/// How a `start_session` call reads: a start, a proposal, or the start of an
-/// earlier proposal.
+/// How a `start_session` call reads: a start, a proposal, an offer, or the
+/// start of an earlier proposal.
 nonisolated enum StartSessionCall: Equatable {
     case start(StartSessionRequest)
     case propose(StartSessionRequest)
+    /// Asks the user, on a card, whether to start it or have the agent do it.
+    case offer(StartSessionRequest)
     /// `settings` are the brief and launch settings the call repeated, which
     /// must match the proposal's own.
     case startProposal(id: String, wakeWhenDone: Bool?, settings: [String: JSONValue])
@@ -346,7 +348,11 @@ nonisolated enum StartSessionCall: Equatable {
             ))
         }
         return StartSessionRequest.parse(arguments).map { request in
-            request.initiation == .userAsked ? .start(request) : .propose(request)
+            switch request.initiation {
+            case .userAsked: .start(request)
+            case .ownInitiative: .propose(request)
+            case .offer: .offer(request)
+            }
         }
     }
 
@@ -364,7 +370,8 @@ nonisolated enum StartSessionCall: Equatable {
         }
     }
 
-    /// Whether the call only records a card, which plan mode allows.
+    /// Whether the call only shows a card, a proposal's or an offer's, so it
+    /// starts nothing without the user. Plan and manual mode allow it.
     static func isProposal(_ arguments: [String: JSONValue]) -> Bool {
         guard !hasProposalID(arguments),
               let raw = arguments["initiation"]?.stringValue?.trimmingCharacters(in: .whitespacesAndNewlines),

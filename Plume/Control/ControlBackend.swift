@@ -106,6 +106,16 @@ enum ControlDispatcher {
                 result = .childSession(
                     try ControlChildSessionCommands.dismissProposal(params, in: try ControlTabCommands.frontmostContext())
                 )
+            case .offerChildSession(let params):
+                result = .childSession(
+                    try ControlChildSessionCommands.offer(params, in: try ControlTabCommands.frontmostContext())
+                )
+            case .listChildSessionOffers(let params):
+                result = .childSessionOffers(
+                    try ControlChildSessionCommands.offers(params, in: try ControlTabCommands.frontmostContext())
+                )
+            case .answerChildSessionOffer(let params):
+                result = .childSession(try ControlChildSessionCommands.answerOffer(params))
             }
             return .success(id: request.id, result)
         } catch {

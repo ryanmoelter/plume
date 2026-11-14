@@ -184,6 +184,12 @@ enum AccessibilityID {
     static let proposalStartedRow = "proposal-started-row"
     /// A dismissed or expired card's state, in `value`.
     static let proposalState = "proposal-state"
+    /// An offered session's card buttons; `label` is the call's tool use id.
+    static let offerNewSessionButton = "offer-new-session-button"
+    static let offerDoItHereButton = "offer-do-it-here-button"
+    /// An offer card's state, in `value`, as `ChildSessionOfferCardState.word`
+    /// says it. A started card's also names the child and selects its tab.
+    static let offerState = "offer-state"
     /// In both the task row's and the tab chip's context menu.
     static let markUnreadButton = "mark-unread-button"
     /// Takes `markUnreadButton`'s place while any of its tabs is unread.

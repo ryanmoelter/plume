@@ -460,6 +460,7 @@ final class HeadlessSession: AgentSession {
         endBackgroundTaskWakeHold()
         isClosed = true
         clearPendingRestart()
+        mcpServer?.cancelAllCalls()
         let closing = process
         process = nil
         if markingExited { hasExited = true }
@@ -1759,6 +1760,7 @@ final class HeadlessSession: AgentSession {
         let refusedCut = launchCut != nil && !hasCompletedTurn && status != 0
             && ChatStartFailure.refusesCut(error: errorLine)
         // Anything still pending will never be answered now.
+        mcpServer?.cancelAllCalls()
         pendingPermissions.removeAll()
         failUnansweredSideQuestions()
         for case .withdraw(_, let completion) in pendingControlRequests.values { completion(nil) }
