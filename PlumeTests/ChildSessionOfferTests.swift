@@ -409,7 +409,7 @@ struct ChildSessionOfferTests {
         let waiting = awaitOffer(offer, launch: launcher(launches, offer))
         await settle { false }
 
-        ChildSessionCoordinator.shared.simulateTurnFinished(in: offer.parent, text: "Done", hostDriven: false)
+        ChildSessionCoordinator.shared.simulateTurnFinished(in: offer.parent, text: "Done", wakes: true)
 
         #expect(await waiting.value == .failure(.failed(ChildSessionFormats.offerWithdrawn)))
         #expect(board.offer(offer.id)?.state == .withdrawn)
