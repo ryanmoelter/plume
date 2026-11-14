@@ -187,10 +187,13 @@ struct ChatTabView: View, ThemedView {
 
     private var proposalBoard: ChatProposalBoard {
         guard let owner = ChildSessionCoordinator.proposalOwner(of: tab) else {
-            return ChatProposalBoard(tabID: tab.id, store: { ChildSessionProposalStore() }, start: { _ in }, dismiss: { _ in })
+            return ChatProposalBoard(
+                tabID: tab.id, chatTabID: tab.id, store: { ChildSessionProposalStore() }, start: { _ in }, dismiss: { _ in }
+            )
         }
         return ChatProposalBoard(
             tabID: owner.id,
+            chatTabID: tab.id,
             // A child's rows can outlive its parent's tab, which is deleted on close.
             store: { [weak owner] in
                 guard let owner, owner.isLive else { return ChildSessionProposalStore() }

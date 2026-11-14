@@ -186,6 +186,14 @@ nonisolated enum ChildSessionFormats {
         return wrap(reminder, event)
     }
 
+    static func offerStartedNote(title: String, child: Participant) -> String {
+        let reminder = "The user started your offered session (\"\(neutralized(title))\") as session \(child.sessionID), after the call had stopped waiting. It runs on its own; a note reaches you when it ends a turn."
+        let event = SideSessionEvent(
+            kind: .offerStarted, sessionID: child.sessionID, name: child.name, title: child.title, text: ""
+        )
+        return wrap(reminder, event)
+    }
+
     enum Removal {
         /// The user took the message off the child's queue.
         case removed

@@ -230,7 +230,8 @@ enum ControlChildSessionCommands {
         if let refusal = coordinator.raiseOffer(request, from: parent, toolUseID: toolUseID) {
             throw ControlError.badParams(refusal.message)
         }
-        Task { _ = await coordinator.awaitOffer(request, from: parent, toolUseID: toolUseID) }
+        let waiting = Task { _ = await coordinator.awaitOffer(request, from: parent, toolUseID: toolUseID) }
+        ChildSessionOfferBoard.shared.own(waiting, for: toolUseID)
         return ChildSessionResult(parentTabID: parent.id, childTabID: nil, message: "offered", taskID: toolUseID)
     }
 
@@ -255,7 +256,7 @@ enum ControlChildSessionCommands {
         }
         let board = ChildSessionOfferBoard.shared
         guard let offer = board.offer(toolUseID) else { throw ControlError.notFound("an offer \(toolUseID)") }
-        guard offer.state == .pending || (answer == .withdraw && offer.state.isLive) else {
+        guard offer.state == .pending || (answer == .withdraw && offer.result == nil) else {
             throw ControlError.badParams("the offer is \(offer.state.word), not pending")
         }
         board.answer(toolUseID, answer)

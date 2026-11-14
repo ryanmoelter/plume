@@ -28,7 +28,8 @@ struct ToolCallRow: View, ThemedView {
             artifactButton(artifactURL)
         } else if let sent = call.sentFiles, !call.didFail {
             SentFilesView(sent: sent)
-        } else if let proposalBoard, let offer = ChildSessionOfferCard.card(for: call, ownerTabID: proposalBoard.tabID) {
+        } else if let proposalBoard,
+                  let offer = ChildSessionOfferCard.card(for: call, chatTabID: proposalBoard.chatTabID, isPending: isPending) {
             offer
         } else if let proposalBoard, let proposalID = ChildSessionFormats.proposalID(of: call) {
             ChildSessionProposalCard(
