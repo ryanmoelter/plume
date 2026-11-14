@@ -241,7 +241,21 @@ private class FileExtractor(private val ids: SymbolIds, private val out: FactSin
     }
   }
 
+  private fun KaSession.enumEntry(entry: KtEnumEntry, scope: Scope): String {
+    val id = id(entry.symbol)
+    decl(id, "enumEntry", entry.name ?: "<entry>", entry, scope, emptyList())
+    val init = scope.entering(id, entry)
+    entry.initializerList?.initializers?.forEach { initializer ->
+      if (initializer is KtSuperTypeCallEntry) {
+        callLike(initializer, initializer.valueArguments, null, NONE, init)
+      }
+    }
+    for (member in entry.declarations) declaration(member, init)
+    return id
+  }
+
   private fun KaSession.classOrObject(cls: KtClassOrObject, scope: Scope): String {
+    if (cls is KtEnumEntry) return enumEntry(cls, scope)
     val symbol = cls.symbol as? KaClassSymbol ?: return positionalDecl(cls, "class", scope)
     val id = id(symbol)
     val kind =
@@ -250,7 +264,7 @@ private class FileExtractor(private val ids: SymbolIds, private val out: FactSin
         KaClassKind.OBJECT,
         KaClassKind.COMPANION_OBJECT,
         KaClassKind.ANONYMOUS_OBJECT -> "object"
-        else -> if (cls is KtEnumEntry) "enumEntry" else "class"
+        else -> "class"
       }
     val modifiers = buildList {
       addAll(commonModifiers(symbol))
@@ -273,7 +287,7 @@ private class FileExtractor(private val ids: SymbolIds, private val out: FactSin
     actualFor(id, symbol)
 
     val primary =
-      if (cls is KtClass && !cls.isInterface() && cls !is KtEnumEntry) {
+      if (cls is KtClass && !cls.isInterface()) {
         cls.primaryConstructor?.symbol
           ?: symbol.declaredMemberScope.constructors.firstOrNull { it.isPrimary }
       } else {
@@ -304,13 +318,6 @@ private class FileExtractor(private val ids: SymbolIds, private val out: FactSin
       out.supertypes += delegated[superId] ?: SupertypeFact(id, superId)
     }
 
-    if (cls is KtEnumEntry) {
-      cls.initializerList?.initializers?.forEach { initializer ->
-        if (initializer is KtSuperTypeCallEntry) {
-          callLike(initializer, initializer.valueArguments, null, NONE, init)
-        }
-      }
-    }
     for (member in cls.declarations) {
       attempt(member, Unit) {
         when (member) {
@@ -1163,11 +1170,10 @@ private class FileExtractor(private val ids: SymbolIds, private val out: FactSin
     val target = original(applied.symbol)
     val targetId = id(target)
     val inSource = isSource(target)
-    val isInvoke =
-      call is KaImplicitInvokeCall ||
-        (call is KaSimpleFunctionCall && call.isImplicitInvoke) ||
-        isFunctionInvoke(target)
-    val implicitInvoke = isInvoke && (call is KaImplicitInvokeCall || (call as? KaSimpleFunctionCall)?.isImplicitInvoke == true)
+    // `palette { }` may call a declared `operator fun invoke`, which is an ordinary call.
+    val isInvoke = isFunctionInvoke(target)
+    val implicitInvoke =
+      call is KaImplicitInvokeCall || (call as? KaSimpleFunctionCall)?.isImplicitInvoke == true
 
     fun lookup(expression: KtExpression): List<String>? {
       var current: PsiElement? = expression
@@ -1196,6 +1202,7 @@ private class FileExtractor(private val ids: SymbolIds, private val out: FactSin
         else -> NONE
       }
 
+    var invokeTakesReceiver = false
     var dispatchValues = receiverValues(applied.dispatchReceiver, "dispatch")
     var extensionValues = receiverValues(applied.extensionReceiver, "extension")
     if (implicitInvoke && callee != null) {
@@ -1211,9 +1218,20 @@ private class FileExtractor(private val ids: SymbolIds, private val out: FactSin
           calleeName != null -> name(calleeName, null, NONE, scope)
           else -> visit(callee, scope)
         }
+      val implicitExtension = extensionValues.takeIf { "extension" in implicit }
       extensionValues =
-        if (receiver != null && !receiverBelongsToCallee) values[receiver] ?: NONE else NONE
+        if (receiver != null && !receiverBelongsToCallee) values[receiver] ?: NONE
+        else implicitExtension ?: NONE
       implicit.clear()
+      // `menu { }` inside a `ColumnScope.() -> Unit` lambda passes that scope without naming it.
+      if (implicitExtension != null && extensionValues === implicitExtension) {
+        implicit += "extension"
+        invokeTakesReceiver = true
+      }
+      if (!isInvoke && target.isExtension) {
+        extensionValues = dispatchValues
+        dispatchValues = NONE
+      }
     }
 
     val isConstructor = target is KaConstructorSymbol
@@ -1290,7 +1308,7 @@ private class FileExtractor(private val ids: SymbolIds, private val out: FactSin
     if (isInvoke) {
       // An invoke's arguments are positional, with the function type's receiver first.
       var index = 0
-      if (extensionValues.isNotEmpty()) {
+      if (extensionValues.isNotEmpty() || invokeTakesReceiver) {
         for (value in extensionValues) out.args += ArgFact(callId, "$targetId#<recv>", index, value, "receiver")
         index++
       }

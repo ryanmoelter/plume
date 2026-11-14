@@ -41,3 +41,18 @@ class Button(private val listener: Listener) {
 }
 
 fun makeButton(): Button = Button { report(it) }
+
+class Palette {
+  operator fun invoke(content: () -> Unit) = content()
+}
+
+fun paint(palette: Palette) {
+  palette { report("painted") }
+}
+
+enum class Style(val label: () -> String) {
+  PLAIN(label = { "plain" }),
+  LOUD({ "LOUD" }),
+}
+
+fun labelOf(style: Style): String = style.label()

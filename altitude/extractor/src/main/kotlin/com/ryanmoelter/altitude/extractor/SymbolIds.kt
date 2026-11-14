@@ -121,19 +121,6 @@ class SymbolIds(private val relativePaths: Map<String, String>) {
       else -> positionalOr(symbol, "symbol")
     }
 
-  fun KaSession.erased(type: KaType): String =
-    when (val expanded = type.fullyExpandedType) {
-      is KaClassType ->
-        (expanded.classId.takeUnless { it.isLocal }?.asString() ?: "<local>") +
-          if (expanded.isMarkedNullable) "?" else ""
-      is KaTypeParameterType ->
-        expanded.symbol.upperBounds.firstOrNull()?.let { erased(it) } ?: "kotlin/Any?"
-      is KaFlexibleType -> erased(expanded.lowerBound).removeSuffix("?")
-      is KaDefinitelyNotNullType -> erased(expanded.original).removeSuffix("?")
-      is KaErrorType -> "<error>"
-      else -> "<other>"
-    }
-
   /** The class of a type, or null when it has none in a qualified position. */
   fun KaSession.classOf(type: KaType?): String? =
     when (val expanded = type?.fullyExpandedType) {

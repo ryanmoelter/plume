@@ -25,3 +25,11 @@ It writes `<out-dir>/manifest.json`. The output is byte-identical across runs of
 - **Source sets.** `sourceSet` is the source set that declares the file's root. `fragment` is the K2 multiplatform fragment, which puts all platform source sets (`androidMain`, `androidDebug`) into the compilation's default one. A file no source set declares, such as AGP's `BuildConfig.java`, has no source set; its root is inferred from its `package` line.
 - **Generated.** A path is generated when it lies under any project's build directory. A classpath entry under a build directory carries that project as `moduleRef`, including the compilation's own project (its `R.jar`, for instance).
 - **Configuration cache.** Each project gets an `altitudeCompilations` task that writes a part file, and the root `altitudeManifest` merges them, because a task may only serialize file collections its own project owns.
+
+## Facts, solver and trace
+
+`extractor facts --manifest <manifest.json> --out <dir>` resolves the sources with the Analysis API and writes one sorted JSON Lines file per relation: declarations, calls, arguments and value-flow edges. It then runs the solver, which tracks function values to the calls that invoke them and resolves virtual calls by class hierarchy. `extractor trace` prints a call path between two declarations as text a reader can check against the source. `docs/facts.md` is the reference for the schema, the identifiers, the approximations and the trace format.
+
+Build the command with `./gradlew :extractor:installDist`; it lands in `extractor/build/install/extractor/bin/extractor`.
+
+`bin/altitude-golden` regenerates the traces under `golden/` from each target's manifest and diffs them. It skips a target whose manifest is absent.

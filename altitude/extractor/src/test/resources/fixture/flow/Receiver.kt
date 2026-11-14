@@ -20,3 +20,11 @@ fun rename(store: Store) {
   store.write { changeName("a") }
   store.writeWith { changeName(it) }
 }
+
+fun Draft.withImplicitReceiver(block: Draft.(String) -> Unit) {
+  block("implicit")
+}
+
+fun renameImplicitly(draft: Draft) {
+  draft.withImplicitReceiver { changeName(it) }
+}

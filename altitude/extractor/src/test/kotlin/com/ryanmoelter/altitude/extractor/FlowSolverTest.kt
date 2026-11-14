@@ -77,10 +77,47 @@ class FlowSolverTest {
     val callForm = call("Receiver.kt", 15, "invokeFnValue")
     assertEquals(mapOf("lambda@Receiver.kt:20:15" to "fnValue"), edges(extensionForm))
     assertEquals(mapOf("lambda@Receiver.kt:21:19" to "fnValue"), edges(callForm))
-    val receivers = derived.flows.filter { it.kind == "invokeArg" && it.to.endsWith("#<recv>") }
+    val receivers =
+      derived.flows.filter {
+        it.kind == "invokeArg" && it.to.endsWith("#<recv>") && it.at.startsWith("flow/Receiver.kt:1")
+      }
     assertEquals(
       setOf("flow/Receiver.kt:20:15-20:34:lambda#<recv>", "flow/Receiver.kt:21:19-21:37:lambda#<recv>"),
       receivers.map { it.to }.toSet(),
+    )
+  }
+
+  @Test
+  fun implicitReceiverOfAnInvokeTakesTheFirstPosition() {
+    val invoke = call("Receiver.kt", 25, "invokeFnValue")
+    val bound = derived.flows.filter { it.kind == "invokeArg" && it.at.startsWith("flow/Receiver.kt:25:") }
+    assertEquals(
+      setOf(
+        "fun:fixture/flow/withImplicitReceiver@fixture/flow/Draft(kotlin/Function2<fixture/flow/Draft,kotlin/String,kotlin/Unit>)#<recv>" to
+          "flow/Receiver.kt:29:30-29:48:lambda#<recv>",
+        "flow/Receiver.kt:25:9-25:19:literal" to "flow/Receiver.kt:29:30-29:48:lambda#it",
+      ),
+      bound.map { it.from to it.to }.toSet(),
+    )
+    assertEquals(1, fanOut(invoke))
+  }
+
+  @Test
+  fun declaredOperatorInvokeIsAnOrdinaryCall() {
+    val paint = facts.calls.single { it.callerDecl == "fun:fixture/flow/paint(fixture/flow/Palette)" }
+    assertEquals("static", paint.dispatch)
+    assertEquals(mapOf("Palette.invoke(() -> Unit)" to "static"), edges(paint.id))
+    val content = facts.calls.single { it.callerDecl.startsWith("fun:fixture/flow/Palette.invoke") }
+    assertEquals(1, fanOut(content.id))
+  }
+
+  @Test
+  fun lambdaPassedToAnEnumEntryReachesTheInvoke() {
+    val invoke = facts.calls.single { it.callerDecl.startsWith("fun:fixture/flow/labelOf") && it.dispatch == "invokeFnValue" }
+    assertEquals(2, fanOut(invoke.id))
+    assertEquals(
+      setOf("enumEntry:fixture/flow/Style.PLAIN", "enumEntry:fixture/flow/Style.LOUD"),
+      facts.decls.filter { it.kind == "enumEntry" }.map { it.sym }.toSet(),
     )
   }
 
