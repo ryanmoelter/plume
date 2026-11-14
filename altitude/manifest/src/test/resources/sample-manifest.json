@@ -1,0 +1,77 @@
+{
+    "schemaVersion": 1,
+    "repoRoot": "/work/sample",
+    "git": {
+        "sha": "0123456789abcdef0123456789abcdef01234567",
+        "dirty": false
+    },
+    "gradleVersion": "9.8.2",
+    "kotlinPluginVersion": "2.4.20",
+    "androidPluginVersion": "9.4.1",
+    "futureField": "ignored by older readers",
+    "compilations": [
+        {
+            "projectPath": ":shared",
+            "projectDir": "shared",
+            "compileTask": "compileDebugKotlinAndroid",
+            "compilationName": "debug",
+            "targetName": "android",
+            "platform": "androidJvm",
+            "moduleName": "shared_debug",
+            "jvmTarget": "11",
+            "freeCompilerArgs": [],
+            "optIn": ["kotlin.time.ExperimentalTime"],
+            "compilerPlugins": {
+                "classpath": ["/cache/kotlin-serialization-compiler-plugin-embeddable-2.4.20.jar"],
+                "options": []
+            },
+            "sourceSets": [
+                {"name": "androidMain", "dependsOn": ["commonMain"]},
+                {"name": "commonMain", "dependsOn": []}
+            ],
+            "sourceRoots": [
+                {
+                    "path": "/work/sample/shared/build/generated/ksp/metadata/commonMain/kotlin",
+                    "relativePath": "shared/build/generated/ksp/metadata/commonMain/kotlin",
+                    "generated": true,
+                    "sourceSet": "commonMain"
+                },
+                {
+                    "path": "/work/sample/shared/src/androidMain/kotlin",
+                    "relativePath": "shared/src/androidMain/kotlin",
+                    "generated": false,
+                    "sourceSet": "androidMain"
+                },
+                {
+                    "path": "/work/sample/shared/src/commonMain/kotlin",
+                    "relativePath": "shared/src/commonMain/kotlin",
+                    "generated": false,
+                    "sourceSet": "commonMain"
+                }
+            ],
+            "sourceFiles": [
+                {
+                    "path": "/work/sample/shared/build/generated/ksp/metadata/commonMain/kotlin/a/InjectAppComponent.kt",
+                    "relativePath": "shared/build/generated/ksp/metadata/commonMain/kotlin/a/InjectAppComponent.kt",
+                    "generated": true,
+                    "root": "/work/sample/shared/build/generated/ksp/metadata/commonMain/kotlin",
+                    "sourceSet": "commonMain"
+                },
+                {
+                    "path": "/work/sample/shared/src/commonMain/kotlin/a/AppComponent.kt",
+                    "relativePath": "shared/src/commonMain/kotlin/a/AppComponent.kt",
+                    "generated": false,
+                    "root": "/work/sample/shared/src/commonMain/kotlin",
+                    "sourceSet": "commonMain"
+                }
+            ],
+            "classpath": [
+                {"path": "/sdk/platforms/android-36/android.jar"},
+                {"path": "/cache/kotlin-stdlib-2.4.20.jar"},
+                {"path": "/work/sample/lib/build/libs/lib.jar", "moduleRef": ":lib", "exists": false}
+            ],
+            "jdkHome": "/jdks/zulu-25",
+            "bootClasspath": ["/sdk/platforms/android-36/android.jar"]
+        }
+    ]
+}
