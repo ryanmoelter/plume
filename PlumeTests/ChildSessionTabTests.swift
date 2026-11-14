@@ -150,6 +150,28 @@ struct ChildSessionTabTests {
         #expect(worktree.workingDirectory == (worktree.path as NSString).appendingPathComponent("app/src"))
     }
 
+    @Test func aForkNeverGetsAWorktree() async throws {
+        let repository = try makeRepository()
+        defer { try? FileManager.default.removeItem(atPath: repository) }
+        let parentPath = try WorkspaceProvisioner.createWorktree(repository: repository, branch: "parent-branch")
+        let (_, parent) = try makeTask()
+        parent.workspace = TabWorkspace(kind: .worktree, directory: parentPath, repoPath: repository, branchName: "parent-branch")
+
+        for useWorktree: JSONValue? in [nil, .bool(true)] {
+            var arguments: [String: JSONValue] = [
+                "title": .string("Child"), "prompt": .string("p"), "initiation": .string("user_asked"),
+                "name": .string("kid"), "context": .string("fork")
+            ]
+            arguments["use_worktree"] = useWorktree
+            let request = try StartSessionRequest.parse(arguments).get()
+
+            #expect(try await ChildSessionWorkspace.worktree(for: request, parent: parent).get() == nil)
+            #expect(request.ignoresWorktreeRequest == (useWorktree != nil))
+        }
+        let branches = try GitRunner.run(["branch", "--list"], in: repository)
+        #expect(!branches.contains("kid-"))
+    }
+
     @Test func aSubfolderIsRelativeToTheCheckoutRoot() {
         #expect(ChildSessionWorkspace.subfolder(of: "/r/a/b", in: "/r") == "a/b")
         #expect(ChildSessionWorkspace.subfolder(of: "/r", in: "/r") == nil)

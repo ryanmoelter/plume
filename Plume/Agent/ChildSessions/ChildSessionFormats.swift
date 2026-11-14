@@ -18,11 +18,7 @@ nonisolated enum ChildSessionFormats {
         return parts.joined(separator: "\n\n")
     }
 
-    /// Appended to a forked child's prompt when it works in a new worktree,
-    /// since a fork launches where the parent's conversation lives.
-    static func worktreeNote(path: String, branch: String) -> String {
-        "Work in the git worktree at \(path) (branch \(branch)), not in the folder this conversation started in."
-    }
+    static let forkWorktreeIgnored = "use_worktree was ignored: a forked session shares this session's folder."
 
     static func started(title: String, sessionID: String, name: String, notesFolder: String) -> String {
         "Started session \"\(title)\" (session_id: \(sessionID), name: \(name)). It runs on its own; you get a note here when its turn ends. The sessions you start share a notes folder for hand-over notes and large findings: \(notesFolder). Don't repeat the introduction: at most one line on how you'll report back, then end your turn — do not wait for it."
@@ -184,7 +180,7 @@ nonisolated enum ChildSessionFormats {
                 ]),
                 "background": string("What the new session needs from this conversation. At least \(StartSessionRequest.minimumBackground) characters when context is fresh."),
                 "context": enumeration(StartSessionRequest.Context.allCases.map(\.rawValue), "fresh (default) starts from the brief alone; fork copies this conversation."),
-                "use_worktree": boolean("Give the session its own git worktree cut from this session's HEAD. Defaults to whether this session works in a worktree."),
+                "use_worktree": boolean("Give the session its own git worktree cut from this session's HEAD. Defaults to whether this session works in a worktree. A fork never gets one: it shares this session's folder."),
                 "model": string("A model id or alias. Defaults to this session's model."),
                 "effort": enumeration(AgentProviderKind.claudeCode.efforts.map(\.token), "Reasoning effort. Defaults to this session's."),
                 "permission_mode": enumeration(PermissionMode.allCases.map(\.token), "Defaults to this session's mode."),
