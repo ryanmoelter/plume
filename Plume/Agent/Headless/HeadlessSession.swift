@@ -67,7 +67,13 @@ final class HeadlessSession: AgentSession {
     @ObservationIgnored private(set) var launchDirectory: String?
 
     private(set) var sessionID: String?
-    private(set) var isWorking = false
+    private(set) var isWorking = false {
+        didSet {
+            if isWorking != oldValue { workingSince = isWorking ? Date() : nil }
+        }
+    }
+    /// When the current turn began, nil between turns.
+    @ObservationIgnored private(set) var workingSince: Date?
     private(set) var hasExited = false
     private(set) var exitStatus: Int32?
 

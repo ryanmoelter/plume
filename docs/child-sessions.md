@@ -102,12 +102,14 @@ Each queue entry is a `QueuedMessage` with its own identity. Its parts are eithe
 
 ## When a note wakes the parent
 
-`ChildSessionWakePolicy` holds one parent's notes:
+`ChildSessionWakePolicy` holds one parent's notes, following Claude Desktop's side sessions:
 
-- **A child turn the parent or its brief started wakes the parent.** That is a host-driven turn that was not interrupted, from a child whose `wake_when_done` is not false. A message from a child also wakes the parent.
-- **A turn the user drove in the child is held.** Only the latest held turn report per child is kept, and it rides in front of the parent's next turn, whoever starts it. A child's `send_message` note is never dropped or replaced, held or not.
-- **An idle parent wakes at once.** The notes go in as one host-driven user turn.
-- **A working parent batches notes** until its turn ends, then gets them as one turn.
+- **Every child turn end reports to the parent and wakes it.** That covers a turn the parent or its brief started, a turn the user drove in the child, a turn the child started itself (when background work finished, say) and a process that exited mid-turn. A message from a child also wakes the parent.
+- **Two kinds of report are held instead.** A child whose `wake_when_done` is false never wakes the parent, and neither does a child turn the user interrupted. Only the latest held turn report per child is kept, and it rides in front of the parent's next turn, whoever starts it. A child's `send_message` note is never dropped or replaced, held or not.
+- **A wake waits until none of the parent's children is working.** While any open child is mid-turn, waking notes batch. A message a child sends mid-turn therefore arrives once its own turn ends, and `send_message` says so. When the last working child ends its turn, every batched note goes in as one host-driven user turn, if the parent is idle. A child whose process exits mid-turn, or whose tab closes, stops counting at once (`ChildSessionCoordinator.childClosing`).
+- **A child working longer than 30 minutes stops holding wakes** (`ChildSessionWakePolicy.workingLimit`), so one that never finishes cannot hold them forever. The coordinator schedules a check for that moment while notes are waiting.
+- **A working parent batches notes** until its turn ends. Then the same check applies: the notes go in only if no child is working.
+- **The wake turn ends in Desktop's footer** (`ChildSessionFormats.wakeFooter`): a `<side-sessions-event>` of prose that starts "None of the sessions you started is working now; their notes are above." It tells the model how to read the notes, to merge a child's branch only as the "Starting other sessions" instructions say, which say nothing of merging, and to start nothing the user did not ask for. A note carried in front of the user's own message gets no footer.
 - **After the user interrupts the parent, nothing wakes it.** Every note waits for the user's next message, which carries them in front (`userMessagePreamble`). A message the user queued before the interrupt counts as that next message: once it starts, wakes resume.
 - **There is no wake cap.**
 - **Closing the parent's tab drops its notes.** Its children stay open and render as top-level tabs.

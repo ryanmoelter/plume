@@ -19,7 +19,7 @@ nonisolated struct ChildSessionStartParams: Decodable, Equatable {
 }
 
 /// `child` is a tab's UUID, or a substring of its title. `wakes` defaults to
-/// true, as for a turn the parent started.
+/// true; false reports an interrupted turn, which never wakes.
 nonisolated struct ChildSessionReportParams: Decodable, Equatable {
     var child: String?
     var text: String?
@@ -68,7 +68,7 @@ enum ControlChildSessionCommands {
             throw ControlError.notFound("an open parent of tab \(child.id)")
         }
         guard let text = params.text else { throw ControlError.badParams("child-session.report needs text") }
-        ChildSessionCoordinator.shared.simulateTurnFinished(in: child, text: text, hostDriven: params.wakes ?? true)
+        ChildSessionCoordinator.shared.simulateTurnFinished(in: child, text: text, wakes: params.wakes ?? true)
         return ChildSessionResult(parentTabID: parent.id, childTabID: child.id, message: "reported")
     }
 
