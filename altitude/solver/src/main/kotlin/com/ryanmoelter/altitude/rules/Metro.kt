@@ -627,7 +627,7 @@ internal class Metro(private val index: FactIndex) {
               mapKey = p.mapKey, parent = FactIndex.dotted(parent), always = false, output = p.output, evidence = "M14",
               file = p.file, line = p.line,
             ),
-            upstream = r.upstream ?: (FactIndex.dotted(parent) to p),
+            upstream = r.upstream.ifEmpty { listOf(FactIndex.dotted(parent) to p) },
           )
         }
     }

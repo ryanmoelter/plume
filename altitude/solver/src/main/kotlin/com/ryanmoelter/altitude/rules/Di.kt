@@ -15,7 +15,7 @@ class DiResult(
     DiResult(bindings + other.bindings, sites + other.sites, unresolved + other.unresolved, flows + other.flows)
 }
 
-fun deriveDi(index: FactIndex): DiResult = Metro(index).derive()
+fun deriveDi(index: FactIndex): DiResult = Metro(index).derive() + KotlinInject(index).derive()
 
 /**
  * Adds a `di` call edge from each call of a graph accessor to the provider that supplies it, since

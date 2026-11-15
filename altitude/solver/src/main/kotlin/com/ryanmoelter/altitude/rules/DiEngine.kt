@@ -46,7 +46,7 @@ internal class Provision(
  * What a site resolves to in one graph: rows of this graph, each with the binding of another graph
  * it hands off to, as a child component does to its parent.
  */
-internal class Resolution(val provision: Provision, val upstream: Pair<String, Provision>? = null)
+internal class Resolution(val provision: Provision, val upstream: List<Pair<String, Provision>> = emptyList())
 
 /** A request after its wrapper is removed. */
 internal class Unwrapped(val type: String, val wrapper: String)
@@ -98,8 +98,8 @@ internal fun resolveGraphs(framework: DiFramework, graphs: List<DiGraphSpec>): D
     val found = graph.lookup(key, unwrapped.wrapper)
     for (resolution in found) {
       reach(graphName, resolution.provision)
-      resolution.upstream?.let { (up, provision) -> reach(up, provision) }
-      val output = resolution.upstream?.second?.output ?: resolution.provision.output
+      for ((up, provision) in resolution.upstream) reach(up, provision)
+      val output = resolution.upstream.firstOrNull()?.second?.output ?: resolution.provision.output
       if (output != null) flows += FlowFact(output, site.location, "di", site.site)
     }
     val note =
@@ -144,7 +144,7 @@ internal fun resolveGraphs(framework: DiFramework, graphs: List<DiGraphSpec>): D
         qualifier = key.qualifier,
         wrapper = framework.wrapperFor(unwrapped, found.firstOrNull()),
         provider = InjectionSiteFact.providerOf(found.map { it.provision.provider }.distinct().sorted()),
-        typeKind = framework.typeKind(key.type),
+        typeKind = framework.typeKind(if (unwrapped.wrapper == "function") site.type else key.type),
         variant = graph.variant,
         note = note,
         file = site.file,
@@ -197,7 +197,8 @@ internal fun splitTopLevel(text: String, separator: Char = ','): List<String> {
   for ((i, c) in text.withIndex()) {
     when (c) {
       '<', '(' -> depth++
-      '>', ')' -> depth--
+      ')' -> depth--
+      '>' -> if (i == 0 || text[i - 1] != '-') depth--
       separator -> if (depth == 0) {
         parts += text.substring(start, i).trim()
         start = i + 1
@@ -229,6 +230,7 @@ internal fun functionType(type: String): FunctionType? {
     when (c) {
       '(', '<' -> depth++
       ')', '>' -> {
+        if (c == '>' && i > 0 && text[i - 1] == '-') continue
         depth--
         if (depth == 0 && c == ')') {
           val rest = text.substring(i + 1)
