@@ -73,6 +73,8 @@ dependencies {
     fixtureClasspath(libs.kotlinx.coroutines.core)
     fixtureClasspath(libs.kotlinx.serialization.core)
     fixtureClasspath(libs.compose.runtime.desktop)
+    fixtureClasspath(libs.metro.runtime)
+    fixtureClasspath(libs.kotlin.inject.runtime)
 
     testImplementation(kotlin("test"))
 }
