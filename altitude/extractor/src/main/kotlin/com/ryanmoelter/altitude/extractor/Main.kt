@@ -1,5 +1,6 @@
 package com.ryanmoelter.altitude.extractor
 
+import com.ryanmoelter.altitude.export.export
 import com.ryanmoelter.altitude.facts.FactStore
 import com.ryanmoelter.altitude.facts.MetaFact
 import com.ryanmoelter.altitude.manifest.Manifest
@@ -26,6 +27,7 @@ private val USAGE =
     trace   --facts <dir> --from-entrypoint <entry> --to-boundary <boundary> [--max-depth N] [--alternates N]
     show    --facts <dir> --file <relpath>
     check   --facts <dir> --expected <golden expected dir>
+    export  --facts <dir> --out <dir> --target <name> [--golden <golden target dir>] [--split]
   A selector is a symbol ID, or an `Owner.member` suffix that names one declaration.
   A value is `File.kt:LINE:call(name)`, `cell(Owner.name)`, a location ID, or a property, parameter or local.
   An entry is a route path (`/graphql`), `METHOD /path`, a resolver field, a screen class or a selector.
@@ -34,7 +36,7 @@ private val USAGE =
   """
     .trimIndent()
 
-private val FLAGS = setOf("--no-compiler-plugins", "--forward", "--value")
+private val FLAGS = setOf("--no-compiler-plugins", "--forward", "--value", "--split")
 
 fun main(args: Array<String>) {
   val command = args.firstOrNull() ?: fail(USAGE)
@@ -111,6 +113,17 @@ fun main(args: Array<String>) {
         val result = check(Path.of(required("--facts")), Path.of(required("--expected")))
         print(result.text)
         if (result.differences > 0) exitProcess(1)
+      }
+      "export" -> {
+        val result =
+          export(
+            Path.of(required("--facts")),
+            Path.of(required("--out")),
+            required("--target"),
+            options["--golden"]?.let { Path.of(it) },
+            split = "--split" in flags,
+          )
+        for ((name, bytes) in result.files) println("$name: $bytes bytes")
       }
       "show" -> {
         val dir = Path.of(required("--facts"))
