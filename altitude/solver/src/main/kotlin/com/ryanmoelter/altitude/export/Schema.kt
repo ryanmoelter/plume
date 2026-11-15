@@ -6,7 +6,7 @@ import kotlinx.serialization.Serializable
 import kotlinx.serialization.json.JsonObject
 
 /** `altitude/docs/export.md` documents every field. */
-const val EXPORT_SCHEMA_VERSION = 3
+const val EXPORT_SCHEMA_VERSION = 4
 
 @OptIn(ExperimentalSerializationApi::class)
 @Serializable
@@ -46,6 +46,10 @@ data class ExportMeta(
   val membersFile: String? = null,
   /** Branch trees live in this file, next to the export. */
   val branchesFile: String? = null,
+  /** The sink terminals of the branch trees, and the segments only they use. */
+  val branchSinksFile: String? = null,
+  /** Variables inside members, their lambdas and the value edges between them. */
+  val variablesFile: String? = null,
 )
 
 @Serializable
@@ -154,6 +158,9 @@ data class NodeOut(
   val size: Size,
   val layer: Int? = null,
   val layerWhy: String,
+  /** Lines per layer over the node's members, each member at its own layer. */
+  val layerSizes: Map<Int, Int> = emptyMap(),
+  val layers: List<Int> = emptyList(),
   val placement: Placement,
   val reach: Reach,
   val fanIn: FanIn,
@@ -294,6 +301,9 @@ data class TraceHopOut(
   val wrapDepth: Int = 0,
   val fromMember: String? = null,
   val toMember: String? = null,
+  /** Indices into the variables file's `vars`. */
+  val fromVar: Int? = null,
+  val toVar: Int? = null,
   /** Index into the members file's `edges`. */
   val memberEdge: Int? = null,
   /** A `cha` call's candidates. */
@@ -423,6 +433,9 @@ data class MemberOut(
   val c: Int? = null,
   val lam: Int = 0,
   val np: String? = null,
+  /** The member's layer, and why: `class` (its node's layer) or `composable`. */
+  val ly: Int? = null,
+  val lyWhy: String? = null,
 )
 
 /** `altitude-branches.json`: the branch trees of the precomputed roots. */
@@ -434,10 +447,140 @@ data class BranchesExport(
   val target: String,
   /** Location ids; `loc` fields index into it. */
   val locs: List<String>,
-  /** Hop records, each once, as `traces` writes them; segments index into it. */
-  val hops: List<TraceHopOut>,
+  /** The strings hop records name: kinds, rules, properties, fields, landmarks. */
+  val strs: List<String>,
+  /** Hop records, each once; segments index into it. */
+  val hops: List<BranchHopOut>,
   val trees: List<BranchTreeOut>,
+  /** For each cell with a tree or a writer: what stitching through it needs. */
+  val links: List<CellLinkOut> = emptyList(),
   val counts: Map<String, Int>,
+)
+
+/**
+ * `altitude-branch-sinks.json`: the sink terminals the branches file leaves out. Each tree's
+ * `points`, `segments` and `terminals` continue the numbering of the same tree in the branches
+ * file, so appending them to its lists gives the whole tree.
+ */
+@OptIn(ExperimentalSerializationApi::class)
+@Serializable
+data class BranchSinksExport(
+  @EncodeDefault val schema: String = "altitude-branch-sinks",
+  @EncodeDefault val schemaVersion: Int = EXPORT_SCHEMA_VERSION,
+  val target: String,
+  val locs: List<String>,
+  val strs: List<String>,
+  val hops: List<BranchHopOut>,
+  val trees: List<BranchSinkTreeOut>,
+  val counts: Map<String, Int>,
+)
+
+@Serializable
+data class BranchSinkTreeOut(
+  /** Index into the branches file's `trees`. */
+  val tree: Int,
+  val points: List<BranchPointOut>,
+  val segments: List<BranchSegmentOut>,
+  val terminals: List<BranchTerminalOut>,
+  val siblings: List<BranchSiblingOut> = emptyList(),
+)
+
+/** A value hop of a branch tree. Short keys; `k`, `r`, `ai`, `p`, `fd` and `lm` index into `strs`. */
+@Serializable
+data class BranchHopOut(
+  /** Indices into `locs`. */
+  val f: Int,
+  val t: Int,
+  val k: Int,
+  /** `<index into files>:<line>`. */
+  val s: String? = null,
+  val r: Int? = null,
+  /** Indices into the members file's `members`. */
+  val fm: Int? = null,
+  val tm: Int? = null,
+  /** Indices into the variables file's `vars`. */
+  val fv: Int? = null,
+  val tv: Int? = null,
+  /** Index into `edges` of `altitude.json`. */
+  val e: Int? = null,
+  /** Index into the members file's `edges`. */
+  val me: Int? = null,
+  val w: Int = 0,
+  val c: Int? = null,
+  val fc: Int? = null,
+  val cc: Int? = null,
+  val fi: Int? = null,
+  val ai: Int? = null,
+  val p: Int? = null,
+  val fd: Int? = null,
+  val lm: Int? = null,
+  /** Bits: 1 any container, 2 field mismatch, 4 outside production. */
+  val x: Int = 0,
+)
+
+@Serializable
+data class CellLinkOut(
+  /** Index into `cells` of `altitude.json`. */
+  val cell: Int,
+  /** `[tree, terminal]` pairs whose terminal writes the cell. */
+  val w: List<List<Int>> = emptyList(),
+  /** Trees rooted at the cell. */
+  val r: List<Int> = emptyList(),
+  /** `[tree, terminal]` pairs whose terminal reads the cell. */
+  val rd: List<List<Int>> = emptyList(),
+)
+
+/** `altitude-variables.json`. Short keys: one row per variable, lambda and variable edge. */
+@OptIn(ExperimentalSerializationApi::class)
+@Serializable
+data class VariablesExport(
+  @EncodeDefault val schema: String = "altitude-variables",
+  @EncodeDefault val schemaVersion: Int = EXPORT_SCHEMA_VERSION,
+  val target: String,
+  val lambdas: List<LambdaOut>,
+  val vars: List<VariableOut>,
+  /** `a` and `b` index into `vars`; `e` into the members file's `edges`. */
+  val edges: List<MemberEdgeOut>,
+  val counts: Map<String, Int>,
+)
+
+@Serializable
+data class LambdaOut(
+  val id: String,
+  /** Index into the members file's `members`. */
+  val m: Int,
+  /** Its position among the member's lambdas. */
+  val o: Int,
+  val l: List<Int> = emptyList(),
+  /** The lambda it is nested in, as an index into `lambdas`. */
+  val p: Int? = null,
+  /** It runs as composable content. */
+  val cmp: Boolean = false,
+)
+
+@Serializable
+data class VariableOut(
+  val id: String,
+  val m: Int,
+  /** `param`, `receiver`, `local`, `lambdaParam` or `temp`. */
+  val k: String,
+  val n: String,
+  val l: Int,
+  /** Index into `lambdas`. */
+  val lam: Int? = null,
+  val t: String? = null,
+  /** A label with context, for a lambda's `it`: `map → it`. */
+  val lbl: String? = null,
+  /** A local declared with `by`. */
+  val dl: Boolean = false,
+  /** The property a destructured local takes, as `componentN` names it. */
+  val ds: String? = null,
+  /** A local initialised from `remember { }`. */
+  val rem: Boolean = false,
+  /** Lambdas that capture the variable, as indices into `lambdas`. */
+  val cap: List<Int> = emptyList(),
+  /** `stateRead`, `eventCapture`, `output` or `other`, so a page can show the important ones first. */
+  val rank: String = "other",
 )
 
 @Serializable
@@ -486,6 +629,8 @@ data class BranchPointOut(
   val loc: Int,
   /** `root`, `branch`, `merge`, `join`, `split` or `terminal`. */
   val kind: String,
+  /** Sink terminals whose path passes the point; the sinks file holds them. */
+  val sk: Int = 0,
 )
 
 @Serializable

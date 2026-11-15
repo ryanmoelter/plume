@@ -16,19 +16,57 @@ import com.ryanmoelter.altitude.trace.Terminals
 import com.ryanmoelter.altitude.trace.valueHopLine
 
 const val BRANCHES_FILE = "altitude-branches.json"
+const val BRANCH_SINKS_FILE = "altitude-branch-sinks.json"
 
-/** The locations and hop records the trees of one branches file share, each kept once. */
-class BranchTables {
+/** The locations, strings and hop records the trees of one file share, each kept once. */
+class BranchTables(private val fileIndex: Map<String, Int> = emptyMap()) {
   private val locs = LinkedHashMap<String, Int>()
-  private val hops = LinkedHashMap<TraceHopOut, Int>()
+  private val strs = LinkedHashMap<String, Int>()
+  private val hops = LinkedHashMap<BranchHopOut, Int>()
 
   fun loc(location: String): Int = locs.getOrPut(location) { locs.size }
 
-  fun hop(record: TraceHopOut): Int = hops.getOrPut(record) { hops.size }
+  private fun str(value: String?): Int? = value?.let { strs.getOrPut(it) { strs.size } }
 
-  fun export(target: String, trees: List<BranchTreeOut>, counts: Map<String, Int>) =
-    BranchesExport(target = target, locs = locs.keys.toList(), hops = hops.keys.toList(), trees = trees, counts = counts)
+  private fun site(site: String?): String? {
+    site ?: return null
+    val path = site.substringBeforeLast(':')
+    return fileIndex[path]?.let { "$it:${site.substringAfterLast(':')}" } ?: site
+  }
+
+  fun hop(h: TraceHopOut, memberIndex: Map<String, Int>): Int {
+    val flags = (if (h.anyContainer) 1 else 0) or (if (h.fieldMismatch) 2 else 0) or (if (h.nonProduction) 4 else 0)
+    val record =
+      BranchHopOut(
+        f = loc(h.from), t = loc(h.to), k = str(h.kind)!!, s = site(h.site), r = str(h.rule),
+        fm = h.fromMember?.let(memberIndex::get), tm = h.toMember?.let(memberIndex::get),
+        e = h.edge, me = h.memberEdge, w = h.wrapDepth, c = h.cell, fc = h.fromCell, cc = h.containerChoices, fi = h.fanIn,
+        ai = str(h.anyInstanceOf), p = str(h.property), fd = str(h.field), lm = str(h.landmark), x = flags,
+      )
+    return hops.getOrPut(record) { hops.size }
+  }
+
+  /** The locations hop records start and end at. */
+  fun hopLocations(): Set<String> {
+    val ids = locs.keys.toList()
+    return hops.keys.flatMapTo(HashSet()) { listOf(ids[it.f], ids[it.t]) }
+  }
+
+  private fun hopsWithVars(vars: VariableTable?): List<BranchHopOut> {
+    if (vars == null) return hops.keys.toList()
+    val ids = locs.keys.toList()
+    return hops.keys.map { it.copy(fv = vars.of(ids[it.f]), tv = vars.of(ids[it.t])) }
+  }
+
+  fun export(target: String, trees: List<BranchTreeOut>, links: List<CellLinkOut>, counts: Map<String, Int>, vars: VariableTable? = null) =
+    BranchesExport(target = target, locs = locs.keys.toList(), strs = strs.keys.toList(), hops = hopsWithVars(vars), trees = trees, links = links, counts = counts)
+
+  fun sinks(target: String, trees: List<BranchSinkTreeOut>, counts: Map<String, Int>, vars: VariableTable? = null) =
+    BranchSinksExport(target = target, locs = locs.keys.toList(), strs = strs.keys.toList(), hops = hopsWithVars(vars), trees = trees, counts = counts)
 }
+
+/** One tree as the two files hold it: [sinks] is null when nothing was split out. */
+class TreeOut(val main: BranchTreeOut, val sinks: BranchSinkTreeOut?)
 
 /** Where a branch tree starts: the root's locations, and what they stand for. */
 class BranchRoot(val direction: Direction, val kind: String, val ref: Int?, val label: String, val locations: Set<String>)
@@ -75,6 +113,30 @@ class BranchContext(
   private val entries = HashMap<String, Int>().apply { for ((i, e) in rules.entrypoints.withIndex()) putIfAbsent(e.sym, i) }
   private val libraryInputs: Set<String> = facts.calls.filter { !it.targetInSource }.flatMapTo(HashSet()) { inputsOf(it.id) }
 
+  private val libraryCallsByInput: Map<String, List<String>> =
+    facts.calls.filter { !it.targetInSource }.flatMap { c -> inputsOf(c.id).map { it to c.id } }.groupBy({ it.first }, { it.second })
+
+  /**
+   * A boundary result passed to a library call no model connects to that call's result, such as a
+   * query object that `executeAsList()` or `watch()` runs, continues as that result, so the tree
+   * starts where the data does.
+   */
+  private fun throughLibraryCalls(results: Set<String>): Set<String> {
+    val out = sortedSetOf<String>().apply { addAll(results) }
+    val queue = ArrayDeque(results.sorted())
+    var guard = 0
+    while (queue.isNotEmpty() && guard++ < LIBRARY_CHAIN_STEPS) {
+      val location = queue.removeFirst()
+      val reached = program.valueEdges[location].orEmpty().mapTo(HashSet()) { it.to }
+      for (call in libraryCallsByInput[withoutContext(location)].orEmpty()) {
+        val results = program.callResults(call)
+        if (results.any { it in reached }) continue
+        for (r in results) if (out.add(r)) queue += r
+      }
+    }
+    return out
+  }
+
   private fun cellOf(id: String): Int? =
     if (id.endsWith(ELEMENT)) program.cellAt(id.removeSuffix(ELEMENT))?.let { cellIndex[it.id] } else null
 
@@ -101,7 +163,7 @@ class BranchContext(
   fun roots(golden: List<GoldenQuery>): List<BranchRoot> = buildList {
     for ((i, cell) in cellFacts.withIndex()) add(BranchRoot(Direction.FORWARD, "cell", i, program.cellName(cell), program.cellSlots(cell.id)))
     for ((i, b) in rules.boundaries.withIndex()) {
-      val results = program.callResults(b.call)
+      val results = throughLibraryCalls(program.callResults(b.call))
       if (results.isNotEmpty()) add(BranchRoot(Direction.FORWARD, "boundary", i, boundaryLabel(i), results))
     }
     for ((i, b) in rules.boundaries.withIndex()) {
@@ -137,8 +199,12 @@ class BranchContext(
 
   private fun nodeOf(location: String): Int? = units.of(location)?.let(nodeIndex::get)
 
-  /** [withHops] false leaves the hop records of segments that are not clean out of the file. */
-  fun out(root: BranchRoot, tree: BranchTree, clean: Boolean, tables: BranchTables, withHops: Boolean = true): BranchTreeOut {
+  /**
+   * The tree against [tables]. With [sinkTables], sink terminals and the segments and points only
+   * they use go to a second record numbered after the first; every point keeps a count of the sink
+   * terminals past it. [withHops] false leaves the hop records of segments that are not clean out.
+   */
+  fun out(root: BranchRoot, tree: BranchTree, clean: Boolean, tables: BranchTables, sinkTables: BranchTables? = null, withHops: Boolean = true): TreeOut {
     val records = arrayOfNulls<TraceHopOut>(tree.nodes.size)
     for (terminal in tree.terminals) {
       val path = terminal.path
@@ -167,28 +233,66 @@ class BranchContext(
         val keep = withHops || (cost.anyInstanceReads == 0 && cost.stagedHops == 0)
         Triple(segment, keep, BranchSegmentOut(segment.a, segment.b, null, segment.hops.size, memberPath, cost.out(), approx.toList()))
       }
-    val segments = drafts.map { (segment, keep, out) -> if (keep) out.copy(hops = segment.hops.map { tables.hop(records[it]!!) }) else out }
+    fun isSink(t: BranchTree.Terminal) = sinkTables != null && t.path.key.kind == "sink"
+    val mainSegments = BooleanArray(tree.segments.size)
+    val mainPoints = BooleanArray(tree.points.size).also { it[0] = true }
+    for (t in tree.terminals) {
+      if (isSink(t)) continue
+      mainPoints[t.point] = true
+      for (s in t.segments) mainSegments[s] = true
+    }
+    for ((i, s) in tree.segments.withIndex()) if (mainSegments[i]) { mainPoints[s.a] = true; mainPoints[s.b] = true }
+    val pointOrder = tree.points.indices.sortedBy { if (mainPoints[it]) 0 else 1 }
+    val segmentOrder = tree.segments.indices.sortedBy { if (mainSegments[it]) 0 else 1 }
+    val pointAt = IntArray(tree.points.size).also { a -> for ((n, o) in pointOrder.withIndex()) a[o] = n }
+    val segmentAt = IntArray(tree.segments.size).also { a -> for ((n, o) in segmentOrder.withIndex()) a[o] = n }
+    val sinksPast = IntArray(tree.points.size)
+    for (t in tree.terminals) {
+      if (!isSink(t)) continue
+      val passed = HashSet<Int>().apply { add(t.point) }
+      for (s in t.segments) { passed += tree.segments[s].a; passed += tree.segments[s].b }
+      for (p in passed) sinksPast[p]++
+    }
+    fun tablesFor(main: Boolean) = if (main) tables else sinkTables!!
+    val segments =
+      segmentOrder.map { i ->
+        val (segment, keep, out) = drafts[i]
+        val withRecords = if (keep) out.copy(hops = segment.hops.map { tablesFor(mainSegments[i]).hop(records[it]!!, memberIndex) }) else out
+        withRecords.copy(a = pointAt[segment.a], b = pointAt[segment.b])
+      }
     val points =
-      tree.points.map { p ->
+      pointOrder.map { i ->
+        val p = tree.points[i]
         val location = if (p.node == 0) rootLocation(root) else withoutContext(tree.nodes[p.node].state!!.location)
-        BranchPointOut(memberOf(location), nodeOf(location), tables.loc(location), p.kind)
+        BranchPointOut(memberOf(location), nodeOf(location), tablesFor(mainPoints[i]).loc(location), p.kind, sinksPast[i])
       }
     val terminals =
-      tree.terminals.map { t ->
-        BranchTerminalOut(t.point, t.path.key.kind, t.path.key.ref, t.path.cost.out(), minOf(t.path.equalCost, PATH_COUNT_CAP), t.path.clean, t.segments)
+      tree.terminals.sortedBy { if (isSink(it)) 1 else 0 }.map { t ->
+        isSink(t) to BranchTerminalOut(pointAt[t.point], t.path.key.kind, t.path.key.ref, t.path.cost.out(), minOf(t.path.equalCost, PATH_COUNT_CAP), t.path.clean, t.segments.map { segmentAt[it] })
       }
     val siblings =
-      tree.siblings.map { s -> BranchSiblingOut(s.point, s.kind, s.values.map { BranchSiblingValueOut(tables.loc(it.location), memberOf(it.location), it.name) }) }
+      tree.siblings.map { s ->
+        val t = tablesFor(mainPoints[s.point])
+        mainPoints[s.point] to BranchSiblingOut(pointAt[s.point], s.kind, s.values.map { BranchSiblingValueOut(t.loc(it.location), memberOf(it.location), it.name) })
+      }
+    val mainPointCount = mainPoints.count { it }
+    val mainSegmentCount = mainSegments.count { it }
     val rootLoc = rootLocation(root)
-    return BranchTreeOut(
-      root = BranchRootOut(tables.loc(rootLoc), memberOf(rootLoc), nodeOf(rootLoc), root.direction.label, root.kind, root.ref, root.label),
-      options = BranchOptionsOut(tree.stops.toList(), clean = clean),
-      truncated = tree.truncated,
-      points = points,
-      segments = segments,
-      terminals = terminals,
-      siblings = siblings,
-    )
+    val main =
+      BranchTreeOut(
+        root = BranchRootOut(tables.loc(rootLoc), memberOf(rootLoc), nodeOf(rootLoc), root.direction.label, root.kind, root.ref, root.label),
+        options = BranchOptionsOut(tree.stops.toList(), clean = clean),
+        truncated = tree.truncated,
+        points = points.take(mainPointCount),
+        segments = segments.take(mainSegmentCount),
+        terminals = terminals.filter { !it.first }.map { it.second },
+        siblings = siblings.filter { it.first }.map { it.second },
+      )
+    val sinkTerminals = terminals.filter { it.first }.map { it.second }
+    val sinks =
+      if (sinkTerminals.isEmpty()) null
+      else BranchSinkTreeOut(-1, points.drop(mainPointCount), segments.drop(mainSegmentCount), sinkTerminals, siblings.filter { !it.first }.map { it.second })
+    return TreeOut(main, sinks)
   }
 
   fun label(key: TerminalKey, memberIds: List<String>): String =
@@ -250,6 +354,7 @@ class BranchContext(
 
   companion object {
     private val VALUE_OPTIONS = setOf("--from", "--to", "--via")
+    private const val LIBRARY_CHAIN_STEPS = 50
   }
 }
 

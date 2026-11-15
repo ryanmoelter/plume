@@ -609,6 +609,7 @@ class Exporter(
     val memberEdgeIndex = memberAggs.keys.withIndex().associate { it.value to it.index }
     val traces = TraceRunner(program, units, members, cellIndex).let { runner -> golden.map { runner.run(it, edgeIndex, memberEdgeIndex) } }
     val membersOut = membersExport(edgeIndex)
+    val layerSizes = layerSizes()
     val nodes =
       nodeIds.map { id ->
         val info = units.nodes.getValue(id)
@@ -630,6 +631,8 @@ class Exporter(
           size = Size(info.loc, units.declCounts[id] ?: 0),
           layer = layer,
           layerWhy = why,
+          layerSizes = layerSizes[id].orEmpty(),
+          layers = layerSizes[id]?.keys?.toList().orEmpty(),
           placement = placements.getValue(id),
           reach = reach,
           fanIn = fanIn,
@@ -729,21 +732,105 @@ class Exporter(
   fun branchTrees(golden: List<GoldenQuery> = emptyList()): List<Pair<BranchRoot, BranchTree>> =
     branchContext.roots(golden).map { root -> root to branchContext.tree(root, defaultStops(root.direction, throughCells = false)) }
 
+  /** The branches file and its sinks file before variables are numbered. */
+  class BranchFiles(
+    val main: BranchTables,
+    val sinks: BranchTables,
+    val trees: List<BranchTreeOut>,
+    val sinkTrees: List<BranchSinkTreeOut>,
+    val links: List<CellLinkOut>,
+    val counts: Map<String, Int>,
+  ) {
+    fun hopLocations(): Set<String> = main.hopLocations() + sinks.hopLocations()
+
+    fun export(target: String, vars: VariableTable?) = main.export(target, trees, links, counts, vars)
+
+    fun sinksExport(target: String, vars: VariableTable?) =
+      sinks.sinks(target, sinkTrees, sortedMapOf("trees" to sinkTrees.size, "terminals" to sinkTrees.sumOf { it.terminals.size }), vars)
+  }
+
   /** [withHops] false keeps hop records only for clean segments, for a file that would otherwise be too large. */
-  fun branchesExport(trees: List<Pair<BranchRoot, BranchTree>>, withHops: Boolean = true): BranchesExport {
+  fun branchFiles(trees: List<Pair<BranchRoot, BranchTree>>, withHops: Boolean = true): BranchFiles {
     val counts = TreeMap<String, Int>()
-    val tables = BranchTables()
+    val tables = BranchTables(fileIndex)
+    val sinkTables = BranchTables(fileIndex)
+    val writers = TreeMap<Int, MutableList<List<Int>>>()
+    val readers = TreeMap<Int, MutableList<List<Int>>>()
+    val rooted = TreeMap<Int, MutableList<Int>>()
+    val sinkTrees = ArrayList<BranchSinkTreeOut>()
     val out =
-      trees.map { (root, tree) ->
+      trees.mapIndexed { i, (root, tree) ->
         val key = "${root.direction.label}.${root.kind}"
         counts.merge("trees.$key", 1, Int::plus)
         if (tree.truncated) counts.merge("truncated.$key", 1, Int::plus)
         for (t in tree.terminals) counts.merge("terminals.${t.path.key.kind}", 1, Int::plus)
-        branchContext.out(root, tree, clean = false, tables, withHops = withHops)
+        if (root.kind == "cell" && root.ref != null) rooted.getOrPut(root.ref) { ArrayList() } += i
+        val result = branchContext.out(root, tree, clean = false, tables, sinkTables, withHops = withHops)
+        for ((j, t) in result.main.terminals.withIndex()) {
+          if (t.kind == "cellWrite") writers.getOrPut(t.ref) { ArrayList() } += listOf(i, j)
+          if (t.kind == "cellRead") readers.getOrPut(t.ref) { ArrayList() } += listOf(i, j)
+        }
+        result.sinks?.let { sinkTrees += it.copy(tree = i) }
+        result.main
       }
+    val links = (writers.keys + readers.keys + rooted.keys).toSortedSet().map { c -> CellLinkOut(c, writers[c].orEmpty(), rooted[c].orEmpty(), readers[c].orEmpty()) }
     counts["trees"] = out.size
+    counts["sinkTerminalsSplit"] = sinkTrees.sumOf { it.terminals.size }
     if (!withHops) counts["hopDetailDropped"] = 1
-    return tables.export(target, out, counts)
+    return BranchFiles(tables, sinkTables, out, sinkTrees, links, counts)
+  }
+
+  /** Lambdas that run as composable content: invoked as content, or passed where a composable function type is expected. */
+  private val composableLambdas: Set<String> by lazy {
+    val composableParams = composable.filter { it.endsWith("#<type>") }.mapTo(HashSet()) { it.removeSuffix("#<type>") }
+    val passed = facts.flows.filter { it.kind == "arg" && it.to in composableParams }.mapNotNull { units.nodesById[it.from]?.takeIf { n -> n.kind == "lambdaExpr" }?.target }
+    contentLambdas + passed
+  }
+
+  /** The variables of every member, with a temporary for each of [hopLocations] that holds none. */
+  fun variables(hopLocations: Collection<String>): VariableTable {
+    val memberIndex = memberDrafts.withIndex().associate { it.value.id to it.index }
+    val memberEdgeIndex = memberAggs.keys.withIndex().associate { it.value to it.index }
+    return Variables(units, members, facts, derived, composableLambdas, eventLambdas).table(memberIndex, hopLocations, memberEdgeIndex, ::site)
+  }
+
+  /** The export's trace hops with the variables at their ends. */
+  fun withVariables(export: AltitudeExport, vars: VariableTable): AltitudeExport =
+    export.copy(
+      traces = export.traces.map { t ->
+        t.copy(legs = t.legs.map { leg -> leg.copy(hops = leg.hops.map { h -> h.copy(fromVar = vars.of(h.from), toVar = vars.of(h.to)) }) })
+      }
+    )
+
+  fun variablesExport(vars: VariableTable): VariablesExport {
+    val counts = TreeMap<String, Int>()
+    for (v in vars.vars) {
+      counts.merge("vars.${v.k}", 1, Int::plus)
+      counts.merge("rank.${v.rank}", 1, Int::plus)
+    }
+    counts["vars.remembered"] = vars.vars.count { it.rem }
+    counts["vars"] = vars.vars.size
+    counts["vars.delegated"] = vars.vars.count { it.dl }
+    counts["lambdas"] = vars.lambdas.size
+    counts["lambdas.composable"] = vars.lambdas.count { it.cmp }
+    counts["edges"] = vars.edges.size
+    counts["edges.inMember"] = vars.edges.count { e -> vars.vars[e.a].m == vars.vars[e.b].m }
+    return vars.export(target, counts)
+  }
+
+  /** A composable function or property getter draws UI wherever it is declared; any other member takes its node's layer. */
+  private fun memberLayer(m: MemberDraft): Pair<Int?, String?> {
+    if ("composable" in m.flags || m.kind == "property" && "${m.id}#<get>" in composable) return LAYERS.indexOf("ui") to "composable"
+    return layerOf(m.node)?.let { it to "class" } ?: (null to null)
+  }
+
+  private fun layerSizes(): Map<String, Map<Int, Int>> {
+    val out = HashMap<String, TreeMap<Int, Int>>()
+    for (m in memberDrafts) {
+      val layer = memberLayer(m).first ?: continue
+      if (m.size > 0) out.getOrPut(m.node) { TreeMap() }.merge(layer, m.size, Int::plus)
+    }
+    return out
   }
 
   private fun membersExport(edgeIndex: Map<Triple<String, String, String>, Int>): MembersExport {
@@ -777,6 +864,8 @@ class Exporter(
           c = m.nestedClass?.let(classIndex::get),
           lam = m.lambdas,
           np = nonProduction(m.id),
+          ly = memberLayer(m).first,
+          lyWhy = memberLayer(m).second,
         )
       }
     val edges =

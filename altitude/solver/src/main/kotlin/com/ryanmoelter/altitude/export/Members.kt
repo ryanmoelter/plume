@@ -10,8 +10,8 @@ private val ACCESSOR_KINDS = setOf("getter", "setter")
 private val VISIBILITIES = listOf("private", "protected", "internal")
 private val FLAG_MODIFIERS =
   setOf("suspend", "override", "inline", "operator", "abstract", "open", "expect", "actual", "noBody", "var", "lateinit", "const", "delegated", "ctorParam", "implicit")
-private val TYPE_PACKAGE = Regex("""\b(?:[a-z_][A-Za-z0-9_]*\.)+(?=[A-Z])""")
-private val POSITION = Regex("""^.*:(\d+):(\d+)-(\d+):(\d+)(?::\w+)?$""")
+internal val TYPE_PACKAGE = Regex("""\b(?:[a-z_][A-Za-z0-9_]*\.)+(?=[A-Z])""")
+internal val POSITION = Regex("""^.*:(\d+):(\d+)-(\d+):(\d+)(?::\w+)?$""")
 private val DECL_SPAN = Regex("""^(\d+):(\d+)-(\d+):(\d+)$""")
 private const val SIGNATURE_LENGTH = 40
 

@@ -1,6 +1,15 @@
 # The export
 
-`extractor export --facts <dir> --out <dir> --target <name> [--golden golden/<target>] [--split]` reads a solved facts directory and writes `altitude.json`, `altitude-members.json` and `altitude-branches.json`. A page that draws nodes needs only `altitude.json`; `meta.membersFile` names the second file, which holds the members inside each node and the edges between them, and `meta.branchesFile` the third, which holds [branch trees](#branch-trees). Every number in them derives from the facts and the rule relations, never from a class or package name.
+`extractor export --facts <dir> --out <dir> --target <name> [--golden golden/<target>] [--split]` reads a solved facts directory and writes five files. A page that draws nodes needs only `altitude.json`, and `meta` names the others:
+
+| `meta` field | File | Holds |
+|---|---|---|
+| `membersFile` | `altitude-members.json` | The [members](#members) inside each node and the edges between them. |
+| `variablesFile` | `altitude-variables.json` | The [variables](#variables) inside each member and the value edges between them. |
+| `branchesFile` | `altitude-branches.json` | [Branch trees](#branch-trees), without their sink terminals. |
+| `branchSinksFile` | `altitude-branch-sinks.json` | The sink terminals of the same trees. A page loads it only to show sinks. |
+
+Every number in them derives from the facts and the rule relations, never from a class or package name.
 
 The files are deterministic. Keys of maps are sorted, lists are sorted by id, and no absolute path appears. Two runs over the same commit give the same bytes, also from two checkouts at different paths. A field at its default value is left out: an empty list, `false`, `0` or `null`.
 
@@ -24,8 +33,8 @@ The command prints the size of each file it writes.
 
 | Field | What it holds |
 |---|---|
-| `schema`, `schemaVersion` | `"altitude-export"` and `3`. Every file of the export carries the same `schemaVersion`. |
-| `meta` | `target`, `gitSha`, `gitDirty`, `factsSchemaVersion`, the constants the derivations use (`params`), the layer names (`layers`), row `counts` (including `members` and `memberEdges`), `detailFile` when split, `membersFile` and `branchesFile`. |
+| `schema`, `schemaVersion` | `"altitude-export"` and `4`. Every file of the export carries the same `schemaVersion`. |
+| `meta` | `target`, `gitSha`, `gitDirty`, `factsSchemaVersion`, the constants the derivations use (`params`), the layer names (`layers`), row `counts` (including `members` and `memberEdges`), `detailFile` when split, and the other files' names. |
 | `files` | Every source path, relative to the target root. |
 | `containers` | The containment tree. |
 | `features` | The horizontal slices. |
@@ -207,6 +216,9 @@ Everything else belongs to the member around it: lambdas, parameters, locals, lo
 | `p`, `c` | The member a local cell lives in, and the nested class the member is declared in. |
 | `lam` | Lambdas inside the member. |
 | `np` | `test`, `preview` or `fake` when the member is staged, by the same check as a node's `nonProduction`. |
+| `ly`, `lyWhy` | The member's layer, as an index into `meta.layers`, and why: `class` when it takes its node's layer, `composable` when it is a composable function or getter, which draws UI wherever it is declared. |
+
+A node carries `layerSizes`, the lines of its members per `ly`, and `layers`, the layers its members span, sorted. Its own `layer` is unaffected.
 
 A nested class row has `id`, `n`, `name`, `f`, `l` and `c`, the nested class around it.
 
@@ -227,6 +239,40 @@ Every node edge has at least one member edge with its index in `e`, and grouping
 
 `counts` has `members`, `classes`, `edges`, `members.<kind>`, `edges.<kind>` and `edges.<kind>.inNode`.
 
+## Variables
+
+`altitude-variables.json` holds `schema` (`"altitude-variables"`), `schemaVersion`, `target`, `lambdas`, `vars`, `edges` and `counts`. A variable is a value holder inside a member, so a page can select one value of a composable rather than the whole member. Variables are sorted by member, then by line and column, with temporaries last.
+
+| `k` | Variable |
+|---|---|
+| `param` | A parameter of a function or constructor. |
+| `receiver` | A function's `this`, or a lambda's receiver. Its `n` is `this` or `receiver`. |
+| `local` | A local, a destructured component or a delegated local (`val x by flow.collectAsState()`). |
+| `lambdaParam` | A lambda's parameter, `it` included. |
+| `temp` | An expression a trace or tree hop lands on that is no declaration. Only such temporaries are listed. |
+
+A local captured by a lambda stays one variable; its `cap` lists the lambdas. A reference to a variable resolves to it, and so do a delegated local's accessors and delegate. The facts give a reassigned `var` one declaration, so it is one variable.
+
+| Key | Holds |
+|---|---|
+| `id` | The declaration's fact id, or for a temporary, its location id. |
+| `m` | Index into the members file's `members`. A local that holds a cell belongs to the cell's member, whose `p` is the member around it. |
+| `k`, `n`, `l` | The kind above, the name and the declaration line. |
+| `lam` | Index into `lambdas` of the innermost lambda the variable is declared in. |
+| `t` | The declared type, when the facts have one. |
+| `lbl` | A label with context. A lambda's `it` reads `map → it`, after the call the lambda is passed to. A temporary reads `fetch()`, `name`, `Type()`, its literal, `lambda`, `::ref` or `return`. |
+| `dl` | The local is declared with `by`. |
+| `ds` | The `componentN` a destructured local takes. |
+| `rem` | The local is initialised from `remember { }`. This is not a cell. |
+| `cap` | Lambdas that capture the variable. |
+| `rank` | `stateRead` (it reads a cell, holds one, or is declared with `by`), `eventCapture` (an event lambda captures it), `output` (it is passed on as an argument or receiver) or `other`, so a page can list the important ones first. |
+
+A lambda row has `id`, `m`, `o` (its position among the member's lambdas), `l` (first and last line), `p` (the lambda it is nested in) and `cmp` (it runs as composable content, or is passed to a composable function-typed parameter).
+
+A variable edge has the member edge's keys, with `a` and `b` indexing `vars`. It aggregates the value flows from one variable to the next variable downstream, walking through temporaries and other locations that are no variable, and `d` counts the flow kind that enters `b`. `e` is the member edge it refines, absent inside one member. Every trace hop and tree hop names the variable of each end, so its `fromVar` belongs to its `fromMember`, or to a local cell whose `p` is that member.
+
+`counts` has `vars`, `vars.<kind>`, `rank.<rank>`, `vars.delegated`, `vars.remembered`, `lambdas`, `lambdas.composable`, `edges` and `edges.inMember`.
+
 ## Traces
 
 Each golden query under `--golden` runs again over the facts, through the same search `extractor trace` uses. A trace has `name`, `query`, `comment`, `kind` (`call` or `value`) and `legs`. A leg has its endpoints, its `hops` and `nodePath`, the nodes it passes through with consecutive repeats collapsed.
@@ -238,6 +284,7 @@ Every hop also names the members it runs between, and carries the notes the trac
 | Field | Hops | What it holds |
 |---|---|---|
 | `fromMember`, `toMember` | all | The member of each end. A library hop has no `toMember`. |
+| `fromVar`, `toVar` | all | Index into the variables file's `vars` of each end's variable. |
 | `memberEdge` | all | Index into the members file's `edges` of the member edge the hop belongs to; absent inside one member. |
 | `candidates` | `cha` | The call's dispatch candidates. |
 | `fanOut`, `witness` | `fnValue` | The function values that reach the invoke, and the flow edges that carry this one there. |
@@ -269,16 +316,37 @@ A leg carries the search's summary:
 
 ## Branch trees
 
-`altitude-branches.json` holds `schema` (`"altitude-branches"`), `schemaVersion`, `target`, `locs`, `hops`, `trees` and `counts`. A branch tree is every path `trace --value` would print between one root and each terminal it reaches, merged where the paths share a prefix. `extractor branches` prints one tree for any value `trace` can name, as text or with `--json` in this file's shape.
+`altitude-branches.json` holds `schema` (`"altitude-branches"`), `schemaVersion`, `target`, `locs`, `strs`, `hops`, `trees`, `links` and `counts`. A branch tree is every path `trace --value` would print between one root and each terminal it reaches, merged where the paths share a prefix. `extractor branches` prints one tree for any value `trace` can name, as text or with `--json` in this file's shape.
 
-`locs` lists location ids, and every `loc` field is an index into it. `hops` lists hop records, each once, in the shape `traces` writes them, and segments index into it. Every tree of the file shares both tables.
+`locs` lists location ids, and every `loc` field is an index into it. `strs` lists the strings hop records name. `hops` lists hop records, each once, and segments index into it. Every tree of the file shares the three tables. A hop record carries a trace hop's fields under short keys:
+
+| Key | Trace hop field |
+|---|---|
+| `f`, `t` | `from`, `to`, as indices into `locs`. |
+| `k`, `r` | `kind`, `rule`, as indices into `strs`. |
+| `s` | The site, as `<index into files>:<line>`. |
+| `fm`, `tm`, `fv`, `tv` | `fromMember`, `toMember`, `fromVar`, `toVar`. |
+| `e`, `me` | `edge`, `memberEdge`. |
+| `w` | `wrapDepth`. |
+| `c`, `fc` | `cell`, `fromCell`. |
+| `cc`, `fi` | How many `containerChoices` and `fanIn` values there are. |
+| `ai`, `p`, `fd`, `lm` | `anyInstanceOf`, `property`, `field`, `landmark`, as indices into `strs`. |
+| `x` | Bits: 1 `anyContainer`, 2 `fieldMismatch`, 4 `nonProduction`. |
+
+### Sinks
+
+The sinks file, `altitude-branch-sinks.json`, holds the `sink` terminals and every point and segment only their paths use. Each of its `trees` names its tree in the branches file by `tree`, and its `points`, `segments` and `terminals` continue that tree's numbering, so appending them gives the whole tree. It has its own `locs`, `strs` and `hops`. In the branches file a point's `sk` counts the sink terminals whose path passes it.
+
+### Links
+
+`links` serves a page that stitches trees at cells: a value read from a cell comes from whatever wrote it. Each row has `cell` (an index into `cells`), `w` (the `[tree, terminal]` pairs whose `cellWrite` terminal writes it), `rd` (the pairs whose `cellRead` terminal reads it) and `r` (the trees rooted at it).
 
 The export precomputes these roots:
 
 | `root.kind` | `root.dir` | Root |
 |---|---|---|
 | `cell` | `forward` | Every cell's contents. `ref` indexes `cells`. |
-| `boundary` | `forward` | Every boundary call's result. `ref` indexes `boundaries`. |
+| `boundary` | `forward` | Every boundary call's result. `ref` indexes `boundaries`. When a library call the models do not describe consumes the result, such as SQLDelight's `executeAsList()`, the root also takes that call's result, up to 50 calls deep. |
 | `boundary` | `backward` | Every boundary call's arguments and receivers. |
 | `traceEnd` | `forward`, `backward` | Each golden value trace: forward from its start, backward into its end. `label` names the trace. |
 
@@ -302,6 +370,6 @@ A segment runs between two points, `a` upstream and `b` downstream, whatever the
 
 ### Limits
 
-If the file would exceed 4,000,000 characters, it keeps hop records only for segments with no any-instance read and no staged hop. The others keep `hopCount` and no `hops`, and `counts.hopDetailDropped` is 1. A forward search takes at most 50,000,000 steps. There is no reverse search yet. A backward tree stands in with the state graph of every value that reaches the root ignoring calls, capped at 3,000,000 states, then one forward search from each terminal that graph reaches the root from. A tree that hit a cap has `truncated`. The proper method is one search backward from the root over reversed edges, which needs `callsAfter` run in reverse.
+If the branches file would exceed 8,000,000 characters, it keeps hop records only for segments with no any-instance read and no staged hop. The others keep `hopCount` and no `hops`, and `counts.hopDetailDropped` is 1. A forward search takes at most 50,000,000 steps. There is no reverse search yet. A backward tree stands in with the state graph of every value that reaches the root ignoring calls, capped at 3,000,000 states, then one forward search from each terminal that graph reaches the root from. A tree that hit a cap has `truncated`. The proper method is one search backward from the root over reversed edges, which needs `callsAfter` run in reverse.
 
 `counts` has `trees`, `trees.<dir>.<kind>`, `truncated.<dir>.<kind>` and `terminals.<kind>`.

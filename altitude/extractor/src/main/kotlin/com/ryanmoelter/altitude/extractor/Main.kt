@@ -129,8 +129,8 @@ fun main(args: Array<String>) {
         val tree = context.tree(root, defaultStops(direction, "--through-cells" in flags), clean)
         if ("--json" in flags) {
           val tables = BranchTables()
-          val out = context.out(root, tree, clean, tables)
-          println(exportJson.encodeToString(BranchesExport.serializer(), tables.export("", listOf(out), emptyMap())))
+          val out = context.out(root, tree, clean, tables).main
+          println(exportJson.encodeToString(BranchesExport.serializer(), tables.export("", listOf(out), emptyList(), emptyMap())))
         }
         else print(context.text(root, tree, memberIds))
       }

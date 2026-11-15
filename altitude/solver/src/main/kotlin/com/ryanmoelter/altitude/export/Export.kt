@@ -36,18 +36,22 @@ private fun toJson(value: Any?): JsonElement =
   }
 
 /** Node fields a page needs to draw a first view; the rest goes to the detail file when split. */
-private val SUMMARY_NODE_FIELDS = setOf("id", "kind", "name", "container", "feature", "file", "line", "generated", "staged", "nonProduction", "size", "layer", "layerWhy", "infrastructure", "roles")
+private val SUMMARY_NODE_FIELDS = setOf("id", "kind", "name", "container", "feature", "file", "line", "generated", "staged", "nonProduction", "size", "layer", "layerWhy", "layerSizes", "layers", "infrastructure", "roles")
 
 class ExportResult(val files: Map<String, Long>)
 
 /** Above this size the export moves node detail and argument groups into a second file. */
 const val SPLIT_BYTES = 4_000_000
 
+/** Above this size the branches file keeps hop records only for clean segments. */
+const val BRANCHES_MAX_BYTES = 8_000_000
+
 /**
  * Writes `altitude.json` for one facts directory. When it would exceed [SPLIT_BYTES], or with
  * [split], node detail (placement, reach, fan-in, the misplaced flag) and the argument groups go to
- * `altitude-nodes.json`. Members and member edges always go to [MEMBERS_FILE], and branch trees to
- * [BRANCHES_FILE], which keeps hop records only for clean segments when it would exceed [SPLIT_BYTES].
+ * `altitude-nodes.json`. Members go to [MEMBERS_FILE], variables to [VARIABLES_FILE], and branch
+ * trees to [BRANCHES_FILE] with their sink terminals in [BRANCH_SINKS_FILE]. The branches file keeps
+ * hop records only for clean segments when it would exceed [BRANCHES_MAX_BYTES].
  */
 fun export(factsDir: Path, out: Path, target: String, golden: Path?, split: Boolean = false): ExportResult {
   val facts = FactStore.read(factsDir)
@@ -58,15 +62,23 @@ fun export(factsDir: Path, out: Path, target: String, golden: Path?, split: Bool
   val detailName = "altitude-nodes.json"
   val exporter = Exporter(target, facts, derived, rules, meta)
   val (all, members) = exporter.buildAll(queries)
-  val built = all.copy(meta = all.meta.copy(branchesFile = BRANCHES_FILE))
   out.createDirectories()
   val sizes = LinkedHashMap<String, Long>()
   sizes[MEMBERS_FILE] = write(out.resolve(MEMBERS_FILE), exportJson.encodeToJsonElement(members))
   val trees = exporter.branchTrees(queries)
-  val branches = exportJson.encodeToJsonElement(exporter.branchesExport(trees)).let { whole ->
-    if (whole.toString().length < SPLIT_BYTES) whole else exportJson.encodeToJsonElement(exporter.branchesExport(trees, withHops = false))
+  var branchFiles = exporter.branchFiles(trees)
+  val traceLocations = all.traces.flatMap { t -> t.legs.flatMap { leg -> leg.hops.flatMap { listOf(it.from, it.to) } } }
+  var vars = exporter.variables(traceLocations + branchFiles.hopLocations())
+  var branches = exportJson.encodeToJsonElement(branchFiles.export(target, vars))
+  if (branches.toString().length >= BRANCHES_MAX_BYTES) {
+    branchFiles = exporter.branchFiles(trees, withHops = false)
+    vars = exporter.variables(traceLocations + branchFiles.hopLocations())
+    branches = exportJson.encodeToJsonElement(branchFiles.export(target, vars))
   }
   sizes[BRANCHES_FILE] = write(out.resolve(BRANCHES_FILE), branches)
+  sizes[BRANCH_SINKS_FILE] = write(out.resolve(BRANCH_SINKS_FILE), exportJson.encodeToJsonElement(branchFiles.sinksExport(target, vars)))
+  sizes[VARIABLES_FILE] = write(out.resolve(VARIABLES_FILE), exportJson.encodeToJsonElement(exporter.variablesExport(vars)))
+  val built = exporter.withVariables(all, vars).let { it.copy(meta = it.meta.copy(branchesFile = BRANCHES_FILE, branchSinksFile = BRANCH_SINKS_FILE, variablesFile = VARIABLES_FILE)) }
   val whole = exportJson.encodeToJsonElement(built).jsonObject
   if (!split && whole.toString().length < SPLIT_BYTES) {
     sizes["altitude.json"] = write(out.resolve("altitude.json"), whole)
