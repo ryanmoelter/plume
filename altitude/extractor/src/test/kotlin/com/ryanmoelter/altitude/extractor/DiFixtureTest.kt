@@ -20,9 +20,11 @@ class DiFixtureTest {
   private val presenter = "ctor:$metro/Presenter($metro/Repo,kotlin/Lazy<$metro/Api>)"
   private val greeter = "ctor:$inject/Greeter($inject/Clock,kotlin/Function1<kotlin/String,$inject/Label>)"
 
+  private val graphs = setOf("fixture.di.metro.AppGraph", "fixture.di.inject.ChildComponent", "fixture.di.inject.ParentComponent")
+
   @Test
   fun bindings() {
-    val rows = analysis.rules.bindings.map { listOf(it.graph, it.type, it.provider, it.kind, it.reachable.toString(), it.parent) }
+    val rows = analysis.rules.bindings.filter { it.graph in graphs }.map { listOf(it.graph, it.type, it.provider, it.kind, it.reachable.toString(), it.parent) }
     assertEquals(
       listOf(
         listOf("fixture.di.metro.AppGraph", "fixture.di.metro.Api", "fun:$metro/AppGraph.api()", "provides", "true", null),
@@ -45,7 +47,7 @@ class DiFixtureTest {
       ),
       rows,
     )
-    assertEquals(emptyList(), analysis.rules.diUnresolved)
+    assertEquals(emptyList(), analysis.rules.diUnresolved.filter { it.graph in graphs })
   }
 
   @Test

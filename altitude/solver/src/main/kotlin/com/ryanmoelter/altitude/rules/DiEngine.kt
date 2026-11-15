@@ -67,6 +67,8 @@ internal class DiFramework(
   val typeKind: (String) -> String,
   /** A `wrapper` that names the requested type itself, such as an assisted factory. */
   val wrapperFor: (Unwrapped, Resolution?) -> String = { u, _ -> u.wrapper },
+  /** The `detail` of a `missingBinding` row: why the framework has no binding, when it knows. */
+  val explainMissing: (DiKey) -> String? = { null },
 )
 
 /**
@@ -116,6 +118,7 @@ internal fun resolveGraphs(framework: DiFramework, graphs: List<DiGraphSpec>): D
           type = key.type,
           qualifier = key.qualifier,
           reason = "missingBinding",
+          detail = framework.explainMissing(key),
           file = site.file,
           line = site.line,
         )
@@ -271,7 +274,7 @@ internal fun renderAnnotation(ann: com.ryanmoelter.altitude.facts.AnnotationFact
   return "$name(${ann.values.joinToString(", ") { renderValue(it) }})"
 }
 
-private fun renderValue(value: com.ryanmoelter.altitude.facts.AnnotationValueFact): String =
+internal fun renderValue(value: com.ryanmoelter.altitude.facts.AnnotationValueFact): String =
   when (value.kind) {
     "array" -> "[" + value.elements.joinToString(", ") { renderValue(it) } + "]"
     "annotation" ->
