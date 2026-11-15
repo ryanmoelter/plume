@@ -18,8 +18,16 @@ class TraceOptions(
 private const val INDENT = "      "
 private const val PATH_COUNT_CAP = 1_000_000L
 
-/** [projected]: the call at which the path stepped from a container into this slot, if it did. */
-private data class ValueState(val location: String, val calls: List<String>, val projected: String? = null)
+/**
+ * [projected]: the call at which the path stepped from a container into this slot, if it did.
+ * [filled]: the call at which the path wrote into this slot, if it did.
+ */
+private data class ValueState(
+  val location: String,
+  val calls: List<String>,
+  val projected: String? = null,
+  val filled: String? = null,
+)
 
 /** [rank] is the order in which the search first reached [state]. */
 private data class Queued(val cost: PathCost, val rank: Int, val state: ValueState) : Comparable<Queued> {
@@ -132,8 +140,8 @@ class Tracer(private val program: Program, private val options: TraceOptions = T
         break
       }
       for (edge in program.valueEdges[current.location].orEmpty()) {
-        val calls = program.callsAfter(current.calls, edge, current.projected) ?: continue
-        val target = ValueState(edge.to, calls, program.projects(edge))
+        val calls = program.callsAfter(current.calls, edge, current.projected, current.filled) ?: continue
+        val target = ValueState(edge.to, calls, program.projects(edge), program.fills(edge))
         if (target in settled) continue
         val next = cost + program.hopCost(edge, current.projected)
         val known = best[target]

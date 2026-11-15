@@ -25,6 +25,9 @@ private const val ELEMENT = "#<elem>"
 private const val HELD_BY = "heldBy"
 private const val CALL_DEPTH = 6
 private const val PROJECTED_IN = "|"
+private const val RETURN = "#<ret>"
+private const val ONE_OF = "one of "
+private val FRAME_PARTS = setOf("#<this>", "#<recv>", RETURN)
 private val CONTEXT_MARK = Regex("""~\d+""")
 
 /** The copy marks of an ID; empty for an original. */
@@ -176,6 +179,10 @@ class Program(val facts: Facts, val derived: Derived) {
   fun projects(edge: FlowFact): String? =
     if (edge.kind == "contentOf" && edge.to.endsWith(ELEMENT)) edge.at + PROJECTED_IN + contextKey(edge.from) else null
 
+  /** The call at which the edge writes into a container's contents, or null when it does not. */
+  fun fills(edge: FlowFact): String? =
+    if (edge.kind != "contentOf" && edge.kind != HELD_BY && edge.to.endsWith(ELEMENT)) edge.at else null
+
   /**
    * Whether the edge cannot follow a step into a container's contents at [projected]. Going back
    * up to the container would claim the value is in every container stored where that one was.
@@ -229,42 +236,91 @@ class Program(val facts: Facts, val derived: Derived) {
     return owner.kind == "class" || owner.kind == "interface"
   }
 
-  private val callByArgument: Map<String, String> =
-    expansion.facts.args.groupBy({ it.node }, { it.call }).filterValues { it.distinct().size == 1 }.mapValues { it.value.first() }
-
-  private val callByReceiver: Map<String, String> =
-    expansion.facts.calls
-      .flatMap { call -> (call.receiver + call.extReceiver).map { it to call.id } }
+  /** The calls a location is an argument or a receiver of. */
+  private val callsEntered: Map<String, List<String>> =
+    (expansion.facts.args.map { it.node to it.call } +
+        expansion.facts.calls.flatMap { call -> (call.receiver + call.extReceiver).map { it to call.id } })
       .groupBy({ it.first }, { it.second })
-      .filterValues { it.distinct().size == 1 }
-      .mapValues { it.value.first() }
+      .mapValues { it.value.distinct().sorted() }
 
-  private val callByResult: Map<String, String> =
-    expansion.facts.calls.filter { it.result != null }.groupBy({ it.result!! }, { it.id }).filterValues { it.size == 1 }.mapValues { it.value.first() }
+  private val callsByResult: Map<String, List<String>> =
+    expansion.facts.calls.filter { it.result != null }.groupBy({ it.result!! }, { it.id })
+
+  private val callers: Map<String, String> = expansion.facts.calls.associate { it.id to it.callerDecl }
+
+  private val frames = HashMap<String, String>()
+
+  /**
+   * The function, lambda or initializer whose run holds the location, with the marks of its copy.
+   * Null for a property or a container's contents, which outlive the run that wrote them.
+   */
+  private fun frame(location: String): String? =
+    frames.getOrPut(location) { frameOf(location).orEmpty() }.ifEmpty { null }
+
+  private fun frameOf(location: String): String? {
+    if (location.endsWith(ELEMENT)) return null
+    val id = original(location)
+    val marks = contextKey(location)
+    val pseudo = PSEUDO.find(id)?.value
+    if (pseudo != null) return if (pseudo in FRAME_PARTS) id.removeSuffix(pseudo) + marks else null
+    var current =
+      nodes[id]?.enclosingDecl
+        ?: when (decls[id]?.kind) {
+          null, "prop", "enumEntry" -> return null
+          else -> id
+        }
+    while (true) {
+      val owner = decls[current] ?: break
+      if (owner.kind != "param" && owner.kind != "local") break
+      current = owner.owner ?: break
+    }
+    return current + marks
+  }
+
+  /** Whether the call entered at [entry], a call or the location passed to one of several, may be [call]. */
+  private fun entered(entry: String, call: String): Boolean =
+    if (entry.startsWith(ONE_OF)) call in callsEntered[entry.removePrefix(ONE_OF)].orEmpty() else entry == call
 
   /**
    * The calls a path is inside of after [edge], innermost last, or null when the edge returns to
-   * a call other than the one the path came in through. A value read back from a property, a
-   * cell or any container made elsewhere may have been stored under any call, so that read
-   * forgets them.
+   * a call the path did not come in through. Empty means unknown, and any return may follow.
+   *
+   * The list is kept only while it is known to describe the run the value is in: along an edge
+   * inside one run, into a call, back out of the innermost one, into or out of a lambda a library
+   * call runs, or to an override. Every other edge to another run forgets it, because a captured
+   * variable, a property, a cell or a container's contents may be read by a run under any calls.
+   * [projected] and [filled] say how the path came to a container's contents: those are known to
+   * be in this run only when read at the call that stepped into them, or held by the container
+   * the same call made.
    */
-  fun callsAfter(calls: List<String>, edge: FlowFact, projected: String?): List<String>? {
+  fun callsAfter(calls: List<String>, edge: FlowFact, projected: String?, filled: String? = null): List<String>? {
     if (breaksProjection(edge, projected)) return null
-    if (edge.from.startsWith("prop:") || cellAt(edge.from.removeSuffix(ELEMENT)) != null) return emptyList()
-    if (readsAnyContainer(edge, projected)) return emptyList()
-    return when (edge.kind) {
-      "arg", "invokeArg" -> callByArgument[edge.from]?.let { (calls + it).takeLast(CALL_DEPTH) } ?: calls
-      "receiver" -> callByReceiver[edge.from]?.let { (calls + it).takeLast(CALL_DEPTH) } ?: calls
+    if (edge.from.endsWith(ELEMENT)) {
+      if (cellAt(edge.from.removeSuffix(ELEMENT)) != null) return emptyList()
+      val sameCall = if (edge.kind == HELD_BY) filled == edge.at else projected?.substringBefore(PROJECTED_IN) == edge.at
+      return if (sameCall) calls else emptyList()
+    }
+    val origin = frame(edge.from) ?: return emptyList()
+    val target = frame(edge.to)
+    when (edge.kind) {
+      "arg", "receiver", "invokeArg" -> {
+        // A bound reference's receiver enters no call here; the function runs when it is invoked.
+        val entries = callsEntered[edge.from]
+        if (target == null || entries == null) return emptyList()
+        // An implicit `this` passed from inside a lambda leaves the run that `this` belongs to.
+        val known = if (entries.all { callers[it]?.let(::frame) == origin }) calls else emptyList()
+        return (known + (entries.singleOrNull() ?: (ONE_OF + edge.from))).takeLast(CALL_DEPTH)
+      }
       "return", "invokeReturn" -> {
-        val call = callByResult[edge.to]?.takeIf { edge.from.endsWith("#<ret>") } ?: return calls
-        when {
-          calls.isEmpty() -> calls
-          calls.last() == call -> calls.dropLast(1)
-          else -> null
+        val returned = callsByResult[edge.to].takeIf { edge.from.endsWith(RETURN) }
+        if (returned != null) {
+          val innermost = calls.lastOrNull() ?: return calls
+          return if (returned.any { entered(innermost, it) }) calls.dropLast(1) else null
         }
       }
-      else -> calls
+      "override", "summary" -> if (target != null) return calls
     }
+    return if (target == origin || edge.to.endsWith(ELEMENT)) calls else emptyList()
   }
 
   fun hopNotes(edge: FlowFact, projected: String?): List<String> = buildList {

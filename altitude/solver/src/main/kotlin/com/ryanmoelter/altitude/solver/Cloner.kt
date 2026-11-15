@@ -37,7 +37,8 @@ private class CopyUnit(val entries: Set<String>, val members: Set<String>, val s
  *   constructed nowhere but inside such a function is copied with it, fields included.
  * - A class that takes a function value in its constructor and has no subclass is copied for each
  *   construction, members and fields included. A call from outside to a member of such a class
- *   still reaches the original, as does a call inside a copy to the copied function itself.
+ *   still reaches the original, which sees every copy's fields, as does a call inside a copy to
+ *   the copied function itself.
  * Classes are copied first, so a wrapper called inside a class copy gets a copy of its own.
  * A copied call site names its copy as its target, which is how a later round knows to skip it.
  */
@@ -117,6 +118,8 @@ private fun copy(
   val flowsByFile = facts.flows.groupBy { it.at.substringBefore(':') }
   val boundaryFrom = facts.flows.groupBy { it.from }
   val boundaryTo = facts.flows.groupBy { it.to }
+  val nodeDecls = facts.nodes.associate { it.id to it.enclosingDecl }
+  val constructorsByClass = decls.values.filter { it.kind == "ctor" }.groupBy({ it.owner }, { it.sym })
 
   val newDecls = ArrayList<DeclFact>()
   val newNodes = ArrayList(facts.nodes)
@@ -186,18 +189,19 @@ private fun copy(
         val copy = flow.copy(from = rename(flow.from), to = rename(flow.to))
         if (copy != flow) newFlows += copy
       }
-      // Code outside the copy still names the original property, so what it reads is every copy's
-      // value, and what it writes reaches every copy. Only that code gets the merge: the original
-      // class body would otherwise run on every copy's values at once.
-      fun outside(id: String) = withoutContext(id).substringBefore('#') !in renamed
+      // Code outside the copy names the original: it reads the original property, and a member it
+      // calls runs the original body, whichever copy the receiver is. So the original property
+      // holds every copy's value. The original's value reaches a copy only when something other
+      // than construction writes the property, since construction is what the copies keep apart.
       for (member in members) {
         val decl = decls[member] ?: continue
         if (decl.kind != "prop" || decls[decl.owner]?.kind !in CLASS_KINDS) continue
         val at = "${decl.file}:${decl.span}"
-        if (boundaryFrom[member].orEmpty().any { flow -> flow !in innerFlows && outside(flow.to) }) {
-          newFlows += FlowFact(rename(member), member, MERGE, at)
-        }
-        if (boundaryTo[member].orEmpty().any { flow -> flow !in innerFlows && outside(flow.from) }) {
+        newFlows += FlowFact(rename(member), member, MERGE, at)
+        val constructing = constructorsByClass[decl.owner].orEmpty() + decl.owner
+        fun constructs(flow: FlowFact) =
+          flow in innerFlows && (nodeDecls[flow.from] ?: flow.from.substringBefore('#')) in constructing
+        if (boundaryTo[member].orEmpty().any { it.kind != MERGE && !constructs(it) }) {
           newFlows += FlowFact(member, rename(member), MERGE, at)
         }
       }
