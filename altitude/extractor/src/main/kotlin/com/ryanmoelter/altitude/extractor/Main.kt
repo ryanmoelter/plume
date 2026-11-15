@@ -4,7 +4,8 @@ import com.ryanmoelter.altitude.facts.FactStore
 import com.ryanmoelter.altitude.facts.MetaFact
 import com.ryanmoelter.altitude.manifest.Manifest
 import com.ryanmoelter.altitude.model.Models
-import com.ryanmoelter.altitude.solver.solve
+import com.ryanmoelter.altitude.rules.analyze
+import com.ryanmoelter.altitude.rules.check
 import com.ryanmoelter.altitude.trace.Program
 import com.ryanmoelter.altitude.trace.TraceOptions
 import com.ryanmoelter.altitude.trace.Tracer
@@ -21,6 +22,7 @@ private val USAGE =
     trace   --facts <dir> --from <selector> --forward [--max-depth N] [--limit N]
     trace   --facts <dir> --value --from <value> --to <value> [--via <value>,<value>]
     show    --facts <dir> --file <relpath>
+    check   --facts <dir> --expected <golden expected dir>
   A selector is a symbol ID, or an `Owner.member` suffix that names one declaration.
   A value is `File.kt:LINE:call(name)`, `cell(Owner.name)`, a location ID, or a property, parameter or local.
   facts and solve take --models <dir> to replace the built-in library models.
@@ -64,13 +66,17 @@ fun main(args: Array<String>) {
           )
         FactStore.write(out, facts, meta)
         // Solving what was read back keeps `facts` and a later `solve` byte-identical.
-        FactStore.writeDerived(out, solve(FactStore.read(out), models()))
+        val analysis = analyze(FactStore.read(out), models())
+        FactStore.writeDerived(out, analysis.derived)
+        analysis.rules.write(out)
         println("facts: ${facts.decls.size} decls, ${facts.calls.size} calls, ${facts.flows.size} flows")
       }
       "solve" -> {
         val dir = Path.of(required("--facts"))
-        val derived = solve(FactStore.read(dir), models())
+        val analysis = analyze(FactStore.read(dir), models())
+        val derived = analysis.derived
         FactStore.writeDerived(dir, derived)
+        analysis.rules.write(dir)
         println("solved: ${derived.callEdges.size} call edges, ${derived.fnValues.size} fn values")
       }
       "trace" -> {
@@ -92,6 +98,11 @@ fun main(args: Array<String>) {
             else -> tracer.trace(required("--from"), required("--to"))
           }
         )
+      }
+      "check" -> {
+        val result = check(Path.of(required("--facts")), Path.of(required("--expected")))
+        print(result.text)
+        if (result.differences > 0) exitProcess(1)
       }
       "show" -> {
         val dir = Path.of(required("--facts"))
