@@ -169,6 +169,7 @@ class MetroFixtureTest {
       listOf(
         "class:$root/diagnostics/AbstractService" to "notInjectable",
         "class:$root/diagnostics/TwoConstructors" to "notInjectable",
+        "class:$root/diagnostics/TwoFaces" to "ambiguousBoundType",
         "class:$root/diagnostics/Unkeyed" to "missingMapKey",
         "ctor:$root/diagnostics/Misscoped()" to "scopeMismatch",
         "di/metro/diagnostics/Diagnostics.kt:42:28-42:64:call" to "unsupportedFeature",
@@ -179,6 +180,33 @@ class MetroFixtureTest {
       rows.map(DiUnresolvedFact::site).zip(rows.map(DiUnresolvedFact::reason)),
     )
     assertEquals(true, rows.all { it.detail != null || it.reason == "missingBinding" })
+  }
+
+  @Test
+  fun interopOptionMakesForeignInjectCount() {
+    assertEquals(listOf(listOf("InteropGraph", "interop/InteropGraph.foreign", "missingBinding")), analysis.unresolved("interop"))
+    val interop = withOptions("interop-include-kotlin-inject-annotations" to "true")
+    assertEquals(listOf("ctor:$root/interop/Foreign()"), interop.sites("interop")["prop:$root/interop/InteropGraph.foreign"]?.providers)
+    assertEquals(emptyList(), interop.unresolved("interop"))
+  }
+
+  @Test
+  fun aDefaultValueWithoutOptionalBindingIsRequiredUnderStricterModes() {
+    for (mode in listOf("REQUIRE_OPTIONAL_BINDING", "DISABLED")) {
+      val missing = withOptions("optional-binding-behavior" to mode).rules.diUnresolved.filter { it.site.endsWith("#optional") }
+      assertEquals(listOf("FeatureGraph" to "missingBinding", "LeafGraph" to "missingBinding"), missing.map { it.graph?.substringAfterLast('.') to it.reason }, mode)
+    }
+  }
+
+  @Test
+  fun suspendWrappersCountOnlyWithTheirOption() {
+    val engine = "fixture.di.metro.suspending.Engine"
+    val linked = listOf("ctor:$root/suspending/Engine()")
+    val on = withOptions("enable-suspend-providers" to "true").sites("suspending")
+    assertEquals(listOf(engine, "provider", linked), row(on["provided"]))
+    assertEquals(listOf(engine, "lazy", linked), row(on["lazy"]))
+    assertEquals(listOf(engine, "function", linked), row(on["function"]))
+    assertEquals(listOf("missingBinding", "missingBinding", "missingBinding"), analysis.unresolved("suspending").map { it[2] })
   }
 
   @Test

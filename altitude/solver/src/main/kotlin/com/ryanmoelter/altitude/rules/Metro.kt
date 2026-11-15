@@ -168,8 +168,9 @@ internal class Metro(private val index: FactIndex) {
     if (inner != null) {
       if (head in providerTypes) return Unwrapped(inner, "provider")
       if (head in lazyTypes) return Unwrapped(inner, "lazy")
-      if (option("enable-suspend-providers") && head in setOf("dev.zacsweers.metro.SuspendProvider", "dev.zacsweers.metro.SuspendLazy")) {
-        return Unwrapped(inner, "provider")
+      if (option("enable-suspend-providers")) {
+        if (head == "dev.zacsweers.metro.SuspendProvider") return Unwrapped(inner, "provider")
+        if (head == "dev.zacsweers.metro.SuspendLazy") return Unwrapped(inner, "lazy")
       }
     }
     val function = functionType(type)
@@ -772,7 +773,19 @@ internal class Metro(private val index: FactIndex) {
         "ContributesIntoMap" -> "map"
         else -> null
       }
-    val boundType = bound ?: FactIndex.dotted(cls.sym)
+    if (bound == null) {
+      diagnose(
+        graph,
+        cls.sym,
+        "ambiguousBoundType",
+        "${contribution.kind} on a class with ${directSupers.size} supertypes and no binding<T>() or DefaultBinding",
+        FactIndex.dotted(cls.sym),
+        cls.file,
+        index.line(cls),
+      )
+      return null
+    }
+    val boundType: String = bound
     val mapKey =
       if (multibinding != "map") null
       else bindingArg?.annotations?.firstNotNullOfOrNull { a ->
@@ -802,7 +815,6 @@ internal class Metro(private val index: FactIndex) {
         mapKey = mapKey?.second,
         output = ctor?.let { "${it.sym}#<this>" } ?: cls.sym,
         evidence = "M11",
-        confidence = if (bound == null) "unsure" else null,
         file = cls.file,
         line = index.line(cls),
       )

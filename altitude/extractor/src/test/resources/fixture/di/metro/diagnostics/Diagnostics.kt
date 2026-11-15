@@ -49,3 +49,9 @@ interface DupGraph {
 
   @Provides @IntoMap @StringKey("a") fun second(): Int = 2
 }
+
+interface Front
+
+interface Back
+
+@ContributesBinding(DiagScope::class) class TwoFaces : Front, Back
