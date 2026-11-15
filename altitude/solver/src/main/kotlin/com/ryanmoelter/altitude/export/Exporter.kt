@@ -136,7 +136,8 @@ class Exporter(
         else -> edge(units.ofDecl(e.caller), units.ofDecl(e.callee), "call", e.call, e.via)
       }
     }
-    for (f in derived.flows) if (f.kind == "di") edge(units.of(f.from), units.of(f.to), "di", f.at, "injection")
+    // Every di edge points from the injection site to the provider, the way a call does.
+    for (f in derived.flows) if (f.kind == "di") edge(units.of(f.to), units.of(f.from), "di", f.at, "injection")
     for (f in valueFlows(facts, derived)) edge(units.of(f.from), units.of(f.to), "value", f.at, f.kind)
     for ((i, cell) in cells.withIndex()) {
       for (w in derived.cellWrites.filter { it.cell == cell.id && it.op != "initial" }) {
@@ -284,7 +285,8 @@ class Exporter(
    */
   private val dependents: Map<String, Set<String>> =
     (directCalls.map { it.second to it.first } +
-      edgeAggs.keys.filter { it.third in setOf("cellRead", "di") }.map { it.first to it.second })
+      edgeAggs.keys.filter { it.third == "cellRead" }.map { it.first to it.second } +
+      edgeAggs.keys.filter { it.third == "di" }.map { it.second to it.first })
       .groupBy({ it.first }, { it.second }).mapValues { it.value.toSortedSet() }
 
   private val featuresWithEntries: Set<String> = entryFeatures.filterNotNull().toSet()
@@ -343,7 +345,7 @@ class Exporter(
     }
     val property = p.cells.owned.filter { cells[it].scope == "property" }
     val local = p.cells.owned.filter { cells[it].scope == "local" }
-    val foreignWrites = p.cells.writes.filter { cells[it].owner != node }
+    val foreignWrites = p.cells.writes.filter { cells[it].owner != node && cells[it].owner?.let(::staged) != true }
     val uiReads = p.ui.uiReads
     if (p.entryKinds.isNotEmpty()) role("entryPoint", "kinds" to p.entryKinds)
     if (p.entryKinds.isNotEmpty() && p.ui.composableFuns > 0) role("screenHost", "composableFuns" to p.ui.composableFuns, "propertyCells" to property.size)
