@@ -4,6 +4,7 @@ import com.ryanmoelter.altitude.facts.Derived
 import com.ryanmoelter.altitude.facts.Facts
 import com.ryanmoelter.altitude.facts.MetaFact
 import com.ryanmoelter.altitude.rules.Rules
+import com.ryanmoelter.altitude.solver.withoutContext
 import com.ryanmoelter.altitude.trace.Program
 import com.ryanmoelter.altitude.trace.Site
 import java.util.TreeMap
@@ -11,6 +12,7 @@ import java.util.TreeSet
 
 val LAYERS = listOf("external", "data", "presentation", "ui")
 const val EVIDENCE_SITES = 3
+const val MEMBER_EVIDENCE_SITES = 2
 const val INFRA_FEATURES = 3
 const val LOOP_HOPS = 40
 
@@ -85,8 +87,12 @@ class Exporter(
 
   // ---- cells ---------------------------------------------------------------------------------
 
+  private val writesByCell = derived.cellWrites.groupBy { it.cell }
+  private val readsByCell = derived.cellReads.groupBy { it.cell }
   private val cellFacts = derived.cells.sortedBy { it.id }
   private val cellIndex: Map<String, Int> = cellFacts.withIndex().associate { it.value.id to it.index }
+  val members = Members(units, composable, cellFacts)
+  private val cellMembers: List<String?> = cellFacts.map { members.ofLocation(it.sym ?: it.id) }
 
   val cells: List<CellOut> =
     cellFacts.map { cell ->
@@ -111,46 +117,55 @@ class Exporter(
       )
     }
 
-  private val writesByCell get() = derived.cellWrites.groupBy { it.cell }
-  private val readsByCell get() = derived.cellReads.groupBy { it.cell }
 
   // ---- edges ---------------------------------------------------------------------------------
 
   private val edgeAggs = TreeMap<Triple<String, String, String>, EdgeAgg>(compareBy({ it.first }, { it.second }, { it.third }))
+  private val memberAggs = TreeMap<Triple<String, String, String>, EdgeAgg>(compareBy({ it.first }, { it.second }, { it.third }))
 
-  private fun edge(from: String?, to: String?, kind: String, evidence: String, detail: String? = null) {
-    if (from == null || to == null || from == to) return
-    if (from !in units.nodes || to !in units.nodes) return
-    val agg = edgeAggs.getOrPut(Triple(from, to, kind)) { EdgeAgg() }
-    if (agg.evidence.add(evidence)) {
-      siteOf(evidence, units)?.let { agg.sites += it }
-      detail?.let { agg.detail.merge(it, 1, Int::plus) }
+  private fun EdgeAgg.add(evidence: String, detail: String?) {
+    if (this.evidence.add(evidence)) {
+      siteOf(evidence, units)?.let { sites += it }
+      detail?.let { this.detail.merge(it, 1, Int::plus) }
     }
   }
+
+  /** Records one fact between two nodes, and between the members it runs from and to. */
+  private fun edge(from: String?, to: String?, kind: String, evidence: String, detail: String?, fromMember: String?, toMember: String?) {
+    if (from == null || to == null) return
+    if (from !in units.nodes || to !in units.nodes) return
+    if (fromMember != null && toMember != null && fromMember != toMember) memberAggs.getOrPut(Triple(fromMember, toMember, kind)) { EdgeAgg() }.add(evidence, detail)
+    if (from != to) edgeAggs.getOrPut(Triple(from, to, kind)) { EdgeAgg() }.add(evidence, detail)
+  }
+
+  private fun declEdge(from: String?, to: String?, kind: String, evidence: String, detail: String?) =
+    edge(from?.let(units::ofDecl), to?.let(units::ofDecl), kind, evidence, detail, from?.let(members::ofDecl), to?.let(members::ofDecl))
+
+  private fun locationEdge(from: String, to: String, kind: String, evidence: String, detail: String?) =
+    edge(units.of(from), units.of(to), kind, evidence, detail, members.ofLocation(from), members.ofLocation(to))
 
   init {
     for (e in derived.callEdges) {
       when (e.via) {
-        "di" -> edge(units.ofDecl(e.caller), units.ofDecl(e.callee), "di", e.call, "accessor")
+        "di" -> declEdge(e.caller, e.callee, "di", e.call, "accessor")
         "cell" -> {}
-        else -> edge(units.ofDecl(e.caller), units.ofDecl(e.callee), "call", e.call, e.via)
+        else -> declEdge(e.caller, e.callee, "call", e.call, e.via)
       }
     }
     // Every di edge points from the injection site to the provider, the way a call does.
-    for (f in derived.flows) if (f.kind == "di") edge(units.of(f.to), units.of(f.from), "di", f.at, "injection")
-    for (f in valueFlows(facts, derived)) edge(units.of(f.from), units.of(f.to), "value", f.at, f.kind)
+    for (f in derived.flows) if (f.kind == "di") locationEdge(f.to, f.from, "di", f.at, "injection")
+    for (f in valueFlows(facts, derived)) locationEdge(f.from, f.to, "value", f.at, f.kind)
     for ((i, cell) in cells.withIndex()) {
-      for (w in derived.cellWrites.filter { it.cell == cell.id && it.op != "initial" }) {
-        edge(accessDecl(w.node)?.let(units::ofDecl), cell.owner, "cellWrite", w.node, w.op)
+      for (w in writesByCell[cell.id].orEmpty().filter { it.op != "initial" }) {
+        val decl = accessDecl(w.node)
+        edge(decl?.let(units::ofDecl), cell.owner, "cellWrite", w.node, w.op, decl?.let(members::ofDecl), cellMembers[i])
       }
-      for (r in derived.cellReads.filter { it.cell == cell.id }) {
-        edge(cell.owner, accessDecl(r.node)?.let(units::ofDecl), "cellRead", r.node, r.op)
+      for (r in readsByCell[cell.id].orEmpty()) {
+        val decl = accessDecl(r.node)
+        edge(cell.owner, decl?.let(units::ofDecl), "cellRead", r.node, r.op, cellMembers[i], decl?.let(members::ofDecl))
       }
-      check(i >= 0)
     }
-    for (n in rules.navigations) {
-      edge(units.ofDecl(n.from), n.to?.let(units::ofDecl), "navigation", n.call, n.op)
-    }
+    for (n in rules.navigations) declEdge(n.from, n.to, "navigation", n.call, n.op)
   }
 
   // ---- placement -----------------------------------------------------------------------------
@@ -571,7 +586,10 @@ class Exporter(
 
   // ---- assembly ------------------------------------------------------------------------------
 
-  fun build(golden: List<GoldenQuery> = emptyList()): AltitudeExport {
+  fun build(golden: List<GoldenQuery> = emptyList()): AltitudeExport = buildAll(golden).first
+
+  /** The export and its members file. */
+  fun buildAll(golden: List<GoldenQuery> = emptyList()): Pair<AltitudeExport, MembersExport> {
     val roles = nodeIds.associateWith(::roles)
     val edges =
       edgeAggs.map { (k, a) ->
@@ -587,6 +605,9 @@ class Exporter(
         )
       }
     val edgeIndex = edgeAggs.keys.withIndex().associate { it.value to it.index }
+    val memberEdgeIndex = memberAggs.keys.withIndex().associate { it.value to it.index }
+    val traces = TraceRunner(program, units, members, cellIndex).let { runner -> golden.map { runner.run(it, edgeIndex, memberEdgeIndex) } }
+    val membersOut = membersExport(edgeIndex)
     val nodes =
       nodeIds.map { id ->
         val info = units.nodes.getValue(id)
@@ -603,6 +624,7 @@ class Exporter(
           line = info.line,
           generated = info.generated,
           staged = staged(id),
+          nonProduction = nodeNonProduction(id),
           modifiers = info.modifiers,
           size = Size(info.loc, units.declCounts[id] ?: 0),
           layer = layer,
@@ -622,7 +644,7 @@ class Exporter(
       graph.entries.mapIndexed { i, e ->
         EntryOut(e.kind, e.sym, e.attrs, entryNodes[i], entryFeatures[i], e.file, e.line)
       }
-    return AltitudeExport(
+    val export = AltitudeExport(
       meta =
         ExportMeta(
           target = target,
@@ -631,6 +653,7 @@ class Exporter(
           factsSchemaVersion = meta.schemaVersion,
           params = sortedMapOf("megamorphic" to MEGAMORPHIC, "evidenceSites" to EVIDENCE_SITES, "infraFeatures" to INFRA_FEATURES, "loopHops" to LOOP_HOPS),
           layers = LAYERS,
+          membersFile = MEMBERS_FILE,
           counts =
             sortedMapOf(
               "nodes" to nodes.size,
@@ -642,6 +665,8 @@ class Exporter(
               "boundaries" to rules.boundaries.size,
               "bindings" to rules.bindings.size,
               "loc" to nodes.sumOf { it.size.loc },
+              "members" to membersOut.members.size,
+              "memberEdges" to membersOut.edges.size,
             ),
         ),
       files = files,
@@ -678,9 +703,96 @@ class Exporter(
           containment.features.map { patternVector(it.id, byFeature[it.id].orEmpty(), roles, loops) },
           loops,
         ),
-      traces = TraceRunner(program, units).let { runner -> golden.map { runner.run(it, edgeIndex) } },
+      traces = traces,
     )
+    return export to membersOut
   }
+
+  private val nodeIndex: Map<String, Int> = nodeIds.withIndex().associate { it.value to it.index }
+
+  private fun membersExport(edgeIndex: Map<Triple<String, String, String>, Int>): MembersExport {
+    val drafts = members.finish(nodeIndex)
+    val memberIndex = drafts.withIndex().associate { it.value.id to it.index }
+    val nested =
+      units.decls.values
+        .filter { members.isStructural(it) && units.ofDecl(it.sym).let { n -> n != null && n != it.sym && n in nodeIndex } }
+        .sortedWith(compareBy({ nodeIndex.getValue(units.ofDecl(it.sym)!!) }, { Units.span(it.span)?.first ?: 0 }, { it.sym }))
+    val classIndex = nested.withIndex().associate { it.value.sym to it.index }
+    val classes =
+      nested.map { c ->
+        val span = Units.span(c.span)
+        NestedClassOut(c.sym, nodeIndex.getValue(units.ofDecl(c.sym)!!), c.name, c.file?.let(fileIndex::get), span?.toList().orEmpty(), c.owner?.let(classIndex::get))
+      }
+    val out =
+      drafts.map { m ->
+        MemberOut(
+          id = m.id,
+          n = nodeIndex.getValue(m.node),
+          k = m.kind,
+          name = m.name,
+          sig = m.signature,
+          f = m.file?.let(fileIndex::get),
+          l = m.span?.let { listOf(it[0], it[2]) }.orEmpty(),
+          s = m.size,
+          v = m.visibility,
+          fl = m.flags,
+          cell = m.cells.toList(),
+          p = m.parent?.let(memberIndex::get),
+          c = m.nestedClass?.let(classIndex::get),
+          lam = m.lambdas,
+          np = nonProduction(m.id),
+        )
+      }
+    val edges =
+      memberAggs.mapNotNull { (k, a) ->
+        val from = memberIndex[k.first] ?: return@mapNotNull null
+        val to = memberIndex[k.second] ?: return@mapNotNull null
+        val fromNode = drafts[from].node
+        val toNode = drafts[to].node
+        val nodeEdge = if (fromNode == toNode) null else edgeIndex[Triple(fromNode, toNode, k.third)]
+        MemberEdgeOut(from, to, k.third, a.evidence.size, a.sites.take(MEMBER_EVIDENCE_SITES).map(::site), a.detail, nodeEdge)
+      }
+    val counts = TreeMap<String, Int>()
+    for (m in out) counts.merge("members.${m.k}", 1, Int::plus)
+    for (e in edges) {
+      counts.merge("edges.${e.k}", 1, Int::plus)
+      if (e.e == null) counts.merge("edges.${e.k}.inNode", 1, Int::plus)
+    }
+    counts["classes"] = classes.size
+    counts["members"] = out.size
+    counts["edges"] = edges.size
+    return MembersExport(target = target, classes = classes, members = out, edges = edges, counts = counts)
+  }
+
+  private val previewAnnotated: Set<String> =
+    facts.annotations.filter { "Preview" in it.annFq.substringAfterLast('/') }.mapTo(HashSet()) { it.sym }
+  private val testFiles: Set<String> =
+    facts.files.filter { it.sourceSet?.contains("test", ignoreCase = true) == true }.mapTo(HashSet()) { it.path }
+
+  /**
+   * Which clause of the tracer's production check puts a location outside production: `test`,
+   * `preview` or `fake`. [Program.isStaged] decides whether one does; this only names it.
+   */
+  fun nonProduction(location: String): String? {
+    if (!program.isStaged(location)) return null
+    val id = withoutContext(location.removeSuffix(ELEMENT))
+    val start = units.nodesById[id]?.enclosingDecl ?: id.takeIf { it in units.decls } ?: id.substringBeforeLast("#<")
+    return generateSequence(units.decls[start]) { d -> d.owner?.let { units.decls[it] } }.firstNotNullOfOrNull { d ->
+      when {
+        d.file in testFiles -> "test"
+        d.sym in previewAnnotated -> "preview"
+        (d.kind in CLASS_KINDS || d.kind == "enumEntry") && FAKE_NAME.containsMatchIn(d.name) -> "fake"
+        else -> null
+      }
+    } ?: "staged"
+  }
+
+  private fun nodeNonProduction(node: String): String? =
+    when {
+      !staged(node) -> null
+      node.startsWith("top:") -> "test"
+      else -> nonProduction(node)
+    }
 
   private fun containerSizes(): Map<String, Size> {
     val out = HashMap<String, IntArray>()
@@ -700,5 +812,8 @@ class Exporter(
 
   private fun staged(node: String): Boolean = node.startsWith("class:") && program.isStaged(node) || node.startsWith("top:") && facts.files.firstOrNull { it.path == node.removePrefix("top:") }?.sourceSet?.contains("test", true) == true
 }
+
+const val MEMBERS_FILE = "altitude-members.json"
+private val FAKE_NAME = Regex("Fake(?![a-z])")
 
 internal fun round3(x: Double): Double = Math.round(x * 1000) / 1000.0

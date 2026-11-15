@@ -53,28 +53,37 @@ fun readGolden(dir: Path): List<GoldenQuery> {
  * same as [com.ryanmoelter.altitude.trace.Tracer]'s, and [TraceOut.matchesGolden] checks them
  * against the golden text, so the export carries the path the golden trace prints.
  */
-class TraceRunner(private val program: Program, private val units: Units, private val options: TraceOptions = TraceOptions()) {
-  fun run(query: GoldenQuery, edgeIndex: Map<Triple<String, String, String>, Int>): TraceOut {
+class TraceRunner(
+  private val program: Program,
+  private val units: Units,
+  private val members: Members,
+  private val cellIndex: Map<String, Int>,
+  private val options: TraceOptions = TraceOptions(),
+) {
+  fun run(query: GoldenQuery, edgeIndex: Map<Triple<String, String, String>, Int>, memberEdgeIndex: Map<Triple<String, String, String>, Int> = emptyMap()): TraceOut {
     val words = query.query.trim().split(Regex("\\s+"))
     val value = "--value" in words
     val opts = words.filter { it != "--value" && it != "--forward" }.chunked(2).associate { it[0] to it.getOrNull(1) }
     val from = opts["--from"]
     val to = opts["--to"]
     if (from == null || to == null) return TraceOut(query.name, query.query, query.comment, "unsupported", emptyList(), note = "only --from/--to queries are exported")
-    return if (value) valueTrace(query, from, to, opts["--via"]?.split(',').orEmpty(), edgeIndex)
-    else callTrace(query, from, to, opts["--max-depth"]?.toInt() ?: options.maxDepth, edgeIndex)
+    val refs = Refs(edgeIndex, memberEdgeIndex)
+    return if (value) valueTrace(query, from, to, opts["--via"]?.split(',').orEmpty(), refs)
+    else callTrace(query, from, to, opts["--max-depth"]?.toInt() ?: options.maxDepth, refs)
   }
+
+  private class Refs(val edges: Map<Triple<String, String, String>, Int>, val memberEdges: Map<Triple<String, String, String>, Int>)
 
   private fun node(location: String) = units.of(location)
 
-  private fun edgeRef(edgeIndex: Map<Triple<String, String, String>, Int>, from: String?, to: String?, vararg kinds: String): Int? {
+  private fun edgeRef(index: Map<Triple<String, String, String>, Int>, from: String?, to: String?, vararg kinds: String): Int? {
     if (from == null || to == null || from == to) return null
-    return kinds.firstNotNullOfOrNull { edgeIndex[Triple(from, to, it)] }
+    return kinds.firstNotNullOfOrNull { index[Triple(from, to, it)] }
   }
 
   // ---- call paths ----------------------------------------------------------------------------
 
-  private fun callTrace(query: GoldenQuery, from: String, to: String, maxDepth: Int, edgeIndex: Map<Triple<String, String, String>, Int>): TraceOut {
+  private fun callTrace(query: GoldenQuery, from: String, to: String, maxDepth: Int, refs: Refs): TraceOut {
     val start = program.select(from)
     val goal = program.select(to, includeLibrary = true)
     if (!start.isUnique || !goal.isUnique) return TraceOut(query.name, query.query, query.comment, "call", emptyList(), note = "selector is not unique")
@@ -94,19 +103,58 @@ class TraceRunner(private val program: Program, private val units: Units, privat
     for (hop in hops) {
       val a = node(hop.caller)
       val b = node(hop.callee)
+      val ma = members.ofLocation(hop.caller)
+      val mb = members.ofLocation(hop.callee)
       val kind = if (hop.edge.via == "di") "di" else "call"
-      out += TraceHopOut(hop.caller, hop.callee, hop.edge.via, hop.site?.toString(), hop.edge.ruleId, a, b, edgeRef(edgeIndex, a, b, kind, "cellWrite"))
+      val edge = hop.edge
+      val call = program.calls[edge.call]
+      out +=
+        TraceHopOut(
+          from = hop.caller,
+          to = hop.callee,
+          kind = edge.via,
+          site = hop.site?.toString(),
+          rule = edge.ruleId,
+          fromNode = a,
+          toNode = b,
+          edge = edgeRef(refs.edges, a, b, kind, "cellWrite"),
+          fromMember = ma,
+          toMember = mb,
+          memberEdge = edgeRef(refs.memberEdges, ma, mb, kind),
+          candidates = if (edge.via == "cha") program.chaCandidates[edge.call] ?: 0 else null,
+          fanOut = if (edge.via == "fnValue" && call?.dispatch == "invokeFnValue") program.fanOut[edge.call] ?: 0 else null,
+          witness = if (edge.via == "fnValue") program.witnesses[edge.call to edge.callee].orEmpty().size else null,
+          otherSites = hop.otherSites,
+          role = edge.role,
+          invoker = edge.invoker,
+          async = edge.via == "cell" || edge.role?.let { r -> ASYNC_ROLES.any { it in r } } == true,
+          cell = edge.cell?.let(cellIndex::get),
+          cellOp = edge.op,
+          through = edge.through,
+          nonProduction = program.isStaged(hop.callee),
+        )
       rendered += "${hop.site ?: "?"}  ${program.display(hop.caller)}  --" to "-->  ${program.display(hop.callee)}"
     }
     if (libraryGoal != null) {
       val last = hops.lastOrNull()?.callee ?: source
-      val call = ends.getValue(last).first()
-      out += TraceHopOut(last, call.target, "library", Site.of(call.id)?.toString(), fromNode = node(last))
+      val calls = ends.getValue(last)
+      val call = calls.first()
+      out += TraceHopOut(last, call.target, "library", Site.of(call.id)?.toString(), fromNode = node(last), fromMember = members.ofLocation(last), otherSites = calls.size - 1)
       rendered += "${Site.of(call.id)}  ${program.display(call.callerDecl)}  --call [library]" to "-->  ${program.display(call.target)}"
     }
     val goldenLines = query.golden?.let { lines -> hopLines(lines) }
     val matches = goldenLines?.let { g -> g.size == rendered.size && g.zip(rendered).all { (line, r) -> line.startsWith(r.first) && r.second in line } }
-    val leg = TraceLegOut(source, libraryGoal ?: goal.decls.single(), out, nodePath(out))
+    val count = countPaths(source, distance, ends.keys, shortest, maxDepth)
+    val length = out.size
+    val leg =
+      TraceLegOut(
+        source, libraryGoal ?: goal.decls.single(), out, nodePath(out),
+        cost = CostOut(length = length),
+        costText = "$length hops",
+        paths = count.total,
+        equalCostPaths = count.shortest.toLong(),
+        countsIncomplete = !count.complete,
+      )
     return TraceOut(query.name, query.query, query.comment, "call", listOf(leg), matches)
   }
 
@@ -123,6 +171,39 @@ class TraceRunner(private val program: Program, private val units: Units, privat
       onPath -= next
     }
     return false
+  }
+
+  private class PathCount(val total: Int, val shortest: Int, val complete: Boolean)
+
+  /** The tracer's path enumeration, counted rather than kept: simple paths by length, up to its limits. */
+  private fun countPaths(source: String, distance: Map<String, Int>, goals: Set<String>, shortest: Int, maxDepth: Int): PathCount {
+    var found = 0
+    var atShortest = 0
+    var steps = 0
+    var complete = true
+    fun walk(current: String, remaining: Int, onPath: MutableSet<String>, length: Int): Boolean {
+      if (remaining == 0) {
+        if (current in goals) {
+          if (found >= options.pathLimit) return false.also { complete = false }
+          found++
+          if (length == shortest) atShortest++
+        }
+        return true
+      }
+      for (hop in program.hops[current].orEmpty()) {
+        if (++steps > options.searchBudget) return false.also { complete = false }
+        val next = hop.callee
+        val toGoal = distance[next] ?: continue
+        if (toGoal > remaining - 1 || next in onPath) continue
+        onPath += next
+        val carryOn = walk(next, remaining - 1, onPath, length)
+        onPath -= next
+        if (!carryOn) return false
+      }
+      return true
+    }
+    for (length in shortest..maxDepth) if (!walk(source, length, linkedSetOf(source), length)) break
+    return PathCount(found, atShortest, complete)
   }
 
   private fun distancesTo(goals: Set<String>): Map<String, Int> {
@@ -152,7 +233,10 @@ class TraceRunner(private val program: Program, private val units: Units, privat
 
   private class Queued(val cost: PathCost, val rank: Int, val state: State)
 
-  private fun valueTrace(query: GoldenQuery, from: String, to: String, via: List<String>, edgeIndex: Map<Triple<String, String, String>, Int>): TraceOut {
+  /** [projected] is each hop's starting state's projection, which some hop notes depend on. */
+  private class Leg(val hops: List<FlowFact>, val projected: List<String?>, val cost: PathCost, val equalCost: Long, val exhausted: Boolean)
+
+  private fun valueTrace(query: GoldenQuery, from: String, to: String, via: List<String>, refs: Refs): TraceOut {
     val stops = listOf(from) + via + to
     val starts = stops.dropLast(1).map { program.selectValue(it, goal = false) }
     val goals = stops.drop(1).map { program.selectValue(it, goal = true) }
@@ -161,37 +245,96 @@ class TraceRunner(private val program: Program, private val units: Units, privat
     val rendered = ArrayList<String>()
     var found = true
     for (i in starts.indices) {
-      val hops = valueLeg(starts[i].locations, goals[i].locations)
-      if (hops == null) {
+      val leg = valueLeg(starts[i].locations, goals[i].locations)
+      if (leg == null) {
         found = false
         legs += TraceLegOut(stops[i], stops[i + 1], emptyList(), emptyList())
         continue
       }
       var depth = 0
       val out =
-        hops.map { hop ->
+        leg.hops.mapIndexed { index, hop ->
           depth +=
             when {
               hop.kind == "partOf" || hop.kind == "heldBy" -> 1
               hop.kind == "memberOf" || (hop.kind == "contentOf" && hop.to.endsWith(ELEMENT)) -> -1
               else -> 0
             }
-          val a = node(hop.from)
-          val b = node(hop.to)
-          val kinds = if (hop.kind == "di") arrayOf("di") else if (hop.kind in setOf("memberOf", "partOf", "contentOf", "heldBy")) emptyArray() else arrayOf("value", "cellWrite", "cellRead")
           rendered += "${Site.of(hop.at) ?: hop.at}  ${program.display(hop.from)}  --${hop.kind}${hop.ruleId?.let { " $it" }.orEmpty()}-->  ${program.display(hop.to)}"
-          TraceHopOut(withoutContext(hop.from), withoutContext(hop.to), hop.kind, (Site.of(hop.at) ?: siteOf(hop.at, units))?.toString(), hop.ruleId, a, b, edgeRef(edgeIndex, a, b, *kinds), depth)
+          valueHop(hop, leg.projected[index], depth, refs)
         }
-      legs += TraceLegOut(stops[i], stops[i + 1], out, nodePath(out))
+      val skeleton =
+        (listOf(starts[i].label) + leg.hops.mapNotNull { program.landmark(it) } + goals[i].label).fold(ArrayList<String>()) { kept, stop ->
+          if (kept.lastOrNull() != stop) kept += stop
+          kept
+        }
+      val c = leg.cost
+      legs +=
+        TraceLegOut(
+          stops[i], stops[i + 1], out, nodePath(out),
+          cost = CostOut(c.anyInstanceReads, c.stagedHops, c.conflation, c.derivedHops, c.length),
+          costText = c.describe(),
+          equalCostPaths = leg.equalCost,
+          countsIncomplete = leg.exhausted || leg.equalCost >= PATH_COUNT_CAP,
+          skeleton = skeleton,
+        )
     }
     val goldenLines = query.golden?.let { hopLines(it) }
     val matches = goldenLines?.let { g -> found && g.size == rendered.size && g.zip(rendered).all { (line, r) -> line.startsWith(r) } }
     return TraceOut(query.name, query.query, query.comment, "value", legs, matches, if (found) null else "a leg has no path")
   }
 
+  private fun valueHop(hop: FlowFact, projected: String?, depth: Int, refs: Refs): TraceHopOut {
+    val a = node(hop.from)
+    val b = node(hop.to)
+    val ma = members.ofLocation(hop.from)
+    val mb = members.ofLocation(hop.to)
+    val moves = hop.kind !in DERIVED_KINDS
+    val kinds = if (hop.kind == "di") arrayOf("di") else if (!moves) emptyArray() else arrayOf("value", "cellWrite", "cellRead")
+    val choices = if (hop.kind == "contentOf") program.valueEdges[hop.from].orEmpty().count { it.kind == "contentOf" } else 0
+    return TraceHopOut(
+      from = withoutContext(hop.from),
+      to = withoutContext(hop.to),
+      kind = hop.kind,
+      site = (Site.of(hop.at) ?: siteOf(hop.at, units))?.toString(),
+      rule = hop.ruleId,
+      fromNode = a,
+      toNode = b,
+      edge = edgeRef(refs.edges, a, b, *kinds),
+      wrapDepth = depth,
+      fromMember = ma,
+      toMember = mb,
+      memberEdge = edgeRef(refs.memberEdges, ma, mb, *kinds),
+      cell = cellOf(hop.to),
+      fromCell = cellOf(hop.from),
+      construction = hop.kind == "partOf",
+      projection = hop.kind == "memberOf",
+      container = hop.kind == "contentOf",
+      containerChoices = choices.takeIf { it > 1 },
+      heldBy = hop.kind == "heldBy",
+      fanIn = if (moves) program.fanIn[hop.to]?.takeIf { it > 1 } else null,
+      anyContainer = program.readsAnyContainer(hop, projected),
+      anyInstanceOf = if (program.isSharedByInstances(hop.from)) units.decls[hop.from]?.name else null,
+      property = if (hop.kind == "memberOf") propertyRead(hop.to) else null,
+      nonProduction = program.isStaged(hop.to),
+      landmark = program.landmark(hop),
+    )
+  }
+
+  private fun cellOf(location: String): Int? {
+    if (!location.endsWith(ELEMENT)) return null
+    return program.cellAt(location.removeSuffix(ELEMENT))?.let { cellIndex[it.id] }
+  }
+
+  private fun propertyRead(location: String): String? {
+    val target = units.nodesById[withoutContext(location)]?.target ?: return null
+    return units.decls[target]?.name ?: target.substringBefore("#<").substringBefore('(').substringAfterLast('/').substringAfterLast('.')
+  }
+
   /** The search of `trace --value`: cheapest first, ties broken by the order states were reached. */
-  private fun valueLeg(start: Set<String>, goal: Set<String>): List<FlowFact>? {
+  private fun valueLeg(start: Set<String>, goal: Set<String>): Leg? {
     val best = HashMap<State, PathCost>()
+    val paths = HashMap<State, Long>()
     val via = HashMap<State, Pair<State, FlowFact>>()
     val settled = HashSet<State>()
     val order = HashMap<State, Int>()
@@ -200,6 +343,7 @@ class TraceRunner(private val program: Program, private val units: Units, privat
       val state = State(location, emptyList())
       order[state] = order.size
       best[state] = PathCost.ZERO
+      paths[state] = 1
       queue += Queued(PathCost.ZERO, order.getValue(state), state)
     }
     var end: State? = null
@@ -220,27 +364,35 @@ class TraceRunner(private val program: Program, private val units: Units, privat
         if (target in settled) continue
         val next = q.cost + program.hopCost(edge, current.projected)
         val known = best[target]
-        if (known == null || next < known) {
+        val comparison = if (known == null) -1 else next.compareTo(known)
+        if (comparison < 0) {
           val rank = order.getOrPut(target) { order.size }
           best[target] = next
+          paths[target] = paths.getValue(current)
           via[target] = current to edge
           queue += Queued(next, rank, target)
           if (edge.to in goal) {
             val held = reachedAtGoal
             if (held == null || next < best.getValue(held)) reachedAtGoal = target
           }
+        } else if (comparison == 0) {
+          paths[target] = minOf(paths.getValue(target) + paths.getValue(current), PATH_COUNT_CAP)
         }
       }
     }
-    if (end == null && steps > options.searchBudget) end = reachedAtGoal
-    var current = end ?: return null
+    val exhausted = end == null && steps > options.searchBudget
+    if (exhausted) end = reachedAtGoal
+    val last = end ?: return null
     val hops = ArrayList<FlowFact>()
+    val projected = ArrayList<String?>()
+    var current: State = last
     while (true) {
       val (previous, edge) = via[current] ?: break
       hops += edge
+      projected += previous.projected
       current = previous
     }
-    return hops.reversed()
+    return Leg(hops.reversed(), projected.reversed(), best.getValue(last), paths.getValue(last), exhausted)
   }
 
   private fun nodePath(hops: List<TraceHopOut>): List<String> =
@@ -253,3 +405,12 @@ class TraceRunner(private val program: Program, private val units: Units, privat
   private fun hopLines(lines: List<String>): List<String> =
     lines.filter { line -> !line.startsWith(" ") && "  --" in line && "-->  " in line && !line.startsWith("Skeleton:") }
 }
+
+/** The tracer's cap on a counted number of equal-cost paths. */
+private const val PATH_COUNT_CAP = 1_000_000L
+
+/** Flow kinds that derive one value from another rather than move it. */
+private val DERIVED_KINDS = setOf("memberOf", "partOf", "contentOf", "heldBy")
+
+/** Model role wording for a lambda the invoker runs after the call returns. */
+private val ASYNC_ROLES = listOf("asynchronously", "in a coroutine")
