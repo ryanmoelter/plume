@@ -4,6 +4,7 @@ import com.ryanmoelter.altitude.facts.Derived
 import com.ryanmoelter.altitude.facts.Facts
 import com.ryanmoelter.altitude.model.Models
 import com.ryanmoelter.altitude.solver.solve
+import com.ryanmoelter.altitude.solver.withDiFlows
 
 class Analysis(val derived: Derived, val rules: Rules)
 
@@ -14,7 +15,7 @@ class Analysis(val derived: Derived, val rules: Rules)
 fun analyze(facts: Facts, models: Models = Models.bundled()): Analysis {
   val index = FactIndex(facts)
   val di = deriveDi(index)
-  val solved = solve(facts.copy(flows = facts.flows + di.flows), models)
+  val solved = solve(withDiFlows(facts, di.flows), models)
   val derived = applyDi(index, di, solved)
   val routes = deriveRoutes(index, derived)
   val resolvers = deriveResolvers(index, derived)

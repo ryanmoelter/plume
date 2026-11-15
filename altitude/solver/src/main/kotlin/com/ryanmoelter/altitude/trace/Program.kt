@@ -11,6 +11,7 @@ import com.ryanmoelter.altitude.facts.NodeFact
 import com.ryanmoelter.altitude.facts.UNRESOLVED_TARGET
 import com.ryanmoelter.altitude.solver.contextOf
 import com.ryanmoelter.altitude.solver.expand
+import com.ryanmoelter.altitude.solver.withDiFlows
 import com.ryanmoelter.altitude.solver.withoutContext
 
 private val CALLABLE_KINDS = setOf("fun", "ctor", "lambda", "getter", "setter")
@@ -24,6 +25,7 @@ private const val ELEMENT = "#<elem>"
 /** From a container's contents to the container: the value now travels inside it. */
 private const val HELD_BY = "heldBy"
 private const val CALL_DEPTH = 6
+private val FAKE_NAME = Regex("""Fake(?![a-z])""")
 private const val PROJECTED_IN = "|"
 private const val RETURN = "#<ret>"
 private const val ONE_OF = "one of "
@@ -64,8 +66,11 @@ class Hop(val edge: CallEdgeFact, val site: Site?, val otherSites: Int) {
 
 /** The facts and what the solver derived from them, indexed for reading. */
 class Program(val facts: Facts, val derived: Derived) {
-  /** The facts the solver ran on: wrapper functions are copied per call site. */
-  private val expansion = expand(facts)
+  /**
+   * The facts the solver ran on: wrapper functions are copied per call site. The `di` flows were
+   * solver input rather than facts on disk, so only [Derived.flows] has them.
+   */
+  private val expansion = expand(withDiFlows(facts, derived.flows.filter { it.kind == "di" }))
 
   val decls: Map<String, DeclFact> =
     facts.decls.sortedBy { it.sym }.groupBy { it.sym }.mapValues { it.value.first() }
@@ -127,9 +132,8 @@ class Program(val facts: Facts, val derived: Derived) {
 
   private fun contextKey(id: String): String = if ('~' in id) contextKeys.getOrPut(id) { marksOf(id) } else ""
 
-  /** The `di` flows were solver input rather than facts on disk, so only [Derived.flows] has them. */
   private val contextFlows: List<FlowFact> =
-    derived.contextFlows.ifEmpty { derived.flows } + derived.flows.filter { it.kind == "di" }
+    derived.contextFlows.ifEmpty { derived.flows.filter { it.kind != "di" } }
 
   /** Each location of the original facts with its copies. */
   private val copies: Map<String, List<String>> =
@@ -186,13 +190,19 @@ class Program(val facts: Facts, val derived: Derived) {
   /**
    * Whether the edge cannot follow a step into a container's contents at [projected]. Going back
    * up to the container would claim the value is in every container stored where that one was.
-   * Leaving through the same call into another copy of it returns to a call the path never made.
+   * Leaving through the same call into another copy of it returns to a call the path never made:
+   * that is an edge whose target the copy the path is in has too. A target only other code has,
+   * such as a lambda the caller passed to a copied wrapper, is where the call really sends it.
    */
   private fun breaksProjection(edge: FlowFact, projected: String?): Boolean {
     if (projected == null) return false
     if (edge.kind == HELD_BY) return true
-    val at = projected.substringBefore(PROJECTED_IN)
-    return edge.at == at && contextKey(edge.to) != projected.substringAfter(PROJECTED_IN)
+    val marks = projected.substringAfter(PROJECTED_IN)
+    if (edge.at != projected.substringBefore(PROJECTED_IN) || contextKey(edge.to) == marks) return false
+    val target = original(edge.to)
+    return valueEdges[edge.from].orEmpty().any {
+      it.kind == edge.kind && it.at == edge.at && contextKey(it.to) == marks && original(it.to) == target
+    }
   }
 
   /** The member or top-level declaration a location belongs to. */
@@ -226,7 +236,38 @@ class Program(val facts: Facts, val derived: Derived) {
     val derived = edge.kind == "memberOf" || edge.kind == "partOf" || edge.kind == HELD_BY || choices > 1
     val meeting = if (edge.kind == "contentOf") choices else fanIn[edge.to] ?: 1
     val anyInstance = isSharedByInstances(edge.from) || readsAnyContainer(edge, projected)
-    return PathCost(if (anyInstance) 1 else 0, bits(meeting), if (derived) 1 else 0, 1)
+    return PathCost(
+      anyInstanceReads = if (anyInstance) 1 else 0,
+      stagedHops = if (isStaged(edge.to)) 1 else 0,
+      conflation = bits(meeting),
+      derivedHops = if (derived) 1 else 0,
+      length = 1,
+    )
+  }
+
+  private val stagingAnnotated: Set<String> =
+    facts.annotations.filter { "Preview" in it.annFq.substringAfterLast('/') }.mapTo(HashSet()) { it.sym }
+
+  private val testFiles: Set<String> =
+    facts.files.filter { it.sourceSet?.contains("test", ignoreCase = true) == true }.mapTo(HashSet()) { it.path }
+
+  private val staged = HashMap<String, Boolean>()
+
+  /**
+   * Whether the location is in code that production never runs: a test source set, a declaration
+   * under a `@Preview` annotation, or a class named as a fake. A path through one is a path the
+   * shipped program does not take, so it ranks below any path that stays in production code.
+   */
+  fun isStaged(location: String): Boolean {
+    val id = original(location.removeSuffix(ELEMENT))
+    val start = nodes[id]?.enclosingDecl ?: PSEUDO.find(id)?.let { id.removeSuffix(it.value) } ?: id
+    return staged.getOrPut(start) {
+      generateSequence(decls[start]) { decl -> decl.owner?.let { decls[it] } }.any { decl ->
+        decl.sym in stagingAnnotated ||
+          decl.file in testFiles ||
+          (decl.kind in CLASS_KINDS && FAKE_NAME.containsMatchIn(decl.name))
+      }
+    }
   }
 
   /** Whether the location is a property of a class, which stands for that property of every instance. */
@@ -262,20 +303,34 @@ class Program(val facts: Facts, val derived: Derived) {
     val id = original(location)
     val marks = contextKey(location)
     val pseudo = PSEUDO.find(id)?.value
-    if (pseudo != null) return if (pseudo in FRAME_PARTS) id.removeSuffix(pseudo) + marks else null
     var current =
-      nodes[id]?.enclosingDecl
-        ?: when (decls[id]?.kind) {
-          null, "prop", "enumEntry" -> return null
-          else -> id
-        }
+      when {
+        pseudo != null -> if (pseudo in FRAME_PARTS) id.removeSuffix(pseudo) else return null
+        else ->
+          nodes[id]?.enclosingDecl
+            ?: when (decls[id]?.kind) {
+              null, "prop", "enumEntry" -> return null
+              else -> id
+            }
+      }
     while (true) {
       val owner = decls[current] ?: break
-      if (owner.kind != "param" && owner.kind != "local") break
+      val inPlace = owner.kind == "lambda" && current + marks in lambdasRunWhereWritten
+      if (owner.kind != "param" && owner.kind != "local" && !inPlace) break
       current = owner.owner ?: break
     }
     return current + marks
   }
+
+  /**
+   * Lambdas written as an argument whose function value goes nowhere else. Only the call it is
+   * written in can run such a lambda, and what it captures is the variables of the run that
+   * evaluated the call, so it counts as part of that run.
+   */
+  private val lambdasRunWhereWritten: Set<String> =
+    expansion.facts.nodes
+      .filter { it.kind == "lambdaExpr" && it.target != null && valueEdges[it.id].isNullOrEmpty() }
+      .mapTo(HashSet()) { it.target!! }
 
   /** Whether the call entered at [entry], a call or the location passed to one of several, may be [call]. */
   private fun entered(entry: String, call: String): Boolean =
@@ -345,7 +400,8 @@ class Program(val facts: Facts, val derived: Derived) {
       return cellName(cell).substringAfter(' ').let { if (cell.sym != null && cellsPerHolder[cell.sym] == 1) it.substringAfterLast(' ') else cellName(cell) }
     }
     if (edge.kind == "partOf") {
-      return nodes[edge.to]?.target?.let { "new " + qualifiedName(it) }
+      // A `copy` call's result names its call rather than a constructor.
+      return nodes[original(edge.to)]?.target?.let { "new " + qualifiedName(calls[it]?.target ?: it) }
     }
     return null
   }
@@ -553,6 +609,8 @@ class Selection(val selector: String, val decls: List<String>, val library: List
 data class PathCost(
   /** Reads of a class property or of a container made elsewhere, with no object to say whose. */
   val anyInstanceReads: Int,
+  /** Hops in previews, fakes and tests. */
+  val stagedHops: Int,
   val conflation: Int,
   val derivedHops: Int,
   val length: Int,
@@ -560,22 +618,28 @@ data class PathCost(
   operator fun plus(other: PathCost): PathCost =
     PathCost(
       anyInstanceReads + other.anyInstanceReads,
+      stagedHops + other.stagedHops,
       conflation + other.conflation,
       derivedHops + other.derivedHops,
       length + other.length,
     )
 
-  override fun compareTo(other: PathCost): Int {
-    if (anyInstanceReads != other.anyInstanceReads) return anyInstanceReads.compareTo(other.anyInstanceReads)
-    if (conflation != other.conflation) return conflation.compareTo(other.conflation)
-    if (derivedHops != other.derivedHops) return derivedHops.compareTo(other.derivedHops)
-    return length.compareTo(other.length)
-  }
+  override fun compareTo(other: PathCost): Int =
+    compareValuesBy(
+      this,
+      other,
+      { it.anyInstanceReads },
+      { it.stagedHops },
+      { it.conflation },
+      { it.derivedHops },
+      { it.length },
+    )
 
   fun describe(): String =
-    "$anyInstanceReads any-instance reads, conflation $conflation, $derivedHops derived hops, $length hops"
+    "$anyInstanceReads any-instance reads, $stagedHops hops outside production code, " +
+      "conflation $conflation, $derivedHops derived hops, $length hops"
 
   companion object {
-    val ZERO = PathCost(0, 0, 0, 0)
+    val ZERO = PathCost(0, 0, 0, 0, 0)
   }
 }

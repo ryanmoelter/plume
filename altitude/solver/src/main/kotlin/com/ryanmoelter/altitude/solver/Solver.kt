@@ -52,6 +52,13 @@ private val NOT_OBJECTS = setOf("literal", "lambdaExpr", "callableRef")
 fun solve(facts: Facts, models: Models = Models.bundled()): Derived =
   withoutContexts(Solver(expand(facts).facts, models).run())
 
+/**
+ * The facts the solver runs on once the DI rules have linked injection sites to bindings. A trace
+ * rebuilds the solver's copies from this, so both must be given the same flows in the same order.
+ */
+fun withDiFlows(facts: Facts, di: List<FlowFact>): Facts =
+  facts.copy(flows = facts.flows + di.sortedWith(compareBy({ it.from }, { it.to }, { it.at })))
+
 private sealed interface Value
 
 /** A lambda, or a function, constructor or property named by a callable reference. */

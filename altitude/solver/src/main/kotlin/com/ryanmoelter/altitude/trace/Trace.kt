@@ -115,7 +115,8 @@ class Tracer(private val program: Program, private val options: TraceOptions = T
     appendLine("              to ${goal.label}")
     appendLine()
 
-    // Cheapest first; among equal costs the state found first decides, so the output is stable.
+    // Cheapest first; among equal costs the state found first decides. Edges are visited in sorted
+    // order and nothing here iterates a hash table, so the path shown is the same on every run.
     // A state is a location and the calls the path is inside of: a path that enters a function
     // through one call may not leave it through another.
     val best = HashMap<ValueState, PathCost>()
@@ -132,7 +133,9 @@ class Tracer(private val program: Program, private val options: TraceOptions = T
       queue += Queued(PathCost.ZERO, order.getValue(state), state)
     }
     var end: ValueState? = null
-    while (queue.isNotEmpty()) {
+    var steps = 0
+    var reachedAtGoal: ValueState? = null
+    search@ while (queue.isNotEmpty()) {
       val (cost, _, current) = queue.poll()
       if (cost != best[current] || !settled.add(current)) continue
       if (current.location in goal.locations) {
@@ -140,6 +143,7 @@ class Tracer(private val program: Program, private val options: TraceOptions = T
         break
       }
       for (edge in program.valueEdges[current.location].orEmpty()) {
+        if (++steps > options.searchBudget) break@search
         val calls = program.callsAfter(current.calls, edge, current.projected, current.filled) ?: continue
         val target = ValueState(edge.to, calls, program.projects(edge), program.fills(edge))
         if (target in settled) continue
@@ -152,14 +156,26 @@ class Tracer(private val program: Program, private val options: TraceOptions = T
           paths[target] = paths.getValue(current)
           via[target] = current to edge
           queue += Queued(next, rank, target)
+          if (edge.to in goal.locations) {
+            val held = reachedAtGoal
+            if (held == null || next < best.getValue(held)) reachedAtGoal = target
+          }
         } else if (comparison == 0) {
           paths[target] = minOf(paths.getValue(target) + paths.getValue(current), PATH_COUNT_CAP)
         }
       }
     }
+    val exhausted = end == null && steps > options.searchBudget
+    if (exhausted) {
+      appendLine("The search stopped at its budget of ${options.searchBudget} steps, so it is incomplete.")
+      end = reachedAtGoal
+    }
     if (end == null) {
       val reached = settled.mapTo(LinkedHashSet()) { it.location }
-      appendLine("No path. The start reaches ${reached.size} locations.")
+      appendLine(
+        if (exhausted) "No path found within the budget. The start reaches at least ${reached.size} locations."
+        else "No path. The start reaches ${reached.size} locations."
+      )
       val reaching = reachingGoal(goal.locations)
       appendLine("${reaching.size} locations reach the goal.")
       val frontier =
@@ -178,10 +194,17 @@ class Tracer(private val program: Program, private val options: TraceOptions = T
     hops.reverse()
     val count = paths.getValue(end)
     val total = if (count >= PATH_COUNT_CAP) "at least $PATH_COUNT_CAP" else "$count"
-    appendLine("Best path: ${best.getValue(end).describe()}.")
-    appendLine("$total paths have this cost; the first in sorted order is shown.")
+    if (exhausted) {
+      appendLine("A path found before the budget ran out, which a cheaper one may beat: ${best.getValue(end).describe()}.")
+      appendLine("At least $count paths have this cost; the one the search reached first is shown.")
+    } else {
+      appendLine("Best path: ${best.getValue(end).describe()}.")
+      appendLine("$total paths have this cost; the one the search reached first is shown.")
+    }
     appendLine(
-      "Paths are ranked by any-instance reads, then conflation, then derived hops, then length. " +
+      "Paths are ranked by any-instance reads, then hops in previews, fakes and tests, then " +
+        "conflation, then derived hops, then length. Edges are searched in sorted order, so the " +
+        "path shown is the same on every run. " +
         "A path that enters a function through one call leaves it through the same call. " +
         "`{copy for File.kt:LINE}` marks code copied for the call at that line. " +
         "A hop marked [projection], [construction] or [container] derives one value from another " +
