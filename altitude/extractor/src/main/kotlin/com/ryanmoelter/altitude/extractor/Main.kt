@@ -49,7 +49,10 @@ fun main(args: Array<String>) {
         val manifest = Manifest.read(Path.of(required("--manifest")))
         val input = manifest.toAnalysisInput(compilerPlugins = "--no-compiler-plugins" !in flags)
         val out = Path.of(required("--out"))
-        val facts = AltitudeSession.open(input).use(::extractFacts)
+        val facts =
+          AltitudeSession.open(input)
+            .use(::extractFacts)
+            .copy(sqlStatements = manifest.sqlStatements(), pluginOptions = manifest.pluginOptions())
         val meta =
           MetaFact(
             gitSha = manifest.git?.sha,

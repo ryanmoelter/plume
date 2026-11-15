@@ -3,7 +3,7 @@ package com.ryanmoelter.altitude.facts
 import kotlinx.serialization.Serializable
 
 /** The relations are documented in `altitude/docs/facts.md`. */
-const val SCHEMA_VERSION = 2
+const val SCHEMA_VERSION = 3
 
 /** A target of a call that did not resolve. */
 const val UNRESOLVED_TARGET = "UNRESOLVED"
@@ -38,6 +38,8 @@ data class DeclFact(
   val fnTyped: Boolean = false,
   /** The position of a parameter in its owner's parameter list. */
   val index: Int? = null,
+  /** [type] with every type alias expanded, when that differs from the type as written. */
+  val typeExpanded: String? = null,
 )
 
 @Serializable
@@ -55,8 +57,51 @@ data class SupertypeFact(
 
 @Serializable data class ActualForFact(val actual: String, val expect: String)
 
+/**
+ * [sym] is the annotated declaration, or one of its parts: `<prop>#<get>`, `<prop>#<set>` and
+ * `<prop>#<field>` for use-site targets and accessor annotations, `<decl>#<type>` for an annotation
+ * on the declared type.
+ */
 @Serializable
-data class AnnotationFact(val sym: String, val annFq: String, val args: List<String> = emptyList())
+data class AnnotationFact(
+  val sym: String,
+  val annFq: String,
+  /** The arguments as the source writes them. */
+  val args: List<String> = emptyList(),
+  /** The arguments resolved. */
+  val values: List<AnnotationValueFact> = emptyList(),
+  /** The annotations the annotation class itself carries, without `kotlin/annotation/`. */
+  val meta: List<String> = emptyList(),
+)
+
+@Serializable
+data class AnnotationValueFact(
+  /** The parameter name; absent for an array element. */
+  val name: String? = null,
+  /** `const`, `class`, `enum`, `annotation`, `array` or `unsupported`. */
+  val kind: String,
+  /**
+   * A constant as Kotlin source, a class literal's type as a dotted name with aliases expanded, an
+   * enum entry's ID, or a nested annotation's class as [AnnotationFact.annFq] writes it.
+   */
+  val value: String? = null,
+  /** The class ID of a class literal. */
+  val cls: String? = null,
+  /** The elements of an array, or the arguments of a nested annotation. */
+  val elements: List<AnnotationValueFact> = emptyList(),
+  /** The type arguments of a nested annotation, as `binding<T>()` takes one. */
+  val typeArgs: List<AnnotationTypeArgFact> = emptyList(),
+  /** A nested annotation's class's own annotations. */
+  val meta: List<String> = emptyList(),
+)
+
+@Serializable
+data class AnnotationTypeArgFact(
+  val type: String,
+  val cls: String? = null,
+  /** Annotations on the type argument, each of kind `annotation`. */
+  val annotations: List<AnnotationValueFact> = emptyList(),
+)
 
 @Serializable
 data class NodeFact(
@@ -121,6 +166,22 @@ data class UnresolvedFact(
   val diagnostic: String? = null,
 )
 
+/** A labelled statement of a SQLDelight `.sq` file. */
+@Serializable
+data class SqlStatementFact(
+  /** The generated queries class, `class:<package>/<File>Queries`. */
+  val cls: String,
+  val label: String,
+  val file: String,
+  val line: Int,
+  /** `read` or `write`. */
+  val access: String,
+)
+
+/** An option the build passes to a compiler plugin. */
+@Serializable
+data class PluginOptionFact(val module: String, val pluginId: String, val key: String, val value: String)
+
 @Serializable
 data class FnValueFact(
   val call: String,
@@ -135,7 +196,7 @@ data class CallEdgeFact(
   val call: String,
   val caller: String,
   val callee: String,
-  /** `static`, `cha`, `fnValue`, `invoke`, `assumedInvoke`, `cell`, `actual`, `delegateAccessor` or `init`. */
+  /** `static`, `cha`, `di`, `fnValue`, `invoke`, `assumedInvoke`, `cell`, `actual`, `delegateAccessor` or `init`. */
   val via: String,
   /** The model entry behind an `invoke` edge. */
   val ruleId: String? = null,
@@ -149,6 +210,10 @@ data class CallEdgeFact(
   val op: String? = null,
   /** Derived streams between the written object and the one the callee reads. */
   val through: Int = 0,
+  /** The provider of the binding that selects a `di` edge's callee. */
+  val binding: String? = null,
+  /** The graph or component whose binding a `di` edge follows. */
+  val graph: String? = null,
 )
 
 /** A state holder or stream created by a modelled call, named by the call's result node. */
@@ -192,6 +257,8 @@ data class Facts(
   val flows: List<FlowFact> = emptyList(),
   val libraryLambdaCalls: List<LambdaCallFact> = emptyList(),
   val unresolved: List<UnresolvedFact> = emptyList(),
+  val sqlStatements: List<SqlStatementFact> = emptyList(),
+  val pluginOptions: List<PluginOptionFact> = emptyList(),
 )
 
 /** What the solver adds. */

@@ -43,6 +43,8 @@ object FactStore {
     relation("flow", FlowFact.serializer(), facts.flows)
     relation("libraryLambdaCall", LambdaCallFact.serializer(), facts.libraryLambdaCalls)
     relation("unresolved", UnresolvedFact.serializer(), facts.unresolved)
+    relation("sqlStatement", SqlStatementFact.serializer(), facts.sqlStatements)
+    relation("pluginOption", PluginOptionFact.serializer(), facts.pluginOptions)
     dir
       .resolve("meta.json")
       .writeText(prettyJson.encodeToString(MetaFact.serializer(), meta.copy(rows = rows)) + "\n")
@@ -75,6 +77,8 @@ object FactStore {
       flows = readRelation(dir, "flow", FlowFact.serializer()),
       libraryLambdaCalls = readRelation(dir, "libraryLambdaCall", LambdaCallFact.serializer()),
       unresolved = readRelation(dir, "unresolved", UnresolvedFact.serializer()),
+      sqlStatements = readRelation(dir, "sqlStatement", SqlStatementFact.serializer()),
+      pluginOptions = readRelation(dir, "pluginOption", PluginOptionFact.serializer()),
     )
 
   fun readDerived(dir: Path): Derived =
@@ -95,7 +99,7 @@ object FactStore {
   fun <T> lines(serializer: KSerializer<T>, values: List<T>): List<String> =
     values.mapTo(sortedSetOf()) { json.encodeToString(serializer, it) }.toList()
 
-  private fun <T> writeRelation(
+  fun <T> writeRelation(
     dir: Path,
     name: String,
     serializer: KSerializer<T>,
@@ -106,7 +110,7 @@ object FactStore {
     return lines.size
   }
 
-  private fun <T> readRelation(dir: Path, name: String, serializer: KSerializer<T>): List<T> {
+  fun <T> readRelation(dir: Path, name: String, serializer: KSerializer<T>): List<T> {
     val file = dir.resolve("$name.jsonl")
     if (!file.exists()) return emptyList()
     return file.readLines().filter { it.isNotEmpty() }.map { json.decodeFromString(serializer, it) }

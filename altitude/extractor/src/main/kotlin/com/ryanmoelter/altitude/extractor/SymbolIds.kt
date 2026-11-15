@@ -43,6 +43,8 @@ const val RETURN = "#<ret>"
 const val GETTER = "#<get>"
 const val SETTER = "#<set>"
 const val DELEGATE = "#<delegate>"
+const val FIELD = "#<field>"
+const val TYPE = "#<type>"
 const val EXPECT = "|expect"
 
 /**

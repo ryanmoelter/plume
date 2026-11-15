@@ -8,6 +8,8 @@ import com.intellij.psi.PsiErrorElement
 import com.intellij.psi.util.PsiTreeUtil
 import com.ryanmoelter.altitude.facts.ActualForFact
 import com.ryanmoelter.altitude.facts.AnnotationFact
+import com.ryanmoelter.altitude.facts.AnnotationTypeArgFact
+import com.ryanmoelter.altitude.facts.AnnotationValueFact
 import com.ryanmoelter.altitude.facts.ArgFact
 import com.ryanmoelter.altitude.facts.CallFact
 import com.ryanmoelter.altitude.facts.DeclFact
@@ -26,6 +28,9 @@ import org.jetbrains.kotlin.analysis.api.KaIdeApi
 import org.jetbrains.kotlin.analysis.api.KaSession
 import org.jetbrains.kotlin.analysis.api.analyze
 import org.jetbrains.kotlin.analysis.api.annotations.KaAnnotated
+import org.jetbrains.kotlin.analysis.api.annotations.KaAnnotation
+import org.jetbrains.kotlin.analysis.api.annotations.KaAnnotationValue
+import org.jetbrains.kotlin.analysis.api.renderer.types.KaExpandedTypeRenderingMode
 import org.jetbrains.kotlin.analysis.api.projectStructure.KaSourceModule
 import org.jetbrains.kotlin.analysis.api.renderer.types.impl.KaTypeRendererForSource
 import org.jetbrains.kotlin.analysis.api.resolution.KaCall
@@ -70,6 +75,7 @@ import org.jetbrains.kotlin.analysis.api.types.KaType
 import org.jetbrains.kotlin.idea.references.mainReference
 import org.jetbrains.kotlin.lexer.KtTokens
 import org.jetbrains.kotlin.psi.KtAnnotatedExpression
+import org.jetbrains.kotlin.psi.KtAnnotationEntry
 import org.jetbrains.kotlin.psi.KtArrayAccessExpression
 import org.jetbrains.kotlin.psi.KtBinaryExpression
 import org.jetbrains.kotlin.psi.KtBinaryExpressionWithTypeRHS
@@ -209,6 +215,11 @@ private class Scope(val decl: String, val thisOf: List<Pair<PsiElement, String>>
 }
 
 private val NONE = emptyList<String>()
+
+private val EXPANDED_TYPES =
+  KaTypeRendererForSource.WITH_QUALIFIED_NAMES.with {
+    expandedTypeRenderingMode = KaExpandedTypeRenderingMode.RENDER_EXPANDED_TYPE
+  }
 
 private val FUNCTION_CLASS = Regex("""kotlin/(coroutines/|reflect/)?K?(Suspend)?Function\d*""")
 
@@ -415,9 +426,11 @@ private class FileExtractor(private val ids: SymbolIds, private val out: FactSin
           modifiers = modifiers,
           fnTyped = isFunctionTyped(parameter.returnType),
           index = index,
+          typeExpanded = renderExpanded(parameter.returnType),
         )
       ownerOfLocal[id] = ownerId
       annotations(id, parameter)
+      annotations(id + TYPE, parameter.returnType)
       val default = parameterPsi?.defaultValue ?: return@forEachIndexed
       for (value in visit(default, scope)) flow(value, id, "default", default)
     }
@@ -460,6 +473,8 @@ private class FileExtractor(private val ids: SymbolIds, private val out: FactSin
       symbol.returnType,
     )
     annotations(id, symbol)
+    annotations(id + TYPE, symbol.returnType)
+    symbol.receiverParameter?.let { annotations(id + RECEIVER, it) }
     actualFor(id, symbol)
     overrides(id, symbol)
     val inner = scope.entering(id, memberOf)
@@ -619,6 +634,11 @@ private class FileExtractor(private val ids: SymbolIds, private val out: FactSin
     }
     decl(id, "prop", symbol.name.asString(), psi, scope, modifiers, symbol.returnType)
     annotations(id, symbol)
+    annotations(id + TYPE, symbol.returnType)
+    symbol.getter?.let { annotations(id + GETTER, it) }
+    symbol.setter?.let { annotations(id + SETTER, it) }
+    symbol.backingFieldSymbol?.let { annotations(id + FIELD, it) }
+    symbol.receiverParameter?.let { annotations(id + RECEIVER, it) }
     actualFor(id, symbol)
     overrides(id, symbol)
   }
@@ -1507,6 +1527,10 @@ private class FileExtractor(private val ids: SymbolIds, private val out: FactSin
   private fun KaSession.render(type: KaType?): String? =
     type?.render(KaTypeRendererForSource.WITH_QUALIFIED_NAMES, Variance.INVARIANT)
 
+  /** The type with aliases expanded, or null when the source writes it that way already. */
+  private fun KaSession.renderExpanded(type: KaType?): String? =
+    type?.render(EXPANDED_TYPES, Variance.INVARIANT)?.takeIf { it != render(type) }
+
   /** Annotations on a type, which is where `@Composable` sits on a function type. */
   private fun typeModifiers(type: KaType): List<String> = typeAnnotations(type).map { "typeAnnotation:$it" }
 
@@ -1550,6 +1574,7 @@ private class FileExtractor(private val ids: SymbolIds, private val out: FactSin
         type = render(type),
         modifiers = modifiers,
         fnTyped = isFunctionTyped(type),
+        typeExpanded = renderExpanded(type),
       )
   }
 
@@ -1559,12 +1584,72 @@ private class FileExtractor(private val ids: SymbolIds, private val out: FactSin
     return id
   }
 
-  private fun annotations(id: String, symbol: KaAnnotated) {
+  private fun KaSession.annotations(id: String, symbol: KaAnnotated) {
     for (annotation in symbol.annotations) {
       val fqName = annotation.classId?.asString() ?: continue
       val arguments = annotation.psi?.valueArguments.orEmpty().map { (it as? KtValueArgument)?.text ?: "" }
-      out.annotations += AnnotationFact(id, fqName, arguments)
+      out.annotations +=
+        AnnotationFact(id, fqName, arguments, annotationValues(annotation), metaAnnotations(annotation))
     }
+  }
+
+  private fun KaSession.annotationValues(annotation: KaAnnotation): List<AnnotationValueFact> =
+    annotation.arguments.map { annotationValue(it.name.asString(), it.expression) }
+
+  private fun KaSession.metaAnnotations(annotation: KaAnnotation): List<String> {
+    val classId = annotation.classId ?: return emptyList()
+    return attempt(null, emptyList()) {
+      findClass(classId)
+        ?.annotations
+        ?.mapNotNull { it.classId?.asString() }
+        ?.filterNot { it.startsWith("kotlin/annotation/") || it.startsWith("java/lang/annotation/") }
+        ?.distinct()
+        ?.sorted()
+        .orEmpty()
+    }
+  }
+
+  private fun KaSession.annotationValue(name: String?, value: KaAnnotationValue): AnnotationValueFact =
+    when (value) {
+      is KaAnnotationValue.ConstantValue -> AnnotationValueFact(name, "const", value.value.render())
+      is KaAnnotationValue.EnumEntryValue ->
+        AnnotationValueFact(name, "enum", value.callableId?.let { "enumEntry:$it" })
+      is KaAnnotationValue.ClassLiteralValue ->
+        AnnotationValueFact(name, "class", renderExpanded(value.type) ?: render(value.type), ids.run { classOf(value.type) })
+      is KaAnnotationValue.ArrayValue ->
+        AnnotationValueFact(name, "array", elements = value.values.map { annotationValue(null, it) })
+      is KaAnnotationValue.NestedAnnotationValue ->
+        nestedAnnotation(name, value.annotation, value.sourcePsi)
+      else -> AnnotationValueFact(name, "unsupported", value.sourcePsi?.text?.take(120))
+    }
+
+  private fun KaSession.nestedAnnotation(
+    name: String?,
+    annotation: KaAnnotation,
+    psi: PsiElement?,
+  ): AnnotationValueFact {
+    val typeArguments =
+      when (psi) {
+        is KtCallExpression -> psi.typeArguments
+        is KtAnnotationEntry -> psi.typeArguments
+        else -> emptyList()
+      }
+    return AnnotationValueFact(
+      name = name,
+      kind = "annotation",
+      value = annotation.classId?.asString(),
+      elements = annotationValues(annotation),
+      typeArgs =
+        typeArguments.mapNotNull { argument ->
+          val type = argument.typeReference?.type ?: return@mapNotNull null
+          AnnotationTypeArgFact(
+            type = renderExpanded(type) ?: render(type).orEmpty(),
+            cls = ids.run { classOf(type) },
+            annotations = type.annotations.map { nestedAnnotation(null, it, it.psi) },
+          )
+        },
+      meta = metaAnnotations(annotation),
+    )
   }
 
   private fun KaSession.actualFor(id: String, symbol: KaDeclarationSymbol) {
