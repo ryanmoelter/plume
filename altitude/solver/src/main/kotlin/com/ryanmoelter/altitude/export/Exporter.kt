@@ -252,7 +252,9 @@ class Exporter(
     while (changed) {
       changed = false
       for (node in inherit) {
-        val best = callers[node].orEmpty().mapNotNull { c -> out[c]?.first }.minOrNull() ?: continue
+        // An external adapter builds the models it returns; that does not make them external.
+        val from = callers[node].orEmpty().mapNotNull { c -> out[c]?.first }
+        val best = from.filter { it > 0 }.minOrNull() ?: from.minOrNull() ?: continue
         if (out.getValue(node).first != best) {
           out[node] = best to "inheritsFromCallers"
           changed = true
@@ -276,12 +278,13 @@ class Exporter(
       .groupBy({ it.first }, { it.second }).mapValues { it.value.distinct().sorted() }
 
   /**
-   * The nodes that depend on each node: its direct callers, the nodes its values flow to, the
-   * readers of its cells and the injection sites it provides for.
+   * The nodes that depend on each node: its direct callers, the readers of its cells and the
+   * injection sites it provides for. Value edges stay out: an argument flows from caller to callee,
+   * against the dependency.
    */
   private val dependents: Map<String, Set<String>> =
     (directCalls.map { it.second to it.first } +
-      edgeAggs.keys.filter { it.third in setOf("value", "cellRead", "di") }.map { it.first to it.second })
+      edgeAggs.keys.filter { it.third in setOf("cellRead", "di") }.map { it.first to it.second })
       .groupBy({ it.first }, { it.second }).mapValues { it.value.toSortedSet() }
 
   private val featuresWithEntries: Set<String> = entryFeatures.filterNotNull().toSet()
@@ -434,7 +437,7 @@ class Exporter(
     val names = node?.let { roles[it] }.orEmpty().map { it.role }
     return when {
       "entryPoint" in names -> "host"
-      "mediator" in names && "boundaryAdapter" in names -> "repository"
+      "mediator" in names && placements.getValue(node!!).boundaryCalls.keys.any { it !in TELEMETRY_KINDS } -> "repository"
       "mediator" in names -> "mediator"
       "uiComponent" in names -> "ui"
       else -> "other"
