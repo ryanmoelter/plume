@@ -43,7 +43,7 @@ Every rule below yields rows of two relations. Both carry `file` and `line`. `li
 | `provider` | The `provider` of the binding the site resolves to. |
 | `typeKind` | `class`, `interface`, `abstract`, `function`, `object` or `library` for the requested type. |
 
-A consumer→provider link is the pair (`site`, `provider`). It is what the facts lack today: `../facts.md` says that a constructor-injected interface links to its implementations only by `cha`.
+A consumer→provider link is the pair (`site`, `provider`). Without it, a constructor-injected interface links to its implementations only by `cha`. The analyzer turns each link into a `di` flow from what the provider yields to the site, and each call of a graph accessor into a `di` call edge to its provider (`../facts.md`).
 
 ## Discovery
 
