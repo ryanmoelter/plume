@@ -86,6 +86,7 @@ Value locations that are not declarations hang off an ID:
 | `unmodelledLambdaCall` | `call`, `callee` |
 | `cell` | `id`, `sym`, `mechanism` |
 | `cellWrite`, `cellRead` | `cell`, `at`, `op`, `decl` |
+| `flowInContext` | As `flowDerived`, over the copied facts the solver ran on |
 
 - **`fnValue`**: the lambda, function or property `value` reaches the `invokeFnValue` call (or a call of a `fun interface` method). `witness` is the list of flow edges from the value's expression to the invoke, in order.
 - **`callEdge.via`** is `static`, `cha`, `fnValue`, `invoke`, `assumedInvoke`, `cell`, `actual` (an `expect` target dispatched to its `actual`), `delegateAccessor`, `init` or `di` (a call of a DI graph accessor to the provider that supplies it, with `binding` and `graph`).
@@ -93,6 +94,7 @@ Value locations that are not declarations hang off an ID:
 - **`summary`** and **`contentOf`** edges, `invoke` and `cell` call edges, and the `cell` relations come from library models. `docs/models.md` is the reference.
 - **`unmodelledLambdaCall`** is the part of `libraryLambdaCall` where no model says the callee runs the function value.
 - **`fanOut`** has one row per `invokeFnValue` call, including a count of 0.
+- **Copies.** Before it solves, the solver copies some code once per call site, so that one caller's values do not reach another's. It copies a small wrapper function (at most 15 lines, not dispatched, with a function-typed parameter), along with any small class built only inside it. It also copies a state-holder class (a constructor with a function-typed parameter, no subclass, at most 250 lines) once per construction. A copy's IDs carry `~N` after the copied declaration's or node's ID. A property of a copied class has a `merge` flow to the original when code outside the class reads it, and back when code outside writes it. Every relation but `flowInContext` folds the copies back onto the original IDs. `trace --value` walks `flowInContext`.
 
 ## The model and what it leaves out
 
@@ -121,12 +123,12 @@ A trace is a path in the call graph over declarations, shortest first. Each hop 
 ```
 
 - `call [static]` is a direct call. `call [via cha, N candidates]` is a virtual call with N possible targets. `call [via fnValue, fan-out N]` is a call through a function value that N values reach, followed by the flow edges that carry this one to the invoke. `invoke [<callee> runs it as <role>; <rule>]` is a lambda a library model says the callee runs. `assumedInvoke [lambda passed to …]` is the approximation above. `cell <mechanism> <holder>: <write op> → <read op>, through N operator(s)` joins a write to a cell with a lambda that runs for each value written.
-- Two declarations joined by several call sites show the first, with `(+N more call sites)`.
+- Two declarations joined by several call sites show the first, with `(+N more call sites)`. When the next hop is a `fnValue` call, the hop shows the site that passes that function value.
 - The header states how many paths exist within the depth limit, how many are printed, and whether the search stopped early.
 - A class as `--to` ends the paths at its constructors. A selector that matches nothing in the sources is matched against library callees, and the path ends at the call.
 - `--forward` lists the calls out of the sources that are reachable from a declaration, nearest first.
 
-`trace --value --from <value> --to <value> [--via <value>,<value>]` prints a path over flow edges instead: where a value may go, hop by hop, with the model rule on each `summary` and `contentOf` hop. A value is `File.kt:LINE:call(name)`, `cell(Owner.name)`, a location ID, or a property, parameter or local by `Owner.name`. It prints the shortest path, the count of paths of that length, and `(N sources)` after a hop whose target has several incoming edges. `docs/models.md` lists what it over-approximates.
+`trace --value --from <value> --to <value> [--via <value>,<value>]` prints a path over flow edges instead: where a value may go, hop by hop, with the model rule on each `summary` and `contentOf` hop. A value is `File.kt:LINE:call(name)`, `cell(Owner.name)`, a location ID, or a property, parameter or local by `Owner.name`. It prints the best path, the count of paths of the same cost, and the notes on each hop. A location in a copy shows `{copy for File.kt:LINE}`, the call site the copy was made for. `docs/models.md` says how paths are ranked and what a trace over-approximates.
 
 `trace --from-entrypoint <entry> --to-boundary <boundary>` starts from the `entrypoint` rows and ends at the `boundary` rows. An entry is a route path (`/graphql`), `METHOD /path`, a resolver field or `Type.field`, a screen class, or a selector for the entry callable. A boundary is a `label`, `op`, `kind`, `system:kind`, or a selector for its `target`. A route marked `serves: graphqlResolver` stands for every resolver, because graphql-java calls them by reflection. For each boundary target, it lists the entry callables that reach it over call edges, nearest first, and runs the `--from`/`--to` trace from up to five of them.
 

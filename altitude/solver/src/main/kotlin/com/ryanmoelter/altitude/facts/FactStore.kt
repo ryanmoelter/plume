@@ -60,6 +60,7 @@ object FactStore {
     writeRelation(dir, "cell", CellFact.serializer(), derived.cells)
     writeRelation(dir, "cellWrite", CellAccessFact.serializer(), derived.cellWrites)
     writeRelation(dir, "cellRead", CellAccessFact.serializer(), derived.cellReads)
+    writeRelation(dir, "flowInContext", FlowFact.serializer(), derived.contextFlows)
   }
 
   fun read(dir: Path): Facts =
@@ -91,6 +92,7 @@ object FactStore {
       cells = readRelation(dir, "cell", CellFact.serializer()),
       cellWrites = readRelation(dir, "cellWrite", CellAccessFact.serializer()),
       cellReads = readRelation(dir, "cellRead", CellAccessFact.serializer()),
+      contextFlows = readRelation(dir, "flowInContext", FlowFact.serializer()),
     )
 
   fun readMeta(dir: Path): MetaFact =

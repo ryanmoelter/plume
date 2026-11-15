@@ -49,7 +49,8 @@ private val NOT_OBJECTS = setOf("literal", "lambdaExpr", "callableRef")
  * along `flow` edges until nothing changes. Reaching an invoke adds the edges that bind its
  * arguments and result; reaching a port of a modelled call adds the model's `summary` edges.
  */
-fun solve(facts: Facts, models: Models = Models.bundled()): Derived = Solver(facts, models).run()
+fun solve(facts: Facts, models: Models = Models.bundled()): Derived =
+  withoutContexts(Solver(expand(facts).facts, models).run())
 
 private sealed interface Value
 

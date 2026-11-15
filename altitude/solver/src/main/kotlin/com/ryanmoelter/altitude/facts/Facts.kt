@@ -273,4 +273,6 @@ data class Derived(
   val cells: List<CellFact> = emptyList(),
   val cellWrites: List<CellAccessFact> = emptyList(),
   val cellReads: List<CellAccessFact> = emptyList(),
+  /** [flows] before copies are folded back: what `trace --value` walks, over the copied facts. */
+  val contextFlows: List<FlowFact> = emptyList(),
 )
