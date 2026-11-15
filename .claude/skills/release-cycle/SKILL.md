@@ -66,8 +66,8 @@ Read CLAUDE.md at your worktree root first and follow it. Your assigned Linear i
 - If you hit a decision only the user can make, stop and report it rather than guessing.
 - Capture each new or changed behavior from your own debug build with the control server's
   `screenshot` (`drive-plume` skill), into `~/Library/Caches/Plume-agent-media/<issue>/`, with
-  names that say what each shows. Use a before-and-after pair for a change in motion; a screenshot
-  sequence stands in for a recording until the control server can record (PLUME-383). Never take
+  names that say what each shows. For a change in motion, use the recording recipe in
+  `drive-plume`. Never take
   a full-screen capture; the control server captures only your build's window. It can't capture
   a hidden window, so launch with `open -g`, not `-j`.
 
