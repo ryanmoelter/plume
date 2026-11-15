@@ -79,16 +79,17 @@ Value locations that are not declarations hang off an ID:
 
 | File | Fields |
 | --- | --- |
-| `flowDerived` | As `flow` plus `ruleId`, with kinds `override`, `invokeArg`, `invokeReturn`, `summary`, `contentOf` |
+| `flowDerived` | As `flow` plus `ruleId`, with kinds `override`, `invokeArg`, `invokeReturn`, `summary`, `contentOf`, `di` |
 | `fnValue` | `call`, `value`, `witness` |
-| `callEdge` | `call`, `caller`, `callee`, `via`, `ruleId`, `role`, `invoker`, `cell`, `op`, `through` |
+| `callEdge` | `call`, `caller`, `callee`, `via`, `ruleId`, `role`, `invoker`, `cell`, `op`, `through`, `binding`, `graph` |
 | `fanOut` | `call`, `count` |
 | `unmodelledLambdaCall` | `call`, `callee` |
 | `cell` | `id`, `sym`, `mechanism` |
 | `cellWrite`, `cellRead` | `cell`, `at`, `op`, `decl` |
 
 - **`fnValue`**: the lambda, function or property `value` reaches the `invokeFnValue` call (or a call of a `fun interface` method). `witness` is the list of flow edges from the value's expression to the invoke, in order.
-- **`callEdge.via`** is `static`, `cha`, `fnValue`, `invoke`, `assumedInvoke`, `cell`, `actual` (an `expect` target dispatched to its `actual`), `delegateAccessor` or `init`.
+- **`callEdge.via`** is `static`, `cha`, `fnValue`, `invoke`, `assumedInvoke`, `cell`, `actual` (an `expect` target dispatched to its `actual`), `delegateAccessor`, `init` or `di` (a call of a DI graph accessor to the provider that supplies it, with `binding` and `graph`).
+- **`di`** flows run from what a DI provider yields to each injection site it satisfies. `at` is the site. `docs/di/` is the reference.
 - **`summary`** and **`contentOf`** edges, `invoke` and `cell` call edges, and the `cell` relations come from library models. `docs/models.md` is the reference.
 - **`unmodelledLambdaCall`** is the part of `libraryLambdaCall` where no model says the callee runs the function value.
 - **`fanOut`** has one row per `invokeFnValue` call, including a count of 0.

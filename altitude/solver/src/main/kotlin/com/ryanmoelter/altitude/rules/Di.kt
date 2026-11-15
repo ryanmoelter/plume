@@ -19,7 +19,7 @@ fun deriveDi(index: FactIndex): DiResult = Metro(index).derive() + KotlinInject(
 
 /**
  * Adds a `di` call edge from each call of a graph accessor to the provider that supplies it, since
- * the generated graph that does the call is not in the sources.
+ * the generated graph that does the call is not in the sources, and records the `di` flows.
  */
 fun applyDi(index: FactIndex, di: DiResult, solved: Derived): Derived {
   val byAccessor = HashMap<String, MutableList<InjectionSiteFact>>()
@@ -47,7 +47,8 @@ fun applyDi(index: FactIndex, di: DiResult, solved: Derived): Derived {
       }
     }
   }
-  if (edges.isEmpty()) return solved
   val all = (solved.callEdges + edges).distinct().sortedWith(compareBy({ it.call }, { it.callee }, { it.via }, { it.graph }))
-  return solved.copy(callEdges = all)
+  // The `di` flows were solver input, not facts on disk, so a trace sees them only as derived flows.
+  val flows = (solved.flows + di.flows).distinct()
+  return solved.copy(callEdges = all, flows = flows)
 }
