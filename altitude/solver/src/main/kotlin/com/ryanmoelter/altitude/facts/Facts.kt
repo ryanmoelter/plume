@@ -114,6 +114,8 @@ data class NodeFact(
   val target: String? = null,
   /** A `callableRef` whose receiver is bound (`x::foo`); the first parameter is not the receiver. */
   val bound: Boolean = false,
+  /** A `literal` as the source writes it, quotes included, when it is at most 200 characters. */
+  val text: String? = null,
 )
 
 @Serializable

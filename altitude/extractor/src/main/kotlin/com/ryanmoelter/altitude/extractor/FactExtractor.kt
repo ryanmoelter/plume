@@ -875,7 +875,14 @@ private class FileExtractor(private val ids: SymbolIds, private val out: FactSin
 
   private fun KaSession.literal(element: KtExpression, scope: Scope): String {
     val node = ids.positional(element, "literal")
-    out.nodes += NodeFact(node, "literal", scope.decl, attempt(element, null) { render(element.expressionType) })
+    out.nodes +=
+      NodeFact(
+        id = node,
+        kind = "literal",
+        enclosingDecl = scope.decl,
+        type = attempt(element, null) { render(element.expressionType) },
+        text = element.text.takeIf { it.length <= 200 },
+      )
     return node
   }
 
