@@ -1,0 +1,84 @@
+#!/usr/bin/env bash
+# Usage: altitude-golden [--update] [<out-root>]
+# For each golden/<target>/<name>.queries, extracts <out-root>/<target>/manifest.json into a
+# scratch directory, runs each line as `trace` arguments, and diffs the text against
+# golden/<target>/<name>.trace.txt. Each <name>.branches line runs as `branches` arguments against
+# <name>.branches.txt the same way. --update rewrites the golden files instead. A target with no
+# manifest is skipped. <out-root> defaults to ~/Development/altitude-out.
+set -euo pipefail
+
+update=false
+if [[ "${1:-}" == "--update" ]]; then
+  update=true
+  shift
+fi
+out_root=${1:-$HOME/Development/altitude-out}
+root=$(cd "$(dirname "$0")/.." && pwd)
+extractor="$root/extractor/build/install/extractor/bin/extractor"
+
+(cd "$root" && ./gradlew -q :extractor:installDist)
+
+status=0
+for target_dir in "$root"/golden/*/; do
+  target=$(basename "$target_dir")
+  manifest="$out_root/$target/manifest.json"
+  if [[ ! -f "$manifest" ]]; then
+    echo "altitude-golden: skipping $target, no $manifest" >&2
+    continue
+  fi
+  facts=$(mktemp -d)
+  "$extractor" facts --manifest "$manifest" --out "$facts" >/dev/null
+  if ! grep -q '"duplicateDeclIds": 0' "$facts/meta.json"; then
+    echo "altitude-golden: $target has duplicate declaration IDs" >&2
+    status=1
+  fi
+  for queries in "$target_dir"*.queries; do
+    golden="${queries%.queries}.trace.txt"
+    actual=$(mktemp)
+    {
+      echo "# $target at $(sed -n 's/.*"gitSha": "\(.*\)".*/\1/p' "$facts/meta.json")"
+      while IFS= read -r query; do
+        [[ -z "$query" || "$query" == \#* ]] && continue
+        echo
+        echo "\$ altitude trace $query"
+        # shellcheck disable=SC2086
+        "$extractor" trace --facts "$facts" $query
+      done <"$queries"
+    } >"$actual"
+    if $update; then
+      cp "$actual" "$golden"
+      echo "altitude-golden: wrote $golden"
+    elif diff -u "$golden" "$actual"; then
+      echo "altitude-golden: $(basename "$golden") matches"
+    else
+      status=1
+    fi
+    rm -f "$actual"
+  done
+  for queries in "$target_dir"*.branches; do
+    [[ -f "$queries" ]] || continue
+    golden="${queries%.branches}.branches.txt"
+    actual=$(mktemp)
+    {
+      echo "# $target at $(sed -n 's/.*"gitSha": "\(.*\)".*/\1/p' "$facts/meta.json")"
+      while IFS= read -r query; do
+        [[ -z "$query" || "$query" == \#* ]] && continue
+        echo
+        echo "\$ altitude branches $query"
+        # shellcheck disable=SC2086
+        "$extractor" branches --facts "$facts" $query
+      done <"$queries"
+    } >"$actual"
+    if $update; then
+      cp "$actual" "$golden"
+      echo "altitude-golden: wrote $golden"
+    elif diff -u "$golden" "$actual"; then
+      echo "altitude-golden: $(basename "$golden") matches"
+    else
+      status=1
+    fi
+    rm -f "$actual"
+  done
+  rm -rf "$facts"
+done
+exit $status
