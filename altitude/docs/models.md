@@ -89,12 +89,20 @@ The call edge is what joins `syncRequests.tryEmit(Unit)` to the `collect { }` th
 
 `trace --value` follows every flow edge, extracted and derived, including three kinds the solver itself never propagates along: `memberOf` (an object to anything read from it), `contentOf` (a container to its slot) and `partOf` (a constructor or `copy` argument to the object built from it). They make the trace a taint trace: the value, or anything it was built from or built into. A path means "data may flow", and the reader checks each hop.
 
-The trace prints the shortest path, and these shortcuts can be shorter than the real route:
+The trace prints the best path. It ranks paths by these counts, most important first, and breaks ties by length:
 
-- **Field-based heap.** A property is one location for all instances. `ApplyAllResult.pool` written in one function is read at every `result.pool` in the program.
-- **Context-insensitive wrappers.** A generic function declared in the sources is analysed once. Every `by makeOnCreate { … }` property in heypenny-app shares `MakeOnCreateDelegate._field`, so each of those properties may hold what any other holds. `N sources` after a hop is the warning sign.
-- **No type filter.** An object reaches a location whatever the declared types, so a conflated location passes a `Pair` to a `StateFlow` read.
+1. **Any-instance reads.** A read of a class property with no copy to say whose, or of a container's contents at another call than the one that stepped into it.
+2. **Conflation.** At each hop, the bits needed to choose among the values that meet at its target (`fan-in N`), or among the containers a port may hold (`container, 1 of N`).
+3. **Derived hops.** `memberOf`, `partOf`, and the step from an element to its container.
+
+A path that enters a function through an argument or receiver leaves it through the same call's result, for the innermost six calls. A read of a property, a cell or another declaration's container forgets those calls, since the value may have been stored under any of them. A path that steps into a container's contents may not step back up to that container, and leaves the contents through the same copy of the call it entered at.
+
+Copies (`docs/facts.md`) keep one caller's values apart from another's in small wrappers and state-holder classes. These shortcuts remain, and a path through them can rank above the real route:
+
+- **Field-based heap.** Outside the copied classes, a property is one location for all instances.
+- **No type filter.** An object reaches a location whatever the declared types.
 - **Element slots**, as above.
+- **A copied class's original body.** Calls dispatched on the class still run the original methods, which see every copy's value of a property that code outside the class reads.
 
 `--via <value>,<value>` pins the route through named values and traces each leg by itself. `cell(Owner.name)` names what a cell holds.
 

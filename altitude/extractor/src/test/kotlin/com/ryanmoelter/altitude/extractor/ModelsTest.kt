@@ -175,7 +175,7 @@ class ModelsTest {
   @Test
   fun valueTracePrintsOneHopPerLineWithItsRule() {
     val text = tracer.traceValue("Flows.kt:27:call(value)", "Flows.kt:31:call(collect)")
-    assertContains(text, "Shortest path:")
+    assertContains(text, "Best path:")
     assertContains(text, "--summary kotlinx-coroutines.yaml#MutableStateFlow.value=-->  cell MutableStateFlow Repository._state")
     assertContains(text, "--memberOf-->")
   }

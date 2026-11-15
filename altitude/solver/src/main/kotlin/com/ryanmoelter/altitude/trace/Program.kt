@@ -9,6 +9,9 @@ import com.ryanmoelter.altitude.facts.Facts
 import com.ryanmoelter.altitude.facts.FlowFact
 import com.ryanmoelter.altitude.facts.NodeFact
 import com.ryanmoelter.altitude.facts.UNRESOLVED_TARGET
+import com.ryanmoelter.altitude.solver.contextOf
+import com.ryanmoelter.altitude.solver.expand
+import com.ryanmoelter.altitude.solver.withoutContext
 
 private val CALLABLE_KINDS = setOf("fun", "ctor", "lambda", "getter", "setter")
 private val CLASS_KINDS = setOf("class", "interface", "object", "enumEntry")
@@ -17,6 +20,17 @@ private val POSITIONAL = Regex("""^(.*):(\d+):(\d+)-(\d+):(\d+):(\w+)$""")
 private val CALL_SELECTOR = Regex("""^(.+):(\d+):call\(([^)]+)\)$""")
 private val VALUE_KINDS = setOf("prop", "param", "local")
 private const val ELEMENT = "#<elem>"
+
+/** From a container's contents to the container: the value now travels inside it. */
+private const val HELD_BY = "heldBy"
+private const val CALL_DEPTH = 6
+private const val PROJECTED_IN = "|"
+private val CONTEXT_MARK = Regex("""~\d+""")
+
+/** The copy marks of an ID; empty for an original. */
+private fun marksOf(id: String): String = CONTEXT_MARK.findAll(id).joinToString("") { it.value }
+
+private val DERIVED_VALUE_KINDS = setOf("memberOf", "partOf", "contentOf", HELD_BY)
 private val PACKAGE_PREFIX = Regex("""\b(?:[a-z_][A-Za-z0-9_]*\.)+(?=[A-Z])""")
 
 /** A source position parsed from `relpath:line:col-line:col[:kind]`. */
@@ -47,6 +61,9 @@ class Hop(val edge: CallEdgeFact, val site: Site?, val otherSites: Int) {
 
 /** The facts and what the solver derived from them, indexed for reading. */
 class Program(val facts: Facts, val derived: Derived) {
+  /** The facts the solver ran on: wrapper functions are copied per call site. */
+  private val expansion = expand(facts)
+
   val decls: Map<String, DeclFact> =
     facts.decls.sortedBy { it.sym }.groupBy { it.sym }.mapValues { it.value.first() }
   val nodes: Map<String, NodeFact> = facts.nodes.associateBy { it.id }
@@ -73,7 +90,47 @@ class Program(val facts: Facts, val derived: Derived) {
           .sortedWith(compareBy({ it.site }, { it.callee }))
       }
 
+  private val edgesBetween: Map<Pair<String, String>, List<CallEdgeFact>> =
+    derived.callEdges.groupBy { it.caller to it.callee }
+
+  private val callsByArgumentNode: Map<String, Set<String>> =
+    facts.args.groupBy({ it.node }, { it.call }).mapValues { it.value.toSet() }
+
+  /**
+   * [hop] at the call site that passes the function value [next] invokes, when [next] is a
+   * `fnValue` hop and one of the sites does. The first site in the file may pass another value.
+   */
+  fun siteFor(hop: Hop, next: Hop?): Hop {
+    if (next?.edge?.via != "fnValue") return hop
+    val witness = witnesses[next.edge.call to next.callee].orEmpty()
+    val passing =
+      edgesBetween[hop.caller to hop.callee].orEmpty()
+        .filter { edge -> witness.any { it.kind == "arg" && edge.call in callsByArgumentNode[it.from].orEmpty() } }
+        .minWithOrNull(compareBy({ Site.of(it.call) }, { it.call }, { it.via }))
+        ?: return hop
+    return Hop(passing, Site.of(passing.call), hop.otherSites)
+  }
+
   val cells: Map<String, CellFact> = derived.cells.associateBy { it.id }
+
+  /** The cell made at [root], or at the call a copy of [root] copies. */
+  fun cellAt(root: String): CellFact? = cells[original(root)]
+
+  // A trace asks these of the same few thousand IDs on every hop.
+  private val originals = HashMap<String, String>()
+  private val contextKeys = HashMap<String, String>()
+
+  private fun original(id: String): String = if ('~' in id) originals.getOrPut(id) { withoutContext(id) } else id
+
+  private fun contextKey(id: String): String = if ('~' in id) contextKeys.getOrPut(id) { marksOf(id) } else ""
+
+  /** The `di` flows were solver input rather than facts on disk, so only [Derived.flows] has them. */
+  private val contextFlows: List<FlowFact> =
+    derived.contextFlows.ifEmpty { derived.flows } + derived.flows.filter { it.kind == "di" }
+
+  /** Each location of the original facts with its copies. */
+  private val copies: Map<String, List<String>> =
+    expansion.facts.nodes.map { it.id }.groupBy(::withoutContext)
 
   private val cellsPerHolder: Map<String, Int> = derived.cells.mapNotNull { it.sym }.groupingBy { it }.eachCount()
 
@@ -85,17 +142,163 @@ class Program(val facts: Facts, val derived: Derived) {
 
   /** Every flow edge, extracted and derived, by the location it leaves. */
   val valueEdges: Map<String, List<FlowFact>> =
-    (facts.flows + derived.flows)
+    (expansion.facts.flows + contextFlows)
+      .let { flows -> flows + holders(flows) }
       .groupBy { it.from }
       .mapValues { (_, edges) ->
         edges.distinct().sortedWith(compareBy({ it.to }, { it.kind }, { it.at }, { it.ruleId }))
       }
 
-  val valueSources: Map<String, Int> =
-    valueEdges.values.flatten().groupBy { it.to }.mapValues { (_, edges) -> edges.map { it.from }.distinct().size }
+  /** The values that meet at a location: its distinct sources over edges that move a value. */
+  val fanIn: Map<String, Int> =
+    valueEdges.values
+      .flatten()
+      .filter { it.kind !in DERIVED_VALUE_KINDS }
+      .groupBy { it.to }
+      .mapValues { (_, edges) -> edges.map { it.from }.distinct().size }
 
+  /** The containers that may be the one a port holds. */
+  private val containerChoices: Map<String, Int> =
+    valueEdges.mapValues { (_, edges) -> edges.count { it.kind == "contentOf" } }
+
+  private fun holders(flows: List<FlowFact>): List<FlowFact> =
+    flows
+      .flatMap { listOf(it.from, it.to) }
+      .filter { it.endsWith(ELEMENT) }
+      .distinct()
+      .mapNotNull { slot ->
+        val root = slot.removeSuffix(ELEMENT)
+        if (cellAt(root) != null || withoutContext(root) !in nodes) return@mapNotNull null
+        FlowFact(slot, root, HELD_BY, withoutContext(root).substringBeforeLast(':'))
+      }
+
+  /** The call at which the edge steps from a container to its contents, or null when it does not. */
+  fun projects(edge: FlowFact): String? =
+    if (edge.kind == "contentOf" && edge.to.endsWith(ELEMENT)) edge.at + PROJECTED_IN + contextKey(edge.from) else null
+
+  /**
+   * Whether the edge cannot follow a step into a container's contents at [projected]. Going back
+   * up to the container would claim the value is in every container stored where that one was.
+   * Leaving through the same call into another copy of it returns to a call the path never made.
+   */
+  private fun breaksProjection(edge: FlowFact, projected: String?): Boolean {
+    if (projected == null) return false
+    if (edge.kind == HELD_BY) return true
+    val at = projected.substringBefore(PROJECTED_IN)
+    return edge.at == at && contextKey(edge.to) != projected.substringAfter(PROJECTED_IN)
+  }
+
+  /** The member or top-level declaration a location belongs to. */
+  private fun home(location: String): String? {
+    val id = original(location.removeSuffix(ELEMENT)).substringBefore('#')
+    var current = decls[nodes[id]?.enclosingDecl ?: id] ?: return null
+    while (current.kind == "lambda" || current.kind == "local" || current.kind == "param") {
+      current = decls[current.owner ?: break] ?: break
+    }
+    return current.sym
+  }
+
+  /**
+   * Whether the edge reads a container's contents with nothing on the path to say which container:
+   * the path stepped into the contents at another call ([projected]), or wrote them and now reads
+   * them in another declaration than the one that made the container. Either way the read stands
+   * for every container made there. A cell is exempt, being shared state by design.
+   */
+  fun readsAnyContainer(edge: FlowFact, projected: String?): Boolean {
+    if (!edge.from.endsWith(ELEMENT) || edge.kind == HELD_BY) return false
+    val root = edge.from.removeSuffix(ELEMENT)
+    if (cellAt(root) != null) return false
+    if (projected != null) return edge.at != projected.substringBefore(PROJECTED_IN)
+    if (edge.to.endsWith(ELEMENT) || '~' in root) return false
+    val made = home(root) ?: return false
+    return made != home(edge.to)
+  }
+
+  fun hopCost(edge: FlowFact, projected: String?): PathCost {
+    val choices = if (edge.kind == "contentOf") containerChoices[edge.from] ?: 1 else 1
+    val derived = edge.kind == "memberOf" || edge.kind == "partOf" || edge.kind == HELD_BY || choices > 1
+    val meeting = if (edge.kind == "contentOf") choices else fanIn[edge.to] ?: 1
+    val anyInstance = isSharedByInstances(edge.from) || readsAnyContainer(edge, projected)
+    return PathCost(if (anyInstance) 1 else 0, bits(meeting), if (derived) 1 else 0, 1)
+  }
+
+  /** Whether the location is a property of a class, which stands for that property of every instance. */
+  fun isSharedByInstances(location: String): Boolean {
+    if (!location.startsWith("prop:") || '~' in location) return false
+    val owner = decls[location]?.owner?.let { decls[it] } ?: return false
+    return owner.kind == "class" || owner.kind == "interface"
+  }
+
+  private val callByArgument: Map<String, String> =
+    expansion.facts.args.groupBy({ it.node }, { it.call }).filterValues { it.distinct().size == 1 }.mapValues { it.value.first() }
+
+  private val callByReceiver: Map<String, String> =
+    expansion.facts.calls
+      .flatMap { call -> (call.receiver + call.extReceiver).map { it to call.id } }
+      .groupBy({ it.first }, { it.second })
+      .filterValues { it.distinct().size == 1 }
+      .mapValues { it.value.first() }
+
+  private val callByResult: Map<String, String> =
+    expansion.facts.calls.filter { it.result != null }.groupBy({ it.result!! }, { it.id }).filterValues { it.size == 1 }.mapValues { it.value.first() }
+
+  /**
+   * The calls a path is inside of after [edge], innermost last, or null when the edge returns to
+   * a call other than the one the path came in through. A value read back from a property, a
+   * cell or any container made elsewhere may have been stored under any call, so that read
+   * forgets them.
+   */
+  fun callsAfter(calls: List<String>, edge: FlowFact, projected: String?): List<String>? {
+    if (breaksProjection(edge, projected)) return null
+    if (edge.from.startsWith("prop:") || cellAt(edge.from.removeSuffix(ELEMENT)) != null) return emptyList()
+    if (readsAnyContainer(edge, projected)) return emptyList()
+    return when (edge.kind) {
+      "arg", "invokeArg" -> callByArgument[edge.from]?.let { (calls + it).takeLast(CALL_DEPTH) } ?: calls
+      "receiver" -> callByReceiver[edge.from]?.let { (calls + it).takeLast(CALL_DEPTH) } ?: calls
+      "return", "invokeReturn" -> {
+        val call = callByResult[edge.to]?.takeIf { edge.from.endsWith("#<ret>") } ?: return calls
+        when {
+          calls.isEmpty() -> calls
+          calls.last() == call -> calls.dropLast(1)
+          else -> null
+        }
+      }
+      else -> calls
+    }
+  }
+
+  fun hopNotes(edge: FlowFact, projected: String?): List<String> = buildList {
+    if (readsAnyContainer(edge, projected)) add("any container made there")
+    when (edge.kind) {
+      HELD_BY -> add("the container holding it")
+      "memberOf" -> add("projection")
+      "partOf" -> add("construction")
+      "contentOf" -> {
+        val choices = containerChoices[edge.from] ?: 1
+        add(if (choices > 1) "container, 1 of $choices" else "container")
+      }
+      else -> fanIn[edge.to]?.takeIf { it > 1 }?.let { add("fan-in $it") }
+    }
+    if (isSharedByInstances(edge.from)) add("any instance's ${decls[edge.from]?.name}")
+  }
+
+  /** What a hop contributes to a trace's skeleton: a cell it enters, or an object it builds. */
+  fun landmark(edge: FlowFact): String? {
+    if (edge.to.endsWith(ELEMENT)) {
+      val cell = cellAt(edge.to.removeSuffix(ELEMENT)) ?: return null
+      return cellName(cell).substringAfter(' ').let { if (cell.sym != null && cellsPerHolder[cell.sym] == 1) it.substringAfterLast(' ') else cellName(cell) }
+    }
+    if (edge.kind == "partOf") {
+      return nodes[edge.to]?.target?.let { "new " + qualifiedName(it) }
+    }
+    return null
+  }
+
+  private fun bits(count: Int): Int = if (count <= 1) 0 else 32 - Integer.numberOfLeadingZeros(count - 1)
+
+  /** A summary's `at` is its call's position, which a copy of the call shares with the original. */
   private val summariesBySite: Map<String, List<FlowFact>> =
-    derived.flows.filter { it.ruleId != null }.groupBy { it.at }
+    contextFlows.filter { it.ruleId != null }.groupBy { it.at }
 
   /** Calls into code outside the analysed sources, by the declaration that makes them. */
   val boundaryCalls: Map<String, List<CallFact>> =
@@ -109,6 +312,7 @@ class Program(val facts: Facts, val derived: Derived) {
 
   /** `Owner.name` without parameters; what a selector matches. */
   fun qualifiedName(sym: String): String {
+    if (contextOf(sym) != null) return qualifiedName(withoutContext(sym))
     val decl = decls[sym] ?: return libraryName(sym)
     val owner = decl.owner?.let { decls[it] }
     val ownerIsClass = owner?.kind in CLASS_KINDS
@@ -136,11 +340,12 @@ class Program(val facts: Facts, val derived: Derived) {
 
   /** A name a reader can find in the source: `Owner.name(ParamType)`, `lambda@File.kt:12`. */
   fun display(sym: String): String {
+    if (contextOf(sym) != null) return "${display(withoutContext(sym))} {copy for ${copySites(sym).joinToString(" in ")}}"
     val decl = decls[sym]
     if (decl == null) {
       if (sym.endsWith(ELEMENT)) {
         val root = sym.removeSuffix(ELEMENT)
-        val cell = cells[root] ?: return "element of ${display(root)}"
+        val cell = cellAt(root) ?: return "element of ${display(root)}"
         return "cell ${cellName(cell)}"
       }
       PSEUDO.find(sym)?.let { return display(sym.removeSuffix(it.value)) + it.value }
@@ -160,6 +365,17 @@ class Program(val facts: Facts, val derived: Derived) {
       else -> qualifiedName(sym)
     }
   }
+
+  /**
+   * The calls a copy was made for, innermost first. A copy's call can itself lie in a copy, and a
+   * copy of a copy carries both marks.
+   */
+  private fun copySites(id: String): List<String> =
+    CONTEXT_MARK.findAll(id).toList().asReversed().flatMap { mark ->
+      val call = expansion.contexts[mark.value.drop(1).toInt()]
+      val site = Site.of(withoutContext(call))
+      listOf("${site?.path?.substringAfterLast('/')}:${site?.line}") + copySites(call)
+    }
 
   private val parameters: Map<String, List<DeclFact>> =
     facts.decls.filter { it.kind == "param" && it.owner != null }.groupBy { it.owner!! }
@@ -214,7 +430,7 @@ class Program(val facts: Facts, val derived: Derived) {
     if (callSelector != null) {
       val (path, line, name) = callSelector.destructured
       val matching =
-        facts.calls
+        expansion.facts.calls
           .filter { call ->
             val site = Site.of(call.id) ?: return@filter false
             site.line == line.toInt() &&
@@ -222,24 +438,30 @@ class Program(val facts: Facts, val derived: Derived) {
               calleeName(call.target) == name
           }
           .sortedBy { it.id }
-      val call = matching.singleOrNull()
-        ?: return ValueSelection(selector, emptySet(), matching.map { it.id })
-      val site = call.id.substringBeforeLast(':')
-      val arguments = facts.args.filter { it.call == call.id }.map { it.node }
-      val locations =
+      val original = matching.map { withoutContext(it.id) }.distinct()
+      if (original.size != 1) return ValueSelection(selector, emptySet(), original)
+      val locations = LinkedHashSet<String>()
+      for (call in matching) {
+        val arguments = expansion.facts.args.filter { it.call == call.id }.map { it.node }
         if (goal) {
-          arguments + call.receiver + call.extReceiver + listOfNotNull(call.result) +
-            summariesBySite[site].orEmpty().filter { it.kind == "summary" }.map { it.to }
+          locations += arguments + call.receiver + call.extReceiver + listOfNotNull(call.result)
+          summariesBySite[withoutContext(call.id).substringBeforeLast(':')].orEmpty().filter { it.kind == "summary" }.mapTo(locations) { it.to }
         } else {
-          listOfNotNull(call.result).ifEmpty { arguments }
+          locations += listOfNotNull(call.result).ifEmpty { arguments }
         }
-      return ValueSelection("${Site.of(call.id)} ${display(call.target)}", locations.toSet(), emptyList())
+      }
+      val call = matching.first()
+      return ValueSelection(
+        "${Site.of(original.single())} ${display(withoutContext(call.target))}",
+        locations,
+        emptyList(),
+      )
     }
     if (selector.startsWith("cell(") && selector.endsWith(")")) {
       val name = selector.removePrefix("cell(").removeSuffix(")")
       val matching =
         derived.cells.filter { cell -> cell.sym?.let { it == name || matches(qualifiedName(it), name) } == true }
-      val slots = matching.map { it.id + ELEMENT }.toSet()
+      val slots = matching.flatMap { copies[it.id] ?: listOf(it.id) }.map { it + ELEMENT }.toSet()
       val label = matching.map { display(it.id + ELEMENT) }.distinct().joinToString().ifEmpty { selector }
       return ValueSelection(label, slots, emptyList())
     }
@@ -269,4 +491,35 @@ class ValueSelection(val label: String, val locations: Set<String>, val candidat
 class Selection(val selector: String, val decls: List<String>, val library: List<String>) {
   val isUnique: Boolean
     get() = decls.size + library.size == 1
+}
+
+/** What a value path costs, most important first. */
+data class PathCost(
+  /** Reads of a class property or of a container made elsewhere, with no object to say whose. */
+  val anyInstanceReads: Int,
+  val conflation: Int,
+  val derivedHops: Int,
+  val length: Int,
+) : Comparable<PathCost> {
+  operator fun plus(other: PathCost): PathCost =
+    PathCost(
+      anyInstanceReads + other.anyInstanceReads,
+      conflation + other.conflation,
+      derivedHops + other.derivedHops,
+      length + other.length,
+    )
+
+  override fun compareTo(other: PathCost): Int {
+    if (anyInstanceReads != other.anyInstanceReads) return anyInstanceReads.compareTo(other.anyInstanceReads)
+    if (conflation != other.conflation) return conflation.compareTo(other.conflation)
+    if (derivedHops != other.derivedHops) return derivedHops.compareTo(other.derivedHops)
+    return length.compareTo(other.length)
+  }
+
+  fun describe(): String =
+    "$anyInstanceReads any-instance reads, conflation $conflation, $derivedHops derived hops, $length hops"
+
+  companion object {
+    val ZERO = PathCost(0, 0, 0, 0)
+  }
 }

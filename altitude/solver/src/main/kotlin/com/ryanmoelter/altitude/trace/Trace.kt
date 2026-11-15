@@ -18,6 +18,14 @@ class TraceOptions(
 private const val INDENT = "      "
 private const val PATH_COUNT_CAP = 1_000_000L
 
+/** [projected]: the call at which the path stepped from a container into this slot, if it did. */
+private data class ValueState(val location: String, val calls: List<String>, val projected: String? = null)
+
+/** [rank] is the order in which the search first reached [state]. */
+private data class Queued(val cost: PathCost, val rank: Int, val state: ValueState) : Comparable<Queued> {
+  override fun compareTo(other: Queued): Int = cost.compareTo(other.cost).let { if (it != 0) it else rank.compareTo(other.rank) }
+}
+
 /** Text reports over a [Program]. Every report says what it left out. */
 class Tracer(private val program: Program, private val options: TraceOptions = TraceOptions()) {
 
@@ -54,7 +62,8 @@ class Tracer(private val program: Program, private val options: TraceOptions = T
       if (search.complete) "${paths.size}" else "at least ${paths.size}"
     appendLine(
       "Paths: $total within ${options.maxDepth} hops. A path is a sequence of declarations; " +
-        "where two declarations are joined by several call sites, the first is shown."
+        "where two declarations are joined by several call sites, the first is shown, " +
+        "unless another passes the function value the next hop invokes."
     )
     if (!search.complete) appendLine("The search stopped early: ${search.stopReason}.")
     val shown = paths.take(1 + options.alternates)
@@ -68,7 +77,7 @@ class Tracer(private val program: Program, private val options: TraceOptions = T
       appendLine()
       val label = if (index == 0) "Shortest path" else "Alternate $index"
       appendLine("== $label (${path.size + (if (libraryGoal != null) 1 else 0)} hops) ==")
-      for (hop in path) hop(hop)
+      for ((index, hop) in path.withIndex()) hop(program.siteFor(hop, path.getOrNull(index + 1)))
       if (libraryGoal != null) {
         val last = path.lastOrNull()?.callee ?: source
         val calls = ends.getValue(last)
@@ -98,75 +107,96 @@ class Tracer(private val program: Program, private val options: TraceOptions = T
     appendLine("              to ${goal.label}")
     appendLine()
 
-    // Breadth-first by layer, counting the shortest paths into each location.
-    val depth = LinkedHashMap<String, Int>()
-    val paths = HashMap<String, Long>()
-    val via = HashMap<String, FlowFact>()
-    val counted = HashSet<Pair<String, String>>()
-    val queue = ArrayDeque<String>()
+    // Cheapest first; among equal costs the state found first decides, so the output is stable.
+    // A state is a location and the calls the path is inside of: a path that enters a function
+    // through one call may not leave it through another.
+    val best = HashMap<ValueState, PathCost>()
+    val paths = HashMap<ValueState, Long>()
+    val via = HashMap<ValueState, Pair<ValueState, FlowFact>>()
+    val settled = LinkedHashSet<ValueState>()
+    val order = HashMap<ValueState, Int>()
+    val queue = java.util.PriorityQueue<Queued>()
     for (location in start.locations.sorted()) {
-      depth[location] = 0
-      paths[location] = 1
-      queue += location
+      val state = ValueState(location, emptyList())
+      order[state] = order.size
+      best[state] = PathCost.ZERO
+      paths[state] = 1
+      queue += Queued(PathCost.ZERO, order.getValue(state), state)
     }
-    var found: String? = null
+    var end: ValueState? = null
     while (queue.isNotEmpty()) {
-      val current = queue.removeFirst()
-      val next = depth.getValue(current) + 1
-      if (found != null && next > depth.getValue(found)) break
-      for (edge in program.valueEdges[current].orEmpty()) {
-        val known = depth[edge.to]
-        if (known == null) {
-          depth[edge.to] = next
-          paths[edge.to] = paths.getValue(current)
-          via[edge.to] = edge
-          counted += edge.from to edge.to
-          queue += edge.to
-          if (found == null && edge.to in goal.locations) found = edge.to
-        } else if (known == next && counted.add(edge.from to edge.to)) {
-          paths[edge.to] = minOf(paths.getValue(edge.to) + paths.getValue(current), PATH_COUNT_CAP)
+      val (cost, _, current) = queue.poll()
+      if (cost != best[current] || !settled.add(current)) continue
+      if (current.location in goal.locations) {
+        end = current
+        break
+      }
+      for (edge in program.valueEdges[current.location].orEmpty()) {
+        val calls = program.callsAfter(current.calls, edge, current.projected) ?: continue
+        val target = ValueState(edge.to, calls, program.projects(edge))
+        if (target in settled) continue
+        val next = cost + program.hopCost(edge, current.projected)
+        val known = best[target]
+        val comparison = if (known == null) -1 else next.compareTo(known)
+        if (comparison < 0) {
+          val rank = order.getOrPut(target) { order.size }
+          best[target] = next
+          paths[target] = paths.getValue(current)
+          via[target] = current to edge
+          queue += Queued(next, rank, target)
+        } else if (comparison == 0) {
+          paths[target] = minOf(paths.getValue(target) + paths.getValue(current), PATH_COUNT_CAP)
         }
       }
     }
-    val end = found ?: start.locations.sorted().firstOrNull { it in goal.locations }
     if (end == null) {
-      appendLine("No path. The start reaches ${depth.size} locations.")
+      val reached = settled.mapTo(LinkedHashSet()) { it.location }
+      appendLine("No path. The start reaches ${reached.size} locations.")
       val reaching = reachingGoal(goal.locations)
       appendLine("${reaching.size} locations reach the goal.")
       val frontier =
-        depth.keys.filter { location -> program.valueEdges[location].isNullOrEmpty() }.sorted()
+        reached.filter { location -> program.valueEdges[location].isNullOrEmpty() }.sorted()
       appendLine("${frontier.size} reached locations have no outgoing edge. The first 40:")
       for (location in frontier.take(40)) appendLine("  ${program.display(location)}  =  $location")
       return
     }
     val hops = ArrayList<FlowFact>()
-    var current: String = end
+    var current: ValueState = end
     while (true) {
-      val edge = via[current] ?: break
+      val (previous, edge) = via[current] ?: break
       hops += edge
-      current = edge.from
+      current = previous
     }
     hops.reverse()
-    val ends = goal.locations.filter { depth[it] == depth[end] }
-    val count = ends.sumOf { paths[it] ?: 0 }
+    val count = paths.getValue(end)
     val total = if (count >= PATH_COUNT_CAP) "at least $PATH_COUNT_CAP" else "$count"
+    appendLine("Best path: ${best.getValue(end).describe()}.")
+    appendLine("$total paths have this cost; the first in sorted order is shown.")
     appendLine(
-      "Shortest path: ${hops.size} hops. $total shortest paths exist; the first in sorted order is shown."
-    )
-    appendLine(
-      "`N sources` after a hop counts the locations with an edge into its target, this one included."
+      "Paths are ranked by any-instance reads, then conflation, then derived hops, then length. " +
+        "A path that enters a function through one call leaves it through the same call. " +
+        "`{copy for File.kt:LINE}` marks code copied for the call at that line. " +
+        "A hop marked [projection], [construction] or [container] derives one value from another " +
+        "instead of moving it. `fan-in N` counts the values that meet at a hop's target."
     )
     appendLine()
-    for (hop in hops) valueHop(hop)
+    val stops =
+      listOf(start.label) + hops.mapNotNull { program.landmark(it) } + goal.label
+    appendLine("Skeleton: " + stops.fold(ArrayList<String>()) { kept, stop ->
+      if (kept.lastOrNull() != stop) kept += stop
+      kept
+    }.joinToString(" → "))
+    appendLine()
+    val states = generateSequence(end) { via[it]?.first }.toList().reversed()
+    for ((index, hop) in hops.withIndex()) valueHop(hop, states[index].projected)
   }
 
-  private fun StringBuilder.valueHop(hop: FlowFact) {
+  private fun StringBuilder.valueHop(hop: FlowFact, projected: String?) {
     val rule = hop.ruleId?.let { " $it" }.orEmpty()
-    val sources = program.valueSources[hop.to] ?: 1
-    val note = if (sources > 1) "  ($sources sources)" else ""
+    val notes = program.hopNotes(hop, projected).joinToString("") { "  [$it]" }
     appendLine(
       "${Site.of(hop.at) ?: hop.at}  ${program.display(hop.from)}  --${hop.kind}$rule-->  " +
-        program.display(hop.to) + note
+        program.display(hop.to) + notes
     )
   }
 
