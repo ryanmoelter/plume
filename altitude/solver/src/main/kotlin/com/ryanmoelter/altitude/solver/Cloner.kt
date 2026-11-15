@@ -6,7 +6,9 @@ import com.ryanmoelter.altitude.facts.FanOutFact
 import com.ryanmoelter.altitude.facts.Facts
 import com.ryanmoelter.altitude.facts.FlowFact
 
-private const val MAX_WRAPPER_LINES = 15
+// Twice the longest wrapper the goldens need copied (14 lines). Between 15 and 30 the golden
+// call graphs are unchanged and solving takes the same time; at 10 one gains 2,253 call edges.
+private const val MAX_WRAPPER_LINES = 30
 private const val MAX_WRAPPER_CALLS = 12
 private const val MAX_HELPER_CLASS_LINES = 40
 private const val MAX_HOLDER_CLASS_LINES = 250

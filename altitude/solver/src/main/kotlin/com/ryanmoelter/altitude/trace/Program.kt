@@ -400,8 +400,10 @@ class Program(val facts: Facts, val derived: Derived) {
       return cellName(cell).substringAfter(' ').let { if (cell.sym != null && cellsPerHolder[cell.sym] == 1) it.substringAfterLast(' ') else cellName(cell) }
     }
     if (edge.kind == "partOf") {
-      // A `copy` call's result names its call rather than a constructor.
-      return nodes[original(edge.to)]?.target?.let { "new " + qualifiedName(calls[it]?.target ?: it) }
+      val target = nodes[original(edge.to)]?.target ?: return null
+      // A `copy` call's result names its call, whose generated target has no declaration.
+      val copied = calls[target]?.target ?: return "new " + qualifiedName(target)
+      return "copy of " + copied.substringBefore('(').substringAfterLast('/').substringBeforeLast('.')
     }
     return null
   }

@@ -92,17 +92,43 @@ The call edge is what joins `syncRequests.tryEmit(Unit)` to the `collect { }` th
 The trace prints the best path. It ranks paths by these counts, most important first, and breaks ties by length:
 
 1. **Any-instance reads.** A read of a class property with no copy to say whose, or of a container's contents at another call than the one that stepped into it.
-2. **Conflation.** At each hop, the bits needed to choose among the values that meet at its target (`fan-in N`), or among the containers a port may hold (`container, 1 of N`).
-3. **Derived hops.** `memberOf`, `partOf`, and the step from an element to its container.
+2. **Hops outside production code.** A hop into a test source set, a declaration under an annotation named `…Preview…`, or a class with the word `Fake` in its name.
+3. **Conflation.** At each hop, the bits needed to choose among the values that meet at its target (`fan-in N`), or among the containers a port may hold (`container, 1 of N`).
+4. **Derived hops.** `memberOf`, `partOf`, and the step from an element to its container.
 
-A path that enters a function through an argument or receiver leaves it through the same call's result, for the innermost six calls. A read of a property, a cell or another declaration's container forgets those calls, since the value may have been stored under any of them. A path that steps into a container's contents may not step back up to that container, and leaves the contents through the same copy of the call it entered at.
+Among paths of equal cost, the trace prints the one its search reaches first. The search visits edges in sorted order, so the output is the same on every run. The search stops after `searchBudget` steps (2,000,000) and then says it is incomplete. It prints any path it found by then and says that a cheaper one may exist.
+
+### Matching calls and returns
+
+The trace keeps a list of the calls the path is inside of, innermost last, at most six. An empty list means "unknown". A return edge follows these rules:
+
+- If the list is empty, the path may take any return edge.
+- If the innermost call is the call that the edge returns to, the path takes it and drops that call.
+- Otherwise the trace rejects the edge.
+
+The rule never drops a path that can happen, because the trace keeps the list only while the list provably describes the run of the function that the value is in. A run is one execution of a function, a lambda or an initializer. The list survives these edges and no others:
+
+- **An edge inside one run.** Both ends belong to the same function or lambda, in the same copy. A lambda written as an argument whose function value goes nowhere else counts as part of the run that wrote it: only that call can run it, and it captures that run's variables.
+- **Entry into a call.** The edge passes an argument or a receiver. The trace adds the call. When the same expression is the receiver of several calls, as an implicit `this` is, the trace adds "one of these calls", and a return to any of them matches. When the expression belongs to another run than the call does, the trace first empties the list.
+- **The matching return**, as above.
+- **A library summary or an override.** The summary stays at one call site, and an override runs under the calls of the function it overrides.
+- **A container's contents**, when the path leaves them at the same call that stepped into them, or steps back to the container at the same call that filled them.
+
+Every other edge between two runs empties the list: a captured variable, a property, a cell, a container's contents read at another call, a DI link, a bound reference's receiver. A value stored in one of these can be read by a run under any calls. After the list is empty, every return is allowed, so the trace loses precision there and never a path. Six calls is not a soundness limit either: the trace drops the outermost call, and a return with an empty list is always allowed.
+
+A path that steps into a container's contents may not step back up to that container. It leaves the contents through the copy of the call that it entered at, unless the target exists only outside that copy, as a lambda that the caller passed to a copied wrapper does.
+
+### What stays approximate
 
 Copies (`docs/facts.md`) keep one caller's values apart from another's in small wrappers and state-holder classes. These shortcuts remain, and a path through them can rank above the real route:
 
 - **Field-based heap.** Outside the copied classes, a property is one location for all instances.
 - **No type filter.** An object reaches a location whatever the declared types.
+- **No field in `partOf` and `memberOf`.** An object carries everything built into it, so a value that entered an object as one constructor argument leaves it through any property. Pin the route with `--via Owner.property` when that matters.
 - **Element slots**, as above.
-- **A copied class's original body.** Calls dispatched on the class still run the original methods, which see every copy's value of a property that code outside the class reads.
+- **Access to a copied class from outside.** Code outside a copied class that calls a member, reads or writes a property, or takes a reference to a member may hold any copy. Each such flow goes to every copy and to the original, so a value that one construction passed can leave through a member call made on another construction's object. Nothing is lost: the original body's properties receive what outside code writes, and each copy's properties receive what its own construction passed.
+- **Another instance inside a copied class.** A member of a copied class that touches another instance of the same class (`other.field`) stays in its own copy. This is the one known place where a copy can drop a real flow. The facts do not record the receiver of a property write, so the copier cannot detect it.
+- **Nested wrappers.** A wrapper that is called from a wrapper is copied once per outer call for two levels. Deeper wrappers share one copy, so their callers' values meet.
 
 `--via <value>,<value>` pins the route through named values and traces each leg by itself. `cell(Owner.name)` names what a cell holds.
 

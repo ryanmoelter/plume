@@ -8,21 +8,38 @@ fun callerLambdaAfterContentsOfCopiedWrapper() {
   sink(sourceList().mapAll { it }.first())
 }
 
-fun w1(v: String) = w2(v)
+fun <T> w1(f: () -> T) = w2(f)
 
-fun w2(v: String) = w3(v)
+fun <T> w2(f: () -> T) = w3(f)
 
-fun w3(v: String) = w4(v)
+fun <T> w3(f: () -> T) = f()
 
-fun w4(v: String) = w5(v)
-
-fun w5(v: String) = v
-
-fun nestedWrappers() {
-  val tainted = w1(source())
-  val clean = w1("clean")
+fun wrappersNestedTwoDeep() {
+  val v = source()
+  val tainted = w2 { v }
+  val clean = w2 { "clean" }
   sink(tainted)
   sink(clean)
+}
+
+fun wrappersNestedThreeDeep() {
+  val v = source()
+  sink(w1 { v })
+}
+
+fun <T> x1(f: () -> T) = x2(f)
+
+fun <T> x2(f: () -> T) = x3(f)
+
+fun <T> x3(f: () -> T) = x4(f)
+
+fun <T> x4(f: () -> T) = x5(f)
+
+fun <T> x5(f: () -> T) = f()
+
+fun wrappersNestedDeeperThanTheyAreCopied() {
+  val v = source()
+  sink(x1 { v })
 }
 
 fun <T> deferred(f: () -> T): () -> T = { f() }

@@ -1,9 +1,12 @@
 package com.ryanmoelter.altitude.extractor
 
+import com.ryanmoelter.altitude.solver.expand
+import com.ryanmoelter.altitude.solver.withoutContext
 import com.ryanmoelter.altitude.trace.TraceOptions
 import com.ryanmoelter.altitude.trace.Tracer
 import kotlin.test.Test
 import kotlin.test.assertContains
+import kotlin.test.assertEquals
 import kotlin.test.assertFalse
 
 /** Value paths that cross calls in the `value` fixture: none that can happen may be dropped. */
@@ -43,9 +46,27 @@ class ValueTraceTest {
     assertPath("callerLambdaAfterContentsOfCopiedWrapper", from = "sourceList")
 
   @Test
-  fun wrappersNestedDeeperThanTheyAreCopiedStillMatchCalls() {
-    assertContains(ValueFixture.trace("nestedWrappers", nth = 0), "Best path:")
-    assertContains(ValueFixture.trace("nestedWrappers", nth = 1), "No path.")
+  fun wrappersNestedTwoDeepKeepCallersApart() {
+    assertContains(ValueFixture.trace("wrappersNestedTwoDeep", nth = 0), "Best path:")
+    assertContains(ValueFixture.trace("wrappersNestedTwoDeep", nth = 1), "No path.")
+  }
+
+  @Test
+  fun wrappersNestedThreeDeepStillReturn() = assertPath("wrappersNestedThreeDeep")
+
+  @Test
+  fun wrappersNestedDeeperThanTheyAreCopiedStillReturn() =
+    assertPath("wrappersNestedDeeperThanTheyAreCopied")
+
+  @Test
+  fun wrapperIsCopiedPerCallSite() {
+    val copies = expand(ValueFixture.facts).facts.decls.filter { '~' in it.sym }.map { withoutContext(it.sym) }
+    val names = ValueFixture.facts.decls.associate { it.sym to it.name }
+    val copiesOf = copies.groupingBy { names[it] }.eachCount()
+    // `mapAll` has one call. `w2` has two in `wrappersNestedTwoDeep` and one in `w1`, whose copy
+    // for its own call makes another.
+    assertEquals(1, copiesOf["mapAll"])
+    assertEquals(4, copiesOf["w2"])
   }
 
   @Test
