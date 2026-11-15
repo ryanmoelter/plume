@@ -52,7 +52,7 @@ Value locations that are not declarations hang off an ID:
 | `supertype` | `cls`, `sup`, `viaDelegation`, `delegate`, `delegateType` |
 | `override` | `sym`, `overridden` |
 | `actualFor` | `actual`, `expect` |
-| `annotation` | `sym`, `annFq`, `args` |
+| `annotation` | `sym`, `annFq`, `args`, `values`, `meta`, `typeArgs` |
 | `node` | `id`, `kind`, `enclosingDecl`, `type`, `fnTyped`, `target`, `bound` |
 | `call` | `id`, `callerDecl`, `target`, `dispatch`, `targetInSource`, `receiver`, `extReceiver`, `implicit`, `receiverType`, `result` |
 | `arg` | `call`, `param`, `index`, `node`, `form`, `typeAnnotations` |

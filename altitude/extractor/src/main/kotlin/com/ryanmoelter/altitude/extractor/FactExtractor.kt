@@ -125,6 +125,7 @@ import org.jetbrains.kotlin.psi.KtThisExpression
 import org.jetbrains.kotlin.psi.KtThrowExpression
 import org.jetbrains.kotlin.psi.KtTryExpression
 import org.jetbrains.kotlin.psi.KtTypeAlias
+import org.jetbrains.kotlin.psi.KtTypeProjection
 import org.jetbrains.kotlin.psi.KtTypeReference
 import org.jetbrains.kotlin.psi.KtUnaryExpression
 import org.jetbrains.kotlin.psi.KtValueArgument
@@ -1596,8 +1597,24 @@ private class FileExtractor(private val ids: SymbolIds, private val out: FactSin
       val fqName = annotation.classId?.asString() ?: continue
       val arguments = annotation.psi?.valueArguments.orEmpty().map { (it as? KtValueArgument)?.text ?: "" }
       out.annotations +=
-        AnnotationFact(id, fqName, arguments, annotationValues(annotation), metaAnnotations(annotation))
+        AnnotationFact(
+          id,
+          fqName,
+          arguments,
+          annotationValues(annotation),
+          metaAnnotations(annotation),
+          annotation.psi?.typeArguments.orEmpty().mapNotNull { typeArgument(it) },
+        )
     }
+  }
+
+  private fun KaSession.typeArgument(argument: KtTypeProjection): AnnotationTypeArgFact? {
+    val type = argument.typeReference?.type ?: return null
+    return AnnotationTypeArgFact(
+      type = renderExpanded(type) ?: render(type).orEmpty(),
+      cls = ids.run { classOf(type) },
+      annotations = type.annotations.map { nestedAnnotation(null, it, it.psi) },
+    )
   }
 
   private fun KaSession.annotationValues(annotation: KaAnnotation): List<AnnotationValueFact> =
@@ -1646,15 +1663,7 @@ private class FileExtractor(private val ids: SymbolIds, private val out: FactSin
       kind = "annotation",
       value = annotation.classId?.asString(),
       elements = annotationValues(annotation),
-      typeArgs =
-        typeArguments.mapNotNull { argument ->
-          val type = argument.typeReference?.type ?: return@mapNotNull null
-          AnnotationTypeArgFact(
-            type = renderExpanded(type) ?: render(type).orEmpty(),
-            cls = ids.run { classOf(type) },
-            annotations = type.annotations.map { nestedAnnotation(null, it, it.psi) },
-          )
-        },
+      typeArgs = typeArguments.mapNotNull { typeArgument(it) },
       meta = metaAnnotations(annotation),
     )
   }

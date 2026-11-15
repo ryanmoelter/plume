@@ -72,6 +72,8 @@ data class AnnotationFact(
   val values: List<AnnotationValueFact> = emptyList(),
   /** The annotations the annotation class itself carries, without `kotlin/annotation/`. */
   val meta: List<String> = emptyList(),
+  /** The annotation's own type arguments, as `@DefaultBinding<T>` takes one. */
+  val typeArgs: List<AnnotationTypeArgFact> = emptyList(),
 )
 
 @Serializable
