@@ -1,0 +1,77 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Altitude smoke viewer</title>
+<style>
+  :root { --bg: #fff; --fg: #1d1d1f; --muted: #6e6e73; --line: #d2d2d7; }
+  @media (prefers-color-scheme: dark) { :root { --bg: #1c1c1e; --fg: #f5f5f7; --muted: #a1a1a6; --line: #3a3a3c; } }
+  body { margin: 0 auto; padding: 16px; max-width: 960px; background: var(--bg); color: var(--fg); font: 14px/1.45 -apple-system, system-ui, sans-serif; }
+  h1 { font-size: 20px; } h2 { font-size: 16px; margin-top: 28px; }
+  table { border-collapse: collapse; width: 100%; } td, th { text-align: left; padding: 3px 8px; border-bottom: 1px solid var(--line); vertical-align: top; }
+  th { color: var(--muted); font-weight: 500; } code, .mono { font: 12px ui-monospace, Menlo, monospace; }
+  .muted { color: var(--muted); } select { font: inherit; }
+</style>
+</head>
+<body>
+<h1>Altitude smoke viewer</h1>
+<p class="muted">Serve this folder next to an export (<code>altitude.json</code>, and <code>altitude-nodes.json</code> if split), or pick the files.
+  <input type="file" id="pick" accept=".json" multiple></p>
+<div id="out"></div>
+<script>
+const out = document.getElementById("out");
+const esc = s => String(s ?? "").replace(/[&<>"]/g, c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" })[c]);
+const short = id => esc(String(id ?? "").split(/[/:]/).pop());
+
+function render(main, detail) {
+  if (main.schema !== "altitude-export") { out.textContent = "Not an Altitude export."; return; }
+  const nodes = main.nodes.map(n => Object.assign({}, n, detail?.nodes?.[n.id]));
+  let html = `<p><b>${esc(main.meta.target)}</b> <span class="mono muted">${esc(main.meta.gitSha ?? "")}</span> · schema ${main.schemaVersion}</p>`;
+  html += "<h2>Counts</h2><table>" + Object.entries(main.meta.counts).map(([k, v]) => `<tr><td>${esc(k)}</td><td>${v}</td></tr>`).join("") + "</table>";
+  const p = main.patterns.target;
+  html += `<h2>Pattern</h2><p>${esc(p.label ?? "no label")}</p><p class="muted mono">${esc((p.because ?? []).join(", "))}</p>`;
+  html += "<h2>Layers</h2><table><tr><th>Layer</th><th>Nodes</th><th>Largest</th></tr>";
+  for (const [i, name] of [...main.meta.layers.entries(), [null, "unplaced"]]) {
+    const inLayer = nodes.filter(n => (n.layer ?? null) === i && !n.staged && !n.generated).sort((a, b) => b.size.loc - a.size.loc);
+    html += `<tr><td>${esc(name)}</td><td>${inLayer.length}</td><td>${inLayer.slice(0, 6).map(n => esc(n.name)).join(", ")}</td></tr>`;
+  }
+  html += "</table>";
+  html += `<h2>Trace</h2><select id="trace">${main.traces.map((t, i) => `<option value="${i}">${esc(t.name)}: ${esc(t.query)}</option>`).join("")}</select><div id="hops"></div>`;
+  out.innerHTML = html;
+  const showTrace = i => {
+    const t = main.traces[i];
+    if (!t) { document.getElementById("hops").innerHTML = "<p class='muted'>No traces.</p>"; return; }
+    let h = `<p class="muted">${esc(t.kind)} · matches golden: ${t.matchesGolden}</p>`;
+    for (const leg of t.legs) {
+      h += `<p class="mono">${leg.nodePath.map(short).join(" → ")}</p><table><tr><th>From</th><th>Kind</th><th>To</th><th>Site</th><th>Edge</th></tr>`;
+      for (const hop of leg.hops) {
+        const e = hop.edge != null ? main.edges[hop.edge] : null;
+        h += `<tr><td>${short(hop.fromNode)}</td><td>${esc(hop.kind)}${hop.wrapDepth ? ` <span class="muted">depth ${hop.wrapDepth}</span>` : ""}</td><td>${short(hop.toNode)}</td><td class="mono">${hop.site ? esc(hop.site) : ""}</td><td>${e ? `${esc(e.kind)} ×${e.count}` : ""}</td></tr>`;
+      }
+      h += "</table>";
+    }
+    document.getElementById("hops").innerHTML = h;
+  };
+  document.getElementById("trace")?.addEventListener("change", ev => showTrace(+ev.target.value));
+  showTrace(0);
+}
+
+async function fromServer() {
+  try {
+    const main = await (await fetch("altitude.json")).json();
+    const detail = main.meta.detailFile ? await (await fetch(main.meta.detailFile)).json() : null;
+    render(main, detail);
+  } catch { out.innerHTML = "<p class='muted'>No export next to this page. Pick the files above.</p>"; }
+}
+
+document.getElementById("pick").addEventListener("change", async ev => {
+  const parsed = await Promise.all([...ev.target.files].map(async f => JSON.parse(await f.text())));
+  const main = parsed.find(j => j.schema === "altitude-export");
+  const detail = parsed.find(j => j !== main && j.nodes && !Array.isArray(j.nodes));
+  if (main) render(main, detail); else out.textContent = "Pick altitude.json.";
+});
+fromServer();
+</script>
+</body>
+</html>
