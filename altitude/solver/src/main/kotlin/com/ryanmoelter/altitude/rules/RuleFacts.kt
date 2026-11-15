@@ -88,7 +88,8 @@ data class RouteFact(
   val method: String,
   val path: String,
   val handler: String,
-  val filters: List<String> = emptyList(),
+  /** Outermost first. No default, so a route without filters still writes `[]`. */
+  val filters: List<String>,
   val mounted: Boolean = true,
   val confidence: String? = null,
   val note: String? = null,
@@ -155,7 +156,8 @@ data class BoundaryFact(
 @Serializable
 data class NavigationFact(
   val from: String,
-  val to: String,
+  /** The destination class; absent for a call that only pops, or whose destination is unknown. */
+  val to: String? = null,
   val call: String,
   /** The navigator function: `goTo`, `replace` and the like. */
   val op: String,
