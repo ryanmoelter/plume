@@ -34,8 +34,8 @@ Library behavior comes from the models under `models/`: what `map`, `launch` or 
 
 Build the command with `./gradlew :extractor:installDist`; it lands in `extractor/build/install/extractor/bin/extractor`.
 
-`bin/altitude-golden` regenerates the traces under `golden/` from each target's manifest and diffs them. It skips a target whose manifest is absent.
+`bin/altitude-golden` regenerates the traces and branch trees under `golden/` from each target's manifest and diffs them. It skips a target whose manifest is absent.
 
 ## Export
 
-`extractor export --facts <dir> --out <dir> --target <name> [--golden golden/<target>]` writes `altitude.json`: containers, features, nodes placed in layers with roles and evidence, aggregated edges, cells, bundles, pattern vectors and the golden traces as node and edge references. A large export moves node detail into `altitude-nodes.json`. `docs/export.md` is the reference, and `viewer-smoke/` is a static page that loads it.
+`extractor export --facts <dir> --out <dir> --target <name> [--golden golden/<target>]` writes `altitude.json`: containers, features, nodes placed in layers with roles and evidence, aggregated edges, cells, bundles, pattern vectors and the golden traces as node and edge references. A large export moves node detail into `altitude-nodes.json`. `altitude-members.json` holds the members inside each node and the edges between them. `altitude-branches.json` holds branch trees: from every cell, boundary and golden trace end, every path `trace --value` would print to each boundary, cell, composable, entry point or library sink the value reaches, merged into one tree. `extractor branches --facts <dir> (--from <value> | --to <value>) [--through-cells] [--clean] [--json]` prints the tree of any value `trace` can name. `docs/export.md` is the reference, and `viewer-smoke/` is a static page that loads it.

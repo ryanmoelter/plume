@@ -1,6 +1,13 @@
 package com.ryanmoelter.altitude.extractor
 
+import com.ryanmoelter.altitude.export.BranchRoot
+import com.ryanmoelter.altitude.export.Exporter
+import com.ryanmoelter.altitude.export.BranchTables
+import com.ryanmoelter.altitude.export.BranchesExport
+import com.ryanmoelter.altitude.export.defaultStops
 import com.ryanmoelter.altitude.export.export
+import com.ryanmoelter.altitude.export.exportJson
+import com.ryanmoelter.altitude.trace.Direction
 import com.ryanmoelter.altitude.facts.FactStore
 import com.ryanmoelter.altitude.facts.MetaFact
 import com.ryanmoelter.altitude.manifest.Manifest
@@ -25,6 +32,7 @@ private val USAGE =
     trace   --facts <dir> --from <selector> --forward [--max-depth N] [--limit N]
     trace   --facts <dir> --value --from <value> --to <value> [--via <value>,<value>]
     trace   --facts <dir> --from-entrypoint <entry> --to-boundary <boundary> [--max-depth N] [--alternates N]
+    branches --facts <dir> (--from <value> | --to <value>) [--through-cells] [--clean] [--json]
     show    --facts <dir> --file <relpath>
     check   --facts <dir> --expected <golden expected dir>
     export  --facts <dir> --out <dir> --target <name> [--golden <golden target dir>] [--split]
@@ -36,7 +44,7 @@ private val USAGE =
   """
     .trimIndent()
 
-private val FLAGS = setOf("--no-compiler-plugins", "--forward", "--value", "--split")
+private val FLAGS = setOf("--no-compiler-plugins", "--forward", "--value", "--split", "--through-cells", "--clean", "--json")
 
 fun main(args: Array<String>) {
   val command = args.firstOrNull() ?: fail(USAGE)
@@ -108,6 +116,23 @@ fun main(args: Array<String>) {
             else -> tracer.trace(required("--from"), required("--to"))
           }
         )
+      }
+      "branches" -> {
+        val dir = Path.of(required("--facts"))
+        val (context, memberIds) = Exporter("branches", FactStore.read(dir), FactStore.readDerived(dir), Rules.read(dir), FactStore.readMeta(dir)).branchContext()
+        val direction = if ("--to" in options) Direction.BACKWARD else Direction.FORWARD
+        val selector = if (direction == Direction.FORWARD) required("--from") else required("--to")
+        val selection = context.program.selectValue(selector, goal = direction == Direction.BACKWARD)
+        if (selection.locations.isEmpty()) fail("${if (direction == Direction.FORWARD) "--from" else "--to"} ${selection.label}: nothing matches.")
+        val root = BranchRoot(direction, "value", null, selection.label, selection.locations)
+        val clean = "--clean" in flags
+        val tree = context.tree(root, defaultStops(direction, "--through-cells" in flags), clean)
+        if ("--json" in flags) {
+          val tables = BranchTables()
+          val out = context.out(root, tree, clean, tables)
+          println(exportJson.encodeToString(BranchesExport.serializer(), tables.export("", listOf(out), emptyMap())))
+        }
+        else print(context.text(root, tree, memberIds))
       }
       "check" -> {
         val result = check(Path.of(required("--facts")), Path.of(required("--expected")))

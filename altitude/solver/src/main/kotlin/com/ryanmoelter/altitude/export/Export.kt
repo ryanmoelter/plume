@@ -46,7 +46,8 @@ const val SPLIT_BYTES = 4_000_000
 /**
  * Writes `altitude.json` for one facts directory. When it would exceed [SPLIT_BYTES], or with
  * [split], node detail (placement, reach, fan-in, the misplaced flag) and the argument groups go to
- * `altitude-nodes.json`. Members and member edges always go to [MEMBERS_FILE].
+ * `altitude-nodes.json`. Members and member edges always go to [MEMBERS_FILE], and branch trees to
+ * [BRANCHES_FILE], which keeps hop records only for clean segments when it would exceed [SPLIT_BYTES].
  */
 fun export(factsDir: Path, out: Path, target: String, golden: Path?, split: Boolean = false): ExportResult {
   val facts = FactStore.read(factsDir)
@@ -55,10 +56,17 @@ fun export(factsDir: Path, out: Path, target: String, golden: Path?, split: Bool
   val meta = FactStore.readMeta(factsDir)
   val queries = golden?.let(::readGolden).orEmpty()
   val detailName = "altitude-nodes.json"
-  val (built, members) = Exporter(target, facts, derived, rules, meta).buildAll(queries)
+  val exporter = Exporter(target, facts, derived, rules, meta)
+  val (all, members) = exporter.buildAll(queries)
+  val built = all.copy(meta = all.meta.copy(branchesFile = BRANCHES_FILE))
   out.createDirectories()
   val sizes = LinkedHashMap<String, Long>()
   sizes[MEMBERS_FILE] = write(out.resolve(MEMBERS_FILE), exportJson.encodeToJsonElement(members))
+  val trees = exporter.branchTrees(queries)
+  val branches = exportJson.encodeToJsonElement(exporter.branchesExport(trees)).let { whole ->
+    if (whole.toString().length < SPLIT_BYTES) whole else exportJson.encodeToJsonElement(exporter.branchesExport(trees, withHops = false))
+  }
+  sizes[BRANCHES_FILE] = write(out.resolve(BRANCHES_FILE), branches)
   val whole = exportJson.encodeToJsonElement(built).jsonObject
   if (!split && whole.toString().length < SPLIT_BYTES) {
     sizes["altitude.json"] = write(out.resolve("altitude.json"), whole)

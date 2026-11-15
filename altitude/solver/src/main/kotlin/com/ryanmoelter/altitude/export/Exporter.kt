@@ -5,6 +5,7 @@ import com.ryanmoelter.altitude.facts.Facts
 import com.ryanmoelter.altitude.facts.MetaFact
 import com.ryanmoelter.altitude.rules.Rules
 import com.ryanmoelter.altitude.solver.withoutContext
+import com.ryanmoelter.altitude.trace.BranchTree
 import com.ryanmoelter.altitude.trace.Program
 import com.ryanmoelter.altitude.trace.Site
 import java.util.TreeMap
@@ -710,8 +711,43 @@ class Exporter(
 
   private val nodeIndex: Map<String, Int> = nodeIds.withIndex().associate { it.value to it.index }
 
+  /** Numbering the members freezes them, so everything that asks for a member runs before this. */
+  private val memberDrafts by lazy { members.finish(nodeIndex) }
+
+  /** Branch trees against this export's indices; [refs] are its edge indices, when hops should name edges. */
+  fun branchContext(refs: TraceRunner.Refs = TraceRunner.Refs(emptyMap(), emptyMap())): Pair<BranchContext, List<String>> {
+    val ids = memberDrafts.map { it.id }
+    val memberIndex = ids.withIndex().associate { it.value to it.index }
+    return BranchContext(program, facts, rules, units, members, composable, cellFacts, memberIndex, nodeIndex, refs) to ids
+  }
+
+  private val branchContext by lazy {
+    branchContext(TraceRunner.Refs(edgeAggs.keys.withIndex().associate { it.value to it.index }, memberAggs.keys.withIndex().associate { it.value to it.index })).first
+  }
+
+  /** The branch tree of every precomputed root, with default stops. Runs after [buildAll]. */
+  fun branchTrees(golden: List<GoldenQuery> = emptyList()): List<Pair<BranchRoot, BranchTree>> =
+    branchContext.roots(golden).map { root -> root to branchContext.tree(root, defaultStops(root.direction, throughCells = false)) }
+
+  /** [withHops] false keeps hop records only for clean segments, for a file that would otherwise be too large. */
+  fun branchesExport(trees: List<Pair<BranchRoot, BranchTree>>, withHops: Boolean = true): BranchesExport {
+    val counts = TreeMap<String, Int>()
+    val tables = BranchTables()
+    val out =
+      trees.map { (root, tree) ->
+        val key = "${root.direction.label}.${root.kind}"
+        counts.merge("trees.$key", 1, Int::plus)
+        if (tree.truncated) counts.merge("truncated.$key", 1, Int::plus)
+        for (t in tree.terminals) counts.merge("terminals.${t.path.key.kind}", 1, Int::plus)
+        branchContext.out(root, tree, clean = false, tables, withHops = withHops)
+      }
+    counts["trees"] = out.size
+    if (!withHops) counts["hopDetailDropped"] = 1
+    return tables.export(target, out, counts)
+  }
+
   private fun membersExport(edgeIndex: Map<Triple<String, String, String>, Int>): MembersExport {
-    val drafts = members.finish(nodeIndex)
+    val drafts = memberDrafts
     val memberIndex = drafts.withIndex().associate { it.value.id to it.index }
     val nested =
       units.decls.values

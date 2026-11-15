@@ -4,12 +4,14 @@ import com.ryanmoelter.altitude.facts.CallFact
 import com.ryanmoelter.altitude.facts.FlowFact
 import com.ryanmoelter.altitude.solver.withoutContext
 import com.ryanmoelter.altitude.trace.Hop
+import com.ryanmoelter.altitude.trace.PATH_COUNT_CAP
 import com.ryanmoelter.altitude.trace.PathCost
 import com.ryanmoelter.altitude.trace.Program
 import com.ryanmoelter.altitude.trace.Site
 import com.ryanmoelter.altitude.trace.TraceOptions
+import com.ryanmoelter.altitude.trace.ValueGoal
+import com.ryanmoelter.altitude.trace.ValueSearch
 import java.nio.file.Path
-import java.util.PriorityQueue
 import kotlin.io.path.exists
 import kotlin.io.path.listDirectoryEntries
 import kotlin.io.path.name
@@ -72,7 +74,7 @@ class TraceRunner(
     else callTrace(query, from, to, opts["--max-depth"]?.toInt() ?: options.maxDepth, refs)
   }
 
-  private class Refs(val edges: Map<Triple<String, String, String>, Int>, val memberEdges: Map<Triple<String, String, String>, Int>)
+  class Refs(val edges: Map<Triple<String, String, String>, Int>, val memberEdges: Map<Triple<String, String, String>, Int>)
 
   private fun node(location: String) = units.of(location)
 
@@ -229,10 +231,6 @@ class TraceRunner(
 
   // ---- value paths ---------------------------------------------------------------------------
 
-  private data class State(val location: String, val calls: List<String>, val projected: String? = null, val filled: String? = null)
-
-  private class Queued(val cost: PathCost, val rank: Int, val state: State)
-
   /** [projected] is each hop's starting state's projection, which some hop notes depend on. */
   private class Leg(val hops: List<FlowFact>, val projected: List<String?>, val cost: PathCost, val equalCost: Long, val exhausted: Boolean)
 
@@ -251,18 +249,8 @@ class TraceRunner(
         legs += TraceLegOut(stops[i], stops[i + 1], emptyList(), emptyList())
         continue
       }
-      var depth = 0
-      val out =
-        leg.hops.mapIndexed { index, hop ->
-          depth +=
-            when {
-              hop.kind == "partOf" || hop.kind == "heldBy" -> 1
-              hop.kind == "memberOf" || (hop.kind == "contentOf" && hop.to.endsWith(ELEMENT)) -> -1
-              else -> 0
-            }
-          rendered += "${Site.of(hop.at) ?: hop.at}  ${program.display(hop.from)}  --${hop.kind}${hop.ruleId?.let { " $it" }.orEmpty()}-->  ${program.display(hop.to)}"
-          valueHop(hop, leg.projected[index], depth, refs)
-        }
+      val out = valueHops(leg.hops, leg.projected, refs)
+      for (hop in leg.hops) rendered += "${Site.of(hop.at) ?: hop.at}  ${program.display(hop.from)}  --${hop.kind}${hop.ruleId?.let { " $it" }.orEmpty()}-->  ${program.display(hop.to)}"
       val skeleton =
         (listOf(starts[i].label) + leg.hops.mapNotNull { program.landmark(it) } + goals[i].label).fold(ArrayList<String>()) { kept, stop ->
           if (kept.lastOrNull() != stop) kept += stop
@@ -284,7 +272,16 @@ class TraceRunner(
     return TraceOut(query.name, query.query, query.comment, "value", legs, matches, if (found) null else "a leg has no path")
   }
 
-  private fun valueHop(hop: FlowFact, projected: String?, depth: Int, refs: Refs): TraceHopOut {
+  /** The hop records of one value path; [projected] is each hop's starting state's projection. */
+  fun valueHops(hops: List<FlowFact>, projected: List<String?>, refs: Refs, mismatches: List<String?> = program.fieldMismatches(hops)): List<TraceHopOut> {
+    var depth = 0
+    return hops.mapIndexed { index, hop ->
+      depth += wrapStep(hop)
+      valueHop(hop, projected[index], depth, refs, mismatches[index] != null)
+    }
+  }
+
+  private fun valueHop(hop: FlowFact, projected: String?, depth: Int, refs: Refs, fieldMismatch: Boolean): TraceHopOut {
     val a = node(hop.from)
     val b = node(hop.to)
     val ma = members.ofLocation(hop.from)
@@ -316,6 +313,8 @@ class TraceRunner(
       anyContainer = program.readsAnyContainer(hop, projected),
       anyInstanceOf = if (program.isSharedByInstances(hop.from)) units.decls[hop.from]?.name else null,
       property = if (hop.kind == "memberOf") propertyRead(hop.to) else null,
+      field = if (hop.kind == "partOf") program.fieldOf(hop) else null,
+      fieldMismatch = fieldMismatch,
       nonProduction = program.isStaged(hop.to),
       landmark = program.landmark(hop),
     )
@@ -331,68 +330,11 @@ class TraceRunner(
     return units.decls[target]?.name ?: target.substringBefore("#<").substringBefore('(').substringAfterLast('/').substringAfterLast('.')
   }
 
-  /** The search of `trace --value`: cheapest first, ties broken by the order states were reached. */
   private fun valueLeg(start: Set<String>, goal: Set<String>): Leg? {
-    val best = HashMap<State, PathCost>()
-    val paths = HashMap<State, Long>()
-    val via = HashMap<State, Pair<State, FlowFact>>()
-    val settled = HashSet<State>()
-    val order = HashMap<State, Int>()
-    val queue = PriorityQueue<Queued>(compareBy<Queued> { it.cost }.thenBy { it.rank })
-    for (location in start.sorted()) {
-      val state = State(location, emptyList())
-      order[state] = order.size
-      best[state] = PathCost.ZERO
-      paths[state] = 1
-      queue += Queued(PathCost.ZERO, order.getValue(state), state)
-    }
-    var end: State? = null
-    var steps = 0
-    var reachedAtGoal: State? = null
-    search@ while (queue.isNotEmpty()) {
-      val q = queue.poll()
-      val current = q.state
-      if (q.cost != best[current] || !settled.add(current)) continue
-      if (current.location in goal) {
-        end = current
-        break
-      }
-      for (edge in program.valueEdges[current.location].orEmpty()) {
-        if (++steps > options.searchBudget) break@search
-        val calls = program.callsAfter(current.calls, edge, current.projected, current.filled) ?: continue
-        val target = State(edge.to, calls, program.projects(edge), program.fills(edge))
-        if (target in settled) continue
-        val next = q.cost + program.hopCost(edge, current.projected)
-        val known = best[target]
-        val comparison = if (known == null) -1 else next.compareTo(known)
-        if (comparison < 0) {
-          val rank = order.getOrPut(target) { order.size }
-          best[target] = next
-          paths[target] = paths.getValue(current)
-          via[target] = current to edge
-          queue += Queued(next, rank, target)
-          if (edge.to in goal) {
-            val held = reachedAtGoal
-            if (held == null || next < best.getValue(held)) reachedAtGoal = target
-          }
-        } else if (comparison == 0) {
-          paths[target] = minOf(paths.getValue(target) + paths.getValue(current), PATH_COUNT_CAP)
-        }
-      }
-    }
-    val exhausted = end == null && steps > options.searchBudget
-    if (exhausted) end = reachedAtGoal
-    val last = end ?: return null
-    val hops = ArrayList<FlowFact>()
-    val projected = ArrayList<String?>()
-    var current: State = last
-    while (true) {
-      val (previous, edge) = via[current] ?: break
-      hops += edge
-      projected += previous.projected
-      current = previous
-    }
-    return Leg(hops.reversed(), projected.reversed(), best.getValue(last), paths.getValue(last), exhausted)
+    val run = ValueSearch(program, options.searchBudget).run(start, ValueGoal.Locations(goal))
+    val last = run.end ?: return null
+    val states = run.statesTo(last)
+    return Leg(run.hopsTo(last), states.dropLast(1).map { it.projected }, run.best.getValue(last), run.paths.getValue(last), run.exhausted)
   }
 
   private fun nodePath(hops: List<TraceHopOut>): List<String> =
@@ -406,8 +348,13 @@ class TraceRunner(
     lines.filter { line -> !line.startsWith(" ") && "  --" in line && "-->  " in line && !line.startsWith("Skeleton:") }
 }
 
-/** The tracer's cap on a counted number of equal-cost paths. */
-private const val PATH_COUNT_CAP = 1_000_000L
+/** How a hop changes the number of objects the traced value is inside. */
+fun wrapStep(hop: FlowFact): Int =
+  when {
+    hop.kind == "partOf" || hop.kind == "heldBy" -> 1
+    hop.kind == "memberOf" || (hop.kind == "contentOf" && hop.to.endsWith(ELEMENT)) -> -1
+    else -> 0
+  }
 
 /** Flow kinds that derive one value from another rather than move it. */
 private val DERIVED_KINDS = setOf("memberOf", "partOf", "contentOf", "heldBy")

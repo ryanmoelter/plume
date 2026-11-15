@@ -1,6 +1,6 @@
 # The export
 
-`extractor export --facts <dir> --out <dir> --target <name> [--golden golden/<target>] [--split]` reads a solved facts directory and writes `altitude.json` and `altitude-members.json`. A page that draws nodes needs only `altitude.json`; `meta.membersFile` names the second file, which holds the members inside each node and the edges between them. Every number in them derives from the facts and the rule relations, never from a class or package name.
+`extractor export --facts <dir> --out <dir> --target <name> [--golden golden/<target>] [--split]` reads a solved facts directory and writes `altitude.json`, `altitude-members.json` and `altitude-branches.json`. A page that draws nodes needs only `altitude.json`; `meta.membersFile` names the second file, which holds the members inside each node and the edges between them, and `meta.branchesFile` the third, which holds [branch trees](#branch-trees). Every number in them derives from the facts and the rule relations, never from a class or package name.
 
 The files are deterministic. Keys of maps are sorted, lists are sorted by id, and no absolute path appears. Two runs over the same commit give the same bytes, also from two checkouts at different paths. A field at its default value is left out: an empty list, `false`, `0` or `null`.
 
@@ -24,8 +24,8 @@ The command prints the size of each file it writes.
 
 | Field | What it holds |
 |---|---|
-| `schema`, `schemaVersion` | `"altitude-export"` and `2`. |
-| `meta` | `target`, `gitSha`, `gitDirty`, `factsSchemaVersion`, the constants the derivations use (`params`), the layer names (`layers`), row `counts` (including `members` and `memberEdges`), `detailFile` when split, and `membersFile`. |
+| `schema`, `schemaVersion` | `"altitude-export"` and `3`. Every file of the export carries the same `schemaVersion`. |
+| `meta` | `target`, `gitSha`, `gitDirty`, `factsSchemaVersion`, the constants the derivations use (`params`), the layer names (`layers`), row `counts` (including `members` and `memberEdges`), `detailFile` when split, `membersFile` and `branchesFile`. |
 | `files` | Every source path, relative to the target root. |
 | `containers` | The containment tree. |
 | `features` | The horizontal slices. |
@@ -252,6 +252,8 @@ Every hop also names the members it runs between, and carries the notes the trac
 | `anyContainer` | value | The hop reads a container's contents with nothing on the path to say which container. |
 | `anyInstanceOf` | value | The class property the hop leaves, which stands for that property of every instance. |
 | `property` | `memberOf` | The property read. |
+| `field` | `partOf` | The constructor or `copy` parameter the value is passed as. |
+| `fieldMismatch` | `memberOf` | The read takes another property than the one the path built the object with: the innermost `partOf` the path is still inside names the field, and a container entered since hides it. The trace text marks the hop `[field mismatch: built in as <field>]`. The search ignores it; the path is the same either way. |
 | `nonProduction` | all | The hop lands in staged code. |
 | `landmark` | value | What the hop adds to the skeleton: a cell it enters or an object it builds. |
 
@@ -264,3 +266,42 @@ A leg carries the search's summary:
 - `skeleton`: for a value leg, its start, the cells it enters and the objects it builds, and its goal.
 
 `matchesGolden` is true when every hop renders the same as the hop line of the golden trace text.
+
+## Branch trees
+
+`altitude-branches.json` holds `schema` (`"altitude-branches"`), `schemaVersion`, `target`, `locs`, `hops`, `trees` and `counts`. A branch tree is every path `trace --value` would print between one root and each terminal it reaches, merged where the paths share a prefix. `extractor branches` prints one tree for any value `trace` can name, as text or with `--json` in this file's shape.
+
+`locs` lists location ids, and every `loc` field is an index into it. `hops` lists hop records, each once, in the shape `traces` writes them, and segments index into it. Every tree of the file shares both tables.
+
+The export precomputes these roots:
+
+| `root.kind` | `root.dir` | Root |
+|---|---|---|
+| `cell` | `forward` | Every cell's contents. `ref` indexes `cells`. |
+| `boundary` | `forward` | Every boundary call's result. `ref` indexes `boundaries`. |
+| `boundary` | `backward` | Every boundary call's arguments and receivers. |
+| `traceEnd` | `forward`, `backward` | Each golden value trace: forward from its start, backward into its end. `label` names the trace. |
+
+The `branches` command's root has kind `value`.
+
+### Terminals
+
+A forward tree ends at a `boundary` (an argument or receiver of a boundary call; `ref` indexes `boundaries`), a `cellWrite` (a cell's contents; `ref` indexes `cells`), `ui` (a location in a composable member other than the root's; `ref` indexes the members file's `members`) or a `sink` (a location with no outgoing edge that is an argument or receiver of a library call; `ref` is its member). A backward tree ends at a `boundary` (a boundary call's result), a `cellRead` (a cell's contents) or an `entry` (a parameter of an entry point; `ref` indexes `entrypoints`). One terminal stands for every location with the same kind and `ref`, and the tree keeps the path to the first of them the search settles.
+
+`options.stops` lists the terminal kinds a path may not pass through: `boundary`, `cellWrite` and `ui` forward, and `boundary`, `cellRead` and `entry` backward. `--through-cells` drops the cell kinds. A terminal whose best path passes a stop is left out. The search does not stop there, because stopping would change which of two equal-cost paths it reaches first, and the tree's path to a terminal would no longer be the one `trace` prints. `options.matched` is always true: a path leaves a function through the call it entered by.
+
+A terminal has its `point`, `kind`, `ref`, the path `cost`, `equalCostPaths` (capped at 1,000,000), `clean` and `segments`: the segments from the root's end to the terminal's, in data-flow order. Concatenating their `hops` gives the trace path. A terminal is `clean` when its path has no any-instance or any-container read and no hop outside production code. The tree keeps approximate terminals and marks them.
+
+### Points and segments
+
+A point is a place the tree's shape changes. Its `kind` is the first that applies of: the `root`, a `terminal`, a `branch` (paths part), a `merge` (a location the tree reaches under two contexts; the first such node on a path is the merge), a `join` (the object a `partOf` builds) and a `split` (the object a `memberOf` reads from). Each has `loc`, `member` and `node`.
+
+A segment runs between two points, `a` upstream and `b` downstream, whatever the tree's direction. It has `hops`, `hopCount`, the `members` it passes in order, its `cost`, and `approx`: `anyInstance`, `anyContainer`, `fieldMismatch` and `staged` when one of its hops is one. In a backward tree, a hop that two paths share has `fieldMismatch` when either path mismatches there, and its `wrapDepth` counts from the start of the first terminal path through it.
+
+`siblings` names, at a join, the other values built into the object (`name` is the parameter), and at a split, the other properties read from it (`name` is the property). A sibling has no `terminalCount`: that would take a tree per sibling.
+
+### Limits
+
+If the file would exceed 4,000,000 characters, it keeps hop records only for segments with no any-instance read and no staged hop. The others keep `hopCount` and no `hops`, and `counts.hopDetailDropped` is 1. A forward search takes at most 50,000,000 steps. There is no reverse search yet. A backward tree stands in with the state graph of every value that reaches the root ignoring calls, capped at 3,000,000 states, then one forward search from each terminal that graph reaches the root from. A tree that hit a cap has `truncated`. The proper method is one search backward from the root over reversed edges, which needs `callsAfter` run in reverse.
+
+`counts` has `trees`, `trees.<dir>.<kind>`, `truncated.<dir>.<kind>` and `terminals.<kind>`.

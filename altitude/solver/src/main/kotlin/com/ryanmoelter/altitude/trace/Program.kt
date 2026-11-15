@@ -1,5 +1,6 @@
 package com.ryanmoelter.altitude.trace
 
+import com.ryanmoelter.altitude.facts.ArgFact
 import com.ryanmoelter.altitude.facts.CallEdgeFact
 import com.ryanmoelter.altitude.facts.CallFact
 import com.ryanmoelter.altitude.facts.CellFact
@@ -29,6 +30,7 @@ private val FAKE_NAME = Regex("""Fake(?![a-z])""")
 private const val PROJECTED_IN = "|"
 private const val RETURN = "#<ret>"
 private const val ONE_OF = "one of "
+private const val ANY_FIELD = "*"
 private val FRAME_PARTS = setOf("#<this>", "#<recv>", RETURN)
 private val CONTEXT_MARK = Regex("""~\d+""")
 
@@ -378,6 +380,68 @@ class Program(val facts: Facts, val derived: Derived) {
     return if (target == origin || edge.to.endsWith(ELEMENT)) calls else emptyList()
   }
 
+  private val argsByNode: Map<String, List<ArgFact>> = facts.args.groupBy { it.node }.mapValues { (_, a) -> a.sortedBy { it.call } }
+
+  /**
+   * The parameter a `partOf` edge passes its value as, or the property a `memberOf` edge reads.
+   * Null when the facts do not name one.
+   */
+  fun fieldOf(edge: FlowFact): String? =
+    when (edge.kind) {
+      "partOf" -> {
+        val args = argsByNode[original(edge.from)]
+        val to = original(edge.to)
+        (args?.firstOrNull { calls[it.call]?.result == to } ?: args?.firstOrNull())?.param?.substringAfterLast('#')
+      }
+      "memberOf" -> propertyName(original(edge.to))
+      else -> null
+    }
+
+  private val partsInto: Map<String, List<FlowFact>> by lazy {
+    valueEdges.values.flatten().filter { it.kind == "partOf" }.groupBy { original(it.to) }.mapValues { (_, e) -> e.distinctBy { original(it.from) } }
+  }
+
+  private val membersFrom: Map<String, List<FlowFact>> by lazy {
+    valueEdges.values.flatten().filter { it.kind == "memberOf" }.groupBy { original(it.from) }.mapValues { (_, e) -> e.distinctBy { original(it.to) } }
+  }
+
+  /** The `partOf` edges building values into an object, one per value, ignoring context. */
+  fun partsOf(location: String): List<FlowFact> =
+    partsInto[original(location)].orEmpty().map { FlowFact(original(it.from), original(it.to), it.kind, it.at, it.ruleId) }.sortedBy { it.from }
+
+  /** The `memberOf` edges reading properties out of an object, one per read, ignoring context. */
+  fun membersOf(location: String): List<FlowFact> =
+    membersFrom[original(location)].orEmpty().map { FlowFact(original(it.from), original(it.to), it.kind, it.at, it.ruleId) }.sortedBy { it.to }
+
+  /** The property a property reference names. */
+  fun propertyName(location: String): String? {
+    val target = nodes[location]?.target ?: return null
+    return decls[target]?.name ?: target.substringBefore("#<").substringBefore('(').substringAfterLast('/').substringAfterLast('.')
+  }
+
+  /**
+   * For each hop of a value path, the field the value was built into when the hop is a `memberOf`
+   * that reads another field of that object, else null. The innermost `partOf` the path is still
+   * inside names the field; a container the path entered since hides it. Ranking ignores this.
+   */
+  fun fieldMismatches(hops: List<FlowFact>): List<String?> {
+    // Innermost last; null stands for a container.
+    val enclosing = ArrayList<String?>()
+    return hops.map { hop ->
+      when {
+        hop.kind == "partOf" -> enclosing += fieldOf(hop) ?: ANY_FIELD
+        hop.kind == HELD_BY -> enclosing += null
+        hop.kind == "contentOf" && hop.to.endsWith(ELEMENT) -> if (enclosing.isNotEmpty() && enclosing.last() == null) enclosing.removeLast()
+        hop.kind == "memberOf" && enclosing.isNotEmpty() && enclosing.last() != null -> {
+          val built = enclosing.removeLast()!!
+          val read = fieldOf(hop)
+          return@map built.takeIf { it != ANY_FIELD && read != null && it != read }
+        }
+      }
+      null
+    }
+  }
+
   fun hopNotes(edge: FlowFact, projected: String?): List<String> = buildList {
     if (readsAnyContainer(edge, projected)) add("any container made there")
     when (edge.kind) {
@@ -590,6 +654,19 @@ class Program(val facts: Facts, val derived: Derived) {
     val one = named.singleOrNull() ?: return ValueSelection(selector, emptySet(), named)
     return ValueSelection(display(one), setOf(one), emptyList())
   }
+
+  /** The slots of a cell's contents: the cell's own and those of its copies. */
+  fun cellSlots(cellId: String): Set<String> = (copies[cellId] ?: listOf(cellId)).mapTo(sortedSetOf()) { it + ELEMENT }
+
+  private val callCopies: Map<String, List<CallFact>> by lazy { expansion.facts.calls.groupBy { withoutContext(it.id) } }
+  private val expandedArgs: Map<String, List<String>> by lazy { expansion.facts.args.groupBy({ it.call }, { it.node }) }
+
+  /** The results of a call and of its copies. */
+  fun callResults(callId: String): Set<String> = callCopies[callId].orEmpty().mapNotNullTo(sortedSetOf()) { it.result }
+
+  /** The arguments and receivers of a call and of its copies. */
+  fun callInputs(callId: String): Set<String> =
+    callCopies[callId].orEmpty().flatMapTo(sortedSetOf()) { expandedArgs[it.id].orEmpty() + it.receiver + it.extReceiver }
 
   private fun calleeName(target: String): String =
     decls[target]?.name

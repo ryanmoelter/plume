@@ -6,7 +6,7 @@ import kotlinx.serialization.Serializable
 import kotlinx.serialization.json.JsonObject
 
 /** `altitude/docs/export.md` documents every field. */
-const val EXPORT_SCHEMA_VERSION = 2
+const val EXPORT_SCHEMA_VERSION = 3
 
 @OptIn(ExperimentalSerializationApi::class)
 @Serializable
@@ -44,6 +44,8 @@ data class ExportMeta(
   val detailFile: String? = null,
   /** Members and member edges live in this file, next to the export. */
   val membersFile: String? = null,
+  /** Branch trees live in this file, next to the export. */
+  val branchesFile: String? = null,
 )
 
 @Serializable
@@ -328,6 +330,10 @@ data class TraceHopOut(
   val anyInstanceOf: String? = null,
   /** The property a `memberOf` hop reads. */
   val property: String? = null,
+  /** The parameter a `partOf` hop passes the value as. */
+  val field: String? = null,
+  /** A `memberOf` hop that reads another field than the one the path built the object with. */
+  val fieldMismatch: Boolean = false,
   /** The hop lands in code production never runs. */
   val nonProduction: Boolean = false,
   /** What the hop adds to the leg's skeleton. */
@@ -418,6 +424,110 @@ data class MemberOut(
   val lam: Int = 0,
   val np: String? = null,
 )
+
+/** `altitude-branches.json`: the branch trees of the precomputed roots. */
+@OptIn(ExperimentalSerializationApi::class)
+@Serializable
+data class BranchesExport(
+  @EncodeDefault val schema: String = "altitude-branches",
+  @EncodeDefault val schemaVersion: Int = EXPORT_SCHEMA_VERSION,
+  val target: String,
+  /** Location ids; `loc` fields index into it. */
+  val locs: List<String>,
+  /** Hop records, each once, as `traces` writes them; segments index into it. */
+  val hops: List<TraceHopOut>,
+  val trees: List<BranchTreeOut>,
+  val counts: Map<String, Int>,
+)
+
+@Serializable
+data class BranchTreeOut(
+  val root: BranchRootOut,
+  val options: BranchOptionsOut,
+  /** A search stopped at its cap, so the tree may lack terminals. */
+  val truncated: Boolean = false,
+  val points: List<BranchPointOut>,
+  val segments: List<BranchSegmentOut>,
+  val terminals: List<BranchTerminalOut>,
+  val siblings: List<BranchSiblingOut> = emptyList(),
+)
+
+@Serializable
+data class BranchRootOut(
+  val loc: Int,
+  /** Index into the members file's `members`. */
+  val member: Int? = null,
+  /** Index into `nodes` of `altitude.json`. */
+  val node: Int? = null,
+  /** `forward` or `backward`. */
+  val dir: String,
+  /** `cell`, `boundary`, `traceEnd` or `value`. */
+  val kind: String,
+  /** The cell, boundary or trace the root stands for, as an index into its list; a trace's name in [label]. */
+  val ref: Int? = null,
+  val label: String,
+)
+
+@OptIn(ExperimentalSerializationApi::class)
+@Serializable
+data class BranchOptionsOut(
+  /** Terminal kinds a path may not pass through. */
+  val stops: List<String>,
+  /** Paths leave a function through the call they entered it by, as `trace --value` requires. */
+  @EncodeDefault val matched: Boolean = true,
+  /** Only clean terminals were kept. */
+  val clean: Boolean = false,
+)
+
+@Serializable
+data class BranchPointOut(
+  val member: Int? = null,
+  val node: Int? = null,
+  val loc: Int,
+  /** `root`, `branch`, `merge`, `join`, `split` or `terminal`. */
+  val kind: String,
+)
+
+@Serializable
+data class BranchSegmentOut(
+  /** Indices into `points`, upstream first. */
+  val a: Int,
+  val b: Int,
+  /** Indices into the file's `hops`, in data-flow order; absent when the file dropped hop detail. */
+  val hops: List<Int>? = null,
+  val hopCount: Int,
+  /** Indices into the members file's `members`, in path order. */
+  val members: List<Int> = emptyList(),
+  val cost: CostOut,
+  /** `anyInstance`, `anyContainer`, `fieldMismatch` and `staged`, for the hops that have them. */
+  val approx: List<String> = emptyList(),
+)
+
+@Serializable
+data class BranchTerminalOut(
+  val point: Int,
+  /** `boundary`, `cellWrite`, `cellRead`, `ui`, `entry` or `sink`. */
+  val kind: String,
+  /** Index into `boundaries`, `cells` or `entrypoints` of `altitude.json`, or for `ui` and `sink` the members file's `members`. */
+  val ref: Int,
+  val cost: CostOut,
+  val equalCostPaths: Long,
+  /** No any-instance or any-container read and no hop outside production code. */
+  val clean: Boolean,
+  /** Indices into `segments` from the root's end to the terminal's, in data-flow order. */
+  val segments: List<Int>,
+)
+
+@Serializable
+data class BranchSiblingOut(
+  val at: Int,
+  /** `join`: other values built into the object at [at]. `split`: other properties read from it. */
+  val kind: String,
+  val values: List<BranchSiblingValueOut>,
+)
+
+@Serializable
+data class BranchSiblingValueOut(val loc: Int, val member: Int? = null, val name: String? = null)
 
 @Serializable
 data class MemberEdgeOut(

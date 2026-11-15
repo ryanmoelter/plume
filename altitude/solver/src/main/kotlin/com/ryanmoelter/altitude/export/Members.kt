@@ -145,11 +145,14 @@ class Members(
     return draft
   }
 
-  /** The initializer of a class: its implicit constructor, else a member named by the class itself. */
+  /**
+   * The initializer of a class: its implicit constructor, else a member named by the class itself.
+   * Empty once the members are numbered and the class has none, since adding one would shift every index.
+   */
   private fun initializerOf(cls: DeclFact): String {
     implicitConstructors[cls.sym]?.let { if (it in drafts) return it }
     if (cls.sym !in drafts) {
-      check(!frozen) { "member of ${cls.sym} asked for after the members were numbered" }
+      if (frozen) return ""
       val node = units.ofDecl(cls.sym) ?: cls.sym
       drafts[cls.sym] =
         MemberDraft(
