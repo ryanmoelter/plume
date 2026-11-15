@@ -4,6 +4,8 @@ import com.ryanmoelter.altitude.facts.FactStore
 import com.ryanmoelter.altitude.facts.MetaFact
 import com.ryanmoelter.altitude.manifest.Manifest
 import com.ryanmoelter.altitude.model.Models
+import com.ryanmoelter.altitude.rules.EntryTrace
+import com.ryanmoelter.altitude.rules.Rules
 import com.ryanmoelter.altitude.rules.analyze
 import com.ryanmoelter.altitude.rules.check
 import com.ryanmoelter.altitude.trace.Program
@@ -21,10 +23,13 @@ private val USAGE =
     trace   --facts <dir> --from <selector> --to <selector> [--max-depth N] [--alternates N]
     trace   --facts <dir> --from <selector> --forward [--max-depth N] [--limit N]
     trace   --facts <dir> --value --from <value> --to <value> [--via <value>,<value>]
+    trace   --facts <dir> --from-entrypoint <entry> --to-boundary <boundary> [--max-depth N] [--alternates N]
     show    --facts <dir> --file <relpath>
     check   --facts <dir> --expected <golden expected dir>
   A selector is a symbol ID, or an `Owner.member` suffix that names one declaration.
   A value is `File.kt:LINE:call(name)`, `cell(Owner.name)`, a location ID, or a property, parameter or local.
+  An entry is a route path (`/graphql`), `METHOD /path`, a resolver field, a screen class or a selector.
+  A boundary is a label, op, kind, `system:kind` or a selector for its target.
   facts and solve take --models <dir> to replace the built-in library models.
   """
     .trimIndent()
@@ -81,10 +86,11 @@ fun main(args: Array<String>) {
       }
       "trace" -> {
         val dir = Path.of(required("--facts"))
+        val program = Program(FactStore.read(dir), FactStore.readDerived(dir))
         val defaults = TraceOptions()
         val tracer =
           Tracer(
-            Program(FactStore.read(dir), FactStore.readDerived(dir)),
+            program,
             TraceOptions(
               maxDepth = options["--max-depth"]?.toInt() ?: defaults.maxDepth,
               alternates = options["--alternates"]?.toInt() ?: defaults.alternates,
@@ -93,7 +99,9 @@ fun main(args: Array<String>) {
           )
         print(
           when {
-            "--value" in flags -> tracer.traceValue(required("--from"), required("--to"), options["--via"]?.split(',').orEmpty())
+            "--from-entrypoint" in options ->
+              EntryTrace(program, Rules.read(dir), tracer).trace(required("--from-entrypoint"), required("--to-boundary"))
+            "--value" in flags ->tracer.traceValue(required("--from"), required("--to"), options["--via"]?.split(',').orEmpty())
             "--forward" in flags -> tracer.forward(required("--from"))
             else -> tracer.trace(required("--from"), required("--to"))
           }

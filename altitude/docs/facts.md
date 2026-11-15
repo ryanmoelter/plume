@@ -128,4 +128,6 @@ A trace is a path in the call graph over declarations, shortest first. Each hop 
 
 `trace --value --from <value> --to <value> [--via <value>,<value>]` prints a path over flow edges instead: where a value may go, hop by hop, with the model rule on each `summary` and `contentOf` hop. A value is `File.kt:LINE:call(name)`, `cell(Owner.name)`, a location ID, or a property, parameter or local by `Owner.name`. It prints the shortest path, the count of paths of that length, and `(N sources)` after a hop whose target has several incoming edges. `docs/models.md` lists what it over-approximates.
 
+`trace --from-entrypoint <entry> --to-boundary <boundary>` starts from the `entrypoint` rows and ends at the `boundary` rows. An entry is a route path (`/graphql`), `METHOD /path`, a resolver field or `Type.field`, a screen class, or a selector for the entry callable. A boundary is a `label`, `op`, `kind`, `system:kind`, or a selector for its `target`. A route marked `serves: graphqlResolver` stands for every resolver, because graphql-java calls them by reflection. For each boundary target, it lists the entry callables that reach it over call edges, nearest first, and runs the `--from`/`--to` trace from up to five of them.
+
 `bin/altitude-golden` regenerates the traces under `golden/` from each target's manifest and diffs them; `--update` rewrites them.
