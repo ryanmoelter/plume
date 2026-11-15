@@ -16,7 +16,7 @@ private val DISPATCHED = setOf("open", "abstract", "override", "expect")
 private val CONTEXT = Regex("""~\d+""")
 private val CLASS_KINDS = setOf("class", "object")
 
-/** A flow from a copied property to the one it copies, or back. */
+/** A flow to a reference from its copy, which names a copy of the member the reference names. */
 const val MERGE = "merge"
 
 /** An ID without the `~N` that marks a copy made for one call site. */
@@ -36,9 +36,10 @@ private class CopyUnit(val entries: Set<String>, val members: Set<String>, val s
  * - A small function that takes a function value is copied for each static call of it. A class
  *   constructed nowhere but inside such a function is copied with it, fields included.
  * - A class that takes a function value in its constructor and has no subclass is copied for each
- *   construction, members and fields included. A call from outside to a member of such a class
- *   still reaches the original, which sees every copy's fields, as does a call inside a copy to
- *   the copied function itself.
+ *   construction, members and fields included. A call inside a copy to the copied function
+ *   itself still reaches the original.
+ * Code outside a copied class that calls a member, or reads or writes a property, reaches the
+ * original and every copy, since nothing says which construction made the receiver.
  * Classes are copied first, so a wrapper called inside a class copy gets a copy of its own.
  * A copied call site names its copy as its target, which is how a later round knows to skip it.
  */
@@ -118,8 +119,9 @@ private fun copy(
   val flowsByFile = facts.flows.groupBy { it.at.substringBefore(':') }
   val boundaryFrom = facts.flows.groupBy { it.from }
   val boundaryTo = facts.flows.groupBy { it.to }
-  val nodeDecls = facts.nodes.associate { it.id to it.enclosingDecl }
-  val constructorsByClass = decls.values.filter { it.kind == "ctor" }.groupBy({ it.owner }, { it.sym })
+  val flowsInto = facts.flows.groupBy { it.to.substringBefore('#') }
+  val flowsOutOf = facts.flows.groupBy { it.from.substringBefore('#') }
+  val referencesTo = facts.nodes.filter { it.kind == "callableRef" && it.target != null }.groupBy { it.target!! }
 
   val newDecls = ArrayList<DeclFact>()
   val newNodes = ArrayList(facts.nodes)
@@ -150,6 +152,14 @@ private fun copy(
       unit.spans.map { it.file }.distinct().flatMap { flowsByFile[it].orEmpty() }.filterTo(LinkedHashSet()) { flow ->
         isOwn(flow.from) && isOwn(flow.to) && unit.spans.any { contains(it, flow.at) }
       }
+    // Code outside the unit reaches past its entries when it calls a member, reads or writes a
+    // property, or takes a reference to a member, of an object the unit made. Nothing says which
+    // copy made the object, so each such edge goes to every copy as well as to the original.
+    val reachable = members - unit.entries
+    fun outside(id: String) = id.substringBefore('#') !in renamed
+    val into = reachable.flatMap { flowsInto[it].orEmpty() }.filter { it !in innerFlows && outside(it.from) }
+    val outOf = reachable.flatMap { flowsOutOf[it].orEmpty() }.filter { it !in innerFlows && outside(it.to) }
+    val references = reachable.flatMap { referencesTo[it].orEmpty() }.filter { it.id !in renamed }
 
     for (site in sites) {
       val mark = "~${contexts.size}"
@@ -189,21 +199,11 @@ private fun copy(
         val copy = flow.copy(from = rename(flow.from), to = rename(flow.to))
         if (copy != flow) newFlows += copy
       }
-      // Code outside the copy names the original: it reads the original property, and a member it
-      // calls runs the original body, whichever copy the receiver is. So the original property
-      // holds every copy's value. The original's value reaches a copy only when something other
-      // than construction writes the property, since construction is what the copies keep apart.
-      for (member in members) {
-        val decl = decls[member] ?: continue
-        if (decl.kind != "prop" || decls[decl.owner]?.kind !in CLASS_KINDS) continue
-        val at = "${decl.file}:${decl.span}"
-        newFlows += FlowFact(rename(member), member, MERGE, at)
-        val constructing = constructorsByClass[decl.owner].orEmpty() + decl.owner
-        fun constructs(flow: FlowFact) =
-          flow in innerFlows && (nodeDecls[flow.from] ?: flow.from.substringBefore('#')) in constructing
-        if (boundaryTo[member].orEmpty().any { it.kind != MERGE && !constructs(it) }) {
-          newFlows += FlowFact(member, rename(member), MERGE, at)
-        }
+      for (flow in into) newFlows += flow.copy(to = rename(flow.to))
+      for (flow in outOf) newFlows += flow.copy(from = rename(flow.from))
+      for (node in references) {
+        newNodes += node.copy(id = node.id + mark, target = rename(node.target!!))
+        newFlows += FlowFact(node.id + mark, node.id, MERGE, node.id.substringBeforeLast(':'))
       }
       // The call's own argument, receiver and return edges move from the original to this copy.
       val passed = argsByCall[site.id].orEmpty().map { it.node } + site.receiver + site.extReceiver
