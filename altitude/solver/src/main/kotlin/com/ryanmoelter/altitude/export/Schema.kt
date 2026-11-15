@@ -1,15 +1,18 @@
 package com.ryanmoelter.altitude.export
 
+import kotlinx.serialization.EncodeDefault
+import kotlinx.serialization.ExperimentalSerializationApi
 import kotlinx.serialization.Serializable
 import kotlinx.serialization.json.JsonObject
 
 /** `altitude/docs/export.md` documents every field. */
 const val EXPORT_SCHEMA_VERSION = 1
 
+@OptIn(ExperimentalSerializationApi::class)
 @Serializable
 data class AltitudeExport(
-  val schema: String = "altitude-export",
-  val schemaVersion: Int = EXPORT_SCHEMA_VERSION,
+  @EncodeDefault val schema: String = "altitude-export",
+  @EncodeDefault val schemaVersion: Int = EXPORT_SCHEMA_VERSION,
   val meta: ExportMeta,
   /** Every source file; a site elsewhere is `<index into files>:<line>`. */
   val files: List<String>,
