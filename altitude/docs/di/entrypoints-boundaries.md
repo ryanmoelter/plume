@@ -70,6 +70,16 @@ Output row `screen`: `class`, `kind`, `content`, `lifecycle`, `file`, `line`.
 
 A boundary is a call that leaves the program. Output row `boundary`: `system`, `op`, `target` (the library callee ID), `caller` (enclosing decl ID), `file`, `line`, plus the fields each rule names.
 
+`op` names the called declaration as `Owner.name`, the same way for every system:
+
+- A member takes its enclosing classes, outermost first, with `Companion` dropped: `Sentry.captureException`, `PostHog.capture` for `PostHog.Companion.capture`, `UserQueries.findById`.
+- An extension function takes its receiver's class as the owner: `Purchases.awaitLogIn`.
+- A constructor is its class name: `PostHogConfig`, `DeveloperAPIClient`.
+- A top-level function is its bare name: `OriginalTemplatePaywallFooter`.
+- A function value has no owner, so its declared type is the owner: B4's request is `HttpHandler.invoke`.
+
+`op` always names the library call, even when `target` names an app helper that wraps it (B2's `failablyMutate` rows are `ApolloClient.mutation`).
+
 **B1. SQLDelight.** A call whose target is a function of a class named `*Queries` that is declared in a generated file under `gen/<project>/generated/sqldelight/` is a database call. A hand-written class named `SyncQueries` does not count. Fields:
 
 - `label`: the function name, which is the label of a statement in a `.sq` file.

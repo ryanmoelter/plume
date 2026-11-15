@@ -74,7 +74,7 @@ private class Boundaries(private val index: FactIndex, derived: Derived) {
     if (id.kind != "fun" || index.fileOf(call.id) in generatedFiles) return null
     val statement = statements[(id.ownerClass ?: return null) to id.name] ?: return null
     val kind = if (statement.access == "write") "sqlWrite" else "sqlRead"
-    return row(call, "sqldelight", kind, id.name, access = statement.access, label = id.name, sq = "${statement.file}:${statement.line}")
+    return row(call, "sqldelight", kind, id.op, access = statement.access, label = id.name, sq = "${statement.file}:${statement.line}")
   }
 
   /** B2. A call that passes on a parameter of its own function moves to that function's callers. */
@@ -87,7 +87,7 @@ private class Boundaries(private val index: FactIndex, derived: Derived) {
         site,
         "apollo",
         kind,
-        id.name,
+        id.op,
         target = helper ?: call.target,
         access = access,
         operation = operation,
@@ -121,7 +121,7 @@ private class Boundaries(private val index: FactIndex, derived: Derived) {
       call,
       "retrofit",
       "retrofit",
-      id.name,
+      id.op,
       method = annotation.annFq.substringAfterLast('/'),
       path = value?.let { if (it.startsWith("/") || "://" in it) it else "/$it" },
     )
@@ -130,10 +130,10 @@ private class Boundaries(private val index: FactIndex, derived: Derived) {
   /** B4: the construction of an http4k client, and each invocation of a handler one flows to. */
   private fun http(call: CallFact, id: CallableId): List<BoundaryFact>? {
     if (id.pkg == HTTP4K_CLIENT && id.owners.size == 1 && (id.kind == "ctor" || id.name == "invoke")) {
-      return row(call, "http", "httpOut", "client", client = id.owners.single())
+      return row(call, "http", "httpOut", id.op, client = id.owners.single())
     }
     if (call.dispatch != "invokeFnValue" || !call.target.startsWith(FUNCTION_INVOKE)) return null
-    if (call.receiver.none { index.nodes[it]?.type?.startsWith("org.http4k.") == true }) return null
+    val handler = call.receiver.firstNotNullOfOrNull { index.nodes[it]?.type?.takeIf { type -> type.startsWith("org.http4k.") } } ?: return null
     val client = search(call.receiver, 4000) { CallableId.parse(it.target)?.takeIf { made -> made.pkg == HTTP4K_CLIENT } } ?: return null
     val request = search(index.argNodes(call, 0), 200) { made -> made.takeIf { CallableId.parse(it.target)?.ownerClass?.startsWith(HTTP4K_REQUEST) == true && it.receiverType == null } }
     val method = request?.let { index.argNodes(it, 0) }?.firstNotNullOfOrNull { index.nodes[it]?.target?.takeIf { entry -> entry.startsWith(HTTP4K_METHOD) } }
@@ -141,7 +141,7 @@ private class Boundaries(private val index: FactIndex, derived: Derived) {
       call,
       "http",
       "httpOut",
-      "request",
+      "${handler.substringBefore('<').removeSuffix("?").substringAfterLast('.')}.invoke",
       method = method?.removePrefix(HTTP4K_METHOD),
       path = request?.let { index.argNodes(it, 1) }?.firstNotNullOfOrNull(index::literalString),
       client = client.owners.firstOrNull(),
@@ -184,7 +184,7 @@ private class Boundaries(private val index: FactIndex, derived: Derived) {
       if (sdkModule == moduleOfFile[index.fileOf(call.id)]) return null
       sdkModules += sdkModule
     }
-    return row(call, "revenuecat", "revenuecat", id.qualifiedName)
+    return row(call, "revenuecat", "revenuecat", id.op)
   }
 
   /** B6. */
@@ -194,12 +194,12 @@ private class Boundaries(private val index: FactIndex, derived: Derived) {
     return when {
       id.pkg == "com/posthog" || id.pkg.startsWith("com/posthog/") -> {
         val config = owner?.endsWith("Config") == true && (id.kind == "ctor" || id.name == "invoke")
-        if (config || (id.kind == "fun" && id.name in POSTHOG_OPS)) row(call, "posthog", "posthog", id.qualifiedName) else null
+        if (config || (id.kind == "fun" && id.name in POSTHOG_OPS)) row(call, "posthog", "posthog", id.op) else null
       }
       id.pkg == "io/sentry" || id.pkg.startsWith("io/sentry/") -> {
         val sdk = id.name in SENTRY_OPS && (owner == "Sentry" || (id.name == "init" && owner?.startsWith("Sentry") == true))
         val span = id.name in SENTRY_SPAN_OPS && owner in SENTRY_SPANS
-        if (id.kind == "fun" && (sdk || span)) row(call, "sentry", "sentry", id.qualifiedName) else null
+        if (id.kind == "fun" && (sdk || span)) row(call, "sentry", "sentry", id.op) else null
       }
       else -> null
     }

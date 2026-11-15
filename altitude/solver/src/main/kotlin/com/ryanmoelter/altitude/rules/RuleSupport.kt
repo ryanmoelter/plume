@@ -11,13 +11,18 @@ internal class CallableId(
   /** The enclosing classes, outermost first; for a constructor they end with its own class. */
   val owners: List<String>,
   val name: String,
+  /** An extension's receiver class, as `Outer.Inner`. */
+  val receiver: String? = null,
 ) {
   val ownerClass: String?
     get() = if (owners.isEmpty()) null else "class:$pkg/${owners.joinToString(".")}"
 
-  /** `Owner.name` for a member, the class name for a constructor, the bare name otherwise. */
-  val qualifiedName: String
-    get() = if (kind == "ctor") owners.joinToString(".") else (owners + name).joinToString(".")
+  /** The boundary `op` form that `docs/di/entrypoints-boundaries.md` defines. */
+  val op: String
+    get() {
+      val named = owners.filter { it != "Companion" }.ifEmpty { listOfNotNull(receiver) }
+      return if (kind == "ctor") named.joinToString(".") else (named + name).joinToString(".")
+    }
 
   /** `a.b.Outer.name`, without a trailing `invoke`. */
   val dottedName: String
@@ -34,8 +39,10 @@ internal class CallableId(
       val head = id.substringAfter(':').substringBefore('@').substringBefore('(').substringBefore('#')
       val pkg = head.substringBeforeLast('/', "")
       val segments = head.substringAfterLast('/').split('.')
+      val receiver =
+        id.substringAfter(':').substringBefore('(').substringAfter('@', "").substringBefore('#').substringBefore('<').substringAfterLast('/').takeIf { it.isNotEmpty() }
       return if (kind == "ctor") CallableId(kind, pkg, segments, segments.last())
-      else CallableId(kind, pkg, segments.dropLast(1), segments.last())
+      else CallableId(kind, pkg, segments.dropLast(1), segments.last(), receiver)
     }
   }
 }

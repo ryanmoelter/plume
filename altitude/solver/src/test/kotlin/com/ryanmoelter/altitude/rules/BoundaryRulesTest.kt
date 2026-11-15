@@ -62,7 +62,7 @@ class BoundaryRulesTest {
     val rows = deriveBoundaries(facts.index, facts.noDerived)
 
     assertEquals(
-      listOf("retrofit" to "logIn", "posthog" to "PostHog.Companion.capture", "sentry" to "Sentry.captureException", "revenuecat" to "awaitLogIn"),
+      listOf("retrofit" to "RestApi.logIn", "posthog" to "PostHog.capture", "sentry" to "Sentry.captureException", "revenuecat" to "Purchases.awaitLogIn"),
       rows.map { it.system to it.op },
     )
     assertEquals("POST" to "/auth/login", rows.first().method to rows.first().path)
@@ -85,7 +85,7 @@ class BoundaryRulesTest {
 
     val rows = deriveBoundaries(facts.index, facts.noDerived)
 
-    assertEquals(listOf("client", "request"), rows.map { it.op })
+    assertEquals(listOf("OkHttp.invoke", "HttpHandler.invoke"), rows.map { it.op })
     assertEquals(listOf("OkHttp", "OkHttp"), rows.map { it.client })
     assertEquals("GET" to "/rates", rows.last().method to rows.last().path)
     assertEquals(4, rows.last().line)
