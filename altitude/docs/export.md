@@ -17,7 +17,7 @@ The files are deterministic. Keys of maps are sorted, lists are sorted by id, an
 
 If the encoded `altitude.json` would exceed 4,000,000 characters, or with `--split`, the export splits it in two:
 
-- `altitude.json` keeps every top-level field. Its nodes keep only the summary fields: `id`, `kind`, `name`, `container`, `feature`, `file`, `line`, `generated`, `staged`, `nonProduction`, `size`, `layer`, `layerWhy`, `infrastructure` and `roles`. `bundles` loses `argGroups`. `meta.detailFile` names the detail file.
+- `altitude.json` keeps every top-level field. Its nodes keep only the summary fields: `id`, `kind`, `name`, `container`, `feature`, `file`, `line`, `generated`, `staged`, `nonProduction`, `size`, `layer`, `layerWhy`, `layerSizes`, `layers`, `infrastructure` and `roles`. `bundles` loses `argGroups`. `meta.detailFile` names the detail file.
 - `altitude-nodes.json` holds `schemaVersion`, `nodes` (a map from node id to the remaining node fields) and `argGroups`.
 
 A page merges a node's detail into its summary by id.
@@ -36,7 +36,7 @@ The command prints the size of each file it writes.
 | Field | What it holds |
 |---|---|
 | `schema`, `schemaVersion` | `"altitude-export"` and `4`. Every file of the export carries the same `schemaVersion`. |
-| `meta` | `target`, `gitSha`, `gitDirty`, `factsSchemaVersion`, the constants the derivations use (`params`), the layer names (`layers`), row `counts` (including `members` and `memberEdges`), `detailFile` when split, and the other files' names. |
+| `meta` | `target`, `gitSha`, `gitDirty`, `factsSchemaVersion`, the constants the derivations use (`params`), the layer names (`layers`), the layer hints (`layerHints`: the hints file's name and `hash`, its `rules` and its `neighbours` thresholds), row `counts` (including `members` and `memberEdges`), `detailFile` when split, and the other files' names. |
 | `files` | Every source path, relative to the target root. |
 | `containers` | The containment tree. |
 | `features` | The horizontal slices. |
@@ -86,7 +86,17 @@ Distances run over the solved call graph with two corrections:
 
 ### Layer
 
-`layer` is an index into `meta.layers`: 0 `external`, 1 `data`, 2 `presentation`, 3 `ui`. The first rule that matches sets it, and `layerWhy` names that rule.
+`layer` is an index into `meta.layers`: 0 `external`, 1 `data`, 2 `presentation`, 3 `ui`. Three steps set it:
+
+1. The **flow vote**: the first rule of the table below that matches. `layerFlowVote` holds its layer.
+2. The **hints**: rules from a data file, each adding its weight to one layer. The flow vote adds 1. The highest score wins. A tie, or no vote at all, leaves the node unplaced.
+3. The **neighbours**: for a node still unplaced, the layer of the placed nodes around it.
+
+`layerWhy` names what decided:
+
+- a rule of the table, when no hint matches or the matching hints all agree with it,
+- `hints:<ids>` (the winning layer's hints, `+<rule>` when the flow vote agrees), `pin:<id>`, `tie` or `pinTie`,
+- `neighbours`.
 
 | `layerWhy` | Rule | Layer |
 |---|---|---|
@@ -101,6 +111,30 @@ Distances run over the solved call graph with two corrections:
 | `unusedDataType`, `unplaced` | Nothing places it. `layer` is absent. | none |
 
 Direct callers are joined by `static`, `cha`, `actual`, `init` or `delegateAccessor` call edges, not by callbacks.
+
+Roles read the flow vote, never the hints, so a hint that matches a role never depends on another hint. The inheritance rule reads the flow votes of the callers too.
+
+### Layer hints
+
+The hints live in `altitude/models/layer-hints.yaml`, which ships inside the solver with the library models. Each hint has an `id`, a `match`, a `layer`, a `weight` (default 1), and optionally `pin: true` and `on`.
+
+- `match` takes `annotation` (a dotted class), `name` and `package` (globs with `*` and `?`), `supertype` (a dotted glob over every supertype the sources declare, transitively) and `role` (a role name, or `role:kind` for a role whose `kinds` evidence lists that kind). Every field given must match.
+- `on` is `class`, `member` or both. A hint that names only an annotation votes for both by default; every other hint votes for classes. A member's subject has its name, its node's package and its own annotations (a property's getter included), and no supertypes or roles.
+- A matching pin wins outright. When pins of the same top weight name different layers, the node is unplaced (`pinTie`).
+
+A member takes its node's layer, with `lyWhy` `class`, unless the hints that match the member itself outvote it. The node's layer counts 1 there. A composable member (weight 3) therefore draws as `ui` inside any class.
+
+Each node carries the votes in its detail fields:
+
+| Field | What it holds |
+|---|---|
+| `layerScores` | Votes per layer index. |
+| `layerHints` | The ids of every matching hint, in file order. |
+| `layerFlowVote` | The flow vote's layer, absent when it placed nothing. |
+| `layerConflict` | A hint disagrees with the flow vote, the winner leads by 1 or less, or, for a node the neighbours placed, the placed nodes one level further out favour another layer. A level that holds the whole module and source set never counts as disagreeing. |
+| `layerInferred`, `layerNeighbours` | `neighbours`, with the `level` (`file`, `package`, `parent`), `container`, line-weighted `share` and `count` of placed nodes it used. |
+
+The neighbours vote looks at the node's file, then its package, then its parent package and everything under it, always within its module and source set. A level counts when it holds at least `minSiblings` (3) placed nodes, or in the file the one other node, and one layer holds at least `minShare` (2/3) of their lines. A level that holds the whole module and source set needs `moduleShare` (0.9). Only nodes the flow vote and the hints placed count, so nothing the neighbours place moves another node. `maxLevel` (3) stops the walk.
 
 ### Reach, fan-in and infrastructure
 
@@ -218,7 +252,8 @@ Everything else belongs to the member around it: lambdas, parameters, locals, lo
 | `p`, `c` | The member a local cell lives in, and the nested class the member is declared in. |
 | `lam` | Lambdas inside the member. |
 | `np` | `test`, `preview` or `fake` when the member is staged, by the same check as a node's `nonProduction`. |
-| `ly`, `lyWhy` | The member's layer, as an index into `meta.layers`, and why: `class` when it takes its node's layer, `composable` when it is a composable function or getter, which draws UI wherever it is declared. |
+| `ly`, `lyWhy` | The member's layer, as an index into `meta.layers`, and why: `class` when it takes its node's layer, `hints:<ids>` when its own hints outvote that (see Layer hints). |
+| `layerScores`, `layerHints` | Only when `lyWhy` is not `class`: the member's votes, its node's layer counting 1, and its matching hints. |
 
 A node carries `layerSizes`, the lines of its members per `ly`, and `layers`, the layers its members span, sorted. Its own `layer` is unaffected.
 

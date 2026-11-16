@@ -158,4 +158,6 @@ Copies (`docs/facts.md`) keep one caller's values apart from another's in small 
 | `compose.yaml` | `remember`, `mutableStateOf`, effects, `collectAsState`, `@Composable` content parameters |
 | `magellanx.yaml` | Fields attached to a lifecycle and their delegates, `composable` content |
 
+`layer-hints.yaml` sits in the same folder but holds no entries. The export reads it to place classes and members in layers; `docs/export.md` describes it.
+
 To add a model: find the callee in `unmodelledLambdaCall.jsonl`, write the entry, and add a fixture under `extractor/src/test/resources/fixture/models/` with a test in `ModelsTest`.

@@ -41,7 +41,7 @@ private fun toJson(value: Any?): JsonElement =
   }
 
 /** Bump when the exporter's output changes for the same facts and options. */
-const val EXPORTER_VERSION = "4.1"
+const val EXPORTER_VERSION = "4.2"
 
 /**
  * One id for the files of one export run: a hash of the facts' bytes, [EXPORTER_VERSION] and the
@@ -61,7 +61,7 @@ fun exportId(factsDir: Path, target: String, split: Boolean, queries: List<Golde
       }
     }
   }
-  val options = "exporter=$EXPORTER_VERSION target=$target split=$split golden=" + queries.joinToString("|") { "${it.name}:${it.query}" }
+  val options = "exporter=$EXPORTER_VERSION hints=${LayerHints.bundled().hash} target=$target split=$split golden=" + queries.joinToString("|") { "${it.name}:${it.query}" }
   digest.update(options.toByteArray())
   return digest.digest().take(8).joinToString("") { "%02x".format(it) }
 }

@@ -1,0 +1,49 @@
+# Layer hints: votes that place a class or member in a layer. The format is in `altitude/docs/export.md`.
+layers: [external, data, presentation, ui]
+
+hints:
+  - id: composable-is-ui
+    match: {annotation: "androidx.compose.runtime.Composable"}
+    layer: ui
+    weight: 3
+
+  - id: repository-is-data
+    match: {name: "*Repository"}
+    layer: data
+    weight: 2
+
+  - id: compose-step-is-presentation
+    match: {supertype: "com.ryanmoelter.magellanx.compose.ComposeStep"}
+    layer: presentation
+    weight: 2
+
+  # Generated code, by the library types it implements: the library end of a boundary, as `boundaryTarget` places it.
+  - id: apollo-is-external
+    match: {supertype: "com.apollographql.apollo.api.*"}
+    layer: external
+    weight: 2
+
+  - id: sqldelight-is-external
+    match: {supertype: "app.cash.sqldelight.*"}
+    layer: external
+    weight: 2
+
+  # A backend's request handlers.
+  - id: graphql-resolver-is-presentation
+    match: {role: "entryPoint:graphqlResolver"}
+    layer: presentation
+    weight: 2
+
+  - id: http-route-is-presentation
+    match: {role: "entryPoint:httpRoute"}
+    layer: presentation
+    weight: 2
+
+# The last resort for a class nothing else places: the layer of the classes around it.
+neighbours:
+  minSiblings: 3
+  minShare: 0.667
+  # 1 the file, 2 the package, 3 the parent package.
+  maxLevel: 3
+  # A container that holds its whole module and source set counts only at this share.
+  moduleShare: 0.9

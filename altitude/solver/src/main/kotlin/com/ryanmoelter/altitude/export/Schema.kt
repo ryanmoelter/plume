@@ -39,6 +39,8 @@ data class ExportMeta(
   /** The constants the derivations use, so a page can say what it is showing. */
   val params: Map<String, Int>,
   val layers: List<String>,
+  /** The layer hints file's hash, its rules and the neighbours thresholds. */
+  val layerHints: JsonObject? = null,
   val counts: Map<String, Int>,
   /** Node detail lives in this file, next to the export, when it is split out. */
   val detailFile: String? = null,
@@ -161,6 +163,17 @@ data class NodeOut(
   /** Lines per layer over the node's members, each member at its own layer. */
   val layerSizes: Map<Int, Int> = emptyMap(),
   val layers: List<Int> = emptyList(),
+  /** Votes per layer: the weights of the matching hints plus 1 for [layerFlowVote]. */
+  val layerScores: Map<Int, Int> = emptyMap(),
+  /** The ids of the hints that match the node. */
+  val layerHints: List<String> = emptyList(),
+  /** The layer the call graph and cells give the node on their own. */
+  val layerFlowVote: Int? = null,
+  /** A hint disagrees with the flow vote, the winner leads by at most 1, or the neighbours one level out disagree. */
+  val layerConflict: Boolean = false,
+  /** `neighbours` when nothing but the classes around the node placed it. */
+  val layerInferred: String? = null,
+  val layerNeighbours: NeighboursOut? = null,
   val placement: Placement,
   val reach: Reach,
   val fanIn: FanIn,
@@ -438,9 +451,12 @@ data class MemberOut(
   val c: Int? = null,
   val lam: Int = 0,
   val np: String? = null,
-  /** The member's layer, and why: `class` (its node's layer) or `composable`. */
+  /** The member's layer, and why: `class` (its node's layer) or `hints:<ids>` when its own hints outvote that. */
   val ly: Int? = null,
   val lyWhy: String? = null,
+  /** Only on a member whose layer differs from its node's: its votes, its node's layer counting 1. */
+  val layerScores: Map<Int, Int>? = null,
+  val layerHints: List<String>? = null,
 )
 
 /** `altitude-branches.json`: the branch trees of the precomputed roots. */

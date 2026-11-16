@@ -11,6 +11,8 @@ import com.ryanmoelter.altitude.trace.Site
 import com.ryanmoelter.altitude.trace.accessCompat
 import java.util.TreeMap
 import java.util.TreeSet
+import kotlinx.serialization.json.JsonArray
+import kotlinx.serialization.json.JsonPrimitive
 
 val LAYERS = listOf("external", "data", "presentation", "ui")
 const val EVIDENCE_SITES = 3
@@ -41,6 +43,7 @@ class Exporter(
   private val derived: Derived,
   private val rules: Rules,
   private val meta: MetaFact,
+  private val hints: LayerHints = LayerHints.bundled(),
 ) {
   val units = Units(facts)
   private val containment = Containment(units)
@@ -249,8 +252,8 @@ class Exporter(
   private val callers: Map<String, Set<String>> =
     directCalls.groupBy({ it.second }, { it.first }).mapValues { it.value.toSortedSet() }
 
-  /** The layer and why, or null when nothing places the node. */
-  private val layers: Map<String, Pair<Int?, String>> = deriveLayers()
+  /** The layer the call graph and cells give each node, and why; the flow vote of [layerVotes]. */
+  private val flowLayers: Map<String, Pair<Int?, String>> = deriveLayers()
 
   private fun deriveLayers(): Map<String, Pair<Int?, String>> {
     val out = TreeMap<String, Pair<Int?, String>>()
@@ -289,7 +292,55 @@ class Exporter(
     return out
   }
 
-  fun layerOf(node: String): Int? = layers[node]?.first
+  private val placer = LayerPlacer(hints)
+
+  private val annotationsBySym: Map<String, Set<String>> =
+    facts.annotations.groupBy({ it.sym }, { it.annFq.replace('/', '.') }).mapValues { it.value.toSet() }
+
+  private val supertypesOf: Map<String, List<String>> = facts.supertypes.groupBy({ it.cls }, { it.sup })
+
+  private fun allSupertypes(sym: String): Set<String> {
+    val out = LinkedHashSet<String>()
+    val queue = ArrayDeque(supertypesOf[sym].orEmpty())
+    while (queue.isNotEmpty()) {
+      val s = queue.removeFirst()
+      if (out.add(s)) queue += supertypesOf[s].orEmpty()
+    }
+    return out.mapTo(LinkedHashSet()) { it.substringAfter(':').replace('/', '.') }
+  }
+
+  /** Roles read [flowLayers], so a hint on a role never depends on another hint. */
+  private val rolesByNode: Map<String, List<Role>> by lazy { nodeIds.associateWith(::roles) }
+
+  private fun roleNames(node: String): Set<String> =
+    rolesByNode.getValue(node).flatMapTo(LinkedHashSet()) { r ->
+      val kinds = (r.evidence["kinds"] as? JsonArray).orEmpty().map { (it as JsonPrimitive).content }
+      listOf(r.role) + kinds.map { "${r.role}:$it" }
+    }
+
+  private fun classSubject(node: String): HintSubject {
+    val info = units.nodes.getValue(node)
+    return HintSubject(info.name, info.pkg, annotationsBySym[node].orEmpty(), allSupertypes(node), roleNames(node))
+  }
+
+  /** Each node's layer after the hints, the flow vote and, for what those leave unplaced, its neighbours. */
+  private val layerVotes: Map<String, LayerVote> by lazy {
+    val votes = nodeIds.associateWithTo(TreeMap()) { node ->
+      val (flow, why) = flowLayers.getValue(node)
+      placer.placeClass(classSubject(node), flow, why)
+    }
+    val placed = votes.filterValues { it.layer != null }.mapValues { it.value.layer!! }
+    val around = nodeIds.map { id -> units.nodes.getValue(id).let { NeighbourNode(id, it.file, it.module, it.sourceSet, it.pkg, it.loc) } }
+    for ((node, vote) in placer.neighbours(around, placed)) {
+      val before = votes.getValue(node)
+      votes[node] = LayerVote(vote.layer, vote.why, before.scores, before.hints, before.flow, vote.conflict, vote.neighbours)
+    }
+    votes
+  }
+
+  fun layerOf(node: String): Int? = layerVotes[node]?.layer
+
+  private fun flowLayerOf(node: String): Int? = flowLayers[node]?.first
 
   // ---- features ------------------------------------------------------------------------------
 
@@ -383,7 +434,7 @@ class Exporter(
     val dataDown = p.down.filterKeys { it !in TELEMETRY_KINDS }
     if (p.boundaryCalls.isNotEmpty()) role("boundaryAdapter", "calls" to p.boundaryCalls)
     if (node in boundaryTargetNodes) role("externalAdapter", "generated" to units.nodes.getValue(node).generated)
-    val presentationCallers = callers[node].orEmpty().filter { layerOf(it) == 2 }
+    val presentationCallers = callers[node].orEmpty().filter { flowLayerOf(it) == 2 }
     if (p.entryKinds.isEmpty() && p.ui.composableFuns == 0 && dataDown.isNotEmpty() && presentationCallers.isNotEmpty() && !p.dataType && node !in boundaryTargetNodes) {
       role(
         "mediator",
@@ -598,7 +649,7 @@ class Exporter(
 
   /** The export and its members file. */
   fun buildAll(golden: List<GoldenQuery> = emptyList()): Pair<AltitudeExport, MembersExport> {
-    val roles = nodeIds.associateWith(::roles)
+    val roles = rolesByNode
     val edges =
       edgeAggs.map { (k, a) ->
         EdgeOut(
@@ -622,7 +673,7 @@ class Exporter(
         val info = units.nodes.getValue(id)
         val reach = reach(id)
         val fanIn = fanIn(id)
-        val (layer, why) = layers.getValue(id)
+        val vote = layerVotes.getValue(id)
         NodeOut(
           id = id,
           kind = info.kind,
@@ -636,10 +687,16 @@ class Exporter(
           nonProduction = nodeNonProduction(id),
           modifiers = info.modifiers,
           size = Size(info.loc, units.declCounts[id] ?: 0),
-          layer = layer,
-          layerWhy = why,
+          layer = vote.layer,
+          layerWhy = vote.why,
           layerSizes = layerSizes[id].orEmpty(),
           layers = layerSizes[id]?.keys?.toList().orEmpty(),
+          layerScores = vote.scores,
+          layerHints = vote.hints,
+          layerFlowVote = vote.flow,
+          layerConflict = vote.conflict,
+          layerInferred = vote.neighbours?.let { "neighbours" },
+          layerNeighbours = vote.neighbours,
           placement = placements.getValue(id),
           reach = reach,
           fanIn = fanIn,
@@ -664,6 +721,7 @@ class Exporter(
           factsSchemaVersion = meta.schemaVersion,
           params = sortedMapOf("megamorphic" to MEGAMORPHIC, "evidenceSites" to EVIDENCE_SITES, "infraFeatures" to INFRA_FEATURES, "loopHops" to LOOP_HOPS),
           layers = LAYERS,
+          layerHints = jsonObject(hints.describe(LayerHints.FILE)),
           membersFile = MEMBERS_FILE,
           counts =
             sortedMapOf(
@@ -848,16 +906,18 @@ class Exporter(
     return vars.export(target, counts)
   }
 
-  /** A composable function or property getter draws UI wherever it is declared; any other member takes its node's layer. */
-  private fun memberLayer(m: MemberDraft): Pair<Int?, String?> {
-    if ("composable" in m.flags || m.kind == "property" && "${m.id}#<get>" in composable) return LAYERS.indexOf("ui") to "composable"
-    return layerOf(m.node)?.let { it to "class" } ?: (null to null)
-  }
+  private val memberVotes = HashMap<String, LayerVote>()
+
+  private fun memberLayer(m: MemberDraft): LayerVote =
+    memberVotes.getOrPut(m.id) {
+      val annotations = annotationsBySym[m.id].orEmpty() + annotationsBySym["${m.id}#<get>"].orEmpty()
+      placer.placeMember(HintSubject(m.name, units.nodes[m.node]?.pkg.orEmpty(), annotations), layerOf(m.node))
+    }
 
   private fun layerSizes(): Map<String, Map<Int, Int>> {
     val out = HashMap<String, TreeMap<Int, Int>>()
     for (m in memberDrafts) {
-      val layer = memberLayer(m).first ?: continue
+      val layer = memberLayer(m).layer ?: continue
       if (m.size > 0) out.getOrPut(m.node) { TreeMap() }.merge(layer, m.size, Int::plus)
     }
     return out
@@ -894,8 +954,10 @@ class Exporter(
           c = m.nestedClass?.let(classIndex::get),
           lam = m.lambdas,
           np = nonProduction(m.id),
-          ly = memberLayer(m).first,
-          lyWhy = memberLayer(m).second,
+          ly = memberLayer(m).layer,
+          lyWhy = memberLayer(m).let { v -> v.why.takeIf { v.layer != null } },
+          layerScores = memberLayer(m).takeIf { it.why != "class" }?.scores,
+          layerHints = memberLayer(m).takeIf { it.why != "class" }?.hints,
         )
       }
     val edges =
