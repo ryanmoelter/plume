@@ -627,6 +627,39 @@ final class ComposerNSTextView: NSTextView {
     /// keystroke benchmark.
     private(set) var lastDecorationCost: Duration = .zero
 
+    private var decorationStructure: (textVersion: Int, structure: ComposerDecorations.Structure)?
+    private var textVersion = 0
+    private weak var observedTextStorage: NSTextStorage?
+
+    private func currentDecorationStructure() -> ComposerDecorations.Structure {
+        if let textStorage, observedTextStorage !== textStorage {
+            NotificationCenter.default.addObserver(
+                self,
+                selector: #selector(storageDidProcessEditing),
+                name: NSTextStorage.didProcessEditingNotification,
+                object: textStorage
+            )
+            observedTextStorage = textStorage
+            decorationStructure = nil
+        }
+        if let decorationStructure, decorationStructure.textVersion == textVersion {
+            return decorationStructure.structure
+        }
+        let structure = ComposerDecorations.Structure(text: string)
+        decorationStructure = (textVersion, structure)
+        return structure
+    }
+
+    @objc private func storageDidProcessEditing(_ notification: Notification) {
+        if textStorage?.editedMask.contains(.editedCharacters) == true {
+            textVersion += 1
+        }
+    }
+
+    private func decorations(metrics: ComposerMarkdownMetrics) -> ComposerDecorations.Decorations {
+        ComposerDecorations.rects(in: self, metrics: metrics, visibleRect: visibleRect, structure: currentDecorationStructure())
+    }
+
     /// Draws decorations and the placeholder here rather than in `draw(_:)`:
     /// overriding `draw(_:)` drops an `NSTextView` to TextKit 1, and the
     /// decorations read TextKit 2 layout. AppKit calls this before the glyphs
@@ -635,7 +668,7 @@ final class ComposerNSTextView: NSTextView {
         super.drawBackground(in: rect)
         var decorations: ComposerDecorations.Decorations?
         lastDecorationCost = ContinuousClock().measure {
-            decorations = markdownMetrics.map { ComposerDecorations.rects(in: self, metrics: $0, visibleRect: visibleRect) }
+            decorations = markdownMetrics.map { self.decorations(metrics: $0) }
         }
         if let decorations, let markdownMetrics {
             ComposerDecorations.draw(decorations, in: rect, metrics: markdownMetrics)
@@ -735,7 +768,7 @@ final class ComposerNSTextView: NSTextView {
     override func mouseDown(with event: NSEvent) {
         if let markdownMetrics, editsMarkdown {
             let point = convert(event.locationInWindow, from: nil)
-            let checkboxes = ComposerDecorations.rects(in: self, metrics: markdownMetrics, visibleRect: visibleRect).checkboxes
+            let checkboxes = decorations(metrics: markdownMetrics).checkboxes
             if let hit = checkboxes.first(where: { $0.rect.insetBy(dx: -3, dy: -3).contains(point) }),
                let result = ComposerMarkdownEditing.toggleCheckbox(hit.box, in: string, selection: selectedRange()) {
                 apply(result, scrollsToSelection: false)
