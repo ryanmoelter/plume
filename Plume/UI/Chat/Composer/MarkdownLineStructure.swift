@@ -48,6 +48,20 @@ nonisolated struct MarkdownLine: Equatable {
     }
 
     var contentStart: Int { marker.map(NSMaxRange) ?? NSMaxRange(indent) }
+
+    /// The same line moved `delta` UTF-16 units along the text.
+    func offset(by delta: Int) -> MarkdownLine {
+        guard delta != 0 else { return self }
+        func move(_ range: NSRange) -> NSRange { NSRange(location: range.location + delta, length: range.length) }
+        var line = self
+        line.range = move(range)
+        line.quoteMarkers = quoteMarkers.map(move)
+        line.indent = move(indent)
+        line.marker = marker.map(move)
+        line.checkbox = checkbox.map(move)
+        line.listContainer?.indent = move(listContainer?.indent ?? indent)
+        return line
+    }
     var quoteLevel: Int { quoteMarkers.count }
     var prefixStart: Int { range.location }
 

@@ -236,8 +236,8 @@ struct MarkdownComposerTextView: NSViewRepresentable {
         }
 
         /// Full re-style, used when the text or font size changes from
-        /// outside a keystroke (initial mount, external `text` reset, font
-        /// size change) as well as after every keystroke.
+        /// outside a keystroke: initial mount, external `text` reset, font
+        /// size change.
         func apply(text: String, fontSize: CGFloat, to textView: NSTextView) {
             self.fontSize = fontSize
             let selectedRanges = textView.selectedRanges
@@ -254,7 +254,7 @@ struct MarkdownComposerTextView: NSViewRepresentable {
             let accent = ThemeChrome.accentNSColor(isActive: isActive)
             textView.insertionPointColor = accent
             textView.selectedTextAttributes = [.backgroundColor: accent.withAlphaComponent(0.3)]
-            style(textView, text: text, caret: selectedRanges.first?.rangeValue ?? textView.selectedRange(), accent: accent)
+            style(textView, text: text, caret: selectedRanges.first?.rangeValue ?? textView.selectedRange(), accent: accent, incrementally: false)
             (textView as? ComposerNSTextView)?.markdownMetrics = isCommandMode ? nil : ComposerMarkdownMetrics(fontSize: fontSize)
             layOutAllText(in: textView)
             textView.selectedRanges = selectedRanges
@@ -270,9 +270,10 @@ struct MarkdownComposerTextView: NSViewRepresentable {
             layoutManager.ensureLayout(for: layoutManager.documentRange)
         }
 
-        private func style(_ textView: NSTextView, text: String, caret: NSRange, accent: NSColor) {
+        private func style(_ textView: NSTextView, text: String, caret: NSRange, accent: NSColor, incrementally: Bool = true) {
             let chips = referenceChips(in: text, caret: caret)
-            MarkdownComposerStyler.style(
+            let unchanged = (textView as? ComposerNSTextView)?.takeUnchangedEnds()
+            styleSnapshot = MarkdownComposerStyler.style(
                 textView.textStorage!,
                 text: text,
                 fontSize: fontSize,
@@ -280,7 +281,9 @@ struct MarkdownComposerTextView: NSViewRepresentable {
                 isCommandMode: isCommandMode,
                 accent: accent,
                 references: chips,
-                activeMention: activeMention
+                activeMention: activeMention,
+                after: incrementally ? styleSnapshot : nil,
+                unchanged: unchanged
             )
             (textView as? ComposerNSTextView)?.referenceChips = chips
         }
@@ -631,17 +634,38 @@ final class ComposerNSTextView: NSTextView {
     private var textVersion = 0
     private weak var observedTextStorage: NSTextStorage?
 
+    /// What no edit has touched since the last `takeUnchangedEnds()`. Nil
+    /// until the storage is observed, which asks for a full restyle.
+    private var unchangedEnds: MarkdownComposerStyler.UnchangedEnds?
+
+    /// The text's untouched ends since the last call, for an incremental
+    /// restyle, and starts tracking again from here.
+    func takeUnchangedEnds() -> MarkdownComposerStyler.UnchangedEnds? {
+        let isObserving = observeTextStorage()
+        defer { unchangedEnds = .all }
+        return isObserving ? unchangedEnds : nil
+    }
+
+    /// Returns false when observing starts only now, so earlier edits went
+    /// unseen.
+    @discardableResult
+    private func observeTextStorage() -> Bool {
+        guard let textStorage else { return false }
+        guard observedTextStorage !== textStorage else { return true }
+        NotificationCenter.default.addObserver(
+            self,
+            selector: #selector(storageDidProcessEditing),
+            name: NSTextStorage.didProcessEditingNotification,
+            object: textStorage
+        )
+        observedTextStorage = textStorage
+        decorationStructure = nil
+        unchangedEnds = nil
+        return false
+    }
+
     private func currentDecorationStructure() -> ComposerDecorations.Structure {
-        if let textStorage, observedTextStorage !== textStorage {
-            NotificationCenter.default.addObserver(
-                self,
-                selector: #selector(storageDidProcessEditing),
-                name: NSTextStorage.didProcessEditingNotification,
-                object: textStorage
-            )
-            observedTextStorage = textStorage
-            decorationStructure = nil
-        }
+        observeTextStorage()
         if let decorationStructure, decorationStructure.textVersion == textVersion {
             return decorationStructure.structure
         }
@@ -651,9 +675,9 @@ final class ComposerNSTextView: NSTextView {
     }
 
     @objc private func storageDidProcessEditing(_ notification: Notification) {
-        if textStorage?.editedMask.contains(.editedCharacters) == true {
-            textVersion += 1
-        }
+        guard let textStorage, textStorage.editedMask.contains(.editedCharacters) else { return }
+        textVersion += 1
+        unchangedEnds?.exclude(textStorage.editedRange, length: textStorage.length)
     }
 
     private func decorations(metrics: ComposerMarkdownMetrics) -> ComposerDecorations.Decorations {

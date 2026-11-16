@@ -12,6 +12,13 @@ import SwiftUI
 /// rendered message agree visually.
 @MainActor
 enum MarkdownComposerStyler {
+    /// Restyles `storage`, which holds `text`. Given the `Snapshot` the last
+    /// call returned and the lengths at either end of the text that stayed
+    /// the same since then, only the lines whose styling can have changed
+    /// are restyled: the edited ones, plus any whose parse, fence side or
+    /// list spacing moved, and any whose reference chip, command or mention
+    /// tint did. Without both, the whole text is restyled.
+    @discardableResult
     static func style(
         _ storage: NSTextStorage,
         text: String,
@@ -20,58 +27,254 @@ enum MarkdownComposerStyler {
         isCommandMode: Bool = false,
         accent: NSColor = ThemeChrome.accentNSColor(),
         references: [ComposerReferenceChip] = [],
-        activeMention: NSRange? = nil
-    ) {
+        activeMention: NSRange? = nil,
+        after previous: Snapshot? = nil,
+        unchanged: UnchangedEnds? = nil
+    ) -> Snapshot? {
         let metrics = ComposerMarkdownMetrics(fontSize: fontSize)
-        let bodyFont = isCommandMode ? metrics.mono : metrics.body
         let ns = text as NSString
         let fullRange = NSRange(location: 0, length: ns.length)
-
-        storage.beginEditing()
-        storage.setAttributes([
-            .font: bodyFont,
-            .foregroundColor: NSColor.labelColor,
-        ], range: fullRange)
 
         // A command is shell, not markdown: highlighting its quotes and
         // backticks as markup would style the parts that matter most.
         guard !isCommandMode else {
-            storage.endEditing()
-            return
+            storage.setAttributes([
+                .font: metrics.mono,
+                .foregroundColor: NSColor.labelColor,
+            ], range: fullRange)
+            return nil
         }
 
         let lines = MarkdownLineStructure.lines(in: text)
-        let spans = MarkdownHighlighter.spans(in: text, lines: lines)
-        for span in spans where span.style != .delimiter && fullRange.contains(span.range) {
-            apply(span, to: storage, metrics: metrics, accent: accent)
-        }
-        for span in spans where span.style == .delimiter && fullRange.contains(span.range) {
-            storage.addAttribute(.foregroundColor, value: NSColor.secondaryLabelColor, range: span.range)
-        }
-        padChips(spans, in: storage, text: ns, metrics: metrics)
-        styleReferences(references, in: storage, text: ns, metrics: metrics, accent: accent)
+        var opensFence: [Bool] = []
+        opensFence.reserveCapacity(lines.count)
         var isInsideFence = false
-        for (index, line) in lines.enumerated() {
+        for line in lines {
             if line.kind == .fence { isInsideFence.toggle() }
+            opensFence.append(isInsideFence)
+        }
+        let commandRange = SlashCommandMatcher.recognizedCommandRange(text: text, commandNames: recognizedSlashCommandNames)
+        let mentionRange = activeMention.flatMap { $0.length > 0 && NSMaxRange($0) <= ns.length ? $0 : nil }
+        var snapshot = Snapshot(
+            length: ns.length,
+            lines: lines,
+            opensFence: opensFence,
+            listEdges: lines.indices.map { listEdges(at: $0, in: lines) },
+            references: references,
+            tints: [commandRange, mentionRange].compactMap { $0 },
+            configuration: Configuration(fontSize: fontSize, accent: accent)
+        )
+
+        let groups: [ClosedRange<Int>]
+        if let previous, let unchanged, previous.configuration == snapshot.configuration,
+           let changed = snapshot.linesChanged(since: previous, unchanged: unchanged) {
+            groups = changed
+        } else {
+            groups = [0...(lines.count - 1)]
+        }
+
+        let spans = MarkdownHighlighter.spans(in: text, lines: lines)
+        storage.beginEditing()
+        var restyled: NSRange?
+        for group in groups {
+            let first = lines[group.lowerBound].range.location
+            let last = lines[group.upperBound]
+            let end = last.range.location < ns.length
+                ? NSMaxRange(ns.paragraphRange(for: NSRange(location: last.range.location, length: 0)))
+                : ns.length
+            let range = NSRange(location: first, length: end - first)
+            restyled = restyled.map { NSUnionRange($0, range) } ?? range
+            styleRange(
+                range,
+                lines: group,
+                of: snapshot,
+                spans: spans,
+                in: storage,
+                text: ns,
+                metrics: metrics,
+                accent: accent,
+                commandRange: commandRange,
+                mentionRange: mentionRange
+            )
+        }
+        storage.endEditing()
+        snapshot.restyled = restyled
+        return snapshot
+    }
+
+    /// Everything the full pass does, kept to `range`, which holds whole
+    /// paragraphs: lines `indices` of `snapshot`.
+    private static func styleRange(
+        _ range: NSRange,
+        lines indices: ClosedRange<Int>,
+        of snapshot: Snapshot,
+        spans: [MarkdownHighlighter.Span],
+        in storage: NSTextStorage,
+        text ns: NSString,
+        metrics: ComposerMarkdownMetrics,
+        accent: NSColor,
+        commandRange: NSRange?,
+        mentionRange: NSRange?
+    ) {
+        func clamped(_ other: NSRange) -> NSRange? {
+            let intersection = NSIntersectionRange(other, range)
+            return intersection.length > 0 ? intersection : nil
+        }
+        storage.setAttributes([
+            .font: metrics.body,
+            .foregroundColor: NSColor.labelColor,
+        ], range: range)
+
+        for span in spans where span.style != .delimiter {
+            if let part = clamped(span.range) {
+                apply(MarkdownHighlighter.Span(range: part, style: span.style), to: storage, metrics: metrics, accent: accent)
+            }
+        }
+        for span in spans where span.style == .delimiter {
+            if let part = clamped(span.range) {
+                storage.addAttribute(.foregroundColor, value: NSColor.secondaryLabelColor, range: part)
+            }
+        }
+        padChips(spans.filter { clamped($0.range) != nil }, in: storage, text: ns, metrics: metrics)
+        styleReferences(snapshot.references.filter { clamped($0.range) != nil }, in: storage, text: ns, metrics: metrics, accent: accent)
+        for index in indices {
             applyLine(
-                line,
-                opensFence: isInsideFence,
-                listEdges: listEdges(at: index, in: lines),
+                snapshot.lines[index],
+                opensFence: snapshot.opensFence[index],
+                listEdges: snapshot.listEdges[index],
                 to: storage,
                 text: ns,
                 metrics: metrics
             )
         }
 
-        if let commandRange = SlashCommandMatcher.recognizedCommandRange(text: text, commandNames: recognizedSlashCommandNames) {
-            storage.addAttribute(.foregroundColor, value: accent, range: commandRange)
+        if let commandRange, let part = clamped(commandRange) {
+            storage.addAttribute(.foregroundColor, value: accent, range: part)
+        }
+        if let mentionRange, let part = clamped(mentionRange) {
+            storage.addAttribute(.foregroundColor, value: accent, range: part)
+        }
+    }
+
+    /// The lengths of the text's start and end that no edit touched.
+    struct UnchangedEnds: Equatable {
+        var prefix: Int
+        var suffix: Int
+
+        static let all = UnchangedEnds(prefix: .max, suffix: .max)
+
+        /// Narrows to exclude an edit, given as the edited range and the
+        /// text's length afterwards.
+        mutating func exclude(_ edited: NSRange, length: Int) {
+            prefix = min(prefix, edited.location)
+            suffix = min(suffix, length - NSMaxRange(edited))
+        }
+    }
+
+    /// The inputs a restyle styled each line from, for the next restyle to
+    /// compare against.
+    struct Snapshot {
+        fileprivate let length: Int
+        fileprivate let lines: [MarkdownLine]
+        fileprivate let opensFence: [Bool]
+        fileprivate let listEdges: [ListEdges]
+        fileprivate let references: [ComposerReferenceChip]
+        /// The recognized command and the active mention.
+        fileprivate let tints: [NSRange]
+        fileprivate let configuration: Configuration
+        /// The characters this restyle set attributes on, nil when no line
+        /// needed it.
+        fileprivate(set) var restyled: NSRange?
+
+        /// Runs of consecutive lines to restyle, or nil when the edit can't
+        /// be placed and everything needs it.
+        fileprivate func linesChanged(since old: Snapshot, unchanged: UnchangedEnds) -> [ClosedRange<Int>]? {
+            let prefix = min(unchanged.prefix, old.length, length)
+            let suffix = min(unchanged.suffix, old.length - prefix, length - prefix)
+            let delta = length - old.length
+            let oldEditEnd = old.length - suffix
+            let newEditEnd = length - suffix
+
+            // Lines whose paragraph, terminator included, ends before the
+            // edit, and lines starting after the character the edit ends at.
+            func leading(_ lines: [MarkdownLine]) -> Int {
+                var count = 0
+                while count + 1 < lines.count, lines[count + 1].range.location <= prefix { count += 1 }
+                return count
+            }
+            func trailing(_ lines: [MarkdownLine], after editEnd: Int) -> Int {
+                var count = 0
+                while count < lines.count, lines[lines.count - 1 - count].range.location > editEnd { count += 1 }
+                return count
+            }
+            let before = leading(lines)
+            let after = trailing(lines, after: newEditEnd)
+            guard before == leading(old.lines), after == trailing(old.lines, after: oldEditEnd),
+                  before + after <= lines.count, before + after <= old.lines.count
+            else { return nil }
+
+            var changed = IndexSet(integersIn: before..<(lines.count - after))
+            for index in 0..<before where !sameStyling(index, old, index, shift: 0) {
+                changed.insert(index)
+            }
+            for offset in 0..<after {
+                let index = lines.count - after + offset
+                if !sameStyling(index, old, old.lines.count - after + offset, shift: delta) {
+                    changed.insert(index)
+                }
+            }
+
+            func moved(_ range: NSRange) -> NSRange? {
+                if NSMaxRange(range) <= prefix { return range }
+                if range.location >= oldEditEnd { return NSRange(location: range.location + delta, length: range.length) }
+                return nil
+            }
+            func insertLines(of range: NSRange) {
+                let clamped = NSRange(location: min(range.location, length), length: 0)
+                let first = MarkdownLineStructure.lineIndex(containing: clamped.location, in: lines)
+                let last = MarkdownLineStructure.lineIndex(containing: min(NSMaxRange(range), length), in: lines)
+                changed.insert(integersIn: first...max(first, last))
+            }
+            let oldReferences = old.references.compactMap { reference in
+                moved(reference.range).map { range in
+                    var moved = reference
+                    moved.range = range
+                    return moved
+                }
+            }
+            for reference in references where !oldReferences.contains(reference) { insertLines(of: reference.range) }
+            for reference in oldReferences where !references.contains(reference) { insertLines(of: reference.range) }
+            let oldTints = old.tints.compactMap(moved)
+            if oldTints != tints {
+                for range in oldTints + tints { insertLines(of: range) }
+            }
+
+            return changed.rangeView.map { $0.lowerBound...($0.upperBound - 1) }
         }
 
-        if let activeMention, activeMention.length > 0, NSMaxRange(activeMention) <= ns.length {
-            storage.addAttribute(.foregroundColor, value: accent, range: activeMention)
+        private func sameStyling(_ index: Int, _ old: Snapshot, _ oldIndex: Int, shift: Int) -> Bool {
+            opensFence[index] == old.opensFence[oldIndex]
+                && listEdges[index] == old.listEdges[oldIndex]
+                && lines[index] == old.lines[oldIndex].offset(by: shift)
         }
+    }
 
-        storage.endEditing()
+    fileprivate struct Configuration: Equatable {
+        var fontSize: CGFloat
+        /// The accent as drawn in light and dark: a dynamic color is a new
+        /// object on every call, and never equal to the last one.
+        var accent: [NSColor?]
+
+        init(fontSize: CGFloat, accent: NSColor) {
+            self.fontSize = fontSize
+            self.accent = [NSAppearance.Name.aqua, .darkAqua].map { name in
+                var resolved: NSColor?
+                NSAppearance(named: name)?.performAsCurrentDrawingAppearance {
+                    resolved = accent.usingColorSpace(.sRGB)
+                }
+                return resolved
+            }
+        }
     }
 
     private static func apply(_ span: MarkdownHighlighter.Span, to storage: NSTextStorage, metrics: ComposerMarkdownMetrics, accent: NSColor) {
