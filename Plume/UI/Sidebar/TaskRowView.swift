@@ -367,7 +367,7 @@ struct TaskRowView: View {
         HStack(spacing: 4) {
             Text(header.title)
                 .font(.caption)
-                .emphasis(.secondary)
+                .emphasis(.primary)
                 .lineLimit(1)
                 .truncationMode(.tail)
             if header.isRemotelyControlled {
