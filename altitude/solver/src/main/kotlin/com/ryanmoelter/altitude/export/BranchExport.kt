@@ -114,7 +114,7 @@ class BranchContext(
   private val entries = HashMap<String, Int>().apply { for ((i, e) in rules.entrypoints.withIndex()) putIfAbsent(e.sym, i) }
   /**
    * The variable or property a location holds or reads, so every read of one is one `ui` terminal.
-   * Other locations, such as temporaries, share the member's terminal, which keeps one composable
+   * A temporary handed to a library call shares the member's terminal, which keeps one composable
    * from turning into a terminal per expression.
    */
   private val readOf: Map<String, String> =
@@ -154,10 +154,17 @@ class BranchContext(
     boundaryInputs[id]?.let { return TerminalKey("boundary", it) }
     cellOf(id)?.let { return TerminalKey("cellWrite", it) }
     val member = members.ofLocation(id)
-    if (member != null && member in composable && member !in rootMembers) memberIndex[member]?.let { return TerminalKey("ui", it, readOf[id]) }
+    if (member != null && member in composable && member !in rootMembers && isUiRead(id)) memberIndex[member]?.let { return TerminalKey("ui", it, readOf[id]) }
     if (id in libraryInputs && program.valueEdges[location].isNullOrEmpty()) member?.let(memberIndex::get)?.let { return TerminalKey("sink", it) }
     return null
   }
+
+  /**
+   * Whether the composable reads the value at [id]: a variable or property it reads, or a value it
+   * hands to a library call such as `Text`. A container slot or a call result nothing reads is only
+   * on the way to one, and the path carries on to the read.
+   */
+  private fun isUiRead(id: String): Boolean = id in readOf || (!id.endsWith(ELEMENT) && id in libraryInputs)
 
   private fun backward(location: String): TerminalKey? {
     val id = withoutContext(location)
