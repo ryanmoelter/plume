@@ -65,6 +65,12 @@ enum SwitchLatencyProbe {
         }
     }
 
+    /// Ends the running measurement without reporting it.
+    static func cancel() {
+        run = nil
+        removeObserver()
+    }
+
     static func time<T>(_ name: String, _ body: () -> T) -> T {
         guard run != nil else { return body() }
         let began = CACurrentMediaTime()

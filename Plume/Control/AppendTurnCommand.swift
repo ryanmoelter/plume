@@ -1,7 +1,6 @@
 #if DEBUG
 import AppKit
 import Foundation
-import OSLog
 import SwiftData
 
 extension InProcessControlBackend {
@@ -13,6 +12,13 @@ extension InProcessControlBackend {
         guard let tab = task.orderedTabs.first(where: { $0.id == task.selectedTabID }) ?? task.orderedTabs.first,
               let path = TranscriptStore.shared.watchedPath(forTab: tab.id)
         else { throw ControlError.badParams("the selected task's tab watches no transcript") }
+        if let refusal = AppendTurnTarget.refusal(
+            path: path,
+            seedPaths: AppendTurnTarget.seedPaths(in: ProcessInfo.processInfo.environment),
+            hasLiveProcess: Self.hasLiveProcess(tabID: tab.id)
+        ) {
+            throw ControlError.unsupported(refusal)
+        }
 
         let activity = ProcessInfo.processInfo.beginActivity(
             options: [.userInitiated, .latencyCritical], reason: "Measuring transcript appends"
@@ -23,7 +29,7 @@ extension InProcessControlBackend {
         for round in 0..<params.repeatCount {
             let turn = SyntheticTurn(parentUUID: parent, index: round, withReply: params.reply)
             parent = turn.lastUUID
-            let sample = await withCheckedContinuation { continuation in
+            let sample = try await withCheckedThrowingContinuation { continuation in
                 SwitchLatencyProbe.begin(
                     "append \(round + 1)",
                     tabID: tab.id,
@@ -33,13 +39,40 @@ extension InProcessControlBackend {
                 do {
                     try turn.append(toFileAt: path)
                 } catch {
-                    Log.app.error("appendTurn failed to write: \(error.localizedDescription, privacy: .public)")
+                    SwitchLatencyProbe.cancel()
+                    continuation.resume(throwing: error)
                 }
             }
             samples.append(sample)
             try await Task.sleep(for: .seconds(params.settle))
         }
         return SwitchLatencyReport(samples: samples)
+    }
+
+    private static func hasLiveProcess(tabID: UUID) -> Bool {
+        SurfaceManager.shared.existingSession(for: tabID).map { !$0.hasExited } ?? false
+            || AgentSessionManager.shared.existingSession(for: tabID).map { !$0.hasExited } ?? false
+    }
+}
+
+/// Whether `appendTurn` may write to a tab's transcript: a seeded fixture
+/// always, anything else only while no agent process could be writing it.
+nonisolated enum AppendTurnTarget {
+    /// Nil when the append may go ahead, else why it may not.
+    static func refusal(path: String, seedPaths: [String], hasLiveProcess: Bool) -> String? {
+        let canonical = Set(seedPaths.map(Self.canonical))
+        if canonical.contains(Self.canonical(path)) || !hasLiveProcess { return nil }
+        return "appendTurn writes only to a PLUME_SEED_TRANSCRIPT_PATH fixture or a transcript no agent process is writing, and an agent process backs this tab"
+    }
+
+    /// The paths `SmokeHarness` seeds from `PLUME_SEED_TRANSCRIPT_PATH`.
+    static func seedPaths(in environment: [String: String]) -> [String] {
+        guard let paths = environment["PLUME_SEED_TRANSCRIPT_PATH"] else { return [] }
+        return paths.split(separator: ",").map { NSString(string: String($0)).expandingTildeInPath }
+    }
+
+    private static func canonical(_ path: String) -> String {
+        URL(fileURLWithPath: path).standardizedFileURL.resolvingSymlinksInPath().path
     }
 }
 
@@ -86,17 +119,31 @@ nonisolated struct SyntheticTurn {
         }
     }
 
+    /// Refuses a file that ends mid-line: its last row may still be being
+    /// written, and finishing it is not this turn's to do.
     func append(toFileAt path: String) throws {
-        let handle = try FileHandle(forUpdating: URL(fileURLWithPath: path))
-        defer { try? handle.close() }
-        let end = try handle.seekToEnd()
-        var text = lines.joined(separator: "\n") + "\n"
-        if end > 0 {
-            try handle.seek(toOffset: end - 1)
-            if handle.readData(ofLength: 1) != Data("\n".utf8) { text = "\n" + text }
-            try handle.seekToEnd()
+        let handle: FileHandle
+        do {
+            handle = try FileHandle(forUpdating: URL(fileURLWithPath: path))
+        } catch {
+            throw ControlError.io("can't open the transcript for writing: \(error.localizedDescription)")
         }
-        try handle.write(contentsOf: Data(text.utf8))
+        defer { try? handle.close() }
+        do {
+            let end = try handle.seekToEnd()
+            if end > 0 {
+                try handle.seek(toOffset: end - 1)
+                guard try handle.read(upToCount: 1) == Data("\n".utf8) else {
+                    throw ControlError.unsupported("the transcript ends mid-line, so appendTurn won't write to it")
+                }
+                try handle.seekToEnd()
+            }
+            try handle.write(contentsOf: Data((lines.joined(separator: "\n") + "\n").utf8))
+        } catch let error as ControlError {
+            throw error
+        } catch {
+            throw ControlError.io("can't write the transcript: \(error.localizedDescription)")
+        }
     }
 
     /// The uuid of the file's last user or assistant row, from its tail.
