@@ -18,8 +18,8 @@ struct DebugSettingsPane: View {
                 Button("Remove fixtures") {
                     SidebarFixtures.remove(in: context, existingGroups: groups)
                 }
-                .disabled(!SidebarFixtures.hasFixtures(in: groups))
                 .plumeID(AccessibilityID.settingsRemoveFixturesButton)
+                .disabled(!SidebarFixtures.hasFixtures(in: groups))
                 .help("Delete the \"\(SidebarFixtures.groupName)\" group and every task in it")
             } header: {
                 Text("Fixtures")
