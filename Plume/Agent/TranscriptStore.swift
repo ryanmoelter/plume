@@ -1,5 +1,9 @@
 import Foundation
 import Observation
+#if DEBUG
+import OSLog
+import QuartzCore
+#endif
 
 /// A subagent's parsed transcript, keyed by the id in its filename
 /// (`agent-<id>.jsonl`).
@@ -421,17 +425,23 @@ final class TranscriptStore {
         private var scannedDescriptors: [String: SubagentDescriptor]?
         private var data: Data?
 
+        let timings: ReadTimings
+
         init(data: Data, fingerprint: FileFingerprint?, referenceCache: ConversationReferenceScanner.Cache) {
-            let transcript = TranscriptParser.parse(data)
+            var timings = ReadTimings()
+            let transcript = timings.time(\.parse) { TranscriptParser.parse(data) }
             var referenceCache = referenceCache
             self.fingerprint = fingerprint
             self.transcript = transcript
-            backgroundTasks = BackgroundTaskScanner.inFlight(parentData: data)
-            transcriptEvidence = LinearActivityScanner.scan(transcript.messages, subagent: nil)
-            references = ConversationReferenceScanner.scan(transcript.messages, cache: &referenceCache)
+            backgroundTasks = timings.time(\.backgroundTasks) { BackgroundTaskScanner.inFlight(parentData: data) }
+            transcriptEvidence = timings.time(\.linear) { LinearActivityScanner.scan(transcript.messages, subagent: nil) }
+            references = timings.time(\.references) {
+                ConversationReferenceScanner.scan(transcript.messages, cache: &referenceCache)
+            }
             self.referenceCache = referenceCache
-            spawnResults = SubagentSpawnResults(parentData: data)
+            spawnResults = timings.time(\.spawnResults) { SubagentSpawnResults(parentData: data) }
             self.data = data
+            self.timings = timings
         }
 
         mutating func spawnDescriptors(transcriptPath: String) -> [String: SubagentDescriptor] {
@@ -450,6 +460,40 @@ final class TranscriptStore {
             return copy
         }
     }
+
+    #if DEBUG
+    private nonisolated struct ReadTimings: Sendable {
+        var load = 0.0
+        var parse = 0.0
+        var backgroundTasks = 0.0
+        var linear = 0.0
+        var references = 0.0
+        var spawnResults = 0.0
+        var subagents = 0.0
+
+        mutating func time<T>(_ slot: WritableKeyPath<Self, Double>, _ body: () -> T) -> T {
+            let began = CACurrentMediaTime()
+            defer { self[keyPath: slot] += (CACurrentMediaTime() - began) * 1000 }
+            return body()
+        }
+
+        func logLine(totalMs: Double, bytes: Int, reusedParent: Bool) -> String {
+            let ms = { (value: Double) in "\(Int(value.rounded()))ms" }
+            return "transcript-read load=\(ms(load)) parse=\(ms(parse)) bgTasks=\(ms(backgroundTasks)) "
+                + "linear=\(ms(linear)) references=\(ms(references)) spawnResults=\(ms(spawnResults)) "
+                + "subagents=\(ms(subagents)) total=\(ms(totalMs)) bytes=\(bytes) reusedParent=\(reusedParent)"
+        }
+    }
+    #else
+    private nonisolated struct ReadTimings: Sendable {
+        mutating func time<T>(_ slot: WritableKeyPath<Self, Double>, _ body: () -> T) -> T { body() }
+        var parse = 0.0
+        var backgroundTasks = 0.0
+        var linear = 0.0
+        var references = 0.0
+        var spawnResults = 0.0
+    }
+    #endif
 
     private nonisolated struct ParsedRead: Sendable {
         let parent: ParentParse
@@ -507,11 +551,19 @@ final class TranscriptStore {
         let afterLoading = afterLoadingTranscript
         #endif
         Task.detached(priority: .utility) {
+            #if DEBUG
+            let readBegan = CACurrentMediaTime()
+            var timings = ReadTimings()
+            #endif
             let fingerprint = FileFingerprint(path: path)
             let reusable = previousParent.flatMap { previous in
                 fingerprint != nil && previous.fingerprint == fingerprint ? previous : nil
             }
+            #if DEBUG
+            let data = reusable == nil ? timings.time(\.load) { FileManager.default.contents(atPath: path) } : nil
+            #else
             let data = reusable == nil ? FileManager.default.contents(atPath: path) : nil
+            #endif
             #if DEBUG
             await afterLoading?(path)
             #endif
@@ -521,11 +573,25 @@ final class TranscriptStore {
             let parsed = parentParse.map { parentParse in
                 var parent = parentParse
                 var subagentCache = subagentCache
+                #if DEBUG
+                let (subagents, evidence, intact) = timings.time(\.subagents) {
+                    Self.readSubagents(transcriptPath: path, parent: &parent, cache: &subagentCache)
+                }
+                if reusable == nil {
+                    timings.parse = parent.timings.parse
+                    timings.backgroundTasks = parent.timings.backgroundTasks
+                    timings.linear = parent.timings.linear
+                    timings.references = parent.timings.references
+                    timings.spawnResults = parent.timings.spawnResults
+                }
+                Log.app.info("\(timings.logLine(totalMs: (CACurrentMediaTime() - readBegan) * 1000, bytes: data?.count ?? 0, reusedParent: reusable != nil), privacy: .public)")
+                #else
                 let (subagents, evidence, intact) = Self.readSubagents(
                     transcriptPath: path,
                     parent: &parent,
                     cache: &subagentCache
                 )
+                #endif
                 return ParsedRead(
                     parent: parent.releasingData(),
                     subagents: subagents,
@@ -543,66 +609,77 @@ final class TranscriptStore {
                 )
                 : nil
             await MainActor.run { [weak self] in
-                guard let self else { return }
-                defer { self.didRead?(tabID) }
-                guard self.inFlight[tabID] == token else { return }
-                self.inFlight.removeValue(forKey: tabID)
-                let reread = self.rereadRequested.remove(tabID) != nil
-                // A re-point below may already have started the next read.
-                defer { if reread, self.inFlight[tabID] == nil { self.read(tabID: tabID) } }
-                guard let parsed else {
-                    if !self.repointIfRelocated(tabID: tabID, from: path, locatedAt: located), self.transcripts[tabID] == nil {
-                        self.reportLatestMessage(nil, tabID: tabID)
+                Self.publishing {
+                    guard let self else { return }
+                    defer { self.didRead?(tabID) }
+                    guard self.inFlight[tabID] == token else { return }
+                    self.inFlight.removeValue(forKey: tabID)
+                    let reread = self.rereadRequested.remove(tabID) != nil
+                    // A re-point below may already have started the next read.
+                    defer { if reread, self.inFlight[tabID] == nil { self.read(tabID: tabID) } }
+                    guard let parsed else {
+                        if !self.repointIfRelocated(tabID: tabID, from: path, locatedAt: located), self.transcripts[tabID] == nil {
+                            self.reportLatestMessage(nil, tabID: tabID)
+                        }
+                        return
                     }
-                    return
+                    // An empty file is often the stub a move leaves behind, so the
+                    // file it moved to replaces the chat rather than a blank one.
+                    if parsed.transcript.messages.isEmpty, self.repointIfRelocated(tabID: tabID, from: path, locatedAt: located) {
+                        return
+                    }
+                    self.parentParses[tabID] = parsed.parent
+                    self.subagentCaches[tabID] = parsed.subagentCache
+                    #if DEBUG
+                    self.didParseSubagents?(tabID, parsed.subagentCache.stats, parsed.reusedParent)
+                    #endif
+                    let previousDirectory = self.transcripts[tabID]?.cwd
+                    self.transcripts[tabID] = parsed.transcript
+                    self.reportLatestMessage(parsed.transcript.messages.last?.id, tabID: tabID)
+                    if let cwd = parsed.transcript.cwd, cwd != previousDirectory {
+                        self.onWorkingDirectoryChanged?(tabID, cwd)
+                    }
+                    let merge = Self.merging(
+                        parsed,
+                        into: self.subagentTranscripts[tabID] ?? [],
+                        evidence: self.subagentLinearEvidence[tabID] ?? []
+                    )
+                    self.subagentTranscripts[tabID] = self.settled(merge.subagents, tabID: tabID)
+                    self.subagentLinearEvidence[tabID] = merge.evidence
+                    if merge.carried.isEmpty {
+                        self.carriedSubagentIDs.removeValue(forKey: tabID)
+                        self.stopAwaitingSubagents(tabID: tabID)
+                    } else {
+                        self.carriedSubagentIDs[tabID] = merge.carried
+                        self.awaitSubagents(tabID: tabID, transcriptPath: path)
+                    }
+                    self.publishSubagentActivity(tabID: tabID, subagents: self.subagentTranscripts[tabID] ?? [])
+                    // A tab with nothing behind it has a transcript that is a
+                    // record, not a running process, so its tasks stopped with it.
+                    self.backgroundTasks.replace(
+                        tabID: tabID,
+                        entries: self.isTabLive(tabID) ? parsed.parent.backgroundTasks : []
+                    )
+                    self.linearActivity.replaceActivity(
+                        tabID: tabID,
+                        evidence: parsed.parent.transcriptEvidence + (self.subagentLinearEvidence[tabID] ?? [])
+                    )
+                    self.linearActivity.replaceMentions(tabID: tabID, identifiers: parsed.parent.references.linearIdentifiers)
+                    self.linkedPullRequests.replace(tabID: tabID, references: parsed.parent.references.pullRequests)
+                    self.referenceCaches[tabID] = parsed.parent.referenceCache
+                    self.syncSubagentWatchers(tabID: tabID, transcriptPath: path)
                 }
-                // An empty file is often the stub a move leaves behind, so the
-                // file it moved to replaces the chat rather than a blank one.
-                if parsed.transcript.messages.isEmpty, self.repointIfRelocated(tabID: tabID, from: path, locatedAt: located) {
-                    return
-                }
-                self.parentParses[tabID] = parsed.parent
-                self.subagentCaches[tabID] = parsed.subagentCache
-                #if DEBUG
-                self.didParseSubagents?(tabID, parsed.subagentCache.stats, parsed.reusedParent)
-                #endif
-                let previousDirectory = self.transcripts[tabID]?.cwd
-                self.transcripts[tabID] = parsed.transcript
-                self.reportLatestMessage(parsed.transcript.messages.last?.id, tabID: tabID)
-                if let cwd = parsed.transcript.cwd, cwd != previousDirectory {
-                    self.onWorkingDirectoryChanged?(tabID, cwd)
-                }
-                let merge = Self.merging(
-                    parsed,
-                    into: self.subagentTranscripts[tabID] ?? [],
-                    evidence: self.subagentLinearEvidence[tabID] ?? []
-                )
-                self.subagentTranscripts[tabID] = self.settled(merge.subagents, tabID: tabID)
-                self.subagentLinearEvidence[tabID] = merge.evidence
-                if merge.carried.isEmpty {
-                    self.carriedSubagentIDs.removeValue(forKey: tabID)
-                    self.stopAwaitingSubagents(tabID: tabID)
-                } else {
-                    self.carriedSubagentIDs[tabID] = merge.carried
-                    self.awaitSubagents(tabID: tabID, transcriptPath: path)
-                }
-                self.publishSubagentActivity(tabID: tabID, subagents: self.subagentTranscripts[tabID] ?? [])
-                // A tab with nothing behind it has a transcript that is a
-                // record, not a running process, so its tasks stopped with it.
-                self.backgroundTasks.replace(
-                    tabID: tabID,
-                    entries: self.isTabLive(tabID) ? parsed.parent.backgroundTasks : []
-                )
-                self.linearActivity.replaceActivity(
-                    tabID: tabID,
-                    evidence: parsed.parent.transcriptEvidence + (self.subagentLinearEvidence[tabID] ?? [])
-                )
-                self.linearActivity.replaceMentions(tabID: tabID, identifiers: parsed.parent.references.linearIdentifiers)
-                self.linkedPullRequests.replace(tabID: tabID, references: parsed.parent.references.pullRequests)
-                self.referenceCaches[tabID] = parsed.parent.referenceCache
-                self.syncSubagentWatchers(tabID: tabID, transcriptPath: path)
             }
         }
+    }
+
+    @MainActor
+    private static func publishing(_ body: () -> Void) {
+        #if DEBUG
+        SwitchLatencyProbe.time("storePublish", body)
+        #else
+        body()
+        #endif
     }
 
     /// A read that could not read every listed subagent file updates the ones

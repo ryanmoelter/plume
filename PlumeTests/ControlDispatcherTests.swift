@@ -28,14 +28,16 @@ struct ControlDispatcherTests {
             #"{"id":"15","command":"recordStop"}"#,
             #"{"id":"16","command":"tasks"}"#,
             #"{"id":"17","command":"selectTask","task":"Task 1","from":"Task 2","repeat":3}"#,
+            #"{"id":"18","command":"appendTurn","repeat":4,"reply":false}"#,
         ]
         for line in lines {
             let response = await ControlDispatcher.handle(line: line, backend: backend)
             #expect(response.ok, "\(line) → \(response.error ?? "")")
         }
-        #expect(backend.calls == ["list", "describe", "invoke", "setValue", "readText", "clickSpan", "click", "screenshot", "hierarchy", "hover", "clear", "selection", "selectText", "recordStart", "recordStop", "tasks", "selectTask"])
+        #expect(backend.calls == ["list", "describe", "invoke", "setValue", "readText", "clickSpan", "click", "screenshot", "hierarchy", "hover", "clear", "selection", "selectText", "recordStart", "recordStop", "tasks", "selectTask", "appendTurn"])
         #expect(backend.lastValue == "v")
         #expect(backend.lastSelectTask == SelectTaskParams(task: "Task 1", from: "Task 2", repeatCount: 3))
+        #expect(backend.lastAppendTurn == AppendTurnParams(repeatCount: 4, reply: false))
     }
 
     @Test func backendErrorsBecomeErrorResponsesOnTheSameID() async {
@@ -70,6 +72,7 @@ final class FakeControlBackend: ControlBackend {
     var failure: Error?
     var listResult: [ControlDescription] = []
     var lastSelectTask: SelectTaskParams?
+    var lastAppendTurn: AppendTurnParams?
 
     private func record(_ name: String) throws {
         calls.append(name)
@@ -178,6 +181,12 @@ final class FakeControlBackend: ControlBackend {
     func selectTask(_ params: SelectTaskParams) async throws -> SwitchLatencyReport {
         try record("selectTask")
         lastSelectTask = params
+        return SwitchLatencyReport(samples: [])
+    }
+
+    func appendTurn(_ params: AppendTurnParams) async throws -> SwitchLatencyReport {
+        try record("appendTurn")
+        lastAppendTurn = params
         return SwitchLatencyReport(samples: [])
     }
 }
