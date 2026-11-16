@@ -363,13 +363,27 @@ struct MarkdownComposerTextView: NSViewRepresentable {
             undoManager
         }
 
+        /// What the last keystroke's restyle and layout cost. Read by the
+        /// keystroke benchmark.
+        private(set) var lastKeystrokeCost = KeystrokeCost()
+
+        struct KeystrokeCost {
+            var restyle: Duration = .zero
+            var layout: Duration = .zero
+        }
+
         func textDidChange(_ notification: Notification) {
             guard let textView = notification.object as? NSTextView else { return }
             let newText = textView.string
             textBinding.wrappedValue = newText
             onTextChange(newText)
-            style(textView, text: newText, caret: textView.selectedRange(), accent: ThemeChrome.accentNSColor(isActive: isActive))
-            layOutAllText(in: textView)
+            let clock = ContinuousClock()
+            lastKeystrokeCost.restyle = clock.measure {
+                style(textView, text: newText, caret: textView.selectedRange(), accent: ThemeChrome.accentNSColor(isActive: isActive))
+            }
+            lastKeystrokeCost.layout = clock.measure {
+                layOutAllText(in: textView)
+            }
             updatePlaceholderVisibility(textView)
             // A decoration can span lines the edit didn't touch, like a quote
             // bar or a code box.
@@ -609,13 +623,20 @@ final class ComposerNSTextView: NSTextView {
 
     private let referenceToolTips = ComposerReferenceToolTips()
 
+    /// What the last draw spent finding decoration rects. Read by the
+    /// keystroke benchmark.
+    private(set) var lastDecorationCost: Duration = .zero
+
     /// Draws decorations and the placeholder here rather than in `draw(_:)`:
     /// overriding `draw(_:)` drops an `NSTextView` to TextKit 1, and the
     /// decorations read TextKit 2 layout. AppKit calls this before the glyphs
     /// even with `drawsBackground` off.
     override func drawBackground(in rect: NSRect) {
         super.drawBackground(in: rect)
-        let decorations = markdownMetrics.map { ComposerDecorations.rects(in: self, metrics: $0) }
+        var decorations: ComposerDecorations.Decorations?
+        lastDecorationCost = ContinuousClock().measure {
+            decorations = markdownMetrics.map { ComposerDecorations.rects(in: self, metrics: $0) }
+        }
         if let decorations, let markdownMetrics {
             ComposerDecorations.draw(decorations, in: rect, metrics: markdownMetrics)
         }

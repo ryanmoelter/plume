@@ -265,3 +265,115 @@ struct ComposerHostedTypingTests {
         #expect(harness.view.string == "")
     }
 }
+
+private struct KeystrokeSample {
+    var key: Duration
+    var restyle: Duration
+    var layout: Duration
+    var decorations: Duration
+    var draw: Duration
+    var height: Duration
+}
+
+/// Times one keystroke in a long draft, split into the restyle, the layout,
+/// the decoration rects a redraw needs, and the height measurement SwiftUI
+/// asks for. Opt-in: pass `TEST_RUNNER_PLUME_COMPOSER_BENCH=<results file>` to
+/// `xcodebuild test`.
+extension ComposerHostedTypingTests {
+    private nonisolated static let benchmarkOutput = ProcessInfo.processInfo.environment["PLUME_COMPOSER_BENCH"]
+
+    @Test(.enabled(if: benchmarkOutput != nil))
+    func keystrokeCostOnLongText() async throws {
+        var report: [String] = []
+        for lineCount in [300, 3000] {
+            report.append(try await Self.measureKeystrokes(lineCount: lineCount))
+            if let output = Self.benchmarkOutput {
+                try report.joined(separator: "\n").write(toFile: output, atomically: true, encoding: .utf8)
+            }
+        }
+    }
+
+    private static func measureKeystrokes(lineCount: Int) async throws -> String {
+        let harness = try await makeHarness()
+        defer { harness.close() }
+        let text = benchmarkText(lineCount: lineCount)
+        harness.draft.markdown = text
+        try await Task.sleep(for: .milliseconds(100))
+        let view = harness.view
+        let coordinator = try #require(view.composerCoordinator)
+        let host = try #require(view.enclosingScrollView?.superview as? ScrollableComposerTextView)
+        let ns = text as NSString
+        let middleLine = ns.range(of: "Plain line after code.", range: NSRange(location: ns.length / 2, length: ns.length / 2))
+        let caret = NSMaxRange(middleLine)
+        view.setSelectedRange(NSRange(location: caret, length: 0))
+        view.scrollRangeToVisible(view.selectedRange())
+
+        let undoManager = try #require(view.undoManager)
+        let clock = ContinuousClock()
+        var samples: [KeystrokeSample] = []
+        for round in 0..<13 {
+            let event = try #require(NSEvent.keyEvent(
+                with: .keyDown, location: .zero, modifierFlags: [],
+                timestamp: ProcessInfo.processInfo.systemUptime, windowNumber: harness.window.windowNumber,
+                context: nil, characters: "x", charactersIgnoringModifiers: "x",
+                isARepeat: false, keyCode: 7
+            ))
+            undoManager.beginUndoGrouping()
+            var start = clock.now
+            view.keyDown(with: event)
+            let key = clock.now - start
+            undoManager.endUndoGrouping()
+            start = clock.now
+            view.display()
+            let draw = clock.now - start
+            start = clock.now
+            _ = host.contentHeight(forWidth: 400)
+            let height = clock.now - start
+            if round >= 3 {
+                samples.append(KeystrokeSample(
+                    key: key,
+                    restyle: coordinator.lastKeystrokeCost.restyle,
+                    layout: coordinator.lastKeystrokeCost.layout,
+                    decorations: view.lastDecorationCost,
+                    draw: draw,
+                    height: height
+                ))
+            }
+            try await Task.sleep(for: .milliseconds(20))
+        }
+        #expect(harness.draft.markdown.count == text.count + 13)
+
+        func median(_ value: (KeystrokeSample) -> Duration) -> String {
+            let middle = samples.map(value).sorted()[samples.count / 2]
+            return String(format: "%.1f ms", Double(middle.components.seconds) * 1000 + Double(middle.components.attoseconds) / 1e15)
+        }
+        return "lines=\(lineCount) key=\(median { $0.key }) restyle=\(median { $0.restyle }) layout=\(median { $0.layout }) "
+            + "decorations=\(median { $0.decorations }) draw=\(median { $0.draw }) height=\(median { $0.height })"
+    }
+
+    private static func benchmarkText(lineCount: Int) -> String {
+        let block = [
+            "## Section",
+            "Some paragraph text with **bold**, _italic_, `code` and a [link](https://example.com).",
+            "- bullet one",
+            "- bullet two with `inline`",
+            "  - nested bullet",
+            "1. first",
+            "2. second",
+            "- [ ] open task",
+            "- [x] done task",
+            "> quoted line",
+            "> another quoted line with **bold**",
+            "",
+            "```swift",
+            "let x = 1",
+            "let y = x + 2",
+            "```",
+            "",
+            "Plain line after code.",
+            "---",
+            "",
+        ]
+        return (0..<lineCount).map { block[$0 % block.count] }.joined(separator: "\n")
+    }
+}
