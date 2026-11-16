@@ -61,12 +61,15 @@ struct TranscriptFoldCorpusTests {
                 }
                 var backgroundTasks = BackgroundTaskScanner.State()
                 var spawnResults = SubagentSpawnResults()
+                var spawns = SubagentSpawnScanner.State()
                 for entry in entries {
                     backgroundTasks.consume(entry, now: Self.now)
                     spawnResults.consume(entry)
+                    spawns.consume(entry)
                 }
                 if snapshot.backgroundTasks != backgroundTasks.inFlight { problems.append("background tasks") }
                 if snapshot.spawnResults != spawnResults { problems.append("spawn results") }
+                if snapshot.spawnDescriptors != spawns.descriptors { problems.append("spawn descriptors") }
                 if !problems.isEmpty {
                     mismatches.append("\(url.lastPathComponent) at \(end): \(problems.joined(separator: ", "))")
                 }

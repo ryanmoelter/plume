@@ -184,4 +184,53 @@ struct TranscriptStoreTailReadTests {
         #expect(!recorder.paths.dropFirst().contains(.full))
         #expect(recorder.paths.contains(.appended))
     }
+
+    private func spawn(_ uuid: String, parent: String, toolUseID: String, description: String) -> String {
+        #"{"type":"assistant","uuid":"\#(uuid)","parentUuid":"\#(parent)","message":{"id":"m-\#(uuid)","role":"assistant","content":[{"type":"tool_use","id":"\#(toolUseID)","name":"Agent","input":{"description":"\#(description)","subagent_type":"Explore","prompt":"look"}}]}}"#
+            + "\n"
+    }
+
+    private func spawnResult(_ uuid: String, parent: String, toolUseID: String, agentID: String) -> String {
+        #"{"type":"user","uuid":"\#(uuid)","parentUuid":"\#(parent)","message":{"role":"user","content":[{"type":"tool_result","tool_use_id":"\#(toolUseID)","content":"Async agent launched successfully.\nagentId: \#(agentID)"}]}}"#
+            + "\n"
+    }
+
+    /// With no `.meta.json` sidecar a subagent is described from its spawning
+    /// call in the parent, which an appended read finds in the rows it
+    /// folds, including a spawn among the appended rows themselves.
+    @Test func anAppendedReadDescribesSidecarlessSubagentsAsAFullReadDoes() async throws {
+        let dir = makeTempDirectory()
+        defer { try? FileManager.default.removeItem(at: dir) }
+        let url = dir.appending(path: "session.jsonl")
+        let subagents = dir.appending(path: "session/subagents")
+        try FileManager.default.createDirectory(at: subagents, withIntermediateDirectories: true)
+        try Data(line("s1", parent: nil, "inside").utf8).write(to: subagents.appending(path: "agent-first.jsonl"))
+        try Data((
+            line("u1", parent: nil, "start")
+                + spawn("a1", parent: "u1", toolUseID: "t1", description: "first job")
+                + spawnResult("r1", parent: "a1", toolUseID: "t1", agentID: "first")
+        ).utf8).write(to: url)
+
+        let (store, tab, recorder) = watching(url)
+        await waitUntil(store) { store.subagents(forTab: tab).first?.descriptor != nil }
+        #expect(store.subagents(forTab: tab).map(\.title) == ["Explore: first job"])
+
+        try Data(line("s2", parent: nil, "inside").utf8).write(to: subagents.appending(path: "agent-second.jsonl"))
+        append(
+            spawn("a2", parent: "r1", toolUseID: "t2", description: "second job")
+                + spawnResult("r2", parent: "a2", toolUseID: "t2", agentID: "second"),
+            to: url
+        )
+        await waitUntil(store) { store.subagents(forTab: tab).contains { $0.descriptor?.description == "second job" } }
+
+        let fullScan = try SubagentSpawnScanner.descriptors(in: Data(contentsOf: url))
+        let published = Dictionary(uniqueKeysWithValues: store.subagents(forTab: tab).map { ($0.id, $0.descriptor) })
+        #expect(published == fullScan.mapValues { Optional($0) })
+        #expect(recorder.paths.last == .appended)
+        #expect(!recorder.paths.dropFirst().contains(.full))
+
+        let (rebuilt, rebuiltTab, _) = watching(url)
+        await waitUntil(rebuilt) { rebuilt.subagents(forTab: rebuiltTab).count == 2 }
+        #expect(rebuilt.subagents(forTab: rebuiltTab).map(\.descriptor) == store.subagents(forTab: tab).map(\.descriptor))
+    }
 }

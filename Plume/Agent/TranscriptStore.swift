@@ -386,7 +386,7 @@ final class TranscriptStore {
     /// looks like from either side of it.
     private nonisolated static func readSubagents(
         transcriptPath: String,
-        parent: inout ParentParse,
+        parent: ParentParse,
         cache: inout SubagentTranscriptCache
     ) -> (subagents: [SubagentTranscript], evidence: [LinearEvidence], intact: Bool) {
         let listed = SessionJSONLReader.listedSubagentTranscriptPaths(forTranscriptPath: transcriptPath)
@@ -402,10 +402,7 @@ final class TranscriptStore {
             guard let (transcript, modifiedAt) = cache.transcript(atPath: subagentPath) else { continue }
             let id = Self.subagentID(forPath: subagentPath)
 
-            var descriptor = cache.descriptor(forSubagentPath: subagentPath)
-            if descriptor == nil {
-                descriptor = parent.spawnDescriptors(transcriptPath: transcriptPath)[id]
-            }
+            let descriptor = cache.descriptor(forSubagentPath: subagentPath) ?? parent.spawnDescriptors[id]
 
             let parentSignal = parent.spawnResults.signal(forAgentID: id)
             let subagent = SubagentTranscript(
@@ -474,11 +471,9 @@ final class TranscriptStore {
         let references: ConversationReferences
         let referenceCache: ConversationReferenceScanner.Cache
         let spawnResults: SubagentSpawnResults
+        /// What each spawning call asked for, for a subagent with no sidecar.
+        let spawnDescriptors: [String: SubagentDescriptor]
         let path: ParentReadPath
-        /// Scanning the parent for spawn calls costs another full pass, so it
-        /// runs only once a subagent turns up with no sidecar.
-        private var scannedDescriptors: [String: SubagentDescriptor]?
-        private var data: Data?
 
         let timings: ReadTimings
 
@@ -491,12 +486,10 @@ final class TranscriptStore {
                 fold = previous
                 newBytes = appended
                 path = .appended
-                data = nil
             case .whole(let whole):
                 fold = TranscriptFold()
                 newBytes = whole
                 path = .full
-                data = whole
             }
             let snapshot = fold.append(newBytes)
             timings.decode = snapshot.timings.decode
@@ -515,23 +508,8 @@ final class TranscriptStore {
             }
             self.referenceCache = referenceCache
             spawnResults = snapshot.spawnResults
+            spawnDescriptors = snapshot.spawnDescriptors
             self.timings = timings
-        }
-
-        mutating func spawnDescriptors(transcriptPath: String) -> [String: SubagentDescriptor] {
-            if let scannedDescriptors { return scannedDescriptors }
-            let scanned = (data ?? FileManager.default.contents(atPath: transcriptPath))
-                .map(SubagentSpawnScanner.descriptors(in:)) ?? [:]
-            scannedDescriptors = scanned
-            return scanned
-        }
-
-        /// Kept between reads without its bytes, which can be megabytes. The
-        /// spawn scan re-reads the file in the rare case it needs them later.
-        func releasingData() -> ParentParse {
-            var copy = self
-            copy.data = nil
-            return copy
         }
     }
 
@@ -678,11 +656,11 @@ final class TranscriptStore {
             }
             let parentPath = reusable != nil ? ParentReadPath.reused : parentParse?.path ?? .full
             let parsed = parentParse.map { parentParse in
-                var parent = parentParse
+                let parent = parentParse
                 var subagentCache = subagentCache
                 #if DEBUG
                 let (subagents, evidence, intact) = timings.time(\.subagents) {
-                    Self.readSubagents(transcriptPath: path, parent: &parent, cache: &subagentCache)
+                    Self.readSubagents(transcriptPath: path, parent: parent, cache: &subagentCache)
                 }
                 if reusable == nil {
                     timings.decode = parent.timings.decode
@@ -702,12 +680,12 @@ final class TranscriptStore {
                 #else
                 let (subagents, evidence, intact) = Self.readSubagents(
                     transcriptPath: path,
-                    parent: &parent,
+                    parent: parent,
                     cache: &subagentCache
                 )
                 #endif
                 return ParsedRead(
-                    parent: parent.releasingData(),
+                    parent: parent,
                     subagents: subagents,
                     subagentsIntact: intact,
                     subagentEvidence: evidence,

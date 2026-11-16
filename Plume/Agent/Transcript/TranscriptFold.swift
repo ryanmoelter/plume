@@ -3,14 +3,15 @@ import Foundation
 import QuartzCore
 #endif
 
-/// The main transcript's parse and its two scans, fed the file's bytes as
+/// The main transcript's parse and its scans, fed the file's bytes as
 /// they arrive, so a transcript that only grew decodes only what it gained.
-/// Each line is decoded once and shared by all three.
+/// Each line is decoded once and shared by all of them.
 nonisolated struct TranscriptFold: Sendable {
     struct Snapshot: Sendable {
         let transcript: Transcript
         let backgroundTasks: [BackgroundTaskTracker.Entry]
         let spawnResults: SubagentSpawnResults
+        let spawnDescriptors: [String: SubagentDescriptor]
         /// Milliseconds per stage, measured only in a Debug build.
         let timings: Timings
     }
@@ -27,6 +28,7 @@ nonisolated struct TranscriptFold: Sendable {
     private var parser = TranscriptParser.State()
     private var backgroundTasks = BackgroundTaskScanner.State()
     private var spawnResults = SubagentSpawnResults()
+    private var spawns = SubagentSpawnScanner.State()
     /// Bytes through the last newline folded. Anything after it is a line
     /// still being written, read again whole on the next append.
     private(set) var consumed: UInt64 = 0
@@ -61,6 +63,7 @@ nonisolated struct TranscriptFold: Sendable {
             transcript: transcript,
             backgroundTasks: backgroundTasks,
             spawnResults: withUnfinished.spawnResults,
+            spawnDescriptors: withUnfinished.spawns.descriptors,
             timings: timings
         )
     }
@@ -75,7 +78,10 @@ nonisolated struct TranscriptFold: Sendable {
             }) else { continue }
             Self.measure(&timings.parse) { parser.consume(entry) }
             Self.measure(&timings.backgroundTasks) { backgroundTasks.consume(entry, now: now) }
-            Self.measure(&timings.spawnResults) { spawnResults.consume(entry) }
+            Self.measure(&timings.spawnResults) {
+                spawnResults.consume(entry)
+                spawns.consume(entry)
+            }
         }
     }
 

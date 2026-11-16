@@ -76,21 +76,25 @@ nonisolated enum SubagentSpawnScanner {
 
     /// Every subagent spawn the parent transcript records, keyed by the
     /// spawned agent's id where the result names one.
+    static func descriptors(in data: Data) -> [String: SubagentDescriptor] {
+        var state = State()
+        for entry in TranscriptParser.decodedEntries(in: data) { state.consume(entry) }
+        return state.descriptors
+    }
+
+    /// The scan fed one line at a time.
     ///
     /// A spawn's tool_result carries the `agentId` of the subagent it
     /// launched, which is the only link between a `Task` call and the
     /// `agent-<id>.jsonl` it produced — the tool_use itself names no agent.
-    static func descriptors(in data: Data) -> [String: SubagentDescriptor] {
-        var byToolUseID: [String: SubagentDescriptor] = [:]
-        var agentIDByToolUseID: [String: String] = [:]
-        let decoder = JSONDecoder()
+    struct State: Sendable, Equatable {
+        private var byToolUseID: [String: SubagentDescriptor] = [:]
+        private var agentIDByToolUseID: [String: String] = [:]
 
-        for line in data.split(separator: UInt8(ascii: "\n")) {
-            guard !line.isEmpty,
-                  let entry = try? decoder.decode(TranscriptEntry.self, from: Data(line)),
-                  let blocks = entry.message?.content?.blocks
-            else { continue }
+        init() {}
 
+        mutating func consume(_ entry: TranscriptEntry) {
+            guard let blocks = entry.message?.content?.blocks else { return }
             for block in blocks {
                 switch block {
                 case .toolUse(let id, let name, let input):
@@ -109,8 +113,10 @@ nonisolated enum SubagentSpawnScanner {
             }
         }
 
-        return agentIDByToolUseID.reduce(into: [:]) { result, pair in
-            result[pair.value] = byToolUseID[pair.key]
+        var descriptors: [String: SubagentDescriptor] {
+            agentIDByToolUseID.reduce(into: [:]) { result, pair in
+                result[pair.value] = byToolUseID[pair.key]
+            }
         }
     }
 

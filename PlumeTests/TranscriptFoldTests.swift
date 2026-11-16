@@ -65,6 +65,7 @@ struct TranscriptFoldTests {
         #expect(Set(inFlight.map(\.id)) == ["bg1", "mon1"])
         #expect(BackgroundTaskScanner.inFlight(parentData: Self.data, now: Self.now).map(\.id) == ["bg1"])
         #expect(SubagentSpawnResults(parentData: Self.data).signal(forAgentID: "agent123") == .completed)
+        #expect(SubagentSpawnScanner.descriptors(in: Self.data)["agent123"]?.agentType == "Explore")
     }
 
     @Test func theParserMatchesAFullParseAtEverySplit() {
@@ -106,6 +107,18 @@ struct TranscriptFoldTests {
         }
     }
 
+    @Test func theSpawnDescriptorsMatchAFullScanAtEverySplit() {
+        let whole = SubagentSpawnScanner.descriptors(in: Self.data)
+        for split in 0...Self.lines.count {
+            let (head, tail) = Self.halves(at: split)
+            var state = SubagentSpawnScanner.State()
+            Self.decoded(head).forEach { state.consume($0) }
+            #expect(state.descriptors == SubagentSpawnScanner.descriptors(in: head), "split \(split)")
+            Self.decoded(tail).forEach { state.consume($0) }
+            #expect(state.descriptors == whole, "split \(split)")
+        }
+    }
+
     /// Splits at every byte, so most land mid-line — including inside a
     /// multi-byte character — and the line they cut must count only once
     /// it is whole.
@@ -129,26 +142,28 @@ struct TranscriptFoldTests {
         let consumed = fold.consumed
         let again = fold.append(Self.data.dropFirst(Int(consumed)), now: Self.now)
         #expect(fold.consumed == consumed)
-        #expect(Self.matches(again, (first.transcript, first.backgroundTasks, first.spawnResults)))
+        #expect(Self.matches(again, (first.transcript, first.backgroundTasks, first.spawnResults, first.spawnDescriptors)))
     }
 
     private static func fullRead(
         _ data: Data
-    ) -> (Transcript, [BackgroundTaskTracker.Entry], SubagentSpawnResults) {
+    ) -> (Transcript, [BackgroundTaskTracker.Entry], SubagentSpawnResults, [String: SubagentDescriptor]) {
         let data = Data(data)
         return (
             TranscriptParser.parse(data),
             BackgroundTaskScanner.inFlight(parentData: data, now: now),
-            SubagentSpawnResults(parentData: data)
+            SubagentSpawnResults(parentData: data),
+            SubagentSpawnScanner.descriptors(in: data)
         )
     }
 
     private static func matches(
         _ snapshot: TranscriptFold.Snapshot,
-        _ expected: (Transcript, [BackgroundTaskTracker.Entry], SubagentSpawnResults)
+        _ expected: (Transcript, [BackgroundTaskTracker.Entry], SubagentSpawnResults, [String: SubagentDescriptor])
     ) -> Bool {
         snapshot.transcript == expected.0
             && snapshot.backgroundTasks == expected.1
             && snapshot.spawnResults == expected.2
+            && snapshot.spawnDescriptors == expected.3
     }
 }
