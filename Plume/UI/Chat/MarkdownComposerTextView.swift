@@ -237,20 +237,25 @@ struct MarkdownComposerTextView: NSViewRepresentable {
 
         /// Styles for a change from outside a keystroke: initial mount, an
         /// external `text` reset, a font size, mode, accent, command list,
-        /// reference or active mention change. Only a new text or font size
+        /// reference or active mention change. Only a new text or body font
         /// restyles and lays out everything.
         func apply(text: String, fontSize: CGFloat, to textView: NSTextView) {
+            let bodyFont = isCommandMode
+                ? NSFont.monospacedSystemFont(ofSize: fontSize, weight: .regular)
+                : NSFont.composerBody(ofSize: fontSize)
             let isWholeText = textView.string != text || self.fontSize != fontSize
+                || (textView as? ComposerNSTextView)?.bodyFont != bodyFont
             self.fontSize = fontSize
             let selectedRanges = textView.selectedRanges
             if textView.string != text {
                 textView.string = text
                 undoManager.removeAllActions()
             }
-            let bodyFont = isCommandMode
-                ? NSFont.monospacedSystemFont(ofSize: fontSize, weight: .regular)
-                : NSFont.composerBody(ofSize: fontSize)
-            textView.font = bodyFont
+            // Setting the font resets every character's font, so it happens
+            // only when everything is restyled anyway.
+            if isWholeText {
+                textView.font = bodyFont
+            }
             (textView as? ComposerNSTextView)?.bodyFont = bodyFont
             textView.typingAttributes = [.font: bodyFont, .foregroundColor: NSColor.labelColor]
             let accent = ThemeChrome.accentNSColor(isActive: isActive)
@@ -393,34 +398,26 @@ struct MarkdownComposerTextView: NSViewRepresentable {
             undoManager
         }
 
-        #if DEBUG
-        /// What the last keystroke's restyle and layout cost. Read by the
-        /// keystroke benchmark.
+        /// What the last keystroke's restyle and layout cost, in a debug
+        /// build. Read by the keystroke benchmark.
         private(set) var lastKeystrokeCost = KeystrokeCost()
 
         struct KeystrokeCost {
             var restyle: Duration = .zero
             var layout: Duration = .zero
         }
-        #endif
 
         func textDidChange(_ notification: Notification) {
             guard let textView = notification.object as? NSTextView else { return }
             let newText = textView.string
             textBinding.wrappedValue = newText
             onTextChange(newText)
-            #if DEBUG
-            let clock = ContinuousClock()
-            lastKeystrokeCost.restyle = clock.measure {
+            lastKeystrokeCost.restyle = debugDuration {
                 style(textView, text: newText, caret: textView.selectedRange(), accent: ThemeChrome.accentNSColor(isActive: isActive))
             }
-            lastKeystrokeCost.layout = clock.measure {
+            lastKeystrokeCost.layout = debugDuration {
                 layOutRestyledText(in: textView)
             }
-            #else
-            style(textView, text: newText, caret: textView.selectedRange(), accent: ThemeChrome.accentNSColor(isActive: isActive))
-            layOutRestyledText(in: textView)
-            #endif
             updatePlaceholderVisibility(textView)
             // A decoration can span lines the edit didn't touch, like a quote
             // bar or a code box.
@@ -659,14 +656,14 @@ final class ComposerNSTextView: NSTextView {
 
     private let referenceToolTips = ComposerReferenceToolTips()
 
-    #if DEBUG
-    /// What the last draw spent finding decoration rects. Read by the
-    /// keystroke benchmark.
+    /// What the last draw spent finding decoration rects, in a debug build.
+    /// Read by the keystroke benchmark.
     private(set) var lastDecorationCost: Duration = .zero
-    #endif
 
-    /// Set when the width changed during a live resize, which lays out the
-    /// whole text once it ends or at the next edit, whichever comes first.
+    /// Set when the width changed, which lays out the whole text on the next
+    /// run-loop pass, at the end of a live resize, or at the next edit,
+    /// whichever comes first. An animated width change then costs one
+    /// layout per pass rather than one per frame change.
     private(set) var needsFullLayout = false
 
     /// A width change moves every line, and TextKit 2 then estimates the
@@ -677,11 +674,14 @@ final class ComposerNSTextView: NSTextView {
         let widthChanged = newSize.width != frame.width
         super.setFrameSize(newSize)
         guard widthChanged else { return }
-        if inLiveResize {
-            needsFullLayout = true
-        } else {
-            layOutAllText()
-        }
+        needsFullLayout = true
+        guard !inLiveResize else { return }
+        NSObject.cancelPreviousPerformRequests(withTarget: self, selector: #selector(layOutAllTextIfNeeded), object: nil)
+        perform(#selector(layOutAllTextIfNeeded), with: nil, afterDelay: 0)
+    }
+
+    @objc private func layOutAllTextIfNeeded() {
+        if needsFullLayout { layOutAllText() }
     }
 
     override func viewDidEndLiveResize() {
@@ -756,13 +756,9 @@ final class ComposerNSTextView: NSTextView {
     override func drawBackground(in rect: NSRect) {
         super.drawBackground(in: rect)
         var decorations: ComposerDecorations.Decorations?
-        #if DEBUG
-        lastDecorationCost = ContinuousClock().measure {
+        lastDecorationCost = debugDuration {
             decorations = markdownMetrics.map { self.decorations(metrics: $0) }
         }
-        #else
-        decorations = markdownMetrics.map { self.decorations(metrics: $0) }
-        #endif
         if let decorations, let markdownMetrics {
             ComposerDecorations.draw(decorations, in: rect, metrics: markdownMetrics)
         }
@@ -1202,4 +1198,15 @@ final class ScrollableComposerTextView: NSView {
         cachedHeight = height
         return height
     }
+}
+
+/// How long `body` took in a debug build, and zero in a release build, so
+/// both builds run the same code around it.
+private func debugDuration(_ body: () -> Void) -> Duration {
+    #if DEBUG
+    ContinuousClock().measure(body)
+    #else
+    body()
+    return .zero
+    #endif
 }

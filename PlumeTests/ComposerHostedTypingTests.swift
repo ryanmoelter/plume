@@ -234,9 +234,14 @@ struct ComposerHostedTypingTests {
         let block = "# Heading\nA paragraph long enough to wrap once the composer is narrower than it was.\n- item\n> quote\n```\ncode\n```\n"
         harness.draft.markdown = String(repeating: block, count: 40)
         try await Task.sleep(for: .milliseconds(50))
-        harness.draft.width = 260
-        try await Task.sleep(for: .milliseconds(50))
         let view = harness.view
+        let wideWidth = view.frame.width
+        harness.draft.width = 260
+        for _ in 0..<100 where view.frame.width == wideWidth || view.needsFullLayout {
+            try await Task.sleep(for: .milliseconds(10))
+        }
+        #expect(view.frame.width < wideWidth)
+        #expect(!view.needsFullLayout)
         let ns = view.string as NSString
         let caret = NSMaxRange(ns.range(of: "- item", options: .backwards))
         view.setSelectedRange(NSRange(location: caret, length: 0))

@@ -1,4 +1,5 @@
 import AppKit
+import SwiftUI
 import Testing
 @testable import Plume
 
@@ -78,6 +79,87 @@ struct ComposerIncrementalStylingTests {
 
         let restyled = try #require(second.restyled)
         #expect(restyled.location == (text as NSString).range(of: "third").location)
+    }
+
+    /// `apply` with the same text runs for a new mention, command list or
+    /// reference resolver, and restyles only what those touch.
+    @Test(arguments: ApplyChange.allCases)
+    func applyWithTheSameTextMatchesAFullRestyle(change: ApplyChange) throws {
+        let text = "# Title\n- item **bold**\n```\ncode\n```\n/help and @fo and @PLUME-1"
+        let ns = text as NSString
+        func coordinator() -> MarkdownComposerTextView.Coordinator {
+            MarkdownComposerTextView.Coordinator(text: .constant(text), isFocused: .constant(false), onSend: {}, placeholder: "", onTextChange: { _ in })
+        }
+        func applyChange(to coordinator: MarkdownComposerTextView.Coordinator) {
+            switch change {
+            case .mention: coordinator.activeMention = ns.range(of: "@fo")
+            case .commands: coordinator.recognizedSlashCommandNames = ["help"]
+            case .references: coordinator.referenceResolver = Self.referenceResolver()
+            }
+            coordinator.referencePalette = Self.palette
+        }
+        let incremental = coordinator()
+        let view = ComposerNSTextView()
+        view.frame = NSRect(x: 0, y: 0, width: 400, height: 300)
+        incremental.apply(text: text, fontSize: 13, to: view)
+        applyChange(to: incremental)
+        incremental.apply(text: text, fontSize: 13, to: view)
+
+        let full = coordinator()
+        applyChange(to: full)
+        let expected = ComposerNSTextView()
+        expected.frame = view.frame
+        full.apply(text: text, fontSize: 13, to: expected)
+
+        let storage = try #require(view.textStorage)
+        let expectedStorage = try #require(expected.textStorage)
+        for location in 0..<ns.length {
+            #expect(
+                Self.drawn(storage, at: location) == Self.drawn(expectedStorage, at: location),
+                "at \(location) (\(ns.substring(with: NSRange(location: location, length: 1)).debugDescription))"
+            )
+        }
+    }
+
+    enum ApplyChange: CaseIterable {
+        case mention, commands, references
+    }
+
+    private static let palette = ReferenceChipPalette(
+        colors: Palette(colorScheme: .dark, definitions: nil),
+        colorScheme: .dark,
+        linearStrategy: .themePalette
+    )
+
+    private static func referenceResolver() -> ComposerReferenceResolver {
+        let resolver = MentionResolver(dependencies: .init(
+            linearIssue: { _ in nil },
+            lookUpLinear: { _ in },
+            pullRequest: { _, _ in nil },
+            fileIsDirectory: { _ in nil },
+            homeDirectory: "/home"
+        ))
+        let tabID = UUID()
+        resolver.remember(
+            ResolvedMention(target: "https://linear.app/p/issue/PLUME-1", title: "Add chips", state: .linear(.started, progress: .half, colorHex: "#f2c94c")),
+            for: .linear(identifier: "PLUME-1"),
+            tabID: tabID
+        )
+        return ComposerReferenceResolver(tabID: tabID, directory: nil, resolver: resolver)
+    }
+
+    /// The attributes at `location` as drawn in light mode, since a dynamic
+    /// color is a new object, never equal to another, on every call.
+    private static func drawn(_ storage: NSTextStorage, at location: Int) -> String {
+        let attributes = storage.attributes(at: location, effectiveRange: nil)
+        var color = ""
+        NSAppearance(named: .aqua)?.performAsCurrentDrawingAppearance {
+            color = (attributes[.foregroundColor] as? NSColor)?.usingColorSpace(.sRGB).map { "\($0.redComponent) \($0.greenComponent) \($0.blueComponent) \($0.alphaComponent)" } ?? "none"
+        }
+        let font = (attributes[.font] as? NSFont).map { "\($0.fontName) \($0.pointSize)" } ?? "none"
+        let kern = (attributes[.kern] as? NSNumber)?.description ?? "none"
+        let paragraph = (attributes[.paragraphStyle] as? NSParagraphStyle)?.description ?? "none"
+        return [font, color, kern, paragraph].joined(separator: " | ")
     }
 
     @discardableResult
