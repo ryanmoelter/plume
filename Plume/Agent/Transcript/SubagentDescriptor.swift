@@ -135,52 +135,49 @@ nonisolated enum SubagentSpawnScanner {
 /// The notification is the one current CLI builds actually write. `task_status`
 /// appears nowhere in the sampled corpus, which is what left finished
 /// subagents reading `working`.
-nonisolated struct SubagentSpawnResults {
-    private let signalsByAgentID: [String: SubagentParentSignal]
+nonisolated struct SubagentSpawnResults: Sendable, Equatable {
+    private var signalsByAgentID: [String: SubagentParentSignal] = [:]
+
+    init() {}
 
     init(parentData: Data) {
-        var signals: [String: SubagentParentSignal] = [:]
-        let decoder = JSONDecoder()
-
-        // A completed report can only follow the launch that produced it, so
-        // it must never be overwritten by an earlier record for the same agent.
-        // A stop is kept for the same reason, against the launch that preceded
-        // it, but still yields to a completion — an agent resumed after a stop
-        // goes on to report.
-        //
-        // Only a resume reopens either: `SendMessage` wakes the agent for
-        // another run, which its next notification completes in turn.
-        func record(_ signal: SubagentParentSignal, for agentID: String) {
-            guard signals[agentID] != .completed else { return }
-            guard !(signals[agentID] == .stopped && signal != .completed) else { return }
-            signals[agentID] = signal
+        for entry in TranscriptParser.decodedEntries(in: parentData) {
+            consume(entry)
         }
+    }
 
-        for line in parentData.split(separator: UInt8(ascii: "\n")) {
-            guard !line.isEmpty,
-                  let entry = try? decoder.decode(TranscriptEntry.self, from: Data(line))
-            else { continue }
-
-            if let outcome = entry.toolUseResult, let agentID = outcome.agentID {
-                record(Self.signal(forStatus: outcome.status), for: agentID)
-            }
-            if let resumedAgentID = entry.toolUseResult?.resumedAgentID {
-                signals[resumedAgentID] = .launched
-            }
-            if let output = entry.toolUseResult?.task,
-               let signal = Self.signal(forNotificationStatus: output.status) {
-                record(signal, for: output.taskID)
-            }
-            if let task = entry.attachment?.taskStatus {
-                record(Self.signal(forStatus: task.status), for: task.taskID)
-            }
-            if let notification = entry.taskNotification,
-               let signal = Self.signal(forNotificationStatus: notification.status) {
-                record(signal, for: notification.taskID)
-            }
+    mutating func consume(_ entry: TranscriptEntry) {
+        if let outcome = entry.toolUseResult, let agentID = outcome.agentID {
+            record(Self.signal(forStatus: outcome.status), for: agentID)
         }
+        if let resumedAgentID = entry.toolUseResult?.resumedAgentID {
+            signalsByAgentID[resumedAgentID] = .launched
+        }
+        if let output = entry.toolUseResult?.task,
+           let signal = Self.signal(forNotificationStatus: output.status) {
+            record(signal, for: output.taskID)
+        }
+        if let task = entry.attachment?.taskStatus {
+            record(Self.signal(forStatus: task.status), for: task.taskID)
+        }
+        if let notification = entry.taskNotification,
+           let signal = Self.signal(forNotificationStatus: notification.status) {
+            record(signal, for: notification.taskID)
+        }
+    }
 
-        signalsByAgentID = signals
+    /// A completed report can only follow the launch that produced it, so
+    /// it must never be overwritten by an earlier record for the same agent.
+    /// A stop is kept for the same reason, against the launch that preceded
+    /// it, but still yields to a completion — an agent resumed after a stop
+    /// goes on to report.
+    ///
+    /// Only a resume reopens either: `SendMessage` wakes the agent for
+    /// another run, which its next notification completes in turn.
+    private mutating func record(_ signal: SubagentParentSignal, for agentID: String) {
+        guard signalsByAgentID[agentID] != .completed else { return }
+        guard !(signalsByAgentID[agentID] == .stopped && signal != .completed) else { return }
+        signalsByAgentID[agentID] = signal
     }
 
     func signal(forAgentID agentID: String) -> SubagentParentSignal? {
