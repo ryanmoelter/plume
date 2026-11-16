@@ -175,11 +175,17 @@ enum ChatOutlineBuilder {
     }
 
     static func outline(from pieces: [ChatPiece]) -> ChatOutline {
+        outline(from: pieces, weighing: weight(of:))
+    }
+
+    /// `weighing` must return what `weight(of:)` would, which lets a caller
+    /// that keeps pieces across builds reuse each one's.
+    static func outline(from pieces: [ChatPiece], weighing: (ChatPiece) -> CGFloat) -> ChatOutline {
         var entries: [ChatOutline.Entry] = []
 
         for piece in pieces {
             guard piece.messageID != ChatPieceSplitter.workingID else { continue }
-            let weight = self.weight(of: piece)
+            let weight = weighing(piece)
 
             if let kind = userInputKind(of: piece) {
                 // A prompt long enough to split across pieces is still one
@@ -291,7 +297,7 @@ enum ChatOutlineBuilder {
         }
     }
 
-    private static func weight(of piece: ChatPiece) -> CGFloat {
+    static func weight(of piece: ChatPiece) -> CGFloat {
         switch piece.content {
         case .markdown(let block, _):
             proseWeight(of: text(of: block), block: block)
