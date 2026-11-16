@@ -65,7 +65,7 @@ xcodebuild -scheme Plume -destination 'platform=macOS' build
 
 A Debug build keeps its data separate from an installed release, so the two can run side by side.
 
-`CONTRIBUTING.md` covers first-time setup, signing, and running the tests.
+`CONTRIBUTING.md` covers first-time setup and signing. `docs/testing.md` covers running the tests.
 
 ## License
 
