@@ -51,9 +51,10 @@ class BranchPath(
   val equalCost: Long,
   val detour: Boolean = false,
   val fieldMismatch: Boolean = false,
+  val unmatchedReturn: Boolean = false,
 ) {
   val clean: Boolean
-    get() = cost.anyInstanceReads == 0 && cost.stagedHops == 0 && !fieldMismatch
+    get() = cost.anyInstanceReads == 0 && cost.stagedHops == 0 && !fieldMismatch && !unmatchedReturn
 }
 
 class BranchSearchResult(val paths: List<BranchPath>, val truncated: Boolean)
@@ -90,7 +91,8 @@ class BranchSearch(private val program: Program) {
     for (state in run.settled) {
       if (state.location in root) continue
       val key = terminals.classify(state.location) ?: continue
-      if (key in seen) continue
+      // A later state at a blocked terminal costs more than its best path; the detour search owns it.
+      if (key in seen || key in blocked) continue
       when (passes(run.statesTo(state), root, key, terminals, options)) {
         Passes.NOTHING -> {}
         Passes.SAME_REF -> continue
@@ -119,7 +121,12 @@ class BranchSearch(private val program: Program) {
 
   private fun path(key: TerminalKey, run: ValueSearch.Run, end: ValueState, detour: Boolean): BranchPath {
     val hops = run.hopsTo(end)
-    return BranchPath(key, run.statesTo(end), hops, run.best.getValue(end), run.paths.getValue(end), detour, program.fieldMismatches(hops).any { it != null })
+    val states = run.statesTo(end)
+    return BranchPath(
+      key, states, hops, run.best.getValue(end), run.paths.getValue(end), detour,
+      fieldMismatch = program.fieldMismatches(hops).any { it != null },
+      unmatchedReturn = program.unmatchedReturns(hops, states).isNotEmpty(),
+    )
   }
 
   private fun isStop(location: String, terminals: Terminals, options: BranchOptions): Boolean = terminals.classify(location)?.let { it.kind in options.stops } == true
@@ -162,7 +169,7 @@ class BranchSearch(private val program: Program) {
     var legTruncated = false
     for ((key, locations) in starts) {
       if (locations.none { ValueState(it, emptyList()) in reached }) continue
-      val allow: (ValueState) -> Boolean = if (truncated) { s -> s.location in reaching } else { s -> s in reached }
+      val allow: (ValueState) -> Boolean = if (truncated) { s -> s.location in reaching } else { s -> s.copy(held = emptyList()) in reached }
       var run = ValueSearch(program, options.legSteps).run(locations, ValueGoal.Locations(root), allow = allow)
       if (run.exhausted) legTruncated = true
       var end = run.end ?: continue
@@ -193,9 +200,10 @@ class BranchSearch(private val program: Program) {
       if (state.location in root) continue
       for (edge in program.valueEdges[state.location].orEmpty()) {
         if (edge.to !in reaching) continue
-        val calls = program.callsAfter(state.calls, edge, state.projected, state.filled) ?: continue
+        // Which container a path holds changes its cost, never whether it may take an edge.
+        val target = program.next(state, edge)?.copy(held = emptyList()) ?: continue
         val before = states.size
-        val j = id(ValueState(edge.to, calls, program.projects(edge), program.fills(edge)))
+        val j = id(target)
         successors[i].add(j)
         if (states.size > before) {
           if (states.size > cap) {
@@ -255,6 +263,7 @@ class BranchTree(
   class Node(val parent: Int, val step: FlowFact?, val state: ValueState?, val upstream: ValueState?) {
     val children = ArrayList<Int>()
     var fieldMismatch: String? = null
+    var unmatchedReturn = false
   }
 
   class Point(val node: Int, val kind: String)
@@ -279,6 +288,7 @@ class BranchTree(
     val ends = ArrayList<Int>()
     for (path in paths) {
       val mismatches = program.fieldMismatches(path.hops)
+      val unmatched = program.unmatchedReturns(path.hops, path.states)
       val steps = path.hops.indices.let { if (direction == Direction.FORWARD) it.toList() else it.reversed() }
       var current = 0
       for (i in steps) {
@@ -292,6 +302,7 @@ class BranchTree(
           nodes.size - 1
         }
         mismatches[i]?.let { if (nodes[current].fieldMismatch == null) nodes[current].fieldMismatch = it }
+        if (i in unmatched) nodes[current].unmatchedReturn = true
       }
       ends += current
     }

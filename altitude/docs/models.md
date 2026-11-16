@@ -91,7 +91,7 @@ The call edge is what joins `syncRequests.tryEmit(Unit)` to the `collect { }` th
 
 The trace prints the best path. It ranks paths by these counts, most important first, and breaks ties by length:
 
-1. **Any-instance reads.** A read of a class property with no copy to say whose, or of a container's contents at another call than the one that stepped into it.
+1. **Any-instance reads.** A read of a class property with no copy to say whose, a read of a container's contents at another call than the one that stepped into it, or a step into the contents of another container than the one the path holds (below).
 2. **Hops outside production code.** A hop into a test source set, a declaration under an annotation named `…Preview…`, or a class with the word `Fake` in its name.
 3. **Conflation.** At each hop, the bits needed to choose among the values that meet at its target (`fan-in N`), or among the containers a port may hold (`container, 1 of N`).
 4. **Derived hops.** `memberOf`, `partOf`, and the step from an element to its container.
@@ -117,6 +117,23 @@ The rule never drops a path that can happen, because the trace keeps the list on
 Every other edge between two runs empties the list: a captured variable, a property, a cell, a container's contents read at another call, a DI link, a bound reference's receiver. A value stored in one of these can be read by a run under any calls. After the list is empty, every return is allowed, so the trace loses precision there and never a path. Six calls is not a soundness limit either: the trace drops the outermost call, and a return with an empty list is always allowed.
 
 A path that steps into a container's contents may not step back up to that container. It leaves the contents through the copy of the call that it entered at, unless the target exists only outside that copy, as a lambda that the caller passed to a copied wrapper does.
+
+### The container a path holds
+
+A port that many callers pass their own container to, such as a logger's `properties` map, has a `contentOf` edge to every caller's element slot. The trace therefore tracks what the value is inside of: each `heldBy` step pushes the container, and each `partOf` pushes the object built from it, at most three deep. A step into a container's contents pops the innermost container, and a `memberOf` pops the innermost object. A `memberOf` out of anything else empties the list, since the value read is not the one the list describes.
+
+A step into the contents of another container than the innermost one counts as an any-instance read, and the hop shows `[another caller's container]`. Such a path is never clean, and a path through the value's own container ranks above it. A cell is exempt, being shared state by design. With nothing held, the rule does not apply.
+
+The rule has limits:
+
+- **Which container the path holds changes its cost, never whether it may take an edge.** The equal-cost path count is therefore per held list: two paths that differ only in what they hold are counted apart.
+- **At most four held lists per location.** A value put into many containers that all flow through one shared function would otherwise copy everything past that function once per container. A state past the fourth holds nothing, so the rule does not apply to it.
+- **Nesting deeper than one container.** Only the innermost entry is compared. After a path steps out of an inner container that it did not step up to on this path, the list may be empty, and the rule does not apply.
+- **A model that maps one container straight to another.** If a summary carries the container itself to a new container, rather than slot to slot, the list still names the first one, and a step into the new one's contents counts as another caller's.
+
+### Returns after a slot read
+
+Reading a container's contents at another call than the one that stepped into it empties the call list. That is right for a container another run made. It also forgets the calls when one run fills a local list and reads it back, as a function that wraps its argument in a list and returns the list's first element does. The path may then return to a call it never entered. The trace marks such a return `[may return to a call never entered]`, and a branch path with one is not clean. It finds them by keeping the calls across reads of a container made in the reading run.
 
 ### What stays approximate
 

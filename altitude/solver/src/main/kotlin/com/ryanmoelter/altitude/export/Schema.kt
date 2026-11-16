@@ -334,8 +334,13 @@ data class TraceHopOut(
   val heldBy: Boolean = false,
   /** The values that meet at the hop's target, when more than one. */
   val fanIn: Int? = null,
-  /** The hop reads a container's contents with nothing on the path to say which container. */
+  /**
+   * The hop reads a container's contents with nothing on the path to say which container, or steps
+   * into the contents of another container than the one the path holds.
+   */
   val anyContainer: Boolean = false,
+  /** The hop returns to a call the path may never have entered; see `Program.unmatchedReturns`. */
+  val unmatchedReturn: Boolean = false,
   /** The class property the hop leaves, which stands for that property of every instance. */
   val anyInstanceOf: String? = null,
   /** The property a `memberOf` hop reads. */

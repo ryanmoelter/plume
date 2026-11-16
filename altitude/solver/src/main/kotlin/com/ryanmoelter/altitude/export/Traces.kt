@@ -11,6 +11,7 @@ import com.ryanmoelter.altitude.trace.Site
 import com.ryanmoelter.altitude.trace.TraceOptions
 import com.ryanmoelter.altitude.trace.ValueGoal
 import com.ryanmoelter.altitude.trace.ValueSearch
+import com.ryanmoelter.altitude.trace.ValueState
 import java.nio.file.Path
 import kotlin.io.path.exists
 import kotlin.io.path.listDirectoryEntries
@@ -231,8 +232,8 @@ class TraceRunner(
 
   // ---- value paths ---------------------------------------------------------------------------
 
-  /** [projected] is each hop's starting state's projection, which some hop notes depend on. */
-  private class Leg(val hops: List<FlowFact>, val projected: List<String?>, val cost: PathCost, val equalCost: Long, val exhausted: Boolean)
+  /** [states] are each hop's starting state, which some hop notes depend on. */
+  private class Leg(val hops: List<FlowFact>, val states: List<ValueState>, val cost: PathCost, val equalCost: Long, val exhausted: Boolean)
 
   private fun valueTrace(query: GoldenQuery, from: String, to: String, via: List<String>, refs: Refs): TraceOut {
     val stops = listOf(from) + via + to
@@ -249,7 +250,7 @@ class TraceRunner(
         legs += TraceLegOut(stops[i], stops[i + 1], emptyList(), emptyList())
         continue
       }
-      val out = valueHops(leg.hops, leg.projected, refs)
+      val out = valueHops(leg.hops, leg.states, refs)
       for (hop in leg.hops) rendered += "${Site.of(hop.at) ?: hop.at}  ${program.display(hop.from)}  --${hop.kind}${hop.ruleId?.let { " $it" }.orEmpty()}-->  ${program.display(hop.to)}"
       val skeleton =
         (listOf(starts[i].label) + leg.hops.mapNotNull { program.landmark(it) } + goals[i].label).fold(ArrayList<String>()) { kept, stop ->
@@ -272,16 +273,17 @@ class TraceRunner(
     return TraceOut(query.name, query.query, query.comment, "value", legs, matches, if (found) null else "a leg has no path")
   }
 
-  /** The hop records of one value path; [projected] is each hop's starting state's projection. */
-  fun valueHops(hops: List<FlowFact>, projected: List<String?>, refs: Refs, mismatches: List<String?> = program.fieldMismatches(hops)): List<TraceHopOut> {
+  /** The hop records of one value path; [states] are each hop's starting state. */
+  fun valueHops(hops: List<FlowFact>, states: List<ValueState>, refs: Refs, mismatches: List<String?> = program.fieldMismatches(hops)): List<TraceHopOut> {
     var depth = 0
+    val unmatched = program.unmatchedReturns(hops, states)
     return hops.mapIndexed { index, hop ->
       depth += wrapStep(hop)
-      valueHop(hop, projected[index], depth, refs, mismatches[index] != null)
+      valueHop(hop, states[index], depth, refs, mismatches[index] != null, index in unmatched)
     }
   }
 
-  private fun valueHop(hop: FlowFact, projected: String?, depth: Int, refs: Refs, fieldMismatch: Boolean): TraceHopOut {
+  private fun valueHop(hop: FlowFact, state: ValueState, depth: Int, refs: Refs, fieldMismatch: Boolean, unmatchedReturn: Boolean): TraceHopOut {
     val a = node(hop.from)
     val b = node(hop.to)
     val ma = members.ofLocation(hop.from)
@@ -310,7 +312,8 @@ class TraceRunner(
       containerChoices = choices.takeIf { it > 1 },
       heldBy = hop.kind == "heldBy",
       fanIn = if (moves) program.fanIn[hop.to]?.takeIf { it > 1 } else null,
-      anyContainer = program.readsAnyContainer(hop, projected),
+      anyContainer = program.readsAnyContainer(hop, state.projected, state.held),
+      unmatchedReturn = unmatchedReturn,
       anyInstanceOf = if (program.isSharedByInstances(hop.from)) units.decls[hop.from]?.name else null,
       property = if (hop.kind == "memberOf") propertyRead(hop.to) else null,
       field = if (hop.kind == "partOf") program.fieldOf(hop) else null,
@@ -334,7 +337,7 @@ class TraceRunner(
     val run = ValueSearch(program, options.searchBudget).run(start, ValueGoal.Locations(goal))
     val last = run.end ?: return null
     val states = run.statesTo(last)
-    return Leg(run.hopsTo(last), states.dropLast(1).map { it.projected }, run.best.getValue(last), run.paths.getValue(last), run.exhausted)
+    return Leg(run.hopsTo(last), states.dropLast(1), run.best.getValue(last), run.paths.getValue(last), run.exhausted)
   }
 
   private fun nodePath(hops: List<TraceHopOut>): List<String> =

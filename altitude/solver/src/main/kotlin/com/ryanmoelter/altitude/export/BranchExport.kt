@@ -35,7 +35,8 @@ class BranchTables(private val fileIndex: Map<String, Int> = emptyMap()) {
   }
 
   fun hop(h: TraceHopOut, memberIndex: Map<String, Int>): Int {
-    val flags = (if (h.anyContainer) 1 else 0) or (if (h.fieldMismatch) 2 else 0) or (if (h.nonProduction) 4 else 0)
+    val flags = (if (h.anyContainer) 1 else 0) or (if (h.fieldMismatch) 2 else 0) or (if (h.nonProduction) 4 else 0) or
+      (if (h.unmatchedReturn) 8 else 0)
     val record =
       BranchHopOut(
         f = loc(h.from), t = loc(h.to), k = str(h.kind)!!, s = site(h.site), r = str(h.rule),
@@ -220,10 +221,12 @@ class BranchContext(
     val mismatchSegments = HashMap<BranchTree.Terminal, java.util.TreeSet<Int>>()
     for (terminal in tree.terminals) {
       val path = terminal.path
-      val hops = runner.valueHops(path.hops, path.states.dropLast(1).map { it.projected }, refs)
+      val hops = runner.valueHops(path.hops, path.states.dropLast(1), refs)
       for ((i, node) in tree.hopNodes(terminal).withIndex()) {
         val known = records[node]
-        records[node] = if (known == null) hops[i] else if (hops[i].fieldMismatch && !known.fieldMismatch) known.copy(fieldMismatch = true) else known
+        records[node] =
+          if (known == null) hops[i]
+          else known.copy(fieldMismatch = known.fieldMismatch || hops[i].fieldMismatch, unmatchedReturn = known.unmatchedReturn || hops[i].unmatchedReturn)
         if (hops[i].fieldMismatch) mismatchSegments.getOrPut(terminal) { sortedSetOf() } += segmentOfNode[node]
       }
     }
@@ -235,11 +238,12 @@ class BranchContext(
         for (n in segment.hops) {
           val node = tree.nodes[n]
           val edge = node.step!!
-          val projected = node.upstream!!.projected
-          cost += program.hopCost(edge, projected)
+          val upstream = node.upstream!!
+          cost += program.hopCost(edge, upstream.projected, upstream.held)
           if (program.isSharedByInstances(edge.from)) approx += "anyInstance"
-          if (program.readsAnyContainer(edge, projected)) approx += "anyContainer"
+          if (program.readsAnyContainer(edge, upstream.projected, upstream.held)) approx += "anyContainer"
           if (records[n]?.fieldMismatch == true) approx += "fieldMismatch"
+          if (records[n]?.unmatchedReturn == true) approx += "unmatchedReturn"
           if (program.isStaged(edge.to)) approx += "staged"
           for (location in listOf(edge.from, edge.to)) memberOf(location)?.let { if (memberPath.lastOrNull() != it) memberPath += it }
         }
@@ -351,7 +355,7 @@ class BranchContext(
     for ((i, t) in tree.terminals.withIndex()) {
       terminalOfPoint[t.point] = i
       val count = if (t.path.equalCost >= PATH_COUNT_CAP) "at least $PATH_COUNT_CAP" else "${t.path.equalCost}"
-      appendLine("  T${i + 1}  ${t.path.key.kind}  ${label(t.path.key, memberIds)}  ${if (t.path.clean) "clean" else "approximate"}${if (t.path.detour) ", detour" else ""}; ${t.path.cost.describe()}; $count paths")
+      appendLine("  T${i + 1}  ${t.path.key.kind}  ${label(t.path.key, memberIds)}  ${if (t.path.clean) "clean" else "approximate"}${if (t.path.detour) ", detour" else ""}${if (t.path.unmatchedReturn) ", unmatched return" else ""}; ${t.path.cost.describe()}; $count paths")
     }
     appendLine()
     appendLine("Tree:")
@@ -366,7 +370,7 @@ class BranchContext(
         if (out.size > 1) appendLine("$indent+ branch ${out.indexOf(s) + 1} of ${out.size}")
         for (n in segment.hops) {
           val node = tree.nodes[n]
-          appendLine(inner + program.valueHopLine(node.step!!, node.upstream!!.projected, node.fieldMismatch))
+          appendLine(inner + program.valueHopLine(node.step!!, node.upstream!!, node.fieldMismatch, node.unmatchedReturn))
         }
         val far = if (root.direction == Direction.FORWARD) segment.b else segment.a
         val p = tree.points[far]

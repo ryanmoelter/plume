@@ -18,9 +18,10 @@ class TraceOptions(
 private const val INDENT = "      "
 
 /** One hop of a value path as `trace --value` prints it; [builtAs] is the field a mismatched read was built in as. */
-fun Program.valueHopLine(hop: FlowFact, projected: String?, builtAs: String?): String {
+fun Program.valueHopLine(hop: FlowFact, state: ValueState, builtAs: String?, unmatchedReturn: Boolean = false): String {
   val rule = hop.ruleId?.let { " $it" }.orEmpty()
-  val notes = (hopNotes(hop, projected) + listOfNotNull(builtAs?.let { "field mismatch: built in as $it" })).joinToString("") { "  [$it]" }
+  val extra = listOfNotNull(builtAs?.let { "field mismatch: built in as $it" }, "may return to a call never entered".takeIf { unmatchedReturn })
+  val notes = (hopNotes(hop, state.projected, state.held) + extra).joinToString("") { "  [$it]" }
   return "${Site.of(hop.at) ?: hop.at}  ${display(hop.from)}  --${hop.kind}$rule-->  ${display(hop.to)}$notes"
 }
 
@@ -156,11 +157,12 @@ class Tracer(private val program: Program, private val options: TraceOptions = T
     appendLine()
     val states = run.statesTo(end)
     val mismatches = program.fieldMismatches(hops)
-    for ((index, hop) in hops.withIndex()) valueHop(hop, states[index].projected, mismatches[index])
+    val unmatched = program.unmatchedReturns(hops, states)
+    for ((index, hop) in hops.withIndex()) valueHop(hop, states[index], mismatches[index], index in unmatched)
   }
 
-  private fun StringBuilder.valueHop(hop: FlowFact, projected: String?, builtAs: String?) {
-    appendLine(program.valueHopLine(hop, projected, builtAs))
+  private fun StringBuilder.valueHop(hop: FlowFact, state: ValueState, builtAs: String?, unmatchedReturn: Boolean) {
+    appendLine(program.valueHopLine(hop, state, builtAs, unmatchedReturn))
   }
 
   private fun reachingGoal(goals: Set<String>): Set<String> {

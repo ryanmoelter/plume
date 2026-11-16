@@ -11,13 +11,35 @@ const val PATH_COUNT_CAP = 1_000_000L
  * one call may not leave it through another.
  * [projected]: the call at which the path stepped from a container into this slot, if it did.
  * [filled]: the call at which the path wrote into this slot, if it did.
+ * [held]: what the value is inside of, innermost last, as [Program.held] tracks it.
  */
 data class ValueState(
   val location: String,
   val calls: List<String>,
   val projected: String? = null,
   val filled: String? = null,
+  val held: List<String> = emptyList(),
 )
+
+/**
+ * Bounds what a search tells apart at one location by [ValueState.held]. A value put into many
+ * containers that all flow through one shared function would otherwise copy everything after that
+ * function once per container. Past [limit] a state holds nothing, as if no container were known.
+ */
+private class HeldLimit(private val limit: Int = HELD_LIMIT) {
+  private val seen = HashMap<String, HashSet<List<String>>>()
+
+  fun admit(state: ValueState): ValueState {
+    if (state.held.isEmpty()) return state
+    val stacks = seen.getOrPut(state.location) { HashSet() }
+    if (state.held in stacks) return state
+    if (stacks.size >= limit) return state.copy(held = emptyList())
+    stacks += state.held
+    return state
+  }
+}
+
+private const val HELD_LIMIT = 4
 
 /** [rank] is the order in which the search first reached [state]. */
 private data class Queued(val cost: PathCost, val rank: Int, val state: ValueState) : Comparable<Queued> {
@@ -92,6 +114,7 @@ class ValueSearch(private val program: Program, private val budget: Int) {
     var end: ValueState? = null
     var steps = 0
     var reachedAtGoal: ValueState? = null
+    val heldLimit = HeldLimit()
     search@ while (queue.isNotEmpty()) {
       val (cost, _, current) = queue.poll()
       if (cost != best[current] || !settled.add(current)) continue
@@ -102,10 +125,9 @@ class ValueSearch(private val program: Program, private val budget: Int) {
       if (current.location !in start && stop(current.location)) continue
       for (edge in program.valueEdges[current.location].orEmpty()) {
         if (++steps > budget) break@search
-        val calls = program.callsAfter(current.calls, edge, current.projected, current.filled) ?: continue
-        val target = ValueState(edge.to, calls, program.projects(edge), program.fills(edge))
+        val target = program.next(current, edge)?.let(heldLimit::admit) ?: continue
         if (target in settled || allow?.invoke(target) == false) continue
-        val next = cost + program.hopCost(edge, current.projected)
+        val next = cost + program.hopCost(edge, current.projected, current.held)
         val known = best[target]
         val comparison = if (known == null) -1 else next.compareTo(known)
         if (comparison < 0) {

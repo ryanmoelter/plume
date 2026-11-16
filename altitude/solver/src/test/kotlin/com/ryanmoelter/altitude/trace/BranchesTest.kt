@@ -155,6 +155,108 @@ class BranchesTest {
 
   private val cellTerminals = Terminals { mapOf(cellSlot to TerminalKey("cellWrite", 0), gotB.id to TerminalKey("ui", 2))[it] }
 
+  private val log = DeclFact("fun:app/log()", "fun", "log", "file:$FILE", FILE, "30:1-40:1")
+  private val props = DeclFact("fun:app/log()#props", "param", "props", log.sym, FILE, "30:7-30:8", index = 0)
+  private val value1 = node(1, "localRef")
+  private val value2 = node(2, "localRef")
+  private val map1 = node(3, "callResult")
+  private val map2 = node(4, "callResult")
+  private val logCall1 = CallFact(at(5, "call"), main.sym, log.sym, "static", targetInSource = true)
+  private val logCall2 = CallFact(at(6, "call"), main.sym, log.sym, "static", targetInSource = true)
+  private val inLog = node(31, "paramRef", log, target = props.sym)
+  private val forEach = at(32, "call")
+  private val each = node(32, "paramRef", log)
+  private val logged = node(33, "localRef", log)
+  private val onlyIn2 = node(34, "localRef", log)
+
+  /**
+   * Two callers each put their own value into their own map and pass it to a shared `log`, which
+   * steps into the contents of whichever map it was given. `onlyIn2` is reached from the second
+   * map's contents alone, at the same call, so nothing but the container tells the callers apart.
+   */
+  private val logProgram =
+    Program(
+      Facts(
+        files = listOf(FileFact(FILE, ":", generated = false)),
+        decls = listOf(main, log, props),
+        nodes = listOf(value1, value2, map1, map2, inLog, each, logged, onlyIn2),
+        calls = listOf(logCall1, logCall2),
+        args = listOf(ArgFact(logCall1.id, props.sym, 0, map1.id, "positional"), ArgFact(logCall2.id, props.sym, 0, map2.id, "positional")),
+        flows =
+          listOf(
+            flow(value1.id, "${map1.id}#<elem>", at = map1.id),
+            flow(value2.id, "${map2.id}#<elem>", at = map2.id),
+            flow(map1.id, props.sym, "arg", logCall1.id),
+            flow(map2.id, props.sym, "arg", logCall2.id),
+            flow(props.sym, inLog.id, "read"),
+            flow(inLog.id, "${map1.id}#<elem>", "contentOf", forEach),
+            flow(inLog.id, "${map2.id}#<elem>", "contentOf", forEach),
+            flow("${map1.id}#<elem>", each.id, "summary", forEach),
+            flow("${map2.id}#<elem>", each.id, "summary", forEach),
+            flow("${map2.id}#<elem>", onlyIn2.id, "summary", forEach),
+            flow(each.id, logged.id),
+          ),
+      ),
+      Derived(),
+    )
+
+  private val logTerminals = Terminals { mapOf(logged.id to TerminalKey("sink", 1), onlyIn2.id to TerminalKey("sink", 2))[it] }
+
+  @Test
+  fun oneCallersValueReachesAnotherCallersContainerOnlyApproximately() {
+    val byRef = tree(logProgram, Direction.FORWARD, setOf(value1.id), logTerminals).terminals.associate { it.path.key.ref to it.path }
+    val intoOther = byRef.getValue(2)
+    assertFalse(intoOther.clean)
+    assertEquals(1, intoOther.cost.anyInstanceReads)
+    assertTrue(intoOther.hops.zip(intoOther.states).any { (hop, state) -> logProgram.entersOtherContainer(hop, state.held) })
+  }
+
+  @Test
+  fun aValueReadBackFromItsOwnContainerStaysClean() {
+    val logged = tree(logProgram, Direction.FORWARD, setOf(value1.id), logTerminals).terminals.single { it.path.key.ref == 1 }.path
+    assertTrue(logged.clean)
+    assertTrue("${map1.id}#<elem>" in logged.hops.map { it.to }.drop(1))
+    assertTrue("${map2.id}#<elem>" !in logged.hops.map { it.to })
+  }
+
+  private val localList = node(35, "callResult", f)
+  private val first = node(36, "callResult", f)
+
+  /** `f` puts its parameter into a local list and returns the list's first element, from two calls. */
+  private val listProgram =
+    Program(
+      Facts(
+        files = listOf(FileFact(FILE, ":", generated = false)),
+        decls = listOf(main, f, param),
+        nodes = listOf(root, arg1, arg2, inF, localList, first, end1, end2, NodeFact(call1.result!!, "callResult", main.sym, target = call1.id), NodeFact(call2.result!!, "callResult", main.sym, target = call2.id)),
+        calls = listOf(call1, call2),
+        args = listOf(ArgFact(call1.id, param.sym, 0, arg1.id, "positional"), ArgFact(call2.id, param.sym, 0, arg2.id, "positional")),
+        flows =
+          listOf(
+            flow(root.id, arg1.id),
+            flow(arg1.id, param.sym, "arg", call1.id),
+            flow(arg2.id, param.sym, "arg", call2.id),
+            flow(param.sym, inF.id, "read"),
+            flow(inF.id, "${localList.id}#<elem>", at = localList.id),
+            flow("${localList.id}#<elem>", first.id, "summary", first.id),
+            flow(first.id, ret, "return"),
+            flow(ret, call1.result, "return", call1.id),
+            flow(ret, call2.result, "return", call2.id),
+            flow(call1.result, end1.id),
+            flow(call2.result, end2.id),
+          ),
+      ),
+      Derived(),
+    )
+
+  @Test
+  fun aReturnToACallThePathNeverEnteredIsNotClean() {
+    val byRef = tree(listProgram, Direction.FORWARD, setOf(root.id), callsTerminals).terminals.associate { it.path.key.ref to it.path }
+    assertTrue(byRef.getValue(1).clean)
+    assertTrue(byRef.getValue(2).unmatchedReturn)
+    assertFalse(byRef.getValue(2).clean)
+  }
+
   @Test
   fun aTerminalWhoseBestPathPassesAStopTakesTheBestPathThatPassesNone() {
     val tree = tree(stopProgram, Direction.FORWARD, setOf(start.id), stopTerminals, stops = setOf("cellWrite"))

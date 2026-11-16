@@ -31,6 +31,8 @@ private const val PROJECTED_IN = "|"
 private const val RETURN = "#<ret>"
 private const val ONE_OF = "one of "
 private const val ANY_FIELD = "*"
+private const val IN_OBJECT = "#<object>"
+private const val HELD_DEPTH = 3
 const val CONTAINER = "[]"
 const val TRUNCATED = "…"
 
@@ -200,6 +202,44 @@ class Program(val facts: Facts, val derived: Derived) {
         FlowFact(slot, root, HELD_BY, withoutContext(root).substringBeforeLast(':'))
       }
 
+  /** The state [edge] leads to from [state], or null when the path may not take it. */
+  fun next(state: ValueState, edge: FlowFact): ValueState? {
+    val calls = callsAfter(state.calls, edge, state.projected, state.filled) ?: return null
+    return ValueState(edge.to, calls, projects(edge), fills(edge), held(edge, state.held))
+  }
+
+  /**
+   * What the value is inside of after [edge], innermost last: a container its `heldBy` stepped up
+   * to, or [IN_OBJECT] for an object it was built into. A step into a container's contents leaves
+   * the innermost container and a projection leaves the innermost object. A projection out of
+   * anything else starts a value the stack says nothing about, so it empties.
+   */
+  fun held(edge: FlowFact, held: List<String>): List<String> {
+    val top = held.lastOrNull()
+    return when {
+      edge.kind == HELD_BY -> (held + original(edge.to)).takeLast(HELD_DEPTH)
+      edge.kind == "partOf" -> if (top == null) held else (held + IN_OBJECT).takeLast(HELD_DEPTH)
+      edge.kind == "memberOf" -> if (top == IN_OBJECT) held.dropLast(1) else emptyList()
+      entersContents(edge) -> if (top == null || top == IN_OBJECT) emptyList() else held.dropLast(1)
+      else -> held
+    }
+  }
+
+  /** A step into the contents of a container other than a cell, which is shared state by design. */
+  private fun entersContents(edge: FlowFact): Boolean =
+    edge.kind == "contentOf" && edge.to.endsWith(ELEMENT) && cellAt(edge.to.removeSuffix(ELEMENT)) == null
+
+  /**
+   * Whether [edge] steps into the contents of another container than the one the path holds: a
+   * port that many callers pass their own container to reaches every caller's contents, and only
+   * the path's own container is the one this value was put in.
+   */
+  fun entersOtherContainer(edge: FlowFact, held: List<String>): Boolean {
+    val top = held.lastOrNull()
+    if (top == null || top == IN_OBJECT || !entersContents(edge)) return false
+    return original(edge.to.removeSuffix(ELEMENT)) != top
+  }
+
   /** The call at which the edge steps from a container to its contents, or null when it does not. */
   fun projects(edge: FlowFact): String? =
     if (edge.kind == "contentOf" && edge.to.endsWith(ELEMENT)) edge.at + PROJECTED_IN + contextKey(edge.from) else null
@@ -242,7 +282,8 @@ class Program(val facts: Facts, val derived: Derived) {
    * them in another declaration than the one that made the container. Either way the read stands
    * for every container made there. A cell is exempt, being shared state by design.
    */
-  fun readsAnyContainer(edge: FlowFact, projected: String?): Boolean {
+  fun readsAnyContainer(edge: FlowFact, projected: String?, held: List<String> = emptyList()): Boolean {
+    if (entersOtherContainer(edge, held)) return true
     if (!edge.from.endsWith(ELEMENT) || edge.kind == HELD_BY) return false
     val root = edge.from.removeSuffix(ELEMENT)
     if (cellAt(root) != null) return false
@@ -252,11 +293,11 @@ class Program(val facts: Facts, val derived: Derived) {
     return made != home(edge.to)
   }
 
-  fun hopCost(edge: FlowFact, projected: String?): PathCost {
+  fun hopCost(edge: FlowFact, projected: String?, held: List<String> = emptyList()): PathCost {
     val choices = if (edge.kind == "contentOf") containerChoices[edge.from] ?: 1 else 1
     val derived = edge.kind == "memberOf" || edge.kind == "partOf" || edge.kind == HELD_BY || choices > 1
     val meeting = if (edge.kind == "contentOf") choices else fanIn[edge.to] ?: 1
-    val anyInstance = isSharedByInstances(edge.from) || readsAnyContainer(edge, projected)
+    val anyInstance = isSharedByInstances(edge.from) || readsAnyContainer(edge, projected, held)
     return PathCost(
       anyInstanceReads = if (anyInstance) 1 else 0,
       stagedHops = if (isStaged(edge.to)) 1 else 0,
@@ -399,6 +440,32 @@ class Program(val facts: Facts, val derived: Derived) {
     return if (target == origin || edge.to.endsWith(ELEMENT)) calls else emptyList()
   }
 
+  /**
+   * The hops of a path that return to a call it may never have entered. Reading a container's
+   * contents at another call forgets the calls, which is right for another run's container but
+   * also forgets them when one run writes a slot and reads it back, as a method that fills and
+   * then reads a local list does. Kept across reads of a container made in the reading run, the
+   * calls show a return that matches none. [states] are each hop's starting state.
+   */
+  fun unmatchedReturns(hops: List<FlowFact>, states: List<ValueState>): Set<Int> {
+    val found = sortedSetOf<Int>()
+    var kept = emptyList<String>()
+    for ((i, hop) in hops.withIndex()) {
+      val state = states[i]
+      val actual = callsAfter(state.calls, hop, state.projected, state.filled)
+      if (hop.from.endsWith(ELEMENT)) {
+        val root = hop.from.removeSuffix(ELEMENT)
+        val local = cellAt(root) == null && frame(root)?.let { it == frame(hop.to) } == true
+        if (!local) kept = actual.orEmpty()
+        continue
+      }
+      val keeping = callsAfter(kept, hop, state.projected, state.filled)
+      if (keeping == null && actual != null) found += i
+      kept = keeping ?: actual.orEmpty()
+    }
+    return found
+  }
+
   private val argsByNode: Map<String, List<ArgFact>> = facts.args.groupBy { it.node }.mapValues { (_, a) -> a.sortedBy { it.call } }
 
   /**
@@ -495,8 +562,9 @@ class Program(val facts: Facts, val derived: Derived) {
     return read
   }
 
-  fun hopNotes(edge: FlowFact, projected: String?): List<String> = buildList {
-    if (readsAnyContainer(edge, projected)) add("any container made there")
+  fun hopNotes(edge: FlowFact, projected: String?, held: List<String> = emptyList()): List<String> = buildList {
+    if (entersOtherContainer(edge, held)) add("another caller's container")
+    else if (readsAnyContainer(edge, projected)) add("any container made there")
     when (edge.kind) {
       HELD_BY -> add("the container holding it")
       "memberOf" -> add("projection")
