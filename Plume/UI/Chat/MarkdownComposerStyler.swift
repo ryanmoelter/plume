@@ -68,7 +68,7 @@ enum MarkdownComposerStyler {
         let groups: [ClosedRange<Int>]
         if let previous, let unchanged, previous.configuration == snapshot.configuration,
            let changed = snapshot.linesChanged(since: previous, unchanged: unchanged) {
-            groups = changed
+            groups = wholeParagraphs(changed, of: lines, in: ns)
         } else {
             groups = [0...(lines.count - 1)]
         }
@@ -100,6 +100,30 @@ enum MarkdownComposerStyler {
         storage.endEditing()
         snapshot.restyled = restyled
         return snapshot
+    }
+
+    /// Widens each run of lines to whole paragraphs. A line ends at U+2028
+    /// and U+0085 too, but a paragraph doesn't, and the paragraph style of a
+    /// paragraph's last line is the one that sticks.
+    private static func wholeParagraphs(_ groups: [ClosedRange<Int>], of lines: [MarkdownLine], in ns: NSString) -> [ClosedRange<Int>] {
+        func continuesParagraph(_ index: Int) -> Bool {
+            guard index > 0, index < lines.count else { return false }
+            let previous = ns.character(at: lines[index].range.location - 1)
+            return previous == 0x2028 || previous == 0x85
+        }
+        var result: [ClosedRange<Int>] = []
+        for group in groups {
+            var lower = group.lowerBound
+            var upper = group.upperBound
+            while continuesParagraph(lower) { lower -= 1 }
+            while continuesParagraph(upper + 1) { upper += 1 }
+            if let last = result.last, last.upperBound + 1 >= lower {
+                result[result.count - 1] = last.lowerBound...max(last.upperBound, upper)
+            } else {
+                result.append(lower...upper)
+            }
+        }
+        return result
     }
 
     /// Everything the full pass does, kept to `range`, which holds whole
@@ -235,21 +259,32 @@ enum MarkdownComposerStyler {
                 let last = MarkdownLineStructure.lineIndex(containing: min(NSMaxRange(range), length), in: lines)
                 changed.insert(integersIn: first...max(first, last))
             }
+            let newReferences = references.map { ReferenceStyle($0) }
             let oldReferences = old.references.compactMap { reference in
-                moved(reference.range).map { range in
-                    var moved = reference
-                    moved.range = range
-                    return moved
-                }
+                moved(reference.range).map { ReferenceStyle(reference, range: $0) }
             }
-            for reference in references where !oldReferences.contains(reference) { insertLines(of: reference.range) }
-            for reference in oldReferences where !references.contains(reference) { insertLines(of: reference.range) }
+            for reference in newReferences where !oldReferences.contains(reference) { insertLines(of: reference.range) }
+            for reference in oldReferences where !newReferences.contains(reference) { insertLines(of: reference.range) }
             let oldTints = old.tints.compactMap(moved)
             if oldTints != tints {
                 for range in oldTints + tints { insertLines(of: range) }
             }
 
             return changed.rangeView.map { $0.lowerBound...($0.upperBound - 1) }
+        }
+
+        /// What of a chip reaches its characters' attributes. Its colors are
+        /// only drawn, and a dynamic color never equals the last one.
+        private struct ReferenceStyle: Equatable {
+            var range: NSRange
+            var brand: ReferenceChipBrand?
+            var title: String?
+
+            init(_ chip: ComposerReferenceChip, range: NSRange? = nil) {
+                self.range = range ?? chip.range
+                brand = chip.brand
+                title = chip.title
+            }
         }
 
         private func sameStyling(_ index: Int, _ old: Snapshot, _ oldIndex: Int, shift: Int) -> Bool {
@@ -594,8 +629,3 @@ struct ComposerMarkdownMetrics {
     }
 }
 
-private extension NSRange {
-    func contains(_ other: NSRange) -> Bool {
-        location <= other.location && NSMaxRange(self) >= NSMaxRange(other)
-    }
-}
