@@ -48,14 +48,16 @@ nonisolated struct ChildSessionWakePolicy: Equatable {
     var isEmpty: Bool { held.isEmpty && waking.isEmpty }
     var hasWakingNotes: Bool { !waking.isEmpty }
 
-    /// The notes to deliver now as a turn of their own, or nil.
+    /// The notes to deliver now as a turn of their own, or nil. A note that
+    /// does not wake can still release a batch: it may be the last working
+    /// child's turn ending.
     mutating func noteArrived(_ note: Note, wakes: Bool, _ activity: Activity) -> [Note]? {
         if note.kind == .turnReport { held.removeAll { $0.isTurnReport(from: note.childID) } }
-        guard wakes else {
+        if wakes {
+            waking.append(note)
+        } else {
             held.append(note)
-            return nil
         }
-        waking.append(note)
         return dueWake(activity)
     }
 

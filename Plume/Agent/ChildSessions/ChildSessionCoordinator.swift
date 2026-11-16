@@ -78,6 +78,14 @@ final class ChildSessionCoordinator {
         recheckWake(of: parent, excluding: child.id)
     }
 
+    /// A restart stops the child's old process without finishing its turn,
+    /// so nothing else tells the parent the child stopped working. Call once
+    /// the resumed session has replaced it.
+    func childRestarted(_ child: TaskTab) {
+        guard let parent = parent(of: child) else { return }
+        recheckWake(of: parent)
+    }
+
     private func permissionCeiling(forChild child: TaskTab) -> PermissionMode {
         ChildSessionPermissions.ceiling(
             parent: parent(of: child).map { LiveSettings(of: $0).permissionMode },

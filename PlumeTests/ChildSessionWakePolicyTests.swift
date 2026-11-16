@@ -55,6 +55,22 @@ struct ChildSessionWakePolicyTests {
             == [note(childA, "a"), message(childB, "mid-turn"), note(childB, "b")])
     }
 
+    /// A `wake_when_done: false` child's report doesn't wake, but the message
+    /// it sent mid-turn does.
+    @Test func aQuietChildsTurnEndReleasesItsOwnMessage() {
+        var policy = ChildSessionWakePolicy()
+        #expect(policy.noteArrived(message(childA, "mid-turn"), wakes: true, childWorking) == nil)
+        #expect(policy.noteArrived(note(childA, "a"), wakes: false, idle)
+            == [note(childA, "a"), message(childA, "mid-turn")])
+    }
+
+    @Test func anInterruptedLastChildReleasesTheBatch() {
+        var policy = ChildSessionWakePolicy()
+        #expect(policy.noteArrived(note(childA, "a"), wakes: true, childWorking) == nil)
+        #expect(policy.noteArrived(note(childB, "stopped"), wakes: false, idle)
+            == [note(childB, "stopped"), note(childA, "a")])
+    }
+
     @Test func theParentsTurnEndWaitsForWorkingChildren() {
         var policy = ChildSessionWakePolicy()
         _ = policy.noteArrived(note(childA, "a"), wakes: true, parentWorking)

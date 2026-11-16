@@ -146,6 +146,7 @@ enum AgentLauncher {
             else { return }
             _ = AgentSessionManager.shared.detachSession(for: tab.id)
             resume(task: tab.task ?? task, tab: tab, inheriting: previous, queued: previous.queue)
+            ChildSessionCoordinator.shared.childRestarted(tab)
         }
         return true
     }
