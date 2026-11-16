@@ -143,6 +143,7 @@ enum AccessibilityID {
     static let importCancelButton = "import-cancel-button"
     static let importConfirmButton = "import-confirm-button"
     static let settingsSeedFixturesButton = "settings-seed-fixtures-button"
+    static let settingsRemoveFixturesButton = "settings-remove-fixtures-button"
     static let settingsAboutNotabilityLink = "settings-about-notability-link"
     static let settingsAboutHeypennyLink = "settings-about-heypenny-link"
     static let composerSendKeyPicker = "composer-send-key-picker"

@@ -15,15 +15,25 @@ import SwiftData
 enum SidebarFixtures {
     static let groupName = "Fixtures (Debug)"
 
+    static func hasFixtures(in groups: [TaskGroup]) -> Bool {
+        groups.contains { $0.name == groupName }
+    }
+
+    /// Deletes through `TaskStore.delete` because a cascade alone leaves the
+    /// tabs' terminals and agent processes running.
+    static func remove(in context: ModelContext, existingGroups: [TaskGroup]) {
+        for group in existingGroups where group.name == groupName {
+            for task in group.tasks {
+                TaskStore.delete(task, in: context)
+            }
+            context.delete(group)
+        }
+    }
+
     /// Re-running drops the previous "Fixtures" group first, so pressing the
     /// button twice replaces rather than duplicates.
     static func seed(in context: ModelContext, existingGroups: [TaskGroup]) {
-        if let existing = existingGroups.first(where: { $0.name == groupName }) {
-            for task in existing.tasks {
-                TaskStore.delete(task, in: context)
-            }
-            context.delete(existing)
-        }
+        remove(in: context, existingGroups: existingGroups)
 
         let group = TaskStore.createGroup(in: context, name: groupName, existing: existingGroups)
 
