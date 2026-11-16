@@ -23,18 +23,13 @@ nonisolated struct TranscriptFold: Sendable {
         var spawnResults = 0.0
     }
 
-    static let seamLength = 64
-
     private var parser = TranscriptParser.State()
     private var backgroundTasks = BackgroundTaskScanner.State()
     private var spawnResults = SubagentSpawnResults()
     private var spawns = SubagentSpawnScanner.State()
-    /// Bytes through the last newline folded. Anything after it is a line
-    /// still being written, read again whole on the next append.
-    private(set) var consumed: UInt64 = 0
-    /// The bytes just before `consumed`, compared on the next read to tell
-    /// an append from a rewrite of the same file.
-    private(set) var seam = Data()
+    private(set) var cursor = AppendCursor()
+
+    var consumed: UInt64 { cursor.consumed }
 
     init() {}
 
@@ -43,19 +38,18 @@ nonisolated struct TranscriptFold: Sendable {
     /// whole-file parse, but stays out of the fold.
     mutating func append(_ bytes: Data, now: Date = Date()) -> Snapshot {
         var timings = Timings()
-        let completeLength = bytes.lastIndex(of: Self.newline).map { $0 + 1 - bytes.startIndex } ?? 0
-        let complete = bytes.prefix(completeLength)
-        let unfinished = bytes.dropFirst(completeLength)
+        let decoder = JSONDecoder()
+        let (complete, unfinished) = cursor.advance(over: bytes)
+        for line in complete.split(separator: Self.newline) {
+            guard let entry = Self.decode(line, decoder, &timings) else { continue }
+            consume(entry, now: now, timings: &timings)
+        }
 
-        fold(complete, now: now, timings: &timings)
-        consumed += UInt64(completeLength)
-        seam = complete.count >= Self.seamLength
-            ? Data(complete.suffix(Self.seamLength))
-            : Data((seam + complete).suffix(Self.seamLength))
-
+        // Usually half a line, which decodes as nothing, so the copy is never
+        // written to and never pays for duplicating the fold's state.
         var withUnfinished = self
-        if !unfinished.isEmpty {
-            withUnfinished.fold(unfinished, now: now, timings: &timings)
+        if let entry = Self.decode(unfinished, decoder, &timings) {
+            withUnfinished.consume(entry, now: now, timings: &timings)
         }
         let transcript = Self.measure(&timings.parse) { withUnfinished.parser.finished() }
         let backgroundTasks = Self.measure(&timings.backgroundTasks) { withUnfinished.backgroundTasks.inFlight }
@@ -70,18 +64,17 @@ nonisolated struct TranscriptFold: Sendable {
 
     private static let newline = UInt8(ascii: "\n")
 
-    private mutating func fold(_ bytes: Data, now: Date, timings: inout Timings) {
-        let decoder = JSONDecoder()
-        for line in bytes.split(separator: Self.newline) {
-            guard let entry = Self.measure(&timings.decode, {
-                try? decoder.decode(TranscriptEntry.self, from: Data(line))
-            }) else { continue }
-            Self.measure(&timings.parse) { parser.consume(entry) }
-            Self.measure(&timings.backgroundTasks) { backgroundTasks.consume(entry, now: now) }
-            Self.measure(&timings.spawnResults) {
-                spawnResults.consume(entry)
-                spawns.consume(entry)
-            }
+    private static func decode(_ line: Data, _ decoder: JSONDecoder, _ timings: inout Timings) -> TranscriptEntry? {
+        guard !line.isEmpty else { return nil }
+        return measure(&timings.decode) { try? decoder.decode(TranscriptEntry.self, from: Data(line)) }
+    }
+
+    private mutating func consume(_ entry: TranscriptEntry, now: Date, timings: inout Timings) {
+        Self.measure(&timings.parse) { parser.consume(entry) }
+        Self.measure(&timings.backgroundTasks) { backgroundTasks.consume(entry, now: now) }
+        Self.measure(&timings.spawnResults) {
+            spawnResults.consume(entry)
+            spawns.consume(entry)
         }
     }
 

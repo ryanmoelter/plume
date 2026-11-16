@@ -451,9 +451,7 @@ final class TranscriptStore {
             if let previous, let fingerprint,
                previous.fingerprint?.fileNumber == fingerprint.fileNumber,
                fingerprint.size >= previous.fold.consumed,
-               let appended = SubagentTranscriptCache.bytes(
-                   atPath: path, after: previous.fold.consumed, seam: previous.fold.seam
-               ) {
+               let appended = previous.fold.cursor.appendedBytes(atPath: path) {
                 return .appended(appended, to: previous.fold)
             }
             return FileManager.default.contents(atPath: path).map(ParentBytes.whole)
@@ -463,7 +461,8 @@ final class TranscriptStore {
     /// Everything a read derives from the main transcript's bytes alone.
     private nonisolated struct ParentParse: Sendable {
         let fingerprint: FileFingerprint?
-        /// Holds no decoded lines, only what each scan accumulated.
+        /// The parser's and scans' state, which the next read continues when
+        /// the file only grew. It keeps no raw bytes and no decoded lines.
         let fold: TranscriptFold
         let transcript: Transcript
         let backgroundTasks: [BackgroundTaskTracker.Entry]
@@ -475,10 +474,12 @@ final class TranscriptStore {
         let spawnDescriptors: [String: SubagentDescriptor]
         let path: ParentReadPath
 
-        let timings: ReadTimings
-
-        init(bytes: ParentBytes, fingerprint: FileFingerprint?, referenceCache: ConversationReferenceScanner.Cache) {
-            var timings = ReadTimings()
+        init(
+            bytes: ParentBytes,
+            fingerprint: FileFingerprint?,
+            referenceCache: ConversationReferenceScanner.Cache,
+            timings: inout ReadTimings
+        ) {
             var fold: TranscriptFold
             let newBytes: Data
             switch bytes {
@@ -492,10 +493,7 @@ final class TranscriptStore {
                 path = .full
             }
             let snapshot = fold.append(newBytes)
-            timings.decode = snapshot.timings.decode
-            timings.parse = snapshot.timings.parse
-            timings.backgroundTasks = snapshot.timings.backgroundTasks
-            timings.spawnResults = snapshot.timings.spawnResults
+            timings.fold = snapshot.timings
             let transcript = snapshot.transcript
             var referenceCache = referenceCache
             self.fingerprint = fingerprint
@@ -509,46 +507,46 @@ final class TranscriptStore {
             self.referenceCache = referenceCache
             spawnResults = snapshot.spawnResults
             spawnDescriptors = snapshot.spawnDescriptors
-            self.timings = timings
         }
     }
 
-    #if DEBUG
+    /// Milliseconds per stage of a read, measured and logged only in a Debug
+    /// build.
     private nonisolated struct ReadTimings: Sendable {
         var load = 0.0
-        var decode = 0.0
-        var parse = 0.0
-        var backgroundTasks = 0.0
+        var fold = TranscriptFold.Timings()
         var linear = 0.0
         var references = 0.0
-        var spawnResults = 0.0
         var subagents = 0.0
 
+        static func now() -> Double {
+            #if DEBUG
+            CACurrentMediaTime()
+            #else
+            0
+            #endif
+        }
+
         mutating func time<T>(_ slot: WritableKeyPath<Self, Double>, _ body: () -> T) -> T {
-            let began = CACurrentMediaTime()
-            defer { self[keyPath: slot] += (CACurrentMediaTime() - began) * 1000 }
+            #if DEBUG
+            let began = Self.now()
+            defer { self[keyPath: slot] += (Self.now() - began) * 1000 }
+            #endif
             return body()
         }
 
-        func logLine(totalMs: Double, bytes: UInt64, bytesRead: Int, path: ParentReadPath) -> String {
+        func log(since began: Double, bytes: UInt64, bytesRead: Int, path: ParentReadPath) {
+            #if DEBUG
             let ms = { (value: Double) in "\(Int(value.rounded()))ms" }
-            return "transcript-read load=\(ms(load)) decode=\(ms(decode)) parse=\(ms(parse)) "
-                + "bgTasks=\(ms(backgroundTasks)) linear=\(ms(linear)) references=\(ms(references)) "
-                + "spawnResults=\(ms(spawnResults)) subagents=\(ms(subagents)) total=\(ms(totalMs)) "
+            let line = "transcript-read load=\(ms(load)) decode=\(ms(fold.decode)) parse=\(ms(fold.parse)) "
+                + "bgTasks=\(ms(fold.backgroundTasks)) linear=\(ms(linear)) references=\(ms(references)) "
+                + "spawnResults=\(ms(fold.spawnResults)) subagents=\(ms(subagents)) "
+                + "total=\(ms((Self.now() - began) * 1000)) "
                 + "bytes=\(bytes) bytesRead=\(bytesRead) tail=\(path == .appended) reusedParent=\(path == .reused)"
+            Log.app.info("\(line, privacy: .public)")
+            #endif
         }
     }
-    #else
-    private nonisolated struct ReadTimings: Sendable {
-        mutating func time<T>(_ slot: WritableKeyPath<Self, Double>, _ body: () -> T) -> T { body() }
-        var decode = 0.0
-        var parse = 0.0
-        var backgroundTasks = 0.0
-        var linear = 0.0
-        var references = 0.0
-        var spawnResults = 0.0
-    }
-    #endif
 
     private nonisolated struct ParsedRead: Sendable {
         let parent: ParentParse
@@ -631,59 +629,33 @@ final class TranscriptStore {
         let afterLoading = afterLoadingTranscript
         #endif
         Task.detached(priority: .utility) {
-            #if DEBUG
-            let readBegan = CACurrentMediaTime()
             var timings = ReadTimings()
-            #endif
+            let readBegan = ReadTimings.now()
             let fingerprint = FileFingerprint(path: path)
             let reusable = previousParent.flatMap { previous in
                 fingerprint != nil && previous.fingerprint == fingerprint ? previous : nil
             }
-            #if DEBUG
             let bytes = reusable == nil ? timings.time(\.load) {
                 ParentBytes.load(path: path, fingerprint: fingerprint, previous: previousParent)
             } : nil
-            #else
-            let bytes = reusable == nil
-                ? ParentBytes.load(path: path, fingerprint: fingerprint, previous: previousParent)
-                : nil
-            #endif
             #if DEBUG
             await afterLoading?(path)
             #endif
             let parentParse = reusable ?? bytes.map {
-                ParentParse(bytes: $0, fingerprint: fingerprint, referenceCache: referenceCache)
+                ParentParse(bytes: $0, fingerprint: fingerprint, referenceCache: referenceCache, timings: &timings)
             }
             let parentPath = reusable != nil ? ParentReadPath.reused : parentParse?.path ?? .full
-            let parsed = parentParse.map { parentParse in
-                let parent = parentParse
+            let parsed = parentParse.map { parent in
                 var subagentCache = subagentCache
-                #if DEBUG
                 let (subagents, evidence, intact) = timings.time(\.subagents) {
                     Self.readSubagents(transcriptPath: path, parent: parent, cache: &subagentCache)
                 }
-                if reusable == nil {
-                    timings.decode = parent.timings.decode
-                    timings.parse = parent.timings.parse
-                    timings.backgroundTasks = parent.timings.backgroundTasks
-                    timings.linear = parent.timings.linear
-                    timings.references = parent.timings.references
-                    timings.spawnResults = parent.timings.spawnResults
-                }
-                let logLine = timings.logLine(
-                    totalMs: (CACurrentMediaTime() - readBegan) * 1000,
+                timings.log(
+                    since: readBegan,
                     bytes: fingerprint?.size ?? 0,
                     bytesRead: bytes?.count ?? 0,
                     path: parentPath
                 )
-                Log.app.info("\(logLine, privacy: .public)")
-                #else
-                let (subagents, evidence, intact) = Self.readSubagents(
-                    transcriptPath: path,
-                    parent: parent,
-                    cache: &subagentCache
-                )
-                #endif
                 return ParsedRead(
                     parent: parent,
                     subagents: subagents,
