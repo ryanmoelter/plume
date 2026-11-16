@@ -205,11 +205,7 @@ private struct IssueRow: View, ThemedView {
         if issue.role == .working, let url = issue.url {
             NSWorkspace.shared.open(url)
         } else {
-            // After the click's own event handling, which a modal menu
-            // tracking loop would otherwise run inside.
-            Task { @MainActor in
-                IssueMenu.make(menuEntries).popUp(positioning: nil, at: NSEvent.mouseLocation, in: nil)
-            }
+            RowMenu.popUp(menuEntries)
         }
     }
 
@@ -231,30 +227,15 @@ private struct IssueRow: View, ThemedView {
         .background { menuItemRegistrations }
     }
 
-    @ViewBuilder
-    private var menuItems: some View {
-        ForEach(Array(menuEntries.enumerated()), id: \.offset) { _, entry in
-            switch entry {
-            case .divider:
-                Divider()
-            case .action(let title, _, let isEnabled, let perform):
-                Button(title, action: perform)
-                    .disabled(!isEnabled)
-            }
-        }
-    }
+    private var menuItems: some View { RowMenuItems(entries: menuEntries) }
 
     private var menuItemRegistrations: some View {
-        ForEach(Array(menuEntries.enumerated()), id: \.offset) { _, entry in
-            if case .action(_, let id, let isEnabled, let perform) = entry {
-                Color.clear.plumeMenuItem(id, label: issue.identifier, isEnabled: isEnabled, invoke: perform)
-            }
-        }
+        RowMenuItemRegistrations(entries: menuEntries, label: issue.identifier)
     }
 
-    private var menuEntries: [IssueMenu.Entry] {
+    private var menuEntries: [RowMenu.Entry] {
         let identifier = issue.identifier
-        var entries: [IssueMenu.Entry] = []
+        var entries: [RowMenu.Entry] = []
         if issue.role == .mentioned {
             entries.append(.action("Pin to Conversation", AccessibilityID.infoPaneLinearLinkToConversationButton, isEnabled: true) {
                 actions.promote(identifier)
@@ -286,47 +267,6 @@ private struct IssueRow: View, ThemedView {
         }
         return entries
     }
-}
-
-/// One issue's actions, drawn both as SwiftUI menu items and as the AppKit
-/// menu a row click pops up.
-private enum IssueMenu {
-    enum Entry {
-        case action(String, String, isEnabled: Bool, perform: () -> Void)
-        case divider
-    }
-
-    @MainActor static func make(_ entries: [Entry]) -> NSMenu {
-        let menu = NSMenu()
-        menu.autoenablesItems = false
-        for entry in entries {
-            switch entry {
-            case .divider:
-                menu.addItem(.separator())
-            case .action(let title, _, let isEnabled, let perform):
-                let item = ClosureMenuItem(title: title, perform: perform)
-                item.isEnabled = isEnabled
-                menu.addItem(item)
-            }
-        }
-        return menu
-    }
-}
-
-// Nonisolated so the stubs Swift synthesizes for NSMenuItem's other designated
-// initializers match the nonisolated originals.
-private nonisolated final class ClosureMenuItem: NSMenuItem {
-    private let perform: () -> Void
-
-    @MainActor init(title: String, perform: @escaping () -> Void) {
-        self.perform = perform
-        super.init(title: title, action: #selector(invoke), keyEquivalent: "")
-        target = self
-    }
-
-    required init(coder: NSCoder) { fatalError("init(coder:) has not been implemented") }
-
-    @MainActor @objc private func invoke() { perform() }
 }
 
 /// Keeps a row's content clear of the control laid over its trailing edge.

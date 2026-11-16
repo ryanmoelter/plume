@@ -75,6 +75,22 @@ struct InfoPanePullRequestItem: Equatable, Identifiable {
     }
 }
 
+/// The section's rows split into the branch's and pinned pull requests, and
+/// the mentioned ones under their own subsection.
+struct InfoPanePullRequestGroups: Equatable {
+    let main: [InfoPanePullRequestItem]
+    let mentioned: [InfoPanePullRequestItem]
+
+    init(_ items: [InfoPanePullRequestItem]) {
+        main = items.filter { $0.role != .mentioned }
+        mentioned = items.filter { $0.role == .mentioned }
+    }
+
+    /// A lone row has no header to hold a Mentioned subsection, so a single
+    /// mentioned pull request still forms a group.
+    var isGrouped: Bool { main.count + mentioned.count > 1 || !mentioned.isEmpty }
+}
+
 /// Open, then draft, then unknown, then closed, then merged.
 enum PullRequestStatusOrder {
     static func rank(_ summary: PullRequestSummary?) -> Int {
@@ -125,7 +141,7 @@ struct PullRequestsSection: View, ThemedView {
 
     var body: some View {
         InfoPaneGroup(
-            isGrouped: items.count > 1,
+            isGrouped: InfoPanePullRequestGroups(items).isGrouped,
             expand: { settings.infoPaneLinkedPullRequestsExpanded = true }
         ) {
             if let only = items.first {
@@ -153,19 +169,16 @@ struct PullRequestsSection: View, ThemedView {
 
     private var grouped: some View {
         let isExpanded = settings.infoPaneLinkedPullRequestsExpanded
-        let leading = items.filter { $0.role != .mentioned }
-        let mentioned = items.filter { $0.role == .mentioned }
+        let groups = InfoPanePullRequestGroups(items)
         return InfoPaneBracketedSection(isExpanded: isExpanded) {
             header(count: items.count, isExpanded: isExpanded) {
                 withAnimation(InfoPaneLayout.sectionAnimation) { settings.infoPaneLinkedPullRequestsExpanded.toggle() }
             }
         } rows: {
             if isExpanded {
-                ForEach(leading) { row($0) }
-                if leading.isEmpty {
-                    ForEach(mentioned) { row($0) }
-                } else if !mentioned.isEmpty {
-                    mentionedGroup(mentioned)
+                ForEach(groups.main) { row($0) }
+                if !groups.mentioned.isEmpty {
+                    mentionedGroup(groups.mentioned)
                 }
             }
         }
@@ -238,8 +251,9 @@ struct PullRequestsSection: View, ThemedView {
 }
 
 /// Clicking opens the pull request. The open mark tops the trailing edge
-/// and the actions menu sits under it. A mentioned one reads dimmer than the
-/// rest.
+/// and the actions menu sits under it. A mentioned one opens its menu
+/// instead, so the menu takes the open mark's place, and it reads dimmer
+/// than the rest.
 private struct PullRequestRow: View, ThemedView {
     @Environment(\.theme) var theme
     @Environment(\.chatLinkDirectory) private var linkDirectory
@@ -253,11 +267,14 @@ private struct PullRequestRow: View, ThemedView {
     var pinAnother: (() -> Void)?
 
     @State private var isHoveringMenu = false
+    @State private var titleHeight: CGFloat?
 
     private var label: String { "#\(item.number)" }
 
+    private var menuIsPrimary: Bool { item.role == .mentioned }
+
     var body: some View {
-        Button(action: open) {
+        Button(action: activate) {
             HStack(alignment: .top, spacing: InfoPaneLayout.columnSpacing) {
                 InfoPaneIcon {
                     if isLone { forgeMark } else { leadingGlyph }
@@ -270,6 +287,7 @@ private struct PullRequestRow: View, ThemedView {
                             .truncationMode(.tail)
                             .emphasis(titleEmphasis)
                     }
+                    .onGeometryChange(for: CGFloat.self) { $0.size.height } action: { titleHeight = $0 }
                     Text(item.summary.map(PullRequestRowContent.detail) ?? label)
                         .lineLimit(1)
                         .truncationMode(.tail)
@@ -278,7 +296,7 @@ private struct PullRequestRow: View, ThemedView {
                 Spacer(minLength: 4)
                 LinkOpenIcon()
                     .frame(width: InfoPaneLayout.iconColumnWidth)
-                    .opacity(item.url == nil ? 0 : 1)
+                    .opacity(opensPullRequest ? 1 : 0)
             }
         }
         .buttonStyle(InfoPaneRowButtonStyle(suppressesWash: isHoveringMenu))
@@ -290,9 +308,19 @@ private struct PullRequestRow: View, ThemedView {
                 : AccessibilityID.infoPaneLinkedPullRequestRow,
             label: label,
             value: "\(item.role.rawValue) \(item.url?.absoluteString ?? "")",
-            invoke: open
+            invoke: activate
         )
-        .overlay(alignment: .bottomTrailing) { actionsMenu }
+        .overlay(alignment: menuIsPrimary ? .topTrailing : .bottomTrailing) { actionsMenu }
+    }
+
+    private var opensPullRequest: Bool { !menuIsPrimary && item.url != nil }
+
+    private func activate() {
+        if menuIsPrimary {
+            RowMenu.popUp(menuEntries)
+        } else {
+            open()
+        }
     }
 
     @ViewBuilder
@@ -332,42 +360,20 @@ private struct PullRequestRow: View, ThemedView {
 
     private var actionsMenu: some View {
         Menu { menuItems } label: {
-            RowMenuLabel(isHovering: isHoveringMenu)
+            // On the title's line when it stands in for the open mark.
+            RowMenuLabel(lineHeight: menuIsPrimary ? titleHeight : nil, isHovering: isHoveringMenu)
         }
         .menuStyle(.button)
         .buttonStyle(.plain)
         .menuIndicator(.hidden)
         .fixedSize()
-        .emphasis(.subtle)
+        .foregroundStyle(AnyShapeStyle.role(colors.selection, when: menuIsPrimary, otherwise: .subtle))
         .plumeHover { isHoveringMenu = $0 }
         .padding(-OverlaidControlWash.inset)
-        .padding(.bottom, InfoPaneLayout.rowVerticalPadding)
+        .padding(menuIsPrimary ? .top : .bottom, InfoPaneLayout.rowVerticalPadding)
         .help("Pull request actions")
         .plumeID(AccessibilityID.infoPaneLinkedPullRequestRowMenu, label: label)
-        .background { menuItemRegistrations }
-    }
-
-    private var menuItemRegistrations: some View {
-        let reference = item.reference
-        return Group {
-            if item.role == .mentioned, let reference {
-                Color.clear.plumeMenuItem(AccessibilityID.infoPaneLinkedPullRequestPinButton, label: label) { actions.pin(reference) }
-            }
-            Color.clear.plumeMenuItem(AccessibilityID.infoPaneLinkedPullRequestOpenButton, label: label, isEnabled: item.url != nil, invoke: open)
-            Color.clear.plumeMenuItem(AccessibilityID.infoPaneLinkedPullRequestCopyButton, label: label, isEnabled: item.url != nil, invoke: copyURL)
-            if item.role != .mentioned {
-                Color.clear.plumeMenuItem(
-                    AccessibilityID.infoPaneLinkedPullRequestUnpinButton,
-                    label: label,
-                    isEnabled: reference != nil
-                ) {
-                    if let reference { actions.unpin(reference) }
-                }
-            }
-            if let pinAnother {
-                Color.clear.plumeMenuItem(AccessibilityID.infoPaneLinkedPullRequestPinAnotherButton, label: label) { pinAnother() }
-            }
-        }
+        .background { RowMenuItemRegistrations(entries: menuEntries, label: label) }
     }
 
     private func copyURL() {
@@ -376,39 +382,36 @@ private struct PullRequestRow: View, ThemedView {
         NSPasteboard.general.setString(url.absoluteString, forType: .string)
     }
 
+    private var menuItems: some View { RowMenuItems(entries: menuEntries) }
+
     /// The branch's own pull request keeps a pinned one's menu, with Unpin
     /// greyed out since the branch, not a pin, puts it here.
-    @ViewBuilder
-    private var menuItems: some View {
+    private var menuEntries: [RowMenu.Entry] {
         let reference = item.reference
+        let hasURL = item.url != nil
+        var entries: [RowMenu.Entry] = []
         if item.role == .mentioned, let reference {
-            menuItem("Pin to Conversation") { actions.pin(reference) }
-            Divider()
+            entries.append(.action("Pin to Conversation", AccessibilityID.infoPaneLinkedPullRequestPinButton, isEnabled: true) {
+                actions.pin(reference)
+            })
+            entries.append(.divider)
         }
-        menuItem("Open on \(forgeName)", isEnabled: item.url != nil, perform: open)
-        menuItem("Copy URL", isEnabled: item.url != nil, perform: copyURL)
+        entries.append(.action("Open on \(forgeName)", AccessibilityID.infoPaneLinkedPullRequestOpenButton, isEnabled: hasURL, perform: open))
+        entries.append(.action("Copy URL", AccessibilityID.infoPaneLinkedPullRequestCopyButton, isEnabled: hasURL, perform: copyURL))
         if item.role != .mentioned {
-            Divider()
-            menuItem("Unpin from Conversation", isEnabled: reference != nil) {
+            entries.append(.divider)
+            entries.append(.action("Unpin from Conversation", AccessibilityID.infoPaneLinkedPullRequestUnpinButton, isEnabled: reference != nil) {
                 if let reference { actions.unpin(reference) }
-            }
+            })
         }
         if let pinAnother {
-            Divider()
-            menuItem("Pin Another Pull Request…") {
+            entries.append(.divider)
+            entries.append(.action("Pin Another Pull Request…", AccessibilityID.infoPaneLinkedPullRequestPinAnotherButton, isEnabled: true) {
                 // After the menu closes, so the popover has an anchor to present from.
                 Task { @MainActor in pinAnother() }
-            }
+            })
         }
-    }
-
-    private func menuItem(
-        _ title: String,
-        isEnabled: Bool = true,
-        perform: @escaping () -> Void
-    ) -> some View {
-        Button(title, action: perform)
-            .disabled(!isEnabled)
+        return entries
     }
 }
 
