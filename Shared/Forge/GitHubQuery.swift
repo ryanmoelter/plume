@@ -12,7 +12,7 @@ nonisolated enum GitHubQuery {
     static let chunkSize = 30
 
     private static let prNodeFields = """
-        number state isDraft baseRefName url title headRefOid reviewDecision \
+        number state isDraft mergeable mergeStateStatus baseRefName url title headRefOid reviewDecision \
         reviewRequests(first: 1) { totalCount } latestReviews(first: 1) { totalCount } \
         headRepositoryOwner { login } \
         commits(last: 1) { nodes { commit { statusCheckRollup { contexts(first: 100) \
@@ -122,6 +122,8 @@ nonisolated struct GitHubPRNode: Decodable, Sendable {
     let number: Int
     let state: String?
     let isDraft: Bool?
+    let mergeable: String?
+    let mergeStateStatus: String?
     let baseRefName: String?
     let url: String?
     let title: String?
@@ -185,6 +187,8 @@ nonisolated extension PullRequest {
             reviewDecision: ReviewDecision(rawValue: node.reviewDecision),
             hasReviewers: (node.reviewRequests?.totalCount ?? 0) + (node.latestReviews?.totalCount ?? 0) > 0,
             checkContexts: contexts,
+            hasMergeConflict: state == .open
+                && isMergeConflict(mergeable: node.mergeable, mergeStateStatus: node.mergeStateStatus),
             githubStack: Self.stackMembership(node)
         )
     }

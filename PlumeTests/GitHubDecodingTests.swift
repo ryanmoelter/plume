@@ -185,4 +185,32 @@ struct GitHubDecodingTests {
     func reviewDecisionsMap(_ raw: String, _ expected: ReviewDecision) {
         #expect(ReviewDecision(rawValue: raw) == expected)
     }
+
+    @Test func aConflictingPullRequestDecodesAsConflicted() throws {
+        func decode(state: String = "OPEN", mergeable: String?, status: String?) throws -> Bool {
+            let fields = [mergeable.map { "\"mergeable\":\"\($0)\"" }, status.map { "\"mergeStateStatus\":\"\($0)\"" }]
+                .compactMap { $0 }.joined(separator: ",")
+            let json = """
+            {"data":{"repository":{"owner":{"login":"me"},"b0":{"nodes":[
+            {"number":7,"state":"\(state)","isDraft":false\(fields.isEmpty ? "" : ",")\(fields)}]}}}}
+            """
+            let decoded = try GitHubQuery.decode(Data(json.utf8), aliasToBranch: ["b0": "main"])
+            return try #require(decoded["main"] ?? nil).hasMergeConflict
+        }
+        #expect(try decode(mergeable: "CONFLICTING", status: "DIRTY"))
+        #expect(try decode(mergeable: "CONFLICTING", status: nil))
+        #expect(try decode(mergeable: nil, status: "DIRTY"))
+        #expect(try !decode(mergeable: "MERGEABLE", status: "CLEAN"))
+        #expect(try !decode(mergeable: "UNKNOWN", status: "UNKNOWN"))
+        #expect(try !decode(mergeable: nil, status: nil))
+        #expect(try !decode(mergeable: "MERGEABLE", status: "BLOCKED"))
+        #expect(try !decode(mergeable: "MERGEABLE", status: "BEHIND"))
+        #expect(try !decode(state: "MERGED", mergeable: "CONFLICTING", status: "DIRTY"))
+        #expect(try !decode(state: "CLOSED", mergeable: "CONFLICTING", status: "DIRTY"))
+    }
+
+    @Test func theQueryAsksForMergeability() {
+        let query = GitHubQuery.build(branches: ["a"]).query
+        #expect(query.contains("mergeable mergeStateStatus"))
+    }
 }

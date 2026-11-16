@@ -92,4 +92,33 @@ struct PullRequestChipTests {
         }
         #expect(ignored.map(\.label) == ["PR #8", "checks pass"])
     }
+
+    @Test func aConflictOutranksFailingChecks() {
+        let pullRequest = PullRequest(
+            number: 13, state: .open, isDraft: false, reviewDecision: .changesRequested, hasMergeConflict: true
+        )
+        #expect(labels(.pullRequest(pullRequest), rollup: .failure)
+            == ["PR #13", "merge conflict", "checks fail", "changes requested"])
+        let glyph = PullRequestChipContent.conflict
+        #expect(glyph.tint == .conflict)
+    }
+
+    @Test func noConflictShowsNoConflictGlyph() {
+        let pullRequest = PullRequest(number: 14, state: .open, isDraft: false)
+        #expect(!labels(.pullRequest(pullRequest), rollup: .failure).contains("merge conflict"))
+    }
+
+    @Test func aMergedPullRequestNeverShowsAConflict() {
+        let pullRequest = PullRequest(number: 15, state: .merged, isDraft: false, hasMergeConflict: true)
+        #expect(labels(.pullRequest(pullRequest)) == ["PR #15", "merged"])
+    }
+
+    @Test func mergeConflictRulesIgnoreEverythingButAConflict() {
+        #expect(isMergeConflict(mergeable: "CONFLICTING", mergeStateStatus: nil))
+        #expect(isMergeConflict(mergeable: nil, mergeStateStatus: "DIRTY"))
+        #expect(!isMergeConflict(mergeable: "UNKNOWN", mergeStateStatus: "UNKNOWN"))
+        #expect(!isMergeConflict(mergeable: nil, mergeStateStatus: nil))
+        #expect(!isMergeConflict(mergeable: "MERGEABLE", mergeStateStatus: "BLOCKED"))
+        #expect(!isMergeConflict(mergeable: "MERGEABLE", mergeStateStatus: "BEHIND"))
+    }
 }
