@@ -11,6 +11,10 @@ import SwiftUI
 /// full map over the chat, where the cursor's height picks the part of the
 /// conversation shown — the same gesture as running a finger down the edge
 /// of a book.
+///
+/// The collapsed rail is drawn by a single view, and the entries mount only
+/// while the map is revealed or animating, because a long conversation's
+/// worth of entry views made every update of the chat pay for each of them.
 struct ChatMinimap: View, ThemedView {
     @Environment(\.theme) var theme
     @Environment(\.colorScheme) private var colorScheme
@@ -44,68 +48,62 @@ struct ChatMinimap: View, ThemedView {
     /// rail crosses a bleed item's column and sits over the text.
     static let collapsedWidth: CGFloat = 8
 
-    /// Follows the conversation rather than being scrolled by hand.
-    @State private var position = ScrollPosition(edge: .top)
+    /// How far the map has travelled down the conversation. A translation
+    /// rather than a scroll view's position, so the drawn rail and the
+    /// mounted entries share it and the handover between them cannot jump.
+    @State private var scrollOffset: CGFloat = 0
 
     @State private var isRevealed = false
+    /// Whether the per-entry views exist. They do while the map is revealed
+    /// and while it animates open or closed; at rest the rail is drawn in one
+    /// view instead, since a long conversation's worth of entry views costs
+    /// every update of the chat a pass over each of them.
+    @State private var mountsEntries = false
     /// Where the cursor sits in the rail, 0 at the top and 1 at the bottom,
     /// which is the fraction of the conversation the revealed map shows.
     @State private var hoverFraction: CGFloat?
-    /// What the entries actually measure, which is what the map scrolls
-    /// through.
-    @State private var contentHeight: CGFloat = 0
+    /// What the mounted entries actually measure. A revealed prompt draws as
+    /// a line of text, not as the bar its weight describes, so the revealed
+    /// height cannot be derived from the weights.
+    @State private var measuredHeight: CGFloat = 0
 
     var body: some View {
         GeometryReader { proxy in
-            ScrollView {
-                VStack(alignment: .leading, spacing: isRevealed ? Self.entrySpacing * 2 : Self.entrySpacing) {
-                    ForEach(outline.entries) { entry in
-                        ChatMinimapEntryView(
-                            entry: entry,
-                            height: max(Self.minimumEntryHeight, entry.weight * Self.pointsPerWeight),
-                            isVisible: !entry.pieceIDs.isDisjoint(with: visiblePieceIDs),
-                            isRevealed: isRevealed,
-                            railWidth: railWidth,
-                            // The end of the map means the end of the
-                            // conversation, not the top of its last entry:
-                            // that is where the list picks up following new
-                            // content, and anchoring the last entry to the
-                            // top would stop short of it.
-                            onSelect: entry.id == outline.entries.last?.id
-                                ? { _ in onSelectEnd() }
-                                : onSelect
-                        )
-                    }
+            let layout = Self.railLayout(for: outline.entries, railWidth: railWidth)
+            let live = liveHeight(in: proxy.size)
+            let contentHeight = mountsEntries ? measuredHeight : max(layout.height, live)
+            Group {
+                if mountsEntries {
+                    entries
+                } else {
+                    drawnRail(layout)
                 }
-                // Held to at least the pane so a conversation too short to
-                // fill it sits in the middle rather than hanging from the
-                // top. Once the entries outgrow that the minimum stops
-                // binding and the map scrolls as before.
-                .frame(maxWidth: .infinity, minHeight: liveHeight(in: proxy.size), alignment: .leading)
-                // Clear of the background's fade, so a prompt's first
-                // characters are never the ones drawn over bare chat.
-                .padding(.leading, isRevealed ? Self.contentInset : 0)
-                // Read rather than derived from the weights: a revealed
-                // prompt draws as a line of text, not as the bar its weight
-                // describes, so the two heights are far apart and scrolling
-                // against the wrong one strands the end of the map.
-                .onGeometryChange(for: CGFloat.self) { $0.size.height } action: { contentHeight = $0 }
             }
-            .scrollIndicators(.hidden)
-            .scrollDisabled(true)
-            .scrollPosition($position)
+            // Held to at least the pane so a conversation too short to fill
+            // it sits in the middle rather than hanging from the top. Once
+            // the entries outgrow that the minimum stops binding and the map
+            // travels as before.
+            .frame(maxWidth: .infinity, minHeight: live, alignment: .leading)
+            // Clear of the background's fade, so a prompt's first characters
+            // are never the ones drawn over bare chat.
+            .padding(.leading, isRevealed ? Self.contentInset : 0)
+            .onGeometryChange(for: CGFloat.self) { $0.size.height } action: { measuredHeight = $0 }
             // The chat's top margin, so the map starts level with the
             // conversation it maps. The bottom only has to clear the
             // composer — the map is a column of small marks rather than
             // text, so it can run closer to the edge than the chat does, and
-            // an entry still scrolls out from under the composer before it
+            // an entry still travels out from under the composer before it
             // can be clicked.
-            .contentMargins(.top, dimensions.verticalPadding, for: .scrollContent)
-            .contentMargins(.bottom, bottomInset + dimensions.verticalPadding, for: .scrollContent)
+            .padding(.top, dimensions.verticalPadding)
+            .padding(.bottom, bottomInset + dimensions.verticalPadding)
+            .fixedSize(horizontal: false, vertical: true)
+            .offset(y: -scrollOffset)
+            .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
+            .clipped()
             // Kept where the reader is, from the map's own geometry rather
             // than the chat's uneven offset. While the cursor is in the rail
             // it drives the map instead, so following the chat would fight
-            // it for the same scroll position.
+            // it for the same offset.
             //
             // Watched together with the reveal so that closing re-asserts
             // the chat's position. The chat has not moved while the pointer
@@ -114,7 +112,7 @@ struct ChatMinimap: View, ThemedView {
             .onChange(of: FollowDrive(position: outline.position(of: visiblePieceIDs), revealed: isRevealed)) { _, drive in
                 guard !drive.revealed, let fraction = drive.position else { return }
                 withAnimation(.easeOut(duration: 0.2)) {
-                    position.scrollTo(point: CGPoint(x: 0, y: offset(for: fraction, in: proxy.size)))
+                    scrollOffset = offset(for: fraction, contentHeight: contentHeight, in: proxy.size)
                 }
             }
             // Keyed to the pointer and to the height it is measured
@@ -127,7 +125,7 @@ struct ChatMinimap: View, ThemedView {
             // throughout.
             .onChange(of: ScrollDrive(fraction: hoverFraction, contentHeight: contentHeight)) { _, drive in
                 guard let fraction = drive.fraction else { return }
-                position.scrollTo(point: CGPoint(x: 0, y: offset(for: fraction, in: proxy.size)))
+                scrollOffset = offset(for: fraction, contentHeight: drive.contentHeight, in: proxy.size)
             }
             // Drawn wider than the rail it sits in, toward the chat. Only
             // the rail holds layout space, so revealing the map never
@@ -164,10 +162,18 @@ struct ChatMinimap: View, ThemedView {
                             // rail's full height: the margins are not part of
                             // the conversation, so travelling over them would
                             // mean the ends of the map were unreachable.
-                            let live = max(1, liveHeight(in: proxy.size))
-                            hoverFraction = min(max((point.y - dimensions.verticalPadding) / live, 0), 1)
+                            hoverFraction = min(max((point.y - dimensions.verticalPadding) / max(1, live), 0), 1)
                         case .ended:
                             hoverFraction = nil
+                        }
+                    }
+                    // A synthetic pointer has no height, so it opens the map
+                    // where the reader already is.
+                    .plumeSyntheticHover { hovering in
+                        if !hovering {
+                            hoverFraction = nil
+                        } else if hoverFraction == nil {
+                            hoverFraction = outline.position(of: visiblePieceIDs) ?? 1
                         }
                     }
             }
@@ -177,8 +183,119 @@ struct ChatMinimap: View, ThemedView {
         .padding(.trailing, railInset)
         .plumeID(AccessibilityID.chatMinimap)
         .onChange(of: hoverFraction == nil) { _, away in
-            withAnimation(.easeOut(duration: 0.15)) { isRevealed = !away }
+            if away {
+                if isRevealed {
+                    withAnimation(.easeOut(duration: Self.revealDuration)) { isRevealed = false }
+                } else {
+                    mountsEntries = false
+                }
+            } else if mountsEntries {
+                withAnimation(.easeOut(duration: Self.revealDuration)) { isRevealed = true }
+            } else {
+                // Mounted collapsed first, where they sit exactly over the
+                // drawn bars, and revealed once that frame is out, so the
+                // reveal animates from bars to text rather than appearing.
+                mountsEntries = true
+                AfterCommit.perform {
+                    guard hoverFraction != nil, mountsEntries else { return }
+                    withAnimation(.easeOut(duration: Self.revealDuration)) { isRevealed = true }
+                }
+            }
         }
+        // Timed rather than hung on the collapse's `withAnimation`
+        // completion, which a window that is not drawing may never deliver,
+        // leaving every entry mounted.
+        .task(id: isRevealed) {
+            guard !isRevealed, mountsEntries else { return }
+            try? await Task.sleep(for: .seconds(Self.revealDuration + 0.05))
+            guard !Task.isCancelled, !isRevealed, hoverFraction == nil else { return }
+            mountsEntries = false
+        }
+    }
+
+    private static let revealDuration: Double = 0.15
+
+    private var entries: some View {
+        VStack(alignment: .leading, spacing: isRevealed ? Self.entrySpacing * 2 : Self.entrySpacing) {
+            ForEach(outline.entries) { entry in
+                ChatMinimapEntryView(
+                    entry: entry,
+                    isVisible: !entry.pieceIDs.isDisjoint(with: visiblePieceIDs),
+                    isRevealed: isRevealed,
+                    railWidth: railWidth,
+                    onSelect: entry.id == outline.entries.last?.id
+                        ? { _ in onSelectEnd() }
+                        : onSelect
+                )
+            }
+        }
+    }
+
+    private func drawnRail(_ layout: RailLayout) -> some View {
+        let emphasis = EmphasisVector(Self.emphasis(of: outline.entries, visiblePieceIDs: visiblePieceIDs))
+        return ChatMinimapRail(bars: layout.bars, emphasis: emphasis)
+            .equatable()
+            .animation(.easeOut(duration: 0.2), value: emphasis)
+            .frame(height: layout.height)
+            .contentShape(.rect)
+            // Reached only where the pointer cannot open the map, beside the
+            // collapsed info pane; everywhere else the entries are mounted
+            // before a click can land.
+            .onTapGesture(coordinateSpace: .local) { point in
+                guard let index = Self.entryIndex(at: point, in: layout.bars) else { return }
+                select(outline.entries[index])
+            }
+    }
+
+    private func select(_ entry: ChatOutline.Entry) {
+        // The end of the map means the end of the conversation, not the top
+        // of its last entry: that is where the list picks up following new
+        // content, and anchoring the last entry to the top would stop short
+        // of it.
+        if entry.id == outline.entries.last?.id {
+            onSelectEnd()
+        } else {
+            onSelect(entry.id)
+        }
+    }
+
+    /// Where each entry's row and bar sit in the collapsed rail, matching how
+    /// `ChatMinimapEntryView` lays out collapsed, and the rail's total height.
+    static func railLayout(
+        for entries: [ChatOutline.Entry],
+        spacing: CGFloat = entrySpacing,
+        railWidth: CGFloat
+    ) -> RailLayout {
+        var bars: [RailBar] = []
+        bars.reserveCapacity(entries.count)
+        var y: CGFloat = 0
+        for entry in entries {
+            if !bars.isEmpty { y += spacing }
+            let row: CGRect
+            let bar: CGRect
+            if entry.kind.isUserInput {
+                row = CGRect(x: 0, y: y, width: railWidth, height: promptBarHeight + 2 * promptBarPadding)
+                bar = CGRect(x: 0, y: y + promptBarPadding, width: railWidth, height: promptBarHeight)
+            } else {
+                let height = max(minimumEntryHeight, entry.weight * pointsPerWeight)
+                row = CGRect(x: 0, y: y, width: railWidth, height: height)
+                bar = CGRect(x: railWidth / 2, y: y, width: railWidth / 2, height: height)
+            }
+            bars.append(RailBar(row: row, bar: bar, ceiling: entry.kind.minimapOpacityCeiling))
+            y = row.maxY
+        }
+        return RailLayout(bars: bars, height: y)
+    }
+
+    /// The entry whose row contains `point`, as an index into the entries
+    /// the bars were laid out from. The gaps between rows answer nothing.
+    static func entryIndex(at point: CGPoint, in bars: [RailBar]) -> Int? {
+        bars.firstIndex { $0.row.contains(point) }
+    }
+
+    /// 1 for an entry with any of its pieces on screen, 0 otherwise.
+    static func emphasis(of entries: [ChatOutline.Entry], visiblePieceIDs: Set<String>) -> [Double] {
+        entries.map { $0.pieceIDs.isDisjoint(with: visiblePieceIDs) ? 0 : 1 }
     }
 
     static func tracksHover(atY y: CGFloat, isTracking: Bool, exclusionHeight: CGFloat) -> Bool {
@@ -215,9 +332,9 @@ struct ChatMinimap: View, ThemedView {
     }
 
     /// Puts `fraction` of the way down the conversation in the middle of the
-    /// pane, clamped so neither end scrolls past itself.
-    private func offset(for fraction: CGFloat, in size: CGSize) -> CGFloat {
-        // Both margins count as content to scroll past. Leaving the top one
+    /// pane, clamped so neither end travels past itself.
+    private func offset(for fraction: CGFloat, contentHeight: CGFloat, in size: CGSize) -> CGFloat {
+        // Both margins count as content to travel past. Leaving the top one
         // out stops short of the end by its height, which cuts off the last
         // entry.
         let travel = max(0, contentHeight + 2 * dimensions.verticalPadding + bottomInset - size.height)
@@ -247,7 +364,7 @@ struct ChatMinimap: View, ThemedView {
     /// enough that neighbouring entries do not merge. The open map doubles
     /// it, where the entries are lines of text rather than marks and want
     /// the air between them.
-    private static let entrySpacing: CGFloat = 2
+    static let entrySpacing: CGFloat = 2
 
     /// How tall a unit of weight draws. Fixed rather than fitted to the pane
     /// so the rail reads at the same density whatever the conversation's
@@ -256,11 +373,17 @@ struct ChatMinimap: View, ThemedView {
     /// so this is a correction to them rather than a scale of its own.
     /// Raising it spaces the conversation out and reaches the scrolling
     /// threshold sooner.
-    private static let pointsPerWeight: CGFloat = 1
+    static let pointsPerWeight: CGFloat = 1
 
     /// The shortest an entry draws, so a brief one stays clickable however
     /// long the conversation grows around it.
-    private static let minimumEntryHeight: CGFloat = 3
+    static let minimumEntryHeight: CGFloat = 3
+
+    /// A collapsed prompt's bar, and the air above and below it in its row.
+    /// User input takes this fixed size rather than its weight, the same way
+    /// a revealed prompt takes its natural line height.
+    static let promptBarHeight: CGFloat = 4
+    static let promptBarPadding: CGFloat = 2
 
     private static let edgeInset: CGFloat = 2
 
@@ -369,7 +492,6 @@ private struct ChatMinimapEntryView: View, ThemedView {
     @Environment(\.theme) var theme
 
     let entry: ChatOutline.Entry
-    let height: CGFloat
     /// Whether any of what this entry covers is on screen.
     let isVisible: Bool
     /// Whether the map is showing its full width.
@@ -425,12 +547,12 @@ private struct ChatMinimapEntryView: View, ThemedView {
         // gets a wider rail than a chat of short ones.
         .frame(width: isRevealed ? nil : railWidth, alignment: .leading)
         .frame(maxWidth: .infinity, alignment: .leading)
-        .frame(height: isRevealed ? nil : Self.promptBarHeight)
+        .frame(height: isRevealed ? nil : ChatMinimap.promptBarHeight)
         .background {
             RoundedRectangle(cornerRadius: 1.5)
                 .opacity(isRevealed ? 0 : 1)
         }
-        .padding(.vertical, 2)
+        .padding(.vertical, ChatMinimap.promptBarPadding)
         .contentShape(.rect)
         .help(text)
     }
@@ -439,7 +561,7 @@ private struct ChatMinimapEntryView: View, ThemedView {
     /// in the rail it is inset so the prompts are the wider mark.
     private var area: some View {
         RoundedRectangle(cornerRadius: 1.5)
-            .frame(height: height)
+            .frame(height: max(ChatMinimap.minimumEntryHeight, entry.weight * ChatMinimap.pointsPerWeight))
             .frame(
                 maxWidth: .infinity,
                 alignment: isRevealed ? .leading : .trailing
@@ -447,8 +569,6 @@ private struct ChatMinimapEntryView: View, ThemedView {
             .padding(.leading, isRevealed ? 0 : responseInset)
             .contentShape(.rect)
     }
-
-    private static let promptBarHeight: CGFloat = 4
 
     /// How much narrower a response draws than a prompt in the rail. The two
     /// are told apart by width as well as by weight, since at this size a
@@ -479,7 +599,11 @@ private struct MinimapEmphasis: ViewModifier, Animatable {
     }
 
     func body(content: Content) -> some View {
-        content.foregroundStyle(.primary.opacity(ceiling * (Self.restingFraction + progress * Self.emphasisRange)))
+        content.foregroundStyle(.primary.opacity(Self.opacity(progress: progress, ceiling: ceiling)))
+    }
+
+    static func opacity(progress: Double, ceiling: Double) -> Double {
+        ceiling * (restingFraction + progress * emphasisRange)
     }
 
     /// What an off-screen entry reads at, as a fraction of its ceiling. The
@@ -487,6 +611,93 @@ private struct MinimapEmphasis: ViewModifier, Animatable {
     /// text.
     private static let restingFraction: Double = 0.4
     private static let emphasisRange: Double = 0.6
+}
+
+extension ChatMinimap {
+    struct RailLayout: Equatable {
+        var bars: [RailBar]
+        var height: CGFloat
+    }
+
+    struct RailBar: Equatable {
+        /// What a click on the entry lands in: the full rail width, as the
+        /// mounted entry's button is.
+        var row: CGRect
+        /// What draws, which for a response is the trailing half of the row.
+        var bar: CGRect
+        var ceiling: Double
+    }
+}
+
+/// The collapsed rail, every bar drawn by one view.
+///
+/// Animatable over the whole emphasis vector, so an entry scrolling on or off
+/// screen eases the way a mounted entry's `MinimapEmphasis` does, while a rail
+/// with nothing changing does no work at all.
+private struct ChatMinimapRail: View, Animatable, Equatable {
+    let bars: [ChatMinimap.RailBar]
+    var emphasis: EmphasisVector
+
+    var animatableData: EmphasisVector {
+        get { emphasis }
+        set { emphasis = newValue }
+    }
+
+    var body: some View {
+        Canvas { context, _ in
+            for (index, bar) in bars.enumerated() {
+                let opacity = MinimapEmphasis.opacity(progress: emphasis[index], ceiling: bar.ceiling)
+                context.fill(
+                    RoundedRectangle(cornerRadius: 1.5).path(in: bar.bar),
+                    with: .style(.primary.opacity(opacity))
+                )
+            }
+        }
+    }
+}
+
+/// One emphasis per entry, interpolated as a vector. Entries are appended
+/// as the conversation grows, so a missing component reads as 0 — at rest.
+nonisolated struct EmphasisVector: VectorArithmetic {
+    var values: [Double]
+
+    init(_ values: [Double]) {
+        self.values = values
+    }
+
+    subscript(index: Int) -> Double {
+        index < values.count ? values[index] : 0
+    }
+
+    static var zero: EmphasisVector { EmphasisVector([]) }
+
+    static func + (lhs: EmphasisVector, rhs: EmphasisVector) -> EmphasisVector {
+        combine(lhs, rhs, +)
+    }
+
+    static func - (lhs: EmphasisVector, rhs: EmphasisVector) -> EmphasisVector {
+        combine(lhs, rhs, -)
+    }
+
+    mutating func scale(by rhs: Double) {
+        values = values.map { $0 * rhs }
+    }
+
+    var magnitudeSquared: Double {
+        values.reduce(0) { $0 + $1 * $1 }
+    }
+
+    static func == (lhs: EmphasisVector, rhs: EmphasisVector) -> Bool {
+        (0..<max(lhs.values.count, rhs.values.count)).allSatisfy { lhs[$0] == rhs[$0] }
+    }
+
+    private static func combine(
+        _ lhs: EmphasisVector,
+        _ rhs: EmphasisVector,
+        _ operation: (Double, Double) -> Double
+    ) -> EmphasisVector {
+        EmphasisVector((0..<max(lhs.values.count, rhs.values.count)).map { operation(lhs[$0], rhs[$0]) })
+    }
 }
 
 private extension ChatOutline.Kind {
