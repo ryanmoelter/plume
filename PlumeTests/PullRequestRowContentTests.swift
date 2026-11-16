@@ -27,6 +27,16 @@ struct PullRequestRowContentTests {
 
     private let passing = [CheckContext(name: "build", status: "SUCCESS")]
 
+    @Test func aConflictLeadsTheRowAndTheInfoPaneGlyph() {
+        var conflicted = pull(isDraft: true, checks: passing)
+        conflicted.hasMergeConflict = true
+        #expect(PullRequestRowContent.leading(conflicted).label == "merge conflict")
+        #expect(PullRequestRowContent.leadingWithoutChecks(conflicted).label == "merge conflict")
+        var merged = pull(state: .merged)
+        merged.hasMergeConflict = true
+        #expect(PullRequestRowContent.leading(merged).label == "merged")
+    }
+
     @Test func aDraftLeadsWithItsDraftMarkThenChecksAndReview() {
         let draft = pull(isDraft: true, review: .approved, checks: passing)
         #expect(PullRequestRowContent.leading(draft).label == "draft")

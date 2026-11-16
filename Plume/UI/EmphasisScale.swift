@@ -97,6 +97,12 @@ enum ChatRole {
         ThemeChrome.warningAccent(for: colorScheme) ?? .orange
     }
 
+    /// A pull request that can't merge. Always orange, so it stays apart from
+    /// `warning`, which a theme's yellow can make look like pending checks.
+    static func conflict(for colorScheme: ColorScheme) -> Color {
+        .orange
+    }
+
     /// Destructive or failed.
     static func danger(for colorScheme: ColorScheme) -> Color {
         ThemeChrome.dangerAccent(for: colorScheme) ?? .red

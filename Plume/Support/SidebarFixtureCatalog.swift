@@ -54,6 +54,7 @@ nonisolated enum SidebarFixtureCatalog {
         state: PullRequestState = .open,
         isDraft: Bool = false,
         reviewDecision: ReviewDecision = .none,
+        hasMergeConflict: Bool = false,
         checks: [CheckContext] = []
     ) -> PullRequest {
         PullRequest(
@@ -64,7 +65,8 @@ nonisolated enum SidebarFixtureCatalog {
             title: "Fixture PR #\(number)",
             baseRefName: "main",
             reviewDecision: reviewDecision,
-            checkContexts: checks
+            checkContexts: checks,
+            hasMergeConflict: hasMergeConflict
         )
     }
 
@@ -83,6 +85,7 @@ nonisolated enum SidebarFixtureCatalog {
             state: PullRequestState = .open,
             isDraft: Bool = false,
             reviewDecision: ReviewDecision = .none,
+            hasMergeConflict: Bool = false,
             checks: [CheckContext] = []
         ) {
             let pr = pullRequest(
@@ -90,6 +93,7 @@ nonisolated enum SidebarFixtureCatalog {
                 state: state,
                 isDraft: isDraft,
                 reviewDecision: reviewDecision,
+                hasMergeConflict: hasMergeConflict,
                 checks: checks
             )
             nextPRNumber += 1
@@ -119,6 +123,7 @@ nonisolated enum SidebarFixtureCatalog {
         addPullRequest("no-checks")
         addPullRequest("approved", reviewDecision: .approved, checks: passingChecks)
         addPullRequest("changes-requested", reviewDecision: .changesRequested, checks: failingChecks)
+        addPullRequest("merge-conflict", hasMergeConflict: true, checks: failingChecks)
         addPullRequest("draft", isDraft: true)
         addPullRequest("merged", state: .merged)
         addPullRequest("closed", state: .closed)

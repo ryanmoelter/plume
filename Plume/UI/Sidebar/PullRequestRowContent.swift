@@ -10,6 +10,7 @@ nonisolated struct PullRequestSummary: Equatable, Sendable {
     let isDraft: Bool
     var reviewDecision: ReviewDecision = .none
     var hasReviewers = false
+    var hasMergeConflict = false
     var checkContexts: [CheckContext] = []
     /// Checks the repository ignores while pending.
     var ignoredChecks: Set<String> = []
@@ -26,6 +27,7 @@ nonisolated struct PullRequestSummary: Equatable, Sendable {
         isDraft: Bool,
         reviewDecision: ReviewDecision = .none,
         hasReviewers: Bool = false,
+        hasMergeConflict: Bool = false,
         checkContexts: [CheckContext] = [],
         ignoredChecks: Set<String> = []
     ) {
@@ -36,6 +38,7 @@ nonisolated struct PullRequestSummary: Equatable, Sendable {
         self.isDraft = isDraft
         self.reviewDecision = reviewDecision
         self.hasReviewers = hasReviewers
+        self.hasMergeConflict = hasMergeConflict
         self.checkContexts = checkContexts
         self.ignoredChecks = ignoredChecks
     }
@@ -49,6 +52,7 @@ nonisolated struct PullRequestSummary: Equatable, Sendable {
             isDraft: pullRequest.isDraft,
             reviewDecision: pullRequest.reviewDecision,
             hasReviewers: pullRequest.hasReviewers,
+            hasMergeConflict: pullRequest.hasMergeConflict,
             checkContexts: pullRequest.checkContexts,
             ignoredChecks: ignoredChecks
         )
@@ -71,7 +75,7 @@ nonisolated struct PullRequestSummary: Equatable, Sendable {
 /// What a pull request row draws: one status glyph before the title, the
 /// rest of its glyphs after it, and a dim detail line.
 nonisolated enum PullRequestRowContent {
-    /// Draft, else checks, else review, else plain open. A merged or closed
+    /// Conflict, else draft, else checks, else review, else plain open. A merged or closed
     /// pull request shows only its own glyph.
     static func leading(_ pull: PullRequestSummary) -> PullRequestGlyph {
         if let finished = PullRequestChipContent.finishedGlyph(pull.state) { return finished }
@@ -86,6 +90,7 @@ nonisolated enum PullRequestRowContent {
 
     private static func openGlyphs(_ pull: PullRequestSummary) -> [PullRequestGlyph] {
         [
+            pull.hasMergeConflict ? PullRequestChipContent.conflict : nil,
             pull.isDraft ? PullRequestChipContent.draft : nil,
             PullRequestChipContent.checkGlyph(pull.checkRollup),
             PullRequestChipContent.reviewGlyph(pull.reviewDecision, hasReviewers: pull.hasReviewers),
@@ -93,10 +98,11 @@ nonisolated enum PullRequestRowContent {
     }
 
     /// The info pane's status glyph: checks have their own row there, so it
-    /// takes draft, else review, else plain open. A draft reads dim there, as
-    /// inactive.
+    /// takes conflict, else draft, else review, else plain open. A draft reads
+    /// dim there, as inactive.
     static func leadingWithoutChecks(_ pull: PullRequestSummary) -> PullRequestGlyph {
         if let finished = PullRequestChipContent.finishedGlyph(pull.state) { return finished }
+        if pull.hasMergeConflict { return PullRequestChipContent.conflict }
         if pull.isDraft { return dimDraft }
         return PullRequestChipContent.reviewGlyph(pull.reviewDecision, hasReviewers: pull.hasReviewers)
             ?? PullRequestChipContent.open
