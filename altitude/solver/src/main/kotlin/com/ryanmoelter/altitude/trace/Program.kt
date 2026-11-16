@@ -31,6 +31,25 @@ private const val PROJECTED_IN = "|"
 private const val RETURN = "#<ret>"
 private const val ONE_OF = "one of "
 private const val ANY_FIELD = "*"
+const val CONTAINER = "[]"
+const val TRUNCATED = "…"
+
+/**
+ * Whether a value written at [write] is the one a read at [read] takes, both as [Program.writeAccess]
+ * writes them: `match` when one is a prefix of the other, `mismatch` when they name different
+ * fields, `unknown` when a container, an unnamed field or the depth limit decides it.
+ */
+fun accessCompat(write: List<String>, read: List<String>): String {
+  for (i in 0 until minOf(write.size, read.size)) {
+    val w = write[i]
+    val r = read[i]
+    if (w in OPAQUE || r in OPAQUE) return "unknown"
+    if (w != r) return "mismatch"
+  }
+  return "match"
+}
+
+private val OPAQUE = setOf(ANY_FIELD, CONTAINER, TRUNCATED)
 private val FRAME_PARTS = setOf("#<this>", "#<recv>", RETURN)
 private val CONTEXT_MARK = Regex("""~\d+""")
 
@@ -440,6 +459,40 @@ class Program(val facts: Facts, val derived: Derived) {
       }
       null
     }
+  }
+
+  /**
+   * The fields the path's value sits in where the path ends, outermost first: a cell write's place
+   * in the cell's contents. A container is `[]`, an unnamed field `*`, and `…` ends a path deeper
+   * than [depth].
+   */
+  fun writeAccess(hops: List<FlowFact>, depth: Int): List<String> {
+    val enclosing = ArrayList<String>()
+    for (hop in hops) {
+      when {
+        hop.kind == "partOf" -> enclosing += fieldOf(hop) ?: ANY_FIELD
+        hop.kind == HELD_BY -> enclosing += CONTAINER
+        hop.kind == "contentOf" && hop.to.endsWith(ELEMENT) -> if (enclosing.lastOrNull() == CONTAINER) enclosing.removeLast()
+        hop.kind == "memberOf" && enclosing.isNotEmpty() && enclosing.last() != CONTAINER -> enclosing.removeLast()
+      }
+    }
+    val outward = enclosing.asReversed()
+    return if (outward.size > depth) outward.take(depth) + TRUNCATED else outward.toList()
+  }
+
+  /** The projections a path takes from its start's value before building anything, as [writeAccess] writes them. */
+  fun readAccess(hops: List<FlowFact>, depth: Int): List<String> {
+    val read = ArrayList<String>()
+    var built = 0
+    for (hop in hops) {
+      when {
+        hop.kind == "partOf" || hop.kind == HELD_BY -> built++
+        hop.kind == "memberOf" -> if (built > 0) built-- else read += fieldOf(hop) ?: ANY_FIELD
+        hop.kind == "contentOf" && hop.to.endsWith(ELEMENT) -> if (built > 0) built-- else read += CONTAINER
+      }
+      if (read.size > depth) return read.take(depth) + TRUNCATED
+    }
+    return read
   }
 
   fun hopNotes(edge: FlowFact, projected: String?): List<String> = buildList {

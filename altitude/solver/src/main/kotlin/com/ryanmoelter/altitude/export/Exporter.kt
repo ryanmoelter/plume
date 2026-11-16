@@ -8,6 +8,7 @@ import com.ryanmoelter.altitude.solver.withoutContext
 import com.ryanmoelter.altitude.trace.BranchTree
 import com.ryanmoelter.altitude.trace.Program
 import com.ryanmoelter.altitude.trace.Site
+import com.ryanmoelter.altitude.trace.accessCompat
 import java.util.TreeMap
 import java.util.TreeSet
 
@@ -16,6 +17,12 @@ const val EVIDENCE_SITES = 3
 const val MEMBER_EVIDENCE_SITES = 2
 const val INFRA_FEATURES = 3
 const val LOOP_HOPS = 40
+
+/** How many fields deep a cell link's access paths go. */
+const val ACCESS_DEPTH = 3
+
+/** `compat` of a cell link writes one character per pair. */
+val COMPAT_CODES = mapOf("match" to "m", "mismatch" to "x", "unknown" to "u")
 
 /** Loop owner roles, deepest first; ties in the label go to the deeper level. */
 val LOOP_LEVELS = listOf("repository", "mediator", "host", "ui", "other")
@@ -755,8 +762,11 @@ class Exporter(
     val tables = BranchTables(fileIndex)
     val sinkTables = BranchTables(fileIndex)
     val writers = TreeMap<Int, MutableList<List<Int>>>()
+    val writeAccess = TreeMap<Int, MutableList<List<String>>>()
     val readers = TreeMap<Int, MutableList<List<Int>>>()
     val rooted = TreeMap<Int, MutableList<Int>>()
+    val chains = TreeMap<Int, MutableList<List<Int>>>()
+    val readAccess = TreeMap<Int, MutableList<List<String>>>()
     val sinkTrees = ArrayList<BranchSinkTreeOut>()
     val out =
       trees.mapIndexed { i, (root, tree) ->
@@ -764,16 +774,36 @@ class Exporter(
         counts.merge("trees.$key", 1, Int::plus)
         if (tree.truncated) counts.merge("truncated.$key", 1, Int::plus)
         for (t in tree.terminals) counts.merge("terminals.${t.path.key.kind}", 1, Int::plus)
-        if (root.kind == "cell" && root.ref != null) rooted.getOrPut(root.ref) { ArrayList() } += i
         val result = branchContext.out(root, tree, clean = false, tables, sinkTables, withHops = withHops)
-        for ((j, t) in result.main.terminals.withIndex()) {
-          if (t.kind == "cellWrite") writers.getOrPut(t.ref) { ArrayList() } += listOf(i, j)
-          if (t.kind == "cellRead") readers.getOrPut(t.ref) { ArrayList() } += listOf(i, j)
+        // The main file's terminals are the tree's non-sink terminals, in order.
+        val kept = tree.terminals.filter { it.path.key.kind != "sink" }
+        if (root.kind == "cell" && root.ref != null) {
+          rooted.getOrPut(root.ref) { ArrayList() } += i
+          for ((j, t) in kept.withIndex()) {
+            chains.getOrPut(root.ref) { ArrayList() } += listOf(i, j)
+            readAccess.getOrPut(root.ref) { ArrayList() } += program.readAccess(t.path.hops, ACCESS_DEPTH)
+          }
+        }
+        for ((j, t) in kept.withIndex()) {
+          val ref = t.path.key.ref
+          if (t.path.key.kind == "cellWrite") {
+            writers.getOrPut(ref) { ArrayList() } += listOf(i, j)
+            writeAccess.getOrPut(ref) { ArrayList() } += program.writeAccess(t.path.hops, ACCESS_DEPTH)
+          }
+          if (t.path.key.kind == "cellRead") readers.getOrPut(ref) { ArrayList() } += listOf(i, j)
         }
         result.sinks?.let { sinkTrees += it.copy(tree = i) }
         result.main
       }
-    val links = (writers.keys + readers.keys + rooted.keys).toSortedSet().map { c -> CellLinkOut(c, writers[c].orEmpty(), rooted[c].orEmpty(), readers[c].orEmpty()) }
+    val links =
+      (writers.keys + readers.keys + rooted.keys).toSortedSet().map { c ->
+        val wa = writeAccess[c].orEmpty()
+        val ra = readAccess[c].orEmpty()
+        val compat = wa.map { w -> ra.joinToString("") { r -> COMPAT_CODES.getValue(accessCompat(w, r)) } }
+        for (code in compat.joinToString("")) counts.merge("links.compat.${COMPAT_CODES.entries.first { it.value == code.toString() }.key}", 1, Int::plus)
+        val shared = cellFacts[c].sym?.let(program::isSharedByInstances) == true
+        CellLinkOut(c, writers[c].orEmpty(), rooted[c].orEmpty(), readers[c].orEmpty(), wa, chains[c].orEmpty(), ra, compat, if (shared) "any" else "same")
+      }
     counts["trees"] = out.size
     counts["sinkTerminalsSplit"] = sinkTrees.sumOf { it.terminals.size }
     if (!withHops) counts["hopDetailDropped"] = 1

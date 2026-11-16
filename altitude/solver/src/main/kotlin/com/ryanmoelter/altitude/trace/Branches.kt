@@ -13,10 +13,12 @@ enum class Direction(val label: String) {
 
 /**
  * A place a branch tree ends: `boundary`, `cellWrite`, `cellRead`, `ui`, `entry` or `sink`. [ref]
- * is an index whose list depends on [kind]; the classifier that made the key knows which.
+ * is an index whose list depends on [kind]; the classifier that made the key knows which. [at]
+ * splits one [ref] into several terminals, such as the values a composable reads.
  */
-data class TerminalKey(val kind: String, val ref: Int) : Comparable<TerminalKey> {
-  override fun compareTo(other: TerminalKey): Int = compareValuesBy(this, other, { TERMINAL_KINDS.indexOf(it.kind) }, { it.ref })
+data class TerminalKey(val kind: String, val ref: Int, val at: String? = null) : Comparable<TerminalKey> {
+  override fun compareTo(other: TerminalKey): Int =
+    compareValuesBy(this, other, { TERMINAL_KINDS.indexOf(it.kind) }, { it.ref }, { it.at ?: "" })
 }
 
 val TERMINAL_KINDS = listOf("boundary", "cellWrite", "cellRead", "ui", "entry", "sink")
@@ -37,10 +39,21 @@ class BranchOptions(
   val legSteps: Int = TraceOptions().searchBudget,
 )
 
-/** The best path between the root and one terminal, in data-flow order. */
-class BranchPath(val key: TerminalKey, val states: List<ValueState>, val hops: List<FlowFact>, val cost: PathCost, val equalCost: Long) {
+/**
+ * The best path between the root and one terminal, in data-flow order. A [detour] is the best path
+ * that passes no stop, found because the best path overall passes one; `trace` prints the other.
+ */
+class BranchPath(
+  val key: TerminalKey,
+  val states: List<ValueState>,
+  val hops: List<FlowFact>,
+  val cost: PathCost,
+  val equalCost: Long,
+  val detour: Boolean = false,
+  val fieldMismatch: Boolean = false,
+) {
   val clean: Boolean
-    get() = cost.anyInstanceReads == 0 && cost.stagedHops == 0
+    get() = cost.anyInstanceReads == 0 && cost.stagedHops == 0 && !fieldMismatch
 }
 
 class BranchSearchResult(val paths: List<BranchPath>, val truncated: Boolean)
@@ -73,21 +86,65 @@ class BranchSearch(private val program: Program) {
     val run = ValueSearch(program, options.forwardSteps).run(root, ValueGoal.Everything)
     val seen = root.mapNotNullTo(HashSet()) { terminals.classify(it) }
     val paths = ArrayList<BranchPath>()
+    val blocked = HashSet<TerminalKey>()
     for (state in run.settled) {
       if (state.location in root) continue
       val key = terminals.classify(state.location) ?: continue
-      if (!seen.add(key)) continue
-      val states = run.statesTo(state)
-      if (passesStop(states, root, key, terminals, options)) continue
-      paths += BranchPath(key, states, run.hopsTo(state), run.best.getValue(state), run.paths.getValue(state))
+      if (key in seen) continue
+      when (passes(run.statesTo(state), root, key, terminals, options)) {
+        Passes.NOTHING -> {}
+        Passes.SAME_REF -> continue
+        Passes.STOP -> {
+          blocked += key
+          continue
+        }
+      }
+      seen += key
+      paths += path(key, run, state, detour = false)
     }
-    return BranchSearchResult(paths.sortedBy { it.key }, run.exhausted)
+    blocked -= seen
+    var exhausted = run.exhausted
+    if (blocked.isNotEmpty()) {
+      val detour = ValueSearch(program, options.forwardSteps).run(root, ValueGoal.Everything, stop = { isStop(it, terminals, options) })
+      exhausted = exhausted || detour.exhausted
+      for (state in detour.settled) {
+        val key = terminals.classify(state.location)?.takeIf { it in blocked } ?: continue
+        blocked -= key
+        // Nearly every detour around a stop crosses an any-instance read: a guess, not a route.
+        path(key, detour, state, detour = true).takeIf { it.clean }?.let { paths += it }
+      }
+    }
+    return BranchSearchResult(paths.sortedBy { it.key }, exhausted)
+  }
+
+  private fun path(key: TerminalKey, run: ValueSearch.Run, end: ValueState, detour: Boolean): BranchPath {
+    val hops = run.hopsTo(end)
+    return BranchPath(key, run.statesTo(end), hops, run.best.getValue(end), run.paths.getValue(end), detour, program.fieldMismatches(hops).any { it != null })
+  }
+
+  private fun isStop(location: String, terminals: Terminals, options: BranchOptions): Boolean = terminals.classify(location)?.let { it.kind in options.stops } == true
+
+  private enum class Passes {
+    NOTHING,
+    /** Another terminal of the same kind and [TerminalKey.ref]: the path reaches [own] from inside that one, so it ends there instead. */
+    SAME_REF,
+    STOP,
+  }
+
+  private fun passes(states: List<ValueState>, start: Set<String>, own: TerminalKey, terminals: Terminals, options: BranchOptions): Passes {
+    var out = Passes.NOTHING
+    for (s in states.subList(1, states.size - 1)) {
+      if (s.location in start) continue
+      val key = terminals.classify(s.location) ?: continue
+      if (key == own || key.kind !in options.stops) continue
+      if (key.kind != own.kind || key.ref != own.ref) return Passes.STOP
+      out = Passes.SAME_REF
+    }
+    return out
   }
 
   private fun passesStop(states: List<ValueState>, start: Set<String>, own: TerminalKey, terminals: Terminals, options: BranchOptions): Boolean =
-    states.subList(1, states.size - 1).any { s ->
-      s.location !in start && terminals.classify(s.location)?.let { it != own && it.kind in options.stops } == true
-    }
+    passes(states, start, own, terminals, options) != Passes.NOTHING
 
   private fun backward(root: Set<String>, terminals: Terminals, options: BranchOptions): BranchSearchResult {
     val reaching = HashSet(root)
@@ -106,12 +163,17 @@ class BranchSearch(private val program: Program) {
     for ((key, locations) in starts) {
       if (locations.none { ValueState(it, emptyList()) in reached }) continue
       val allow: (ValueState) -> Boolean = if (truncated) { s -> s.location in reaching } else { s -> s in reached }
-      val run = ValueSearch(program, options.legSteps).run(locations, ValueGoal.Locations(root), allow = allow)
+      var run = ValueSearch(program, options.legSteps).run(locations, ValueGoal.Locations(root), allow = allow)
       if (run.exhausted) legTruncated = true
-      val end = run.end ?: continue
-      val states = run.statesTo(end)
-      if (passesStop(states, locations, key, terminals, options)) continue
-      paths += BranchPath(key, states, run.hopsTo(end), run.best.getValue(end), run.paths.getValue(end))
+      var end = run.end ?: continue
+      var detour = false
+      if (passesStop(run.statesTo(end), locations, key, terminals, options)) {
+        run = ValueSearch(program, options.legSteps).run(locations, ValueGoal.Locations(root), stop = { isStop(it, terminals, options) }, allow = allow)
+        if (run.exhausted) legTruncated = true
+        end = run.end ?: continue
+        detour = true
+      }
+      path(key, run, end, detour).takeIf { !detour || it.clean }?.let { paths += it }
     }
     return BranchSearchResult(paths, truncated || legTruncated)
   }

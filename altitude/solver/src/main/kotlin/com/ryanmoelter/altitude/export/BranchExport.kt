@@ -111,6 +111,14 @@ class BranchContext(
     for ((i, b) in rules.boundaries.withIndex()) callsById[b.call]?.result?.let { putIfAbsent(it, i) }
   }
   private val entries = HashMap<String, Int>().apply { for ((i, e) in rules.entrypoints.withIndex()) putIfAbsent(e.sym, i) }
+  /**
+   * The variable or property a location holds or reads, so every read of one is one `ui` terminal.
+   * Other locations, such as temporaries, share the member's terminal, which keeps one composable
+   * from turning into a terminal per expression.
+   */
+  private val readOf: Map<String, String> =
+    facts.nodes.filter { it.kind in UI_READ_REFERENCES && it.target != null }.associate { it.id to it.target!! } +
+      facts.decls.filter { it.kind == "param" || it.kind == "local" }.associate { it.sym to it.sym }
   private val libraryInputs: Set<String> = facts.calls.filter { !it.targetInSource }.flatMapTo(HashSet()) { inputsOf(it.id) }
 
   private val libraryCallsByInput: Map<String, List<String>> =
@@ -145,7 +153,7 @@ class BranchContext(
     boundaryInputs[id]?.let { return TerminalKey("boundary", it) }
     cellOf(id)?.let { return TerminalKey("cellWrite", it) }
     val member = members.ofLocation(id)
-    if (member != null && member in composable && member !in rootMembers) memberIndex[member]?.let { return TerminalKey("ui", it) }
+    if (member != null && member in composable && member !in rootMembers) memberIndex[member]?.let { return TerminalKey("ui", it, readOf[id]) }
     if (id in libraryInputs && program.valueEdges[location].isNullOrEmpty()) member?.let(memberIndex::get)?.let { return TerminalKey("sink", it) }
     return null
   }
@@ -206,12 +214,17 @@ class BranchContext(
    */
   fun out(root: BranchRoot, tree: BranchTree, clean: Boolean, tables: BranchTables, sinkTables: BranchTables? = null, withHops: Boolean = true): TreeOut {
     val records = arrayOfNulls<TraceHopOut>(tree.nodes.size)
+    val segmentOfNode = IntArray(tree.nodes.size) { -1 }
+    for ((i, s) in tree.segments.withIndex()) for (n in s.hops) segmentOfNode[n] = i
+    // In a backward tree terminals share the hops near the root but not what was built before them.
+    val mismatchSegments = HashMap<BranchTree.Terminal, java.util.TreeSet<Int>>()
     for (terminal in tree.terminals) {
       val path = terminal.path
       val hops = runner.valueHops(path.hops, path.states.dropLast(1).map { it.projected }, refs)
       for ((i, node) in tree.hopNodes(terminal).withIndex()) {
         val known = records[node]
         records[node] = if (known == null) hops[i] else if (hops[i].fieldMismatch && !known.fieldMismatch) known.copy(fieldMismatch = true) else known
+        if (hops[i].fieldMismatch) mismatchSegments.getOrPut(terminal) { sortedSetOf() } += segmentOfNode[node]
       }
     }
     val drafts =
@@ -268,7 +281,19 @@ class BranchContext(
       }
     val terminals =
       tree.terminals.sortedBy { if (isSink(it)) 1 else 0 }.map { t ->
-        isSink(t) to BranchTerminalOut(pointAt[t.point], t.path.key.kind, t.path.key.ref, t.path.cost.out(), minOf(t.path.equalCost, PATH_COUNT_CAP), t.path.clean, t.segments.map { segmentAt[it] })
+        isSink(t) to
+          BranchTerminalOut(
+            pointAt[t.point],
+            t.path.key.kind,
+            t.path.key.ref,
+            t.path.cost.out(),
+            minOf(t.path.equalCost, PATH_COUNT_CAP),
+            t.path.clean,
+            t.segments.map { segmentAt[it] },
+            mismatchSegments[t].orEmpty().map { segmentAt[it] }.sorted(),
+            t.path.detour,
+            t.path.key.at?.let { tablesFor(!isSink(t)).loc(it) },
+          )
       }
     val siblings =
       tree.siblings.map { s ->
@@ -300,7 +325,7 @@ class BranchContext(
       "boundary" -> boundaryLabel(key.ref)
       "cellWrite", "cellRead" -> program.cellName(cellFacts[key.ref])
       "entry" -> rules.entrypoints[key.ref].let { "${it.kind} ${program.display(it.sym)}" }
-      else -> program.display(memberIds[key.ref])
+      else -> program.display(memberIds[key.ref]) + key.at?.let { " reads ${program.display(it)}" }.orEmpty()
     }
 
   private fun boundaryLabel(i: Int): String {
@@ -317,7 +342,8 @@ class BranchContext(
     if (tree.truncated) appendLine("A search stopped at its cap, so terminals may be missing.")
     appendLine(
       "Each terminal's path is the one `trace --value` prints between the root and that terminal. " +
-        "A path that passes a stop is left out. Hops print in data-flow order under the point nearer the root."
+        "Where that path passes a stop, the terminal takes the best path that passes none if it is clean, marked detour. " +
+        "Hops print in data-flow order under the point nearer the root."
     )
     appendLine()
     appendLine("Terminals:")
@@ -325,7 +351,7 @@ class BranchContext(
     for ((i, t) in tree.terminals.withIndex()) {
       terminalOfPoint[t.point] = i
       val count = if (t.path.equalCost >= PATH_COUNT_CAP) "at least $PATH_COUNT_CAP" else "${t.path.equalCost}"
-      appendLine("  T${i + 1}  ${t.path.key.kind}  ${label(t.path.key, memberIds)}  ${if (t.path.clean) "clean" else "approximate"}; ${t.path.cost.describe()}; $count paths")
+      appendLine("  T${i + 1}  ${t.path.key.kind}  ${label(t.path.key, memberIds)}  ${if (t.path.clean) "clean" else "approximate"}${if (t.path.detour) ", detour" else ""}; ${t.path.cost.describe()}; $count paths")
     }
     appendLine()
     appendLine("Tree:")
@@ -355,6 +381,7 @@ class BranchContext(
   companion object {
     private val VALUE_OPTIONS = setOf("--from", "--to", "--via")
     private const val LIBRARY_CHAIN_STEPS = 50
+    private val UI_READ_REFERENCES = setOf("localRef", "paramRef", "thisRef", "propRef")
   }
 }
 

@@ -11,6 +11,8 @@
 
 Every number in them derives from the facts and the rule relations, never from a class or package name.
 
+Every file carries `meta.exportId`, the first 16 hex digits of a SHA-256 over the facts files' bytes, the exporter version and the options (target, `--split`, the golden queries). A page that loads several files checks the ids agree, so it never mixes files from two runs.
+
 The files are deterministic. Keys of maps are sorted, lists are sorted by id, and no absolute path appears. Two runs over the same commit give the same bytes, also from two checkouts at different paths. A field at its default value is left out: an empty list, `false`, `0` or `null`.
 
 If the encoded `altitude.json` would exceed 4,000,000 characters, or with `--split`, the export splits it in two:
@@ -341,6 +343,18 @@ The sinks file, `altitude-branch-sinks.json`, holds the `sink` terminals and eve
 
 `links` serves a page that stitches trees at cells: a value read from a cell comes from whatever wrote it. Each row has `cell` (an index into `cells`), `w` (the `[tree, terminal]` pairs whose `cellWrite` terminal writes it), `rd` (the pairs whose `cellRead` terminal reads it) and `r` (the trees rooted at it).
 
+A row also says whether a write and a read take the same part of the cell's contents. An access path lists fields, outermost first and at most 3 deep. `[]` is a container, `*` a field the facts cannot name, and `…` ends a deeper path. An empty path is the whole contents.
+
+| Key | Holds |
+|---|---|
+| `wa` | For each of `w`, where the writer's value sits in the contents: the constructor fields its path built it into and still holds it inside. |
+| `rc` | The `[tree, terminal]` pairs of the trees in `r`, except sinks: each chain the contents take. |
+| `ra` | For each of `rc`, the properties the chain reads from the contents before it builds anything. |
+| `compat` | For each of `w`, one character per `rc`: `m` when one access path is a prefix of the other, `x` when they name different fields, `u` when a container, an unnamed field or the depth limit decides it. |
+| `instance` | `any` when the cell is a class property, so the facts cannot tell whether the write and the read are on one instance; absent for `same`. |
+
+`counts` has `links.compat.<match|mismatch|unknown>` over every pair.
+
 The export precomputes these roots:
 
 | `root.kind` | `root.dir` | Root |
@@ -354,17 +368,17 @@ The `branches` command's root has kind `value`.
 
 ### Terminals
 
-A forward tree ends at a `boundary` (an argument or receiver of a boundary call; `ref` indexes `boundaries`), a `cellWrite` (a cell's contents; `ref` indexes `cells`), `ui` (a location in a composable member other than the root's; `ref` indexes the members file's `members`) or a `sink` (a location with no outgoing edge that is an argument or receiver of a library call; `ref` is its member). A backward tree ends at a `boundary` (a boundary call's result), a `cellRead` (a cell's contents) or an `entry` (a parameter of an entry point; `ref` indexes `entrypoints`). One terminal stands for every location with the same kind and `ref`, and the tree keeps the path to the first of them the search settles.
+A forward tree ends at a `boundary` (an argument or receiver of a boundary call; `ref` indexes `boundaries`), a `cellWrite` (a cell's contents; `ref` indexes `cells`), `ui` (a value a composable member other than the root's reads; `ref` indexes the members file's `members`, and `at` indexes `locs` with the variable or property read; the member's other locations, such as temporaries, share one terminal with no `at`) or a `sink` (a location with no outgoing edge that is an argument or receiver of a library call; `ref` is its member). A backward tree ends at a `boundary` (a boundary call's result), a `cellRead` (a cell's contents) or an `entry` (a parameter of an entry point; `ref` indexes `entrypoints`). One terminal stands for every location with the same kind, `ref` and `at`, and the tree keeps the path to the first of them the search settles whose path passes no stop.
 
-`options.stops` lists the terminal kinds a path may not pass through: `boundary`, `cellWrite` and `ui` forward, and `boundary`, `cellRead` and `entry` backward. `--through-cells` drops the cell kinds. A terminal whose best path passes a stop is left out. The search does not stop there, because stopping would change which of two equal-cost paths it reaches first, and the tree's path to a terminal would no longer be the one `trace` prints. `options.matched` is always true: a path leaves a function through the call it entered by.
+`options.stops` lists the terminal kinds a path may not pass through: `boundary`, `cellWrite` and `ui` forward, and `boundary`, `cellRead` and `entry` backward. `--through-cells` drops the cell kinds. The search does not stop there, because stopping would change which of two equal-cost paths it reaches first, and the tree's path to a terminal would no longer be the one `trace` prints. A terminal whose every settled path passes a stop gets a second search that does not continue past a stop, and takes that search's best path, marked `detour`, when it is clean. Nearly every detour crosses an any-instance read, which is a guess rather than a route, so the tree leaves those out. `trace` prints another path to a detour terminal. A `ui` terminal whose path passes another `ui` terminal of the same member is left out: the value entered the composable there. `options.matched` is always true: a path leaves a function through the call it entered by.
 
-A terminal has its `point`, `kind`, `ref`, the path `cost`, `equalCostPaths` (capped at 1,000,000), `clean` and `segments`: the segments from the root's end to the terminal's, in data-flow order. Concatenating their `hops` gives the trace path. A terminal is `clean` when its path has no any-instance or any-container read and no hop outside production code. The tree keeps approximate terminals and marks them.
+A terminal has its `point`, `kind`, `ref`, the path `cost`, `equalCostPaths` (capped at 1,000,000), `clean` and `segments`: the segments from the root's end to the terminal's, in data-flow order. Concatenating their `hops` gives the trace path. A terminal is `clean` when its path has no any-instance or any-container read, no field mismatch and no hop outside production code. The path cost does not count field mismatches, so a mismatched path can still be the best one. `mismatch` lists the segments where the terminal's own path mismatches. The tree keeps approximate terminals and marks them.
 
 ### Points and segments
 
 A point is a place the tree's shape changes. Its `kind` is the first that applies of: the `root`, a `terminal`, a `branch` (paths part), a `merge` (a location the tree reaches under two contexts; the first such node on a path is the merge), a `join` (the object a `partOf` builds) and a `split` (the object a `memberOf` reads from). Each has `loc`, `member` and `node`.
 
-A segment runs between two points, `a` upstream and `b` downstream, whatever the tree's direction. It has `hops`, `hopCount`, the `members` it passes in order, its `cost`, and `approx`: `anyInstance`, `anyContainer`, `fieldMismatch` and `staged` when one of its hops is one. In a backward tree, a hop that two paths share has `fieldMismatch` when either path mismatches there, and its `wrapDepth` counts from the start of the first terminal path through it.
+A segment runs between two points, `a` upstream and `b` downstream, whatever the tree's direction. It has `hops`, `hopCount`, the `members` it passes in order, its `cost`, and `approx`: `anyInstance`, `anyContainer`, `fieldMismatch` and `staged` when one of its hops is one. In a backward tree, a hop that two paths share has `fieldMismatch` when either path mismatches there, because whether a read mismatches depends on what the path built before it. A terminal's `mismatch` says which paths do. The hop's `wrapDepth` counts from the start of the first terminal path through it.
 
 `siblings` names, at a join, the other values built into the object (`name` is the parameter), and at a split, the other properties read from it (`name` is the property). A sibling has no `terminalCount`: that would take a tree per sibling.
 

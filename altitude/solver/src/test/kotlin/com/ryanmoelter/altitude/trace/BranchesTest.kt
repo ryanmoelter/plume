@@ -10,6 +10,7 @@ import com.ryanmoelter.altitude.facts.FlowFact
 import com.ryanmoelter.altitude.facts.NodeFact
 import kotlin.test.Test
 import kotlin.test.assertEquals
+import kotlin.test.assertFalse
 import kotlin.test.assertTrue
 
 private const val FILE = "src/App.kt"
@@ -104,9 +105,95 @@ class BranchesTest {
 
   private val boxTerminals = Terminals { mapOf(gotA.id to TerminalKey("ui", 1), gotB.id to TerminalKey("ui", 2), sibling.id to TerminalKey("entry", 3))[it] }
 
-  private fun tree(program: Program, direction: Direction, root: Set<String>, terminals: Terminals): BranchTree {
-    val result = BranchSearch(program).search(direction, root, terminals, BranchOptions(emptySet()))
-    return BranchTree(direction, root, emptySet(), result.truncated, result.paths, program)
+  private fun tree(program: Program, direction: Direction, root: Set<String>, terminals: Terminals, stops: Set<String> = emptySet()): BranchTree {
+    val result = BranchSearch(program).search(direction, root, terminals, BranchOptions(stops))
+    return BranchTree(direction, root, stops, result.truncated, result.paths, program)
+  }
+
+  private val start = node(1, "localRef")
+  private val stop = node(2, "localRef")
+  private val detour = (3..5).map { node(it, "localRef") }
+  private val goal = node(6, "localRef")
+
+  /** `start → stop → goal` is the cheapest path to `goal`, and `stop` is a stop; three hops more avoid it. */
+  private val stopProgram =
+    Program(
+      Facts(
+        files = listOf(FileFact(FILE, ":", generated = false)),
+        decls = listOf(main),
+        nodes = listOf(start, stop, goal) + detour,
+        flows = listOf(flow(start.id, stop.id), flow(stop.id, goal.id)) + (listOf(start) + detour + goal).zipWithNext { a, b -> flow(a.id, b.id) },
+      ),
+      Derived(),
+    )
+
+  private val stopTerminals = Terminals { mapOf(stop.id to TerminalKey("cellWrite", 0), goal.id to TerminalKey("ui", 1))[it] }
+
+  private val cellSlot = "${box.result}#<elem>"
+  private val readCell = node(14, "callResult")
+
+  /** The Box built with `a` is written into a cell, read back out of it, and its `b` read. */
+  private val cellProgram =
+    Program(
+      Facts(
+        files = listOf(FileFact(FILE, ":", generated = false)),
+        decls = listOf(main, propA, propB),
+        nodes = listOf(built, readB, gotB, readCell, NodeFact(box.result!!, "callResult", main.sym, target = box.id)),
+        calls = listOf(box),
+        args = listOf(ArgFact(box.id, "ctor:app/Box()#a", 0, built.id, "positional")),
+        flows =
+          listOf(
+            flow(built.id, box.result, "partOf", box.id),
+            flow(box.result, cellSlot),
+            flow(cellSlot, readCell.id),
+            flow(readCell.id, readB.id, "memberOf", readB.id),
+            flow(readB.id, gotB.id),
+          ),
+      ),
+      Derived(cells = listOf(com.ryanmoelter.altitude.facts.CellFact(box.result, mechanism = "MutableStateFlow"))),
+    )
+
+  private val cellTerminals = Terminals { mapOf(cellSlot to TerminalKey("cellWrite", 0), gotB.id to TerminalKey("ui", 2))[it] }
+
+  @Test
+  fun aTerminalWhoseBestPathPassesAStopTakesTheBestPathThatPassesNone() {
+    val tree = tree(stopProgram, Direction.FORWARD, setOf(start.id), stopTerminals, stops = setOf("cellWrite"))
+    val toGoal = tree.terminals.single { it.path.key.kind == "ui" }.path
+    assertTrue(toGoal.detour)
+    assertEquals(listOf(start.id) + detour.map { it.id }, toGoal.hops.map { it.from })
+    assertFalse(tree.terminals.single { it.path.key.kind == "cellWrite" }.path.detour)
+    val unstopped = tree(stopProgram, Direction.FORWARD, setOf(start.id), stopTerminals).terminals.single { it.path.key.kind == "ui" }.path
+    assertEquals(listOf(start.id, stop.id), unstopped.hops.map { it.from })
+    assertFalse(unstopped.detour)
+  }
+
+  @Test
+  fun aPathThatReadsAnotherFieldThanItBuiltIsNotClean() {
+    val tree = tree(boxProgram, Direction.FORWARD, setOf(built.id), boxTerminals)
+    val byRef = tree.terminals.associate { it.path.key.ref to it.path }
+    assertTrue(byRef.getValue(2).fieldMismatch)
+    assertFalse(byRef.getValue(2).clean)
+    assertTrue(byRef.getValue(1).clean)
+  }
+
+  @Test
+  fun aWriteOfOneFieldAndAReadOfAnotherThroughACellMismatch() {
+    val through = tree(cellProgram, Direction.FORWARD, setOf(built.id), cellTerminals).terminals.associate { it.path.key.kind to it.path }
+    assertTrue(through.getValue("ui").fieldMismatch)
+    assertFalse(through.getValue("ui").clean)
+    val write = cellProgram.writeAccess(through.getValue("cellWrite").hops, 3)
+    val read = cellProgram.readAccess(tree(cellProgram, Direction.FORWARD, setOf(cellSlot), cellTerminals).terminals.single().path.hops, 3)
+    assertEquals(listOf("a"), write)
+    assertEquals(listOf("b"), read)
+    assertEquals("mismatch", accessCompat(write, read))
+  }
+
+  @Test
+  fun accessPathsMatchWhenOneIsAPrefixOfTheOther() {
+    assertEquals("match", accessCompat(emptyList(), listOf("b")))
+    assertEquals("match", accessCompat(listOf("a", "c"), listOf("a")))
+    assertEquals("unknown", accessCompat(listOf("[]"), listOf("a")))
+    assertEquals("unknown", accessCompat(listOf("a", "b", "c", "…"), listOf("a", "b", "c", "d")))
   }
 
   private fun BranchTree.pointAt(location: String): BranchTree.Point =

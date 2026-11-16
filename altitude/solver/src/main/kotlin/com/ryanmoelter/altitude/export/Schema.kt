@@ -528,6 +528,16 @@ data class CellLinkOut(
   val r: List<Int> = emptyList(),
   /** `[tree, terminal]` pairs whose terminal reads the cell. */
   val rd: List<List<Int>> = emptyList(),
+  /** For each of [w], where in the cell's contents it writes, outermost field first. */
+  val wa: List<List<String>> = emptyList(),
+  /** `[tree, terminal]` pairs of the trees in [r]: each a chain the cell's contents take. */
+  val rc: List<List<Int>> = emptyList(),
+  /** For each of [rc], the fields it reads from the cell's contents, outermost first. */
+  val ra: List<List<String>> = emptyList(),
+  /** For each of [w], one character per [rc]: `m` match, `x` mismatch, `u` unknown. */
+  val compat: List<String> = emptyList(),
+  /** `any` when the cell is a class property, so a write and a read may be on different instances. */
+  val instance: String = "same",
 )
 
 /** `altitude-variables.json`. Short keys: one row per variable, lambda and variable edge. */
@@ -657,10 +667,16 @@ data class BranchTerminalOut(
   val ref: Int,
   val cost: CostOut,
   val equalCostPaths: Long,
-  /** No any-instance or any-container read and no hop outside production code. */
+  /** No any-instance or any-container read, no field mismatch and no hop outside production code. */
   val clean: Boolean,
   /** Indices into `segments` from the root's end to the terminal's, in data-flow order. */
   val segments: List<Int>,
+  /** The segments where this terminal's own path reads another field than it built. */
+  val mismatch: List<Int> = emptyList(),
+  /** The best path passes a stop, so this is the best path that passes none. */
+  val detour: Boolean = false,
+  /** For `ui`, index into `locs` of the variable or property the composable reads. */
+  val at: Int? = null,
 )
 
 @Serializable
