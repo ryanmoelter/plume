@@ -201,7 +201,7 @@ nonisolated struct SubagentTranscriptCache: Sendable {
 
     /// The bytes after `offset`, or nil when the bytes before it no longer
     /// match `seam` — the file was rewritten rather than appended to.
-    private static func bytes(atPath path: String, after offset: UInt64, seam: Data) -> Data? {
+    static func bytes(atPath path: String, after offset: UInt64, seam: Data) -> Data? {
         guard let handle = FileHandle(forReadingAtPath: path) else { return nil }
         defer { try? handle.close() }
         let seamStart = offset - UInt64(seam.count)

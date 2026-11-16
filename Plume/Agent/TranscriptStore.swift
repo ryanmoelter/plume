@@ -30,12 +30,13 @@ struct SubagentTranscript: Identifiable, Equatable {
 /// Watches agent transcripts and republishes their parsed content live.
 ///
 /// One watcher per agent tab, mirroring `AgentTitleMonitor`. A change to the
-/// main transcript re-reads and re-parses the whole file rather than tracking
-/// offsets, which costs tens of milliseconds on a multi-megabyte transcript —
-/// so the read runs off the main actor and only the result is published on
-/// it. Subagent files are parsed incrementally (`SubagentTranscriptCache`):
-/// a session can have hundreds, and re-parsing every one on each write
-/// would hold a core busy for as long as they run.
+/// main transcript that only appended to it decodes just the appended lines
+/// (`TranscriptFold`); anything else, such as a rewrite or a replaced file,
+/// re-reads the whole file, which takes seconds on a transcript of tens of
+/// megabytes. Either way the read runs off the main actor and only the
+/// result is published on it. Subagent files are parsed incrementally too
+/// (`SubagentTranscriptCache`): a session can have hundreds, and re-parsing
+/// every one on each write would hold a core busy for as long as they run.
 @MainActor
 @Observable
 final class TranscriptStore {
@@ -88,6 +89,9 @@ final class TranscriptStore {
     /// Reports how each settled read reached its subagent transcripts, and
     /// whether it reused the parent's parse.
     var didParseSubagents: ((UUID, SubagentTranscriptCache.Stats, _ reusedParent: Bool) -> Void)?
+
+    /// Reports how each settled read reached the main transcript's parse.
+    var didReadParent: ((UUID, ParentReadPath) -> Void)?
     #endif
 
     // This drives visible chat content rather than a sidebar label, so it
@@ -102,7 +106,8 @@ final class TranscriptStore {
     /// Per tab, so a read re-parses only the subagent files that changed.
     private var subagentCaches: [UUID: SubagentTranscriptCache] = [:]
     /// Per tab: the last parse of the main transcript, reused while the file
-    /// is unchanged so a subagent's write never re-parses the parent.
+    /// is unchanged so a subagent's write never re-parses the parent, and
+    /// continued from where it stopped when the file only grew.
     private var parentParses: [UUID: ParentParse] = [:]
     private let completionTracker: SubagentCompletionTracker
     private let statusOverrides: SubagentStatusOverrides
@@ -411,15 +416,52 @@ final class TranscriptStore {
         return (subagents, evidence, subagents.count == paths.count)
     }
 
+    nonisolated enum ParentReadPath: Sendable, Equatable {
+        /// The file was unchanged, so the last parse stood.
+        case reused
+        /// Only the bytes after the last parse's end were read.
+        case appended
+        case full
+    }
+
+    /// The main transcript's new bytes, and the parse they continue.
+    private nonisolated enum ParentBytes {
+        case appended(Data, to: TranscriptFold)
+        case whole(Data)
+
+        var count: Int {
+            switch self {
+            case .appended(let data, _), .whole(let data): data.count
+            }
+        }
+
+        /// Only the bytes past the last parse when the file is the same one,
+        /// no shorter, and unchanged up to where that parse stopped.
+        static func load(path: String, fingerprint: FileFingerprint?, previous: ParentParse?) -> ParentBytes? {
+            if let previous, let fingerprint,
+               previous.fingerprint?.fileNumber == fingerprint.fileNumber,
+               fingerprint.size >= previous.fold.consumed,
+               let appended = SubagentTranscriptCache.bytes(
+                   atPath: path, after: previous.fold.consumed, seam: previous.fold.seam
+               ) {
+                return .appended(appended, to: previous.fold)
+            }
+            return FileManager.default.contents(atPath: path).map(ParentBytes.whole)
+        }
+    }
+
     /// Everything a read derives from the main transcript's bytes alone.
     private nonisolated struct ParentParse: Sendable {
         let fingerprint: FileFingerprint?
+        /// Holds no decoded lines, only what each scan accumulated.
+        let fold: TranscriptFold
         let transcript: Transcript
         let backgroundTasks: [BackgroundTaskTracker.Entry]
         let transcriptEvidence: [LinearEvidence]
         let references: ConversationReferences
         let referenceCache: ConversationReferenceScanner.Cache
         let spawnResults: SubagentSpawnResults
+        let path: ParentReadPath
         /// Scanning the parent for spawn calls costs another full pass, so it
         /// runs only once a subagent turns up with no sidecar.
         private var scannedDescriptors: [String: SubagentDescriptor]?
@@ -427,20 +469,39 @@ final class TranscriptStore {
 
         let timings: ReadTimings
 
-        init(data: Data, fingerprint: FileFingerprint?, referenceCache: ConversationReferenceScanner.Cache) {
+        init(bytes: ParentBytes, fingerprint: FileFingerprint?, referenceCache: ConversationReferenceScanner.Cache) {
             var timings = ReadTimings()
-            let transcript = timings.time(\.parse) { TranscriptParser.parse(data) }
+            var fold: TranscriptFold
+            let newBytes: Data
+            switch bytes {
+            case .appended(let appended, let previous):
+                fold = previous
+                newBytes = appended
+                path = .appended
+                data = nil
+            case .whole(let whole):
+                fold = TranscriptFold()
+                newBytes = whole
+                path = .full
+                data = whole
+            }
+            let snapshot = fold.append(newBytes)
+            timings.decode = snapshot.timings.decode
+            timings.parse = snapshot.timings.parse
+            timings.backgroundTasks = snapshot.timings.backgroundTasks
+            timings.spawnResults = snapshot.timings.spawnResults
+            let transcript = snapshot.transcript
             var referenceCache = referenceCache
             self.fingerprint = fingerprint
+            self.fold = fold
             self.transcript = transcript
-            backgroundTasks = timings.time(\.backgroundTasks) { BackgroundTaskScanner.inFlight(parentData: data) }
+            backgroundTasks = snapshot.backgroundTasks
             transcriptEvidence = timings.time(\.linear) { LinearActivityScanner.scan(transcript.messages, subagent: nil) }
             references = timings.time(\.references) {
                 ConversationReferenceScanner.scan(transcript.messages, cache: &referenceCache)
             }
             self.referenceCache = referenceCache
-            spawnResults = timings.time(\.spawnResults) { SubagentSpawnResults(parentData: data) }
-            self.data = data
+            spawnResults = snapshot.spawnResults
             self.timings = timings
         }
 
@@ -464,6 +525,7 @@ final class TranscriptStore {
     #if DEBUG
     private nonisolated struct ReadTimings: Sendable {
         var load = 0.0
+        var decode = 0.0
         var parse = 0.0
         var backgroundTasks = 0.0
         var linear = 0.0
@@ -477,16 +539,18 @@ final class TranscriptStore {
             return body()
         }
 
-        func logLine(totalMs: Double, bytes: Int, reusedParent: Bool) -> String {
+        func logLine(totalMs: Double, bytes: UInt64, bytesRead: Int, path: ParentReadPath) -> String {
             let ms = { (value: Double) in "\(Int(value.rounded()))ms" }
-            return "transcript-read load=\(ms(load)) parse=\(ms(parse)) bgTasks=\(ms(backgroundTasks)) "
-                + "linear=\(ms(linear)) references=\(ms(references)) spawnResults=\(ms(spawnResults)) "
-                + "subagents=\(ms(subagents)) total=\(ms(totalMs)) bytes=\(bytes) reusedParent=\(reusedParent)"
+            return "transcript-read load=\(ms(load)) decode=\(ms(decode)) parse=\(ms(parse)) "
+                + "bgTasks=\(ms(backgroundTasks)) linear=\(ms(linear)) references=\(ms(references)) "
+                + "spawnResults=\(ms(spawnResults)) subagents=\(ms(subagents)) total=\(ms(totalMs)) "
+                + "bytes=\(bytes) bytesRead=\(bytesRead) tail=\(path == .appended) reusedParent=\(path == .reused)"
         }
     }
     #else
     private nonisolated struct ReadTimings: Sendable {
         mutating func time<T>(_ slot: WritableKeyPath<Self, Double>, _ body: () -> T) -> T { body() }
+        var decode = 0.0
         var parse = 0.0
         var backgroundTasks = 0.0
         var linear = 0.0
@@ -503,7 +567,8 @@ final class TranscriptStore {
         let subagentsIntact: Bool
         let subagentEvidence: [LinearEvidence]
         let subagentCache: SubagentTranscriptCache
-        let reusedParent: Bool
+        let parentPath: ParentReadPath
+        var reusedParent: Bool { parentPath == .reused }
     }
 
     private nonisolated static func sessionID(forPath path: String) -> String {
@@ -560,16 +625,21 @@ final class TranscriptStore {
                 fingerprint != nil && previous.fingerprint == fingerprint ? previous : nil
             }
             #if DEBUG
-            let data = reusable == nil ? timings.time(\.load) { FileManager.default.contents(atPath: path) } : nil
+            let bytes = reusable == nil ? timings.time(\.load) {
+                ParentBytes.load(path: path, fingerprint: fingerprint, previous: previousParent)
+            } : nil
             #else
-            let data = reusable == nil ? FileManager.default.contents(atPath: path) : nil
+            let bytes = reusable == nil
+                ? ParentBytes.load(path: path, fingerprint: fingerprint, previous: previousParent)
+                : nil
             #endif
             #if DEBUG
             await afterLoading?(path)
             #endif
-            let parentParse = reusable ?? data.map {
-                ParentParse(data: $0, fingerprint: fingerprint, referenceCache: referenceCache)
+            let parentParse = reusable ?? bytes.map {
+                ParentParse(bytes: $0, fingerprint: fingerprint, referenceCache: referenceCache)
             }
+            let parentPath = reusable != nil ? ParentReadPath.reused : parentParse?.path ?? .full
             let parsed = parentParse.map { parentParse in
                 var parent = parentParse
                 var subagentCache = subagentCache
@@ -578,13 +648,20 @@ final class TranscriptStore {
                     Self.readSubagents(transcriptPath: path, parent: &parent, cache: &subagentCache)
                 }
                 if reusable == nil {
+                    timings.decode = parent.timings.decode
                     timings.parse = parent.timings.parse
                     timings.backgroundTasks = parent.timings.backgroundTasks
                     timings.linear = parent.timings.linear
                     timings.references = parent.timings.references
                     timings.spawnResults = parent.timings.spawnResults
                 }
-                Log.app.info("\(timings.logLine(totalMs: (CACurrentMediaTime() - readBegan) * 1000, bytes: data?.count ?? 0, reusedParent: reusable != nil), privacy: .public)")
+                let logLine = timings.logLine(
+                    totalMs: (CACurrentMediaTime() - readBegan) * 1000,
+                    bytes: fingerprint?.size ?? 0,
+                    bytesRead: bytes?.count ?? 0,
+                    path: parentPath
+                )
+                Log.app.info("\(logLine, privacy: .public)")
                 #else
                 let (subagents, evidence, intact) = Self.readSubagents(
                     transcriptPath: path,
@@ -598,7 +675,7 @@ final class TranscriptStore {
                     subagentsIntact: intact,
                     subagentEvidence: evidence,
                     subagentCache: subagentCache,
-                    reusedParent: reusable != nil
+                    parentPath: parentPath
                 )
             }
             // A missing or empty file is the sign of a move, so look for the
@@ -632,6 +709,7 @@ final class TranscriptStore {
                     self.subagentCaches[tabID] = parsed.subagentCache
                     #if DEBUG
                     self.didParseSubagents?(tabID, parsed.subagentCache.stats, parsed.reusedParent)
+                    self.didReadParent?(tabID, parsed.parentPath)
                     #endif
                     let previousDirectory = self.transcripts[tabID]?.cwd
                     self.transcripts[tabID] = parsed.transcript

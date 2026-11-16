@@ -113,7 +113,7 @@ The report has the same fields as a task switch, plus two:
 - `longestTurnMs`: the longest single main-thread turn during the sample. This is the hitch a user sees.
 - `busyMs`: the sum of every main-thread turn during the sample.
 
-The `spans` add `storePublish`, the main-actor block of `TranscriptStore.read` that publishes a finished parse. Each transcript read also logs a `transcript-read …` line under the `app` category, with the time for the file load, the parse, each scanner, the subagents and the total, plus `bytes` and `reusedParent`.
+The `spans` add `storePublish`, the main-actor block of `TranscriptStore.read` that publishes a finished parse. Each transcript read also logs a `transcript-read …` line under the `app` category, with the time for the file load, the line decoding, the parse, each scanner, the subagents and the total. It also logs `bytes` (the file's size), `bytesRead` (what this read loaded), `tail` (whether it read only what was appended since the last read) and `reusedParent` (whether the file was unchanged).
 
 ## How it works
 
