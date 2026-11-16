@@ -58,6 +58,7 @@ struct ChildSessionOfferCard: View, ThemedView {
             }
         }
         .decisionCard(subject: state.isLive ? .inquiry : nil, colors: colors)
+        .plumeID(AccessibilityID.offerCard, label: call.id)
         .listItemPadding(vertical: false)
     }
 

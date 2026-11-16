@@ -99,6 +99,7 @@ struct ChildSessionProposalCard: View, ThemedView {
             }
         }
         .decisionCard(subject: state == .pending ? .inquiry : nil, colors: colors)
+        .plumeID(AccessibilityID.proposalCard, label: proposalID)
         .listItemPadding(vertical: false)
     }
 

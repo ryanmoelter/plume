@@ -190,14 +190,18 @@ enum AccessibilityID {
     static let taskAgentChildMarker = "task-agent-child-marker"
     /// A note from another session in the chat, which selects its tab.
     static let sideSessionEventRow = "side-session-event-row"
-    /// A proposed session's card buttons; `label` is the proposal's task_id.
+    /// A proposed session's whole card and its buttons; `label` is the
+    /// proposal's task_id.
+    static let proposalCard = "proposal-card"
     static let proposalStartButton = "proposal-start-button"
     static let proposalDismissButton = "proposal-dismiss-button"
     /// A started card's line, which selects the child's tab.
     static let proposalStartedRow = "proposal-started-row"
     /// A dismissed or expired card's state, in `value`.
     static let proposalState = "proposal-state"
-    /// An offered session's card buttons; `label` is the call's tool use id.
+    /// An offered session's whole card and its buttons; `label` is the call's
+    /// tool use id.
+    static let offerCard = "offer-card"
     static let offerNewSessionButton = "offer-new-session-button"
     static let offerDoItHereButton = "offer-do-it-here-button"
     /// An offer card's state, in `value`, as `ChildSessionOfferCardState.word`
