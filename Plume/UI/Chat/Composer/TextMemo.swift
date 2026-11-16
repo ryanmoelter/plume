@@ -1,0 +1,47 @@
+import Foundation
+import Synchronization
+
+/// The last few results of a pure function of a text, so the composer's
+/// styler, decorations, caret snapping and editing commands share one parse
+/// of each version of the draft instead of each parsing it again.
+///
+/// Texts match byte for byte, not by `==`: canonically equivalent strings
+/// compare equal but have different UTF-16 offsets, and every parse here is
+/// a list of UTF-16 ranges.
+nonisolated final class TextMemo<Value: Sendable>: Sendable {
+    private let capacity: Int
+    private let entries = Mutex<[(text: String, value: Value)]>([])
+
+    init(capacity: Int = 4) {
+        self.capacity = capacity
+    }
+
+    func value(for text: String, compute: (String) -> Value) -> Value {
+        var key = text
+        key.makeContiguousUTF8()
+        if let hit = entries.withLock({ entries -> Value? in
+            guard let index = entries.firstIndex(where: { Self.isIdentical($0.text, key) }) else { return nil }
+            let entry = entries.remove(at: index)
+            entries.insert(entry, at: 0)
+            return entry.value
+        }) {
+            return hit
+        }
+        let value = compute(key)
+        entries.withLock { entries in
+            entries.insert((key, value), at: 0)
+            if entries.count > capacity { entries.removeLast() }
+        }
+        return value
+    }
+
+    private static func isIdentical(_ lhs: String, _ rhs: String) -> Bool {
+        var lhs = lhs
+        var rhs = rhs
+        return lhs.withUTF8 { left in
+            rhs.withUTF8 { right in
+                left.count == right.count && (left.isEmpty || memcmp(left.baseAddress!, right.baseAddress!, left.count) == 0)
+            }
+        }
+    }
+}

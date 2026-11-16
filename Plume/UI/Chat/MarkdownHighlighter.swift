@@ -37,7 +37,15 @@ nonisolated enum MarkdownHighlighter {
         spans(in: text, lines: MarkdownLineStructure.lines(in: text))
     }
 
+    private static let memo = TextMemo<[Span]>()
+
+    /// `lines` must be `MarkdownLineStructure.lines(in: text)`, since the
+    /// result is remembered by `text` alone.
     static func spans(in text: String, lines: [MarkdownLine]) -> [Span] {
+        memo.value(for: text) { spans(parsing: $0, lines: lines) }
+    }
+
+    private static func spans(parsing text: String, lines: [MarkdownLine]) -> [Span] {
         let ns = text as NSString
         var spans: [Span] = []
         var openFenceStart: Int?

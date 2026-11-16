@@ -86,7 +86,13 @@ nonisolated struct MarkdownLine: Equatable {
 /// closes, and an unclosed block runs to the end of the text, the way the
 /// chat's `MarkdownBlock` renders it.
 nonisolated enum MarkdownLineStructure {
+    private static let memo = TextMemo<[MarkdownLine]>()
+
     static func lines(in text: String) -> [MarkdownLine] {
+        memo.value(for: text, compute: parse)
+    }
+
+    private static func parse(_ text: String) -> [MarkdownLine] {
         let ns = text as NSString
         var result: [MarkdownLine] = []
         var openFence: (character: unichar, length: Int, quoteLevel: Int, container: (depth: Int, columns: Int)?)?
