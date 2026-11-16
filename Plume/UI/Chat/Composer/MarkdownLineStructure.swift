@@ -207,6 +207,17 @@ nonisolated enum MarkdownLineStructure {
         lines.last { $0.range.location <= location }
     }
 
+    /// The index of the line containing `location`, found by bisection.
+    static func lineIndex(containing location: Int, in lines: [MarkdownLine]) -> Int {
+        var low = 0
+        var high = lines.count - 1
+        while low < high {
+            let middle = (low + high + 1) / 2
+            if lines[middle].range.location <= location { low = middle } else { high = middle - 1 }
+        }
+        return low
+    }
+
     /// Whether a whitespace-trimmed line is a thematic break: three or more
     /// of one of `-`, `*`, `_`, optionally spaced out.
     static func isRule(_ trimmed: String) -> Bool {

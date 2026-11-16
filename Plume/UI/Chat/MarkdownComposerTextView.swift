@@ -635,7 +635,7 @@ final class ComposerNSTextView: NSTextView {
         super.drawBackground(in: rect)
         var decorations: ComposerDecorations.Decorations?
         lastDecorationCost = ContinuousClock().measure {
-            decorations = markdownMetrics.map { ComposerDecorations.rects(in: self, metrics: $0) }
+            decorations = markdownMetrics.map { ComposerDecorations.rects(in: self, metrics: $0, visibleRect: visibleRect) }
         }
         if let decorations, let markdownMetrics {
             ComposerDecorations.draw(decorations, in: rect, metrics: markdownMetrics)
@@ -735,7 +735,7 @@ final class ComposerNSTextView: NSTextView {
     override func mouseDown(with event: NSEvent) {
         if let markdownMetrics, editsMarkdown {
             let point = convert(event.locationInWindow, from: nil)
-            let checkboxes = ComposerDecorations.rects(in: self, metrics: markdownMetrics).checkboxes
+            let checkboxes = ComposerDecorations.rects(in: self, metrics: markdownMetrics, visibleRect: visibleRect).checkboxes
             if let hit = checkboxes.first(where: { $0.rect.insetBy(dx: -3, dy: -3).contains(point) }),
                let result = ComposerMarkdownEditing.toggleCheckbox(hit.box, in: string, selection: selectedRange()) {
                 apply(result, scrollsToSelection: false)

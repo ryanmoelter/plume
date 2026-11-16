@@ -273,11 +273,12 @@ private struct KeystrokeSample {
     var decorations: Duration
     var draw: Duration
     var height: Duration
+    var scroll: Duration
 }
 
 /// Times one keystroke in a long draft, split into the restyle, the layout,
 /// the decoration rects a redraw needs, and the height measurement SwiftUI
-/// asks for. Opt-in: pass `TEST_RUNNER_PLUME_COMPOSER_BENCH=<results file>` to
+/// asks for, then the redraw after a scroll. Opt-in: pass `TEST_RUNNER_PLUME_COMPOSER_BENCH=<results file>` to
 /// `xcodebuild test`.
 extension ComposerHostedTypingTests {
     private nonisolated static let benchmarkOutput = ProcessInfo.processInfo.environment["PLUME_COMPOSER_BENCH"]
@@ -329,6 +330,11 @@ extension ComposerHostedTypingTests {
             start = clock.now
             _ = host.contentHeight(forWidth: 400)
             let height = clock.now - start
+            let clip = try #require(view.enclosingScrollView?.contentView)
+            clip.scroll(to: NSPoint(x: 0, y: clip.bounds.minY + (round.isMultiple(of: 2) ? 30 : -30)))
+            start = clock.now
+            view.display()
+            let scroll = clock.now - start
             if round >= 3 {
                 samples.append(KeystrokeSample(
                     key: key,
@@ -336,7 +342,8 @@ extension ComposerHostedTypingTests {
                     layout: coordinator.lastKeystrokeCost.layout,
                     decorations: view.lastDecorationCost,
                     draw: draw,
-                    height: height
+                    height: height,
+                    scroll: scroll
                 ))
             }
             try await Task.sleep(for: .milliseconds(20))
@@ -348,7 +355,7 @@ extension ComposerHostedTypingTests {
             return String(format: "%.1f ms", Double(middle.components.seconds) * 1000 + Double(middle.components.attoseconds) / 1e15)
         }
         return "lines=\(lineCount) key=\(median { $0.key }) restyle=\(median { $0.restyle }) layout=\(median { $0.layout }) "
-            + "decorations=\(median { $0.decorations }) draw=\(median { $0.draw }) height=\(median { $0.height })"
+            + "decorations=\(median { $0.decorations }) draw=\(median { $0.draw }) height=\(median { $0.height }) scroll=\(median { $0.scroll })"
     }
 
     private static func benchmarkText(lineCount: Int) -> String {
