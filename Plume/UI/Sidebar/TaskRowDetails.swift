@@ -135,15 +135,26 @@ enum TaskRowDetails {
         }
     }
 
-    /// Decided attribute by attribute: one every agent shares, absence
-    /// included, shows once at the task level, where a one-agent row shows it.
-    /// One that differs anywhere shows under each agent's header instead.
+    /// A shared attribute, absence included, shows once at the task level,
+    /// where a one-agent row shows it; the rest show under each agent's
+    /// header. The project is shared when every agent's reads the same. A
+    /// branch or pull request is shared only when every agent is also in the
+    /// same folder: two clones on one branch are still two checkouts, and a
+    /// shared branch above per-agent projects would sit outside its header.
     /// `taskLines` follow the shared lines, before the first header.
     static func lines(agents: [AgentGroup], taskLines: [Line] = []) -> [Line] {
         let perAgent = agents.map { lines(for: $0.workspace) }
-        let shared = Set(Attribute.allCases.filter { attribute in
+        func readsTheSameEverywhere(_ attribute: Attribute) -> Bool {
             let values = perAgent.map { $0.first { self.attribute(of: $0) == attribute } }
-            return values.allSatisfy { readsTheSame($0, values.first ?? nil) }
+            return values.allSatisfy { $0 == values.first }
+        }
+        let sharesProject = readsTheSameEverywhere(.project)
+        let sharesFolder = sharesProject && Set(agents.map(\.workspace.directory)).count <= 1
+        let shared = Set(Attribute.allCases.filter { attribute in
+            switch attribute {
+            case .project: sharesProject
+            case .branch, .pullRequest: sharesFolder && readsTheSameEverywhere(attribute)
+            }
         })
         func isShared(_ line: Line) -> Bool {
             attribute(of: line).map(shared.contains) ?? false
@@ -154,16 +165,6 @@ enum TaskRowDetails {
             lines.append(contentsOf: agentLines.filter { !isShared($0) })
         }
         return lines
-    }
-
-    /// A pull request line carries its directory only so the chip can look up
-    /// that repository's ignored checks; two folders showing one pull request
-    /// read the same.
-    private static func readsTheSame(_ line: Line?, _ other: Line?) -> Bool {
-        if case .pullRequest(_, let state) = line, case .pullRequest(_, let otherState) = other {
-            return state == otherState
-        }
-        return line == other
     }
 
     /// Project first: it is the header the branch and pull request under it

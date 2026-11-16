@@ -516,15 +516,24 @@ struct TaskRowAgentLinesTests {
         ])
     }
 
-    /// Two folders showing one pull request read the same, so it is shared;
-    /// the task-level line takes the first agent's directory.
-    @Test func onePullRequestInTwoFoldersIsShared() {
+    @Test func twoClonesOnOneBranchShareOnlyTheProject() {
         let first = agent("One", "/Users/me/Plume", branch: "main", pullRequest: open)
         let second = agent("Two", "/Users/me/elsewhere/Plume", branch: "main", pullRequest: open)
         #expect(TaskRowDetails.lines(agents: [first, second]) == [
-            .project("Plume"), .branch("main", accompaniedBy: nil),
+            .project("Plume"),
+            .agentHeader(first.header), .branch("main", accompaniedBy: nil),
             .pullRequest(directory: "/Users/me/Plume", state: open),
-            .agentHeader(first.header), .agentHeader(second.header),
+            .agentHeader(second.header), .branch("main", accompaniedBy: nil),
+            .pullRequest(directory: "/Users/me/elsewhere/Plume", state: open),
+        ])
+    }
+
+    @Test func twoReposOnOneBranchNameShareNothing() {
+        let first = agent("One", "/Users/me/A", branch: "main")
+        let second = agent("Two", "/Users/me/B", branch: "main")
+        #expect(TaskRowDetails.lines(agents: [first, second]) == [
+            .agentHeader(first.header), .project("A"), .branch("main", accompaniedBy: nil),
+            .agentHeader(second.header), .project("B"), .branch("main", accompaniedBy: nil),
         ])
     }
 

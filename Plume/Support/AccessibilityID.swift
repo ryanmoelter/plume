@@ -172,6 +172,8 @@ enum AccessibilityID {
 
     // MARK: Tab strip
 
+    /// One per pane, labelled like `newTabButton`.
+    static let tabStrip = "tab-strip"
     static let tabChip = "tab-chip"
     static let tabChipClose = "tab-chip-close"
     /// In both the task row's and the tab chip's context menu.

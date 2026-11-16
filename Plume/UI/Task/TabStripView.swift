@@ -81,6 +81,7 @@ struct TabStripView: View {
         }
         .padding(.horizontal, 8)
         .padding(.vertical, 6)
+        .plumeID(AccessibilityID.tabStrip, label: paneLabel)
         .coordinateSpace(.named(Self.coordinateSpace))
         // One destination for the whole strip, placing the drop by its
         // location, so there is no gap between chips where a drop misses.
