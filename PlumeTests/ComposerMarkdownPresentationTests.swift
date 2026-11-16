@@ -81,6 +81,14 @@ struct ComposerMarkdownPresentationTests {
         #expect(abs(quoted - xs[0] - metrics.quoteStep) < 0.5)
     }
 
+    @Test func decorationsCoverEveryLineOfAShownParagraph() {
+        let items = (0..<24).map { "- item \($0)" }.joined(separator: "\u{2028}")
+        let view = styledView("intro\n" + items + "\nafter")
+        let topOfTheParagraph = NSRect(x: 0, y: 0, width: 400, height: 120)
+        let windowed = ComposerDecorations.rects(in: view, metrics: metrics, visibleRect: topOfTheParagraph)
+        #expect(windowed.bullets.count == 24)
+    }
+
     @Test func aLongDraftMeasuresAtTheCap() {
         func height(of text: String) -> CGFloat {
             let host = ScrollableComposerTextView()

@@ -34,16 +34,10 @@ nonisolated enum MarkdownHighlighter {
     /// also contains its own marker prefix); callers apply them in order and
     /// let later spans win, same as any attribute-run overlay.
     static func spans(in text: String) -> [Span] {
-        spans(in: text, lines: MarkdownLineStructure.lines(in: text))
+        memo.value(for: text) { spans(parsing: $0, lines: MarkdownLineStructure.lines(in: $0)) }
     }
 
     private static let memo = TextMemo<[Span]>()
-
-    /// `lines` must be `MarkdownLineStructure.lines(in: text)`, since the
-    /// result is remembered by `text` alone.
-    static func spans(in text: String, lines: [MarkdownLine]) -> [Span] {
-        memo.value(for: text) { spans(parsing: $0, lines: lines) }
-    }
 
     private static func spans(parsing text: String, lines: [MarkdownLine]) -> [Span] {
         let ns = text as NSString

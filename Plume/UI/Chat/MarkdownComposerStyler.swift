@@ -73,7 +73,7 @@ enum MarkdownComposerStyler {
             groups = [0...(lines.count - 1)]
         }
 
-        let spans = MarkdownHighlighter.spans(in: text, lines: lines)
+        let spans = MarkdownHighlighter.spans(in: text)
         storage.beginEditing()
         var restyled: NSRange?
         for group in groups {
@@ -126,8 +126,9 @@ enum MarkdownComposerStyler {
         return result
     }
 
-    /// Everything the full pass does, kept to `range`, which holds whole
-    /// paragraphs: lines `indices` of `snapshot`.
+    /// Styles `range`, the whole paragraphs of lines `indices` of
+    /// `snapshot`: the base attributes, then spans, chip padding, references,
+    /// each line's presentation and the accent tints, each cut to `range`.
     private static func styleRange(
         _ range: NSRange,
         lines indices: ClosedRange<Int>,

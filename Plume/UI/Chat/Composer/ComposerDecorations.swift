@@ -350,16 +350,20 @@ enum ComposerDecorations {
         }
 
         /// The lines laid out in `rect`, in view coordinates, plus one on each
-        /// side.
+        /// side. A layout fragment is a paragraph, which holds more than one
+        /// line when they end at U+2028 or U+0085, so every line of the
+        /// paragraphs at either edge counts.
         func lineIndices(showing rect: NSRect, in lines: [MarkdownLine]) -> ClosedRange<Int> {
-            func index(atY y: CGFloat) -> Int? {
+            func indices(atY y: CGFloat) -> ClosedRange<Int>? {
                 guard let fragment = layoutManager.textLayoutFragment(for: CGPoint(x: 0, y: y - origin.y)) else { return nil }
-                let offset = contentStorage.offset(from: contentStorage.documentRange.location, to: fragment.rangeInElement.location)
-                return MarkdownLineStructure.lineIndex(containing: offset, in: lines)
+                let start = contentStorage.offset(from: contentStorage.documentRange.location, to: fragment.rangeInElement.location)
+                let end = contentStorage.offset(from: contentStorage.documentRange.location, to: fragment.rangeInElement.endLocation)
+                let first = MarkdownLineStructure.lineIndex(containing: start, in: lines)
+                return first...max(first, MarkdownLineStructure.lineIndex(containing: max(start, end - 1), in: lines))
             }
             let last = lines.count - 1
-            let first = rect.minY <= origin.y ? 0 : index(atY: rect.minY) ?? last
-            let end = index(atY: rect.maxY) ?? last
+            let first = rect.minY <= origin.y ? 0 : indices(atY: rect.minY)?.lowerBound ?? last
+            let end = indices(atY: rect.maxY)?.upperBound ?? last
             return max(0, first - 1)...min(last, max(first, end) + 1)
         }
 
@@ -504,7 +508,7 @@ enum ComposerDecorations {
 
         init(text: String) {
             lines = MarkdownLineStructure.lines(in: text)
-            inlineCode = MarkdownHighlighter.spans(in: text, lines: lines).filter { $0.style == .inlineCode }.map(\.range)
+            inlineCode = MarkdownHighlighter.spans(in: text).filter { $0.style == .inlineCode }.map(\.range)
 
             var codeRuns: [ClosedRange<Int>] = []
             var start: Int?

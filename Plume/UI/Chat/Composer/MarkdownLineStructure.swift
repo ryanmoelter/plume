@@ -218,7 +218,8 @@ nonisolated enum MarkdownLineStructure {
     /// The line containing `location`, or the last line when `location` is
     /// the end of the text.
     static func line(containing location: Int, in lines: [MarkdownLine]) -> MarkdownLine? {
-        lines.last { $0.range.location <= location }
+        guard let first = lines.first, first.range.location <= location else { return nil }
+        return lines[lineIndex(containing: location, in: lines)]
     }
 
     /// The index of the line containing `location`, found by bisection.
