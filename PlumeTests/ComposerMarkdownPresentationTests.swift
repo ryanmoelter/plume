@@ -81,6 +81,21 @@ struct ComposerMarkdownPresentationTests {
         #expect(abs(quoted - xs[0] - metrics.quoteStep) < 0.5)
     }
 
+    @Test func aLongDraftMeasuresAtTheCap() {
+        func height(of text: String) -> CGFloat {
+            let host = ScrollableComposerTextView()
+            host.composerTextView.string = text
+            host.composerTextView.bodyFont = metrics.body
+            MarkdownComposerStyler.style(host.composerTextView.textStorage!, text: text, fontSize: metrics.fontSize)
+            return host.contentHeight(forWidth: 400)
+        }
+        let cap = height(of: String(repeating: "a\n", count: 3000))
+        #expect(cap > height(of: String(repeating: "a\n", count: 4)))
+        for text in [String(repeating: "\n", count: 3000), String(repeating: "- \n", count: 3000), String(repeating: "# a\n", count: 3000)] {
+            #expect(height(of: text) == cap, "\(text.prefix(8).debugDescription)")
+        }
+    }
+
     @Test(arguments: ["- top\n  - nested\n- [ ] task", "> a\n> b\n> c", "1. a\n2. b\n3. c"])
     func hiddenMarkersDoNotShrinkTheMeasuredHeight(_ text: String) {
         func height(of text: String, styled: Bool) -> CGFloat {

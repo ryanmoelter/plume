@@ -1101,6 +1101,21 @@ final class ScrollableComposerTextView: NSView {
     /// wildly wrong (often much taller) wrapped height. Setting the
     /// container's width explicitly before measuring is what makes this
     /// correct independent of AutoLayout's pass order.
+    private static let shortestLine = NSLayoutManager().defaultLineHeight(for: .systemFont(ofSize: 1))
+
+    /// Enough whole paragraphs to stand taller than `height` even if every
+    /// line were as short as the composer's smallest font allows, so the
+    /// clamped height of the prefix is the clamped height of the text.
+    private static func measuredPrefix(of text: NSString, toFill height: CGFloat) -> NSRange {
+        var remaining = Int((height / max(shortestLine, 0.5)).rounded(.up)) + 1
+        var end = 0
+        while end < text.length, remaining > 0 {
+            end = NSMaxRange(text.lineRange(for: NSRange(location: end, length: 0)))
+            remaining -= 1
+        }
+        return NSRange(location: 0, length: end)
+    }
+
     func contentHeight(forWidth width: CGFloat) -> CGFloat {
         let font = composerTextView.bodyFont ?? composerTextView.font ?? .systemFont(ofSize: NSFont.systemFontSize)
         let lineHeight = font.boundingRectForFont.height
@@ -1124,8 +1139,12 @@ final class ScrollableComposerTextView: NSView {
             width: max(0, width - inset.width * 2),
             height: .greatestFiniteMagnitude
         )
-        measuringStorage.setAttributedString(storage)
-        measuringLayoutManager.ensureLayout(for: measuringContainer)
+        measuringStorage.setAttributedString(storage.attributedSubstring(from: Self.measuredPrefix(of: storage.string as NSString, toFill: maxHeight)))
+        // Past `maxHeight` the answer no longer changes, so layout stops there.
+        measuringLayoutManager.ensureLayout(
+            forBoundingRect: NSRect(x: 0, y: 0, width: measuringContainer.size.width, height: maxHeight),
+            in: measuringContainer
+        )
 
         let used = measuringLayoutManager.usedRect(for: measuringContainer).height + insets
         let height = min(max(used, minHeight), maxHeight)
