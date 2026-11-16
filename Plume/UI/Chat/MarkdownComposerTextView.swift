@@ -270,6 +270,25 @@ struct MarkdownComposerTextView: NSViewRepresentable {
             layoutManager.ensureLayout(for: layoutManager.documentRange)
         }
 
+        /// Lays out from the first line the last restyle touched to the end:
+        /// lines above it kept their layout, and lines below it moved.
+        private func layOutRestyledText(in textView: NSTextView) {
+            guard let restyled = styleSnapshot?.restyled else {
+                if styleSnapshot == nil { layOutAllText(in: textView) }
+                return
+            }
+            guard let layoutManager = textView.textLayoutManager,
+                  let contentManager = layoutManager.textContentManager,
+                  let start = contentManager.location(layoutManager.documentRange.location, offsetBy: restyled.location),
+                  let range = NSTextRange(location: start, end: layoutManager.documentRange.endLocation)
+            else { return layOutAllText(in: textView) }
+            layoutManager.ensureLayout(for: range)
+        }
+
+        /// What the last restyle styled from, so the next can restyle only
+        /// the lines that changed.
+        private var styleSnapshot: MarkdownComposerStyler.Snapshot?
+
         private func style(_ textView: NSTextView, text: String, caret: NSRange, accent: NSColor, incrementally: Bool = true) {
             let chips = referenceChips(in: text, caret: caret)
             let unchanged = (textView as? ComposerNSTextView)?.takeUnchangedEnds()
@@ -350,7 +369,7 @@ struct MarkdownComposerTextView: NSViewRepresentable {
             guard let textView, !textView.hasMarkedText() else { return }
             let selectedRanges = textView.selectedRanges
             style(textView, text: textView.string, caret: textView.selectedRange(), accent: ThemeChrome.accentNSColor(isActive: isActive))
-            layOutAllText(in: textView)
+            layOutRestyledText(in: textView)
             textView.selectedRanges = selectedRanges
             textView.needsDisplay = true
             host?.invalidateContentHeight()
@@ -385,7 +404,7 @@ struct MarkdownComposerTextView: NSViewRepresentable {
                 style(textView, text: newText, caret: textView.selectedRange(), accent: ThemeChrome.accentNSColor(isActive: isActive))
             }
             lastKeystrokeCost.layout = clock.measure {
-                layOutAllText(in: textView)
+                layOutRestyledText(in: textView)
             }
             updatePlaceholderVisibility(textView)
             // A decoration can span lines the edit didn't touch, like a quote
