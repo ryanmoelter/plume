@@ -6,7 +6,6 @@ struct SymbolMenuOption {
     let title: String
     let systemImage: String
     let isSelected: Bool
-    var isEnabled = true
     let action: () -> Void
 }
 
@@ -19,8 +18,6 @@ struct SymbolMenuButton: NSViewRepresentable {
     let title: String
     let value: String
     let options: [SymbolMenuOption]
-    /// A disabled line after the options, saying why some are disabled.
-    var footnote: String?
 
     func makeNSView(context: Context) -> SymbolMenuPopupButton {
         let button = SymbolMenuPopupButton()
@@ -34,7 +31,7 @@ struct SymbolMenuButton: NSViewRepresentable {
     func updateNSView(_ button: SymbolMenuPopupButton, context: Context) {
         button.setAccessibilityLabel(title)
         button.setAccessibilityValue(value)
-        button.makeMenu = { [title, options, footnote] in SymbolMenu.make(title: title, options: options, footnote: footnote) }
+        button.makeMenu = { [title, options] in SymbolMenu.make(title: title, options: options) }
     }
 }
 
@@ -53,7 +50,7 @@ final class SymbolMenuPopupButton: NSButton {
 }
 
 @MainActor enum SymbolMenu {
-    static func make(title: String, options: [SymbolMenuOption], footnote: String? = nil) -> NSMenu {
+    static func make(title: String, options: [SymbolMenuOption]) -> NSMenu {
         let menu = NSMenu(title: title)
         menu.autoenablesItems = false
         for option in options {
@@ -61,12 +58,6 @@ final class SymbolMenuPopupButton: NSButton {
             item.image = NSImage(systemSymbolName: option.systemImage, accessibilityDescription: nil)
             if #available(macOS 27.0, *) { item.preferredImageVisibility = .visible }
             item.state = option.isSelected ? .on : .off
-            item.isEnabled = option.isEnabled
-            menu.addItem(item)
-        }
-        if let footnote {
-            let item = NSMenuItem(title: footnote, action: nil, keyEquivalent: "")
-            item.isEnabled = false
             menu.addItem(item)
         }
         return menu

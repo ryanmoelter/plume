@@ -16,7 +16,6 @@ final class ChildSessionCoordinator {
     private var policies: [UUID: ChildSessionWakePolicy] = [:]
     private var childNames: [UUID: String] = [:]
     private var silentChildren: Set<UUID> = []
-    private var launchModes: [UUID: PermissionMode] = [:]
     /// Per parent, the wake check due when a working child reaches
     /// `ChildSessionWakePolicy.workingLimit`.
     private var limitChecks: [UUID: Task<Void, Never>] = [:]
@@ -46,10 +45,6 @@ final class ChildSessionCoordinator {
         session.userMessagePreamble = { [weak self] in
             self?.takePreamble(forParent: tabID)
         }
-        session.permissionCeiling = { [weak self, weak tab] in
-            guard let self, let tab, tab.isChildSession else { return nil }
-            return self.permissionCeiling(forChild: tab)
-        }
         session.onHostMessagesReturned = { [weak self, weak tab] messages in
             guard let self, let tab, tab.isLive else { return }
             self.hostMessagesReturned(messages, by: tab)
@@ -60,7 +55,6 @@ final class ChildSessionCoordinator {
         policies.removeValue(forKey: tabID)
         childNames.removeValue(forKey: tabID)
         silentChildren.remove(tabID)
-        launchModes.removeValue(forKey: tabID)
         limitChecks.removeValue(forKey: tabID)?.cancel()
     }
 
@@ -84,25 +78,6 @@ final class ChildSessionCoordinator {
     func childRestarted(_ child: TaskTab) {
         guard let parent = parent(of: child) else { return }
         recheckWake(of: parent)
-    }
-
-    private func permissionCeiling(forChild child: TaskTab) -> PermissionMode {
-        ChildSessionPermissions.ceiling(
-            parent: parent(of: child).map { LiveSettings(of: $0).permissionMode },
-            launchedWith: launchModes[child.id] ?? LiveSettings.recordedMode(of: child),
-            showsBypassPermissions: AppSettings.shared.showsBypassPermissions
-        )
-    }
-
-    /// The highest mode the child's own picker offers: the parent's live
-    /// mode while the parent is open, and no limit once it is gone.
-    func pickerCeiling(forChild child: TaskTab) -> PermissionMode? {
-        guard let parent = parent(of: child) else { return nil }
-        return ChildSessionPermissions.ceiling(
-            parent: LiveSettings(of: parent).permissionMode,
-            launchedWith: LiveSettings.recordedMode(of: child),
-            showsBypassPermissions: AppSettings.shared.showsBypassPermissions
-        )
     }
 
     /// Selects the tab of the session a chat row names. False when no open
@@ -197,7 +172,6 @@ final class ChildSessionCoordinator {
             child.isEffortUserChosen = true
         }
         child.permissionMode = mode
-        launchModes[child.id] = mode
 
         ChildSessionWorkspace.apply(worktree, to: child, parent: parent)
 

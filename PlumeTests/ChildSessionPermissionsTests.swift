@@ -3,9 +3,10 @@ import SwiftData
 import Testing
 @testable import Plume
 
-/// A child never starts with more freedom than its parent has, bypass needs
-/// both the setting and a parent in bypass, a parent in plan mode starts
-/// nothing, and a child whose parent closed still gets only `send_message`.
+/// A child gets the mode it asks for, even one above its parent's, or its
+/// parent's when it asks for none. Bypass needs the setting, a parent in plan
+/// mode starts nothing, and a child whose parent closed still gets only
+/// `send_message`.
 @MainActor
 struct ChildSessionPermissionsTests {
     private let context: ModelContext
@@ -21,19 +22,23 @@ struct ChildSessionPermissionsTests {
         try? ChildSessionPermissions.mode(requested: requested, parent: parent, showsBypassPermissions: bypass).get()
     }
 
-    @Test func aChildIsCappedAtItsParentsMode() {
-        #expect(mode(.bypassPermissions, parent: .manual) == .manual)
-        #expect(mode(.auto, parent: .acceptEdits) == .acceptEdits)
+    @Test func aChildGetsTheModeItAsksFor() {
+        #expect(mode(.bypassPermissions, parent: .manual) == .bypassPermissions)
+        #expect(mode(.auto, parent: .acceptEdits) == .auto)
         #expect(mode(.acceptEdits, parent: .auto) == .acceptEdits)
         #expect(mode(.plan, parent: .auto) == .plan)
-        #expect(mode(nil, parent: .acceptEdits) == .acceptEdits)
     }
 
-    @Test func bypassNeedsTheSettingAndAParentInBypass() {
+    @Test func aChildThatAsksForNoModeGetsItsParents() {
+        #expect(mode(nil, parent: .acceptEdits) == .acceptEdits)
+        #expect(mode(nil, parent: .manual) == .manual)
+    }
+
+    @Test func bypassNeedsTheSetting() {
         #expect(mode(.bypassPermissions, parent: .bypassPermissions, bypass: true) == .bypassPermissions)
         #expect(mode(.bypassPermissions, parent: .bypassPermissions, bypass: false) == .auto)
         #expect(mode(nil, parent: .bypassPermissions, bypass: false) == .auto)
-        #expect(mode(.bypassPermissions, parent: .auto, bypass: true) == .auto)
+        #expect(mode(.bypassPermissions, parent: .auto, bypass: false) == .auto)
     }
 
     @Test func aParentInPlanModeStartsNothing() async throws {

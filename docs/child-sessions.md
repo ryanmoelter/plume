@@ -29,7 +29,7 @@ Plume answers `can_use_tool` for its own tools (`PlumeMCPServer.decision`). In m
 | `background` | no | What the child needs from this conversation, at least 80 characters. Ignored for a fork |
 | `context` | no | `fresh` (default) or `fork`, which copies the parent's whole conversation |
 | `use_worktree` | no | A worktree of its own, cut from the parent's HEAD. Defaults to whether the parent works in a worktree. A fork never gets one: `true` is ignored, and the result says so |
-| `model`, `effort`, `permission_mode` | no | Override the launch settings copied from the parent. `permission_mode` is capped at the parent's |
+| `model`, `effort`, `permission_mode` | no | Override the launch settings copied from the parent. `permission_mode` may be more permissive than the parent's |
 | `wake_when_done` | no | Defaults to true. False holds every report for the parent's next turn |
 
 The result tells the parent to end its turn:
@@ -44,9 +44,7 @@ A child's `tools/list` has only `send_message`, so a child cannot start sessions
 
 ### Permissions
 
-A child never starts with more freedom than its parent has at that moment. `ChildSessionPermissions` orders the modes from strictest to most permissive: plan, manual, accept edits, auto, bypass. The child gets the requested mode, or the parent's, capped at the parent's live mode. Bypass also needs Settings ▸ Agents ▸ "Show bypass permissions"; without it a child that would get bypass gets auto. A parent in plan mode cannot start a child: `can_use_tool` denies the call, and the tool itself returns the same error, telling it to exit plan mode first. A parent that entered plan mode on its own counts, since its `status` line reports the change. The parent's mode here is the one the gate reads, and a mode Plume does not recognize counts as manual.
-
-The cap holds after launch too. Approving a plan in the child, or accepting a mode suggestion there, raises its mode only as far as the parent's live mode (`HeadlessSession.permissionCeiling`). Once the parent is gone, the ceiling is the mode the child launched with. A parent in plan mode caps an approved plan at manual, so the plan can still start work. The child's mode picker holds the same cap while the parent is open: it disables the modes above it and ends with a disabled "Limited by the parent session" line (`composer-permission-mode-limited-note`). Once the parent is gone, the picker offers every mode. A cap never lowers the child below the mode it is already in.
+`ChildSessionPermissions` picks the child's launch mode: the requested `permission_mode`, or the parent's live mode when the call names none. The parent's mode is not a limit. A child may ask for a more permissive mode than its parent's, and once running it changes mode like any other tab: its picker offers every mode, and an approved plan or an accepted mode suggestion applies as usual. Bypass also needs Settings ▸ Agents ▸ "Show bypass permissions"; without it a child that would get bypass gets auto. A parent in plan mode cannot start a child: `can_use_tool` denies the call, and the tool itself returns the same error, telling it to exit plan mode first. A parent that entered plan mode on its own counts, since its `status` line reports the change. The parent's mode here is the one the gate reads, and a mode Plume does not recognize counts as manual.
 
 ## Starting a child
 
@@ -54,7 +52,7 @@ The cap holds after launch too. Approving a plan in the child, or accepting a mo
 
 1. Cuts the worktree, when the child gets one: a branch from `suggestedBranchName(name ?? title)` with the project's branch prefix. One `rev-parse` of the parent's live folder gives both the repository and the checkout, and the worktree starts at that checkout's `HEAD`. When the parent works in a subfolder of its checkout, the child works in the same subfolder of the worktree, if it exists there. If the parent's tab closes while the worktree is cut, the worktree and its branch are removed.
 2. Opens the tab with `TaskStore.addChildTab`, in the parent's pane, after the parent's other children. It does not take selection.
-3. Copies the parent's `TabLaunchChoices`, then the mode, model and effort its running session reports, then applies `model`, `effort` and the capped `permission_mode`. A chosen effort launches with `--effort`.
+3. Copies the parent's `TabLaunchChoices`, then the mode, model and effort its running session reports, then applies `model`, `effort` and `permission_mode`. A chosen effort launches with `--effort`.
 4. Adds the **notes folder** with `--add-dir`: `~/Library/Application Support/Plume/side-session-notes/<parent tab ID>/`, shared by every child of one parent and outside every repository. The parent learns the path from the tool result. A parent that launches while it has children gets the folder with `--add-dir` too (`ChildSessionCoordinator.launchDirectories`); a running parent is never restarted for it.
 5. Mints the child's CLI session id and records it on the tab before the process exists, as Fork to New Tab does, because a hidden chat tab is unmounted and records nothing.
 6. Launches with no prompt, then submits the brief with `submitFromHost`. A fresh child launches with `--session-id`; a fork with `--resume <parent> --fork-session --session-id <new>` and no `--resume-session-at`, which works while the parent is mid tool call.

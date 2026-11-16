@@ -271,9 +271,6 @@ enum AccessibilityID {
     static let composerModelControl = "composer-model-control"
     static let composerEffortControl = "composer-effort-control"
     static let composerPermissionModeControl = "composer-permission-mode-control"
-    /// The disabled line in a child session's mode menu, present while the
-    /// parent's mode disables some of the modes.
-    static let composerPermissionModeLimitedNote = "composer-permission-mode-limited-note"
     static let composerCollaborationModeControl = "composer-collaboration-mode-control"
     static let remoteControlToast = "remote-control-toast"
 
