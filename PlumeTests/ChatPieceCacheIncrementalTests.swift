@@ -280,6 +280,33 @@ struct ChatPieceCacheIncrementalTests {
         #expect(cache.parseCount == parsed + 1)
     }
 
+    @Test func appendingTextAnEarlierMessageDrewParsesNothing() {
+        let cache = ChatPieceCache()
+        var inputs = Inputs(messages: conversation)
+        step(cache, inputs)
+        inputs.messages.append(user("u2", "Next."))
+        step(cache, inputs)
+        let parsed = cache.parseCount
+
+        inputs.messages.append(user("u3", "And then?"))
+        #expect(step(cache, inputs) == 1)
+        #expect(cache.parseCount == parsed)
+    }
+
+    /// Text no message draws any more is let go, so drawing it again parses.
+    @Test func textNoMessageDrawsIsParsedAgain() {
+        let cache = ChatPieceCache()
+        var inputs = Inputs(messages: conversation + [assistant("a2", [.markdown("Stre")], isLive: true)])
+        step(cache, inputs)
+        inputs.messages[4] = assistant("a2", [.markdown("Streamed.")])
+        step(cache, inputs)
+        let parsed = cache.parseCount
+
+        inputs.messages.append(user("u3", "Stre"))
+        step(cache, inputs)
+        #expect(cache.parseCount == parsed + 1)
+    }
+
     // MARK: - Chip titles
 
     private let issueURL = "https://linear.app/p/issue/PLUME-1/slug"

@@ -27,6 +27,7 @@ final class ChatPieceCache {
     private var lastBuild: (inputs: Inputs, pieces: [ChatPiece])?
     private var builtOutline: ChatOutline?
     private var entries: [String: MessageEntry] = [:]
+    private let sources = SourceTable()
     private var artifactTitles: ArtifactChipTitles?
     /// Each piece's outline weight, with the content it was computed from.
     private var outlineWeights: [String: (content: ChatPiece.Content, weight: CGFloat)] = [:]
@@ -52,6 +53,30 @@ final class ChatPieceCache {
         var chipped: [MarkdownBlock.Parsed]?
 
         var output: [MarkdownBlock.Parsed] { chipped ?? blocks }
+    }
+
+    /// Every source the kept messages drew, so a message drawing text an
+    /// earlier one drew parses nothing. Counted per message, and pruned when
+    /// no kept message draws it.
+    private final class SourceTable {
+        var sources: [String: Source] = [:]
+        var references: [String: Int] = [:]
+
+        func retain(_ entry: MessageEntry) {
+            for markdown in entry.sources.keys { references[markdown, default: 0] += 1 }
+        }
+
+        func release(_ entry: MessageEntry) {
+            for markdown in entry.sources.keys {
+                let count = (references[markdown] ?? 1) - 1
+                if count > 0 {
+                    references[markdown] = count
+                } else {
+                    references[markdown] = nil
+                    sources[markdown] = nil
+                }
+            }
+        }
     }
 
     private struct MessageEntry {
@@ -145,6 +170,7 @@ final class ChatPieceCache {
         let artifactTitles = ArtifactChipTitles(messages: messages)
         let build = Build(
             previous: entries,
+            sources: sources,
             linkBase: linkBase,
             targetsReusable: lastBuild.map { $0.inputs.linkBase == linkBase } ?? true,
             titlesReusable: lastBuild?.inputs.referenceRevision == referenceRevision
@@ -161,6 +187,7 @@ final class ChatPieceCache {
             parse: build.parse,
             memo: build
         )
+        build.releaseDropped()
         entries = build.entries
         self.artifactTitles = artifactTitles
         parseCount += build.parseCount
@@ -175,6 +202,7 @@ final class ChatPieceCache {
     /// calls while splitting a message the memo declined.
     private final class Build: ChatPieceSplitMemo {
         private let previous: [String: MessageEntry]
+        private let sources: SourceTable
         private let linkBase: URL?
         /// False when the link base changed, which reclassifies every link.
         private let targetsReusable: Bool
@@ -188,14 +216,13 @@ final class ChatPieceCache {
         private(set) var foundTargets = Set<ReferenceTarget>()
         private(set) var parseCount = 0
         private(set) var splitCount = 0
-        /// Shared by every message split in this build, so two messages
-        /// drawing the same text parse it once.
-        private var built: [String: Source] = [:]
         private var splitting: [String: Source] = [:]
-        private var splittingPrevious: [String: Source] = [:]
+        private var reusedIDs = Set<String>()
+        private var storedIDs = Set<String>()
 
         init(
             previous: [String: MessageEntry],
+            sources: SourceTable,
             linkBase: URL?,
             targetsReusable: Bool,
             titlesReusable: Bool,
@@ -203,37 +230,64 @@ final class ChatPieceCache {
             referenceTitle: @escaping (ReferenceTarget) -> String?
         ) {
             self.previous = previous
+            self.sources = sources
             self.linkBase = linkBase
             self.targetsReusable = targetsReusable
             self.titlesReusable = titlesReusable
             self.artifactTitles = artifactTitles
             self.referenceTitle = referenceTitle
             entries.reserveCapacity(previous.count + 1)
+            if !targetsReusable {
+                sources.sources = sources.sources.mapValues { Source(blocks: $0.blocks) }
+            }
         }
 
         func split(for key: ChatPieceSplitter.MessageSplitKey) -> ChatPieceSplitter.MessageSplit? {
             let id = key.message.id
-            let entry = previous[id]
             splitting = [:]
-            splittingPrevious = entry?.sources ?? [:]
             guard targetsReusable,
-                  let entry,
+                  let entry = previous[id],
                   entry.key == key,
                   titlesReusable || entry.sources.values.allSatisfy(titlesUnchanged)
             else { return nil }
-            entries[id] = entry
+            replace(id, with: entry)
+            reusedIDs.insert(id)
             foundTargets.formUnion(entry.targets)
             return entry.split
         }
 
         func store(_ split: ChatPieceSplitter.MessageSplit, for key: ChatPieceSplitter.MessageSplitKey) {
             splitCount += 1
-            entries[key.message.id] = MessageEntry(
+            let id = key.message.id
+            let entry = MessageEntry(
                 key: key,
                 split: split,
                 sources: splitting,
                 targets: splitting.values.flatMap { $0.targets?.compactMap { $0 } ?? [] }
             )
+            replace(id, with: entry)
+            reusedIDs.remove(id)
+            storedIDs.insert(id)
+            sources.retain(entry)
+        }
+
+        /// Only a transcript repeating a message id replaces an entry this
+        /// build already made.
+        private func replace(_ id: String, with entry: MessageEntry) {
+            if storedIDs.contains(id), let made = entries[id] {
+                sources.release(made)
+                storedIDs.remove(id)
+            }
+            entries[id] = entry
+        }
+
+        /// Releases the sources of every previous message this build didn't
+        /// reuse. Call once, after the splitter.
+        func releaseDropped() {
+            guard reusedIDs.count < previous.count else { return }
+            for (id, entry) in previous where !reusedIDs.contains(id) {
+                sources.release(entry)
+            }
         }
 
         private func titlesUnchanged(_ source: Source) -> Bool {
@@ -249,18 +303,15 @@ final class ChatPieceCache {
         func parse(_ markdown: String) -> [MarkdownBlock.Parsed] {
             if let source = splitting[markdown] { return source.output }
             var source: Source
-            if let shared = built[markdown] {
+            if let shared = sources.sources[markdown] {
                 source = shared
-            } else if let kept = splittingPrevious[markdown] {
-                source = kept
-                if !targetsReusable { source = Source(blocks: kept.blocks) }
             } else {
                 parseCount += 1
                 source = Source(blocks: MarkdownBlock.parseWithSources(markdown))
             }
             defer {
                 splitting[markdown] = source
-                built[markdown] = source
+                sources.sources[markdown] = source
             }
             guard markdown.contains("](") || markdown.contains("://") else { return source.output }
 
