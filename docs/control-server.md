@@ -106,7 +106,7 @@ c appendTurn repeat=2
 c appendTurn repeat=10
 ```
 
-The clock starts at the write. A sample ends with the main-thread turn whose commit first showed the new prompt's row. That includes the 250 ms debounce and the background parse. `repeat` appends one turn per round, and `settle` seconds pass after each so trailing work stays out of the next sample. A sample that shows no row within `timeout` reports `timedOut: true` and is left out of the summaries.
+The clock starts at the write. A sample ends with the main-thread turn whose commit first showed the new prompt's row. That includes the background parse. The store reads the first change of a burst at once, so the 250 ms debounce adds nothing unless the write lands inside a window an earlier change opened. `repeat` appends one turn per round, and `settle` seconds pass after each so trailing work stays out of the next sample. A sample that shows no row within `timeout` reports `timedOut: true` and is left out of the summaries.
 
 The report has the same fields as a task switch, plus two:
 

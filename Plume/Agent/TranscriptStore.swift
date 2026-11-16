@@ -49,7 +49,10 @@ final class TranscriptStore {
     /// One watcher per subagent transcript, keyed by tab then by file path.
     private var subagentWatchers: [UUID: [String: FileWatcher]] = [:]
     private var paths: [UUID: String] = [:]
-    private var pending: [UUID: Task<Void, Never>] = [:]
+    /// Each tab's open debounce window. The change that opens one reads at
+    /// once; changes inside it wait for it to close.
+    private var debounceWindows: [UUID: Task<Void, Never>] = [:]
+    private var changedDuringWindow: Set<UUID> = []
     /// The token of each tab's parse in flight, so a burst of writes cannot
     /// stack reads. A read that finishes after its tab's watch was torn down
     /// finds a different token, or none, and leaves the newer read's alone.
@@ -79,6 +82,9 @@ final class TranscriptStore {
     /// path it loaded, so a test can hold a read in flight.
     var afterLoadingTranscript: (@Sendable (String) async -> Void)?
 
+    /// Fires when a change waits for its tab's debounce window to close.
+    var didDeferToWindowEnd: ((UUID) -> Void)?
+
     /// Fires when a read is requested while one is in flight, so a test can
     /// tell the request landed before releasing a held read.
     var didDeferRead: ((UUID) -> Void)?
@@ -97,6 +103,7 @@ final class TranscriptStore {
     // This drives visible chat content rather than a sidebar label, so it
     // needs to feel live — much shorter than AgentTitleMonitor's 1s.
     private let debounce: Duration
+    private let sleep: @Sendable (Duration) async -> Void
     private let statusEngine: StatusEngine
     private let backgroundTasks: BackgroundTaskTracker
     private let linearActivity: LinearActivitySink
@@ -135,6 +142,7 @@ final class TranscriptStore {
 
     init(
         debounce: Duration = .milliseconds(250),
+        sleep: @escaping @Sendable (Duration) async -> Void = { try? await Task.sleep(for: $0) },
         statusEngine: StatusEngine = .shared,
         backgroundTasks: BackgroundTaskTracker = .shared,
         linearActivity: LinearActivitySink? = nil,
@@ -146,6 +154,7 @@ final class TranscriptStore {
         isTabLive: @escaping @MainActor (UUID) -> Bool = TranscriptStore.hasLiveSession
     ) {
         self.debounce = debounce
+        self.sleep = sleep
         self.statusEngine = statusEngine
         self.backgroundTasks = backgroundTasks
         self.linearActivity = linearActivity ?? LinearStore.shared
@@ -200,7 +209,7 @@ final class TranscriptStore {
     func stopWatching(tabID: UUID) {
         watchers.removeValue(forKey: tabID)?.stop()
         stopSubagentWatchers(tabID: tabID)
-        pending.removeValue(forKey: tabID)?.cancel()
+        closeDebounceWindow(tabID: tabID)
         inFlight.removeValue(forKey: tabID)
         rereadRequested.remove(tabID)
         stopAwaitingSubagents(tabID: tabID)
@@ -229,7 +238,7 @@ final class TranscriptStore {
         for tabWatchers in subagentWatchers.values {
             for watcher in tabWatchers.values { watcher.stop() }
         }
-        for task in pending.values { task.cancel() }
+        for window in debounceWindows.values { window.cancel() }
         for tabID in paths.keys {
             linearActivity.forgetActivity(tabID: tabID)
             linkedPullRequests.forget(tabID: tabID)
@@ -239,7 +248,8 @@ final class TranscriptStore {
         parentParses.removeAll()
         watchers.removeAll()
         subagentWatchers.removeAll()
-        pending.removeAll()
+        debounceWindows.removeAll()
+        changedDuringWindow.removeAll()
         inFlight.removeAll()
         rereadRequested.removeAll()
         for awaiting in awaitingSubagents.values {
@@ -304,7 +314,7 @@ final class TranscriptStore {
         watchers.removeValue(forKey: tabID)?.stop()
         stopSubagentWatchers(tabID: tabID)
         stopAwaitingSubagents(tabID: tabID)
-        pending.removeValue(forKey: tabID)?.cancel()
+        closeDebounceWindow(tabID: tabID)
         paths[tabID] = path
         startWatcher(tabID: tabID, transcriptPath: path)
         read(tabID: tabID)
@@ -325,8 +335,11 @@ final class TranscriptStore {
         }
         awaitingSubagents[tabID] = (directory, watcher, expiry)
         // Back already, between the read that missed it and this watch, which
-        // only reports an arrival it waits for.
-        if FileManager.default.fileExists(atPath: directory) { scheduleRead(tabID: tabID) }
+        // only reports an arrival it waits for. This runs while a read is
+        // publishing, so the next read starts after that finishes.
+        if FileManager.default.fileExists(atPath: directory) {
+            Task { [weak self] in self?.scheduleRead(tabID: tabID) }
+        }
     }
 
     private func stopAwaitingSubagents(tabID: UUID) {
@@ -582,20 +595,44 @@ final class TranscriptStore {
             .replacingOccurrences(of: ".jsonl", with: "")
     }
 
+    /// Reads at once on the first change of a burst, so a sent message shows
+    /// without waiting out the debounce. Later changes wait for the window to
+    /// close and share one read, and that read opens a new window. A window
+    /// never restarts, so a transcript that streams without pause still reads
+    /// once per `debounce` rather than not at all.
     private func scheduleRead(tabID: UUID) {
-        pending[tabID]?.cancel()
-        pending[tabID] = Task { [debounce] in
-            try? await Task.sleep(for: debounce)
-            guard !Task.isCancelled else { return }
-            read(tabID: tabID)
+        guard debounceWindows[tabID] == nil else {
+            changedDuringWindow.insert(tabID)
+            #if DEBUG
+            didDeferToWindowEnd?(tabID)
+            #endif
+            return
         }
+        read(tabID: tabID)
+        openDebounceWindow(tabID: tabID)
+    }
+
+    private func openDebounceWindow(tabID: UUID) {
+        debounceWindows[tabID] = Task { [sleep, debounce] in
+            await sleep(debounce)
+            guard !Task.isCancelled else { return }
+            debounceWindows.removeValue(forKey: tabID)
+            guard changedDuringWindow.remove(tabID) != nil else { return }
+            read(tabID: tabID)
+            openDebounceWindow(tabID: tabID)
+        }
+    }
+
+    private func closeDebounceWindow(tabID: UUID) {
+        debounceWindows.removeValue(forKey: tabID)?.cancel()
+        changedDuringWindow.remove(tabID)
     }
 
     /// Reads and parses off the main actor, then publishes on it.
     ///
-    /// A live transcript is megabytes of JSONL and the debounce fires several
-    /// times a second while a turn streams, so parsing here would stutter the
-    /// window. One read per tab at a time: the parse can outlast the debounce,
+    /// A live transcript is megabytes of JSONL and reads come several times a
+    /// second while a turn streams, so parsing here would stutter the window.
+    /// One read per tab at a time: the parse can outlast the debounce,
     /// and queuing them would spend the whole gain re-parsing stale bytes.
     private func read(tabID: UUID) {
         guard let path = paths[tabID] else { return }
