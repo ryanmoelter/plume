@@ -5,9 +5,9 @@ import Synchronization
 /// styler, decorations, caret snapping and editing commands share one parse
 /// of each version of the draft instead of each parsing it again.
 ///
-/// Texts match byte for byte, not by `==`: canonically equivalent strings
-/// compare equal but have different UTF-16 offsets, and every parse here is
-/// a list of UTF-16 ranges.
+/// Texts match UTF-16 unit for unit, not by `==`: canonically equivalent
+/// strings compare equal but have different UTF-16 offsets, and every parse
+/// here is a list of UTF-16 ranges.
 nonisolated final class TextMemo<Value: Sendable>: Sendable {
     private let capacity: Int
     private let entries = Mutex<[(text: String, value: Value)]>([])
@@ -17,31 +17,26 @@ nonisolated final class TextMemo<Value: Sendable>: Sendable {
     }
 
     func value(for text: String, compute: (String) -> Value) -> Value {
-        var key = text
-        key.makeContiguousUTF8()
         if let hit = entries.withLock({ entries -> Value? in
-            guard let index = entries.firstIndex(where: { Self.isIdentical($0.text, key) }) else { return nil }
+            guard let index = entries.firstIndex(where: { Self.isIdentical($0.text, text) }) else { return nil }
             let entry = entries.remove(at: index)
             entries.insert(entry, at: 0)
             return entry.value
         }) {
             return hit
         }
-        let value = compute(key)
+        let value = compute(text)
         entries.withLock { entries in
-            entries.insert((key, value), at: 0)
+            entries.insert((text, value), at: 0)
             if entries.count > capacity { entries.removeLast() }
         }
         return value
     }
 
+    /// A bridged draft compares in place, without being transcoded.
     private static func isIdentical(_ lhs: String, _ rhs: String) -> Bool {
-        var lhs = lhs
-        var rhs = rhs
-        return lhs.withUTF8 { left in
-            rhs.withUTF8 { right in
-                left.count == right.count && (left.isEmpty || memcmp(left.baseAddress!, right.baseAddress!, left.count) == 0)
-            }
-        }
+        let left = lhs as NSString
+        let right = rhs as NSString
+        return left === right || (left.length == right.length && left.isEqual(to: rhs))
     }
 }
