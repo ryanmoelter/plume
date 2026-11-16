@@ -491,6 +491,46 @@ struct ChildSessionProposalCoordinatorTests {
         #expect(try stored(taskID) == .dismissed)
     }
 
+    @Test func proposalStatusesSurviveReopeningTheStoreFromDisk() throws {
+        let directory = FileManager.default.temporaryDirectory.appendingPathComponent("proposal-reopen-\(UUID().uuidString)")
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let storeURL = directory.appendingPathComponent("Plume.store")
+        let schema = Schema([TaskGroup.self, WorkTask.self, TaskTab.self])
+        let request = try StartSessionRequest.parse(Self.proposal).get()
+        let parentID: UUID
+        let dismissedID: String
+        let startedID: String
+
+        do {
+            let diskContainer = try ModelContainer(for: schema, configurations: [ModelConfiguration(url: storeURL)])
+            let diskContext = ModelContext(diskContainer)
+            let task = TaskStore.createTask(in: diskContext, title: "Task", siblings: [])
+            let parent = try #require(task.tabs.first)
+            parentID = parent.id
+            defer { ChildSessionCoordinator.shared.tabForgotten(parent.id) }
+            try diskContext.save()
+
+            dismissedID = try ChildSessionCoordinator.shared.propose(request, from: parent).get().id
+            startedID = try ChildSessionCoordinator.shared.propose(request, from: parent).get().id
+            _ = ChildSessionCoordinator.shared.dismissProposal(dismissedID, reason: "not needed", from: parent, byUser: true)
+            let now = Date.now
+            ChildSessionCoordinator.shared.withProposals(of: parent, now: now) { store in
+                store.markStarted(id: startedID, sessionID: "CHILD", name: "fix-login", now: now)
+            }
+        }
+
+        let reopened = ModelContext(try ModelContainer(for: schema, configurations: [ModelConfiguration(url: storeURL)]))
+        let parent = try #require(try reopened.fetch(FetchDescriptor<TaskTab>(predicate: #Predicate { $0.id == parentID })).first)
+        let store = ChildSessionProposalStore(json: parent.childProposalsJSON)
+        #expect(store.proposals.count == 2)
+        let dismissed = try #require(store.proposal(id: dismissedID))
+        #expect(dismissed.status == .dismissed)
+        #expect(dismissed.dismissReason == "not needed")
+        #expect(dismissed.dismissedByUser == true)
+        #expect(try #require(store.proposal(id: startedID)).status == .started)
+    }
+
     @Test func aStartFromTheCardAfterExpirySaysItExpired() async throws {
         let (_, parent, _) = try makeParent()
         defer { ChildSessionCoordinator.shared.tabForgotten(parent.id) }
