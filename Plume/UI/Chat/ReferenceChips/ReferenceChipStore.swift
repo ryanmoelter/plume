@@ -7,8 +7,11 @@ import Observation
 /// The store looks them up (Linear through `LinearStore`, pull requests
 /// through `PullRequestLinkSource`, files on disk) and bumps the owner's
 /// `revision(for:)` when a wanted target's title arrives or changes, which is
-/// the list's cue to rebuild its pieces. An icon change alone re-renders only
-/// the text drawing it, since `icon(for:)` reads a per-target box.
+/// the list's cue to rebuild its pieces. Any title change also bumps every
+/// released owner, since a list that let go of its wants mid-lookup still
+/// shows the target once it mounts again, and its next lookup isn't due yet.
+/// An icon change alone re-renders only the text drawing it, since
+/// `icon(for:)` reads a per-target box.
 @MainActor @Observable
 final class ReferenceChipStore {
     static let shared = ReferenceChipStore()
@@ -282,6 +285,9 @@ final class ReferenceChipStore {
             // in between read no title, and needs this bump to read it.
             for (owner, targets) in wants where !targets.isDisjoint(with: changed) {
                 revisionBox(for: owner).value += 1
+            }
+            for (owner, box) in revisions where wants[owner] == nil {
+                box.value += 1
             }
             flushTask = nil
         }

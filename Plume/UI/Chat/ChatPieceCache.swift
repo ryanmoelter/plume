@@ -7,7 +7,10 @@ import Foundation
 /// every message would cost the transcript's whole length each time. Instead
 /// each message keeps its finished pieces, and a rebuild re-splits only the
 /// messages whose `ChatPieceSplitter.MessageSplitKey` changed, or whose chip
-/// titles did. Typically that is the last one or two. Each message also keeps
+/// titles did. Typically that is the last one or two. Titles are checked
+/// again only at a new `referenceRevision`, so the caller must pass one that
+/// moves whenever a title it may show changes, even while it was unmounted;
+/// `ReferenceChipStore.revision(for:)` does. Each message also keeps
 /// the parse of every markdown source it drew, so a change that re-splits
 /// them all (a new width, say) parses nothing again. Everything is pruned to
 /// the messages the current build holds, so the cache is exactly as large as
