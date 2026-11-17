@@ -265,10 +265,12 @@ final class ChatPieceCache {
                 sources: splitting,
                 targets: splitting.values.flatMap { $0.targets?.compactMap { $0 } ?? [] }
             )
+            // Before the replace: a repeated id's entry may draw the same
+            // source, which releasing first would prune.
+            sources.retain(entry)
             replace(id, with: entry)
             reusedIDs.remove(id)
             storedIDs.insert(id)
-            sources.retain(entry)
         }
 
         /// Only a transcript repeating a message id replaces an entry this
