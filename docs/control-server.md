@@ -77,7 +77,7 @@ While split, a tab chip's label ends with its pane, counted from the left — `C
 | `tasks` | — | `{tasks: [{id, title, isSelected, tabKind?, expectsRows}]}` for the frontmost window's unarchived tasks, in sidebar order |
 | `selectTask` | `task`, `from?`, `repeat = 1` (at most 200), `timeout = 5`, `settle = 0.3` | `{samples, timedOut, visibleMs?, firstTurnMs?, rowsPlacedMs?, spans}`; see [Measuring a task switch](#measuring-a-task-switch) |
 | `appendTurn` | `repeat = 1` (at most 200), `timeout = 15`, `settle = 1`, `reply = true` | `{samples, timedOut, visibleMs?, firstTurnMs?, rowsPlacedMs?, longestTurnMs?, busyMs?, spans}`; see [Measuring a transcript append](#measuring-a-transcript-append) |
-| `scrollChat` | `to = "top" \| "bottom"` or `by` (signed points); `speed = 4000`, `settle = 0.3`, `maxSeconds = 30` (at most 300), `worst = 5`, `clock = "auto" \| "timer"` | `{clock, periodMs, frames, durationMs, startOffset, endOffset, distance, timedOut, realizations, intervalMs?, workMs?, over16, over33, over50, over100, hitchMs, hitchMsPerSecond, spans, worstFrames}`; see [Measuring a scroll](#measuring-a-scroll) |
+| `scrollChat` | `to = "top" \| "bottom"` or `by` (signed points); `speed = 4000`, `settle = 0.3`, `maxSeconds = 30` (at most 300), `worst = 5`, `clock = "auto" \| "timer"` | `{clock, periodMs, frames, durationMs, startOffset, endOffset, distance, timedOut, realizations, intervalMs?, workMs?, overTwoPeriods, overFourPeriods, over50, over100, hitchMs, hitchMsPerSecond, spans, worstFrames}`; see [Measuring a scroll](#measuring-a-scroll) |
 
 `list` filters by `plumeID`, not `id`, because `id` at the top level is the request's correlation id.
 
@@ -131,7 +131,7 @@ c scrollChat to=top speed=4000
 c scrollChat by=-2000 worst=10
 ```
 
-The frame clock is the scroll view's display link. A hidden or occluded window, or a sleeping display, stops vsync, so a 120 Hz timer takes over when the link stays silent: 100 ms at the start, or a second mid-run. `clock` reports `displayLink`, `timer`, or `mixed`, and `periodMs` is the period hitches are measured against. `clock=timer` never creates the display link and ticks from the 120 Hz timer throughout; compare runs taken with the same clock, and use `timer` for repeatable ones.
+The frame clock is the scroll view's display link. A hidden or occluded window, or a sleeping display, stops vsync, so a 120 Hz timer takes over when the link stays silent: 100 ms at the start, or a second since its last tick mid-run. A busy main thread delays a pending link callback as long as it delays the check, so a check that runs late gives the link another 100 ms before the timer takes over. `clock` reports `displayLink`, `timer`, or `mixed`. Each interval is judged against the period of the clock that ended it, and `periodMs` is the median of those periods. `clock=timer` never creates the display link and ticks from the 120 Hz timer throughout; compare runs taken with the same clock, and use `timer` for repeatable ones.
 
 Each frame interval, from one tick's callback to the next, reports:
 
@@ -139,9 +139,9 @@ Each frame interval, from one tick's callback to the next, reports:
 - `workMs`: how long the main-thread turn the interval's first tick began ran, through Core Animation's commit. An interval much longer than its `workMs` waited on something other than that turn.
 - `realizations`: rows the list built in the interval, and `spans`: the instrumented sections that ran in it. `layoutPass` holds `realizeWindow`, `placeHosts` and `publishVisible`; `realizeWindow` holds `makeRoot`, `realizeMeasure` and `freeHost`. `minimapBody` and `minimapEntryBody` count SwiftUI body evaluations.
 
-The first tick has no interval and is left out. `intervalMs` and `workMs` are summarized as `{count, median, p90, p99, max}`, by nearest rank. `over16` to `over100` count intervals longer than that many milliseconds. `hitchMs` adds up, over intervals longer than 1.5 periods, the time past one period. `spans` are run totals, slowest first, and `worstFrames` itemizes the `worst` longest intervals with their offset.
+The first tick has no interval and is left out. `intervalMs` and `workMs` are summarized as `{count, median, p90, p99, max}`, by nearest rank. `overTwoPeriods` and `overFourPeriods` count intervals longer than two and four periods: at least one and three missed frames. `over50` and `over100` count intervals longer than that many milliseconds. `hitchMs` adds up, over intervals longer than 1.5 periods, the time past one period. `spans` are run totals, slowest first, and `worstFrames` itemizes the `worst` longest intervals with their offset.
 
-Compare `hitchMsPerSecond` first, then `over16` and `over33`, then `intervalMs.p99`. Every run also logs a `scroll-hitch …` line under the `app` category. `scripts/debug/measure-chat-scroll.sh <transcript.jsonl> [passes] [speed]` launches a scratch instance seeded with a copy of the transcript and runs top-and-back passes.
+Compare `hitchMsPerSecond` first, then `overTwoPeriods` and `overFourPeriods`, then `intervalMs.p99`. Every run also logs a `scroll-hitch …` line under the `app` category. `scripts/debug/measure-chat-scroll.sh <transcript.jsonl> [passes] [speed]` launches a scratch instance seeded with a copy of the transcript and runs top-and-back passes.
 
 The minimap re-renders whenever the set of visible rows changes, and that cost can hide the list's own. Launch with `PLUME_NO_VISIBLE_PUBLISH=1` (`EXTRA_ENV` in the script) to stop the list publishing that set, so the minimap stays still while the list scrolls. Debug builds only.
 

@@ -44,6 +44,15 @@ final class ScrollChatDriver: NSObject {
     private enum Clock { case displayLink, timer }
 
     private static let timerPeriod = 1.0 / 120
+    /// How long the display link may stay silent before the timer takes
+    /// over: before its first tick, and after one.
+    private static let firstTickLimit = 0.1
+    private static let silenceLimit = 1.0
+    /// A watchdog this late was held off by a busy main thread, which holds
+    /// off a display-link callback just as long, so the link gets this much
+    /// longer to show it is still running.
+    private static let lateFireSlack = 0.05
+    private static let graceAfterStall = 0.1
 
     private let controller: ChatListController
     private let destination: ScrollChatParams.Destination
@@ -52,18 +61,18 @@ final class ScrollChatDriver: NSObject {
 
     private var link: CADisplayLink?
     private var timer: Timer?
+    private var watchdog: Timer?
+    private var watchdogDue: CFTimeInterval = 0
     private var observer: CFRunLoopObserver?
     private var clock = Clock.displayLink
     private let forcesTimer: Bool
     private var linkTicks = 0
     private var timerTicks = 0
-    private var linkPeriod: Double?
 
     private var startedAt: CFTimeInterval = 0
     private var startOffset: CGFloat = 0
     private var byTarget: CGFloat = 0
     private var lastTick: CFTimeInterval?
-    private var lastLinkTick: CFTimeInterval?
     private var arrivedAt: CFTimeInterval?
     private var awaitingTurnEnd = false
     private var turnWorkMs: Double?
@@ -96,18 +105,16 @@ final class ScrollChatDriver: NSObject {
         CFRunLoopAddObserver(CFRunLoopGetMain(), observer, .commonModes)
         self.observer = observer
 
-        if !forcesTimer {
+        if forcesTimer {
+            startTimer()
+        } else {
             let link = controller.scrollView.displayLink(target: self, selector: #selector(linkFired(_:)))
             link.add(to: .main, forMode: .common)
             self.link = link
+            // An occluded window or a sleeping display stops vsync, and the
+            // display link with it.
+            armWatchdog(after: Self.firstTickLimit, now: startedAt)
         }
-        // An occluded window or a sleeping display stops vsync, and the
-        // display link with it.
-        let timer = Timer(timeInterval: Self.timerPeriod, repeats: true) { _ in
-            MainActor.assumeIsolated { ScrollHitchProbe.active?.timerFired() }
-        }
-        RunLoop.main.add(timer, forMode: .common)
-        self.timer = timer
     }
 
     fileprivate func record(_ name: String, ms: Double?) {
@@ -121,25 +128,52 @@ final class ScrollChatDriver: NSObject {
     @objc private func linkFired(_ link: CADisplayLink) {
         guard clock == .displayLink else { return }
         let now = CACurrentMediaTime()
-        lastLinkTick = now
         linkTicks += 1
-        if link.duration > 0 { linkPeriod = link.duration }
-        tick(at: now)
+        armWatchdog(after: Self.silenceLimit, now: now)
+        tick(at: now, period: link.duration > 0 ? link.duration : Self.timerPeriod)
+    }
+
+    /// Moves the one watchdog's fire date rather than scheduling a timer per
+    /// tick.
+    private func armWatchdog(after delay: CFTimeInterval, now: CFTimeInterval) {
+        watchdogDue = now + delay
+        let fireDate = Date(timeIntervalSinceNow: watchdogDue - CACurrentMediaTime())
+        if let watchdog {
+            watchdog.fireDate = fireDate
+            return
+        }
+        let watchdog = Timer(fire: fireDate, interval: 0, repeats: false) { _ in
+            MainActor.assumeIsolated { ScrollHitchProbe.active?.watchdogFired() }
+        }
+        RunLoop.main.add(watchdog, forMode: .common)
+        self.watchdog = watchdog
+    }
+
+    fileprivate func watchdogFired() {
+        watchdog = nil
+        guard clock == .displayLink else { return }
+        let now = CACurrentMediaTime()
+        if now - watchdogDue > Self.lateFireSlack {
+            armWatchdog(after: Self.graceAfterStall, now: now)
+            return
+        }
+        clock = .timer
+        link?.invalidate()
+        link = nil
+        startTimer()
+    }
+
+    private func startTimer() {
+        let timer = Timer(timeInterval: Self.timerPeriod, repeats: true) { _ in
+            MainActor.assumeIsolated { ScrollHitchProbe.active?.timerFired() }
+        }
+        RunLoop.main.add(timer, forMode: .common)
+        self.timer = timer
     }
 
     fileprivate func timerFired() {
-        let now = CACurrentMediaTime()
-        if clock == .displayLink {
-            // Only a long silence counts: after a hitch the timer can fire
-            // ahead of a display link that is still running.
-            let limit = lastLinkTick == nil ? 0.1 : 1.0
-            guard now - (lastLinkTick ?? startedAt) > limit else { return }
-            clock = .timer
-            link?.invalidate()
-            link = nil
-        }
         timerTicks += 1
-        tick(at: now)
+        tick(at: CACurrentMediaTime(), period: Self.timerPeriod)
     }
 
     fileprivate func turnEnded() {
@@ -148,7 +182,7 @@ final class ScrollChatDriver: NSObject {
         turnWorkMs = (CACurrentMediaTime() - lastTick) * 1000
     }
 
-    private func tick(at now: CFTimeInterval) {
+    private func tick(at now: CFTimeInterval, period: CFTimeInterval) {
         let realizationDelta = controller.realizations - realizationsAtLastTick
         let spans = intervalSpans.values.sorted { $0.ms != $1.ms ? $0.ms > $1.ms : $0.name < $1.name }
         let intervalMs = lastTick.map { (now - $0) * 1000 }
@@ -162,8 +196,8 @@ final class ScrollChatDriver: NSObject {
 
         let offset = advance(by: CGFloat(params.speed * dt), at: now)
         samples.append(ScrollFrameSample(
-            index: samples.count, offset: Double(offset), intervalMs: intervalMs, workMs: workMs,
-            realizations: realizationDelta, spans: spans
+            index: samples.count, offset: Double(offset), intervalMs: intervalMs, periodMs: period * 1000,
+            workMs: workMs, realizations: realizationDelta, spans: spans
         ))
 
         if let arrivedAt, now - arrivedAt >= params.settle {
@@ -205,6 +239,8 @@ final class ScrollChatDriver: NSObject {
         link = nil
         timer?.invalidate()
         timer = nil
+        watchdog?.invalidate()
+        watchdog = nil
         if let observer {
             CFRunLoopRemoveObserver(CFRunLoopGetMain(), observer, .commonModes)
             self.observer = nil
@@ -216,10 +252,8 @@ final class ScrollChatDriver: NSObject {
         case (false, true): "timer"
         default: "displayLink"
         }
-        let period = linkTicks > 0 ? (linkPeriod ?? Self.timerPeriod) : Self.timerPeriod
         let report = ScrollHitchReport(
             clock: clockName,
-            periodMs: period * 1000,
             startOffset: Double(startOffset),
             endOffset: Double(controller.scrollView.contentView.bounds.origin.y),
             timedOut: timedOut,

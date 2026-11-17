@@ -10,6 +10,8 @@ nonisolated struct ScrollFrameSample: Codable, Equatable {
     var offset: Double
     /// Since the previous tick's callback began; nil for the first tick.
     var intervalMs: Double?
+    /// The frame period of the clock that ended the interval.
+    var periodMs: Double
     /// The main-thread turn the previous tick began, up to the end of its
     /// Core Animation commit; nil when no turn ended in between.
     var workMs: Double?
@@ -38,6 +40,8 @@ nonisolated struct FrameTimeSummary: Codable, Equatable {
 
 nonisolated struct ScrollHitchReport: Codable, Equatable {
     var clock: String
+    /// The median of the intervals' periods; each interval is judged
+    /// against its own.
     var periodMs: Double
     /// Frame intervals measured: every tick but the first.
     var frames: Int
@@ -51,8 +55,8 @@ nonisolated struct ScrollHitchReport: Codable, Equatable {
     var realizations: Int
     var intervalMs: FrameTimeSummary?
     var workMs: FrameTimeSummary?
-    var over16: Int
-    var over33: Int
+    var overTwoPeriods: Int
+    var overFourPeriods: Int
     var over50: Int
     var over100: Int
     /// Over every interval longer than 1.5 periods, the time past one period.
@@ -62,11 +66,10 @@ nonisolated struct ScrollHitchReport: Codable, Equatable {
     var worstFrames: [ScrollFrameSample]
 
     init(
-        clock: String, periodMs: Double, startOffset: Double, endOffset: Double,
+        clock: String, startOffset: Double, endOffset: Double,
         timedOut: Bool, samples: [ScrollFrameSample], worst: Int
     ) {
         self.clock = clock
-        self.periodMs = periodMs
         self.startOffset = startOffset
         self.endOffset = endOffset
         distance = endOffset - startOffset
@@ -78,11 +81,13 @@ nonisolated struct ScrollHitchReport: Codable, Equatable {
         realizations = measured.reduce(0) { $0 + $1.realizations }
         intervalMs = FrameTimeSummary(intervals)
         workMs = FrameTimeSummary(measured.compactMap(\.workMs))
-        over16 = intervals.filter { $0 > 16 }.count
-        over33 = intervals.filter { $0 > 33 }.count
+        let judged = measured.compactMap { sample in sample.intervalMs.map { (interval: $0, period: sample.periodMs) } }
+        periodMs = FrameTimeSummary(judged.map(\.period))?.median ?? 0
+        overTwoPeriods = judged.count { $0.interval > 2 * $0.period }
+        overFourPeriods = judged.count { $0.interval > 4 * $0.period }
         over50 = intervals.filter { $0 > 50 }.count
         over100 = intervals.filter { $0 > 100 }.count
-        hitchMs = intervals.filter { $0 > 1.5 * periodMs }.reduce(0) { $0 + ($1 - periodMs) }
+        hitchMs = judged.filter { $0.interval > 1.5 * $0.period }.reduce(0) { $0 + $1.interval - $1.period }
         hitchMsPerSecond = durationMs > 0 ? hitchMs / (durationMs / 1000) : 0
         var totals: [String: SwitchLatencySpan] = [:]
         for span in measured.flatMap(\.spans) {
@@ -100,7 +105,7 @@ nonisolated struct ScrollHitchReport: Codable, Equatable {
         return [
             "clock=\(clock)", "frames=\(frames)", "median=\(round(intervalMs?.median))",
             "p99=\(round(intervalMs?.p99))", "max=\(round(intervalMs?.max))",
-            "over16=\(over16)", "over33=\(over33)", "hitchMsPerSecond=\(round(hitchMsPerSecond))",
+            "overTwoPeriods=\(overTwoPeriods)", "overFourPeriods=\(overFourPeriods)", "hitchMsPerSecond=\(round(hitchMsPerSecond))",
         ].joined(separator: " ")
     }
 }

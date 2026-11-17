@@ -201,7 +201,7 @@ final class FakeControlBackend: ControlBackend {
     func scrollChat(_ params: ScrollChatParams) async throws -> ScrollHitchReport {
         try record("scrollChat")
         return ScrollHitchReport(
-            clock: "timer", periodMs: 8, startOffset: 0, endOffset: 0, timedOut: false, samples: [], worst: 0
+            clock: "timer", startOffset: 0, endOffset: 0, timedOut: false, samples: [], worst: 0
         )
     }
 }
