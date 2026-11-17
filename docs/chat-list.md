@@ -186,8 +186,10 @@ pass items=<count> realized=<count> pool=<count> offset=<Int> max=<Int> total=<I
 
 Harness command line (DEBUG build):
 
+`PLUME_SEED_TRANSCRIPT_PATH` points tabs of the seeded tasks at the transcripts, so it needs `PLUME_SEED_TASKS` too. Without it there is no task to seed.
+
 ```
-PLUME_SEED_TRANSCRIPT_PATH=a.jsonl,b.jsonl \
+PLUME_SEED_TASKS=1 PLUME_SEED_TRANSCRIPT_PATH=a.jsonl,b.jsonl \
 PLUME_FAKE_STREAM=0.2 PLUME_CYCLE_SELECTION=5 PLUME_SCROLL_WHEEL=30 \
   <DerivedData>/Plume.app/Contents/MacOS/Plume &
 ```
