@@ -27,6 +27,7 @@ struct DebugSettingsPane: View {
 
             AgentInstallationDebugSection()
             RevealTuningDebugSection()
+            MinimapDebugSection()
             UpdatesDebugSection()
             ThemeDebugSection()
             GreetingDebugSection()
