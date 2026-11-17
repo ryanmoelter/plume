@@ -143,6 +143,8 @@ The first tick has no interval and is left out. `intervalMs` and `workMs` are su
 
 Compare `hitchMsPerSecond` first, then `over16` and `over33`, then `intervalMs.p99`. Every run also logs a `scroll-hitch …` line under the `app` category. `scripts/debug/measure-chat-scroll.sh <transcript.jsonl> [passes] [speed]` launches a scratch instance seeded with a copy of the transcript and runs top-and-back passes.
 
+The minimap re-renders whenever the set of visible rows changes, and that cost can hide the list's own. Launch with `PLUME_NO_VISIBLE_PUBLISH=1` (`EXTRA_ENV` in the script) to stop the list publishing that set, so the minimap stays still while the list scrolls. Debug builds only.
+
 ## How it works
 
 **Registry, not accessibility tree.** SwiftUI puts `.accessibilityIdentifier` on no NSView, and it builds its accessibility tree only for a trusted external client. So views register themselves: `plumeID(_:)` in `Plume/Control/PlumeID.swift` sets the identifier and, in a debug build, records the control in `ControlRegistry` with its `.global` frame, its window, its enabled state, an optional `label` and `value`, and optional `invoke` and `setValue` closures. Geometry and window arrive before `onAppear` and in either order, so every callback rewrites the whole entry. A tab hidden by opacity marks its subtree with `plumeControlsHidden`, which unregisters everything inside; a hidden tab's controls are not on screen even though they are mounted.

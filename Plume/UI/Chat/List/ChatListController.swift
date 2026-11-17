@@ -1132,8 +1132,14 @@ final class ChatListController: NSObject {
         }
     }
 
+    #if DEBUG
+    /// Keeps the minimap's re-renders out of a scroll measurement.
+    private static let skipsVisiblePublish = ProcessInfo.processInfo.environment["PLUME_NO_VISIBLE_PUBLISH"] != nil
+    #endif
+
     private func publishVisibleIDs(offset: CGFloat) {
         #if DEBUG
+        guard !Self.skipsVisiblePublish else { return }
         SwitchLatencyProbe.time("publishVisible") { publishVisibleIDsNow(offset: offset) }
         #else
         publishVisibleIDsNow(offset: offset)
