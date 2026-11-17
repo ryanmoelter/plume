@@ -35,7 +35,8 @@ struct ChatMessageList<SidePane: View>: View, ThemedView {
     /// Room the pinned side pane takes off the list's trailing edge; the
     /// rows lay out in what is left.
     var trailingReserve: CGFloat = 0
-    /// Drawn over the list and under the minimap, so the open map covers it.
+    /// Drawn over the list and under the minimap, so the minimap's preview
+    /// covers it.
     let sidePane: SidePane
 
     /// Whether the user has scrolled away far enough to want a jump back.
@@ -142,7 +143,7 @@ struct ChatMessageList<SidePane: View>: View, ThemedView {
                     sidePane.transition(.opacity)
                 }
             }
-            .overlay(alignment: .trailing) {
+            .overlay(alignment: settings.minimapSide == .leading ? .leading : .trailing) {
                 if mountsChrome, !outline.isEmpty {
                     ChatMinimap(
                         outline: outline,
@@ -153,7 +154,10 @@ struct ChatMessageList<SidePane: View>: View, ThemedView {
                         // The rail cannot measure this itself — its own
                         // geometry is the rail's, not the pane's.
                         viewportWidth: viewportWidth,
-                        revealExclusionHeight: minimapExclusionHeight
+                        // Only a trailing rail shares its edge with the info pane.
+                        revealExclusionHeight: settings.minimapSide == .trailing ? minimapExclusionHeight : 0,
+                        side: settings.minimapSide,
+                        spacing: settings.minimapSpacing
                     )
                     .transition(.opacity)
                 }

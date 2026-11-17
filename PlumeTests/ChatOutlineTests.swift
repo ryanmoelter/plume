@@ -106,8 +106,6 @@ struct ChatOutlineTests {
 
     @Test func anEmptyConversationHasNoEntries() {
         #expect(outline([]).isEmpty)
-        // Nothing divides by the total, whatever it holds.
-        #expect(ChatOutline().totalWeight >= 1)
     }
 
     // MARK: - What anchors
@@ -266,50 +264,6 @@ struct ChatOutlineTests {
         #expect(result.entries.first?.id == all.first?.id)
     }
 
-    // MARK: - Where the reader is
-
-    @Test func positionRunsFromTopToBottom() throws {
-        let result = outline([
-            message("a", .user, [.markdown("First.")]),
-            message("b", .assistant, [.markdown("Reply.")]),
-            message("c", .user, [.markdown("Last.")])
-        ])
-
-        let first = try #require(result.entries.first)
-        let last = try #require(result.entries.last)
-        let top = try #require(result.position(of: first.pieceIDs))
-        let bottom = try #require(result.position(of: last.pieceIDs))
-
-        #expect(top < bottom)
-        #expect(top >= 0)
-        #expect(bottom <= 1)
-    }
-
-    @Test func severalVisibleEntriesAverage() throws {
-        let result = outline([
-            message("a", .user, [.markdown("First.")]),
-            message("b", .assistant, [.markdown("Reply.")]),
-            message("c", .user, [.markdown("Last.")])
-        ])
-
-        let first = try #require(result.entries.first)
-        let last = try #require(result.entries.last)
-        let top = try #require(result.position(of: first.pieceIDs))
-        let bottom = try #require(result.position(of: last.pieceIDs))
-        let both = try #require(result.position(of: first.pieceIDs.union(last.pieceIDs)))
-
-        #expect(both > top)
-        #expect(both < bottom)
-    }
-
-    @Test func nothingVisibleHasNoPosition() {
-        let result = outline([message("a", .user, [.markdown("Only.")])])
-
-        #expect(result.position(of: []) == nil)
-        #expect(result.position(of: ["not-a-piece"]) == nil)
-        #expect(ChatOutline().position(of: ["anything"]) == nil)
-    }
-
     // MARK: - Weight
 
     @Test func weightGrowsWithLengthButNotProportionally() {
@@ -399,61 +353,20 @@ struct ChatOutlineTests {
         let double = try #require(two.entries.first?.weight)
         #expect(double > single)
     }
-
-    @Test func totalWeightSumsTheEntries() {
-        let result = outline([
-            message("a", .user, [.markdown("Ask.")]),
-            message("b", .assistant, [.markdown("Answer.")])
-        ])
-
-        #expect(result.totalWeight == result.entries.reduce(0) { $0 + $1.weight })
-    }
 }
 
-/// How the pointer's height down the minimap's rail maps to how far through
-/// the conversation the map has travelled.
-@MainActor
-struct ChatMinimapEasingTests {
-    @Test func theEndsArePinned() {
-        #expect(ChatMinimap.eased(0) == 0)
-        #expect(ChatMinimap.eased(ChatMinimap.liveRange.lowerBound) == 0)
-        #expect(ChatMinimap.eased(ChatMinimap.liveRange.upperBound) == 1)
-        #expect(ChatMinimap.eased(1) == 1)
-    }
-
-    @Test func theMiddleOfTheRailIsTheMiddleOfTheConversation() {
-        #expect(abs(ChatMinimap.eased(0.5) - 0.5) < 0.0001)
-    }
-
-    @Test func travelOnlyEverGrows() {
-        var previous = ChatMinimap.eased(0)
-        for step in 1...100 {
-            let next = ChatMinimap.eased(CGFloat(step) / 100)
-            #expect(next >= previous)
-            previous = next
-        }
-    }
-
-    /// The point of the curve: the same movement of the hand covers more
-    /// ground in the middle than at either end.
-    @Test func theMiddleIsFasterThanTheEnds() {
-        let atEnd = ChatMinimap.eased(0.20) - ChatMinimap.eased(0.15)
-        let atMiddle = ChatMinimap.eased(0.55) - ChatMinimap.eased(0.50)
-        #expect(atMiddle > atEnd * 2)
-    }
-}
-
-/// The stretch of rail beside the collapsed info pane cannot open the map,
-/// but a map already open keeps following the pointer through it.
+/// The stretch of a trailing rail beside the collapsed info pane cannot start
+/// a hover, but a hover already under way keeps following the pointer
+/// through it.
 @MainActor
 struct ChatMinimapRevealExclusionTests {
-    @Test func thePointerBesideTheInfoPaneDoesNotOpenTheMap() {
+    @Test func thePointerBesideTheInfoPaneDoesNotStartAHover() {
         #expect(!ChatMinimap.tracksHover(atY: 20, isTracking: false, exclusionHeight: 44))
         #expect(ChatMinimap.tracksHover(atY: 44, isTracking: false, exclusionHeight: 44))
         #expect(ChatMinimap.tracksHover(atY: 0, isTracking: false, exclusionHeight: 0))
     }
 
-    @Test func anOpenMapFollowsThePointerIntoTheExclusion() {
+    @Test func aHoverFollowsThePointerIntoTheExclusion() {
         #expect(ChatMinimap.tracksHover(atY: 20, isTracking: true, exclusionHeight: 44))
     }
 }

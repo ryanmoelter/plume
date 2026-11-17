@@ -137,7 +137,7 @@ Each frame interval, from one tick's callback to the next, reports:
 
 - `intervalMs`: how late the main thread reached the next frame. This is the hitch metric: any main-thread work, whoever did it, shows as a long interval.
 - `workMs`: how long the main-thread turn the interval's first tick began ran, through Core Animation's commit. An interval much longer than its `workMs` waited on something other than that turn.
-- `realizations`: rows the list built in the interval, and `spans`: the instrumented sections that ran in it. `layoutPass` holds `realizeWindow`, `placeHosts` and `publishVisible`; `realizeWindow` holds `makeRoot`, `realizeMeasure` and `freeHost`. `minimapBody` and `minimapEntryBody` count SwiftUI body evaluations.
+- `realizations`: rows the list built in the interval, and `spans`: the instrumented sections that ran in it. `layoutPass` holds `realizeWindow`, `placeHosts` and `publishVisible`; `realizeWindow` holds `makeRoot`, `realizeMeasure` and `freeHost`. `minimapBody` counts the minimap's SwiftUI body evaluations.
 
 The first tick has no interval and is left out. `intervalMs` and `workMs` are summarized as `{count, median, p90, p99, max}`, by nearest rank. `overTwoPeriods` and `overFourPeriods` count intervals longer than two and four periods: at least one and three missed frames. `over50` and `over100` count intervals longer than that many milliseconds. `hitchMs` adds up, over intervals longer than 1.5 periods, the time past one period. `spans` are run totals, slowest first, and `worstFrames` itemizes the `worst` longest intervals with their offset.
 
