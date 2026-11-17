@@ -5,6 +5,7 @@
 # Usage:
 #   scripts/debug/measure-chat-scroll.sh <transcript.jsonl> [passes=3] [speed=4000]
 #   EXTRA_ENV="A=1 B=2" ...   # extra environment for the app
+#   DISTANCE=30000 ...        # scroll this many points per pass instead of to the ends
 #   KEEP=1 ...                # leave the app running afterwards
 #
 # Prints one compact JSON result per line, prefixed `up <n>` or `down <n>`.
@@ -13,7 +14,7 @@
 set -euo pipefail
 
 if [ $# -lt 1 ]; then
-  sed -n '2,12p' "$0" >&2
+  sed -n '2,13p' "$0" >&2
   exit 2
 fi
 TRANSCRIPT="$1"
@@ -86,8 +87,13 @@ compact() {
 }
 
 for pass in $(seq 1 "$PASSES"); do
-  c scrollChat to=top speed="$SPEED" | compact "up $pass"
-  c scrollChat to=bottom speed="$SPEED" | compact "down $pass"
+  if [ -n "${DISTANCE:-}" ]; then
+    c scrollChat by="-$DISTANCE" speed="$SPEED" worst=8 | compact "up $pass"
+    c scrollChat by="$DISTANCE" speed="$SPEED" worst=8 | compact "down $pass"
+  else
+    c scrollChat to=top speed="$SPEED" worst=8 | compact "up $pass"
+    c scrollChat to=bottom speed="$SPEED" worst=8 | compact "down $pass"
+  fi
 done
 
 if [ "${KEEP:-0}" = "1" ]; then
