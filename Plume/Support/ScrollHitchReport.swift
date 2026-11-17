@@ -20,7 +20,6 @@ nonisolated struct ScrollFrameSample: Codable, Equatable {
 nonisolated struct FrameTimeSummary: Codable, Equatable {
     var count: Int
     var median: Double
-    /// Nearest rank, like `LatencySummary.p90`.
     var p90: Double
     var p99: Double
     var max: Double
@@ -31,13 +30,9 @@ nonisolated struct FrameTimeSummary: Codable, Equatable {
         let n = sorted.count
         count = n
         median = n % 2 == 1 ? sorted[n / 2] : (sorted[n / 2 - 1] + sorted[n / 2]) / 2
-        p90 = Self.nearestRank(0.9, in: sorted)
-        p99 = Self.nearestRank(0.99, in: sorted)
+        p90 = sorted.nearestRank(0.9)
+        p99 = sorted.nearestRank(0.99)
         max = sorted[n - 1]
-    }
-
-    private static func nearestRank(_ quantile: Double, in sorted: [Double]) -> Double {
-        sorted[Swift.max(Int((quantile * Double(sorted.count)).rounded(.up)), 1) - 1]
     }
 }
 

@@ -203,10 +203,17 @@ nonisolated struct SwitchLatencyMeasurement: Codable, Equatable {
     }
 }
 
+nonisolated extension [Double] {
+    /// Over ascending samples, the smallest one that at least `quantile` of
+    /// them are at or below.
+    func nearestRank(_ quantile: Double) -> Double {
+        self[Swift.max(Int((quantile * Double(count)).rounded(.up)), 1) - 1]
+    }
+}
+
 nonisolated struct LatencySummary: Codable, Equatable {
     var count: Int
     var median: Double
-    /// Nearest rank: the smallest sample at least 90% of samples are at or below.
     var p90: Double
     var min: Double
     var max: Double
@@ -217,7 +224,7 @@ nonisolated struct LatencySummary: Codable, Equatable {
         let n = sorted.count
         count = n
         median = n % 2 == 1 ? sorted[n / 2] : (sorted[n / 2 - 1] + sorted[n / 2]) / 2
-        p90 = sorted[Int((0.9 * Double(n)).rounded(.up)) - 1]
+        p90 = sorted.nearestRank(0.9)
         min = sorted[0]
         max = sorted[n - 1]
     }
