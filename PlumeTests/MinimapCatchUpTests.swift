@@ -1,3 +1,4 @@
+import AppKit
 import Foundation
 import Testing
 @testable import Plume
@@ -97,6 +98,20 @@ struct MinimapHoverScrollTests {
         #expect(scroll.offset > 100)
     }
 
+    @Test func aShrinkingTravelClampsTheOffset() {
+        var scroll = MinimapHoverScroll(offset: 150, travel: 200, pointer: 0.5, gain: 10)
+        scroll.repin(travel: 100)
+        #expect(scroll.offset == 100)
+        scroll.repin(travel: 0)
+        #expect(scroll.offset == 0)
+    }
+
+    @Test func repinningKeepsTheOffsetWhenItFits() {
+        var scroll = MinimapHoverScroll(offset: 80, travel: 200, pointer: 0.5, gain: 10)
+        scroll.repin(travel: 120)
+        #expect(abs(scroll.offset - 80) < 0.0001)
+    }
+
     @Test func entryClampsAnOffsetPastTheTravel() {
         #expect(MinimapHoverScroll(offset: 500, travel: 200, pointer: 0.5, gain: 10).offset == 200)
         #expect(MinimapHoverScroll(offset: -20, travel: 200, pointer: 0.5, gain: 10).offset == 0)
@@ -109,17 +124,39 @@ struct MinimapHoverScrollTests {
     }
 }
 
-/// A click on the hovered rail is the minimap's only within its footprint,
-/// below the reveal exclusion and above the composer.
+/// A click on the hovered rail is the minimap's only within its footprint
+/// and clear of the pane's edge, below the reveal exclusion and above the
+/// composer, and only when it lands on the chat's own content.
 @MainActor
 struct MinimapClickZoneTests {
-    private func accepts(distance: CGFloat = 4, y: CGFloat = 100) -> Bool {
+    private func accepts(distance: CGFloat = 8, y: CGFloat = 100) -> Bool {
         MinimapClickZone.accepts(distanceFromEdge: distance, y: y, footprint: 12, exclusionHeight: 40, drawableBottom: 300)
     }
 
     @Test func insideTheFootprintIsTheMinimaps() {
         #expect(accepts())
+        #expect(accepts(distance: MinimapClickZone.edgeClearance))
         #expect(accepts(distance: 12))
+    }
+
+    @Test func thePanesEdgeIsLeftToTheDividers() {
+        #expect(!accepts(distance: 0))
+        #expect(!accepts(distance: MinimapClickZone.edgeClearance - 0.5))
+    }
+
+    @Test func onlyTheChatsContentGivesUpItsClick() {
+        let document = ChatListDocumentView()
+        let row = NSView()
+        document.addSubview(row)
+        let scroll = NSScrollView()
+        scroll.documentView = document
+
+        #expect(MinimapClickZone.isChatContent(row))
+        #expect(MinimapClickZone.isChatContent(scroll))
+        #expect(MinimapClickZone.isChatContent(scroll.contentView))
+        #expect(!MinimapClickZone.isChatContent(NSView()))
+        #expect(!MinimapClickZone.isChatContent(NSScrollView()))
+        #expect(!MinimapClickZone.isChatContent(nil))
     }
 
     @Test func pastTheFootprintReachesTheChat() {

@@ -1,3 +1,4 @@
+import AppKit
 import Foundation
 
 /// Maps the pointer onto the minimap's scroll position without ever jumping,
@@ -91,12 +92,25 @@ struct MinimapHoverScroll: Equatable {
         catchUp.gain = gain
         catchUp.move(to: pointer)
     }
+
+    /// Keeps the offset in points across a change of travel, clamped into
+    /// the new travel, with the pointer where it was.
+    mutating func repin(travel newTravel: CGFloat) {
+        guard newTravel != travel else { return }
+        self = MinimapHoverScroll(offset: offset, travel: newTravel, pointer: catchUp.pointer, gain: catchUp.gain)
+    }
 }
 
 /// Where a click on the hovered rail selects a row rather than reaching the
-/// chat under it: within the rail's footprint from the window edge, below
-/// the band beside the info pane, and above the composer.
+/// chat under it: within the rail's footprint from the pane's edge but clear
+/// of the edge itself, below the band beside the info pane, and above the
+/// composer.
 enum MinimapClickZone {
+    /// Kept free at the pane's edge, where a split divider's grip, the
+    /// sidebar divider or the window's resize edge overhangs the pane. The
+    /// split divider's grip is 9 pt wide and centered on the boundary.
+    static let edgeClearance: CGFloat = 5
+
     static func accepts(
         distanceFromEdge: CGFloat,
         y: CGFloat,
@@ -104,7 +118,21 @@ enum MinimapClickZone {
         exclusionHeight: CGFloat,
         drawableBottom: CGFloat
     ) -> Bool {
-        distanceFromEdge >= 0 && distanceFromEdge <= footprint
+        distanceFromEdge >= edgeClearance && distanceFromEdge <= footprint
             && y >= exclusionHeight && y <= drawableBottom
+    }
+
+    /// Whether the view a click lands on is the chat's own content, which a
+    /// click on the rail may take. Anything else under the pointer — a
+    /// divider, a scroller, the window frame — owns the click.
+    static func isChatContent(_ view: NSView?) -> Bool {
+        var current = view
+        while let candidate = current {
+            if candidate is NSScroller { return false }
+            if candidate is ChatListDocumentView { return true }
+            if let scroll = candidate as? NSScrollView { return scroll.documentView is ChatListDocumentView }
+            current = candidate.superview
+        }
+        return false
     }
 }

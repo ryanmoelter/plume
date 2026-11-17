@@ -357,16 +357,21 @@ struct ChatOutlineTests {
 
 /// The stretch of a trailing rail beside the collapsed info pane cannot start
 /// a hover, but a hover already under way keeps following the pointer
-/// through it.
+/// through it. The composer's band ends any hover.
 @MainActor
 struct ChatMinimapRevealExclusionTests {
     @Test func thePointerBesideTheInfoPaneDoesNotStartAHover() {
-        #expect(!ChatMinimap.tracksHover(atY: 20, isTracking: false, exclusionHeight: 44))
-        #expect(ChatMinimap.tracksHover(atY: 44, isTracking: false, exclusionHeight: 44))
-        #expect(ChatMinimap.tracksHover(atY: 0, isTracking: false, exclusionHeight: 0))
+        #expect(!ChatMinimap.tracksHover(atY: 20, isTracking: false, exclusionHeight: 44, drawableBottom: 300))
+        #expect(ChatMinimap.tracksHover(atY: 44, isTracking: false, exclusionHeight: 44, drawableBottom: 300))
+        #expect(ChatMinimap.tracksHover(atY: 0, isTracking: false, exclusionHeight: 0, drawableBottom: 300))
     }
 
     @Test func aHoverFollowsThePointerIntoTheExclusion() {
-        #expect(ChatMinimap.tracksHover(atY: 20, isTracking: true, exclusionHeight: 44))
+        #expect(ChatMinimap.tracksHover(atY: 20, isTracking: true, exclusionHeight: 44, drawableBottom: 300))
+    }
+
+    @Test func thePointerOverTheComposerIsNotOnTheMap() {
+        #expect(!ChatMinimap.tracksHover(atY: 301, isTracking: false, exclusionHeight: 0, drawableBottom: 300))
+        #expect(!ChatMinimap.tracksHover(atY: 301, isTracking: true, exclusionHeight: 0, drawableBottom: 300))
     }
 }

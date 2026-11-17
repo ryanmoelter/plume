@@ -95,9 +95,11 @@ struct ChatMinimap: View, ThemedView {
                         railWidth: railWidth,
                         tuning: tuning.values,
                         scrollOffset: scrollOffset,
+                        centering: metrics.centering,
                         genieY: genieY,
                         genieStrength: genieStrength
                     ))
+                    .animation(centeringAnimation, value: metrics.centering)
                     .frame(width: canvasWidth)
                     .allowsHitTesting(false)
             }
@@ -128,6 +130,22 @@ struct ChatMinimap: View, ThemedView {
                 layout = MinimapLayout(outline: inputs.outline, spacing: inputs.spacing)
                 keepHoverOnItsRow()
             }
+            // The follow is off during a hover, so a shrinking pane would
+            // leave the map drawn past its end until the pointer left.
+            .onChange(of: metrics.travel) { _, travel in
+                guard hoveredRowID != nil else { return }
+                if travel > 0, var current = hoverScroll {
+                    current.repin(travel: travel)
+                    hoverScroll = current
+                } else {
+                    hoverScroll = nil
+                }
+                let clamped = min(max(scrollOffset, 0), travel)
+                guard clamped != scrollOffset else { return }
+                var transaction = Transaction()
+                transaction.disablesAnimations = true
+                withTransaction(transaction) { scrollOffset = clamped }
+            }
             // Kept where the reader is while the pointer is away. Watched
             // together with the hover so that leaving re-asserts the chat's
             // position: the chat has not moved while the pointer steered, so
@@ -144,7 +162,9 @@ struct ChatMinimap: View, ThemedView {
                     ?? min(scrollOffset, drive.travel)
                 guard isPlaced else {
                     scrollOffset = target
-                    isPlaced = true
+                    // Without a focus the target is only a guess, and the
+                    // real one would otherwise arrive as a sweep.
+                    isPlaced = drive.focus != nil
                     return
                 }
                 guard target != scrollOffset else { return }
@@ -173,8 +193,12 @@ struct ChatMinimap: View, ThemedView {
                     guard Self.tracksHover(
                         atY: point.y,
                         isTracking: hoveredRowID != nil,
-                        exclusionHeight: revealExclusionHeight
-                    ) else { return }
+                        exclusionHeight: revealExclusionHeight,
+                        drawableBottom: metrics.drawableBottom
+                    ) else {
+                        pointerLeft()
+                        return
+                    }
                     pointerMoved(toY: point.y, metrics: metrics)
                     armClick(at: point, metrics: metrics)
                 case .ended:
@@ -183,8 +207,16 @@ struct ChatMinimap: View, ThemedView {
             }
     }
 
-    static func tracksHover(atY y: CGFloat, isTracking: Bool, exclusionHeight: CGFloat) -> Bool {
-        isTracking || y >= exclusionHeight
+    /// The composer covers the rail below `drawableBottom`, so the pointer
+    /// there is over the composer, not the map.
+    static func tracksHover(atY y: CGFloat, isTracking: Bool, exclusionHeight: CGFloat, drawableBottom: CGFloat) -> Bool {
+        y <= drawableBottom && (isTracking || y >= exclusionHeight)
+    }
+
+    /// A short conversation sits centered in the pane, so each row it gains
+    /// moves every bar. Gliding there keeps a hovered bar under the pointer.
+    private var centeringAnimation: Animation? {
+        isPlaced ? .smooth(duration: tuning.values.snapDuration) : nil
     }
 
     /// Lets the next click select the hovered row, but only where it would
@@ -306,6 +338,7 @@ struct ChatMinimap: View, ThemedView {
         .frame(width: values.previewMaxWidth, alignment: side == .leading ? .leading : .trailing)
         .alignmentGuide(.top) { $0[VerticalAlignment.center] }
         .offset(x: side == .leading ? gap + slide : -(gap + slide), y: clampedY)
+        .animation(centeringAnimation, value: metrics.centering)
         .opacity(isPreviewShown && row != nil ? 1 : 0)
         .allowsHitTesting(false)
     }
@@ -530,13 +563,18 @@ private final class MinimapClickMonitor {
                 self.swallowsMouseUp = false
                 return nil
             }
-            guard let onClick = self.onClick, event.modifierFlags.intersection(.deviceIndependentFlagsMask).isEmpty else {
-                return event
-            }
+            guard let onClick = self.onClick,
+                  event.modifierFlags.intersection(.deviceIndependentFlagsMask).isEmpty,
+                  MinimapClickZone.isChatContent(self.window?.contentView?.superview?.hitTest(event.locationInWindow))
+            else { return event }
             self.swallowsMouseUp = true
             onClick()
             return nil
         }
+    }
+
+    isolated deinit {
+        if let monitor { NSEvent.removeMonitor(monitor) }
     }
 
     func stop() {
@@ -561,16 +599,27 @@ private struct MinimapDrawing: ViewModifier, Animatable {
     let railWidth: CGFloat
     let tuning: MinimapTuning.Values
     var scrollOffset: CGFloat
+    /// Drawn from here rather than `metrics`, so it animates.
+    var centering: CGFloat
     var genieY: CGFloat
     var genieStrength: CGFloat
 
-    var animatableData: AnimatablePair<CGFloat, AnimatablePair<CGFloat, CGFloat>> {
-        get { AnimatablePair(scrollOffset, AnimatablePair(genieY, genieStrength)) }
+    var animatableData: AnimatablePair<AnimatablePair<CGFloat, CGFloat>, AnimatablePair<CGFloat, CGFloat>> {
+        get { AnimatablePair(AnimatablePair(scrollOffset, centering), AnimatablePair(genieY, genieStrength)) }
         set {
-            scrollOffset = newValue.first
+            scrollOffset = newValue.first.first
+            centering = newValue.first.second
             genieY = newValue.second.first
             genieStrength = newValue.second.second
         }
+    }
+
+    private func screenY(contentY: CGFloat) -> CGFloat {
+        metrics.topMargin + centering + contentY - scrollOffset
+    }
+
+    private func contentY(atY y: CGFloat) -> CGFloat {
+        y - metrics.topMargin - centering + scrollOffset
     }
 
     func body(content: Content) -> some View {
@@ -585,8 +634,8 @@ private struct MinimapDrawing: ViewModifier, Animatable {
         guard !layout.positions.isEmpty else { return }
         context.clip(to: Path(CGRect(x: 0, y: 0, width: size.width, height: max(0, metrics.drawableBottom))))
         let radius = CGFloat(tuning.genieRadius)
-        let firstVisible = layout.nearestRow(toY: metrics.contentY(atY: -radius, scrollOffset: scrollOffset)) ?? 0
-        let lastVisible = layout.nearestRow(toY: metrics.contentY(atY: metrics.drawableBottom + radius, scrollOffset: scrollOffset))
+        let firstVisible = layout.nearestRow(toY: contentY(atY: -radius)) ?? 0
+        let lastVisible = layout.nearestRow(toY: contentY(atY: metrics.drawableBottom + radius))
             ?? layout.rows.count - 1
         let from = max(0, firstVisible - 1)
         let through = min(layout.rows.count - 1, lastVisible + 1)
@@ -594,7 +643,7 @@ private struct MinimapDrawing: ViewModifier, Animatable {
 
         for index in from...through {
             let contentY = layout.positions[index]
-            let y = metrics.screenY(contentY: contentY, scrollOffset: scrollOffset)
+            let y = screenY(contentY: contentY)
             if layout.spacing == .even, index + 1 < layout.positions.count, layout.tickStrengths[index] > 0 {
                 let tickY = (contentY + layout.positions[index + 1]) / 2
                 drawTick(in: &context, size: size, contentY: tickY, strength: layout.tickStrengths[index])
@@ -625,7 +674,7 @@ private struct MinimapDrawing: ViewModifier, Animatable {
     /// A faint mark in the gap after a row, as wide as the agent's output
     /// there was long.
     private func drawTick(in context: inout GraphicsContext, size: CGSize, contentY: CGFloat, strength: CGFloat) {
-        let y = metrics.screenY(contentY: contentY, scrollOffset: scrollOffset)
+        let y = screenY(contentY: contentY)
         let width = railWidth * (0.2 + 0.5 * strength) * scale(at: contentY, maximum: tuning.genieWidthScale)
         let x = side == .leading ? 0 : size.width - width
         context.fill(
