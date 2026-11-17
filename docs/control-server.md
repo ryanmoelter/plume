@@ -141,7 +141,14 @@ Each frame interval, from one tick's callback to the next, reports:
 
 The first tick has no interval and is left out. `intervalMs` and `workMs` are summarized as `{count, median, p90, p99, max}`, by nearest rank. `overTwoPeriods` and `overFourPeriods` count intervals longer than two and four periods: at least one and three missed frames. `over50` and `over100` count intervals longer than that many milliseconds. `hitchMs` adds up, over intervals longer than 1.5 periods, the time past one period. `spans` are run totals, slowest first, and `worstFrames` itemizes the `worst` longest intervals with their offset.
 
-Compare `hitchMsPerSecond` first, then `overTwoPeriods` and `overFourPeriods`, then `intervalMs.p99`. Every run also logs a `scroll-hitch …` line under the `app` category. `scripts/debug/measure-chat-scroll.sh <transcript.jsonl> [passes] [speed]` launches a scratch instance seeded with a copy of the transcript and runs top-and-back passes.
+Compare `hitchMsPerSecond` first, then `overTwoPeriods` and `overFourPeriods`, then `intervalMs.p99`. Every run also logs a `scroll-hitch …` line under the `app` category.
+
+`scripts/debug/measure-chat-scroll.sh <transcript.jsonl> [passes=3] [speed=4000]` launches a scratch instance seeded with a copy of the transcript and runs top-and-back passes. It sets each pass's `maxSeconds` from the distance and the speed, and warns and exits non-zero if a pass still times out. Environment variables change its defaults:
+
+- `CLOCK`: `timer` (the default) or `auto`.
+- `DISTANCE`: scroll this many points each way instead of to the ends. Unset by default.
+- `KEEP=1`: leave the app running afterwards. Off by default.
+- `EXTRA_ENV="A=1 B=2"`: extra environment for the app.
 
 The minimap re-renders whenever the set of visible rows changes, and that cost can hide the list's own. Launch with `PLUME_NO_VISIBLE_PUBLISH=1` (`EXTRA_ENV` in the script) to stop the list publishing that set, so the minimap stays still while the list scrolls. Debug builds only.
 

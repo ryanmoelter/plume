@@ -10,12 +10,14 @@
 #   CLOCK=<auto|timer> ...    # scrollChat's frame clock; default timer (repeatable)
 #
 # Prints one compact JSON result per line, prefixed `up <n>` or `down <n>`.
+# Each pass's maxSeconds follows from its distance and the speed; a pass that
+# still times out prints a warning, and the script exits 3 after the last.
 # Build the Debug app first. docs/control-server.md ("Measuring a scroll")
 # explains the fields.
 set -euo pipefail
 
 if [ $# -lt 1 ]; then
-  sed -n '2,14p' "$0" >&2
+  sed -n '2,16p' "$0" >&2
   exit 2
 fi
 TRANSCRIPT="$1"
@@ -84,20 +86,56 @@ until c readText target='{"kind":"chatList"}' 2>/dev/null \
 done
 sleep 3
 
+TIMED_OUT=0
+# Prints the result and records a timeout, since a truncated pass reads like
+# a short, smooth one.
 compact() {
-  python3 -c 'import json, sys; print(sys.argv[1], (lambda r: json.dumps(r.get("result", r), separators=(",", ":")))(json.load(sys.stdin)))' "$1"
+  local line
+  line="$(python3 -c '
+import json, sys
+response = json.load(sys.stdin)
+result = response.get("result", response)
+print(sys.argv[1], json.dumps(result, separators=(",", ":")))
+if result.get("timedOut"):
+    seconds = result.get("durationMs", 0) / 1000
+    print(f"warning: {sys.argv[1]} timed out after {seconds:.1f} s, short of its destination", file=sys.stderr)
+    sys.exit(3)
+' "$1")" || TIMED_OUT=1
+  echo "$line"
+}
+
+# The list opens at the bottom, so its offset is the whole scrollable height.
+# Rows that measure taller than their estimates grow it, hence the slack.
+if [ -n "${DISTANCE:-}" ]; then
+  SPAN="$DISTANCE"
+else
+  SPAN="$(c scrollChat by=0 settle=0 worst=0 | python3 -c 'import json, sys; print(json.load(sys.stdin)["result"]["startOffset"])')"
+fi
+MAX_SECONDS="$(python3 -c 'import sys; print(min(300, round(abs(float(sys.argv[1])) / float(sys.argv[2]) * 2 + 10, 1)))' "$SPAN" "$SPEED")"
+echo "maxSeconds $MAX_SECONDS per pass" >&2
+
+# Not a pipeline, so `compact` runs in this shell and its TIMED_OUT sticks.
+run_pass() {
+  local label="$1" result
+  shift
+  result="$(c scrollChat "$@" speed="$SPEED" worst=8 clock="$CLOCK" maxSeconds="$MAX_SECONDS")"
+  compact "$label" <<<"$result"
 }
 
 for pass in $(seq 1 "$PASSES"); do
   if [ -n "${DISTANCE:-}" ]; then
-    c scrollChat by="-$DISTANCE" speed="$SPEED" worst=8 clock="$CLOCK" | compact "up $pass"
-    c scrollChat by="$DISTANCE" speed="$SPEED" worst=8 clock="$CLOCK" | compact "down $pass"
+    run_pass "up $pass" by="-$DISTANCE"
+    run_pass "down $pass" by="$DISTANCE"
   else
-    c scrollChat to=top speed="$SPEED" worst=8 clock="$CLOCK" | compact "up $pass"
-    c scrollChat to=bottom speed="$SPEED" worst=8 clock="$CLOCK" | compact "down $pass"
+    run_pass "up $pass" to=top
+    run_pass "down $pass" to=bottom
   fi
 done
 
 if [ "${KEEP:-0}" = "1" ]; then
   echo "KEEP=1: pid $PID, socket $SOCKET" >&2
+fi
+if [ "$TIMED_OUT" = "1" ]; then
+  echo "at least one pass timed out; its numbers cover only part of the scroll" >&2
+  exit 3
 fi
