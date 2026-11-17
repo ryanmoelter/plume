@@ -87,6 +87,13 @@ done
 sleep 3
 
 TIMED_OUT=0
+# Prints a failed response and exits, since `set -e` would exit silently.
+fail() {
+  echo "$1: scrollChat failed:" >&2
+  echo "$2" >&2
+  exit 1
+}
+
 # Prints the result and records a timeout, since a truncated pass reads like
 # a short, smooth one.
 compact() {
@@ -109,7 +116,8 @@ if result.get("timedOut"):
 if [ -n "${DISTANCE:-}" ]; then
   SPAN="$DISTANCE"
 else
-  SPAN="$(c scrollChat by=0 settle=0 worst=0 | python3 -c 'import json, sys; print(json.load(sys.stdin)["result"]["startOffset"])')"
+  if ! probe="$(c scrollChat by=0 settle=0 worst=0)"; then fail "measuring the span" "$probe"; fi
+  SPAN="$(python3 -c 'import json, sys; print(json.load(sys.stdin)["result"]["startOffset"])' <<<"$probe")"
 fi
 MAX_SECONDS="$(python3 -c 'import sys; print(min(300, round(abs(float(sys.argv[1])) / float(sys.argv[2]) * 2 + 10, 1)))' "$SPAN" "$SPEED")"
 echo "maxSeconds $MAX_SECONDS per pass" >&2
@@ -118,7 +126,9 @@ echo "maxSeconds $MAX_SECONDS per pass" >&2
 run_pass() {
   local label="$1" result
   shift
-  result="$(c scrollChat "$@" speed="$SPEED" worst=8 clock="$CLOCK" maxSeconds="$MAX_SECONDS")"
+  if ! result="$(c scrollChat "$@" speed="$SPEED" worst=8 clock="$CLOCK" maxSeconds="$MAX_SECONDS")"; then
+    fail "$label" "$result"
+  fi
   compact "$label" <<<"$result"
 }
 
