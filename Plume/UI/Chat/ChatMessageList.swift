@@ -198,6 +198,8 @@ struct ChatMessageList<SidePane: View>: View, ThemedView {
         .onChange(of: referenceRevision) { rebuildPieces() }
         .onChange(of: linkDirectory) { rebuildPieces() }
         .onDisappear {
+            pendingStreamRebuild?.cancel()
+            pendingStreamRebuild = nil
             if let tabID { ReferenceChipStore.shared.release(owner: tabID, mount: chipMount) }
         }
         #if DEBUG

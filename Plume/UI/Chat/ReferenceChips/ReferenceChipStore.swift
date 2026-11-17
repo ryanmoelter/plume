@@ -10,8 +10,8 @@ import Observation
 /// the list's cue to rebuild its pieces. Any title change also bumps every
 /// owner with no list mounted, since a list that let go of its wants
 /// mid-lookup still shows the target once it mounts again, and its next
-/// lookup isn't due yet. An owner is mounted from its first `want` until its
-/// `release`, whether or not it wants anything, so a mounted list with no
+/// lookup isn't due yet. An owner is mounted from a `want` until `release` or
+/// `forget`, whether or not it wants anything, so a mounted list with no
 /// links never rebuilds for another list's title.
 /// An icon change alone re-renders only the text drawing it, since
 /// `icon(for:)` reads a per-target box.
@@ -111,8 +111,8 @@ final class ReferenceChipStore {
     // MARK: - Wants
 
     /// Replaces the targets `owner` shows, and marks it mounted until
-    /// `release`. `mount` names the view instance asking, so a view that has gone away
-    /// can't release what its replacement wants.
+    /// `release`. `mount` names the view instance asking, so a view that has
+    /// gone away can't release what its replacement wants.
     func want(_ targets: Set<ReferenceTarget>, owner: UUID, mount: UUID? = nil) {
         if let mount { mounts[owner] = mount }
         mountedOwners.insert(owner)

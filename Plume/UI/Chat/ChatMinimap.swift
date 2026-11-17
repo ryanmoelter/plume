@@ -341,7 +341,7 @@ struct ChatMinimap: View, ThemedView {
     /// The room the entries actually get: the pane less the margins the
     /// content is inset by, which are not part of the conversation.
     private func liveHeight(in size: CGSize) -> CGFloat {
-        max(0, size.height - 2 * dimensions.verticalPadding - bottomInset)
+        max(0, size.height - margins)
     }
 
     /// Both margins count as content to travel past. Leaving the top one out
