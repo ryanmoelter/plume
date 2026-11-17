@@ -34,7 +34,7 @@ Library behavior comes from the models under `models/`: what `map`, `launch` or 
 
 Build the command with `./gradlew :extractor:installDist`; it lands in `extractor/build/install/extractor/bin/extractor`.
 
-`bin/altitude-golden` regenerates the traces and branch trees under `golden/` from each target's manifest and diffs them. It skips a target whose manifest is absent.
+`bin/altitude-golden` regenerates the traces and branch trees under `golden/` from each target's manifest and diffs them. It skips a target whose manifest is absent. This repository is public, so the goldens of a private target stay out of it; keep them on a private branch or outside the checkout.
 
 ## Export
 

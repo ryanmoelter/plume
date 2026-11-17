@@ -1,0 +1,2662 @@
+<title>Altitude Layer Stack</title>
+<meta name="claude:viewport-fit-sides" content="cover">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500&family=IBM+Plex+Sans+Condensed:wght@500;600&family=IBM+Plex+Sans:wght@400;500;600&display=swap">
+<style>
+/* Layout: one-screen instrument. A 3D or 2D stage fills the left; a scrolling control and reading panel on the right; stacked on phones. */
+/* Every colour is from Plume's Lum theme. Hues are its 12-hue wheel in wheel order (--h0 red to --h11 eggplant: the six
+   ANSI text hues and the six extended ones). Neutrals are the foreground over the background at the emphasis ladder
+   (--em-*), pre-blended into --fg-* so overlapping translucent lines never stack darker. Anything in between is an
+   OKLCH mix of Lum colours, computed in the page. */
+:root {
+  --bg: #fffbf7; --ink: #4e463f; --surface: #f6f2ee; --muted: #958e89; --rule: #e4e0db; --grey: #958e89;
+  --plane: #716a64; --cyl: #4e463f; --ribbon: #716a64; --edge: #4e463f; --role-data: #958e89;
+  --role-other: #716a64; --mem-fn: #4e463f; --mem-prop: #958e89; --accent: #bc4c33; --branch: #267ab5;
+  --role-screen: #5664c1; --role-ui: #008ba1; --role-state: #36955d; --role-boundary: #ae3d62;
+  --role-di: #987e00; --infra: #708d28; --conn: #7f51b1; --cell-read: #029386; --mem-init: #9d448f;
+  --stub: #b16801; --em-primary: 1.0; --em-secondary: 0.8; --em-subtle: 0.6; --em-outline: 0.45;
+  --em-outline-inner: 0.38; --em-disabled: 0.3; --em-divider: 0.15; --em-tint: 0.1; --fg-primary: #4e463f;
+  --fg-secondary: #716a64; --fg-subtle: #958e89; --fg-outline: #afaaa4; --fg-outline-inner: #bcb6b1;
+  --fg-disabled: #cac5c0; --fg-divider: #e4e0db; --fg-tint: #ede9e5; --h0: #ae3d62; --h1: #bc4c33;
+  --h2: #b16801; --h3: #987e00; --h4: #708d28; --h5: #36955d; --h6: #029386; --h7: #008ba1; --h8: #267ab5;
+  --h9: #5664c1; --h10: #7f51b1; --h11: #9d448f;
+  --edge-strength: 0.15;      /* the faint level: the emphasis of an edge (divider); the "line strength" slider overrides it */
+  --font-display: "IBM Plex Sans Condensed", "Arial Narrow", system-ui, sans-serif;
+  --font-body: "IBM Plex Sans", system-ui, -apple-system, sans-serif;
+  --font-mono: "IBM Plex Mono", ui-monospace, Menlo, monospace;
+}
+@media (prefers-color-scheme: dark) { :root:not([data-theme="light"]) {
+  --bg: #211a14; --ink: #f6ece4; --surface: #312a24; --muted: #a19891; --rule: #4c443e; --grey: #a19891;
+  --plane: #cbc2ba; --cyl: #f6ece4; --ribbon: #cbc2ba; --edge: #f6ece4; --role-data: #a19891;
+  --role-other: #cbc2ba; --mem-fn: #f6ece4; --mem-prop: #a19891; --accent: #ff9279; --branch: #68bcff;
+  --role-screen: #95a7ff; --role-ui: #00d1f1; --role-state: #71e79d; --role-boundary: #f77fa0;
+  --role-di: #ebc843; --infra: #b6db66; --conn: #be94f1; --cell-read: #03e2cf; --mem-init: #e384d2;
+  --stub: #ffaf5e; --em-primary: 1.0; --em-secondary: 0.8; --em-subtle: 0.6; --em-outline: 0.45;
+  --em-outline-inner: 0.38; --em-disabled: 0.3; --em-divider: 0.2; --em-tint: 0.15; --fg-primary: #f6ece4;
+  --fg-secondary: #cbc2ba; --fg-subtle: #a19891; --fg-outline: #817872; --fg-outline-inner: #726a63;
+  --fg-disabled: #615952; --fg-divider: #4c443e; --fg-tint: #413a33; --h0: #f77fa0; --h1: #ff9279;
+  --h2: #ffaf5e; --h3: #ebc843; --h4: #b6db66; --h5: #71e79d; --h6: #03e2cf; --h7: #00d1f1; --h8: #68bcff;
+  --h9: #95a7ff; --h10: #be94f1; --h11: #e384d2;
+  --edge-strength: 0.2;
+  color-scheme: dark } }
+:root[data-theme="dark"] {
+  --bg: #211a14; --ink: #f6ece4; --surface: #312a24; --muted: #a19891; --rule: #4c443e; --grey: #a19891;
+  --plane: #cbc2ba; --cyl: #f6ece4; --ribbon: #cbc2ba; --edge: #f6ece4; --role-data: #a19891;
+  --role-other: #cbc2ba; --mem-fn: #f6ece4; --mem-prop: #a19891; --accent: #ff9279; --branch: #68bcff;
+  --role-screen: #95a7ff; --role-ui: #00d1f1; --role-state: #71e79d; --role-boundary: #f77fa0;
+  --role-di: #ebc843; --infra: #b6db66; --conn: #be94f1; --cell-read: #03e2cf; --mem-init: #e384d2;
+  --stub: #ffaf5e; --em-primary: 1.0; --em-secondary: 0.8; --em-subtle: 0.6; --em-outline: 0.45;
+  --em-outline-inner: 0.38; --em-disabled: 0.3; --em-divider: 0.2; --em-tint: 0.15; --fg-primary: #f6ece4;
+  --fg-secondary: #cbc2ba; --fg-subtle: #a19891; --fg-outline: #817872; --fg-outline-inner: #726a63;
+  --fg-disabled: #615952; --fg-divider: #4c443e; --fg-tint: #413a33; --h0: #f77fa0; --h1: #ff9279;
+  --h2: #ffaf5e; --h3: #ebc843; --h4: #b6db66; --h5: #71e79d; --h6: #03e2cf; --h7: #00d1f1; --h8: #68bcff;
+  --h9: #95a7ff; --h10: #be94f1; --h11: #e384d2;
+  --edge-strength: 0.2;
+  color-scheme: dark }
+
+html, body { height: 100%; }
+[hidden] { display: none !important; }
+body { background: var(--bg); color: var(--ink); font-family: var(--font-body); font-size: 14px; line-height: 1.45; }
+.app { height: 100%; display: grid; grid-template-rows: auto 1fr; }
+.bar { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 16px; padding-block: 10px; padding-left: max(16px, env(safe-area-inset-left, 0px)); padding-right: max(16px, env(safe-area-inset-right, 0px)); border-bottom: 1px solid var(--rule); background: var(--surface); }
+.bar h1 { font-family: var(--font-display); font-weight: 600; font-size: 18px; margin: 0; letter-spacing: .01em; }
+.bar .meta { font-family: var(--font-mono); font-size: 12px; color: var(--muted); }
+.bar .spacer { flex: 1; }
+.seg { display: inline-flex; border: 1px solid var(--rule); border-radius: 6px; overflow: hidden; }
+.seg button { font: 500 13px var(--font-body); background: transparent; color: var(--ink); border: 0; padding: 6px 12px; cursor: pointer; }
+.seg button + button { border-left: 1px solid var(--rule); }
+.seg button[aria-pressed="true"] { background: var(--ink); color: var(--bg); }
+button:focus-visible, select:focus-visible, input:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
+
+.main { min-height: 0; display: grid; grid-template-columns: minmax(0, 1fr) 360px; }
+.stage { position: relative; min-width: 0; min-height: 0; overflow: hidden; touch-action: none; }
+.stage canvas { display: block; width: 100%; height: 100%; transition: opacity .18s ease-out; }
+.stage canvas.fading { opacity: 0; transition: none; }
+.labels { position: absolute; inset: 0; pointer-events: none; overflow: hidden; }
+.lbl { position: absolute; transform: translate(-50%, -100%); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; font: 500 11px var(--font-mono); color: var(--ink); pointer-events: auto; cursor: pointer; padding: 1px 4px; border-radius: 3px; background: color-mix(in srgb, var(--bg) 72%, transparent); }
+.lbl.outer { color: var(--muted); font-size: 10px; text-transform: uppercase; letter-spacing: .05em; background: transparent; }
+.lbl:hover { color: var(--accent); }
+.lbl.iso { color: var(--accent); font-weight: 600; }
+.lbl.side { transform: translate(-50%, -50%); text-align: center; background: transparent; }
+.lbl.layer { font: 600 12px var(--font-display); text-transform: uppercase; letter-spacing: .08em; color: var(--plane); cursor: default; background: transparent; transform: translate(0, -50%); }
+.lbl.layer.side-band { transform: translate(4px, -50%); background: color-mix(in srgb, var(--bg) 72%, transparent); }
+.lbl.step { color: var(--bg); background: var(--accent); font-weight: 500; transform: translate(-50%, -130%); z-index: 2; overflow: visible; }
+.hint { position: absolute; left: 12px; right: 12px; bottom: 10px; width: fit-content; font-size: 12px; color: var(--muted); pointer-events: none; padding: 2px 6px; border-radius: 3px; background: color-mix(in srgb, var(--bg) 85%, transparent); }
+.tip { position: absolute; z-index: 5; max-width: 300px; pointer-events: none; background: var(--surface); border: 1px solid var(--rule); border-radius: 6px; padding: 8px 10px; font-size: 12px; box-shadow: 0 4px 16px rgb(0 0 0 / .12); }
+.tip b { font-family: var(--font-mono); font-weight: 500; font-size: 13px; }
+.tip .k { color: var(--muted); }
+
+.panel { min-height: 0; overflow-y: auto; border-left: 1px solid var(--rule); background: var(--surface); padding-block: 4px 24px; padding-left: 16px; padding-right: max(16px, env(safe-area-inset-right, 0px)); }
+.panel section { padding-block: 12px; border-bottom: 1px solid var(--rule); display: grid; gap: 8px; }
+.panel h2 { font: 600 12px var(--font-display); text-transform: uppercase; letter-spacing: .08em; color: var(--muted); margin: 0; }
+.panel p { margin: 0; max-width: 65ch; }
+.sub { color: var(--muted); font-size: 13px; }
+.row { display: flex; flex-wrap: wrap; gap: 6px 12px; align-items: center; }
+.row label { display: inline-flex; gap: 4px; align-items: center; cursor: pointer; }
+label.row { flex-wrap: nowrap; align-items: flex-start; }
+label.row input { margin-top: 3px; flex: none; }
+select { font: 13px var(--font-body); padding: 4px 6px; border: 1px solid var(--rule); border-radius: 5px; background: var(--bg); color: var(--ink); max-width: 100%; }
+.field { display: grid; grid-template-columns: 96px minmax(0, 1fr); gap: 6px; align-items: center; }
+.field > span { color: var(--muted); font-size: 13px; }
+.steps { list-style: none; margin: 0; padding: 0; display: grid; gap: 2px; font-size: 13px; }
+.steps li { display: grid; grid-template-columns: 22px minmax(0, 1fr) auto; gap: 6px; padding: 3px 4px; border-radius: 4px; cursor: pointer; }
+.steps li:hover { background: var(--bg); }
+.steps .num { font-family: var(--font-mono); color: var(--accent); font-variant-numeric: tabular-nums; }
+.steps .nm { font-family: var(--font-mono); overflow-wrap: anywhere; }
+.steps .ly { color: var(--muted); font-size: 12px; }
+.steps .leg { grid-column: 1 / -1; color: var(--muted); font-size: 11px; text-transform: uppercase; letter-spacing: .06em; cursor: default; padding-top: 6px; }
+.steps .leg:hover { background: none; }
+.steps li.hidden .nm { text-decoration: line-through; color: var(--muted); }
+.dl { display: grid; grid-template-columns: 88px minmax(0, 1fr); gap: 3px 8px; font-size: 13px; }
+.dl dt { color: var(--muted); }
+.dl dd { margin: 0; overflow-wrap: anywhere; }
+.mono { font-family: var(--font-mono); font-size: 12.5px; }
+.btn { font: 500 13px var(--font-body); border: 1px solid var(--rule); background: var(--bg); color: var(--ink); border-radius: 5px; padding: 4px 10px; cursor: pointer; }
+.btn:disabled { opacity: .5; cursor: default; }
+.legend { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 4px 12px; font-size: 13px; }
+.sw { display: inline-block; width: 11px; height: 11px; border-radius: 50%; margin-right: 6px; vertical-align: -1px; }
+.sw.ring { background: transparent; border: 2px solid var(--infra); }
+.sw.bar { border-radius: 2px; width: 18px; height: 5px; vertical-align: 2px; }
+.notes { margin: 0; padding-left: 18px; display: grid; gap: 6px; }
+.stat { font-variant-numeric: tabular-nums; font-family: var(--font-mono); font-size: 12.5px; }
+.tree { display: grid; gap: 1px; max-height: 260px; overflow-y: auto; border: 1px solid var(--rule); border-radius: 5px; padding: 4px; }
+.tree button { display: flex; justify-content: space-between; gap: 8px; text-align: left; font: 12px var(--font-mono); border: 0; border-radius: 3px; background: transparent; color: var(--ink); padding: 2px 6px; cursor: pointer; }
+.tree button:hover { background: var(--bg); }
+.tree button[aria-pressed="true"] { color: var(--accent); font-weight: 600; }
+.tree button .c { color: var(--muted); font-variant-numeric: tabular-nums; }
+.tree button.empty { color: var(--muted); }
+.conn-title { font-weight: 600; color: var(--conn); }
+.conn-step { display: grid; gap: 2px; font-size: 13px; }
+.conn-step .hd { color: var(--muted); }
+.conn-step button { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 8px; text-align: left; font: 12px var(--font-mono); border: 0; border-radius: 3px; background: transparent; color: var(--ink); padding: 2px 6px; cursor: pointer; }
+.conn-step button:hover { background: var(--bg); }
+.conn-step button .c { color: var(--muted); }
+.conn-step button.cell span:first-child { color: var(--role-state); }
+.tabs { position: sticky; top: 0; z-index: 3; display: flex; gap: 2px; margin: 0 -16px; padding: 8px 16px 0; background: var(--surface); border-bottom: 1px solid var(--rule); }
+.tabs button { position: relative; font: 600 13px var(--font-display); text-transform: uppercase; letter-spacing: .06em; border: 0; background: transparent; color: var(--muted); padding: 6px 12px 8px; cursor: pointer; border-bottom: 2px solid transparent; }
+.tabs button[aria-selected="true"] { color: var(--ink); border-bottom-color: var(--accent); }
+.tabs .dot { position: absolute; top: 6px; right: 2px; width: 6px; height: 6px; border-radius: 50%; background: var(--accent); }
+.det { display: grid; grid-template-columns: minmax(0, 1fr); gap: 10px; padding-block: 12px; min-width: 0; }
+.det > *, .det .list > *, .det span { min-width: 0; overflow-wrap: anywhere; }
+.det h3 { margin: 0; font: 500 15px var(--font-mono); overflow-wrap: anywhere; }
+.det .kind { color: var(--muted); font-size: 12px; text-transform: uppercase; letter-spacing: .06em; }
+.det h4 { margin: 4px 0 0; font: 600 11px var(--font-display); text-transform: uppercase; letter-spacing: .08em; color: var(--muted); }
+.det .list { display: grid; gap: 1px; }
+.det .list button, .det .crumbs button, button.lnk { font: 12px var(--font-mono); border: 0; border-radius: 3px; background: transparent; color: var(--ink); padding: 2px 6px; cursor: pointer; text-align: left; display: flex; justify-content: space-between; gap: 8px; }
+.det .list button:hover, .det .crumbs button:hover, button.lnk:hover { background: var(--bg); color: var(--accent); }
+.det .list button .c { color: var(--muted); flex: none; }
+.det .crumbs { display: flex; flex-wrap: wrap; align-items: center; gap: 0 2px; }
+.det .crumbs button { padding: 1px 4px; }
+.det .crumbs span { color: var(--muted); }
+.det .mix { display: flex; height: 8px; border-radius: 2px; overflow: hidden; background: var(--bg); }
+.det .clean { color: var(--role-state); } .det .unclean { color: var(--role-boundary); }
+.tree-stat { font-size: 13px; }
+.roots { max-height: 220px; }
+.lbl.stub { font-size: 10px; color: var(--ink); background: color-mix(in srgb, var(--surface) 88%, transparent); border: 1px dashed var(--muted); transform: translate(6px, -50%); }
+.lbl.stub:hover { border-color: var(--accent); }
+.lbl.picked { color: var(--accent); font-weight: 700; }
+.sw.conn { border-radius: 2px; width: 18px; height: 5px; vertical-align: 2px; background: var(--conn); }
+
+@media (max-width: 820px) {
+  html, body { height: auto; }
+  .app { height: auto; display: block; }
+  .main { display: block; }
+  .stage { height: 64vh; min-height: 340px; }
+  .hint { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: calc(100% - 24px); font-size: 11px; }
+  .panel { border-left: 0; border-top: 1px solid var(--rule); padding-left: max(16px, env(safe-area-inset-left, 0px)); }
+}
+@media (prefers-reduced-motion: reduce) { .stage canvas { transition: none; } }
+</style>
+
+<div class="app">
+  <header class="bar">
+    <h1>Altitude layer stack</h1>
+    <span class="meta" id="meta"></span>
+    <span class="spacer"></span>
+    <div class="seg" role="group" aria-label="View">
+      <button id="cam-orbit" aria-pressed="true">3D orbit</button>
+      <button id="cam-top" aria-pressed="false">Top · containers</button>
+      <button id="cam-side" aria-pressed="false">Side · layers</button>
+    </div>
+  </header>
+  <div class="main">
+    <div class="stage" id="stage">
+      <div class="labels" id="labels"></div>
+      <div class="tip" id="tip" hidden></div>
+      <div class="hint" id="hint"></div>
+    </div>
+    <aside class="panel" id="panel">
+      <div class="tabs" role="tablist">
+        <button id="tab-settings" role="tab" aria-selected="true">Settings</button>
+        <button id="tab-details" role="tab" aria-selected="false">Details<span class="dot" id="details-dot" hidden></span></button>
+      </div>
+      <div id="pane-details" class="det" hidden></div>
+      <div id="pane-settings">
+      <section>
+        <h2>Branch trees</h2>
+        <input type="search" id="root-q" placeholder="Start from… (search roots)" aria-label="Search tree roots" style="font:13px var(--font-body);padding:5px 8px;border:1px solid var(--rule);border-radius:5px;background:var(--bg);color:var(--ink)">
+        <div class="tree roots" id="root-list" hidden></div>
+        <div class="field"><span>Branch hops</span>
+          <select id="branch"><option value="0">Strand only (0)</option><option value="1">Branches (1)</option><option value="2">Branches + siblings (2)</option></select></div>
+        <label class="row"><input type="checkbox" id="clean"><span>Clean paths only</span></label>
+        <label class="row"><input type="checkbox" id="sinks"><span>Show sinks</span></label>
+        <div class="field" id="tdir-row"><span>Direction</span>
+          <select id="tdir"><option value="forward">Forward: where the value goes</option><option value="backward">Backward: where it comes from</option></select></div>
+        <p class="sub tree-stat" id="tree-stat"></p>
+        <div class="row"><button class="btn" id="focus-tree">Focus tree</button><button class="btn" id="focus-strand">Focus strand</button><button class="btn" id="back">Back</button><button class="btn" id="clear-root">Clear</button></div>
+      </section>
+      <section>
+        <h2>Data flow</h2>
+        <select id="trace" aria-label="Golden trace"></select>
+        <label class="row"><input type="checkbox" id="focus-on"><span>Show only the path and its context</span></label>
+        <div class="field"><span>Context</span>
+          <select id="ctx"><option value="none">None: the core only</option><option value="budget">Budgeted</option><option value="hops">N hops</option><option value="state">State only</option></select></div>
+        <div class="field"><span>Budget</span>
+          <div class="row"><input type="range" id="budget" min="0" max="120" step="1" style="flex:1;min-width:0" aria-label="Extra nodes beyond the path"><span class="stat" id="budget-val"></span></div></div>
+        <div class="field"><span>Hops</span>
+          <select id="hops"><option value="0">0 · path only</option><option value="1">1 hop</option><option value="2">2 hops</option><option value="3">3 hops</option></select></div>
+        <div class="field"><span>Edges followed</span><div class="row" id="hop-kinds"></div></div>
+        <div class="field"><span>Direction</span>
+          <select id="dir"><option value="both">Both ways</option><option value="down">Downstream: callees, cell readers</option><option value="up">Upstream: callers, cell owners</option></select></div>
+        <div class="row"><label><input type="checkbox" id="skip-hubs"> Skip hubs above</label>
+          <input type="number" id="hub-min" min="1" step="1" style="width:72px" aria-label="Hub threshold: distinct neighbours"> <span class="sub">neighbours</span></div>
+        <p class="sub" id="hub-stat"></p>
+        <label class="row"><input type="checkbox" id="compact"><span>Compact: re-pack only the kept nodes, path in the middle</span></label>
+        <p class="sub stat" id="focus-stat"></p>
+        <p class="sub" id="trace-comment"></p>
+        <ol class="steps" id="steps"></ol>
+      </section>
+      <section>
+        <h2>Members</h2>
+        <p class="conn-title">Possible connections — call contexts merged</p>
+        <p class="sub">Zoom in until a class shows its members, then click one. Each click follows member edges one step from that member. A cell stops the walk: it shows its writers and readers, and nothing beyond. These are not traces.</p>
+        <div class="field"><span>Follow</span>
+          <select id="conn-dir"><option value="both">Inputs and outputs</option><option value="in">Inputs</option><option value="out">Outputs</option></select></div>
+        <div class="field"><span>Edge kinds</span><div class="row" id="conn-kinds"></div></div>
+        <div id="conn"></div>
+      </section>
+      <section>
+        <h2>Containers</h2>
+        <div class="field"><span>Kinds drawn</span><div class="row" id="ckinds"></div></div>
+        <div class="row"><button class="btn" id="clear-iso" disabled>Show all containers</button><span class="sub" id="iso-stat"></span></div>
+        <div class="tree" id="tree"></div>
+      </section>
+      <section>
+        <h2>Filters</h2>
+        <div class="field"><span>Layers</span><div class="row" id="layers"></div></div>
+        <div class="field"><span>Infrastructure</span>
+          <select id="infra">
+            <option value="inline">Show in place</option>
+            <option value="pillar">Pull out to a side pillar</option>
+            <option value="hide">Hide</option>
+          </select></div>
+        <div class="field"><span>Generated, fake</span>
+          <select id="synth">
+            <option value="shrink">Shrink to a dot and mute</option>
+            <option value="show">Show at full size</option>
+            <option value="hide">Hide</option>
+          </select></div>
+        <div class="field"><span>Edges drawn</span><div class="row" id="kinds"></div></div>
+        <div class="field"><span>Line strength</span>
+          <div class="row"><input type="range" id="edge-strength" min="0.02" max="0.6" step="0.01" style="flex:1;min-width:0"><span class="stat" id="edge-val"></span><button class="btn" id="edge-reset">Reset</button></div></div>
+        <div class="field"><span>Color</span>
+          <select id="color">
+            <option value="container">By container</option>
+            <option value="role">By role</option>
+            <option value="infra">By infrastructure score</option>
+          </select></div>
+      </section>
+      <section>
+        <h2>Legend</h2>
+        <div class="legend" id="legend"></div>
+      </section>
+      <section>
+        <h2>What you are looking at</h2>
+        <p id="about"></p>
+      </section>
+      <section>
+        <h2>What this prototype shows badly</h2>
+        <ul class="notes" id="badly"></ul>
+      </section>
+      </div>
+    </aside>
+  </div>
+</div>
+
+<script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/d3/7.8.5/d3.min.js"></script>
+<script>
+const D = /*__DATA__*/null;
+
+// ---------- layout model: pure, no DOM, no WebGL; node checks load this part ----------
+// The rules it implements. The three.js view further down only draws what these functions return.
+// - Containers follow the export's containment chain, one checkbox per container kind it lists. An unchecked
+//   kind is skipped and its children attach to the nearest checked ancestor. A container with one child merges
+//   into that child, and a root with one container is lifted, so every level drawn splits into at least two parts.
+// - Nodes are the leaves of the container tree; the layouts treat a node as one circle of n.rad. Its members are
+//   packed inside that circle by memberLayout, in a unit circle the view scales to the node: d3.packSiblings in
+//   member id order, area by member lines with a floor. A local cell has no area of its own and rings the member it
+//   lives in. The view reveals members only when a node is large on screen.
+// - Context rules with a trace: 'hops' (above), 'budget' (path nodes plus at most B more, taken in turn per path
+//   node: nodes sharing a state cell, then adjacent entry points and boundaries, then neighbours by edge count,
+//   ties by index), and 'state' (path nodes plus every owner, writer and reader of the cells they touch).
+// - Possible connections follow member edges one step per request from one member, rank neighbours by fact
+//   count, cap them, and stop at a cell: the cell's writers and readers are added, and nothing beyond them.
+// - 3D: d3.packSiblings and d3.packEnclose, recursively. Siblings sort by radius, then by key. The nodes
+//   that sit directly in a container are packed per plane into one circle, which is packed with the child
+//   containers, so a container has one footprint on every plane.
+// - Top: the same recursion with opts.flat, on one plane: a container's own nodes of every layer pack into one
+//   circle, sorted by layer (bottom to top), then radius, then key, so same-layer nodes cluster and no two circles
+//   overlap. A thin ring tone per layer stands in for the height the plane gave.
+// - Side: containers are nested columns in key order and layers are bands. Cell widths, node slots and band
+//   heights snap to geometric steps, so a node that grows moves only its own cell until it crosses a step.
+// - Focus: the trace path plus the nodes within n hops, over the chosen edge kinds and direction. A hub (more
+//   distinct neighbours than the threshold) is not expanded through. A path node that is a hub keeps only the
+//   neighbours that are not hubs, or that touch two or more path nodes. Path nodes are always kept.
+// - Generated, staged and fake code is shown, shrunk to one small fixed size, or hidden.
+// - Edges have tiers: 'near' touches a path node, 'far' joins two neighbours, 'base' is everything else.
+//   The view multiplies one faint opacity by the tier; only hover, selection and the trace path draw strong.
+// - Branch trees (hops counted in branches): level 0 is one strand, root to the chosen endpoint; level 1 adds every
+//   branch from the root; level 2 adds stubs for the siblings at the strand's joins and splits, capped. "Clean paths
+//   only" drops endpoints that need an any-instance or any-container read or staged code; sinks are off by default.
+// - Highlight versus focus: a selection (a class, member, cell, container, root, endpoint or strand) only highlights.
+//   It draws over the current layout and dims the rest, and never moves, adds or drops a node. Only S.focus (Focus
+//   tree, Focus strand, a double click) and isolation change what is laid out.
+// - Colour: Lum's 12-hue wheel in wheel order for containers, spaced evenly round it by an outer container's index
+//   (an OKLCH mix between neighbours when more than 12), inner containers as OKLCH lightness and chroma steps of that
+//   hue. Neutrals are the foreground at the emphasis ladder, pre-blended over the background. Weight order: the
+//   selected strand, then container and class outlines, then context edges.
+// - Everything is a function of the export and the state: no randomness, no timing.
+const LAYER_NAMES = ['external', 'data', 'presentation', 'ui', 'unplaced'];
+const SLOT_ORDER = [4, 0, 1, 2, 3]; // bottom to top
+const WHY = {
+  boundaryTarget: 'holds the library end of a boundary',
+  composable: 'at least half its functions are composable, and it hosts no entry point',
+  entryHost: 'hosts an entry point',
+  boundaryCaller: 'makes a non-telemetry boundary call',
+  reachesBoundary: 'reaches a data boundary and no entry point reaches it',
+  inheritsFromCallers: 'a data type or unplaced node; takes the lowest layer among its direct callers',
+  unusedDataType: 'a data type nothing places',
+  unplaced: 'no rule places it',
+};
+function whyText(w) {
+  if (!w) return '';
+  let m = /^closerToBoundary:(\d+)<=(\d+)$/.exec(w);
+  if (m) return `reaches a data boundary in ${m[1]} hops, reached from an entry point in ${m[2]}`;
+  m = /^closerToEntry:(\d+)>(\d+)$/.exec(w);
+  if (m) return `reached from an entry point in ${m[2]} hops, ${m[1]} hops from a data boundary`;
+  return WHY[w] || w;
+}
+const ROLE_CATS = [
+  ['screen', 'Screen / entry host', r => r.includes('screenHost') || r.includes('entryPoint')],
+  ['ui', 'UI component', r => r.includes('uiComponent') || r.includes('uiState') || r.includes('uiReader')],
+  ['state', 'State holder / mediator', r => r.includes('stateHolder') || r.includes('mediator') || r.includes('stateWriter')],
+  ['boundary', 'Boundary adapter', r => r.includes('boundaryAdapter') || r.includes('externalAdapter')],
+  ['di', 'DI graph / provider', r => r.includes('diGraph')],
+  ['data', 'Pure data', r => r.includes('pureData')],
+  ['other', 'Other', () => true],
+];
+const cmp = (a, b) => (a < b ? -1 : a > b ? 1 : 0);
+
+function prepare(data) {
+  const nodes = data.nodes.map((n, i) => Object.assign({}, n, {
+    i, slot: n.L >= 0 ? n.L : 4, rad: Math.sqrt(Math.max(n.s, 4)),
+    cat: ROLE_CATS.find(c => c[2](n.r || []))[0], key: `${n.m}|${n.ss}|${n.p}|${n.file}|${n.n}`,
+    syn: n.gen ? 'generated' : n.np ? n.np : n.st ? 'staged' : '',
+  }));
+  const modRoot = {};
+  for (const f of data.features) if (!(f.module in modRoot) || f.pkg.length < modRoot[f.module].length) modRoot[f.module] = f.pkg;
+  const featLabel = data.features.map(f => f.module.replace(':', '') + ' · ' + (f.pkg === modRoot[f.module] ? '(root)' : f.pkg.slice(modRoot[f.module].length + 1)));
+  const adj = nodes.map(() => []);
+  // 1 follows the edge (caller to callee, cell owner to reader, writer to owner, consumer to provider); -1 goes against it.
+  for (const [a, b, k, c] of data.edges) { adj[a].push([b, k, 1, c]); adj[b].push([a, k, -1, c]); }
+  const cellsOwned = new Int32Array(nodes.length);
+  for (const c of data.cells) if (c.o >= 0) cellsOwned[c.o]++;
+  // The cells each node owns, writes or reads.
+  const cellsOf = nodes.map(() => []);
+  data.cells.forEach((c, ci) => { for (const x of new Set([c.o, ...c.w, ...c.r])) if (x >= 0) cellsOf[x].push(ci); });
+  const mem = prepareMembers(data, nodes.length);
+  const br = prepareBranches(data, mem);
+  const ckinds = data.containerKinds;
+  const conts = data.containers.map(([k, name, qualified, parent], ci) => ({ ci, kind: ckinds[k], name, qualified, parent }));
+  const chainCache = new Map();
+  const chainOf = ci => {
+    if (ci < 0) return [];
+    if (!chainCache.has(ci)) chainCache.set(ci, chainOf(conts[ci].parent).concat([conts[ci]]));
+    return chainCache.get(ci);
+  };
+  for (const n of nodes) n.chain = chainOf(n.c);
+  return { nodes, featLabel, adj, cellsOwned, cells: data.cells, cellsOf, mem, edges: data.edges, kinds: data.edgeKinds, ckinds, conts, br, boundaries: data.boundaries || [], entrypoints: data.entrypoints || [], trees: {}, degs: {}, mlay: new Map() };
+}
+
+// Members, stored column-wise. A member's mark: 'fn' for a function, 'init' for a constructor or initializer, 'prop', 'cell'.
+const MEMBER_MARK = { function: 'fn', constructor: 'init', initializer: 'init', property: 'prop', cell: 'cell' };
+function prepareMembers(data, nodeCount) {
+  const rows = data.members || [], kinds = data.memberKinds || [];
+  const N = rows.length;
+  const mem = { N, n: new Int32Array(N), kind: [], sig: [], name: [], s: new Int32Array(N), lam: new Int32Array(N), fl: new Int32Array(N),
+    cell: new Int32Array(N), p: new Int32Array(N), np: [], flags: data.memberFlags || [], of: Array.from({ length: nodeCount }, () => []) };
+  rows.forEach((r, i) => {
+    mem.n[i] = r[0]; mem.kind[i] = kinds[r[1]]; mem.sig[i] = r[2]; mem.s[i] = r[3]; mem.lam[i] = r[4]; mem.fl[i] = r[5];
+    mem.cell[i] = r[6]; mem.p[i] = r[7]; mem.name[i] = r[8] || (/^[^(:<\s]+/.exec(r[2]) || [r[2]])[0]; mem.np[i] = r[9] || '';
+    mem.of[r[0]].push(i);
+  });
+  mem.E = data.memberEdges || [];
+  mem.adj = Array.from({ length: N }, () => []);
+  for (let e = 0; e * 4 < mem.E.length; e++) { mem.adj[mem.E[4 * e]].push(e); mem.adj[mem.E[4 * e + 1]].push(e); }
+  mem.hasFlag = (i, f) => { const b = mem.flags.indexOf(f); return b >= 0 && (mem.fl[i] & (1 << b)) !== 0; };
+  return mem;
+}
+
+const MEMBER_FLOOR = 0.6;
+// A node's members in a unit circle: { items: [{ m, x, y, r }], rings: [{ m, x, y, r }] }. Rings are local cells,
+// drawn around the member they live in. Cached per node; nothing in it depends on the view.
+function memberLayout(M, i) {
+  if (M.mlay.has(i)) return M.mlay.get(i);
+  const mem = M.mem, own = [], local = [];
+  for (const m of mem.of[i]) (mem.kind[m] === 'cell' && mem.p[m] >= 0 && mem.n[mem.p[m]] === i ? local : own).push(m);
+  const circles = own.map(m => ({ m, r: Math.sqrt(Math.max(mem.s[m], MEMBER_FLOOR)) }));
+  let items = [], rings = [];
+  if (circles.length) {
+    d3.packSiblings(circles);
+    // A class with one or two members would otherwise fill its circle with a single mark.
+    const e = d3.packEnclose(circles), k = 1 / Math.max(e.r, 2 * Math.max(...circles.map(c => c.r)));
+    items = circles.map(c => ({ m: c.m, x: (c.x - e.x) * k, y: (c.y - e.y) * k, r: c.r * k }));
+    const at = new Map(items.map(c => [c.m, c]));
+    const perParent = new Map();
+    for (const m of local) {
+      const host = at.get(mem.p[m]); if (!host) continue;
+      const j = perParent.get(host.m) || 0; perParent.set(host.m, j + 1);
+      rings.push({ m, x: host.x, y: host.y, r: host.r * Math.max(0.35, 0.8 - 0.15 * j) });
+    }
+  }
+  const out = { items, rings };
+  M.mlay.set(i, out);
+  return out;
+}
+
+// The member-level steps of a trace: per hop, the member it leaves, the member it reaches (-1 for a library end)
+// the cell it joins (-1), and for a field mismatch the text naming it.
+function traceMembers(t) {
+  const out = [];
+  for (const leg of t.legs) for (const [fm, tm, cell, mismatch] of leg.hops || []) out.push({ fm, tm, cell, mismatch: mismatch || '' });
+  return out;
+}
+
+// One step of possible connections from member m: neighbours over the given member edge kinds and direction
+// ('in', 'out', 'both'), ranked by fact count, then index. Returns { total, list: [{ o, w, edges }] }.
+function memberNeighbours(M, m, kindsOn, dir) {
+  const mem = M.mem, E = mem.E, by = new Map();
+  for (const e of mem.adj[m]) {
+    const a = E[4 * e], b = E[4 * e + 1], k = M.kinds[E[4 * e + 2]];
+    if (!kindsOn.has(k) || a === b) continue;
+    const out = a === m;
+    if ((dir === 'in' && out) || (dir === 'out' && !out)) continue;
+    const o = out ? b : a;
+    const x = by.get(o) || { o, w: 0, edges: [] };
+    x.w += E[4 * e + 3]; x.edges.push(e); by.set(o, x);
+  }
+  const list = [...by.values()].sort((x, y) => y.w - x.w || x.o - y.o);
+  return { total: list.length, list };
+}
+// A cell's direct writers and readers, ranked the same way.
+function cellAccess(M, c) {
+  const mem = M.mem, E = mem.E, by = new Map();
+  for (const e of mem.adj[c]) {
+    const a = E[4 * e], b = E[4 * e + 1], k = M.kinds[E[4 * e + 2]];
+    const o = k === 'cellWrite' && b === c ? a : k === 'cellRead' && a === c ? b : -1;
+    if (o < 0 || o === c) continue;
+    const x = by.get(o) || { o, w: 0, edges: [] };
+    x.w += E[4 * e + 3]; x.edges.push(e); by.set(o, x);
+  }
+  const list = [...by.values()].sort((x, y) => y.w - x.w || x.o - y.o);
+  return { total: list.length, list };
+}
+
+// The tree for a set of checked container kinds is keyed by those kinds in the export's order.
+function treeKey(M, checked) { return M.ckinds.filter(k => checked.has(k)).join('+') || 'none'; }
+
+// A node's drawn ancestry: its export chain with unchecked kinds dropped, so a node attaches to its nearest
+// checked ancestor. Two containers of one kind with the same qualified name under the same drawn parent merge,
+// which is how packages from several source sets share one circle when source sets are off.
+function pathOf(n, checked) {
+  const segs = [];
+  let key = '', skipped = [];
+  for (const c of n.chain) {
+    if (!checked.has(c.kind)) { skipped.push(c.name); continue; }
+    key += '>' + c.kind + ':' + c.qualified;
+    segs.push({ key, label: c.kind === 'module' ? c.name.replace(/^:/, '') : c.name, kind: c.kind, skipped });
+    skipped = [];
+  }
+  return segs;
+}
+
+// The containment tree, with every container that has a single child replaced by that child,
+// so each remaining level splits into at least two parts. Leaves are nodes. A later level of members
+// inside a node would hang below the node, not the tree: the layouts treat a node as one circle of n.rad.
+function buildTree(M, tk) {
+  if (M.trees[tk]) return M.trees[tk];
+  const checked = new Set(tk.split('+'));
+  const mk = (seg, parent) => ({ key: seg.key, label: seg.label, kind: seg.kind, skipped: seg.skipped, kids: new Map(), nodes: [], parent });
+  const root = mk({ key: 'root', label: '', kind: 'root', skipped: [] }, null);
+  for (const n of M.nodes) {
+    let cur = root;
+    for (const seg of pathOf(n, checked)) {
+      if (!cur.kids.has(seg.key)) cur.kids.set(seg.key, mk(seg, cur));
+      cur = cur.kids.get(seg.key);
+    }
+    cur.nodes.push(n);
+  }
+  // Siblings with one label, such as two Utils.kt files once packages are off, get the first skipped name that tells them apart.
+  const fin = c => {
+    c.kids = [...c.kids.values()];
+    const byLabel = new Map();
+    for (const k of c.kids) byLabel.set(k.label, (byLabel.get(k.label) || []).concat([k]));
+    for (const same of byLabel.values()) {
+      if (same.length < 2) continue;
+      const len = Math.max(...same.map(k => k.skipped.length));
+      let i = 0;
+      while (i < len && new Set(same.map(k => k.skipped[i])).size === 1) i++;
+      for (const k of same) if (i < len && k.skipped[i] != null) k.label += ` (${k.skipped[i]})`;
+    }
+    c.kids.forEach(fin);
+  };
+  fin(root);
+  const join = (a, b) => (a.kind === 'package' && b.kind === 'package' ? a.label + '.' + b.label : a.label + ' › ' + b.label);
+  const collapse = c => {
+    c.kids.forEach(collapse);
+    const next = [];
+    for (const ch of c.kids) {
+      if (ch.kids.length + ch.nodes.length !== 1) { next.push(ch); continue; }
+      if (ch.nodes.length) { c.nodes.push(ch.nodes[0]); continue; }
+      const g = ch.kids[0];
+      g.label = join(ch, g); g.kind = g.kind === ch.kind ? g.kind : ch.kind + '+' + g.kind; next.push(g);
+    }
+    c.kids = next.sort((a, b) => cmp(a.key, b.key));
+    c.nodes.sort((a, b) => cmp(a.key, b.key));
+  };
+  collapse(root);
+  root.lifted = [];
+  while (root.kids.length === 1 && root.nodes.length === 0) {
+    const only = root.kids[0]; root.lifted.push(only.label); root.kids = only.kids; root.nodes = only.nodes;
+  }
+  const all = [];
+  const walk = (c, depth, anc) => {
+    c.depth = depth; c.parent = anc[anc.length - 1] || null;
+    if (depth > 0) all.push(c);
+    const chain = depth > 0 ? anc.concat([c]) : anc;
+    for (const n of c.nodes) { n.ancBy = n.ancBy || {}; n.ancBy[tk] = chain; }
+    c.kids.forEach((k, i) => { k.sib = i; walk(k, depth + 1, chain); });
+  };
+  walk(root, 0, []);
+  all.forEach((c, i) => { c.order = i; c.outer = c.depth === 1 ? c : c.parent.outer; });
+  root.all = all;
+  root.maxDepth = Math.max(0, ...all.map(c => c.depth));
+  M.trees[tk] = root;
+  return root;
+}
+
+// Top-down and 3D layout. Each container gets one footprint on every plane. The nodes that sit
+// directly in a container are packed per plane into one circle that is a sibling of its child containers.
+// With opts.order (compact mode with a trace), siblings sort by path order first, then by closeness to the path,
+// and d3.packSiblings puts the first circles in the middle, so the path packs into a tight central cluster.
+function pathOrder(M, opts) {
+  const o = opts.order, include = opts.include, pillar = opts.pillar, memo = new Map();
+  const agg = c => {
+    if (memo.has(c)) return memo.get(c);
+    const a = { rank: Infinity, close: 0 };
+    for (const n of c.nodes) if (include(n) && !pillar(n)) { a.rank = Math.min(a.rank, o.rank.has(n.i) ? o.rank.get(n.i) : Infinity); a.close += o.close.get(n.i) || 0; }
+    for (const k of c.kids) { const b = agg(k); a.rank = Math.min(a.rank, b.rank); a.close += b.close; }
+    memo.set(c, a); return a;
+  };
+  const ofNodes = ns => { const a = { rank: Infinity, close: 0 }; for (const n of ns) { if (o.rank.has(n.i)) a.rank = Math.min(a.rank, o.rank.get(n.i)); a.close += o.close.get(n.i) || 0; } return a; };
+  const byPath = (x, y) => x.rank - y.rank || y.close - x.close;
+  const nodeRank = n => (o.rank.has(n.i) ? o.rank.get(n.i) : Infinity);
+  return { agg, ofNodes, byPath, nodeRank, close: n => o.close.get(n.i) || 0 };
+}
+const rankCmp = (a, b) => (a === b ? 0 : a < b ? -1 : 1);
+
+function packLayout(M, tree, opts) {
+  const include = opts.include, pillar = opts.pillar, rad = opts.rad || (n => n.rad);
+  const po = opts.order ? pathOrder(M, opts) : null;
+  const lay = { pos: new Map(), cont: new Map() };
+  const flat = !!opts.flat;
+  const layerCmp = (a, b) => (flat ? SLOT_ORDER.indexOf(a.slot) - SLOT_ORDER.indexOf(b.slot) : 0);
+  const nodeSort = (a, b) => (po ? rankCmp(po.nodeRank(a), po.nodeRank(b)) || po.close(b) - po.close(a) : 0) || layerCmp(a, b) || rad(b) - rad(a) || cmp(a.key, b.key);
+  const packOwn = nodes => {
+    let R = 0; const loc = new Map();
+    for (let s = 0; s < (flat ? 1 : 5); s++) {
+      const list = (flat ? nodes.slice() : nodes.filter(n => n.slot === s)).sort(nodeSort);
+      if (!list.length) continue;
+      const circles = list.map(n => ({ r: rad(n) + 1, n }));
+      d3.packSiblings(circles);
+      const e = d3.packEnclose(circles);
+      for (const c of circles) loc.set(c.n, [c.x - e.x, c.y - e.y]);
+      R = Math.max(R, e.r);
+    }
+    return { R, loc };
+  };
+  const pack = c => {
+    const items = [];
+    for (const ch of c.kids) { const r = pack(ch); if (r > 0) items.push({ r: r + 2, ch, key: ch.key, w: po && po.agg(ch) }); }
+    const own = c.nodes.filter(n => include(n) && !pillar(n));
+    let ownPack = null;
+    if (own.length) { ownPack = packOwn(own); items.push({ r: ownPack.R + 1.5, own: true, key: '~own', w: po && po.ofNodes(own) }); }
+    if (!items.length) { lay.cont.set(c, { R: 0 }); return 0; }
+    items.sort((a, b) => (po ? rankCmp(a.w.rank, b.w.rank) || b.w.close - a.w.close : 0) || b.r - a.r || cmp(a.key, b.key));
+    d3.packSiblings(items);
+    const e = d3.packEnclose(items);
+    const rec = { R: e.r + (c.depth ? 3 : 0), items: items.map(it => ({ ch: it.ch, own: it.own, x: it.x - e.x, z: it.y - e.y, rot: 0 })), ownPack, pc: [0, 0], pn: 0 };
+    if (po) orient(rec);
+    lay.cont.set(c, rec);
+    return rec.R;
+  };
+  // Rigid rotations keep every containment and gap. Each item that holds path nodes turns its path cluster
+  // toward the other path items (or outward, when it is the only one), so the path gathers into one strand.
+  const orient = rec => {
+    for (const it of rec.items) {
+      if (it.own) { const ps = [...rec.ownPack.loc].filter(([n]) => po.nodeRank(n) < Infinity).map(([, p]) => p); it.pn = ps.length; it.pc = it.pn ? [ps.reduce((a, p) => a + p[0], 0) / it.pn, ps.reduce((a, p) => a + p[1], 0) / it.pn] : [0, 0]; }
+      else { const r = lay.cont.get(it.ch); it.pn = r.pn; it.pc = r.pc; }
+    }
+    const pis = rec.items.filter(it => it.pn > 0);
+    if (!pis.length) return;
+    const tot = pis.reduce((a, it) => a + it.pn, 0);
+    const T = [pis.reduce((a, it) => a + it.pn * it.x, 0) / tot, pis.reduce((a, it) => a + it.pn * it.z, 0) / tot];
+    let sx = 0, sz = 0;
+    for (const it of pis) {
+      let d = pis.length > 1 ? [T[0] - it.x, T[1] - it.z] : [it.x, it.z];
+      if (Math.hypot(d[0], d[1]) < 1e-6) d = [1, 0];
+      const len = Math.hypot(it.pc[0], it.pc[1]);
+      if (len > 1e-6) it.rot = Math.atan2(d[1], d[0]) - Math.atan2(it.pc[1], it.pc[0]);
+      const u = Math.hypot(d[0], d[1]);
+      sx += it.pn * (it.x + len * d[0] / u); sz += it.pn * (it.z + len * d[1] / u);
+    }
+    rec.pc = [sx / tot, sz / tot]; rec.pn = tot;
+  };
+  pack(tree);
+  const turn = (x, z, a) => [x * Math.cos(a) - z * Math.sin(a), x * Math.sin(a) + z * Math.cos(a)];
+  const place = (c, x, z, rot) => {
+    const rec = lay.cont.get(c); rec.x = x; rec.z = z;
+    if (!rec.items) return;
+    for (const it of rec.items) {
+      const [ox, oz] = turn(it.x, it.z, rot), r2 = rot + it.rot;
+      if (it.ch) place(it.ch, x + ox, z + oz, r2);
+      else for (const [n, [lx, lz]] of rec.ownPack.loc) { const [px, pz] = turn(lx, lz, r2); lay.pos.set(n, [x + ox + px, z + oz + pz]); }
+      if (it.own) { rec.ownX = x + ox; rec.ownZ = z + oz; rec.ownR = rec.ownPack.R; }
+    }
+  };
+  place(tree, 0, 0, 0);
+  const rootR = lay.cont.get(tree).R;
+  const pnodes = M.nodes.filter(n => include(n) && pillar(n));
+  lay.box = { minX: -rootR, maxX: rootR, minZ: -rootR, maxZ: rootR };
+  if (pnodes.length) {
+    const p = packOwn(pnodes), x = rootR + 30 + p.R;
+    for (const [n, [lx, lz]] of p.loc) lay.pos.set(n, [x + lx, lz]);
+    lay.pillar = { x, z: 0, R: p.R + 3 };
+    lay.box.maxX = x + p.R + 3;
+  }
+  lay.extent = Math.max(rootR, 60);
+  lay.H = Math.max(60, lay.extent * 0.42);
+  lay.flat = flat;
+  lay.slotY = flat ? () => 0 : s => SLOT_ORDER.indexOf(s) * lay.H;
+  return lay;
+}
+
+// Geometric size steps (about 1.2x apart, even numbers): a size changes only when it crosses a step.
+// Containers use finer steps: each level keeps a little slack, which absorbs a child's growth.
+const stepper = ratio => {
+  const s = []; for (let v = 4; v < 40000; v = Math.max(v + 2, Math.round(v * ratio / 2) * 2)) s.push(v);
+  return v => { for (const x of s) if (x >= v - 1e-9) return x; return Math.ceil(v); };
+};
+const snap = stepper(1.2), snapColumn = stepper(1.08);
+
+// Side view: its own 2D layout. Containers become nested columns, left to right in key order;
+// layers become horizontal bands; each node sits in a fixed-size slot in its container's cell.
+// With opts.order, the columns that hold path nodes sit together in the middle in path order, the other
+// columns go outward on both sides by closeness to the path, and path nodes come first in their cell.
+function sideLayout(M, tree, opts) {
+  const include = opts.include, pillar = opts.pillar, rad = opts.rad || (n => n.rad);
+  const po = opts.order ? pathOrder(M, opts) : null;
+  const PAD = 3, GAP = 4, BAND_PAD = 6;
+  const lay = { pos: new Map(), cont: new Map(), bandH: [0, 0, 0, 0, 0] };
+  const leaves = [];
+  const diam = n => snap(2 * rad(n) + 2);
+  const heaviestLayer = nodes => { let a = 0; for (let s = 0; s < 5; s++) a = Math.max(a, nodes.filter(n => n.slot === s).reduce((t, n) => t + diam(n) ** 2, 0)); return a; };
+  // gravity says where the path should sit inside this container: 'centre', or against its 'left' or 'right'
+  // edge, toward the next path column. Path parts keep path order; the rest go outward by closeness.
+  const arrange = (c, gravity) => {
+    const rec = lay.cont.get(c);
+    if (!rec || !rec.parts.length) return;
+    const parts = rec.parts;
+    for (const p of parts) p.wt = p.leaf ? po.ofNodes(p.leaf.nodes) : po.agg(p.ch);
+    const onPath = parts.filter(p => p.wt.rank < Infinity).sort((a, b) => rankCmp(a.wt.rank, b.wt.rank));
+    const rest = parts.filter(p => p.wt.rank === Infinity).sort((a, b) => b.wt.close - a.wt.close);
+    if (onPath.length) {
+      if (gravity === 'right') rec.parts = rest.slice().reverse().concat(onPath);
+      else if (gravity === 'left') rec.parts = onPath.concat(rest);
+      else { const left = [], right = []; rest.forEach((p, i) => (i % 2 ? left : right).push(p)); rec.parts = left.reverse().concat(onPath, right); }
+    }
+    onPath.forEach((p, i) => {
+      const g = onPath.length === 1 || gravity !== 'centre' ? gravity : i === 0 ? 'right' : i === onPath.length - 1 ? 'left' : 'centre';
+      if (p.ch) arrange(p.ch, g); else p.leaf.gravity = g;
+    });
+  };
+  const maxDepth = opts.depth || Infinity;
+  const subtree = c => c.nodes.concat(...c.kids.map(subtree));
+  const collect = c => {
+    const parts = [];
+    if (c.depth === maxDepth) {
+      for (const k of c.kids) (function clear(x) { lay.cont.set(x, { parts: [], w: 0 }); x.kids.forEach(clear); })(k);
+      const all = subtree(c).filter(n => include(n) && !pillar(n)).sort((a, b) => cmp(a.key, b.key));
+      if (all.length) { const L = { nodes: all }; leaves.push(L); parts.push({ leaf: L }); }
+      lay.cont.set(c, { parts, w: 0 });
+      return parts.length > 0;
+    }
+    const own = c.nodes.filter(n => include(n) && !pillar(n));
+    if (own.length) { const L = { nodes: own }; leaves.push(L); parts.push({ leaf: L }); }
+    for (const ch of c.kids) if (collect(ch)) parts.push({ ch });
+    lay.cont.set(c, { parts, w: 0 });
+    return parts.length > 0;
+  };
+  collect(tree);
+  if (po) arrange(tree, 'centre');
+  const pnodes = M.nodes.filter(n => include(n) && pillar(n));
+  const pillarLeaf = pnodes.length ? { nodes: pnodes } : null;
+  if (pillarLeaf) leaves.push(pillarLeaf);
+  // A target band height that gives the whole picture roughly a 3:1 shape; each cell is as wide as its heaviest layer needs at that height.
+  const target = snap(Math.sqrt(leaves.reduce((a, L) => a + heaviestLayer(L.nodes), 0) / 15));
+  lay.target = target;
+  const inCell = (a, b) => (po ? rankCmp(po.nodeRank(a), po.nodeRank(b)) : 0) || diam(b) - diam(a) || cmp(a.key, b.key);
+  for (const L of leaves) {
+    L.w = snap(Math.max(...L.nodes.map(diam), heaviestLayer(L.nodes) / target * 1.15));
+    L.loc = new Map(); L.h = [0, 0, 0, 0, 0];
+    for (let s = 0; s < 5; s++) {
+      const list = L.nodes.filter(n => n.slot === s).sort(inCell);
+      let x = 0, y = 0, rowH = 0, row = [];
+      // A cell whose path should sit against its right edge is mirrored, so its path nodes, packed first, end up on the right.
+      const close = () => { for (const [n, cx] of row) L.loc.set(n, [L.gravity === 'right' ? L.w - cx : cx, y + rowH / 2]); y += rowH; row = []; x = 0; rowH = 0; };
+      for (const n of list) {
+        if (row.length && x + diam(n) > L.w) close();
+        row.push([n, x + diam(n) / 2]); x += diam(n); rowH = Math.max(rowH, diam(n));
+      }
+      if (row.length) close();
+      L.h[s] = y;
+      lay.bandH[s] = Math.max(lay.bandH[s], y > 0 ? snap(y) : 0);
+    }
+  }
+  const width = c => {
+    const rec = lay.cont.get(c);
+    for (const p of rec.parts) p.w = p.leaf ? p.leaf.w : width(p.ch);
+    rec.w = rec.parts.length ? rec.parts.reduce((a, p) => a + p.w, 0) + GAP * (rec.parts.length - 1) + (c.depth ? 2 * PAD : 0) : 0;
+    if (c.depth && rec.w) rec.w = snapColumn(rec.w);
+    return rec.w;
+  };
+  width(tree);
+  let y = 0; lay.bandY = [0, 0, 0, 0, 0];
+  for (const s of SLOT_ORDER) { lay.bandY[s] = y; if (lay.bandH[s] > 0) y += lay.bandH[s] + 2 * BAND_PAD; }
+  lay.top = y;
+  // Cells sit on the floor of their band, so a taller neighbour does not move them.
+  const placeLeaf = (L, x0) => { for (const [n, [lx, ly]] of L.loc) lay.pos.set(n, [x0 + lx, lay.bandY[n.slot] + BAND_PAD + ly]); };
+  const place = (c, x0) => {
+    const rec = lay.cont.get(c); rec.x0 = x0; rec.x1 = x0 + rec.w;
+    let x = x0 + (c.depth ? PAD : 0);
+    for (const p of rec.parts) {
+      if (p.leaf) { placeLeaf(p.leaf, x); rec.ownX0 = x; rec.ownX1 = x + p.w; } else place(p.ch, x);
+      x += p.w + GAP;
+    }
+  };
+  place(tree, 0);
+  const rootW = lay.cont.get(tree).w;
+  lay.box = { minX: 0, maxX: rootW };
+  if (pillarLeaf) { const x0 = rootW + 24; placeLeaf(pillarLeaf, x0); lay.pillar = { x0, x1: x0 + pillarLeaf.w }; lay.box.maxX = x0 + pillarLeaf.w; }
+  return lay;
+}
+
+function tracePath(t) {
+  const out = [];
+  t.legs.forEach((leg, li) => leg.path.forEach((ix, pi) => {
+    if (out.length && out[out.length - 1].ix === ix) return;
+    out.push({ ix, leg: li, legStart: pi === 0 });
+  }));
+  return out;
+}
+
+// Distinct neighbours of each node over the given edge kinds, in either direction.
+function degrees(M, kinds) {
+  const key = [...kinds].sort().join(',');
+  if (M.degs[key]) return M.degs[key];
+  const deg = M.adj.map(list => new Set(list.filter(([, k]) => kinds.has(M.kinds[k])).map(([j]) => j)).size);
+  const sorted = [...deg].sort((a, b) => a - b);
+  deg.p90 = sorted[Math.floor(0.9 * (sorted.length - 1))];
+  return (M.degs[key] = deg);
+}
+
+// Hop distance from the path over the chosen edge kinds. o.dir is 'both', 'down' (along the edge) or 'up'.
+// With o.skipHubs, a node above o.hubMin distinct neighbours is kept when reached but never expanded, and a
+// path node that is a hub pulls in only non-hub neighbours or ones that touch two or more path nodes.
+// The returned map carries .hubs: the hubs whose expansion was cut.
+function neighbourhood(M, pathIx, hops, kinds, o = {}) {
+  const dir = o.dir === 'down' ? 1 : o.dir === 'up' ? -1 : 0;
+  const deg = o.skipHubs ? degrees(M, kinds) : null;
+  const hubMin = o.hubMin == null && deg ? deg.p90 : o.hubMin;
+  const isHub = i => !!deg && deg[i] > hubMin;
+  const onPath = new Set(pathIx);
+  const touches = new Map();
+  if (deg) for (const p of onPath) for (const j of new Set(M.adj[p].filter(([, k]) => kinds.has(M.kinds[k])).map(([j]) => j))) touches.set(j, (touches.get(j) || 0) + 1);
+  const dist = new Map(pathIx.map(i => [i, 0]));
+  const hubs = new Set();
+  let frontier = [...onPath];
+  for (let h = 1; h <= hops; h++) {
+    const next = [];
+    for (const i of frontier) {
+      const hub = isHub(i);
+      if (hub && !onPath.has(i)) { hubs.add(i); continue; }
+      let cut = false;
+      for (const [j, k, d] of M.adj[i]) {
+        if (!kinds.has(M.kinds[k]) || (dir && d !== dir) || dist.has(j)) continue;
+        if (hub && isHub(j) && (touches.get(j) || 0) < 2) { cut = true; continue; }
+        dist.set(j, h); next.push(j);
+      }
+      if (cut) hubs.add(i);
+    }
+    frontier = next;
+  }
+  dist.hubs = hubs; dist.hubMin = hubMin;
+  return dist;
+}
+
+// Distinct direct neighbours over the given edge kinds, with their summed fact counts.
+function neighbourCounts(M, i, kinds) {
+  const out = new Map();
+  for (const [j, k, , c] of M.adj[i]) if (kinds.has(M.kinds[k]) && j !== i) out.set(j, (out.get(j) || 0) + (c || 1));
+  return out;
+}
+const isEntryOrBoundary = n => (n.r || []).some(r => r === 'entryPoint' || r === 'boundaryAdapter' || r === 'externalAdapter');
+
+// The budgeted context: every path node, then at most `budget` more, one per path node in turn.
+// The returned map gives 0 for a path node and 1 for an extra; .why names the reason for each extra.
+function contextBudget(M, path, budget, kinds) {
+  const order = [...new Set(path)];
+  const onPath = new Set(order);
+  const dist = new Map(order.map(i => [i, 0]));
+  dist.why = new Map();
+  const queues = order.map(p => {
+    const shared = new Map();
+    for (const ci of M.cellsOf[p]) {
+      const c = M.cells[ci];
+      for (const x of new Set([c.o, ...c.w, ...c.r])) if (x >= 0 && !onPath.has(x)) shared.set(x, (shared.get(x) || 0) + 1);
+    }
+    const nb = neighbourCounts(M, p, kinds);
+    const byCount = (a, b) => (nb.get(b) || 0) - (nb.get(a) || 0) || a - b;
+    const a = [...shared.keys()].sort((x, y) => shared.get(y) - shared.get(x) || byCount(x, y)).map(j => [j, 'shares a state cell with a path node']);
+    const rest = [...nb.keys()].filter(j => !onPath.has(j) && !shared.has(j));
+    const b = rest.filter(j => isEntryOrBoundary(M.nodes[j])).sort(byCount).map(j => [j, 'an entry point or boundary next to a path node']);
+    const c = rest.filter(j => !isEntryOrBoundary(M.nodes[j])).sort(byCount).map(j => [j, 'a direct neighbour of a path node']);
+    return a.concat(b, c);
+  });
+  let taken = 0, live = true;
+  const pos = queues.map(() => 0);
+  while (taken < budget && live) {
+    live = false;
+    for (let q = 0; q < queues.length && taken < budget; q++) {
+      const Q = queues[q];
+      while (pos[q] < Q.length && dist.has(Q[pos[q]][0])) pos[q]++;
+      if (pos[q] >= Q.length) continue;
+      live = true;
+      const [j, why] = Q[pos[q]++];
+      dist.set(j, 1); dist.why.set(j, why); taken++;
+    }
+  }
+  return dist;
+}
+
+// State only: every path node, the cells they touch, and every owner, writer and reader of those cells.
+function contextState(M, path, extraCells) {
+  const dist = new Map([...new Set(path)].map(i => [i, 0]));
+  dist.why = new Map();
+  const cells = new Set(extraCells || []);
+  for (const p of dist.keys()) for (const ci of M.cellsOf[p]) cells.add(ci);
+  for (const ci of [...cells].sort((a, b) => a - b)) {
+    const c = M.cells[ci];
+    for (const x of [c.o, ...c.w, ...c.r]) if (x >= 0 && !dist.has(x)) { dist.set(x, 1); dist.why.set(x, x === c.o ? 'owns a cell the path touches' : 'writes or reads a cell the path touches'); }
+  }
+  dist.cells = cells.size;
+  return dist;
+}
+
+// Branch trees: every path a value takes from one root to each terminal it reaches, merged on shared prefixes.
+// Points are where the shape changes; a segment runs from point a (upstream) to point b, so a forward tree grows
+// from its root at a and a backward tree reaches its root at b. A terminal's chain is its segments in data-flow
+// order; the export gives it explicitly when it is not the chain of first segments toward the root.
+function prepareBranches(data, mem) {
+  const B = data.branches || { trees: [], rootKinds: [], pointKinds: [], termKinds: [], approx: [] };
+  const trees = B.trees.map((t, i) => {
+    const n = t.p.length / 3, pt = { kind: [], m: [], node: [] };
+    for (let k = 0; k < n; k++) { pt.kind.push(B.pointKinds[t.p[3 * k]]); pt.m.push(t.p[3 * k + 1]); pt.node.push(t.p[3 * k + 2]); }
+    const segs = t.s.map(([a, b, hc, bits, cost, members]) => {
+      const nodes = [];
+      for (const x of [pt.node[a], ...members.map(m => (m >= 0 ? mem.n[m] : -1)), pt.node[b]]) if (x >= 0 && nodes[nodes.length - 1] !== x) nodes.push(x);
+      return { a, b, hc, cost, members, nodes, approx: B.approx.filter((x, j) => bits & (1 << j)) };
+    });
+    const back = t.r[1] === 1, near = back ? 'a' : 'b', far = back ? 'b' : 'a';
+    const par = new Map();
+    segs.forEach((s, k) => { if (!par.has(s[near])) par.set(s[near], k); });
+    const chainTo = p => { const ch = []; const seen = new Set(); while (par.has(p) && !seen.has(p)) { seen.add(p); const k = par.get(p); ch.push(k); p = segs[k][far]; } return back ? ch : ch.reverse(); };
+    const terms = t.t.map(([point, kind, ref, eq, clean, cost, sg]) => ({ point, kind: B.termKinds[kind], ref, eq, clean: !!clean, cost, segs: sg || chainTo(point) }));
+    const sibs = t.x.map(([at, k, vals]) => ({ at, kind: k ? 'split' : 'join', values: vals.map(([m, name]) => ({ m, name })) }));
+    const [rk, dir, ref, rootPt, label] = t.r;
+    return { i, kind: B.rootKinds[rk], dir: dir ? 'backward' : 'forward', ref, rootPt, label, rootNode: pt.node[rootPt], rootMember: pt.m[rootPt], pt, segs, terms, sibs, chainTo };
+  });
+  const byNode = new Map(), byMember = new Map();
+  for (const T of trees) {
+    if (T.rootNode >= 0) byNode.set(T.rootNode, (byNode.get(T.rootNode) || []).concat(T.i));
+    if (T.rootMember >= 0) byMember.set(T.rootMember, (byMember.get(T.rootMember) || []).concat(T.i));
+  }
+  // The other direction of the same root: a boundary's result and arguments, or a trace's start and end.
+  const traceName = T => (T.kind === 'traceEnd' ? T.label.split(' ')[0] : null);
+  for (const T of trees) T.partner = trees.find(U => U !== T && U.dir !== T.dir && U.kind === T.kind && (T.kind === 'traceEnd' ? traceName(U) === traceName(T) : T.ref >= 0 && U.ref === T.ref)) || null;
+  const byTrace = new Map();
+  for (const T of trees) if (T.kind === 'traceEnd') byTrace.set(traceName(T) + '|' + T.dir, T.i);
+  return { trees, byNode, byMember, byTrace };
+}
+
+// What a tree shows under the toggles. o: { clean, sinks, endpoint (point or -1) }. Returns the visible terminals,
+// the segments and points they need, the tree's nodes root first in segment order, the endpoint's strand, and counts.
+function treeView(T, o) {
+  const all = T.terms;
+  const terms = [];
+  all.forEach((x, k) => { if ((o.sinks || x.kind !== 'sink') && (!o.clean || x.clean)) terms.push(k); });
+  const segs = new Set(), points = new Set([T.rootPt]);
+  for (const k of terms) for (const s of all[k].segs) segs.add(s);
+  const order = [...segs].sort((a, b) => a - b);
+  const nodes = [], seen = new Set();
+  const add = x => { if (x >= 0 && !seen.has(x)) { seen.add(x); nodes.push(x); } };
+  add(T.rootNode);
+  for (const s of order) { points.add(T.segs[s].a); points.add(T.segs[s].b); T.segs[s].nodes.forEach(add); }
+  let strandSegs = null, strandNodes = null;
+  if (o.endpoint != null && o.endpoint >= 0) {
+    const term = all.find(x => x.point === o.endpoint);
+    const ch = term ? term.segs : T.chainTo(o.endpoint);
+    strandSegs = new Set(ch); strandNodes = [];
+    const s2 = new Set(); const add2 = x => { if (x >= 0 && !s2.has(x)) { s2.add(x); strandNodes.push(x); } };
+    add2(T.rootNode); for (const s of ch) T.segs[s].nodes.forEach(add2);
+  }
+  const sinks = all.filter(x => x.kind === 'sink').length;
+  const unclean = all.filter(x => !x.clean && (o.sinks || x.kind !== 'sink')).length;
+  const pool = all.length - (o.sinks ? 0 : sinks);
+  return { terms, segs, points, nodes, strandSegs, strandNodes, counts: { total: all.length, pool, shown: terms.length, unclean, sinks } };
+}
+function treeSentence(T, tv, o) {
+  const c = tv.counts;
+  return `${c.shown} of ${c.total} endpoints shown; ${c.unclean} need an any-instance or any-container read or staged code${o.clean && c.unclean ? ' (hidden)' : ''}; ${c.sinks} sink${c.sinks === 1 ? '' : 's'} ${o.sinks ? 'shown' : 'hidden'}.`;
+}
+// The endpoint a click on a class picks: a visible terminal in that class, else the deepest visible point in it.
+function endpointInNode(T, tv, node) {
+  for (const k of tv.terms) if (T.pt.node[T.terms[k].point] === node) return T.terms[k].point;
+  let best = -1, depth = -1;
+  for (const p of tv.points) if (T.pt.node[p] === node) { const d = T.chainTo(p).length; if (d > depth || (d === depth && p < best)) { best = p; depth = d; } }
+  return best;
+}
+// Siblings to stub: at the joins and splits on the strand, or on the whole visible tree, capped.
+function siblingStubs(T, tv, cap) {
+  const on = tv.strandSegs ? new Set([T.rootPt, ...[...tv.strandSegs].flatMap(s => [T.segs[s].a, T.segs[s].b])]) : tv.points;
+  const list = T.sibs.filter(s => on.has(s.at)).sort((a, b) => a.at - b.at);
+  return { list: list.slice(0, cap), total: list.length };
+}
+
+// Strands through a member or a class: every root-to-terminal chain whose segments or points include it, and every
+// golden trace that steps on it. Built once per model, on first use. Ranked clean first, then by cost (the
+// export's cost order, compared left to right), then by tree and terminal index.
+function strandIndex(M) {
+  if (M.strandIx) return M.strandIx;
+  const byMem = new Map(), byNode = new Map();
+  const put = (map, key, v) => { let a = map.get(key); if (!a) map.set(key, a = []); a.push(v); };
+  for (const T of M.br.trees) T.terms.forEach((term, k) => {
+    const ms = new Set(), ns = new Set();
+    const pm = p => { if (T.pt.m[p] >= 0) ms.add(T.pt.m[p]); if (T.pt.node[p] >= 0) ns.add(T.pt.node[p]); };
+    pm(T.rootPt); pm(term.point);
+    for (const s of term.segs) { const g = T.segs[s]; pm(g.a); pm(g.b); for (const m of g.members) if (m >= 0) ms.add(m); for (const x of g.nodes) ns.add(x); }
+    const v = [T.i, k];
+    for (const m of ms) put(byMem, m, v);
+    for (const x of ns) put(byNode, x, v);
+  });
+  return (M.strandIx = { byMem, byNode });
+}
+const costCmp = (a, b) => { for (let i = 0; i < Math.max(a.length, b.length); i++) { const d = (a[i] || 0) - (b[i] || 0); if (d) return d; } return 0; };
+function strandsThrough(M, what) {
+  const ix = strandIndex(M);
+  const list = (what.member != null ? ix.byMem.get(what.member) : ix.byNode.get(what.node)) || [];
+  const chains = list.map(([t, k]) => ({ tree: t, term: k, x: M.br.trees[t].terms[k] }));
+  chains.sort((a, b) => (b.x.clean - a.x.clean) || costCmp(a.x.cost, b.x.cost) || a.tree - b.tree || a.term - b.term);
+  const traces = [];
+  D.traces.forEach((t, i) => {
+    const hit = what.member != null ? traceMembers(t).some(h => h.fm === what.member || h.tm === what.member) : tracePath(t).some(s => s.ix === what.node);
+    if (hit) traces.push(i);
+  });
+  return { traces, chains };
+}
+
+// The container a node is grouped under: its ancestor at the given depth, or its own container when shallower.
+function groupAt(n, tk, depth, pillarFn) {
+  if (pillarFn && pillarFn(n)) return 'pillar';
+  const chain = n.ancBy[tk];
+  return chain.length ? chain[Math.min(depth, chain.length) - 1] : 'root';
+}
+
+function bundles(M, tk, depth, shown, kindsOn, pillarFn) {
+  const map = new Map();
+  for (const [a, b, k, c] of M.edges) {
+    if (!kindsOn.has(M.kinds[k])) continue;
+    const na = M.nodes[a], nb = M.nodes[b];
+    if (!shown(na) || !shown(nb)) continue;
+    const ga = groupAt(na, tk, depth, pillarFn), gb = groupAt(nb, tk, depth, pillarFn);
+    if (ga === gb && na.slot === nb.slot) continue;
+    const ka = typeof ga === 'string' ? ga : ga.key, kb = typeof gb === 'string' ? gb : gb.key;
+    const key = ka + '|' + na.slot + '>' + kb + '|' + nb.slot;
+    let B = map.get(key);
+    if (!B) map.set(key, B = { ga, sa: na.slot, gb, sb: nb.slot, count: 0, byKind: {} });
+    B.count += c; B.byKind[M.kinds[k]] = (B.byKind[M.kinds[k]] || 0) + c;
+  }
+  return [...map.entries()].sort((x, y) => cmp(x[0], y[0])).map(e => e[1]);
+}
+
+// The tree the reader has chosen, or at branch level 1 and up the selected trace's start or end tree, with what it
+// shows under the toggles. It only highlights; visibility never lets it move or drop a node.
+function activeTree(M, S) {
+  const level = S.branch == null ? 1 : S.branch;
+  let i = S.root != null && S.root >= 0 ? S.root : -1;
+  if (i < 0 && S.trace >= 0 && level >= 1) {
+    const name = D.traces[S.trace].name, want = S.tdir || 'forward', other = want === 'forward' ? 'backward' : 'forward';
+    const hit = M.br.byTrace.get(name + '|' + want);
+    i = hit != null ? hit : M.br.byTrace.has(name + '|' + other) ? M.br.byTrace.get(name + '|' + other) : -1;
+  }
+  const T = i >= 0 ? M.br.trees[i] : null;
+  const tv = T ? treeView(T, { clean: S.clean !== false, sinks: !!S.sinks, endpoint: S.endpoint }) : null;
+  return { T, tv, level, strand: new Set(tv && tv.strandNodes ? tv.strandNodes : []), treeNodes: new Set(tv ? tv.nodes : []) };
+}
+
+// One model of what is shown, shared by both layouts and every view.
+function visibility(M, S) {
+  const tk = treeKey(M, S.ckinds);
+  const tree = buildTree(M, tk);
+  const tracePathIx = S.trace >= 0 ? tracePath(D.traces[S.trace]).map(s => s.ix) : null;
+  // The highlighted tree never changes the layout. S.focus ({ kind: 'tree' or 'strand', root, endpoint }, or the
+  // kind alone to use the current root and endpoint) is what makes a tree, or one strand of it, the core.
+  const A = activeTree(M, S), { T, tv, level, strand, treeNodes } = A;
+  const F = S.focus ? (typeof S.focus === 'string' ? { kind: S.focus, root: S.root, endpoint: S.endpoint } : S.focus) : null;
+  let focus = null, focusTree = null;
+  if (F && F.root != null && F.root >= 0) {
+    focusTree = M.br.trees[F.root];
+    const ftv = treeView(focusTree, { clean: S.clean !== false, sinks: !!S.sinks, endpoint: F.endpoint });
+    focus = F.kind === 'strand' && ftv.strandNodes ? 'strand' : 'tree';
+    var path = focus === 'strand' ? ftv.strandNodes.slice() : ftv.nodes.slice();
+  } else var path = null;
+  if (tracePathIx) path = path ? tracePathIx.concat(path.filter(i => !tracePathIx.includes(i))) : tracePathIx;
+  const onPath = new Set(path || []);
+  const nbOpts = { dir: S.dir, skipHubs: S.skipHubs, hubMin: S.hubMin };
+  const ctx = S.ctx || 'none';
+  const hopCells = tracePathIx ? traceMembers(D.traces[S.trace]).map(h => h.cell).filter(c => c >= 0) : [];
+  const dist = !path || !(S.focusOn || focus) ? null
+    : ctx === 'none' ? Object.assign(new Map(path.map(i => [i, 0])), { why: new Map() })
+    : ctx === 'budget' ? contextBudget(M, path, S.budget == null ? 30 : S.budget, S.hopKinds)
+    : ctx === 'state' ? contextState(M, path, hopCells)
+    : neighbourhood(M, path, S.hops, S.hopKinds, nbOpts);
+  let omitted = 0;
+  if (dist) {
+    const nbs = new Set();
+    for (const p of new Set(path)) for (const j of neighbourCounts(M, p, S.hopKinds).keys()) nbs.add(j);
+    for (const j of nbs) if (!dist.has(j)) omitted++;
+  }
+  let hubInfo = null;
+  if (dist && ctx === 'hops') {
+    const other = neighbourhood(M, path, S.hops, S.hopKinds, Object.assign({}, nbOpts, { skipHubs: !S.skipHubs }));
+    const withSkip = S.skipHubs ? dist : other;
+    hubInfo = { hubs: withSkip.hubs.size, hubMin: withSkip.hubMin, auto: S.hubMin == null, cut: Math.abs(other.size - dist.size) };
+  }
+  const synHidden = n => S.synth === 'hide' && !!n.syn && !onPath.has(n.i);
+  const rad = n => (S.synth === 'shrink' && n.syn ? SYN_RAD : n.rad);
+  const pillar = n => S.infra === 'pillar' && !!n.inf && !onPath.has(n.i);
+  const infraHidden = n => S.infra === 'hide' && !!n.inf && !onPath.has(n.i);
+  const inIso = n => !S.iso.size || n.ancBy[tk].some(c => S.iso.has(c.key));
+  const isoCore = new Set(), isoTouch = new Set();
+  if (S.iso.size) {
+    for (const n of M.nodes) if (inIso(n)) isoCore.add(n.i);
+    for (const [a, b, k] of M.edges) {
+      if (!S.kinds.has(M.kinds[k])) continue;
+      if (isoCore.has(a) && !isoCore.has(b)) isoTouch.add(b);
+      if (isoCore.has(b) && !isoCore.has(a)) isoTouch.add(a);
+    }
+  }
+  const shown = n => {
+    if (!S.layers.has(n.slot)) return false;
+    if (onPath.has(n.i)) return true;
+    if (infraHidden(n) || synHidden(n)) return false;
+    if (dist && !dist.has(n.i)) return false;
+    if (S.iso.size && !isoCore.has(n.i) && !isoTouch.has(n.i)) return false;
+    return true;
+  };
+  const compact = !!S.compact || !!focus;
+  // Hidden generated code leaves the layout too, so it frees its space even with compact off.
+  const include = compact ? shown : (n => !synHidden(n));
+  let order = null;
+  if (compact && path && S.weightPath !== false) {
+    const rank = new Map();
+    path.forEach(i => { if (!rank.has(i)) rank.set(i, rank.size); });
+    const close = new Map();
+    for (const [a, b, k] of M.edges) {
+      if (!S.hopKinds.has(M.kinds[k])) continue;
+      if (onPath.has(a) && !onPath.has(b)) close.set(b, (close.get(b) || 0) + 1);
+      if (onPath.has(b) && !onPath.has(a)) close.set(a, (close.get(a) || 0) + 1);
+    }
+    order = { rank, close };
+  }
+  return { tk, ctx, omitted, tree, path, onPath, strand, treeNodes, focus, focusTree, T, tv, level, dist, hubInfo, pillar, shown, include, rad, order, compact, isoCore, isoTouch };
+}
+const SYN_RAD = 2.5;
+
+// opts.depth is an optional cut for the side view: below it a subtree merges into one cell. Every checked kind
+// is drawn, so nothing sets it yet; a zoom-dependent reveal would.
+function layoutOpts(V) { return { include: V.include, pillar: V.pillar, rad: V.rad, order: V.order }; }
+
+function edgeTier(V, a, b) {
+  if (!V.path) return 'base';
+  const pa = V.onPath.has(a), pb = V.onPath.has(b);
+  return pa || pb ? 'near' : 'far';
+}
+const EDGE_TIER = { base: 1, near: 1, far: 0.45 };
+
+if (typeof module !== 'undefined') module.exports = { prepare, treeKey, buildTree, packLayout, sideLayout, bundles, tracePath, neighbourhood, degrees, visibility, layoutOpts, edgeTier, EDGE_TIER, groupAt, whyText, SLOT_ORDER, SYN_RAD,
+  memberLayout, traceMembers, memberNeighbours, cellAccess, contextBudget, contextState, neighbourCounts, MEMBER_MARK, MEMBER_FLOOR,
+  prepareBranches, treeView, treeSentence, endpointInNode, siblingStubs, strandIndex, strandsThrough, costCmp, activeTree, hexToOklch, oklchToHex, mixOklch, wheelHue, blendHex };
+
+// Colour arithmetic in OKLCH, so a mix of two Lum colours keeps their lightness and chroma. Hue mixes take the
+// shorter arc; a near-grey end takes the other end's hue.
+function hexToOklch(hex) {
+  const h = hex.replace('#', ''), lin = c => (c <= 0.04045 ? c / 12.92 : ((c + 0.055) / 1.055) ** 2.4);
+  const [r, g, b] = [0, 2, 4].map(i => lin(parseInt(h.slice(i, i + 2), 16) / 255));
+  const l = Math.cbrt(0.4122214708 * r + 0.5363325363 * g + 0.0514459929 * b), m = Math.cbrt(0.2119034982 * r + 0.6806995451 * g + 0.1073969566 * b), s = Math.cbrt(0.0883024619 * r + 0.2817188376 * g + 0.6299787005 * b);
+  const L = 0.2104542553 * l + 0.793617785 * m - 0.0040720468 * s, A = 1.9779984951 * l - 2.428592205 * m + 0.4505937099 * s, B = 0.0259040371 * l + 0.7827717662 * m - 0.808675766 * s;
+  return [L, Math.hypot(A, B), Math.atan2(B, A)];
+}
+function oklchToHex([L, C, H]) {
+  const a = C * Math.cos(H), b = C * Math.sin(H);
+  const l = (L + 0.3963377774 * a + 0.2158037573 * b) ** 3, m = (L - 0.1055613458 * a - 0.0638541728 * b) ** 3, s = (L - 0.0894841775 * a - 1.291485548 * b) ** 3;
+  const out = c => { c = Math.min(1, Math.max(0, c)); c = c <= 0.0031308 ? 12.92 * c : 1.055 * c ** (1 / 2.4) - 0.055; return Math.round(Math.min(1, Math.max(0, c)) * 255).toString(16).padStart(2, '0'); };
+  return '#' + out(4.0767416621 * l - 3.3077115913 * m + 0.2309699292 * s) + out(-1.2684380046 * l + 2.6097574011 * m - 0.3413193965 * s) + out(-0.0041960863 * l - 0.7034186147 * m + 1.707614701 * s);
+}
+function mixOklch(h1, h2, t) {
+  const a = hexToOklch(h1), b = hexToOklch(h2);
+  let dh = b[2] - a[2]; if (dh > Math.PI) dh -= 2 * Math.PI; if (dh < -Math.PI) dh += 2 * Math.PI;
+  const hue = a[1] < 0.02 ? b[2] : b[1] < 0.02 ? a[2] : a[2] + dh * t;
+  return oklchToHex([a[0] + (b[0] - a[0]) * t, a[1] + (b[1] - a[1]) * t, hue]);
+}
+// The i-th of n containers on the 12-hue wheel, spaced evenly in wheel order; between two wheel hues, their OKLCH mix.
+function wheelHue(wheel, i, n) { const t = (i * 12 / Math.max(n, 1)) % 12, k = Math.floor(t + 1e-9); return t - k < 1e-6 ? wheel[k] : mixOklch(wheel[k], wheel[(k + 1) % 12], t - k); }
+function shadeOklch(hex, dL, kC) { const c = hexToOklch(hex); return oklchToHex([Math.min(0.92, Math.max(0.25, c[0] + dL)), c[1] * kC, c[2]]); }
+// Foreground over background at an emphasis (opacity), pre-blended; this is what CSS opacity would show.
+function blendHex(fg, bg, a) { const p = (h, i) => parseInt(h.replace('#', '').slice(i, i + 2), 16); return '#' + [0, 2, 4].map(i => Math.round(p(fg, i) * a + p(bg, i) * (1 - a)).toString(16).padStart(2, '0')).join(''); }
+
+// ---------- view ----------
+if (typeof window !== 'undefined' && D) (function () {
+  const M = prepare(D);
+  const $ = id => document.getElementById(id);
+  const css = name => getComputedStyle(document.documentElement).getPropertyValue(name).trim();
+  const color = name => new THREE.Color(css(name) || '#888');
+  const CKIND_LABEL = { module: 'Gradle module', sourceSet: 'Source set', package: 'Package', file: 'File' };
+
+  const store = {
+    get(k, d) { try { const v = localStorage.getItem('altstack2:' + k); return v == null ? d : JSON.parse(v); } catch (e) { return d; } },
+    set(k, v) { try { localStorage.setItem('altstack2:' + k, JSON.stringify(v)); } catch (e) { } },
+  };
+  const S = {
+    ckinds: new Set(store.get('ckinds', ['module', 'package']).filter(k => M.ckinds.includes(k))), infra: store.get('infra', 'inline'), color: store.get('color', 'container'),
+    layers: new Set(store.get('layers', [0, 1, 2, 3, 4])),
+    kinds: new Set(store.get('kinds', ['call', 'di', 'cellRead', 'cellWrite', 'navigation'])),
+    hopKinds: new Set(store.get('hopKinds', ['call', 'di', 'cellRead', 'cellWrite'])),
+    hops: store.get('hops', 1), focusOn: store.get('focusOn', true), compact: store.get('compact', false),
+    dir: store.get('dir', 'both'), skipHubs: store.get('skipHubs', true), hubMin: store.get('hubMin', null),
+    synth: store.get('synth', 'shrink'), edgeStrength: store.get('edgeStrength', null),
+    ctx: store.get('ctx7', 'none'), budget: store.get('budget', 30),
+    branch: store.get('branch', 1), clean: store.get('clean', true), sinks: store.get('sinks', false), tdir: 'forward',
+    root: -1, endpoint: -1, focus: null, history: [], sel: null, pane: 'settings',
+    connDir: store.get('connDir', 'both'), connKinds: new Set(store.get('connKinds', ['call', 'di', 'cellRead', 'cellWrite', 'navigation'])), conn: null,
+    cam: store.get('cam', 'orbit'), trace: D.traces.findIndex(t => t.name.startsWith('write')), iso: new Set(), hover: null, selected: null,
+  };
+  if (S.trace < 0) S.trace = 0;
+
+  // header and notes
+  const c = D.meta.counts;
+  $('meta').textContent = `${D.meta.target} @ ${D.meta.gitSha.slice(0, 8)} · ${c.nodes} nodes · ${c.edges} edges`;
+  const unplaced = M.nodes.filter(n => n.L < 0).length;
+  const infraN = M.nodes.filter(n => n.inf).length;
+  const generatedApi = M.nodes.filter(n => n.gen && n.f >= 0 && M.featLabel[n.f].endsWith('api')).length;
+  const inherit = M.nodes.filter(n => n.w === 'inheritsFromCallers').length;
+  const traceInfra = D.traces.map(t => { const p = tracePath(t); return `${t.name} ${p.filter(s => M.nodes[s.ix].inf).length} of ${p.length}`; }).join(', ');
+  const wt = D.traces.findIndex(t => t.name.startsWith('write'));
+  const wpath = tracePath(D.traces[wt]).map(s => s.ix);
+  const hk = new Set(['call', 'di', 'cellRead', 'cellWrite']);
+  const nb = (h, o) => neighbourhood(M, wpath, h, hk, o).size;
+  const nb1 = nb(1), nb2 = nb(2), nb1s = nb(1, { skipHubs: true }), nb2s = nb(2, { skipHubs: true }), nb2sd = nb(2, { skipHubs: true, dir: 'down' });
+  const synCount = k => M.nodes.filter(n => n.syn === k).length;
+  const traceSpread = D.traces.map(t => {
+    const p = tracePath(t), tally = {};
+    for (const s of p) { const n = M.nodes[s.ix]; const k = n.f + '|' + n.slot; tally[k] = (tally[k] || 0) + 1; }
+    const [k, v] = Object.entries(tally).sort((a, b) => b[1] - a[1])[0];
+    const [f, slot] = k.split('|').map(Number);
+    return `${t.name}: ${v} of ${p.length} on ${LAYER_NAMES[slot]} in ${f >= 0 ? M.featLabel[f] : 'none'}`;
+  }).join('; ');
+  const treeSize = ks => buildTree(M, treeKey(M, new Set(ks))).all.length;
+  const baseKinds = ['module', 'package'].filter(k => M.ckinds.includes(k));
+  const baseN = treeSize(baseKinds);
+  const kindGain = M.ckinds.filter(k => !baseKinds.includes(k)).map(k => `${CKIND_LABEL[k] || k} adds ${treeSize(baseKinds.concat([k])) - baseN}`).join(', ');
+  const fileNodes = new Map(); for (const n of M.nodes) fileNodes.set(n.c, (fileNodes.get(n.c) || 0) + 1);
+  const singleFiles = [...fileNodes.values()].filter(v => v === 1).length;
+  let memSize0 = 0; for (let m = 0; m < M.mem.N; m++) if (!M.mem.s[m]) memSize0++;
+  const bigMem = M.nodes.reduce((a, n) => (M.mem.of[n.i].length > a.count ? { n: n.n, count: M.mem.of[n.i].length } : a), { n: '', count: 0 });
+  $('about').textContent = `Each horizontal plane is one layer from the export: external at the bottom, ui at the top, and an extra plane underneath for the ${unplaced} nodes no rule places. Each circle is one node, an outermost class or a file's top-level declarations, and its area is its line count. Containers follow the export's containment chain (${M.ckinds.join(', ')}), and each kind has a checkbox. An unchecked kind is skipped, and what it held moves up to the nearest checked container. A container with a single child merges into that child, so each level drawn splits into at least two parts. In 3D every container keeps one footprint on every plane, drawn as nested cylinders, and the outer ones are fainter. The top view is its own flat packing: every class of a container packs into one circle whatever its layer, sorted by layer so each layer clusters, and a thin stroke tone gives the layer. The side view is a separate flat layout: containers are nested columns from left to right, and layers are horizontal bands. With a golden trace selected, the context rule decides what stays besides the path: a budget of extra nodes taken in turn per path node, every node within N hops, or only the state the path touches. Path nodes are drawn strong, context nodes lighter, and the orange path runs through the steps in order. Zoom in on a class and its members appear inside it: functions as discs, constructors and initializers as triangles, properties as diamonds, cells as rings. On the path, the orange line then threads from member to member. It is the only strong line: every other edge is faint, and hovering or selecting a circle draws its own edges by kind. Compact mode re-packs only the kept nodes with the path in the middle, and frames the path. Branch trees: choose a root (a cell, a boundary, or a golden trace's start or end) and its tree is drawn in blue over the current layout, every endpoint marked by kind. A click only selects and highlights; nothing moves. Focus tree and Focus strand, or a double click, re-pack the view around the tree or one strand, and Back or Esc returns. Every colour is from Plume's Lum theme.`;
+  const notes = [
+    `${infraN} nodes (${Math.round(100 * infraN / M.nodes.length)}%) carry the infrastructure flag, many only because 4 or more features' entry points reach them. Trace steps that are infrastructure: ${traceInfra}. The focus filter therefore always keeps path nodes in place, whatever the infrastructure setting. That makes the pillar and the hide setting mean little while a trace is selected.`,
+    `Skipping hubs helps at 2 hops and hardly at 1. For the write-expense path, 1 hop keeps ${nb1} nodes, or ${nb1s} with hubs skipped, and 2 hops keep ${nb2}, or ${nb2s}. Downstream only with hubs skipped keeps ${nb2sd} at 2 hops. One hop stays large because the path nodes are hubs themselves, and the rule lets a hub path node keep every neighbour that is not a hub. Most of those neighbours are small leaves. A cut by container or by edge count would shrink it further.`,
+    `Generated and non-production code is shrunk to a dot by default: ${synCount('generated')} generated nodes and ${synCount('fake') + synCount('preview') + synCount('test')} the export marks as test, preview or fake. Shrinking hides how much of the codebase is generated: the shared api package becomes a grid of dots.`,
+    `Members: ${M.mem.N} in ${M.nodes.length} nodes. ${memSize0} have no lines of their own, mostly one-line properties that share a line with their getter, so every member gets a floor of ${MEMBER_FLOOR} lines. ${bigMem.n} alone holds ${bigMem.count} members, so it shows members only when zoomed far in. Member circles are scaled to fill their class, so a member's size compares only within its class.`,
+    `Possible connections join member edges, which merge every call context: a function called from two places looks connected to both callers' callers. A cell stops the walk for this reason. Only a trace says what actually flows.`,
+    `The traces spend most of their steps on one plane inside one feature (${traceSpread}). The path is mostly a tangle inside one container on the data plane, where it revisits the same nodes, so the layer axis adds little for these flows.`,
+    `Modules and packages draw ${baseN} containers. On top of them, ${kindGain}. ${singleFiles} of ${fileNodes.size} files hold a single node and merge into it, so the file kind only draws the files with two or more nodes. A source set splits a module into separate package trees, so a package used in two source sets is drawn twice.`,
+    `The side view does not match the 3D geometry, so a node changes place when you switch views. Each band is as tall as its tallest cell, so cells next to a big node are mostly empty. Snapping sizes to steps keeps most growth local, but a cell that crosses a step still shifts its siblings to the right inside the same container. Each container keeps some slack, which makes the side view about 10% wider.`,
+    `Compact mode re-orders for the path. Columns that hold path nodes move to the middle, and in the top view whole containers turn to face the path. A container therefore looks different in compact mode, and from one trace to the next. When the path visits several cells in a row, its nodes sit at the cell edges, but the cells' other nodes still lie between path steps.`,
+    `Edges are one faint neutral tone, so their kind shows only on hover or selection. With 150 or more nodes kept, the faint lines still add up to a grey haze around the path. The line-strength slider trades haze for legibility.`,
+    `${unplaced} of ${M.nodes.length} nodes (${Math.round(100 * unplaced / M.nodes.length)}%) have no layer, and ${M.nodes.filter(n => n.L < 0 && n.gen).length} of them are generated. Their plane, or band, looks like a real layer.`,
+    `The shared api package is ${generatedApi} generated Apollo classes, the largest package by node count. ${inherit} nodes inherit their layer from callers but look as firmly placed as an entry host.`,
+    `Nested translucent cylinders add more overlapping surfaces than the flat version did, so 3D occlusion gets worse with every container kind checked. The top view shows the nesting clearly but loses the layers.`,
+    `Value edges (${D.edges.filter(e => D.edgeKinds[e[2]] === 'value').length}) swamp the view when enabled. "Downstream" follows each edge's own direction: the callee of a call, the reader of a cell read, the owner of a cell write. Data a call returns flows the other way, so downstream is not the same as data flow.`,
+  ];
+  $('badly').innerHTML = notes.map(t => `<li>${t}</li>`).join('');
+
+  // controls
+  $('ckinds').innerHTML = M.ckinds.map(k => `<label><input type="checkbox" id="ck-${k}" data-ckind="${k}" ${S.ckinds.has(k) ? 'checked' : ''}>${CKIND_LABEL[k] || k}</label>`).join('');
+  $('infra').value = S.infra; $('color').value = S.color;
+  $('hops').value = String(S.hops); $('focus-on').checked = S.focusOn; $('compact').checked = S.compact;
+  $('dir').value = S.dir; $('skip-hubs').checked = S.skipHubs; $('hub-min').value = S.hubMin == null ? '' : String(S.hubMin); $('synth').value = S.synth;
+  $('layers').innerHTML = SLOT_ORDER.slice().reverse().map(s => `<label><input type="checkbox" id="ly-${s}" data-slot="${s}" ${S.layers.has(s) ? 'checked' : ''}>${LAYER_NAMES[s]}</label>`).join('');
+  $('kinds').innerHTML = D.edgeKinds.map(k => `<label><input type="checkbox" id="k-${k}" data-kind="${k}" ${S.kinds.has(k) ? 'checked' : ''}>${k}</label>`).join('');
+  $('hop-kinds').innerHTML = D.edgeKinds.map(k => `<label><input type="checkbox" id="hk-${k}" data-kind="${k}" ${S.hopKinds.has(k) ? 'checked' : ''}>${k}</label>`).join('');
+  $('trace').innerHTML = `<option value="-1">None (structure only)</option>` + D.traces.map((t, i) => `<option value="${i}">${t.name} (${t.kind})</option>`).join('');
+  $('trace').value = S.trace;
+  $('branch').value = String(S.branch); $('clean').checked = S.clean; $('sinks').checked = S.sinks; $('tdir').value = S.tdir;
+  $('ctx').value = S.ctx; $('budget').value = String(S.budget); $('budget-val').textContent = String(S.budget);
+  $('conn-dir').value = S.connDir;
+  $('conn-kinds').innerHTML = D.edgeKinds.map(k => `<label><input type="checkbox" id="ck2-${k}" data-kind="${k}" ${S.connKinds.has(k) ? 'checked' : ''}>${k}</label>`).join('');
+
+  // three setup
+  const stage = $('stage');
+  const renderer = new THREE.WebGLRenderer({ antialias: true });
+  renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, 2));
+  stage.prepend(renderer.domElement);
+  const scene = new THREE.Scene();
+  const persp = new THREE.PerspectiveCamera(38, 1, 1, 50000);
+  const ortho = new THREE.OrthographicCamera(-1, 1, 1, -1, 1, 50000);
+  const view = { theta: -0.75, phi: 1.02, dist: 1000, target: new THREE.Vector3(), zoom: 1, top: { x: 0, z: 0 }, side: { x: 0, y: 0 }, baseTop: 500, baseSide: 500, fitted: '' };
+  let V = null, P = null, SL = null, root = null, nodeMeshes = [], overlay = [], hoverLines = null, dirty = true;
+  const sphere = new THREE.SphereGeometry(1, 24, 12);
+  let traceGroup = null, memGroup = null, memKey = '', connVersion = 0;
+  const meshByNode = new Map(), SHARED_GEO = new Set();
+  const camera = () => (S.cam === 'orbit' ? persp : ortho);
+
+  function applyCamera() {
+    const w = stage.clientWidth || 1, h = stage.clientHeight || 1, a = w / h;
+    if (S.cam === 'orbit') {
+      persp.aspect = a;
+      const t = view.target, d = view.dist;
+      persp.position.set(t.x + d * Math.sin(view.phi) * Math.cos(view.theta), t.y + d * Math.cos(view.phi), t.z + d * Math.sin(view.phi) * Math.sin(view.theta));
+      persp.up.set(0, 1, 0); persp.lookAt(t); persp.updateProjectionMatrix();
+    } else {
+      const half = (S.cam === 'top' ? view.baseTop : Math.max(view.baseSide, view.sideW / a)) / view.zoom;
+      ortho.left = -half * a; ortho.right = half * a; ortho.top = half; ortho.bottom = -half;
+      if (S.cam === 'top') { ortho.position.set(view.top.x, 20000, view.top.z); ortho.up.set(0, 0, -1); ortho.lookAt(view.top.x, 0, view.top.z); }
+      else { ortho.position.set(view.side.x, view.side.y, 20000); ortho.up.set(0, 1, 0); ortho.lookAt(view.side.x, view.side.y, 0); }
+      ortho.updateProjectionMatrix();
+    }
+  }
+  function fit(force) {
+    // In compact mode with a trace the camera frames the path plus a margin, so a change to the kept set refits.
+    const pathFit = V.compact && !!V.path;
+    const key = [S.cam, V.tk, S.compact, S.infra, S.synth, JSON.stringify(S.focus)].join('|')
+      + (pathFit ? '|' + [S.trace, S.hops, S.dir, S.skipHubs, S.hubMin, [...S.hopKinds].sort(), [...S.layers].sort()].join('|') : '');
+    if (!force && view.fitted === key) return;
+    view.fitted = key; view.zoom = 1;
+    const pathNodes = pathFit ? [...V.onPath].map(i => M.nodes[i]).filter(n => V.shown(n)) : [];
+    let b = P.box;
+    if (pathNodes.length) {
+      b = { minX: Infinity, maxX: -Infinity, minZ: Infinity, maxZ: -Infinity };
+      for (const n of pathNodes) { const p = P.pos.get(n), r = V.rad(n); b.minX = Math.min(b.minX, p[0] - r); b.maxX = Math.max(b.maxX, p[0] + r); b.minZ = Math.min(b.minZ, p[1] - r); b.maxZ = Math.max(b.maxZ, p[1] + r); }
+      const m = Math.max(30, 0.3 * Math.max(b.maxX - b.minX, b.maxZ - b.minZ));
+      b = { minX: b.minX - m, maxX: b.maxX + m, minZ: b.minZ - m, maxZ: b.maxZ + m };
+    }
+    const span = Math.max(b.maxX - b.minX, b.maxZ - b.minZ) / 2, cx = (b.minX + b.maxX) / 2, cz = (b.minZ + b.maxZ) / 2;
+    const midY = P.slotY(1) + P.H * 1.5;
+    view.target.set(cx, midY, cz); view.dist = Math.max(span, P.H * 1.6) * 3.1;
+    view.top = { x: cx, z: cz }; view.baseTop = span * 1.08;
+    let x0 = SL.box.minX, x1 = SL.box.maxX;
+    if (pathNodes.length) {
+      x0 = Infinity; x1 = -Infinity;
+      for (const n of pathNodes) { const p = SL.pos.get(n), r = V.rad(n); x0 = Math.min(x0, p[0] - r); x1 = Math.max(x1, p[0] + r); }
+      const m = Math.max(40, 0.25 * (x1 - x0)); x0 -= m; x1 += m;
+    }
+    const sh = SL.top + headerH();
+    view.side = { x: (x0 + x1) / 2, y: sh / 2 }; view.baseSide = sh / 2 * 1.12; view.sideW = (x1 - x0) / 2 * 1.06;
+  }
+  const ROW_H = 13;
+  const headerH = () => ROW_H * (V.tree.maxDepth + 0.5);
+
+  // Hue comes from the outermost container drawn, spaced evenly round Lum's 12-hue wheel; an inner container keeps
+  // that hue and steps its OKLCH lightness and chroma, so nesting reads as shades of one family.
+  let wheel = [], ccache = new Map();
+  function containerColor(g) {
+    if (g === 'pillar') return color('--infra');
+    if (g === 'root' || !g) return color('--role-data');
+    if (!ccache.has(g)) {
+      const base = wheelHue(wheel, g.outer.sib, V.tree.kids.length);
+      const t = ((g.order - g.outer.order) * 0.618034) % 1;
+      ccache.set(g, g.depth === 1 ? base : shadeOklch(base, (t - 0.5) * 0.2, 0.7 + 0.4 * ((t * 2.618) % 1)));
+    }
+    return new THREE.Color(ccache.get(g));
+  }
+  // Neutrals are the foreground at an emphasis over the background, pre-blended so stacked lines never darken.
+  const em = a => new THREE.Color(blendHex(css('--ink'), css('--bg'), Math.min(1, Math.max(0, a))));
+  const emOf = name => parseFloat(css('--em-' + name)) || 0.3;
+  // The top view's layer cue: the foreground from divider (bottom plane) to subtle (ui).
+  const layerTone = s => em(emOf('divider') + (emOf('subtle') - emOf('divider')) * SLOT_ORDER.indexOf(s) / 4 + 0.08);
+  function nodeColor(n) {
+    if (S.color === 'role') return color('--role-' + n.cat);
+    if (S.color === 'infra') return new THREE.Color(mixOklch(css('--role-data'), css('--infra'), Math.min(1, (n.sc || 0) / 0.6)));
+    return containerColor(groupAt(n, V.tk, Infinity, V.pillar));
+  }
+  function disposeTree(o) { o.traverse(x => { if (x.geometry && x.geometry !== sphere && !SHARED_GEO.has(x.geometry)) x.geometry.dispose(); if (x.material) x.material.dispose(); }); }
+
+  // Where a node is drawn in the current view.
+  const side = () => S.cam === 'side', top = () => S.cam === 'top';
+  function npos(n) {
+    if (side()) { const p = SL.pos.get(n); return p ? new THREE.Vector3(p[0], p[1], 0) : null; }
+    const p = P.pos.get(n); return p ? new THREE.Vector3(p[0], P.slotY(n.slot), p[1]) : null;
+  }
+  function gpos(g, slot) {
+    if (side()) {
+      const y = SL.bandY[slot] + SL.bandH[slot] / 2 + 6;
+      if (g === 'pillar') return new THREE.Vector3((SL.pillar.x0 + SL.pillar.x1) / 2, y, 0);
+      const r = SL.cont.get(g === 'root' ? V.tree : g);
+      const x = g === 'root' ? (r.ownX0 + r.ownX1) / 2 : (r.x0 + r.x1) / 2;
+      return new THREE.Vector3(x, y, 0);
+    }
+    if (g === 'pillar') return new THREE.Vector3(P.pillar.x, P.slotY(slot), P.pillar.z);
+    const r = P.cont.get(g === 'root' ? V.tree : g);
+    return g === 'root' ? new THREE.Vector3(r.ownX, P.slotY(slot), r.ownZ) : new THREE.Vector3(r.x, P.slotY(slot), r.z);
+  }
+
+  function build() {
+    V = visibility(M, S);
+    wheel = Array.from({ length: 12 }, (_, i) => css('--h' + i) || '#888888'); ccache = new Map(); outlineMats = [];
+    const lopts = layoutOpts(V);
+    P = packLayout(M, V.tree, top() ? Object.assign({ flat: true }, lopts) : lopts);
+    SL = sideLayout(M, V.tree, lopts);
+    fit(false);
+    if (root) { scene.remove(root); disposeTree(root); }
+    root = new THREE.Group(); scene.add(root);
+    scene.background = color('--bg');
+    nodeMeshes = []; overlay = []; meshByNode.clear();
+    const shownCount = new Map();
+    for (const n of M.nodes) if (V.shown(n)) for (const a of n.ancBy[V.tk]) shownCount.set(a, (shownCount.get(a) || 0) + 1);
+    const drawn = V.tree.all.filter(g => shownCount.get(g));
+    const visibleSlots = SLOT_ORDER.filter(s => S.layers.has(s));
+    const deepest = V.tree.maxDepth;
+    const hasPillar = M.nodes.some(n => V.shown(n) && V.pillar(n));
+
+    if (!side()) build3D(drawn, visibleSlots, deepest, hasPillar); else buildSide(drawn, visibleSlots, deepest, hasPillar);
+    buildNodes();
+    buildEdges();
+    retuneEdges();
+    traceGroup = new THREE.Group(); root.add(traceGroup);
+    buildTrace();
+    hoverLines = null; memGroup = null; memKey = '';
+    renderLabels(true);
+    renderConn();
+    renderTree(shownCount);
+    renderFocusStat();
+    applyHighlight();
+    dirty = true;
+  }
+
+  function build3D(drawn, visibleSlots, deepest, hasPillar) {
+    const b = P.box, pad = 30;
+    // The top layout is one plane: draw a single sheet and one ring per container.
+    if (P.flat) visibleSlots = visibleSlots.slice(0, 1);
+    for (const s of visibleSlots) {
+      const y = P.slotY(s), w = b.maxX - b.minX + pad * 2, d = b.maxZ - b.minZ + pad * 2;
+      const geo = new THREE.PlaneGeometry(w, d);
+      const m = new THREE.Mesh(geo, new THREE.MeshBasicMaterial({ color: color('--ink'), transparent: true, opacity: s === 4 ? 0.02 : 0.04, depthWrite: false, side: THREE.DoubleSide }));
+      m.rotation.x = -Math.PI / 2; m.position.set((b.minX + b.maxX) / 2, y - 0.5, (b.minZ + b.maxZ) / 2);
+      root.add(m);
+      const line = new THREE.LineSegments(new THREE.EdgesGeometry(geo), new THREE.LineBasicMaterial({ color: em(s === 4 ? emOf('disabled') : emOf('outline')), transparent: true, opacity: 1, depthWrite: false }));
+      line.rotation.x = -Math.PI / 2; line.position.copy(m.position); root.add(line);
+      if (!P.flat) overlay.push({ cls: 'lbl layer', text: (s === 4 ? '' : s + ' ') + LAYER_NAMES[s], pos: new THREE.Vector3(b.maxX + pad + 6, y, b.maxZ + pad) });
+    }
+    const lo = visibleSlots.length ? P.slotY(visibleSlots[0]) : 0, hi = visibleSlots.length ? P.slotY(visibleSlots[visibleSlots.length - 1]) : 0;
+    const circle = R => { const pts = []; for (let i = 0; i <= 72; i++) { const a = i / 72 * Math.PI * 2; pts.push(new THREE.Vector3(Math.cos(a) * R, 0, Math.sin(a) * R)); } return new THREE.BufferGeometry().setFromPoints(pts); };
+    const conts = drawn.map(g => ({ g, r: P.cont.get(g) })).filter(x => x.r && x.r.R > 0);
+    if (hasPillar && P.pillar) conts.push({ g: 'pillar', r: P.pillar });
+    for (const { g, r } of conts) {
+      const depth = g === 'pillar' ? deepest : g.depth;
+      const inner = depth === deepest || (g !== 'pillar' && !g.kids.length);
+      const iso = g !== 'pillar' && S.iso.has(g.key);
+      const col = S.color === 'container' && inner ? containerColor(g) : (g === 'pillar' ? color('--infra') : color('--cyl'));
+      const cyl = new THREE.Mesh(new THREE.CylinderGeometry(r.R, r.R, Math.max(hi - lo, 1), 72, 1, true), new THREE.MeshBasicMaterial({
+        color: col, transparent: true, opacity: iso ? 0.08 : inner ? 0.035 : 0.012, depthWrite: false, side: THREE.DoubleSide }));
+      cyl.position.set(r.x, (lo + hi) / 2, r.z); root.add(cyl);
+      const ringGeo = circle(r.R);
+      for (const s of visibleSlots) {
+        const ring = new THREE.Line(ringGeo, iso ? new THREE.LineBasicMaterial({ color: color('--accent'), transparent: true, opacity: 0.9 }) : outlineMat(inner, S.color === 'container' && inner ? col : null));
+        ring.position.set(r.x, P.slotY(s), r.z); root.add(ring);
+      }
+      overlay.push({ cls: 'lbl' + (inner ? '' : ' outer') + (iso ? ' iso' : ''), text: g === 'pillar' ? 'infrastructure' : g.label, cont: g, R: r.R,
+        pos: new THREE.Vector3(r.x, hi + 2, r.z - r.R), centre: new THREE.Vector3(r.x, hi, r.z) });
+    }
+  }
+
+  function buildSide(drawn, visibleSlots, deepest, hasPillar) {
+    const minX = SL.box.minX - 10, maxX = SL.box.maxX + 10;
+    for (const s of visibleSlots) {
+      if (SL.bandH[s] <= 0) continue;
+      const h = SL.bandH[s] + 12, y = SL.bandY[s] + h / 2;
+      const m = new THREE.Mesh(new THREE.PlaneGeometry(maxX - minX, h), new THREE.MeshBasicMaterial({ color: color('--ink'), transparent: true, opacity: SLOT_ORDER.indexOf(s) % 2 ? emOf('tint') * 0.6 : emOf('tint') * 0.25, depthWrite: false }));
+      m.position.set((minX + maxX) / 2, y, -2); root.add(m);
+      overlay.push({ cls: 'lbl layer side-band', text: (s === 4 ? '' : s + ' ') + LAYER_NAMES[s], pos: new THREE.Vector3(minX, y, 0) });
+    }
+    const top = SL.top;
+    const rect = (x0, x1, y0, y1, mat) => {
+      const g = new THREE.BufferGeometry().setFromPoints([new THREE.Vector3(x0, y0, 0), new THREE.Vector3(x1, y0, 0), new THREE.Vector3(x1, y1, 0), new THREE.Vector3(x0, y1, 0), new THREE.Vector3(x0, y0, 0)]);
+      root.add(new THREE.Line(g, mat));
+    };
+    const conts = drawn.map(g => ({ g, r: SL.cont.get(g) })).filter(x => x.r && x.r.w > 0);
+    if (hasPillar && SL.pillar) conts.push({ g: 'pillar', r: { x0: SL.pillar.x0, x1: SL.pillar.x1 } });
+    for (const { g, r } of conts) {
+      const depth = g === 'pillar' ? 1 : g.depth;
+      const inner = g === 'pillar' || depth === deepest || !g.kids.length;
+      const iso = g !== 'pillar' && S.iso.has(g.key);
+      const col = S.color === 'container' && inner ? containerColor(g) : (g === 'pillar' ? color('--infra') : color('--cyl'));
+      const y1 = top + ROW_H * (deepest - depth + 1) - 2;
+      rect(r.x0, r.x1, -2, y1, iso ? new THREE.LineBasicMaterial({ color: color('--accent'), transparent: true, opacity: 0.9 }) : outlineMat(inner, S.color === 'container' && inner ? col : null));
+      if (inner) {
+        const fill = new THREE.Mesh(new THREE.PlaneGeometry(r.x1 - r.x0, top + 2), new THREE.MeshBasicMaterial({ color: col, transparent: true, opacity: 0.05, depthWrite: false }));
+        fill.position.set((r.x0 + r.x1) / 2, top / 2 - 1, -1); root.add(fill);
+      }
+      overlay.push({ cls: 'lbl side' + (inner ? '' : ' outer') + (iso ? ' iso' : ''), text: g === 'pillar' ? 'infrastructure' : g.label, cont: g, x0: r.x0, x1: r.x1,
+        pos: new THREE.Vector3((r.x0 + r.x1) / 2, top + ROW_H * (deepest - depth + 0.5), 0) });
+    }
+  }
+
+  function buildNodes() {
+    const flat = side() ? 1 : 0.1;
+    for (const n of M.nodes) {
+      if (!V.shown(n)) continue;
+      const p = npos(n); if (!p) continue;
+      const onPath = V.onPath.has(n.i);
+      let op;
+      if (V.dist) op = onPath ? 1 : [1, 0.5, 0.3, 0.2][V.dist.get(n.i)];
+      else if (V.path) op = onPath ? 1 : 0.16;
+      else op = 0.7;
+      if (S.iso.size && !V.isoCore.has(n.i) && !onPath) op = Math.min(op, 0.3);
+      const muted = S.synth === 'shrink' && n.syn && !onPath;
+      if (muted) op = Math.min(op, 0.35);
+      // A class fill always reads above the edges.
+      op = Math.max(op, nodeFloor());
+      const m = new THREE.Mesh(sphere, new THREE.MeshBasicMaterial({ color: muted ? color('--role-data') : nodeColor(n), transparent: true, opacity: op, depthWrite: false }));
+      const r = V.rad(n);
+      m.scale.set(r, r * flat, r); m.position.copy(p); m.position.y += side() ? 0 : 1; m.userData.n = n; m.renderOrder = onPath ? 5 : 3;
+      m.userData.op = op; m.userData.cur = op; root.add(m); nodeMeshes.push(m); meshByNode.set(n.i, m);
+      m.userData.rings = [];
+      const ringFor = (inner, outer, col, o, ord) => {
+        const r = new THREE.Mesh(new THREE.RingGeometry(inner, outer, 40), new THREE.MeshBasicMaterial({ color: col, transparent: true, opacity: o, depthWrite: false, side: THREE.DoubleSide }));
+        if (!side()) { r.rotation.x = -Math.PI / 2; r.position.set(p.x, p.y + 1.6, p.z); } else r.position.set(p.x, p.y, 1);
+        r.renderOrder = ord; r.userData.op = o; root.add(r); m.userData.rings.push(r);
+      };
+      // The path ring is drawn with the zoom layer, at a constant width on screen.
+      if (n.inf && !muted && S.color !== 'infra' && !onPath) ringFor(r + 0.3, r + 1.2, color('--infra'), V.path ? 0.3 : 0.6, 4);
+      else if (P.flat && !muted) ringFor(Math.max(0, r - Math.max(0.8, r * 0.12)), r, layerTone(n.slot), 1, 4);
+    }
+  }
+
+  // Weight order: the selected strand, then container and class outlines, then context edges. Outlines are the
+  // foreground at the outline steps of the emphasis ladder and rise with the line-strength slider; edges stay at
+  // least 0.1 below the inner outline, so what an edge connects always reads before the edge. Outlines are the
+  // foreground at that opacity. Edges are pre-blended, so a thousand crossing edges never stack into a dark mass,
+  // and drawn first, so the translucent fills tint them instead of light streaks crossing the fills.
+  let outlineMats = [];
+  const outlineEm = inner => Math.min(0.95, emOf(inner ? 'outline-inner' : 'outline') + (top() ? 0.08 : 0) + Math.max(0, edgeStrength() - emOf('divider')) * 1.1);
+  const edgeEm = factor => Math.min(outlineEm(true) - 0.1, edgeStrength() * factor);
+  const nodeFloor = () => Math.min(0.9, edgeEm(1) + 0.15);
+  function outlineMat(inner, tint) {
+    const m = new THREE.LineBasicMaterial({ color: tint || color('--ink'), transparent: true, opacity: Math.min(1, outlineEm(inner) + (tint ? 0.15 : 0)), depthWrite: false });
+    outlineMats.push({ m, inner, tint }); return m;
+  }
+  const KIND_COLOR = { call: '--ribbon', di: '--role-di', value: '--role-ui', cellRead: '--role-state', cellWrite: '--role-boundary', navigation: '--role-screen' };
+  function individualEdges() { return !!V.dist || S.iso.size > 0; }
+  // Every edge material is registered with its tier factor, so the slider retunes them without a rebuild.
+  let edgeMats = [];
+  const edgeStrength = () => (S.edgeStrength != null ? S.edgeStrength : parseFloat(css('--edge-strength')) || 0.15);
+  function edgeMat(factor, extra) {
+    const m = new THREE.MeshBasicMaterial(Object.assign({ color: em(edgeEm(factor)), transparent: true, opacity: 1, depthWrite: false }, extra));
+    edgeMats.push({ m, factor }); return m;
+  }
+  function retuneEdges() {
+    for (const { m, factor } of edgeMats) m.color.copy(em(edgeEm(factor)));
+    for (const { m, inner, tint } of outlineMats) m.opacity = Math.min(1, outlineEm(inner) + (tint ? 0.15 : 0));
+
+    $('edge-val').textContent = edgeStrength().toFixed(2);
+    $('edge-strength').value = String(edgeStrength());
+    dirty = true;
+  }
+  function buildEdges() {
+    edgeMats = [];
+    const unit = (side() ? (SL.box.maxX - SL.box.minX) / 900 : P.extent / 300);
+    if (!individualEdges()) {
+      for (const B of bundles(M, V.tk, Infinity, V.shown, S.kinds, V.pillar)) {
+        // A bundle inside one container has no length on the flat top plane, so only the 3D and side views draw it.
+        if (P.flat && B.ga === B.gb) continue;
+        const a = gpos(B.ga, B.sa), z = gpos(B.gb, B.sb);
+        const mid = a.clone().add(z).multiplyScalar(0.5);
+        if (B.ga === B.gb) {
+          const off = (SLOT_ORDER.indexOf(B.sa) * 5 + SLOT_ORDER.indexOf(B.sb)) * 0.9;
+          if (side()) mid.x += Math.cos(off) * 12; else { const R = (P.cont.get(B.ga) || P.pillar || { R: 20 }).R || 20; mid.x += Math.cos(off) * R * 0.7; mid.z += Math.sin(off) * R * 0.7; }
+        } else if (B.sa === B.sb && !P.flat) mid.y += side() ? SL.bandH[B.sa] * 0.4 + 10 : P.H * 0.35;
+        const curve = new THREE.QuadraticBezierCurve3(a, mid, z);
+        // Thin ribbons: width grows with the square root of the edge count, capped low, so a bundle stays context.
+        const rad = Math.min(unit * 0.16 * Math.sqrt(B.count), unit * 2.2);
+        const m = new THREE.Mesh(new THREE.TubeGeometry(curve, 16, Math.max(rad, unit * 0.12), 5, false), edgeMat(V.path ? 0.6 : 1));
+        m.renderOrder = -1; root.add(m);
+      }
+      return;
+    }
+    const byTier = { base: [], near: [], far: [] };
+    for (const [a, b, k] of M.edges) {
+      if (!S.kinds.has(M.kinds[k])) continue;
+      const na = M.nodes[a], nb = M.nodes[b];
+      if (!V.shown(na) || !V.shown(nb)) continue;
+      if (!V.dist && !(V.isoCore.has(a) || V.isoCore.has(b))) continue;
+      const pa = npos(na), pb = npos(nb); if (!pa || !pb) continue;
+      byTier[edgeTier(V, a, b)].push(pa.x, pa.y + 1, pa.z, pb.x, pb.y + 1, pb.z);
+    }
+    for (const [tier, pos] of Object.entries(byTier)) {
+      if (!pos.length) continue;
+      const g = new THREE.BufferGeometry();
+      g.setAttribute('position', new THREE.Float32BufferAttribute(pos, 3));
+      const mat = new THREE.LineBasicMaterial({ color: em(edgeEm(EDGE_TIER[tier])), transparent: true, opacity: 1, depthWrite: false });
+      edgeMats.push({ m: mat, factor: EDGE_TIER[tier] });
+      const ls = new THREE.LineSegments(g, mat);
+      ls.renderOrder = -1; root.add(ls);
+    }
+  }
+
+  function buildTrace() {
+    if (S.trace < 0 || !V.path) return;
+    const steps = tracePath(D.traces[S.trace]);
+    const seen = new Map();
+    steps.forEach((s, i) => {
+      const n = M.nodes[s.ix];
+      if (!V.shown(n)) return;
+      const p = npos(n); if (!p) return;
+      const label = (seen.has(s.ix) ? seen.get(s.ix) + ',' : '') + (i + 1);
+      seen.set(s.ix, label);
+      overlay = overlay.filter(o => o.stepIx !== s.ix);
+      overlay.push({ cls: 'lbl step', text: label, pos: p, stepIx: s.ix, sel: s.ix });
+    });
+  }
+
+  // ---------- members: revealed by zoom, built only for the nodes revealed ----------
+  // A node reveals its members when its circle is at least REVEAL_PX in radius on screen and inside the view;
+  // a path node at half that. The layer is rebuilt only when the revealed set, the zoom step or the
+  // possible connections change; picking reads the screen positions computed every frame.
+  const REVEAL_PX = 26, MAX_MEMBERS = 40000, CONN_CAP = 20;
+  const unitGeo = { fn: new THREE.CircleGeometry(1, 20), init: new THREE.CircleGeometry(1, 3), prop: new THREE.CircleGeometry(0.92, 4), cell: new THREE.RingGeometry(0.8, 1, 24), hi: new THREE.RingGeometry(1.1, 1.45, 24), sq: new THREE.PlaneGeometry(1.5, 1.5), dot: new THREE.CircleGeometry(1, 10) };
+  const cylGeo = new THREE.CylinderGeometry(1, 1, 1, 6, 1, true); SHARED_GEO.add(cylGeo);
+  const geoSide = unitGeo, geoFlat = {};
+  for (const [k, g] of Object.entries(unitGeo)) geoFlat[k] = g.clone().rotateX(-Math.PI / 2);
+  for (const g of [...Object.values(geoSide), ...Object.values(geoFlat)]) SHARED_GEO.add(g);
+  let revealed = [], memPos = new Map(), pathMemCache = { trace: null, set: new Set() }, markers = [], hlVersion = 0;
+  const worldPerPx = () => {
+    const h = stage.clientHeight || 1;
+    return S.cam === 'orbit' ? 2 * view.dist * Math.tan(persp.fov * Math.PI / 360) / h : (ortho.top - ortho.bottom) / h;
+  };
+  function pathMembers() {
+    if (pathMemCache.trace !== S.trace) {
+      const set = new Set();
+      if (S.trace >= 0) for (const h of traceMembers(D.traces[S.trace])) { if (h.fm >= 0) set.add(h.fm); if (h.tm >= 0) set.add(h.tm); }
+      pathMemCache = { trace: S.trace, set };
+    }
+    return V.path ? pathMemCache.set : new Set();
+  }
+  function computeReveal() {
+    const cam = camera(); cam.updateMatrixWorld();
+    const w = stage.clientWidth || 1, h = stage.clientHeight || 1;
+    const right = new THREE.Vector3().setFromMatrixColumn(cam.matrixWorld, 0);
+    const v = new THREE.Vector3(), v2 = new THREE.Vector3(), out = [];
+    for (const n of M.nodes) {
+      if (!V.shown(n) || !M.mem.of[n.i].length) continue;
+      const p = npos(n); if (!p) continue;
+      const R = V.rad(n);
+      v.copy(p).project(cam); if (v.z < -1 || v.z > 1) continue;
+      const x = (v.x + 1) / 2 * w, y = (1 - v.y) / 2 * h;
+      v2.copy(p).addScaledVector(right, R).project(cam);
+      const sr = Math.hypot((v2.x + 1) / 2 * w - x, (1 - v2.y) / 2 * h - y);
+      if (x + sr < 0 || x - sr > w || y + sr < 0 || y - sr > h) continue;
+      if (sr < (V.onPath.has(n.i) ? REVEAL_PX / 2 : REVEAL_PX)) continue;
+      out.push({ n, R, sr, x, y, s: sr / R });
+    }
+    out.sort((a, b) => b.sr - a.sr || a.n.i - b.n.i);
+    let total = 0; const keep = [];
+    for (const r of out) { const c = M.mem.of[r.n.i].length; if (keep.length && total + c > MAX_MEMBERS) continue; total += c; keep.push(r); }
+    return keep;
+  }
+  // Where a member is drawn: its own spot when its node is revealed, else its node's centre, else nowhere.
+  function memberAnchor(m) {
+    if (m < 0) return null;
+    const mp = memPos.get(m); if (mp) return mp.p.clone();
+    const n = M.nodes[M.mem.n[m]]; if (!V.shown(n)) return null;
+    const p = npos(n); if (p && !side()) p.y += 2;
+    return p;
+  }
+  function memberColor(m, mark, pathMem, connMem) {
+    if (mark === 'hi') return color(pathMem.has(m) ? '--accent' : '--conn');
+    if (pathMem.has(m)) return color('--accent');
+    if (connMem.has(m)) return color('--conn');
+    const c = color(mark === 'fn' ? '--mem-fn' : mark === 'init' ? '--mem-init' : mark === 'prop' ? '--mem-prop' : '--role-state');
+    // Inside a path node, the members off the path step back.
+    return V.path && V.onPath.has(M.mem.n[m]) && pathMem.size ? c.lerp(color('--bg'), 0.55) : c;
+  }
+  function refreshMembers() {
+    if (!V) return;
+    revealed = computeReveal();
+    const wpp = worldPerPx();
+    const key = revealed.map(r => r.n.i).join(',') + '|' + Math.round(Math.log(wpp) / Math.log(1.4)) + '|' + connVersion + '|' + hlVersion;
+    if (key === memKey) return;
+    memKey = key;
+    if (memGroup) { root.remove(memGroup); disposeTree(memGroup); }
+    memGroup = new THREE.Group(); root.add(memGroup); markers = [];
+    for (const mesh of nodeMeshes) mesh.material.opacity = mesh.userData.cur;
+    memPos = new Map();
+    const g = side() ? geoSide : geoFlat, pathMem = pathMembers(), connMem = S.conn ? S.conn.shown : new Set();
+    const per = { fn: [], init: [], prop: [], cell: [], hi: [] };
+    for (const r of revealed) {
+      const n = r.n, p = npos(n), R = r.R * 0.94, lay = memberLayout(M, n.i);
+      const mesh = meshByNode.get(n.i); if (mesh) mesh.material.opacity = mesh.userData.cur * 0.3;
+      const lift = 1 + r.R * 0.1 + 0.4;
+      const put = (it, mark) => {
+        const q = side() ? new THREE.Vector3(p.x + it.x * R, p.y + it.y * R, 2) : new THREE.Vector3(p.x + it.x * R, p.y + lift, p.z + it.y * R);
+        // A cell ring is capped on screen, so a big member's cell does not outshout the class.
+        const rr = mark === 'cell' ? Math.min(it.r * R, 12 * wpp) : it.r * R * 0.92;
+        if (!memPos.has(it.m)) memPos.set(it.m, { p: q, r: rr });
+        per[mark].push([q, rr, it.m]);
+        if (pathMem.has(it.m) || connMem.has(it.m)) per.hi.push([q, rr, it.m]);
+      };
+      for (const it of lay.items) put(it, MEMBER_MARK[M.mem.kind[it.m]]);
+      for (const it of lay.rings) put(it, 'cell');
+    }
+    const dummy = new THREE.Object3D();
+    for (const mark of ['fn', 'init', 'prop', 'cell', 'hi']) {
+      const list = per[mark]; if (!list.length) continue;
+      const mat = new THREE.MeshBasicMaterial({ color: 0xffffff, transparent: true, opacity: mark === 'hi' ? 0.95 : 0.85, depthWrite: false, side: THREE.DoubleSide });
+      const im = new THREE.InstancedMesh(g[mark], mat, list.length);
+      list.forEach(([q, rr, m], k) => {
+        dummy.position.copy(q); dummy.scale.set(rr, rr, rr); dummy.updateMatrix();
+        im.setMatrixAt(k, dummy.matrix); im.setColorAt(k, memberColor(m, mark, pathMem, connMem));
+      });
+      im.instanceMatrix.needsUpdate = true; if (im.instanceColor) im.instanceColor.needsUpdate = true;
+      im.renderOrder = mark === 'hi' ? 9 : 7; im.frustumCulled = false; memGroup.add(im);
+    }
+    const tube = (a, z, rad, col, ord, bow) => {
+      const mid = a.clone().add(z).multiplyScalar(0.5);
+      mid.y += bow;
+      const curve = new THREE.QuadraticBezierCurve3(a, mid, z);
+      const mat = new THREE.MeshBasicMaterial({ color: col, transparent: true, opacity: 0.95, depthTest: false });
+      const t = new THREE.Mesh(new THREE.TubeGeometry(curve, bow ? 16 : 2, rad, 6, false), mat); t.renderOrder = ord; memGroup.add(t);
+      return curve;
+    };
+    drawPathRings(wpp);
+    drawTrace(wpp, tube);
+    drawTree(wpp, g);
+    if (S.conn) {
+      const E = M.mem.E, ringed = new Set();
+      for (const e of S.conn.edges) {
+        const a = memberAnchor(E[4 * e]), z = memberAnchor(E[4 * e + 1]);
+        if (a && z && a.distanceTo(z) > 1e-6) tube(a, z, wpp * 1.0, color('--conn'), 11, M.mem.n[E[4 * e]] === M.mem.n[E[4 * e + 1]] ? 0 : 6 * wpp);
+      }
+      for (const m of S.conn.shown) {
+        const ni = M.mem.n[m];
+        if (memPos.has(m) || ringed.has(ni) || !V.shown(M.nodes[ni])) continue;
+        ringed.add(ni);
+        const p = npos(M.nodes[ni]), r = V.rad(M.nodes[ni]);
+        const ring = new THREE.Mesh(new THREE.RingGeometry(r + 0.8, r + 2.4, 40), new THREE.MeshBasicMaterial({ color: color('--conn'), transparent: true, opacity: 0.9, depthTest: false, side: THREE.DoubleSide }));
+        if (!side()) { ring.rotation.x = -Math.PI / 2; ring.position.set(p.x, p.y + 1.8, p.z); } else ring.position.set(p.x, p.y, 1.5);
+        ring.renderOrder = 11; memGroup.add(ring);
+      }
+    }
+  }
+  // Rings around the core, a constant width on screen: orange for the trace path, blue for a focused tree.
+  function drawPathRings(wpp) {
+    if (!V.path) return;
+    const tracePathSet = S.trace >= 0 ? new Set(tracePath(D.traces[S.trace]).map(s => s.ix)) : new Set();
+    for (const i of V.onPath) {
+      const n = M.nodes[i]; if (!V.shown(n)) continue;
+      const p = npos(n), r = V.rad(n);
+      const ring = new THREE.Mesh(new THREE.RingGeometry(r + 0.5 * wpp, r + 3 * wpp, 40), new THREE.MeshBasicMaterial({ color: color(tracePathSet.has(i) ? '--accent' : '--branch'), transparent: true, opacity: 0.95, depthWrite: false, side: THREE.DoubleSide }));
+      if (!side()) { ring.rotation.x = -Math.PI / 2; ring.position.set(p.x, p.y + 1.6, p.z); } else ring.position.set(p.x, p.y, 1);
+      ring.renderOrder = 6; memGroup.add(ring);
+    }
+  }
+  // Dots along a curve, for a field mismatch: the export read a property but the value was built in as another field.
+  function dotted(curve, wpp, col, ord) {
+    const len = curve.getLength(), k = Math.max(2, Math.floor(len / (5 * wpp)));
+    const im = new THREE.InstancedMesh(side() ? unitGeo.dot : geoFlat.dot, new THREE.MeshBasicMaterial({ color: col, depthTest: false, side: THREE.DoubleSide }), k + 1);
+    const d = new THREE.Object3D();
+    for (let i = 0; i <= k; i++) { d.position.copy(curve.getPoint(i / k)); d.scale.setScalar(1.5 * wpp); d.updateMatrix(); im.setMatrixAt(i, d.matrix); }
+    im.renderOrder = ord; im.frustumCulled = false; memGroup.add(im);
+  }
+  // The golden trace: member to member once a path node shows its members, node to node otherwise.
+  function drawTrace(wpp, tube) {
+    if (S.trace < 0 || !V.path) return;
+    const t = D.traces[S.trace], acc = color('--accent');
+    const pts = [], hops = traceMembers(t), drawnMis = new Set();
+    if (revealed.some(r => V.onPath.has(r.n.i))) {
+      hops.forEach((h, k) => [h.fm, h.tm].forEach((m, j) => {
+        const q = memberAnchor(m);
+        if (q && (!pts.length || pts[pts.length - 1].p.distanceTo(q) > 1e-6)) pts.push({ p: q, node: m >= 0 ? M.mem.n[m] : -1, mis: j === 1 && h.mismatch ? k : -1 });
+      }));
+    } else {
+      const mis = new Map();
+      hops.forEach((h, k) => { if (h.mismatch && h.fm >= 0 && h.tm >= 0) mis.set(M.mem.n[h.fm] + '>' + M.mem.n[h.tm], k); });
+      let prev = -1;
+      for (const st of tracePath(t)) {
+        const n = M.nodes[st.ix]; if (!V.shown(n)) continue;
+        const q = npos(n); if (!side()) q.y += 2;
+        const k = mis.get(prev + '>' + st.ix);
+        pts.push({ p: q, node: st.ix, mis: k == null ? -1 : k }); prev = st.ix;
+      }
+    }
+    // A mismatch hop that has no line of its own (both ends in one class at this zoom) gets a dotted ring at its
+    // reading member.
+    const ringMis = k => {
+      const c = memberAnchor(hops[k].tm); if (!c) return;
+      const r = 9 * wpp, ring = [];
+      for (let i = 0; i <= 24; i++) { const a = i / 24 * 2 * Math.PI; ring.push(side() ? new THREE.Vector3(c.x + r * Math.cos(a), c.y + r * Math.sin(a), c.z + 1) : new THREE.Vector3(c.x + r * Math.cos(a), c.y + 1, c.z + r * Math.sin(a))); }
+      dotted(new THREE.CatmullRomCurve3(ring, true), wpp, acc, 10);
+      markers.push({ p: c.clone().add(side() ? new THREE.Vector3(0, r, 0) : new THREE.Vector3(0, 0, -r)), px: 7, kind: 'mismatch', text: hops[k].mismatch });
+    };
+    for (let i = 0; i + 1 < pts.length; i++) {
+      const a = pts[i], z = pts[i + 1], len = a.p.distanceTo(z.p);
+      if (len < 1e-6) continue;
+      const bow = a.node === z.node ? 0 : Math.min(len * 0.15, 40 * wpp) + 4 * wpp;
+      if (z.mis >= 0) {
+        const mid = a.p.clone().add(z.p).multiplyScalar(0.5); mid.y += bow;
+        const curve = new THREE.QuadraticBezierCurve3(a.p, mid, z.p);
+        dotted(curve, wpp, acc, 10); drawnMis.add(z.mis);
+        markers.push({ p: curve.getPoint(0.5), px: 6, kind: 'mismatch', text: hops[z.mis].mismatch });
+        continue;
+      }
+      const curve = tube(a.p, z.p, wpp * 1.4, acc, 10, bow);
+      if (len > 14 * wpp) {
+        const cone = new THREE.Mesh(new THREE.ConeGeometry(wpp * 3.2, wpp * 8, 10), new THREE.MeshBasicMaterial({ color: acc, depthTest: false }));
+        cone.position.copy(curve.getPoint(0.55)); cone.quaternion.setFromUnitVectors(new THREE.Vector3(0, 1, 0), curve.getTangent(0.55).normalize());
+        cone.renderOrder = 10; memGroup.add(cone);
+      }
+    }
+    hops.forEach((h, k) => { if (h.mismatch && h.tm >= 0 && !drawnMis.has(k)) ringMis(k); });
+  }
+  // Where a tree point is drawn: its member when revealed, else its class's centre.
+  function ptAnchor(T, p) {
+    const m = T.pt.m[p];
+    if (m >= 0) { const q = memberAnchor(m); if (q) return q; }
+    const x = T.pt.node[p]; if (x < 0) return null;
+    const n = M.nodes[x]; if (!V.shown(n)) return null;
+    const q = npos(n); if (q && !side()) q.y += 2; return q;
+  }
+  const TERM_STYLE = { boundary: ['prop', '--role-boundary'], cellWrite: ['init', '--role-state'], cellRead: ['cell', '--cell-read'], ui: ['fn', '--role-ui'], entry: ['sq', '--role-screen'], sink: ['cell', '--grey'] };
+  const lineStyle = sg => (sg.approx.includes('fieldMismatch') ? 'dot' : sg.approx.includes('anyInstance') || sg.approx.includes('anyContainer') ? 'dash' : 'solid');
+  // The highlighted tree, drawn on the current layout: faint branches, the chosen strand strong, markers on top.
+  function drawTree(wpp, g) {
+    const T = V.T; if (!T) return;
+    const tv = V.tv, strandSegs = tv.strandSegs || new Set();
+    const segs = drawLevel() === 0 ? [...strandSegs] : [...new Set([...tv.segs, ...strandSegs])];
+    const pieces = { faint: [], strong: [] };
+    const Y = new THREE.Vector3(0, 1, 0);
+    const piece = (a, z, list, w, col) => { const d = z.clone().sub(a), len = d.length(); if (len < 1e-6) return; list.push([a.clone().add(z).multiplyScalar(0.5), new THREE.Quaternion().setFromUnitVectors(Y, d.normalize()), len, w, col]); };
+    const branchCol = color('--branch'), greyCol = color('--grey');
+    for (const k of segs) {
+      const sg = T.segs[k], strong = strandSegs.has(k);
+      const list = strong ? pieces.strong : pieces.faint, w = (strong ? 2.2 : 0.8) * wpp;
+      const col = sg.approx.includes('staged') ? greyCol : branchCol, style = lineStyle(sg);
+      const anchors = [];
+      for (const q of [ptAnchor(T, sg.a), ...sg.members.map(memberAnchor), ptAnchor(T, sg.b)]) if (q && (!anchors.length || anchors[anchors.length - 1].distanceTo(q) > 1e-6)) anchors.push(q);
+      for (let i = 0; i + 1 < anchors.length; i++) {
+        const a = anchors[i], z = anchors[i + 1];
+        if (style === 'solid') { piece(a, z, list, w, col); continue; }
+        const [dash, gap] = style === 'dash' ? [7 * wpp, 4 * wpp] : [1.6 * wpp, 3.4 * wpp];
+        const len = a.distanceTo(z), dir = z.clone().sub(a).normalize();
+        for (let t = 0; t < len; t += dash + gap) piece(a.clone().addScaledVector(dir, t), a.clone().addScaledVector(dir, Math.min(len, t + dash)), list, w, col);
+      }
+    }
+    const d = new THREE.Object3D();
+    for (const [name, list] of Object.entries(pieces)) {
+      if (!list.length) continue;
+      const im = new THREE.InstancedMesh(cylGeo, new THREE.MeshBasicMaterial({ color: 0xffffff, transparent: true, opacity: name === 'strong' ? 0.95 : strandSegs.size ? 0.3 : 0.7, depthTest: false }), list.length);
+      list.forEach(([pos, q, len, w, col], i) => { d.position.copy(pos); d.quaternion.copy(q); d.scale.set(w, len, w); d.updateMatrix(); im.setMatrixAt(i, d.matrix); im.setColorAt(i, col); });
+      im.instanceMatrix.needsUpdate = true; if (im.instanceColor) im.instanceColor.needsUpdate = true;
+      im.renderOrder = name === 'strong' ? 12 : 8; im.frustumCulled = false; memGroup.add(im);
+    }
+    // markers: the root, branch points, terminals by kind
+    const per = {};
+    const mark = (p, shape, col, px, info) => { const q = ptAnchor(T, p); if (!q) return; (per[shape] = per[shape] || []).push([q, px * wpp, col]); if (info) markers.push(Object.assign({ p: q, px: Math.max(px, 5) }, info)); };
+    mark(T.rootPt, 'hi', branchCol, 7, { kind: 'point', T, point: T.rootPt });
+    const strandPts = new Set([T.rootPt, ...[...strandSegs].flatMap(k => [T.segs[k].a, T.segs[k].b])]);
+    const pts = drawLevel() === 0 ? strandPts : tv.points;
+    for (const p of pts) if (['branch', 'split', 'merge', 'join'].includes(T.pt.kind[p])) mark(p, 'dot', branchCol, 2.4, { kind: 'point', T, point: p });
+    const termKs = drawLevel() === 0 && tv.strandSegs ? tv.terms.filter(k => T.terms[k].point === S.endpoint) : tv.terms;
+    for (const k of termKs) {
+      const term = T.terms[k], [shape, tok] = TERM_STYLE[term.kind] || ['fn', '--grey'];
+      mark(term.point, shape, color(tok), term.point === S.endpoint ? 6.5 : 4.5, { kind: 'term', T, point: term.point });
+    }
+    for (const [shape, list] of Object.entries(per)) {
+      const im = new THREE.InstancedMesh(g[shape], new THREE.MeshBasicMaterial({ color: 0xffffff, depthTest: false, side: THREE.DoubleSide }), list.length);
+      list.forEach(([q, r, col], i) => { d.position.copy(q); d.quaternion.identity(); d.scale.setScalar(r); d.updateMatrix(); im.setMatrixAt(i, d.matrix); im.setColorAt(i, col); });
+      im.instanceMatrix.needsUpdate = true; if (im.instanceColor) im.instanceColor.needsUpdate = true;
+      im.renderOrder = 13; im.frustumCulled = false; memGroup.add(im);
+    }
+  }
+  // The marker nearest the pointer, within its size on screen.
+  function markerAt(ev) {
+    const r = renderer.domElement.getBoundingClientRect(), x = ev.clientX - r.left, y = ev.clientY - r.top;
+    const cam = camera(), v = new THREE.Vector3(), w = stage.clientWidth || 1, h = stage.clientHeight || 1;
+    let best = null, bd = Infinity;
+    for (const mk of markers) {
+      v.copy(mk.p).project(cam);
+      const d = Math.hypot(x - (v.x + 1) / 2 * w, y - (1 - v.y) / 2 * h);
+      // An endpoint wins over a branch dot drawn on top of it.
+      const score = d + (mk.kind === 'term' ? 0 : 4);
+      if (d <= mk.px + 2 && score < bd) { best = mk; bd = score; }
+    }
+    return best;
+  }
+  function memberAt(ev) {
+    const r = renderer.domElement.getBoundingClientRect(), x = ev.clientX - r.left, y = ev.clientY - r.top;
+    const cam = camera(), v = new THREE.Vector3(), w = stage.clientWidth || 1, h = stage.clientHeight || 1;
+    let best = -1, bestR = Infinity;
+    for (const R of revealed) {
+      if (Math.hypot(x - R.x, y - R.y) > R.sr) continue;
+      for (const m of M.mem.of[R.n.i]) {
+        const mp = memPos.get(m); if (!mp) continue;
+        v.copy(mp.p).project(cam);
+        const pr = mp.r * R.s, d = Math.hypot(x - (v.x + 1) / 2 * w, y - (1 - v.y) / 2 * h);
+        if (d <= Math.max(pr, 3) && pr < bestR) { best = m; bestR = pr; }
+      }
+    }
+    return best;
+  }
+  function describeMember(m) {
+    const mem = M.mem, n = M.nodes[mem.n[m]], kind = mem.kind[m];
+    const group = kind === 'constructor' || kind === 'initializer' ? 'initialization' : kind;
+    const flags = mem.flags.filter((f, b) => mem.fl[m] & (1 << b));
+    const cell = mem.cell[m] >= 0 ? M.cells[mem.cell[m]] : null;
+    const pl = (k, w) => `${k} ${w}${k === 1 ? '' : 's'}`;
+    return `<b>${esc(mem.name[m])}</b><div class="k">${esc(group)}${group !== kind ? ` (${kind})` : ''} in ${esc(n.n)}</div>`
+      + `<div class="mono">${esc(mem.sig[m])}</div><div>${pl(mem.s[m], 'line')} · ${pl(mem.lam[m], 'lambda')}${flags.length ? ' · ' + esc(flags.join(', ')) : ''}${mem.np[m] ? ' · ' + mem.np[m] : ''}</div>`
+      + (cell ? `<div>Cell: ${esc(cell.m)}, ${esc(cell.sc)}</div>` : '')
+      + (pathMembers().has(m) ? '<div>On the trace path</div>' : '');
+  }
+
+  // Possible connections. Each step is one member's neighbours, capped; a cell's writers and readers come along.
+  function applyConn() {
+    const C = S.conn;
+    C.shown = new Set([C.root]); C.edges = new Set();
+    for (const st of C.steps) {
+      C.shown.add(st.m);
+      const res = st.cell ? cellAccess(M, st.m) : memberNeighbours(M, st.m, S.connKinds, S.connDir);
+      st.total = res.total; st.list = res.list.slice(0, st.cap);
+      for (const x of st.list) {
+        C.shown.add(x.o); x.edges.forEach(e => C.edges.add(e));
+        if (!st.cell && M.mem.kind[x.o] === 'cell') {
+          const ca = cellAccess(M, x.o); x.cellTotal = ca.total; x.cellList = ca.list.slice(0, CONN_CAP);
+          for (const y of x.cellList) { C.shown.add(y.o); y.edges.forEach(e => C.edges.add(e)); }
+        }
+      }
+    }
+    connVersion++; dirty = true;
+  }
+  function clickMember(m, more) {
+    if (!S.conn || !S.conn.shown.has(m)) S.conn = { root: m, shown: new Set([m]), edges: new Set(), steps: [] };
+    let st = S.conn.steps.find(s => s.m === m);
+    if (!st) S.conn.steps.push({ m, cap: CONN_CAP, cell: M.mem.kind[m] === 'cell' });
+    else if (more) st.cap += CONN_CAP;
+    applyConn(); renderConn();
+  }
+  function clearConn() { if (!S.conn) return; S.conn = null; connVersion++; dirty = true; renderConn(); }
+  function renderConn() {
+    if (!S.conn) { $('conn').innerHTML = '<p class="sub">No member selected.</p>'; return; }
+    const mem = M.mem;
+    const row = (x, cellRow) => {
+      const n = M.nodes[mem.n[x.o]];
+      return `<button data-m="${x.o}" class="${mem.kind[x.o] === 'cell' ? 'cell' : ''}"><span>${esc(mem.name[x.o])} · ${esc(n.n)}${V.shown(n) ? '' : ' · hidden'}</span><span class="c">${x.w}</span></button>`
+        + (x.cellList ? `<div class="hd" style="padding-left:14px">cell: ${x.cellList.length} of ${x.cellTotal} writers and readers, stops here</div>` + x.cellList.map(y => row(y, true)).join('') : '');
+    };
+    $('conn').innerHTML = `<div class="row"><button class="btn" id="conn-clear">Clear</button><span class="sub">${S.conn.shown.size} members shown</span></div>`
+      + S.conn.steps.map(st => `<div class="conn-step"><div class="hd">${st.cell ? 'Writers and readers of cell' : 'From'} <span class="mono">${esc(mem.name[st.m])}</span> in ${esc(M.nodes[mem.n[st.m]].n)}: showing ${st.list.length} of ${st.total}`
+        + (st.list.length < st.total ? ` <button class="btn" data-more="${st.m}">Show ${Math.min(CONN_CAP, st.total - st.list.length)} more</button>` : '') + `</div>`
+        + st.list.map(x => row(x)).join('') + `</div>`).join('');
+  }
+
+  // labels: a container label shows only when its footprint or column is wide enough on screen to hold it
+  const labelsEl = $('labels');
+  function renderLabels(rebuild) {
+    if (rebuild) {
+      labelsEl.innerHTML = '';
+      for (const o of overlay) {
+        const el = document.createElement('div'); el.className = o.cls; el.textContent = o.text;
+        if (o.cont && o.cont !== 'pillar') { el.title = o.text + ' · double-click to isolate'; el.onclick = () => setSel({ kind: 'container', key: o.cont.key }, true); el.ondblclick = e => toggleIso(o.cont.key, e.shiftKey); }
+        if (o.sel != null) el.onclick = () => setSel({ kind: 'node', n: o.sel }, true);
+        if (o.stub) el.onclick = () => setSel({ kind: 'sibs', tree: V.T.i, at: o.stub.at }, true);
+        labelsEl.appendChild(el); o.el = el;
+      }
+    }
+    const cam = camera(), w = stage.clientWidth, h = stage.clientHeight, v = new THREE.Vector3(), v2 = new THREE.Vector3();
+    const toPx = p => { v.copy(p).project(cam); return [(v.x + 1) / 2 * w, (1 - v.y) / 2 * h, v.z]; };
+    const right = new THREE.Vector3().setFromMatrixColumn(cam.matrixWorld, 0);
+    for (const o of overlay) {
+      const [x, y, z] = toPx(o.pos);
+      let off = z > 1 || z < -1;
+      if (!off && o.cont) {
+        let px;
+        if (o.x0 != null) { const a = toPx(new THREE.Vector3(o.x0, o.pos.y, 0)), b = toPx(new THREE.Vector3(o.x1, o.pos.y, 0)); px = b[0] - a[0]; o.el.style.maxWidth = Math.max(0, px - 2) + 'px'; off = px < 22; }
+        else { const c0 = toPx(o.centre); v2.copy(o.centre).addScaledVector(right, o.R); const c1 = toPx(v2); px = 2 * Math.hypot(c1[0] - c0[0], c1[1] - c0[1]); off = px < o.text.length * 6.6 + 10; }
+      }
+      o.el.hidden = off;
+      o.px = off ? null : [x, y];
+      // A layer label is anchored at its left edge; keep the whole label inside the stage.
+      const lx = o.cls.includes('layer') && !o.cls.includes('side-band') ? Math.min(Math.max(x, 4), w - o.text.length * 8 - 16) : x;
+      if (!off) { o.el.style.left = lx.toFixed(1) + 'px'; o.el.style.top = (y + (o.dy || 0)).toFixed(1) + 'px'; }
+    }
+    hideCollidingLabels();
+  }
+  // Labels that would overprint one another: step numbers always show, then inner containers, then outer ones, then
+  // wider footprints. Sizes are estimated from the text so this never forces a layout read.
+  const LABEL_RANK = o => (o.cls.includes('step') ? 0 : o.cls.includes('outer') ? 2 : 1);
+  function hideCollidingLabels() {
+    const placed = [];
+    const cand = overlay.filter(o => o.px && !o.cls.includes('layer') && !o.stub);
+    cand.sort((a, b) => LABEL_RANK(a) - LABEL_RANK(b) || (b.R || b.x1 - b.x0 || 0) - (a.R || a.x1 - a.x0 || 0));
+    for (const o of cand) {
+      const w = Math.min(o.text.length * 6.7 + 8, parseFloat(o.el.style.maxWidth) || Infinity), h = 15;
+      const dy = o.cls.includes('side') ? -h / 2 : o.cls.includes('step') ? -1.3 * h : -h;
+      const r = [o.px[0] - w / 2, o.px[1] + dy, o.px[0] + w / 2, o.px[1] + dy + h];
+      if (LABEL_RANK(o) && placed.some(q => r[0] < q[2] && q[0] < r[2] && r[1] < q[3] && q[1] < r[3])) { o.el.hidden = true; continue; }
+      placed.push(r);
+    }
+  }
+
+  function renderTree(shownCount) {
+    const rows = V.tree.all.map(g => {
+      const n = shownCount.get(g) || 0;
+      return `<button data-g="${esc(g.key)}" aria-pressed="${S.iso.has(g.key)}" class="${n ? '' : 'empty'}" style="padding-left:${6 + (g.depth - 1) * 12}px"><span>${esc(g.label)}</span><span class="c">${n}</span></button>`;
+    });
+    $('tree').innerHTML = (V.tree.lifted.length ? `<span class="sub" style="padding:2px 6px">inside ${esc(V.tree.lifted.join(' › '))}</span>` : '') + rows.join('');
+    $('clear-iso').disabled = !S.iso.size;
+    $('iso-stat').textContent = S.iso.size ? `${S.iso.size} isolated` : '';
+  }
+  function renderFocusStat() {
+    const on = S.trace >= 0 || !!V.focus, focus = (S.trace >= 0 && S.focusOn) || !!V.focus;
+    $('focus-on').disabled = S.trace < 0; $('compact').disabled = !on;
+    const hopsRule = focus && S.ctx === 'hops';
+    for (const id of ['hops', 'dir', 'skip-hubs']) $(id).disabled = !hopsRule;
+    $('hub-min').disabled = !hopsRule || !S.skipHubs;
+    $('ctx').disabled = !focus; $('budget').disabled = !focus || S.ctx !== 'budget';
+    const deg = degrees(M, S.hopKinds);
+    $('hub-min').placeholder = `auto ${deg.p90}`;
+    const shownN = M.nodes.filter(n => V.shown(n)).length;
+    if (!on) { $('focus-stat').textContent = `No flow selected: ${shownN} of ${M.nodes.length} nodes shown.`; $('hub-stat').textContent = ''; return; }
+    if (!V.dist) { $('focus-stat').textContent = `Focus off: ${shownN} of ${M.nodes.length} nodes shown, path highlighted.`; $('hub-stat').textContent = ''; return; }
+    const byHop = [0, 0, 0, 0];
+    for (const n of M.nodes) if (V.shown(n) && V.dist.has(n.i)) byHop[V.dist.get(n.i)]++;
+    const kept = `kept ${shownN} of ${M.nodes.length}; ${V.omitted} direct neighbour${V.omitted === 1 ? '' : 's'} omitted`;
+    const core = V.focus ? `the ${V.focus === 'strand' ? 'strand' : 'tree'}'s ${byHop[0]} classes${S.trace >= 0 ? ' and the trace path' : ''}` : `the ${byHop[0]} path nodes`;
+    if (S.ctx === 'none') { $('focus-stat').textContent = `No context: only ${core}, ${kept}.`; $('hub-stat').textContent = ''; return; }
+    if (S.ctx !== 'hops') {
+      $('focus-stat').textContent = S.ctx === 'budget'
+        ? `Budgeted keeps the ${byHop[0]} path nodes plus up to ${S.budget} more, taken in turn per path node (shared state cells first, then adjacent entry points and boundaries, then the busiest neighbours): ${kept}.`
+        : `State only keeps the ${byHop[0]} path nodes plus every owner, writer and reader of the ${V.dist.cells} cells they touch: ${kept}.`;
+      $('hub-stat').textContent = '';
+      return;
+    }
+    $('focus-stat').textContent = `N hops keeps every node within ${S.hops} hop${S.hops === 1 ? '' : 's'} of the path (${byHop[0]} on the path` + byHop.slice(1, S.hops + 1).map((c, i) => `, ${c} at ${i + 1}`).join('') + `): ${kept}.`;
+    const h = V.hubInfo, thr = `more than ${h.hubMin} neighbours${h.auto ? ', the 90th percentile' : ''}`;
+    $('hub-stat').textContent = S.hops === 0 ? 'Hub skipping does nothing at 0 hops.'
+      : S.skipHubs ? `Skipping ${h.hubs} hub${h.hubs === 1 ? '' : 's'} (${thr}): ${h.cut} nodes hidden.`
+      : `Hub skipping is off. It would cut through ${h.hubs} hub${h.hubs === 1 ? '' : 's'} (${thr}) and hide ${h.cut} nodes.`;
+  }
+
+  function renderTrace() {
+    const el = $('steps');
+    if (S.trace < 0) { el.innerHTML = ''; $('trace-comment').textContent = ''; return; }
+    const t = D.traces[S.trace];
+    $('trace-comment').textContent = t.comment;
+    const mis = new Map();
+    for (const h of traceMembers(t)) if (h.mismatch && h.tm >= 0) mis.set(M.mem.n[h.tm], h.mismatch);
+    let html = '', leg = -1;
+    tracePath(t).forEach((s, i) => {
+      if (s.leg !== leg) { leg = s.leg; if (t.legs.length > 1) html += `<li class="leg">Leg ${leg + 1}: ${esc(t.legs[leg].from)} → ${esc(t.legs[leg].to)}</li>`; }
+      const n = M.nodes[s.ix];
+      const mm = mis.get(s.ix); if (mm) mis.delete(s.ix);
+      html += `<li data-ix="${s.ix}" class="${V.shown(n) ? '' : 'hidden'}"${mm ? ` title="${esc(mm)}"` : ''}><span class="num">${i + 1}</span><span class="nm">${esc(n.n)}${mm ? ' <span class="ly">· field mismatch</span>' : ''}</span><span class="ly">${LAYER_NAMES[n.slot]}</span></li>`;
+    });
+    el.innerHTML = html;
+  }
+  function esc(s) { return String(s).replace(/[&<>"]/g, ch => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[ch])); }
+
+  function describe(n) {
+    const roles = (n.r || []).join(', ') || 'none';
+    const layer = n.L >= 0 ? `${n.L} ${LAYER_NAMES[n.L]}` : 'unplaced';
+    const chain = n.chain.filter(c => c.kind !== 'package').map(c => c.kind === 'file' ? (n.p ? n.p + ' › ' : '') + c.name : c.name).join(' › ');
+    const hop = V.dist && V.dist.has(n.i) ? (V.dist.get(n.i) === 0 ? 'on the path'
+      : V.dist.why ? V.dist.why.get(n.i) : `${V.dist.get(n.i)} hop${V.dist.get(n.i) > 1 ? 's' : ''} from the path`) : '';
+    const roots = M.br.byNode.get(n.i);
+    return `<b>${esc(n.n)}</b><div class="k">${esc(chain)}</div><div>Layer ${layer}: ${esc(whyText(n.w))}</div><div>Roles: ${esc(roles)}</div><div>${n.s} lines, ${n.dc} declarations${n.inf ? ' · infrastructure' : ''}${hop ? ' · ' + hop : ''}</div>${roots ? `<div>${roots.length} tree root${roots.length > 1 ? 's' : ''} here</div>` : ''}`;
+  }
+  // ---------- selection, highlight and the Details pane ----------
+  // A selection only highlights: it never moves, adds or drops a node. Only S.focus (Focus tree, Focus strand, a
+  // double click) and isolation restructure the view.
+  const COST = (D.branches && D.branches.cost) || [];
+  const costText = c => c.map((v, i) => (v ? `${COST[i] || 'cost ' + i} ${v}` : '')).filter(Boolean).join(', ') || 'none';
+  const termOf = (T, point) => T.terms.find(x => x.point === point) || null;
+  const drawLevel = () => (V.focus === 'strand' ? 0 : V.level);
+  const rootsOfNode = i => M.br.byNode.get(i) || [];
+  let cellRootIx = null, cellMemIx = null, contKids = null, lastDetails = '';
+  function rootsOfCell(ci) {
+    if (!cellRootIx) { cellRootIx = new Map(); for (const T of M.br.trees) if (T.kind === 'cell' && T.ref >= 0) cellRootIx.set(T.ref, (cellRootIx.get(T.ref) || []).concat(T.i)); }
+    return cellRootIx.get(ci) || [];
+  }
+  function cellMember(ci) {
+    if (!cellMemIx) { cellMemIx = new Map(); for (let m = 0; m < M.mem.N; m++) if (M.mem.kind[m] === 'cell' && M.mem.cell[m] >= 0 && !cellMemIx.has(M.mem.cell[m])) cellMemIx.set(M.mem.cell[m], m); }
+    return cellMemIx.has(ci) ? cellMemIx.get(ci) : -1;
+  }
+  function refLabel(kind, ref) {
+    if (ref == null || ref < 0) return '';
+    if (kind === 'boundary') return (M.boundaries[ref] || ['?'])[0];
+    if (kind === 'cellWrite' || kind === 'cellRead') { const c = M.cells[ref]; return c ? c.n + (c.h ? ' (' + c.h + ')' : '') : '?'; }
+    if (kind === 'entry') { const e = M.entrypoints[ref]; return e ? e[0] + ' ' + e[1] : '?'; }
+    return M.mem.name[ref] || '?';
+  }
+  function pointLabel(T, p) {
+    const term = termOf(T, p), x = T.pt.node[p];
+    return term ? `${term.kind} ${refLabel(term.kind, term.ref)}` : `${T.pt.kind[p]} in ${x >= 0 ? M.nodes[x].n : '?'}`;
+  }
+  function markerTip(mk) {
+    if (mk.kind === 'mismatch') return `<b>Field mismatch</b><div>${esc(mk.text)}</div><div class="k">Dotted: the trace reads one property, but the value was built in as another field.</div>`;
+    const T = mk.T, term = termOf(T, mk.point), x = T.pt.node[mk.point], where = x >= 0 ? M.nodes[x].n : '';
+    if (!term) return `<b>${mk.point === T.rootPt ? 'Root' : esc(T.pt.kind[mk.point])}</b><div>${esc(where)}</div>${mk.point === T.rootPt ? `<div>${esc(T.label)}</div>` : ''}<div class="k">click chooses this strand · double-click focuses it</div>`;
+    return `<b>${esc(term.kind)}</b> <span class="k">${term.clean ? 'clean' : 'needs an any-instance read or staged code'}</span><div class="mono">${esc(refLabel(term.kind, term.ref))}</div><div>${esc(where)}</div><div>Cost: ${esc(costText(term.cost))}</div><div>Best of ${term.eq} path${term.eq === 1 ? '' : 's'}</div>`;
+  }
+
+  function setPane(p) {
+    S.pane = p;
+    $('pane-settings').hidden = p !== 'settings'; $('pane-details').hidden = p !== 'details';
+    $('tab-settings').setAttribute('aria-selected', String(p === 'settings')); $('tab-details').setAttribute('aria-selected', String(p === 'details'));
+    if (p === 'details') $('details-dot').hidden = true;
+  }
+  function setSel(sel, show) {
+    S.sel = sel; S.moreStrands = false;
+    if (!sel || (sel.kind !== 'member' && sel.kind !== 'cell')) clearConn();
+    S.selected = sel && sel.kind === 'node' ? M.nodes[sel.n] : null;
+    showHoverEdges(S.selected);
+    if (sel && show !== false && S.pane !== 'details') setPane('details');
+    applyHighlight();
+  }
+  function clearSelection() {
+    clearConn();
+    S.endpoint = -1;
+    if (!S.focus) S.root = -1;
+    S.sel = null; S.selected = null; showHoverEdges(null);
+    applyHighlight();
+  }
+  function pickRoot(list) { if (list.length === 1 && S.root !== list[0]) { S.root = list[0]; S.endpoint = -1; } }
+  // The visible point of the active tree at a member: a terminal first, else the deepest.
+  function pointOfMember(T, tv, m) {
+    for (const k of tv.terms) if (T.pt.m[T.terms[k].point] === m) return T.terms[k].point;
+    let best = -1, depth = -1;
+    for (const p of tv.points) if (T.pt.m[p] === m) { const d = T.chainTo(p).length; if (d > depth) { best = p; depth = d; } }
+    return best;
+  }
+  function chooseEndpoint(T, point) {
+    if (!(V.T && V.T.i === T.i)) S.root = T.i;
+    if (point === T.rootPt) { S.endpoint = -1; setSel({ kind: 'root', tree: T.i }); return; }
+    S.endpoint = point; setSel({ kind: 'chain', tree: T.i, point });
+  }
+  function handleClick(e) {
+    const mk = markerAt(e);
+    if (mk && mk.kind === 'mismatch') { setSel({ kind: 'trace', trace: S.trace }); return; }
+    if (mk) { chooseEndpoint(mk.T, mk.point); showTip(null, e, markerTip(mk)); return; }
+    const mm = memberAt(e);
+    if (mm >= 0) {
+      clickMember(mm);
+      const p = V.T ? pointOfMember(V.T, V.tv, mm) : -1;
+      const isCell = M.mem.kind[mm] === 'cell' && M.mem.cell[mm] >= 0;
+      if (p >= 0 && p !== V.T.rootPt) S.endpoint = p;
+      else pickRoot([...new Set([...(M.br.byMember.get(mm) || []), ...(isCell ? rootsOfCell(M.mem.cell[mm]) : [])])]);
+      setSel(isCell ? { kind: 'cell', ci: M.mem.cell[mm], m: mm } : { kind: 'member', m: mm });
+      showTip(null, e, describeMember(mm));
+      return;
+    }
+    const n = pick(e);
+    if (n) {
+      if (V.T && V.treeNodes.has(n.i)) { const p = endpointInNode(V.T, V.tv, n.i); if (p >= 0 && p !== V.T.rootPt) S.endpoint = p; }
+      else pickRoot(rootsOfNode(n.i));
+      setSel({ kind: 'node', n: n.i });
+      showTip(n, e);
+      return;
+    }
+    clearSelection();
+  }
+  function handleDouble(e) {
+    const mk = markerAt(e);
+    if (mk && mk.kind !== 'mismatch') { focusOn(S.endpoint >= 0 ? 'strand' : 'tree'); return; }
+    const mm = memberAt(e), pn = mm >= 0 ? null : pick(e);
+    const ni = mm >= 0 ? M.mem.n[mm] : pn ? pn.i : -1;
+    if (ni < 0) return;
+    if (V.T) { focusOn(V.treeNodes.has(ni) && S.endpoint >= 0 ? 'strand' : 'tree'); return; }
+    const chain = M.nodes[ni].ancBy[V.tk], home = chain[chain.length - 1];
+    if (home) toggleIso(home.key, e.shiftKey);
+  }
+  function focusOn(kind) {
+    const T = V.T; if (!T) return;
+    if (kind === 'strand' && S.endpoint < 0) kind = 'tree';
+    S.history.push({ focus: S.focus, root: S.root, endpoint: S.endpoint });
+    S.focus = { kind, root: T.i, endpoint: S.endpoint };
+    view.fitted = ''; rebuild();
+  }
+  function back() {
+    const h = S.history.pop();
+    if (!h) { if (S.focus) { S.focus = null; view.fitted = ''; rebuild(); } return; }
+    const refit = JSON.stringify(h.focus) !== JSON.stringify(S.focus);
+    S.focus = h.focus; S.root = h.root; S.endpoint = h.endpoint;
+    if (S.sel && ['root', 'chain', 'sibs'].includes(S.sel.kind)) S.sel = S.root >= 0 ? { kind: 'root', tree: S.root } : null;
+    if (refit) { view.fitted = ''; rebuild(); } else applyHighlight();
+  }
+  function openRoot(i) {
+    S.history.push({ focus: S.focus, root: S.root, endpoint: S.endpoint });
+    S.root = i; S.endpoint = -1; setSel({ kind: 'root', tree: i });
+  }
+
+  const contNodeCache = new Map();
+  function groupNodes(g) { const out = []; const walk = c => { out.push(...c.nodes); c.kids.forEach(walk); }; walk(g); return out; }
+  function containerNodes(sel) {
+    const key = sel.key != null ? V.tk + '|' + sel.key : 'ci|' + sel.ci;
+    if (!contNodeCache.has(key)) {
+      let list;
+      if (sel.key != null) { const g = V.tree.all.find(c => c.key === sel.key); list = g ? groupNodes(g) : []; }
+      else list = M.nodes.filter(n => n.chain.some(c => c.ci === sel.ci));
+      contNodeCache.set(key, list);
+    }
+    return contNodeCache.get(key);
+  }
+  function highlightSet() {
+    const sel = S.sel;
+    if (sel && sel.kind === 'container') return new Set(containerNodes(sel).map(n => n.i));
+    if (sel && sel.kind === 'trace' && sel.trace >= 0) return new Set(tracePath(D.traces[sel.trace]).map(s => s.ix));
+    if (V.T) {
+      if (drawLevel() === 0) return new Set(V.tv.strandNodes || [V.T.rootNode]);
+      return new Set([...V.treeNodes, ...(V.tv.strandNodes || [])]);
+    }
+    return null;
+  }
+  let stubInfo = { list: [], total: 0 };
+  function applyHighlight() {
+    if (!V) return;
+    Object.assign(V, activeTree(M, S));
+    const hl = highlightSet();
+    const keep = S.trace >= 0 && V.path ? new Set(tracePath(D.traces[S.trace]).map(s => s.ix)) : null;
+    const floor = nodeFloor();
+    for (const m of nodeMeshes) {
+      const i = m.userData.n.i, dim = !!hl && !hl.has(i) && !(keep && keep.has(i));
+      m.userData.cur = dim ? Math.min(m.userData.op, Math.max(m.userData.op * 0.3, floor)) : m.userData.op;
+      m.material.opacity = m.userData.cur;
+      for (const r of m.userData.rings) r.material.opacity = r.userData.op * (dim ? 0.35 : 1);
+    }
+    const selKey = S.sel && S.sel.kind === 'container' && S.sel.key != null ? S.sel.key : null;
+    overlay = overlay.filter(o => !o.stub);
+    stubInfo = { list: [], total: 0 };
+    if (V.T && drawLevel() >= 2) {
+      stubInfo = siblingStubs(V.T, V.tv, 30);
+      const perNode = new Map();
+      for (const sb of stubInfo.list) {
+        const x = V.T.pt.node[sb.at]; if (x < 0 || !V.shown(M.nodes[x])) continue;
+        const p = npos(M.nodes[x]); if (!p) continue; if (!side()) p.y += 2;
+        const k = perNode.get(x) || 0; perNode.set(x, k + 1);
+        overlay.push({ cls: 'lbl stub', text: `+${sb.values.length} ${sb.kind === 'join' ? 'joining' : 'branching'}`, pos: p, stub: sb, dy: k * 17 });
+      }
+    }
+    renderLabels(true);
+    for (const o of overlay) if (o.cont && o.el) o.el.classList.toggle('picked', !!selKey && o.cont !== 'pillar' && o.cont.key === selKey);
+    hlVersion++; memKey = ''; dirty = true;
+    renderTreeStat(); renderDetails();
+  }
+  function renderTreeStat() {
+    const T = V.T;
+    $('tdir-row').hidden = !(T && T.partner);
+    if (T) $('tdir').value = T.dir;
+    $('focus-tree').disabled = !T; $('focus-strand').disabled = !(T && S.endpoint >= 0);
+    $('back').disabled = !(S.focus || S.history.length); $('clear-root').disabled = !(S.root >= 0 || S.focus);
+    if (!T) { $('tree-stat').textContent = S.trace >= 0 ? 'This trace has no branch tree in the export.' : 'No root chosen. Click a class, member or cell that owns a root, or search above.'; return; }
+    const hidden = (drawLevel() === 0 ? V.tv.strandNodes || [] : V.tv.nodes).filter(i => !V.shown(M.nodes[i])).length;
+    const parts = [`${T.label} · ${T.kind} · ${T.dir}.`, treeSentence(T, V.tv, { clean: S.clean, sinks: S.sinks })];
+    if (S.endpoint >= 0) parts.push(`Strand: ${pointLabel(T, S.endpoint)}.`);
+    else if (drawLevel() === 0) parts.push('Level 0 shows one strand: click an endpoint to choose it.');
+    if (drawLevel() >= 2) parts.push(`${stubInfo.list.length} of ${stubInfo.total} sibling stubs shown.`);
+    if (hidden) parts.push(`${hidden} tree class${hidden === 1 ? '' : 'es'} hidden by current filters.`);
+    if (V.focus) parts.push(`Focused on the ${V.focus}; Back returns.`);
+    $('tree-stat').textContent = parts.join(' ');
+  }
+  function renderRootList() {
+    const q = $('root-q').value.trim().toLowerCase(), trees = M.br.trees;
+    const hits = (q ? trees.filter(T => (T.label + ' ' + T.kind + ' ' + T.dir).toLowerCase().includes(q))
+      : trees.slice().sort((a, b) => b.terms.length - a.terms.length || a.i - b.i).slice(0, 15)).slice(0, 40);
+    $('root-list').hidden = false;
+    $('root-list').innerHTML = hits.length ? hits.map(T => `<button data-root="${T.i}" aria-pressed="${!!(V && V.T === T)}"><span>${esc(T.label)}</span><span class="c">${T.kind} ${T.dir === 'forward' ? '→' : '←'} ${T.terms.length}</span></button>`).join('') : '<span class="sub">No root matches.</span>';
+  }
+
+  // Details pane
+  const sec = (title, body) => `<h4>${title}</h4>${body}`;
+  const kv = o => Object.entries(o).sort((a, b) => b[1] - a[1] || cmp(a[0], b[0])).map(([k, v]) => `${esc(k)} ${v}`).join(' · ') || 'none';
+  const listOf = (rows, cap = 12) => (rows.length ? `<div class="list">${rows.slice(0, cap).join('')}</div>${rows.length > cap ? `<span class="sub">and ${rows.length - cap} more</span>` : ''}` : '<span class="sub">none</span>');
+  const nodeBtn = (i, extra) => `<button data-n="${i}"><span>${esc(M.nodes[i].n)}</span><span class="c">${esc(extra == null ? LAYER_NAMES[M.nodes[i].slot] : extra)}</span></button>`;
+  const memBtn = (m, extra) => `<button data-m="${m}"><span>${esc(M.mem.name[m])}</span><span class="c">${esc(extra == null ? M.nodes[M.mem.n[m]].n : extra)}</span></button>`;
+  const cellBtn = ci => `<button data-cell="${ci}"><span>${esc(M.cells[ci].n)}</span><span class="c">${esc(M.cells[ci].m || M.cells[ci].sc)}</span></button>`;
+  const crumbs = (chain, tail) => `${sec('Contained in', `<div class="crumbs">${chain.map(c => `<button data-ci="${c.ci}" title="${esc(c.kind)}">${esc(c.name)}</button>`).join('<span>›</span>')}${tail ? (chain.length ? '<span>›</span>' : '') + tail : ''}</div>`)}`;
+  const fileRow = loc => `<div class="row"><span class="mono" style="overflow-wrap:anywhere;font-size:12px">${esc(loc)}</span><button class="btn" data-copy="${esc(loc)}">Copy</button></div>`;
+  const head = (kind, name) => `<div><div class="kind">${esc(kind)}</div><h3>${esc(name)}</h3></div>`;
+  function contChain(ci) { const out = []; while (ci >= 0) { out.unshift(M.conts[ci]); ci = M.conts[ci].parent; } return out; }
+  function layersCrossed(nodes) { const out = []; for (const i of nodes) { const l = LAYER_NAMES[M.nodes[i].slot]; if (out[out.length - 1] !== l) out.push(l); } return out.join(' → ') || 'none'; }
+  function rootsSection(roots, title) {
+    if (!roots.length) return sec(title || 'Tree roots here', '<span class="sub">none</span>');
+    return sec(`${title || 'Tree roots here'} (${roots.length})`, listOf(roots.map(t => { const T = M.br.trees[t]; return `<button data-open-root="${t}"><span>${esc(T.label)}${V.T === T ? ' · active' : ''}</span><span class="c">${T.kind} ${T.dir === 'forward' ? '→' : '←'} ${T.terms.length} · open as root</span></button>`; })));
+  }
+  function strandsSection(st) {
+    const rows = [...st.traces.map(t => `<button data-trace="${t}"><span>${esc(D.traces[t].name)}</span><span class="c">golden trace</span></button>`),
+      ...st.chains.map(c => { const T = M.br.trees[c.tree]; return `<button data-chain="${c.tree}:${c.x.point}"><span>${esc(T.label)} ${T.dir === 'forward' ? '→' : '←'} ${esc(c.x.kind)} ${esc(refLabel(c.x.kind, c.x.ref))}</span><span class="c ${c.x.clean ? 'clean' : 'unclean'}">${c.x.clean ? 'clean' : 'approx'}</span></button>`; })];
+    const shown = Math.min(rows.length, S.moreStrands ? 10 : 3);
+    return sec(`Strands through this · ${shown} of ${rows.length}`, rows.length ? `<div class="list">${rows.slice(0, shown).join('')}</div>${rows.length > shown && !S.moreStrands ? '<button class="lnk" data-more="1">Show more</button>' : ''}` : '<span class="sub">none</span>');
+  }
+  function nodeDetails(i) {
+    const n = M.nodes[i], io = { out: Object.create(null), in: Object.create(null) };
+    for (const [a, b, k, c] of M.edges) { if (a === i) io.out[M.kinds[k]] = (io.out[M.kinds[k]] || 0) + c; if (b === i) io.in[M.kinds[k]] = (io.in[M.kinds[k]] || 0) + c; }
+    // Counters keyed by kind name have no prototype: a member kind is literally "constructor".
+    const byKind = Object.create(null); for (const m of M.mem.of[i]) byKind[M.mem.kind[m]] = (byKind[M.mem.kind[m]] || 0) + 1;
+    const owned = []; M.cells.forEach((c, ci) => { if (c.o === i) owned.push(ci); });
+    const hosted = [...M.entrypoints.filter(e => e[2] === i).map(e => `<div class="mono">entry ${esc(e[0])} ${esc(e[1])}</div>`), ...M.boundaries.filter(b => b[1] === i).map(b => `<div class="mono">boundary ${esc(b[0])}</div>`)];
+    const binds = (D.bindings || []).filter(b => b[2] === i || b[3] === i).map(b => `<div class="mono">${esc(b[0])} · ${esc(b[1])}${b[4] ? ' · ' + esc(b[4]) : ''} · ${b[2] === i ? 'provided here' : 'in this graph'}</div>`);
+    const flags = [n.gen && 'generated', n.np && 'non-production (' + n.np + ')', n.inf && 'infrastructure', n.mis && 'misplaced', n.st && 'staged'].filter(Boolean);
+    const loc = n.fp != null && D.files ? D.files[n.fp] + (n.ln ? ':' + n.ln + (n.le ? '-' + n.le : '') : '') : '';
+    const chain = n.ancBy[V.tk], home = chain[chain.length - 1];
+    return head(n.k + ' · class', n.n) + crumbs(n.chain)
+      + `<div>Roles: ${esc((n.r || []).join(', ') || 'none')}</div>`
+      + `<div>Layer ${n.L >= 0 ? n.L + ' ' + LAYER_NAMES[n.L] : 'unplaced'} <span class="sub">(derived: ${esc(whyText(n.w))})</span></div>`
+      + `<div>${n.s} lines · feature ${esc(n.f >= 0 ? M.featLabel[n.f] : 'none')}</div>` + (loc ? fileRow(loc) : '')
+      + `<div>Flags: ${esc(flags.join(', ') || 'none')}</div>`
+      + sec('Fan-in by edge kind', `<div>${kv(io.in)}</div>`) + sec('Fan-out by edge kind', `<div>${kv(io.out)}</div>`)
+      + sec('Members by kind', `<div>${kv(byKind)}</div>`)
+      + sec(`Cells owned (${owned.length})`, listOf(owned.map(cellBtn)))
+      + sec('Entry points and boundaries hosted', listOf(hosted)) + sec('DI bindings', listOf(binds))
+      + rootsSection(rootsOfNode(i)) + strandsSection(strandsThrough(M, { node: i }))
+      + (home ? `<div class="row"><button class="btn" data-iso="${esc(home.key)}">Isolate ${esc(home.label)}</button></div>` : '');
+  }
+  function memberDetails(m) {
+    const mem = M.mem, i = mem.n[m], n = M.nodes[i];
+    const flags = mem.flags.filter((f, b) => mem.fl[m] & (1 << b));
+    const ml = D.memberLines || [], st = ml[2 * m], len = ml[2 * m + 1];
+    const loc = st && n.fp != null ? D.files[n.fp] + ':' + st + (len ? '-' + (st + len) : '') : '';
+    const io = { in: Object.create(null), out: Object.create(null) }, cells = new Set();
+    for (const e of mem.adj[m]) {
+      const a = mem.E[4 * e], b = mem.E[4 * e + 1], k = M.kinds[mem.E[4 * e + 2]], c = mem.E[4 * e + 3], o = a === m ? b : a;
+      if (a === m) io.out[k] = (io.out[k] || 0) + c; if (b === m) io.in[k] = (io.in[k] || 0) + c;
+      if (mem.kind[o] === 'cell' && mem.cell[o] >= 0) cells.add(mem.cell[o]);
+    }
+    if (mem.cell[m] >= 0) cells.add(mem.cell[m]);
+    return head(mem.kind[m] + ' · member', mem.name[m]) + crumbs(n.chain, `<button data-n="${i}">${esc(n.n)}</button>`)
+      + `<div class="mono" style="font-size:12px;overflow-wrap:anywhere">${esc(mem.sig[m])}</div>`
+      + `<div>${mem.s[m]} lines · ${mem.lam[m]} lambda${mem.lam[m] === 1 ? '' : 's'}</div>` + (loc ? fileRow(loc) : '')
+      + `<div>Flags: ${esc(flags.concat(mem.np[m] ? ['non-production (' + mem.np[m] + ')'] : []).join(', ') || 'none')}</div>`
+      + sec('Owner', listOf([nodeBtn(i)])) + sec(`Cells (${cells.size})`, listOf([...cells].map(cellBtn)))
+      + sec('Member edges in', `<div>${kv(io.in)}</div>`) + sec('Member edges out', `<div>${kv(io.out)}</div>`)
+      + rootsSection(M.br.byMember.get(m) || []) + strandsSection(strandsThrough(M, { member: m }));
+  }
+  function cellDetails(ci, m) {
+    const c = M.cells[ci]; if (m == null || m < 0) m = cellMember(ci);
+    const owner = c.o >= 0 ? M.nodes[c.o] : null;
+    const roots = [...new Set([...rootsOfCell(ci), ...(m >= 0 ? M.br.byMember.get(m) || [] : [])])];
+    return head('cell', c.n) + crumbs(owner ? owner.chain : [], owner ? `<button data-n="${c.o}">${esc(owner.n)}</button>` : '')
+      + `<div>Holder: <span class="mono">${esc(c.h || 'unknown')}</span></div><div>${esc([c.m, c.sc].filter(Boolean).join(' · ') || '')}</div>`
+      + sec('Owner', owner ? listOf([nodeBtn(c.o)]) : '<span class="sub">none</span>')
+      + sec(`Writers (${c.w.length})`, listOf(c.w.map(x => nodeBtn(x)))) + sec(`Readers (${c.r.length})`, listOf(c.r.map(x => nodeBtn(x))))
+      + `<div>${roots.length ? `A tree root: ${roots.length} tree${roots.length === 1 ? '' : 's'} start here.` : 'Not a tree root.'}</div>`
+      + rootsSection(roots, 'Trees from this cell') + (m >= 0 ? strandsSection(strandsThrough(M, { member: m })) : '');
+  }
+  function mixBar(nodes) {
+    const by = [0, 0, 0, 0, 0]; for (const n of nodes) by[n.slot]++;
+    const tot = nodes.length || 1, pct = s => Math.round(100 * (emOf('divider') + (emOf('subtle') - emOf('divider')) * SLOT_ORDER.indexOf(s) / 4 + 0.08));
+    return `<div class="mix" title="layer mix">${SLOT_ORDER.filter(s => by[s]).map(s => `<span style="flex:${by[s] / tot};background:color-mix(in srgb, var(--ink) ${pct(s)}%, var(--bg))"></span>`).join('')}</div>`
+      + `<div class="sub">${SLOT_ORDER.filter(s => by[s]).map(s => `${LAYER_NAMES[s]} ${by[s]}`).join(' · ')}</div>`;
+  }
+  function containerDetails(sel) {
+    const nodes = containerNodes(sel), lines = nodes.reduce((a, n) => a + n.s, 0);
+    if (sel.key != null) {
+      const g = V.tree.all.find(c => c.key === sel.key);
+      if (!g) return '<p class="sub">That container is not drawn with the current container kinds.</p>';
+      const anc = []; for (let p = g.parent; p && p.depth > 0; p = p.parent) anc.unshift(p);
+      return head(g.kind + ' · container', g.label)
+        + sec('Contained in', `<div class="crumbs">${anc.map(a => `<button data-g="${esc(a.key)}">${esc(a.label)}</button>`).join('<span>›</span>') || '<span>top level</span>'}</div>`)
+        + `<div>${nodes.length} classes · ${lines} lines</div>` + mixBar(nodes)
+        + sec(`Child containers (${g.kids.length})`, listOf(g.kids.map(k => `<button data-g="${esc(k.key)}"><span>${esc(k.label)}</span><span class="c">${groupNodes(k).length}</span></button>`), 20))
+        + sec(`Classes directly here (${g.nodes.length})`, listOf(g.nodes.map(n => nodeBtn(n.i)), 12))
+        + `<div class="row"><button class="btn" data-iso="${esc(g.key)}">Isolate</button></div>`;
+    }
+    const c = M.conts[sel.ci];
+    if (!contKids) { contKids = M.conts.map(() => []); for (const x of M.conts) if (x.parent >= 0) contKids[x.parent].push(x.ci); }
+    return head(c.kind + ' · container', c.name) + crumbs(contChain(c.parent))
+      + `<div class="mono sub" style="overflow-wrap:anywhere">${esc(c.qualified || '')}</div>`
+      + `<div>${nodes.length} classes · ${lines} lines</div>` + mixBar(nodes)
+      + sec(`Child containers (${contKids[c.ci].length})`, listOf(contKids[c.ci].map(k => `<button data-ci="${k}"><span>${esc(M.conts[k].name)}</span><span class="c">${esc(M.conts[k].kind)}</span></button>`), 20));
+  }
+  function strandBody(nodes, members, extra) {
+    return sec(`Classes crossed (${nodes.length})`, listOf(nodes.map((x, k) => nodeBtn(x, String(k + 1))), 30))
+      + sec(`Members crossed (${members.length})`, listOf(members.map(m => memBtn(m)), 30))
+      + sec('Layers crossed', `<div>${esc(layersCrossed(nodes))}</div>`) + (extra || '');
+  }
+  function traceDetails(ti) {
+    const t = D.traces[ti], hops = traceMembers(t);
+    const nodes = []; for (const s of tracePath(t)) if (nodes[nodes.length - 1] !== s.ix) nodes.push(s.ix);
+    const members = []; for (const h of hops) for (const x of [h.fm, h.tm]) if (x >= 0 && members[members.length - 1] !== x) members.push(x);
+    const mis = hops.filter(h => h.mismatch).map(h => `<div class="mono" style="font-size:12px">${esc(h.mismatch)}${h.tm >= 0 ? ' at ' + esc(M.mem.name[h.tm]) : ''}</div>`);
+    return head('golden trace · strand', t.name) + `<div class="sub">${esc(t.comment || '')}</div>`
+      + `<div>From <b>${esc(t.legs[0].from)}</b> to <b>${esc(t.legs[t.legs.length - 1].to)}</b> · ${hops.length} hops · ${t.legs.length} leg${t.legs.length === 1 ? '' : 's'}</div>`
+      + sec('Approximations', mis.length ? mis.join('') : '<span class="sub">none: every hop matches</span>')
+      + strandBody(nodes, members, S.trace === ti ? '' : `<div class="row"><button class="btn" data-show-trace="${ti}">Show as the selected flow</button></div>`);
+  }
+  function chainDetails(tree, point) {
+    const T = M.br.trees[tree], term = termOf(T, point), segs = term ? term.segs : T.chainTo(point);
+    const nodes = [], members = [];
+    const addN = x => { if (x >= 0 && nodes[nodes.length - 1] !== x) nodes.push(x); }, addM = x => { if (x >= 0 && members[members.length - 1] !== x) members.push(x); };
+    for (const k of segs) { const g = T.segs[k]; addN(T.pt.node[g.a]); g.nodes.forEach(addN); addM(T.pt.m[g.a]); g.members.forEach(addM); addM(T.pt.m[g.b]); }
+    const notes = segs.map(k => T.segs[k]).filter(g => g.approx.length).map(g => {
+      const a = T.pt.node[g.a], b = T.pt.node[g.b];
+      return `<div style="font-size:12px">${esc(g.approx.join(', '))} between ${esc(a >= 0 ? M.nodes[a].n : '?')} and ${esc(b >= 0 ? M.nodes[b].n : '?')}${g.approx.includes('fieldMismatch') ? ' <span class="sub">(field names are only in the golden traces)</span>' : ''}</div>`;
+    });
+    const hc = segs.reduce((a, k) => a + T.segs[k].hc, 0), end = pointLabel(T, point);
+    const [from, to] = T.dir === 'forward' ? [T.label, end] : [end, T.label];
+    return head(`${T.dir} chain · strand`, end)
+      + `<div>From <b>${esc(from)}</b> to <b>${esc(to)}</b> · ${hc} hops · ${segs.length} segment${segs.length === 1 ? '' : 's'}</div>`
+      + (term ? `<div>Cost: ${esc(costText(term.cost))} · best of ${term.eq} path${term.eq === 1 ? '' : 's'} · <span class="${term.clean ? 'clean' : 'unclean'}">${term.clean ? 'clean' : 'needs an any-instance read or staged code'}</span></div>` : '<div class="sub">A branch point, not an endpoint.</div>')
+      + sec('Approximations', notes.length ? notes.join('') : '<span class="sub">none</span>')
+      + strandBody(nodes, members, `<div class="row"><button class="btn" data-focus="strand">Focus strand</button><button class="btn" data-open-root="${tree}">Open tree</button></div>`);
+  }
+  function rootDetails(tree) {
+    const T = M.br.trees[tree], tv = V.T === T ? V.tv : treeView(T, { clean: S.clean, sinks: S.sinks, endpoint: -1 });
+    const all = Object.create(null), shown = Object.create(null);
+    for (const x of T.terms) all[x.kind] = (all[x.kind] || 0) + 1;
+    for (const k of tv.terms) shown[T.terms[k].kind] = (shown[T.terms[k].kind] || 0) + 1;
+    const pool = T.terms.filter(x => S.sinks || x.kind !== 'sink'), clean = pool.filter(x => x.clean).length;
+    return head(`${T.kind} root · ${T.dir}`, T.label)
+      + `<div>${esc(treeSentence(T, tv, { clean: S.clean, sinks: S.sinks }))}</div>`
+      + sec('Endpoints by kind', `<div class="list">${Object.keys(all).sort().map(k => `<div><span>${esc(k)}</span> <span class="sub">${shown[k] || 0} shown of ${all[k]}</span></div>`).join('')}</div>`)
+      + `<div><span class="clean">${clean} clean</span> · <span class="unclean">${pool.length - clean} not clean</span> · sinks ${S.sinks ? 'shown' : 'hidden'}</div>`
+      + sec('Root', listOf([T.rootMember >= 0 ? memBtn(T.rootMember) : '', T.rootNode >= 0 ? nodeBtn(T.rootNode) : ''].filter(Boolean)))
+      + (T.partner ? sec('Other direction', listOf([`<button data-open-root="${T.partner.i}"><span>${esc(T.partner.label)}</span><span class="c">${T.partner.dir}</span></button>`])) : '')
+      + `<div class="row"><button class="btn" data-open-root="${tree}">${V.T === T ? 'Active root' : 'Open as root'}</button><button class="btn" data-focus="tree">Focus tree</button></div>`;
+  }
+  function sibsDetails(tree, at) {
+    const T = M.br.trees[tree], sb = T.sibs.find(s => s.at === at); if (!sb) return '<p class="sub">No siblings here.</p>';
+    return head(`${sb.kind} · sibling stub`, `${sb.values.length} ${sb.kind === 'join' ? 'joining' : 'branching'} at ${pointLabel(T, at)}`)
+      + `<div class="sub">Values that ${sb.kind === 'join' ? 'join this strand' : 'split off it'} here but are not on the tree.</div>`
+      + sec('Values', listOf(sb.values.map(v => {
+        const roots = v.m >= 0 ? M.br.byMember.get(v.m) || [] : [];
+        return `<div style="display:flex;gap:4px;align-items:center">${v.m >= 0 ? memBtn(v.m, v.name) : `<span class="mono">${esc(v.name)}</span>`}${roots.length ? `<button class="lnk" data-open-root="${roots[0]}">Open as root</button>` : ''}</div>`;
+      }), 40));
+  }
+  function renderDetails() {
+    const s = S.sel;
+    let html;
+    if (!s) html = '<p class="sub">Nothing selected. Click a class, member, cell, container label, marker or step.</p>';
+    else if (s.kind === 'node') html = nodeDetails(s.n);
+    else if (s.kind === 'member') html = memberDetails(s.m);
+    else if (s.kind === 'cell') html = cellDetails(s.ci, s.m);
+    else if (s.kind === 'container') html = containerDetails(s);
+    else if (s.kind === 'trace') html = s.trace >= 0 ? traceDetails(s.trace) : '';
+    else if (s.kind === 'chain') html = chainDetails(s.tree, s.point);
+    else if (s.kind === 'root') html = rootDetails(s.tree);
+    else if (s.kind === 'sibs') html = sibsDetails(s.tree, s.at);
+    $('pane-details').innerHTML = html;
+    const key = JSON.stringify(s);
+    if (s && key !== lastDetails && S.pane !== 'details') $('details-dot').hidden = false;
+    lastDetails = key;
+  }
+  function detailsClick(e) {
+    const b = e.target.closest('[data-n],[data-m],[data-cell],[data-ci],[data-g],[data-trace],[data-chain],[data-open-root],[data-more],[data-copy],[data-iso],[data-focus],[data-show-trace]');
+    if (!b) return;
+    const d = b.dataset;
+    if (d.n != null) setSel({ kind: 'node', n: +d.n });
+    else if (d.m != null) { const m = +d.m; if (M.mem.kind[m] === 'cell' && M.mem.cell[m] >= 0) setSel({ kind: 'cell', ci: M.mem.cell[m], m }); else setSel({ kind: 'member', m }); }
+    else if (d.cell != null) setSel({ kind: 'cell', ci: +d.cell });
+    else if (d.ci != null) setSel({ kind: 'container', ci: +d.ci });
+    else if (d.g != null) setSel({ kind: 'container', key: d.g });
+    else if (d.trace != null) setSel({ kind: 'trace', trace: +d.trace });
+    else if (d.chain != null) { const [t, p] = d.chain.split(':').map(Number); S.root = t; S.endpoint = p; setSel({ kind: 'chain', tree: t, point: p }); }
+    else if (d.openRoot != null) { if (!(V.T && V.T.i === +d.openRoot)) openRoot(+d.openRoot); }
+    else if (d.more) { S.moreStrands = true; renderDetails(); }
+    else if (d.copy != null) { try { navigator.clipboard.writeText(d.copy); b.textContent = 'Copied'; } catch (err) { b.textContent = 'Select to copy'; } }
+    else if (d.iso != null) toggleIso(d.iso, e.shiftKey);
+    else if (d.focus) focusOn(d.focus);
+    else if (d.showTrace != null) { $('trace').value = d.showTrace; $('trace').onchange({ target: { value: d.showTrace } }); }
+  }
+  function showHoverEdges(n) {
+    if (hoverLines) { root.remove(hoverLines); hoverLines.geometry.dispose(); hoverLines.material.dispose(); hoverLines = null; }
+    if (n && V.shown(n)) {
+      const pos = [], cols = [];
+      for (const [a, b, k] of M.edges) {
+        if (!S.kinds.has(M.kinds[k]) || (a !== n.i && b !== n.i)) continue;
+        const na = M.nodes[a], nb = M.nodes[b]; if (!V.shown(na) || !V.shown(nb)) continue;
+        const pa = npos(na), pb = npos(nb); if (!pa || !pb) continue;
+        pos.push(pa.x, pa.y + 1.5, pa.z, pb.x, pb.y + 1.5, pb.z);
+        const cc = color(KIND_COLOR[M.kinds[k]]); cols.push(cc.r, cc.g, cc.b, cc.r, cc.g, cc.b);
+      }
+      const g = new THREE.BufferGeometry(); g.setAttribute('position', new THREE.Float32BufferAttribute(pos, 3));
+      g.setAttribute('color', new THREE.Float32BufferAttribute(cols, 3));
+      hoverLines = new THREE.LineSegments(g, new THREE.LineBasicMaterial({ vertexColors: true, transparent: true, opacity: 0.9, depthTest: false }));
+      hoverLines.renderOrder = 9; root.add(hoverLines);
+    }
+    dirty = true;
+  }
+  // Click isolates one container; shift-click adds or removes one, the start of multi-select.
+  function toggleIso(key, additive) {
+    if (additive) { S.iso.has(key) ? S.iso.delete(key) : S.iso.add(key); }
+    else if (S.iso.size === 1 && S.iso.has(key)) S.iso.clear();
+    else { S.iso.clear(); S.iso.add(key); }
+    rebuild();
+  }
+
+  {
+    const full = '<div style="grid-column:1/-1" class="sub">';
+    const tone = s => Math.round(100 * (emOf('divider') + (emOf('subtle') - emOf('divider')) * SLOT_ORDER.indexOf(s) / 4 + 0.08));
+    const mark = (shape, tok) => {
+      const base = `display:inline-block;width:10px;height:10px;flex:none;`;
+      if (shape === 'diamond') return `<span style="${base}background:var(${tok});transform:rotate(45deg) scale(.8)"></span>`;
+      if (shape === 'tri') return `<span style="${base}background:var(${tok});clip-path:polygon(50% 0,100% 100%,0 100%)"></span>`;
+      if (shape === 'ring') return `<span style="${base}border:2px solid var(${tok});border-radius:50%;box-sizing:border-box"></span>`;
+      if (shape === 'sq') return `<span style="${base}background:var(${tok})"></span>`;
+      return `<span style="${base}background:var(${tok});border-radius:50%"></span>`;
+    };
+    const line = bg => `<span class="sw bar" style="background:${bg}"></span>`;
+    $('legend').innerHTML = `${full}Colour by container: each outer container takes a hue from Lum's 12-hue wheel, in wheel order; inner containers are lighter or darker OKLCH shades of it. By role:</div>`
+      + ROLE_CATS.map(([k, label]) => `<div><span class="sw" style="background:var(--role-${k})"></span>${label}</div>`).join('')
+      + `<div><span class="sw ring"></span>Infrastructure flag</div>`
+      + `<div>${line('var(--accent)')}Golden trace, numbered</div>`
+      + `<div>${line('var(--fg-divider)')}Any edge, faint</div>`
+      + `<div>${line('var(--fg-outline)')}Container outline</div>`
+      + `<div><span class="sw" style="background:var(--role-data);opacity:.5;width:6px;height:6px"></span>Generated or fake, shrunk</div>`
+      + `${full}Top view, one plane: a circle's stroke gives its layer, faint at the bottom, strongest for ui:</div>`
+      + `<div style="grid-column:1/-1">` + SLOT_ORDER.map(s => `<span style="display:inline-flex;align-items:center;gap:4px;margin-right:10px"><span class="sw" style="background:transparent;border:2px solid color-mix(in srgb, var(--ink) ${tone(s)}%, var(--bg))"></span>${LAYER_NAMES[s]}</span>`).join('') + `</div>`
+      + `${full}Branch trees, drawn over the layout:</div>`
+      + `<div><span class="sw" style="border:2px solid var(--branch);background:transparent"></span>Root</div>`
+      + `<div>${line('color-mix(in srgb, var(--branch) 60%, var(--bg))')}Branch, faint</div>`
+      + `<div>${line('var(--branch)')}Chosen strand</div>`
+      + `<div>${line('repeating-linear-gradient(90deg,var(--branch) 0 7px,transparent 7px 11px)')}Any-instance or any-container read</div>`
+      + `<div>${line('repeating-linear-gradient(90deg,var(--accent) 0 2px,transparent 2px 5px)')}Field mismatch, dotted</div>`
+      + `<div>${line('var(--grey)')}Staged code</div>`
+      + `<div style="display:flex;gap:6px;align-items:center">${mark('diamond', '--role-boundary')}Boundary</div>`
+      + `<div style="display:flex;gap:6px;align-items:center">${mark('tri', '--role-state')}Cell write</div>`
+      + `<div style="display:flex;gap:6px;align-items:center">${mark('ring', '--cell-read')}Cell read</div>`
+      + `<div style="display:flex;gap:6px;align-items:center">${mark('disc', '--role-ui')}UI</div>`
+      + `<div style="display:flex;gap:6px;align-items:center">${mark('sq', '--role-screen')}Entry point</div>`
+      + `<div style="display:flex;gap:6px;align-items:center">${mark('ring', '--grey')}Sink</div>`
+      + `<div><span class="sw" style="border:1px dashed var(--muted);background:transparent;border-radius:2px"></span>Sibling stub (level 2)</div>`
+      + `${full}Members, when zoomed in:</div>`
+      + `<div><span class="sw" style="background:var(--mem-fn)"></span>Function</div>`
+      + `<div><span class="sw" style="background:var(--mem-init);border-radius:0;clip-path:polygon(50% 0,100% 100%,0 100%)"></span>Initialization</div>`
+      + `<div><span class="sw" style="background:var(--mem-prop);border-radius:0;transform:rotate(45deg) scale(.8)"></span>Property</div>`
+      + `<div><span class="sw" style="border:2px solid var(--role-state);background:transparent"></span>Cell</div>`
+      + `<div><span class="sw conn"></span>Possible connection</div>`
+      + `${full}Hover or select a circle to draw its edges by kind:</div>`
+      + `<div>${line('var(--ribbon)')}call</div>`
+      + `<div>${line('var(--role-di)')}di</div>`
+      + `<div>${line('var(--role-state)')}cell read</div>`
+      + `<div>${line('var(--role-boundary)')}cell write</div>`
+      + `${full}Circle area is lines of code. A selection dims the rest and moves nothing. Outer containers are faint, with small uppercase labels.</div>`;
+  }
+
+  // interaction
+  const pointers = new Map(); let drag = null, pinch = null; const lastClick = { t: -1e9, x: 0, y: 0, wasClick: false };
+  const ray = new THREE.Raycaster(); const ndc = new THREE.Vector2();
+  function pick(ev) {
+    const r = renderer.domElement.getBoundingClientRect();
+    ndc.set((ev.clientX - r.left) / r.width * 2 - 1, -(ev.clientY - r.top) / r.height * 2 + 1);
+    ray.setFromCamera(ndc, camera());
+    const hit = ray.intersectObjects(nodeMeshes, false);
+    hit.sort((a, b) => (b.object.renderOrder - a.object.renderOrder) || (a.distance - b.distance));
+    return hit.length ? hit[0].object.userData.n : null;
+  }
+  const tip = $('tip');
+  function showTip(n, ev, html) {
+    if (!n && !html) { tip.hidden = true; return; }
+    tip.innerHTML = html || describe(n); tip.hidden = false;
+    const r = stage.getBoundingClientRect();
+    let x = ev.clientX - r.left + 14, y = ev.clientY - r.top + 14;
+    if (x + 300 > r.width) x = Math.max(4, ev.clientX - r.left - 310);
+    if (y + 120 > r.height) y = Math.max(4, ev.clientY - r.top - 130);
+    tip.style.left = x + 'px'; tip.style.top = y + 'px';
+  }
+  const cv = renderer.domElement;
+  cv.addEventListener('contextmenu', e => e.preventDefault());
+  cv.addEventListener('pointerdown', e => {
+    cv.setPointerCapture(e.pointerId); pointers.set(e.pointerId, { x: e.clientX, y: e.clientY });
+    if (pointers.size === 2) { const [p, q] = [...pointers.values()]; pinch = { d: Math.hypot(p.x - q.x, p.y - q.y) }; drag = null; }
+    else drag = { x: e.clientX, y: e.clientY, sx: e.clientX, sy: e.clientY, pan: e.shiftKey || e.button === 2 || S.cam !== 'orbit' };
+  });
+  cv.addEventListener('pointermove', e => {
+    if (pointers.has(e.pointerId)) pointers.set(e.pointerId, { x: e.clientX, y: e.clientY });
+    if (pinch && pointers.size === 2) { const [p, q] = [...pointers.values()]; const d = Math.hypot(p.x - q.x, p.y - q.y); zoomBy(pinch.d / d); pinch.d = d; return; }
+    if (drag) {
+      const dx = e.clientX - drag.x, dy = e.clientY - drag.y; drag.x = e.clientX; drag.y = e.clientY;
+      if (!drag.pan) { view.theta += dx * 0.006; view.phi = Math.min(Math.PI - 0.05, Math.max(0.05, view.phi - dy * 0.006)); }
+      else panBy(dx, dy);
+      tip.hidden = true; dirty = true; return;
+    }
+    const mk = markerAt(e);
+    if (mk) { showTip(null, e, markerTip(mk)); return; }
+    const mm = memberAt(e);
+    if (mm >= 0) { if (S.hover) { S.hover = null; showHoverEdges(S.selected); } showTip(null, e, describeMember(mm)); return; }
+    const n = pick(e);
+    if (n !== S.hover) { S.hover = n; showHoverEdges(n || S.selected); }
+    showTip(n, e);
+  });
+  function endPointer(e) {
+    pointers.delete(e.pointerId);
+    if (drag) {
+      lastClick.wasClick = Math.hypot(e.clientX - drag.sx, e.clientY - drag.sy) < 5;
+      if (lastClick.wasClick) {
+        // The second click of a double click is the double click's, not a new selection.
+        const now = e.timeStamp || 0, again = now - lastClick.t < 400 && Math.hypot(e.clientX - lastClick.x, e.clientY - lastClick.y) < 6;
+        lastClick.t = now; lastClick.x = e.clientX; lastClick.y = e.clientY;
+        if (!again) handleClick(e);
+      }
+    }
+    if (pointers.size < 2) pinch = null;
+    drag = null;
+  }
+  cv.addEventListener('pointerup', endPointer);
+  cv.addEventListener('dblclick', e => { if (lastClick.wasClick) handleDouble(e); });
+  cv.addEventListener('pointercancel', endPointer);
+  cv.addEventListener('pointerleave', () => { tip.hidden = true; });
+  cv.addEventListener('wheel', e => { e.preventDefault(); zoomBy(Math.exp(e.deltaY * 0.0012)); }, { passive: false });
+  function zoomBy(f) {
+    if (S.cam === 'orbit') view.dist = Math.min(20000, Math.max(30, view.dist * f));
+    else view.zoom = Math.min(60, Math.max(0.2, view.zoom / f));
+    dirty = true;
+  }
+  function panBy(dx, dy) {
+    const h = stage.clientHeight || 1;
+    if (S.cam === 'orbit') {
+      const s = view.dist * Math.tan(persp.fov * Math.PI / 360) * 2 / h;
+      const right = new THREE.Vector3().setFromMatrixColumn(persp.matrix, 0), up = new THREE.Vector3().setFromMatrixColumn(persp.matrix, 1);
+      view.target.addScaledVector(right, -dx * s).addScaledVector(up, dy * s);
+    } else {
+      const s = (ortho.top - ortho.bottom) / h;
+      if (S.cam === 'top') { view.top.x -= dx * s; view.top.z -= dy * s; } else { view.side.x -= dx * s; view.side.y += dy * s; }
+    }
+  }
+
+  function rebuild() { build(); renderTrace(); }
+  function toScreen(p) { const v = p.clone().project(camera()); return [(v.x + 1) / 2 * (stage.clientWidth || 1), (1 - v.y) / 2 * (stage.clientHeight || 1)]; }
+  function setCam(c) {
+    S.cam = c; store.set('cam', c);
+    for (const k of ['orbit', 'top', 'side']) $('cam-' + k).setAttribute('aria-pressed', String(k === c));
+    $('hint').textContent = (c === 'orbit' ? 'Drag to orbit · shift-drag or right-drag to pan' : 'Drag to pan') + ' · scroll or pinch to zoom · click selects · double-click focuses or isolates · Esc steps back';
+    cv.classList.add('fading');
+    build();
+    requestAnimationFrame(() => requestAnimationFrame(() => cv.classList.remove('fading')));
+  }
+  for (const k of ['orbit', 'top', 'side']) $('cam-' + k).onclick = () => setCam(k);
+  const bindSel = (id, key, conv) => { $(id).onchange = e => { S[key] = conv(e.target.value); store.set(key, S[key]); rebuild(); }; };
+  // Container keys depend on which kinds are drawn, so a change of kinds drops the isolation.
+  $('ckinds').onchange = e => {
+    const k = e.target.dataset.ckind; e.target.checked ? S.ckinds.add(k) : S.ckinds.delete(k);
+    store.set('ckinds', [...S.ckinds]); S.iso.clear(); rebuild();
+  };
+  bindSel('infra', 'infra', String); bindSel('color', 'color', String); bindSel('hops', 'hops', Number);
+  $('focus-on').onchange = e => { S.focusOn = e.target.checked; store.set('focusOn', S.focusOn); rebuild(); };
+  $('compact').onchange = e => { S.compact = e.target.checked; store.set('compact', S.compact); view.fitted = ''; rebuild(); };
+  bindSel('dir', 'dir', String); bindSel('synth', 'synth', String);
+  $('skip-hubs').onchange = e => { S.skipHubs = e.target.checked; store.set('skipHubs', S.skipHubs); rebuild(); };
+  $('hub-min').onchange = e => { const v = parseInt(e.target.value, 10); S.hubMin = v > 0 ? v : null; store.set('hubMin', S.hubMin); rebuild(); };
+  $('edge-strength').oninput = e => { S.edgeStrength = +e.target.value; store.set('edgeStrength', S.edgeStrength); retuneEdges(); applyHighlight(); };
+  $('edge-reset').onclick = () => { S.edgeStrength = null; store.set('edgeStrength', null); retuneEdges(); applyHighlight(); };
+  const bindSet = (id, set, key, attr) => { $(id).onchange = e => { const v = attr === 'slot' ? +e.target.dataset.slot : e.target.dataset.kind; e.target.checked ? set.add(v) : set.delete(v); store.set(key, [...set]); rebuild(); }; };
+  bindSet('layers', S.layers, 'layers', 'slot'); bindSet('kinds', S.kinds, 'kinds', 'kind'); bindSet('hop-kinds', S.hopKinds, 'hopKinds', 'kind');
+  $('trace').onchange = e => { S.trace = +e.target.value; rebuild(); };
+  $('steps').onclick = e => { const li = e.target.closest('li[data-ix]'); if (li) setSel({ kind: 'node', n: +li.dataset.ix }, true); };
+  $('tree').onclick = e => { const b = e.target.closest('button[data-g]'); if (b) toggleIso(b.dataset.g, e.shiftKey); };
+  $('clear-iso').onclick = () => { S.iso.clear(); rebuild(); };
+  // Esc steps back one thing at a time: connections, a focus, the endpoint, the root, the selection, the isolation.
+  window.addEventListener('keydown', e => {
+    if (e.key !== 'Escape') return;
+    if (S.conn) clearConn();
+    else if (S.focus) back();
+    else if (S.endpoint >= 0) { S.endpoint = -1; if (S.sel && S.sel.kind === 'chain') S.sel = { kind: 'root', tree: S.sel.tree }; applyHighlight(); }
+    else if (S.root >= 0) { S.root = -1; if (S.sel && ['root', 'sibs'].includes(S.sel.kind)) S.sel = null; applyHighlight(); }
+    else if (S.sel) setSel(null);
+    else if (S.iso.size) { S.iso.clear(); rebuild(); }
+  });
+  $('ctx').onchange = e => { S.ctx = e.target.value; store.set('ctx7', S.ctx); rebuild(); };
+  $('branch').onchange = e => { S.branch = +e.target.value; store.set('branch', S.branch); if (S.focus) rebuild(); else applyHighlight(); };
+  $('clean').onchange = e => { S.clean = e.target.checked; store.set('clean', S.clean); if (S.focus) rebuild(); else applyHighlight(); };
+  $('sinks').onchange = e => { S.sinks = e.target.checked; store.set('sinks', S.sinks); if (S.focus) rebuild(); else applyHighlight(); };
+  $('tdir').onchange = e => {
+    S.tdir = e.target.value;
+    if (V.T && V.T.partner && V.T.dir !== S.tdir && S.root >= 0) { S.root = V.T.partner.i; S.endpoint = -1; if (S.sel && ['root', 'chain', 'sibs'].includes(S.sel.kind)) S.sel = { kind: 'root', tree: S.root }; }
+    applyHighlight();
+  };
+  $('focus-tree').onclick = () => focusOn('tree');
+  $('focus-strand').onclick = () => focusOn('strand');
+  $('back').onclick = () => back();
+  $('clear-root').onclick = () => { S.root = -1; S.endpoint = -1; if (S.focus) { S.focus = null; S.history = []; view.fitted = ''; rebuild(); } if (S.sel && ['root', 'chain', 'sibs'].includes(S.sel.kind)) S.sel = null; applyHighlight(); };
+  $('root-q').oninput = () => renderRootList();
+  $('root-q').onfocus = () => renderRootList();
+  $('root-list').onclick = e => { const b = e.target.closest('button[data-root]'); if (b) { S.root = +b.dataset.root; S.endpoint = -1; setSel({ kind: 'root', tree: S.root }, true); } };
+  $('tab-settings').onclick = () => setPane('settings');
+  $('tab-details').onclick = () => setPane('details');
+  $('pane-details').onclick = e => detailsClick(e);
+  $('budget').oninput = e => { $('budget-val').textContent = e.target.value; };
+  $('budget').onchange = e => { S.budget = +e.target.value; $('budget-val').textContent = String(S.budget); store.set('budget', S.budget); rebuild(); };
+  const connChanged = () => { if (S.conn) { applyConn(); renderConn(); } };
+  $('conn-dir').onchange = e => { S.connDir = e.target.value; store.set('connDir', S.connDir); connChanged(); };
+  $('conn-kinds').onchange = e => { const k = e.target.dataset.kind; e.target.checked ? S.connKinds.add(k) : S.connKinds.delete(k); store.set('connKinds', [...S.connKinds]); connChanged(); };
+  $('conn').onclick = e => {
+    if (e.target.closest('#conn-clear')) { clearConn(); return; }
+    const more = e.target.closest('button[data-more]'); if (more) { clickMember(+more.dataset.more, true); return; }
+    const b = e.target.closest('button[data-m]'); if (b) clickMember(+b.dataset.m);
+  };
+
+  function resize() { renderer.setSize(stage.clientWidth, stage.clientHeight, false); dirty = true; }
+  new ResizeObserver(resize).observe(stage);
+  const rethemed = () => build();
+  try { matchMedia('(prefers-color-scheme: dark)').addEventListener('change', rethemed); } catch (e) { }
+  new MutationObserver(rethemed).observe(document.documentElement, { attributes: true, attributeFilter: ['data-theme'] });
+
+  setCam(S.cam); renderTrace(); resize(); setPane('settings');
+  (function loop() {
+    if (dirty) { dirty = false; applyCamera(); refreshMembers(); renderer.render(scene, camera()); renderLabels(false); }
+    requestAnimationFrame(loop);
+  })();
+  window.__altstack = { M, S, D, get V() { return V; }, get P() { return P; }, get SL() { return SL; }, get revealed() { return revealed; }, get memPos() { return memPos; }, get memGroup() { return memGroup; }, get markers() { return markers; },
+    view, zoomBy, clickMember, clearConn, npos, ptAnchor, setSel, focusOn, back, applyHighlight, toScreen, camera, outlineEm, edgeEm, nodeFloor, edgeStrength };
+})();
+</script>
