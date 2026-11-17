@@ -26,6 +26,14 @@ enum SyntheticKey {
         return nil
     }
 
+    /// The key code that types `character` with Shift held, for a character
+    /// like `@` that no key types on its own.
+    static func shiftedKeyCode(for character: Character) -> CGKeyCode? {
+        guard let layout = currentLayoutData() else { return nil }
+        let wanted = String(character)
+        return (CGKeyCode(0)...CGKeyCode(127)).first { translate($0, layout: layout, flags: .shift) == wanted }
+    }
+
     struct NamedKey {
         let name: String
         let character: Character
@@ -60,17 +68,22 @@ enum SyntheticKey {
         named.first { $0.name == name.lowercased() }?.character
     }
 
-    /// Delivers `shortcut` as a down/up pair to `window`.
+    /// Delivers `shortcut` as a down/up pair to `window`, and returns the key
+    /// code it pressed.
     ///
     /// The window is made key (not activated) first: a shortcut is dispatched
     /// relative to the key window, and a hidden scratch instance may have
     /// none.
-    static func perform(_ shortcut: MenuShortcut, in window: NSWindow) async throws {
-        guard let code = keyCode(for: shortcut.key) else {
+    @discardableResult
+    static func perform(_ shortcut: MenuShortcut, in window: NSWindow) async throws -> CGKeyCode {
+        let unshifted = keyCode(for: shortcut.key)
+        guard let code = unshifted ?? shiftedKeyCode(for: shortcut.key) else {
             throw ControlError.badParams("no key on this layout types \"\(shortcut.key)\"")
         }
         let namedKey = named.first { $0.character == shortcut.key }
-        let flags = MenuShortcut.appKitFlags(shortcut.modifiers).union(namedKey?.flags ?? [])
+        let flags = MenuShortcut.appKitFlags(shortcut.modifiers)
+            .union(namedKey?.flags ?? [])
+            .union(unshifted == nil ? .shift : [])
         // `charactersIgnoringModifiers` is what both the menu and
         // `TerminalShortcutMonitor` match on, so it carries the unmodified
         // character while `characters` carries what the chord composes to.
@@ -93,6 +106,7 @@ enum SyntheticKey {
         // lets whatever they triggered settle before the caller reads state.
         await Task.yield()
         await Task.yield()
+        return code
     }
 
     private static func composed(_ code: CGKeyCode, flags: NSEvent.ModifierFlags) -> String? {

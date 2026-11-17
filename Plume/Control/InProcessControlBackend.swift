@@ -266,11 +266,8 @@ final class InProcessControlBackend: ControlBackend {
     func key(_ params: KeyParams) async throws -> KeyResult {
         let shortcut = try Self.shortcut(from: params)
         let window = try window(for: params.windowNumber)
-        guard let code = SyntheticKey.keyCode(for: shortcut.key) else {
-            throw ControlError.badParams("no key on this layout types \"\(shortcut.key)\"")
-        }
         let item = Self.menuItem(matching: shortcut)
-        try await SyntheticKey.perform(shortcut, in: window)
+        let code = try await SyntheticKey.perform(shortcut, in: window)
         return KeyResult(
             chord: Self.chordName(shortcut, typed: params.key), keyCode: Int(code), windowNumber: window.windowNumber,
             handledBy: item.map(Self.path(of:)), handledByEnabled: item?.isEnabled,

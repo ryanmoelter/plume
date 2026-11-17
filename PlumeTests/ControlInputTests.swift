@@ -21,6 +21,7 @@ struct ControlInputTests {
 
         let capital = try InProcessControlBackend.shortcut(from: KeyParams(key: "A"))
         #expect(capital.modifiers == .shift)
+        #expect(SyntheticKey.shiftedKeyCode(for: "A") == SyntheticKey.keyCode(for: "a"))
 
         for name in ["up", "down", "right", "home", "end", "return", "tab", "escape", "forwarddelete"] {
             #expect(SyntheticKey.character(named: name) != nil, "\(name)")
@@ -66,6 +67,11 @@ struct ControlInputTests {
         #expect(await eventually { textView.selectedRange() == NSRange(location: start - 1, length: 1) }, "\(textView.selectedRange())")
         try await press("down", in: window)
         #expect(await eventually { textView.selectedRange().location > NSMaxRange(needle) }, "\(textView.selectedRange())")
+
+        if SyntheticKey.keyCode(for: "@") == nil, SyntheticKey.shiftedKeyCode(for: "@") != nil {
+            try await press("@", in: window)
+            #expect(await eventually { textView.string.contains("@") })
+        }
     }
 
     @Test func spansScrolledOutOfViewReportNotVisibleWithoutRevealing() async throws {
