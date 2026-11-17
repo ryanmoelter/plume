@@ -47,7 +47,9 @@ nonisolated struct ScrollHitchReport: Codable, Equatable {
     var durationMs: Double
     var startOffset: Double
     var endOffset: Double
-    /// Signed, negative upward.
+    /// The points the driver scrolled, signed, negative upward. It differs
+    /// from `endOffset - startOffset` by however far the list moved the
+    /// offset to keep the reader's place as rows above re-measured.
     var distance: Double
     /// The run hit `maxSeconds` before settling at its destination.
     var timedOut: Bool
@@ -65,13 +67,13 @@ nonisolated struct ScrollHitchReport: Codable, Equatable {
     var worstFrames: [ScrollFrameSample]
 
     init(
-        clock: String, startOffset: Double, endOffset: Double,
+        clock: String, startOffset: Double, endOffset: Double, distance: Double,
         timedOut: Bool, samples: [ScrollFrameSample], worst: Int
     ) {
         self.clock = clock
         self.startOffset = startOffset
         self.endOffset = endOffset
-        distance = endOffset - startOffset
+        self.distance = distance
         self.timedOut = timedOut
         let measured = samples.filter { $0.intervalMs != nil }
         let intervals = measured.compactMap(\.intervalMs)

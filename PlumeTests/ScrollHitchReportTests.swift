@@ -50,7 +50,7 @@ struct ScrollHitchReportTests {
             sample(2, 20, periodMs: 16), sample(3, 16, periodMs: 16),
         ]
         let report = ScrollHitchReport(
-            clock: "mixed", startOffset: 0, endOffset: 0, timedOut: false, samples: samples, worst: 0
+            clock: "mixed", startOffset: 0, endOffset: 0, distance: 0, timedOut: false, samples: samples, worst: 0
         )
         #expect(report.hitchMs == 12)
         #expect(report.overTwoPeriods == 1)
@@ -76,13 +76,13 @@ struct ScrollHitchReportTests {
             sample(3, 20, spans: []),
         ]
         let report = ScrollHitchReport(
-            clock: "displayLink", startOffset: 500, endOffset: 0, timedOut: false,
+            clock: "displayLink", startOffset: 500, endOffset: 0, distance: -480, timedOut: false,
             samples: samples, worst: 2
         )
         #expect(report.spans.map(\.name) == ["realizeWindow", "layoutPass"])
         #expect(report.spans.last == SwitchLatencySpan(name: "layoutPass", count: 3, ms: 5))
         #expect(report.worstFrames.map(\.index) == [2, 3])
-        #expect(report.distance == -500)
+        #expect(report.distance == -480)
     }
 
     @Test func emptyRunReportsZeroes() {
@@ -115,7 +115,7 @@ struct ScrollHitchReportTests {
             return made
         }
         return ScrollHitchReport(
-            clock: "timer", startOffset: 0, endOffset: 0, timedOut: false,
+            clock: "timer", startOffset: 0, endOffset: 0, distance: 0, timedOut: false,
             samples: samples, worst: 5
         )
     }

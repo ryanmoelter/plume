@@ -6,16 +6,18 @@ import QuartzCore
 extension InProcessControlBackend {
     func scrollChat(_ params: ScrollChatParams) async throws -> ScrollHitchReport {
         let destination = try params.destination()
-        _ = try params.clockChoice()
+        let clockChoice = try params.clockChoice()
         let controller = try chatListController()
         guard controller.scrollView.window != nil else { throw ControlError.notFound("chat list") }
         guard ScrollHitchProbe.active == nil else { throw ControlError.badParams("a scrollChat is already running") }
 
         let activity = ControlActivity.begin(reason: "Measuring a chat scroll")
         defer { ProcessInfo.processInfo.endActivity(activity) }
-        let report = await withCheckedContinuation { continuation in
-            let driver = ScrollChatDriver(controller: controller, destination: destination, params: params) {
-                continuation.resume(returning: $0)
+        let report = try await withCheckedThrowingContinuation { continuation in
+            let driver = ScrollChatDriver(
+                controller: controller, destination: destination, clockChoice: clockChoice, params: params
+            ) {
+                continuation.resume(with: $0)
             }
             driver.start()
         }
@@ -24,8 +26,7 @@ extension InProcessControlBackend {
     }
 }
 
-/// Where `SwitchLatencyProbe.time` and `note` also report while a `scrollChat`
-/// runs.
+/// Where `SwitchLatencyProbe.time` and `note` also report while a `scrollChat` runs.
 @MainActor
 enum ScrollHitchProbe {
     fileprivate(set) static var active: ScrollChatDriver?
@@ -57,12 +58,12 @@ final class ScrollChatDriver: NSObject {
     private let controller: ChatListController
     private let destination: ScrollChatParams.Destination
     private let params: ScrollChatParams
-    private let completion: (ScrollHitchReport) -> Void
+    private let completion: (Result<ScrollHitchReport, Error>) -> Void
 
     private var link: CADisplayLink?
     private var timer: Timer?
     private var watchdog: Timer?
-    private var watchdogDue: CFTimeInterval = 0
+    private(set) var watchdogDue: CFTimeInterval = 0
     private var observer: CFRunLoopObserver?
     private var clock = Clock.displayLink
     private let forcesTimer: Bool
@@ -71,7 +72,10 @@ final class ScrollChatDriver: NSObject {
 
     private var startedAt: CFTimeInterval = 0
     private var startOffset: CGFloat = 0
-    private var byTarget: CGFloat = 0
+    /// The sum of the driver's own moves, signed. A `by` run ends on this
+    /// rather than on an offset, because the list shifts the offset to keep
+    /// the reader's place when rows above the viewport re-measure.
+    private var travelled: CGFloat = 0
     private var lastTick: CFTimeInterval?
     private var arrivedAt: CFTimeInterval?
     private var awaitingTurnEnd = false
@@ -82,12 +86,13 @@ final class ScrollChatDriver: NSObject {
 
     init(
         controller: ChatListController, destination: ScrollChatParams.Destination,
-        params: ScrollChatParams, completion: @escaping (ScrollHitchReport) -> Void
+        clockChoice: ScrollChatParams.ClockChoice, params: ScrollChatParams,
+        completion: @escaping (Result<ScrollHitchReport, Error>) -> Void
     ) {
         self.controller = controller
         self.destination = destination
         self.params = params
-        forcesTimer = (try? params.clockChoice()) == .timer
+        forcesTimer = clockChoice == .timer
         if forcesTimer { clock = .timer }
         self.completion = completion
     }
@@ -96,7 +101,6 @@ final class ScrollChatDriver: NSObject {
         ScrollHitchProbe.active = self
         startedAt = CACurrentMediaTime()
         startOffset = controller.scrollView.contentView.bounds.origin.y
-        if case let .by(points) = destination { byTarget = startOffset + CGFloat(points) }
         realizationsAtLastTick = controller.realizations
 
         let observer = CFRunLoopObserverCreateWithHandler(nil, CFRunLoopActivity.beforeWaiting.rawValue, true, Int.max) { _, _ in
@@ -133,8 +137,7 @@ final class ScrollChatDriver: NSObject {
         tick(at: now, period: link.duration > 0 ? link.duration : Self.timerPeriod)
     }
 
-    /// Moves the one watchdog's fire date rather than scheduling a timer per
-    /// tick.
+    /// Moves the one watchdog's fire date rather than scheduling a timer per tick.
     private func armWatchdog(after delay: CFTimeInterval, now: CFTimeInterval) {
         watchdogDue = now + delay
         let fireDate = Date(timeIntervalSinceNow: watchdogDue - CACurrentMediaTime())
@@ -143,16 +146,16 @@ final class ScrollChatDriver: NSObject {
             return
         }
         let watchdog = Timer(fire: fireDate, interval: 0, repeats: false) { _ in
-            MainActor.assumeIsolated { ScrollHitchProbe.active?.watchdogFired() }
+            MainActor.assumeIsolated { ScrollHitchProbe.active?.watchdogFired(at: CACurrentMediaTime()) }
         }
         RunLoop.main.add(watchdog, forMode: .common)
         self.watchdog = watchdog
     }
 
-    fileprivate func watchdogFired() {
+    func watchdogFired(at now: CFTimeInterval) {
+        watchdog?.invalidate()
         watchdog = nil
         guard clock == .displayLink else { return }
-        let now = CACurrentMediaTime()
         if now - watchdogDue > Self.lateFireSlack {
             armWatchdog(after: Self.graceAfterStall, now: now)
             return
@@ -160,6 +163,11 @@ final class ScrollChatDriver: NSObject {
         clock = .timer
         link?.invalidate()
         link = nil
+        // The silence was the display's, not the main thread's, so the timer's
+        // first tick starts a new interval rather than closing one.
+        lastTick = nil
+        awaitingTurnEnd = false
+        turnWorkMs = nil
         startTimer()
     }
 
@@ -182,7 +190,11 @@ final class ScrollChatDriver: NSObject {
         turnWorkMs = (CACurrentMediaTime() - lastTick) * 1000
     }
 
-    private func tick(at now: CFTimeInterval, period: CFTimeInterval) {
+    func tick(at now: CFTimeInterval, period: CFTimeInterval) {
+        guard controller.scrollView.window != nil else {
+            finish(.failure(ControlError.notFound("chat list, which left its window mid-scroll")))
+            return
+        }
         let realizationDelta = controller.realizations - realizationsAtLastTick
         let spans = intervalSpans.values.sorted { $0.ms != $1.ms ? $0.ms > $1.ms : $0.name < $1.name }
         let intervalMs = lastTick.map { (now - $0) * 1000 }
@@ -201,9 +213,9 @@ final class ScrollChatDriver: NSObject {
         ))
 
         if let arrivedAt, now - arrivedAt >= params.settle {
-            finish(timedOut: false)
+            finish(.success(report(timedOut: false)))
         } else if now - startedAt >= params.maxSeconds {
-            finish(timedOut: true)
+            finish(.success(report(timedOut: true)))
         }
     }
 
@@ -213,20 +225,27 @@ final class ScrollChatDriver: NSObject {
         let scrollView = controller.scrollView
         let clip = scrollView.contentView
         let maxY = max(0, (scrollView.documentView?.frame.height ?? 0) - clip.bounds.height)
-        let goal: CGFloat = switch destination {
-        case .top: 0
-        case .bottom: maxY
-        case .by: min(max(byTarget, 0), maxY)
-        }
         var origin = clip.bounds.origin
-        let remaining = goal - origin.y
+        let remaining: CGFloat = switch destination {
+        case .top: -origin.y
+        case .bottom: maxY - origin.y
+        case let .by(points): CGFloat(points) - travelled
+        }
         if abs(remaining) > 0.5 {
-            origin.y = abs(remaining) <= step ? goal : origin.y + (remaining > 0 ? step : -step)
+            let move = abs(remaining) <= step ? remaining : (remaining > 0 ? step : -step)
+            let moved = min(max(origin.y + move, 0), maxY)
+            travelled += moved - origin.y
+            origin.y = moved
             clip.scroll(to: origin)
             scrollView.reflectScrolledClipView(clip)
         }
         let offset = clip.bounds.origin.y
-        if abs(goal - offset) <= 0.5 {
+        let arrived = switch destination {
+        case .top: offset <= 0.5
+        case .bottom: offset >= maxY - 0.5
+        case let .by(points): abs(CGFloat(points) - travelled) <= 0.5 || (points < 0 ? offset <= 0.5 : offset >= maxY - 0.5)
+        }
+        if arrived {
             if arrivedAt == nil { arrivedAt = now }
         } else {
             arrivedAt = nil
@@ -234,7 +253,7 @@ final class ScrollChatDriver: NSObject {
         return offset
     }
 
-    private func finish(timedOut: Bool) {
+    private func finish(_ result: Result<ScrollHitchReport, Error>) {
         link?.invalidate()
         link = nil
         timer?.invalidate()
@@ -246,21 +265,24 @@ final class ScrollChatDriver: NSObject {
             self.observer = nil
         }
         ScrollHitchProbe.active = nil
+        completion(result)
+    }
 
+    private func report(timedOut: Bool) -> ScrollHitchReport {
         let clockName = switch (linkTicks > 0, timerTicks > 0) {
         case (true, true): "mixed"
         case (false, true): "timer"
         default: "displayLink"
         }
-        let report = ScrollHitchReport(
+        return ScrollHitchReport(
             clock: clockName,
             startOffset: Double(startOffset),
             endOffset: Double(controller.scrollView.contentView.bounds.origin.y),
+            distance: Double(travelled),
             timedOut: timedOut,
             samples: samples,
             worst: params.worst
         )
-        completion(report)
     }
 }
 #endif
