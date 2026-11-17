@@ -40,7 +40,7 @@ final class MinimapTuning {
             slideDistance: 6,
             crossfadeDuration: 0.12,
             snapDuration: 0.14,
-            catchUpGain: 4
+            catchUpGain: 10
         )
     }
 
@@ -51,7 +51,7 @@ final class MinimapTuning {
     static let previewMaxLinesRange: ClosedRange<Double> = 1...8
     static let durationRange: ClosedRange<Double> = 0...1
     static let slideDistanceRange: ClosedRange<Double> = 0...40
-    static let catchUpGainRange: ClosedRange<Double> = 0...20
+    static let catchUpGainRange: ClosedRange<Double> = 0...40
 
     var values: Values {
         didSet { save() }
