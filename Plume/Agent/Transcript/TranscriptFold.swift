@@ -46,7 +46,7 @@ nonisolated struct TranscriptFold: Sendable {
         }
 
         // Usually half a line, which decodes as nothing, so the copy is never
-        // written to and never pays for duplicating the fold's state.
+        // written to. One that decodes copies whatever state it touches.
         var withUnfinished = self
         if let entry = Self.decode(unfinished, decoder, &timings) {
             withUnfinished.consume(entry, now: now, timings: &timings)

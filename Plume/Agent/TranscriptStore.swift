@@ -1,5 +1,6 @@
 import Foundation
 import Observation
+import os
 #if DEBUG
 import OSLog
 import QuartzCore
@@ -114,7 +115,10 @@ final class TranscriptStore {
     private var subagentCaches: [UUID: SubagentTranscriptCache] = [:]
     /// Per tab: the last parse of the main transcript, reused while the file
     /// is unchanged so a subagent's write never re-parses the parent, and
-    /// continued from where it stopped when the file only grew.
+    /// continued from where it stopped when the file only grew. A read takes
+    /// its tab's entry out for as long as it runs, so its fold has no other
+    /// owner and appending to it doesn't first copy its state. A tab with no
+    /// entry gets a full parse.
     private var parentParses: [UUID: ParentParse] = [:]
     private let completionTracker: SubagentCompletionTracker
     private let statusOverrides: SubagentStatusOverrides
@@ -434,25 +438,31 @@ final class TranscriptStore {
         case full
     }
 
-    /// The main transcript's new bytes, and the parse they continue.
+    /// The main transcript's new bytes: those that continue the last parse's
+    /// fold, or the whole file.
     private nonisolated enum ParentBytes {
-        case appended(Data, to: TranscriptFold)
+        case appended(Data)
         case whole(Data)
 
         var count: Int {
             switch self {
-            case .appended(let data, _), .whole(let data): data.count
+            case .appended(let data), .whole(let data): data.count
             }
         }
 
-        /// Only the bytes past the last parse when the file is the same one,
-        /// no shorter, and unchanged up to where that parse stopped.
-        static func load(path: String, fingerprint: FileFingerprint?, previous: ParentParse?) -> ParentBytes? {
-            if let previous, let fingerprint,
-               previous.fingerprint?.fileNumber == fingerprint.fileNumber,
-               fingerprint.size >= previous.fold.consumed,
-               let appended = previous.fold.cursor.appendedBytes(atPath: path) {
-                return .appended(appended, to: previous.fold)
+        /// Only the bytes past `fold` when the file is the same one, no
+        /// shorter, and unchanged up to where that parse stopped.
+        static func load(
+            path: String,
+            fingerprint: FileFingerprint?,
+            previousFingerprint: FileFingerprint?,
+            fold: TranscriptFold?
+        ) -> ParentBytes? {
+            if let fingerprint, let previousFingerprint,
+               previousFingerprint.fileNumber == fingerprint.fileNumber,
+               let consumed = fold?.consumed, fingerprint.size >= consumed,
+               let appended = fold?.cursor.appendedBytes(atPath: path) {
+                return .appended(appended)
             }
             return FileManager.default.contents(atPath: path).map(ParentBytes.whole)
         }
@@ -474,8 +484,10 @@ final class TranscriptStore {
         let spawnDescriptors: [String: SubagentDescriptor]
         let path: ParentReadPath
 
+        /// `continuing` is the fold that `.appended` bytes continue.
         init(
             bytes: ParentBytes,
+            continuing previous: consuming TranscriptFold?,
             fingerprint: FileFingerprint?,
             referenceCache: ConversationReferenceScanner.Cache,
             timings: inout ReadTimings
@@ -483,8 +495,8 @@ final class TranscriptStore {
             var fold: TranscriptFold
             let newBytes: Data
             switch bytes {
-            case .appended(let appended, let previous):
-                fold = previous
+            case .appended(let appended):
+                fold = previous.take() ?? TranscriptFold()
                 newBytes = appended
                 path = .appended
             case .whole(let whole):
@@ -622,7 +634,8 @@ final class TranscriptStore {
         let token = UUID()
         inFlight[tabID] = token
         let referenceCache = referenceCaches[tabID] ?? ConversationReferenceScanner.Cache()
-        let previousParent = parentParses[tabID]
+        // Emptied by the task, where a plain capture would keep a copy of the fold alive.
+        let previousParent = OSAllocatedUnfairLock(initialState: parentParses.removeValue(forKey: tabID))
         let subagentCache = subagentCaches[tabID] ?? SubagentTranscriptCache()
         let projectsDirectory = projectsDirectory
         #if DEBUG
@@ -632,17 +645,27 @@ final class TranscriptStore {
             var timings = ReadTimings()
             let readBegan = ReadTimings.now()
             let fingerprint = FileFingerprint(path: path)
-            let reusable = previousParent.flatMap { previous in
-                fingerprint != nil && previous.fingerprint == fingerprint ? previous : nil
-            }
+            var previous = previousParent.withLock { $0.take() }
+            let reusable = fingerprint != nil && previous?.fingerprint == fingerprint ? previous : nil
+            let previousFingerprint = previous?.fingerprint
+            var fold = reusable == nil ? previous?.fold : nil
+            previous = nil
             let bytes = reusable == nil ? timings.time(\.load) {
-                ParentBytes.load(path: path, fingerprint: fingerprint, previous: previousParent)
+                ParentBytes.load(
+                    path: path, fingerprint: fingerprint, previousFingerprint: previousFingerprint, fold: fold
+                )
             } : nil
             #if DEBUG
             await afterLoading?(path)
             #endif
             let parentParse = reusable ?? bytes.map {
-                ParentParse(bytes: $0, fingerprint: fingerprint, referenceCache: referenceCache, timings: &timings)
+                ParentParse(
+                    bytes: $0,
+                    continuing: fold.take(),
+                    fingerprint: fingerprint,
+                    referenceCache: referenceCache,
+                    timings: &timings
+                )
             }
             let parentPath = reusable != nil ? ParentReadPath.reused : parentParse?.path ?? .full
             let parsed = parentParse.map { parent in
