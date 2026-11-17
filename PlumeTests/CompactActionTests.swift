@@ -1,6 +1,7 @@
 import Testing
 @testable import Plume
 
+@MainActor
 struct CompactActionTests {
     @Test func availableWhenIdleWithAConversation() {
         #expect(CompactAction.availability(isWorking: false, isRestarting: false, hasConversation: true) == .available)
