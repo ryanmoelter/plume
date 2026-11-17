@@ -235,28 +235,38 @@ struct MarkdownComposerTextView: NSViewRepresentable {
             self.onCaretChange = onCaretChange
         }
 
-        /// Full re-style, used when the text or font size changes from
-        /// outside a keystroke (initial mount, external `text` reset, font
-        /// size change) as well as after every keystroke.
+        /// Styles for a change from outside a keystroke. A new text, font size,
+        /// body font or accent restyles every line; any other change restyles
+        /// only the lines it touches.
         func apply(text: String, fontSize: CGFloat, to textView: NSTextView) {
+            let bodyFont = isCommandMode
+                ? NSFont.monospacedSystemFont(ofSize: fontSize, weight: .regular)
+                : NSFont.composerBody(ofSize: fontSize)
+            let isWholeText = textView.string != text || self.fontSize != fontSize
+                || (textView as? ComposerNSTextView)?.bodyFont != bodyFont
             self.fontSize = fontSize
             let selectedRanges = textView.selectedRanges
             if textView.string != text {
                 textView.string = text
                 undoManager.removeAllActions()
             }
-            let bodyFont = isCommandMode
-                ? NSFont.monospacedSystemFont(ofSize: fontSize, weight: .regular)
-                : NSFont.composerBody(ofSize: fontSize)
-            textView.font = bodyFont
+            // Setting the font resets every character's font, so it happens
+            // only when everything is restyled anyway.
+            if isWholeText {
+                textView.font = bodyFont
+            }
             (textView as? ComposerNSTextView)?.bodyFont = bodyFont
             textView.typingAttributes = [.font: bodyFont, .foregroundColor: NSColor.labelColor]
             let accent = ThemeChrome.accentNSColor(isActive: isActive)
             textView.insertionPointColor = accent
             textView.selectedTextAttributes = [.backgroundColor: accent.withAlphaComponent(0.3)]
-            style(textView, text: text, caret: selectedRanges.first?.rangeValue ?? textView.selectedRange(), accent: accent)
+            style(textView, text: text, caret: selectedRanges.first?.rangeValue ?? textView.selectedRange(), accent: accent, incrementally: !isWholeText)
             (textView as? ComposerNSTextView)?.markdownMetrics = isCommandMode ? nil : ComposerMarkdownMetrics(fontSize: fontSize)
-            layOutAllText(in: textView)
+            if isWholeText {
+                layOutAllText(in: textView)
+            } else {
+                layOutRestyledText(in: textView)
+            }
             textView.selectedRanges = selectedRanges
             updatePlaceholderVisibility(textView)
         }
@@ -266,13 +276,35 @@ struct MarkdownComposerTextView: NSViewRepresentable {
         /// caret and placing decorations against those estimates lands them in
         /// the wrong place, so the whole text is laid out for real.
         private func layOutAllText(in textView: NSTextView) {
+            if let composer = textView as? ComposerNSTextView { return composer.layOutAllText() }
             guard let layoutManager = textView.textLayoutManager else { return }
             layoutManager.ensureLayout(for: layoutManager.documentRange)
         }
 
-        private func style(_ textView: NSTextView, text: String, caret: NSRange, accent: NSColor) {
+        /// Lays out from the first line the last restyle touched to the end:
+        /// lines above it kept their layout, and lines below it moved.
+        private func layOutRestyledText(in textView: NSTextView) {
+            if (textView as? ComposerNSTextView)?.needsFullLayout == true { return layOutAllText(in: textView) }
+            guard let restyled = styleSnapshot?.restyled else {
+                if styleSnapshot == nil { layOutAllText(in: textView) }
+                return
+            }
+            guard let layoutManager = textView.textLayoutManager,
+                  let contentManager = layoutManager.textContentManager,
+                  let start = contentManager.location(layoutManager.documentRange.location, offsetBy: restyled.location),
+                  let range = NSTextRange(location: start, end: layoutManager.documentRange.endLocation)
+            else { return layOutAllText(in: textView) }
+            layoutManager.ensureLayout(for: range)
+        }
+
+        /// What the last restyle styled from, so the next can restyle only
+        /// the lines that changed.
+        private var styleSnapshot: MarkdownComposerStyler.Snapshot?
+
+        private func style(_ textView: NSTextView, text: String, caret: NSRange, accent: NSColor, incrementally: Bool = true) {
             let chips = referenceChips(in: text, caret: caret)
-            MarkdownComposerStyler.style(
+            let unchanged = (textView as? ComposerNSTextView)?.takeUnchangedEnds()
+            styleSnapshot = MarkdownComposerStyler.style(
                 textView.textStorage!,
                 text: text,
                 fontSize: fontSize,
@@ -280,7 +312,9 @@ struct MarkdownComposerTextView: NSViewRepresentable {
                 isCommandMode: isCommandMode,
                 accent: accent,
                 references: chips,
-                activeMention: activeMention
+                activeMention: activeMention,
+                after: incrementally ? styleSnapshot : nil,
+                unchanged: unchanged
             )
             (textView as? ComposerNSTextView)?.referenceChips = chips
         }
@@ -347,7 +381,7 @@ struct MarkdownComposerTextView: NSViewRepresentable {
             guard let textView, !textView.hasMarkedText() else { return }
             let selectedRanges = textView.selectedRanges
             style(textView, text: textView.string, caret: textView.selectedRange(), accent: ThemeChrome.accentNSColor(isActive: isActive))
-            layOutAllText(in: textView)
+            layOutRestyledText(in: textView)
             textView.selectedRanges = selectedRanges
             textView.needsDisplay = true
             host?.invalidateContentHeight()
@@ -363,13 +397,26 @@ struct MarkdownComposerTextView: NSViewRepresentable {
             undoManager
         }
 
+        /// What the last keystroke's restyle and layout cost, in a debug
+        /// build. Read by the keystroke benchmark.
+        private(set) var lastKeystrokeCost = KeystrokeCost()
+
+        struct KeystrokeCost {
+            var restyle: Duration = .zero
+            var layout: Duration = .zero
+        }
+
         func textDidChange(_ notification: Notification) {
             guard let textView = notification.object as? NSTextView else { return }
             let newText = textView.string
             textBinding.wrappedValue = newText
             onTextChange(newText)
-            style(textView, text: newText, caret: textView.selectedRange(), accent: ThemeChrome.accentNSColor(isActive: isActive))
-            layOutAllText(in: textView)
+            lastKeystrokeCost.restyle = debugDuration {
+                style(textView, text: newText, caret: textView.selectedRange(), accent: ThemeChrome.accentNSColor(isActive: isActive))
+            }
+            lastKeystrokeCost.layout = debugDuration {
+                layOutRestyledText(in: textView)
+            }
             updatePlaceholderVisibility(textView)
             // A decoration can span lines the edit didn't touch, like a quote
             // bar or a code box.
@@ -398,10 +445,9 @@ struct MarkdownComposerTextView: NSViewRepresentable {
             let location = textView.selectedRange().location
             // Mid-edit the binding still holds the old text, and a caret
             // paired with it reads the wrong token. `textDidChange` reports
-            // this caret with the new text.
-            if textView.string == textBinding.wrappedValue {
-                notifyCaller { self.onCaretChange(location) }
-            }
+            // this caret with the new text, and restyles for it.
+            guard textView.string == textBinding.wrappedValue else { return }
+            notifyCaller { self.onCaretChange(location) }
             if let composer = textView as? ComposerNSTextView,
                referenceChips(in: composer.string, caret: composer.selectedRange()).map(\.range) != composer.referenceChips.map(\.range) {
                 restyle()
@@ -609,13 +655,114 @@ final class ComposerNSTextView: NSTextView {
 
     private let referenceToolTips = ComposerReferenceToolTips()
 
+    /// What the last draw spent finding decoration rects, in a debug build.
+    /// Read by the keystroke benchmark.
+    private(set) var lastDecorationCost: Duration = .zero
+
+    /// Set when the width changed, which lays out the whole text on the next
+    /// run-loop pass, at the end of a live resize, or at the next edit,
+    /// whichever comes first. An animated width change then costs one
+    /// layout per pass rather than one per frame change.
+    private(set) var needsFullLayout = false
+
+    /// A width change moves every line, and TextKit 2 then estimates the
+    /// height of lines outside the viewport. An edit lays out only from its
+    /// own line on, so it would place the caret and decorations against
+    /// those estimates.
+    override func setFrameSize(_ newSize: NSSize) {
+        let widthChanged = newSize.width != frame.width
+        super.setFrameSize(newSize)
+        guard widthChanged else { return }
+        needsFullLayout = true
+        guard !inLiveResize else { return }
+        NSObject.cancelPreviousPerformRequests(withTarget: self, selector: #selector(layOutAllTextIfNeeded), object: nil)
+        perform(#selector(layOutAllTextIfNeeded), with: nil, afterDelay: 0)
+    }
+
+    @objc private func layOutAllTextIfNeeded() {
+        if needsFullLayout { layOutAllText() }
+    }
+
+    override func viewDidEndLiveResize() {
+        super.viewDidEndLiveResize()
+        if needsFullLayout { layOutAllText() }
+    }
+
+    /// Called after every whole-text layout.
+    var didLayOutAllText: (() -> Void)?
+
+    func layOutAllText() {
+        needsFullLayout = false
+        guard let textLayoutManager else { return }
+        textLayoutManager.ensureLayout(for: textLayoutManager.documentRange)
+        needsDisplay = true
+        didLayOutAllText?()
+    }
+
+    private var decorationStructure: (textVersion: Int, structure: ComposerDecorations.Structure)?
+    private var textVersion = 0
+    private weak var observedTextStorage: NSTextStorage?
+
+    /// What no edit has touched since the last `takeUnchangedEnds()`. Nil
+    /// until the storage is observed, which asks for a full restyle.
+    private var unchangedEnds: MarkdownComposerStyler.UnchangedEnds?
+
+    /// The text's untouched ends since the last call, for an incremental
+    /// restyle, and starts tracking again from here.
+    func takeUnchangedEnds() -> MarkdownComposerStyler.UnchangedEnds? {
+        let isObserving = observeTextStorage()
+        defer { unchangedEnds = .all }
+        return isObserving ? unchangedEnds : nil
+    }
+
+    /// Returns false when observing starts only now, so earlier edits went
+    /// unseen.
+    @discardableResult
+    private func observeTextStorage() -> Bool {
+        guard let textStorage else { return false }
+        guard observedTextStorage !== textStorage else { return true }
+        NotificationCenter.default.addObserver(
+            self,
+            selector: #selector(storageDidProcessEditing),
+            name: NSTextStorage.didProcessEditingNotification,
+            object: textStorage
+        )
+        observedTextStorage = textStorage
+        decorationStructure = nil
+        unchangedEnds = nil
+        return false
+    }
+
+    private func currentDecorationStructure() -> ComposerDecorations.Structure {
+        observeTextStorage()
+        if let decorationStructure, decorationStructure.textVersion == textVersion {
+            return decorationStructure.structure
+        }
+        let structure = ComposerDecorations.Structure(text: string)
+        decorationStructure = (textVersion, structure)
+        return structure
+    }
+
+    @objc private func storageDidProcessEditing(_ notification: Notification) {
+        guard let textStorage, textStorage.editedMask.contains(.editedCharacters) else { return }
+        textVersion += 1
+        unchangedEnds?.exclude(textStorage.editedRange, length: textStorage.length)
+    }
+
+    private func decorations(metrics: ComposerMarkdownMetrics, in rect: NSRect) -> ComposerDecorations.Decorations {
+        ComposerDecorations.rects(in: self, metrics: metrics, visibleRect: rect, structure: currentDecorationStructure())
+    }
+
     /// Draws decorations and the placeholder here rather than in `draw(_:)`:
     /// overriding `draw(_:)` drops an `NSTextView` to TextKit 1, and the
     /// decorations read TextKit 2 layout. AppKit calls this before the glyphs
     /// even with `drawsBackground` off.
     override func drawBackground(in rect: NSRect) {
         super.drawBackground(in: rect)
-        let decorations = markdownMetrics.map { ComposerDecorations.rects(in: self, metrics: $0) }
+        var decorations: ComposerDecorations.Decorations?
+        lastDecorationCost = debugDuration {
+            decorations = markdownMetrics.map { self.decorations(metrics: $0, in: rect.union(visibleRect)) }
+        }
         if let decorations, let markdownMetrics {
             ComposerDecorations.draw(decorations, in: rect, metrics: markdownMetrics)
         }
@@ -714,7 +861,7 @@ final class ComposerNSTextView: NSTextView {
     override func mouseDown(with event: NSEvent) {
         if let markdownMetrics, editsMarkdown {
             let point = convert(event.locationInWindow, from: nil)
-            let checkboxes = ComposerDecorations.rects(in: self, metrics: markdownMetrics).checkboxes
+            let checkboxes = decorations(metrics: markdownMetrics, in: visibleRect).checkboxes
             if let hit = checkboxes.first(where: { $0.rect.insetBy(dx: -3, dy: -3).contains(point) }),
                let result = ComposerMarkdownEditing.toggleCheckbox(hit.box, in: string, selection: selectedRange()) {
                 apply(result, scrollsToSelection: false)
@@ -996,6 +1143,21 @@ final class ScrollableComposerTextView: NSView {
         let maxHeight: CGFloat
     }
 
+    private static let shortestLine = NSLayoutManager().defaultLineHeight(for: .systemFont(ofSize: 1))
+
+    /// Enough whole paragraphs to stand taller than `height` even if every
+    /// line were as short as the composer's smallest font allows, so the
+    /// clamped height of the prefix is the clamped height of the text.
+    private static func measuredPrefix(of text: NSString, toFill height: CGFloat) -> NSRange {
+        var remaining = Int((height / max(shortestLine, 0.5)).rounded(.up)) + 1
+        var end = 0
+        while end < text.length, remaining > 0 {
+            end = NSMaxRange(text.lineRange(for: NSRange(location: end, length: 0)))
+            remaining -= 1
+        }
+        return NSRange(location: 0, length: end)
+    }
+
     /// The height for `width`, clamped between `minLines` and `maxHeight`.
     ///
     /// `NSLayoutManager.usedRect` only reflects wrapping done at the text
@@ -1027,8 +1189,12 @@ final class ScrollableComposerTextView: NSView {
             width: max(0, width - inset.width * 2),
             height: .greatestFiniteMagnitude
         )
-        measuringStorage.setAttributedString(storage)
-        measuringLayoutManager.ensureLayout(for: measuringContainer)
+        measuringStorage.setAttributedString(storage.attributedSubstring(from: Self.measuredPrefix(of: storage.string as NSString, toFill: maxHeight)))
+        // Past `maxHeight` the answer no longer changes, so layout stops there.
+        measuringLayoutManager.ensureLayout(
+            forBoundingRect: NSRect(x: 0, y: 0, width: measuringContainer.size.width, height: maxHeight),
+            in: measuringContainer
+        )
 
         let used = measuringLayoutManager.usedRect(for: measuringContainer).height + insets
         let height = min(max(used, minHeight), maxHeight)
@@ -1036,4 +1202,15 @@ final class ScrollableComposerTextView: NSView {
         cachedHeight = height
         return height
     }
+}
+
+/// How long `body` took in a debug build, and zero in a release build, so
+/// both builds run the same code around it.
+private func debugDuration(_ body: () -> Void) -> Duration {
+    #if DEBUG
+    ContinuousClock().measure(body)
+    #else
+    body()
+    return .zero
+    #endif
 }

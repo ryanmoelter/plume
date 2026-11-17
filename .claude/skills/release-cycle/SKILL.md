@@ -46,7 +46,7 @@ Read CLAUDE.md at your worktree root first and follow it. Your assigned Linear i
   `xcodebuild -scheme Plume -destination 'platform=macOS' test -only-testing:PlumeTests`.
   Confirm test names scroll past. Two suites fail in ANY worktree for environmental reasons:
   `SessionJSONLReaderTests.encodingResolvesADirectoryClaudeCodeHasUsed` and `SurfaceCommandTests`.
-  Report those as environmental; anything else is yours to fix. Add tests for pure logic.
+  Report those as environmental (`docs/testing.md`); anything else is yours to fix. Add tests for pure logic.
 - Build what an agent needs to drive your change in a running debug build, as part of the change:
   `plumeID` on every new or touched control, `invoke:` where a click can't reach (hidden windows,
   `List` rows, menu items via `plumeMenuItem`), and any control-server command or `SmokeHarness`

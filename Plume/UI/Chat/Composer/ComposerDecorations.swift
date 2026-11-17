@@ -174,17 +174,26 @@ enum ComposerDecorations {
         }
     }
 
-    /// `references` defaults to the chips the text view holds.
-    static func rects(in textView: NSTextView, metrics: ComposerMarkdownMetrics, references: [ComposerReferenceChip]? = nil) -> Decorations {
+    /// `references` defaults to the chips the text view holds. With
+    /// `visibleRect`, only the decorations on the lines it shows are found,
+    /// so the cost of a redraw follows the viewport rather than the text; a
+    /// code box or quote bar that reaches past it still spans its whole run.
+    /// `structure` must be built from the text view's current text.
+    static func rects(
+        in textView: NSTextView,
+        metrics: ComposerMarkdownMetrics,
+        references: [ComposerReferenceChip]? = nil,
+        visibleRect: NSRect? = nil,
+        structure: Structure? = nil
+    ) -> Decorations {
         guard let layoutManager = textView.textLayoutManager,
               let contentStorage = layoutManager.textContentManager as? NSTextContentStorage,
               let storage = textView.textStorage,
               storage.length > 0
         else { return Decorations() }
 
-        layoutManager.ensureLayout(for: layoutManager.documentRange)
-        let text = storage.string
-        let lines = MarkdownLineStructure.lines(in: text)
+        let structure = structure ?? Structure(text: storage.string)
+        let lines = structure.lines
         let context = Context(
             textView: textView,
             layoutManager: layoutManager,
@@ -192,13 +201,34 @@ enum ComposerDecorations {
             length: storage.length,
             metrics: metrics
         )
+        let shown: ClosedRange<Int>
+        if let visibleRect {
+            let origin = textView.textContainerOrigin
+            layoutManager.ensureLayout(for: visibleRect.offsetBy(dx: -origin.x, dy: -origin.y))
+            shown = context.lineIndices(showing: visibleRect, in: lines)
+        } else {
+            layoutManager.ensureLayout(for: layoutManager.documentRange)
+            shown = 0...(lines.count - 1)
+        }
+        let shownCharacters = NSRange(
+            location: lines[shown.lowerBound].range.location,
+            length: NSMaxRange(lines[shown.upperBound].range) - lines[shown.lowerBound].range.location
+        )
+        func isShown(_ range: NSRange) -> Bool {
+            range.location <= NSMaxRange(shownCharacters) && NSMaxRange(range) >= shownCharacters.location
+        }
 
         var decorations = Decorations()
-        decorations.chips = chipRects(MarkdownHighlighter.spans(in: text, lines: lines), context)
-        decorations.referenceChips = referenceChipRects(references ?? (textView as? ComposerNSTextView)?.referenceChips ?? [], context)
-        decorations.codeBoxes = codeBoxRects(lines, context)
-        decorations.quoteBars = quoteBarRects(lines, context)
-        for line in lines {
+        decorations.chips = chipRects(structure.inlineCode.filter(isShown), context)
+        let references = references ?? (textView as? ComposerNSTextView)?.referenceChips ?? []
+        decorations.referenceChips = referenceChipRects(references.filter { isShown($0.range) }, context)
+        decorations.codeBoxes = structure.codeRuns.filter { $0.overlaps(shown) }.compactMap { run in
+            codeBoxRect(lines[run.lowerBound], lines[run.upperBound], context)
+        }
+        decorations.quoteBars = structure.quoteRuns.filter { $0.lines.overlaps(shown) }.compactMap { run in
+            quoteBarRect(run, lines, context)
+        }.sorted { ($0.minX, $0.minY) < ($1.minX, $1.minY) }
+        for line in lines[shown] {
             switch line.kind {
             case .rule:
                 if let rect = context.firstLineRect(of: line) {
@@ -297,6 +327,13 @@ enum ComposerDecorations {
             return fragment.layoutFragmentFrame.offsetBy(dx: origin.x, dy: origin.y)
         }
 
+        /// The fragment frames from `first` through `last`, which lay out
+        /// top to bottom.
+        func runRect(_ first: MarkdownLine, _ last: MarkdownLine) -> NSRect? {
+            guard let top = fragmentRect(of: first), let bottom = fragmentRect(of: last) else { return nil }
+            return top.union(bottom)
+        }
+
         private func trailingLineRect() -> NSRect? {
             var rect: NSRect?
             layoutManager.enumerateTextLayoutFragments(
@@ -310,6 +347,24 @@ enum ComposerDecorations {
                 return false
             }
             return rect
+        }
+
+        /// The lines laid out in `rect`, in view coordinates, plus one on each
+        /// side. A layout fragment is a paragraph, which holds more than one
+        /// line when they end at U+2028 or U+0085, so every line of the
+        /// paragraphs at either edge counts.
+        func lineIndices(showing rect: NSRect, in lines: [MarkdownLine]) -> ClosedRange<Int> {
+            func indices(atY y: CGFloat) -> ClosedRange<Int>? {
+                guard let fragment = layoutManager.textLayoutFragment(for: CGPoint(x: 0, y: y - origin.y)) else { return nil }
+                let start = contentStorage.offset(from: contentStorage.documentRange.location, to: fragment.rangeInElement.location)
+                let end = contentStorage.offset(from: contentStorage.documentRange.location, to: fragment.rangeInElement.endLocation)
+                let first = MarkdownLineStructure.lineIndex(containing: start, in: lines)
+                return first...max(first, MarkdownLineStructure.lineIndex(containing: max(start, end - 1), in: lines))
+            }
+            let last = lines.count - 1
+            let first = rect.minY <= origin.y ? 0 : indices(atY: rect.minY)?.lowerBound ?? last
+            let end = indices(atY: rect.maxY)?.upperBound ?? last
+            return max(0, first - 1)...min(last, max(first, end) + 1)
         }
 
         /// The y of the baseline of the line `location` lays out on, in view
@@ -357,14 +412,14 @@ enum ComposerDecorations {
     /// past each backtick's glyph. TextKit 2 splits a kern's gap evenly
     /// between the segments on either side of it, so a backtick's glyph edge
     /// sits half the styler's kern inside its segment.
-    private static func chipRects(_ spans: [MarkdownHighlighter.Span], _ context: Context) -> [NSRect] {
+    private static func chipRects(_ spans: [NSRange], _ context: Context) -> [NSRect] {
         let padding = context.metrics.chipPadding
         var rects: [NSRect] = []
-        for span in spans where span.style == .inlineCode {
-            var frames = context.segmentFrames(for: span.range)
+        for span in spans {
+            var frames = context.segmentFrames(for: span)
             guard !frames.isEmpty else { continue }
-            let leadingKern = context.kern(at: span.range.location - 1)
-            let trailingKern = context.kern(at: NSMaxRange(span.range) - 1)
+            let leadingKern = context.kern(at: span.location - 1)
+            let trailingKern = context.kern(at: NSMaxRange(span) - 1)
             let firstMinX = frames[0].minX + leadingKern / 2 - padding
             frames[0] = NSRect(x: firstMinX, y: frames[0].minY, width: frames[0].maxX - firstMinX, height: frames[0].height)
             let last = frames.count - 1
@@ -439,59 +494,72 @@ enum ComposerDecorations {
 
     // MARK: - Code boxes and quote bars
 
-    /// One box per fenced block, from its opening fence through its closing
-    /// one, or to the end of the text when it is unclosed. Its height comes
-    /// from the fragment frames, which include the spacing the styler puts
-    /// before the opening fence and after the closing one.
-    private static func codeBoxRects(_ lines: [MarkdownLine], _ context: Context) -> [NSRect] {
-        var boxes: [(frame: NSRect, column: CGFloat)] = []
-        var current: (frame: NSRect, column: CGFloat)?
-        var isOpen = false
-        for line in lines {
-            let isCode = line.kind == .fence || line.kind == .code
-            guard isCode, let frame = context.fragmentRect(of: line) else {
-                if let box = current { boxes.append(box) }
-                current = nil
-                isOpen = false
-                continue
-            }
-            let column = line.listContainer == nil ? 0 : context.metrics.contentColumn(for: line)
-            current = current.map { ($0.frame.union(frame), $0.column) } ?? (frame, column)
-            if line.kind == .fence {
-                if isOpen, let box = current {
-                    boxes.append(box)
-                    current = nil
+    /// What the decorations read from the text alone, kept by a view for as
+    /// long as its text is unchanged, so a redraw after a scroll only asks the
+    /// layout where things are.
+    struct Structure {
+        let lines: [MarkdownLine]
+        let inlineCode: [NSRange]
+        /// Each fenced block's lines, from its opening fence through its
+        /// closing one, or to the end of the text when it is unclosed.
+        let codeRuns: [ClosedRange<Int>]
+        /// Each run of consecutive lines quoted at least `level + 1` deep.
+        let quoteRuns: [(level: Int, lines: ClosedRange<Int>)]
+
+        init(text: String) {
+            lines = MarkdownLineStructure.lines(in: text)
+            inlineCode = MarkdownHighlighter.spans(in: text).filter { $0.style == .inlineCode }.map(\.range)
+
+            var codeRuns: [ClosedRange<Int>] = []
+            var start: Int?
+            var isOpen = false
+            var quoteRuns: [(level: Int, lines: ClosedRange<Int>)] = []
+            var quoteStarts: [Int] = []
+            for (index, line) in lines.enumerated() {
+                while quoteStarts.count > line.quoteLevel, let open = quoteStarts.popLast() {
+                    quoteRuns.append((quoteStarts.count, open...(index - 1)))
                 }
-                isOpen.toggle()
+                while quoteStarts.count < line.quoteLevel {
+                    quoteStarts.append(index)
+                }
+
+                guard line.kind == .fence || line.kind == .code else {
+                    if let start { codeRuns.append(start...(index - 1)) }
+                    start = nil
+                    isOpen = false
+                    continue
+                }
+                if start == nil { start = index }
+                if line.kind == .fence {
+                    if isOpen, let open = start {
+                        codeRuns.append(open...index)
+                        start = nil
+                    }
+                    isOpen.toggle()
+                }
             }
-        }
-        if let box = current { boxes.append(box) }
-        return boxes.map { box in
-            let minX = context.columnStart + box.column
-            return NSRect(x: minX, y: box.frame.minY, width: max(0, context.columnEnd - minX), height: box.frame.height)
+            if let start { codeRuns.append(start...(lines.count - 1)) }
+            while let open = quoteStarts.popLast() {
+                quoteRuns.append((quoteStarts.count, open...(lines.count - 1)))
+            }
+            self.codeRuns = codeRuns
+            self.quoteRuns = quoteRuns
         }
     }
 
-    /// One bar per quote level per run of consecutive lines quoted at least
-    /// that deep.
-    private static func quoteBarRects(_ lines: [MarkdownLine], _ context: Context) -> [NSRect] {
-        var bars: [NSRect] = []
-        var open: [Int: NSRect] = [:]
-        func close(from level: Int) {
-            for key in open.keys.sorted() where key >= level {
-                if let bar = open.removeValue(forKey: key) { bars.append(bar) }
-            }
-        }
-        for line in lines {
-            close(from: line.quoteLevel)
-            guard line.quoteLevel > 0, let frame = context.fragmentRect(of: line) else { continue }
-            for level in 0..<line.quoteLevel {
-                let x = context.columnStart + context.metrics.quoteBarX(level: level)
-                let rect = NSRect(x: x, y: frame.minY, width: context.metrics.quoteBarWidth, height: frame.height)
-                open[level] = open[level].map { $0.union(rect) } ?? rect
-            }
-        }
-        close(from: 0)
-        return bars.sorted { ($0.minX, $0.minY) < ($1.minX, $1.minY) }
+    /// The box behind a fenced code block. Its height comes from the fragment
+    /// frames, which include the spacing the styler puts before the opening
+    /// fence and after the closing one.
+    private static func codeBoxRect(_ first: MarkdownLine, _ last: MarkdownLine, _ context: Context) -> NSRect? {
+        guard let frame = context.runRect(first, last) else { return nil }
+        let column = first.listContainer == nil ? 0 : context.metrics.contentColumn(for: first)
+        let minX = context.columnStart + column
+        return NSRect(x: minX, y: frame.minY, width: max(0, context.columnEnd - minX), height: frame.height)
+    }
+
+    private static func quoteBarRect(_ run: (level: Int, lines: ClosedRange<Int>), _ lines: [MarkdownLine], _ context: Context) -> NSRect? {
+        guard let frame = context.runRect(lines[run.lines.lowerBound], lines[run.lines.upperBound]) else { return nil }
+        let x = context.columnStart + context.metrics.quoteBarX(level: run.level)
+        return NSRect(x: x, y: frame.minY, width: context.metrics.quoteBarWidth, height: frame.height)
     }
 }
