@@ -8,6 +8,10 @@ enum WindowMetrics {
     /// Enough for the add button, its menu, and the sidebar toggle.
     static let sidebarMinimumWidth: CGFloat = 221
     static let sidebarIdealWidth: CGFloat = 240
+    /// A fixed ceiling, like the info pane's, so a drag can't turn the
+    /// sidebar into a second detail column. About the info pane's
+    /// maximum-to-default ratio applied to the ideal width.
+    static let sidebarCeilingWidth: CGFloat = 400
 
     static let paneMinimumWidth: CGFloat = 360
 
@@ -40,16 +44,24 @@ enum WindowMetrics {
         paneCount: Int,
         sidebarWidth: CGFloat = sidebarMinimumWidth
     ) -> CGFloat {
-        max(
-            heldSidebarWidth(paneCount: paneCount, sidebarWidth: sidebarWidth),
-            windowWidth - detailMinimumWidth(paneCount: paneCount)
+        min(
+            sidebarCeilingWidth,
+            max(
+                heldSidebarWidth(paneCount: paneCount, sidebarWidth: sidebarWidth),
+                windowWidth - detailMinimumWidth(paneCount: paneCount)
+            )
         )
+    }
+
+    /// A stored width from before the ceiling existed, or from a wider window.
+    static func clampedSidebarWidth(_ width: CGFloat) -> CGFloat {
+        min(max(width, sidebarMinimumWidth), sidebarCeilingWidth)
     }
 
     /// A split grows the window around the sidebar rather than narrowing it,
     /// since the split view never widens a sidebar back once its ceiling has
     /// cut it down. Unsplit, the sidebar gives way as the window shrinks.
     private static func heldSidebarWidth(paneCount: Int, sidebarWidth: CGFloat) -> CGFloat {
-        paneCount > 1 ? max(sidebarMinimumWidth, sidebarWidth) : sidebarMinimumWidth
+        paneCount > 1 ? clampedSidebarWidth(sidebarWidth) : sidebarMinimumWidth
     }
 }

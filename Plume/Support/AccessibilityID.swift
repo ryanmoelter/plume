@@ -347,6 +347,10 @@ enum AccessibilityID {
     static let subagentClearOverride = "subagent-clear-override"
     static let subagentTranscriptClose = "subagent-transcript-close"
 
+    // MARK: Sidebar
+
+    static let sidebarResizeHandle = "sidebar-resize-handle"
+
     // MARK: Info pane
 
     static let infoPane = "info-pane"
