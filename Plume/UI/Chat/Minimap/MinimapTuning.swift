@@ -54,10 +54,11 @@ final class MinimapTuning {
     static let catchUpGainRange: ClosedRange<Double> = 0...40
 
     var values: Values {
-        didSet { save() }
+        didSet { scheduleSave() }
     }
 
     private let defaults: UserDefaults
+    @ObservationIgnored private var pendingSave: Task<Void, Never>?
     private static let key = "minimapTuning"
 
     init(defaults: UserDefaults = .standard) {
@@ -85,6 +86,17 @@ final class MinimapTuning {
 
     func reset() {
         values = .defaults
+    }
+
+    /// A slider drag sets the values on every tick, and a defaults write
+    /// costs main-thread time, so only the value it settles on is written.
+    private func scheduleSave() {
+        pendingSave?.cancel()
+        pendingSave = Task { [weak self] in
+            try? await Task.sleep(for: .milliseconds(300))
+            guard !Task.isCancelled else { return }
+            self?.save()
+        }
     }
 
     private func save() {

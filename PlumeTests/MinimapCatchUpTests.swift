@@ -75,3 +75,59 @@ struct MinimapCatchUpTests {
         #expect(abs(MinimapCatchUp.absolute(pointerFraction: 0.5) - 0.5) < 0.0001)
     }
 }
+
+/// The hover's scroll in points: it keeps the map where it was when the
+/// pane's travel changes mid-hover, and starts inside the travel however far
+/// the map was scrolled before.
+@MainActor
+struct MinimapHoverScrollTests {
+    @Test func aTravelChangeKeepsTheOffset() {
+        var scroll = MinimapHoverScroll(offset: 100, travel: 200, pointer: 0.5, gain: 10)
+        scroll.move(to: 0.5, travel: 400, gain: 10)
+
+        #expect(scroll.offset == 100)
+        #expect(scroll.travel == 400)
+    }
+
+    @Test func movingContinuesAfterATravelChange() {
+        var scroll = MinimapHoverScroll(offset: 100, travel: 200, pointer: 0.5, gain: 10)
+        scroll.move(to: 0.5, travel: 400, gain: 10)
+        scroll.move(to: 0.6, travel: 400, gain: 10)
+
+        #expect(scroll.offset > 100)
+    }
+
+    @Test func entryClampsAnOffsetPastTheTravel() {
+        #expect(MinimapHoverScroll(offset: 500, travel: 200, pointer: 0.5, gain: 10).offset == 200)
+        #expect(MinimapHoverScroll(offset: -20, travel: 200, pointer: 0.5, gain: 10).offset == 0)
+        #expect(MinimapHoverScroll(offset: 50, travel: 0, pointer: 0.5, gain: 10).offset == 0)
+    }
+
+    @Test func entryDoesNotMoveTheMap() {
+        let scroll = MinimapHoverScroll(offset: 120, travel: 300, pointer: 0.9, gain: 10)
+        #expect(abs(scroll.offset - 120) < 0.0001)
+    }
+}
+
+/// A click on the hovered rail is the minimap's only within its footprint,
+/// below the reveal exclusion and above the composer.
+@MainActor
+struct MinimapClickZoneTests {
+    private func accepts(distance: CGFloat = 4, y: CGFloat = 100) -> Bool {
+        MinimapClickZone.accepts(distanceFromEdge: distance, y: y, footprint: 12, exclusionHeight: 40, drawableBottom: 300)
+    }
+
+    @Test func insideTheFootprintIsTheMinimaps() {
+        #expect(accepts())
+        #expect(accepts(distance: 12))
+    }
+
+    @Test func pastTheFootprintReachesTheChat() {
+        #expect(!accepts(distance: 13))
+    }
+
+    @Test func theExclusionBandAndComposerReachTheChat() {
+        #expect(!accepts(y: 39))
+        #expect(!accepts(y: 301))
+    }
+}

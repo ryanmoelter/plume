@@ -1,3 +1,4 @@
+import AppKit
 import SwiftUI
 
 /// A skimmable map of the conversation, down one edge of the chat: one bar
@@ -44,16 +45,28 @@ struct ChatMinimap: View, ThemedView {
     @State private var height: CGFloat = 0
     /// How far the map is scrolled, in points of its own content.
     @State private var scrollOffset: CGFloat = 0
-    @State private var catchUp: MinimapCatchUp?
-    @State private var hoveredRow: Int?
+    /// Whether the map has been put where the reader is once. Until then it
+    /// moves there without animating, so a newly shown map doesn't sweep.
+    @State private var isPlaced = false
+    @State private var hoverScroll: MinimapHoverScroll?
+    /// By row id rather than index, so a row appended under a resting
+    /// pointer doesn't take the hover from the row it was on.
+    @State private var hoveredRowID: String?
     /// The row the preview shows, kept after the pointer leaves so the text
     /// stays put while the preview fades out.
-    @State private var previewRow: Int?
+    @State private var previewRowID: String?
     @State private var isPreviewShown = false
+    /// When the pointer last left, so a return during the fade-out glides
+    /// rather than jumping the half-visible magnification and preview.
+    @State private var leftAt: Date?
     /// Where the magnification is centered, in content space. Animated
     /// between rows so a snap reads as a glide.
     @State private var genieY: CGFloat = 0
     @State private var genieStrength: CGFloat = 0
+    @State private var clickMonitor = MinimapClickMonitor()
+    #if DEBUG
+    @State private var controlValue: String?
+    #endif
 
     var body: some View {
         #if DEBUG
@@ -66,6 +79,7 @@ struct ChatMinimap: View, ThemedView {
             contentHeight: layout.contentHeight
         )
         let visibleRows = layout.visibleRows(for: visiblePieceIDs)
+        let hoveredIndex = hoveredRowID.flatMap(layout.index(ofRowID:))
         Color.clear
             .frame(width: railWidth)
             .frame(maxHeight: .infinity)
@@ -75,7 +89,7 @@ struct ChatMinimap: View, ThemedView {
                     .modifier(MinimapDrawing(
                         layout: layout,
                         visibleRows: visibleRows,
-                        hoveredRow: hoveredRow,
+                        hoveredRow: hoveredIndex,
                         metrics: metrics,
                         side: side,
                         railWidth: railWidth,
@@ -94,9 +108,25 @@ struct ChatMinimap: View, ThemedView {
                 hoverRegion(metrics: metrics)
             }
             .padding(side == .leading ? .leading : .trailing, railInset)
-            .plumeID(AccessibilityID.chatMinimap, value: controlValue(visibleRows: visibleRows, metrics: metrics), setValue: { drive($0, metrics: metrics) })
+            .background {
+                WindowProbe { clickMonitor.window = $0 }
+                    .allowsHitTesting(false)
+            }
+            .onDisappear { clickMonitor.stop() }
+            .plumeID(AccessibilityID.chatMinimap, value: controlValueText, setValue: { drive($0, metrics: metrics) })
+            #if DEBUG
+            .onChange(of: ControlValueKey(
+                layout: layout,
+                visibleRows: visibleRows,
+                hoveredRowID: hoveredRowID,
+                scrollPercent: metrics.travel > 0 ? Int((scrollOffset / metrics.travel * 100).rounded()) : 0
+            ), initial: true) { _, key in
+                controlValue = makeControlValue(key)
+            }
+            #endif
             .onChange(of: LayoutInputs(outline: outline, spacing: spacing), initial: true) { _, inputs in
                 layout = MinimapLayout(outline: inputs.outline, spacing: inputs.spacing)
+                keepHoverOnItsRow()
             }
             // Kept where the reader is while the pointer is away. Watched
             // together with the hover so that leaving re-asserts the chat's
@@ -104,13 +134,19 @@ struct ChatMinimap: View, ThemedView {
             // nothing else would put the map back.
             .onChange(of: FollowDrive(
                 focus: layout.focusY(visibleRows: visibleRows),
-                isHovering: hoveredRow != nil,
+                isHovering: hoveredRowID != nil,
+                isReady: !layout.isEmpty && height > 0,
                 travel: metrics.travel,
                 live: metrics.live
             ), initial: true) { _, drive in
-                guard !drive.isHovering else { return }
+                guard !drive.isHovering, drive.isReady else { return }
                 let target = drive.focus.map { min(max($0 - drive.live / 2, 0), drive.travel) }
                     ?? min(scrollOffset, drive.travel)
+                guard isPlaced else {
+                    scrollOffset = target
+                    isPlaced = true
+                    return
+                }
                 guard target != scrollOffset else { return }
                 withAnimation(.easeOut(duration: 0.2)) { scrollOffset = target }
             }
@@ -120,64 +156,93 @@ struct ChatMinimap: View, ThemedView {
 
     /// Only as wide as the rail's own footprint, out to the window edge, so
     /// a pointer that strays onto the map leaves it again with a short move.
-    /// The magnified bars and the preview draw past it without taking hits.
+    ///
+    /// Takes no hits: it sits over the chat's own scroll view and over the
+    /// info pane, and a hit-testable region would swallow their clicks and
+    /// the scroll wheel. A click on the hovered rail is taken by
+    /// `MinimapClickMonitor` instead.
     private func hoverRegion(metrics: MinimapMetrics) -> some View {
         Color.clear
             .frame(width: hoverWidth)
-            .padding(side == .leading ? .leading : .trailing, -railInset)
+            .offset(x: side == .leading ? -railInset : railInset)
             .contentShape(.rect)
+            .allowsHitTesting(false)
             .onContinuousHover(coordinateSpace: .local) { phase in
                 switch phase {
                 case .active(let point):
                     guard Self.tracksHover(
                         atY: point.y,
-                        isTracking: hoveredRow != nil,
+                        isTracking: hoveredRowID != nil,
                         exclusionHeight: revealExclusionHeight
                     ) else { return }
                     pointerMoved(toY: point.y, metrics: metrics)
+                    armClick(at: point, metrics: metrics)
                 case .ended:
                     pointerLeft()
                 }
             }
-            .gesture(SpatialTapGesture().onEnded { value in
-                guard let row = row(atY: value.location.y, metrics: metrics) else { return }
-                select(row)
-            })
     }
 
     static func tracksHover(atY y: CGFloat, isTracking: Bool, exclusionHeight: CGFloat) -> Bool {
         isTracking || y >= exclusionHeight
     }
 
+    /// Lets the next click select the hovered row, but only where it would
+    /// not land on something else's target.
+    private func armClick(at point: CGPoint, metrics: MinimapMetrics) {
+        let distance = side == .leading ? point.x : hoverWidth - point.x
+        let accepts = MinimapClickZone.accepts(
+            distanceFromEdge: distance,
+            y: point.y,
+            footprint: Self.railFootprint(forViewport: viewportWidth, dimensions: dimensions),
+            exclusionHeight: revealExclusionHeight,
+            drawableBottom: metrics.drawableBottom
+        )
+        guard accepts, let id = hoveredRowID else {
+            clickMonitor.onClick = nil
+            return
+        }
+        clickMonitor.onClick = { select(id: id) }
+        clickMonitor.start()
+    }
+
     private func pointerMoved(toY y: CGFloat, metrics: MinimapMetrics) {
         let absolute = MinimapCatchUp.absolute(pointerFraction: metrics.pointerFraction(atY: y))
+        let gain = tuning.values.catchUpGain
         if metrics.travel > 0 {
-            var next = catchUp ?? MinimapCatchUp(
-                scroll: scrollOffset / metrics.travel,
-                pointer: absolute,
-                gain: tuning.values.catchUpGain
-            )
-            next.gain = tuning.values.catchUpGain
-            if catchUp != nil { next.move(to: absolute) }
-            catchUp = next
-            var transaction = Transaction()
-            transaction.disablesAnimations = true
-            withTransaction(transaction) { scrollOffset = next.scroll * metrics.travel }
-        } else {
-            catchUp = nil
-        }
-        guard let row = row(atY: y, metrics: metrics) else { return }
-        let wasHovering = hoveredRow != nil
-        guard row != hoveredRow else { return }
-        hoveredRow = row
-        if wasHovering {
-            withAnimation(.smooth(duration: tuning.values.snapDuration)) {
-                genieY = layout.positions[row]
-                previewRow = row
+            var next: MinimapHoverScroll
+            if var current = hoverScroll {
+                current.move(to: absolute, travel: metrics.travel, gain: gain)
+                next = current
+            } else {
+                next = MinimapHoverScroll(offset: scrollOffset, travel: metrics.travel, pointer: absolute, gain: gain)
+            }
+            hoverScroll = next
+            if next.offset != scrollOffset {
+                var transaction = Transaction()
+                transaction.disablesAnimations = true
+                withTransaction(transaction) { scrollOffset = next.offset }
             }
         } else {
-            genieY = layout.positions[row]
-            previewRow = row
+            hoverScroll = nil
+        }
+        guard let index = layout.nearestRow(toY: metrics.contentY(atY: y, scrollOffset: scrollOffset)) else { return }
+        let id = layout.rows[index].id
+        guard id != hoveredRowID else { return }
+        let isFadingOut = leftAt.map { Date().timeIntervalSince($0) < tuning.values.fadeOutDuration } ?? false
+        let wasShowing = hoveredRowID != nil || isFadingOut
+        hoveredRowID = id
+        leftAt = nil
+        if wasShowing {
+            withAnimation(.smooth(duration: tuning.values.snapDuration)) {
+                genieY = layout.positions[index]
+                previewRowID = id
+            }
+        } else {
+            genieY = layout.positions[index]
+            previewRowID = id
+        }
+        if genieStrength < 1 || !isPreviewShown {
             withAnimation(.easeOut(duration: tuning.values.fadeInDuration)) {
                 genieStrength = 1
                 isPreviewShown = true
@@ -186,20 +251,31 @@ struct ChatMinimap: View, ThemedView {
     }
 
     private func pointerLeft() {
-        catchUp = nil
-        hoveredRow = nil
+        guard hoveredRowID != nil || hoverScroll != nil else { return }
+        hoverScroll = nil
+        hoveredRowID = nil
+        leftAt = Date()
+        clickMonitor.stop()
         withAnimation(.easeOut(duration: tuning.values.fadeOutDuration)) {
             genieStrength = 0
             isPreviewShown = false
         }
     }
 
-    private func row(atY y: CGFloat, metrics: MinimapMetrics) -> Int? {
-        layout.nearestRow(toY: metrics.contentY(atY: y, scrollOffset: scrollOffset))
+    /// After the rows change, moves the magnification to wherever the
+    /// hovered row now sits, or ends the hover if the row is gone.
+    private func keepHoverOnItsRow() {
+        guard let id = hoveredRowID else { return }
+        guard let index = layout.index(ofRowID: id) else {
+            pointerLeft()
+            return
+        }
+        guard genieY != layout.positions[index] else { return }
+        withAnimation(.smooth(duration: tuning.values.snapDuration)) { genieY = layout.positions[index] }
     }
 
-    private func select(_ index: Int) {
-        guard layout.rows.indices.contains(index) else { return }
+    private func select(id: String) {
+        guard let index = layout.index(ofRowID: id) else { return }
         let row = layout.rows[index]
         if row.isEnd { onSelectEnd() } else { onSelect(row.id) }
     }
@@ -208,19 +284,19 @@ struct ChatMinimap: View, ThemedView {
 
     private func preview(metrics: MinimapMetrics) -> some View {
         let values = tuning.values
-        let row = previewRow.flatMap { layout.rows.indices.contains($0) ? layout.rows[$0] : nil }
+        let row = previewRowID.flatMap(layout.index(ofRowID:)).map { layout.rows[$0] }
         let y = metrics.screenY(contentY: genieY, scrollOffset: scrollOffset)
         let clampedY = min(max(y, Self.previewEdgeMargin), max(Self.previewEdgeMargin, height - bottomInset - Self.previewEdgeMargin))
         let gap = railWidth * values.genieWidthScale + Self.previewGap
         let slide = isPreviewShown ? 0 : -values.slideDistance
         return ZStack(alignment: .leading) {
-            if let row, let index = previewRow {
+            if let row {
                 MinimapPreviewLabel(row: row, maxLines: Int(values.previewMaxLines))
-                    .id(index)
+                    .id(row.id)
                     .transition(.opacity)
             }
         }
-        .animation(.easeOut(duration: values.crossfadeDuration), value: previewRow)
+        .animation(.easeOut(duration: values.crossfadeDuration), value: previewRowID)
         .padding(.horizontal, 8)
         .padding(.vertical, 5)
         .glassEffect(.regular, in: .rect(cornerRadius: 8))
@@ -241,20 +317,22 @@ struct ChatMinimap: View, ThemedView {
     // MARK: Driving
 
     #if DEBUG
-    private func controlValue(visibleRows: Set<Int>, metrics: MinimapMetrics) -> String? {
-        let rows = layout.rows.enumerated().map { index, row -> [String: Any] in
+    private var controlValueText: String? { controlValue }
+
+    private func makeControlValue(_ key: ControlValueKey) -> String? {
+        let rows = key.layout.rows.enumerated().map { index, row -> [String: Any] in
             [
                 "index": index,
                 "label": row.label,
                 "kind": row.kindName,
-                "isVisible": visibleRows.contains(index),
-                "isHovered": hoveredRow == index
+                "isVisible": key.visibleRows.contains(index),
+                "isHovered": key.hoveredRowID == row.id
             ]
         }
         let object: [String: Any] = [
             "side": side.rawValue,
             "spacing": spacing.rawValue,
-            "scroll": metrics.travel > 0 ? Double(scrollOffset / metrics.travel) : 0,
+            "scroll": Double(key.scrollPercent) / 100,
             "rows": rows
         ]
         guard let data = try? JSONSerialization.data(withJSONObject: object, options: [.sortedKeys]) else { return nil }
@@ -278,7 +356,7 @@ struct ChatMinimap: View, ThemedView {
             guard let index = Int(argument), layout.positions.indices.contains(index) else { return }
             var y = metrics.screenY(contentY: layout.positions[index], scrollOffset: scrollOffset)
             if y < metrics.topMargin || y > metrics.topMargin + metrics.live {
-                catchUp = nil
+                hoverScroll = nil
                 scrollOffset = min(max(layout.positions[index] - metrics.live / 2, 0), metrics.travel)
                 y = metrics.screenY(contentY: layout.positions[index], scrollOffset: scrollOffset)
             }
@@ -286,13 +364,15 @@ struct ChatMinimap: View, ThemedView {
         case "leave":
             pointerLeft()
         case "click":
-            select(argument == "end" ? layout.rows.count - 1 : Int(argument) ?? -1)
+            let index = argument == "end" ? layout.rows.count - 1 : Int(argument) ?? -1
+            guard layout.rows.indices.contains(index) else { return }
+            select(id: layout.rows[index].id)
         default:
             break
         }
     }
     #else
-    private func controlValue(visibleRows: Set<Int>, metrics: MinimapMetrics) -> String? { nil }
+    private var controlValueText: String? { nil }
     private func drive(_ command: String, metrics: MinimapMetrics) {}
     #endif
 
@@ -411,8 +491,62 @@ private struct LayoutInputs: Equatable {
 private struct FollowDrive: Equatable {
     var focus: CGFloat?
     var isHovering: Bool
+    /// The rows and the pane's height have both arrived.
+    var isReady: Bool
     var travel: CGFloat
     var live: CGFloat
+}
+
+#if DEBUG
+/// What the control value is a function of. Kept small, so a pointer move
+/// that changes none of it rebuilds nothing.
+private struct ControlValueKey: Equatable {
+    var layout: MinimapLayout
+    var visibleRows: Set<Int>
+    var hoveredRowID: String?
+    var scrollPercent: Int
+}
+#endif
+
+/// Takes a left click on the hovered rail before it reaches the chat. A
+/// monitor rather than a hit-testable view: the rail lies over the chat's
+/// scroll view and its bleed padding, and a view there would take the
+/// scroll wheel and every click meant for them. Running only while the
+/// pointer is over the rail, and armed only where a click belongs to it.
+@MainActor
+private final class MinimapClickMonitor {
+    weak var window: NSWindow?
+    /// Nil wherever a click should reach the chat instead.
+    var onClick: (() -> Void)?
+    private var monitor: Any?
+    private var swallowsMouseUp = false
+
+    func start() {
+        guard monitor == nil else { return }
+        monitor = NSEvent.addLocalMonitorForEvents(matching: [.leftMouseDown, .leftMouseUp]) { [weak self] event in
+            guard let self, event.window === self.window else { return event }
+            if event.type == .leftMouseUp {
+                guard self.swallowsMouseUp else { return event }
+                self.swallowsMouseUp = false
+                return nil
+            }
+            guard let onClick = self.onClick, event.modifierFlags.intersection(.deviceIndependentFlagsMask).isEmpty else {
+                return event
+            }
+            self.swallowsMouseUp = true
+            onClick()
+            return nil
+        }
+    }
+
+    func stop() {
+        onClick = nil
+        // A mouse-up still owed to a swallowed click arrives after a pointer
+        // that clicked and left at once; let it through rather than strand it.
+        swallowsMouseUp = false
+        if let monitor { NSEvent.removeMonitor(monitor) }
+        monitor = nil
+    }
 }
 
 /// Draws every bar in one `Canvas`. Animatable over the scroll and the

@@ -112,4 +112,15 @@ struct MinimapLayoutTests {
         #expect(layout.nearestRow(toY: 10_000) == layout.rows.count - 1)
         #expect(MinimapLayout().nearestRow(toY: 0) == nil)
     }
+
+    @Test func aRowKeepsItsIdentityWhenAnAnchorIsAppended() {
+        let before = MinimapLayout(outline: outline, spacing: .even)
+        let longer = ChatOutline(entries: outline.entries + [entry("p4", .prompt("Fourth"))])
+        let after = MinimapLayout(outline: longer, spacing: .even)
+
+        #expect(before.index(ofRowID: "") == 3)
+        #expect(after.index(ofRowID: "") == 4)
+        #expect(after.index(ofRowID: "p2") == 1)
+        #expect(after.index(ofRowID: "gone") == nil)
+    }
 }

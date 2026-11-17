@@ -64,3 +64,47 @@ struct MinimapCatchUp: Equatable {
         min(max(value, 0), 1)
     }
 }
+
+/// The catch-up in the map's own points. The catch-up works in fractions of
+/// `travel`, so a change in travel mid-hover — a reply streaming in, a new
+/// prompt — would turn the same fraction into a different offset and jump
+/// the map. Re-pinning on a change keeps the offset where it is instead.
+struct MinimapHoverScroll: Equatable {
+    private(set) var catchUp: MinimapCatchUp
+    private(set) var travel: CGFloat
+    /// Where the map is scrolled, always within `0...travel`.
+    var offset: CGFloat { catchUp.scroll * travel }
+
+    /// Pins the catch-up to the map's current offset. An offset past the end
+    /// clamps to it, which is where the map has to draw anyway.
+    init(offset: CGFloat, travel: CGFloat, pointer: CGFloat, gain: CGFloat) {
+        self.travel = max(0, travel)
+        let fraction = self.travel > 0 ? min(max(offset, 0), self.travel) / self.travel : 0
+        catchUp = MinimapCatchUp(scroll: fraction, pointer: pointer, gain: gain)
+    }
+
+    mutating func move(to pointer: CGFloat, travel newTravel: CGFloat, gain: CGFloat) {
+        if newTravel != travel {
+            self = MinimapHoverScroll(offset: offset, travel: newTravel, pointer: pointer, gain: gain)
+            return
+        }
+        catchUp.gain = gain
+        catchUp.move(to: pointer)
+    }
+}
+
+/// Where a click on the hovered rail selects a row rather than reaching the
+/// chat under it: within the rail's footprint from the window edge, below
+/// the band beside the info pane, and above the composer.
+enum MinimapClickZone {
+    static func accepts(
+        distanceFromEdge: CGFloat,
+        y: CGFloat,
+        footprint: CGFloat,
+        exclusionHeight: CGFloat,
+        drawableBottom: CGFloat
+    ) -> Bool {
+        distanceFromEdge >= 0 && distanceFromEdge <= footprint
+            && y >= exclusionHeight && y <= drawableBottom
+    }
+}

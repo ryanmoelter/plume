@@ -58,6 +58,7 @@ struct MinimapLayout: Equatable {
     var tickStrengths: [CGFloat] = []
     var contentHeight: CGFloat = 0
     private var rowByPiece: [String: Int] = [:]
+    private var rowByID: [String: Int] = [:]
 
     /// What every row draws at, whatever its weight, so a bar's thickness
     /// never says anything about its turn.
@@ -86,6 +87,7 @@ struct MinimapLayout: Equatable {
             tickStrengths.append(Self.tickStrength(forWeight: row.trailingWeight))
             y += Self.pitch(afterWeight: row.trailingWeight, spacing: spacing)
             for piece in row.pieceIDs { rowByPiece[piece] = index }
+            rowByID[row.id] = index
         }
         contentHeight = (positions.last ?? 0) + Self.rowHeight / 2
     }
@@ -125,6 +127,12 @@ struct MinimapLayout: Equatable {
         }
         rows.append(MinimapRow(id: "", kind: .end, trailingWeight: 0, pieceIDs: rows.isEmpty ? leadingPieces : []))
         return rows
+    }
+
+    /// A row's index by its id, which outlives the index as rows are added.
+    /// The end row's id is empty.
+    func index(ofRowID id: String) -> Int? {
+        rowByID[id]
     }
 
     func visibleRows(for pieceIDs: Set<String>) -> Set<Int> {
