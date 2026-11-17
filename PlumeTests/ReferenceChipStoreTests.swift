@@ -144,6 +144,16 @@ struct ReferenceChipStoreTests {
         #expect(store.revision(for: ownerB) == 1)
     }
 
+    @Test func aMountedOwnerWithNoLinksIsNotBumpedByAnotherOwnersTitle() async {
+        let store = makeStore(files: ["/repo/Notes.md": false])
+        #expect(store.revision(for: ownerB) == 0)
+        store.want([], owner: ownerB)
+        store.want([.file(path: "/repo/Notes.md")], owner: ownerA)
+        await store.settled()
+        #expect(store.revision(for: ownerA) == 1)
+        #expect(store.revision(for: ownerB) == 0)
+    }
+
     @Test func releasingKeepsTheRevision() async {
         let store = makeStore(files: ["/repo/Notes.md": false])
         store.want([.file(path: "/repo/Notes.md")], owner: ownerA)
