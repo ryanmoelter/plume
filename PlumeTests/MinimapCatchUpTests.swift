@@ -83,8 +83,8 @@ struct MinimapCatchUpTests {
 @MainActor
 struct MinimapHoverScrollTests {
     @Test func aTravelChangeKeepsTheOffset() {
-        var scroll = MinimapHoverScroll(offset: 100, travel: 200, pointer: 0.5, gain: 10)
-        scroll.move(to: 0.5, travel: 400, gain: 10)
+        var scroll = MinimapHoverScroll(offset: 100, travel: 200, pointer: 0.9, gain: 10)
+        scroll.repin(travel: 400)
 
         #expect(scroll.offset == 100)
         #expect(scroll.travel == 400)
@@ -96,6 +96,18 @@ struct MinimapHoverScrollTests {
         scroll.move(to: 0.6, travel: 400, gain: 10)
 
         #expect(scroll.offset > 100)
+    }
+
+    @Test func aLockedScrollStaysLockedAcrossATravelChange() {
+        var scroll = MinimapHoverScroll(offset: 100, travel: 200, pointer: 0.5, gain: 10)
+        #expect(scroll.catchUp.isLocked)
+        scroll.repin(travel: 400)
+
+        #expect(scroll.catchUp.isLocked)
+        #expect(scroll.offset == 200)
+        scroll.move(to: 0.6, travel: 410, gain: 10)
+        #expect(scroll.catchUp.isLocked)
+        #expect(abs(scroll.offset - 0.6 * 410) < 0.0001)
     }
 
     @Test func aShrinkingTravelClampsTheOffset() {
@@ -124,19 +136,26 @@ struct MinimapHoverScrollTests {
     }
 }
 
-/// A click on the hovered rail is the minimap's only within its footprint
-/// and clear of the pane's edge, below the reveal exclusion and above the
+/// A click on the hovered rail is the minimap's only out to the magnified
+/// bar's end and clear of the pane's edge, below the reveal exclusion and above the
 /// composer, and only when it lands on the chat's own content.
 @MainActor
 struct MinimapClickZoneTests {
     private func accepts(distance: CGFloat = 8, y: CGFloat = 100) -> Bool {
-        MinimapClickZone.accepts(distanceFromEdge: distance, y: y, footprint: 12, exclusionHeight: 40, drawableBottom: 300)
+        MinimapClickZone.accepts(
+            distanceFromEdge: distance,
+            y: y,
+            reach: MinimapClickZone.reach(inset: 2, barWidth: 19),
+            exclusionHeight: 40,
+            drawableBottom: 300
+        )
     }
 
-    @Test func insideTheFootprintIsTheMinimaps() {
+    @Test func theMagnifiedBarIsTheMinimaps() {
         #expect(accepts())
         #expect(accepts(distance: MinimapClickZone.edgeClearance))
-        #expect(accepts(distance: 12))
+        #expect(accepts(distance: 2 + 19))
+        #expect(accepts(distance: 2 + 19 + MinimapClickZone.slop))
     }
 
     @Test func thePanesEdgeIsLeftToTheDividers() {
@@ -159,8 +178,8 @@ struct MinimapClickZoneTests {
         #expect(!MinimapClickZone.isChatContent(nil))
     }
 
-    @Test func pastTheFootprintReachesTheChat() {
-        #expect(!accepts(distance: 13))
+    @Test func pastTheBarsEndReachesTheChat() {
+        #expect(!accepts(distance: 2 + 19 + MinimapClickZone.slop + 0.5))
     }
 
     @Test func theExclusionBandAndComposerReachTheChat() {

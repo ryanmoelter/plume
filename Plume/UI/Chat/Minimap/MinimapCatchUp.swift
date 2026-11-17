@@ -85,40 +85,53 @@ struct MinimapHoverScroll: Equatable {
     }
 
     mutating func move(to pointer: CGFloat, travel newTravel: CGFloat, gain: CGFloat) {
-        if newTravel != travel {
-            self = MinimapHoverScroll(offset: offset, travel: newTravel, pointer: pointer, gain: gain)
-            return
-        }
+        repin(travel: newTravel)
         catchUp.gain = gain
         catchUp.move(to: pointer)
     }
 
     /// Keeps the offset in points across a change of travel, clamped into
-    /// the new travel, with the pointer where it was.
+    /// the new travel, with the pointer where it was. A scroll locked to the
+    /// pointer stays locked instead: a streaming reply changes the travel
+    /// constantly, and each re-pin would otherwise unlock it a little.
     mutating func repin(travel newTravel: CGFloat) {
         guard newTravel != travel else { return }
-        self = MinimapHoverScroll(offset: offset, travel: newTravel, pointer: catchUp.pointer, gain: catchUp.gain)
+        let pointer = catchUp.pointer
+        if catchUp.isLocked {
+            travel = max(0, newTravel)
+            catchUp = MinimapCatchUp(scroll: pointer, pointer: pointer, gain: catchUp.gain)
+        } else {
+            self = MinimapHoverScroll(offset: offset, travel: newTravel, pointer: pointer, gain: catchUp.gain)
+        }
     }
 }
 
 /// Where a click on the hovered rail selects a row rather than reaching the
-/// chat under it: within the rail's footprint from the pane's edge but clear
-/// of the edge itself, below the band beside the info pane, and above the
-/// composer.
+/// chat under it: out to the hovered bar's drawn end but clear of the pane's
+/// edge itself, below the band beside the info pane, and above the composer.
 enum MinimapClickZone {
     /// Kept free at the pane's edge, where a split divider's grip, the
     /// sidebar divider or the window's resize edge overhangs the pane. The
     /// split divider's grip is 9 pt wide and centered on the boundary.
     static let edgeClearance: CGFloat = 5
 
+    /// How far past a bar's drawn end a click still lands on it.
+    static let slop: CGFloat = 4
+
+    /// How far from the pane's edge a click reaches the hovered bar, which
+    /// draws `inset` from the edge and `barWidth` long once magnified.
+    static func reach(inset: CGFloat, barWidth: CGFloat) -> CGFloat {
+        inset + barWidth + slop
+    }
+
     static func accepts(
         distanceFromEdge: CGFloat,
         y: CGFloat,
-        footprint: CGFloat,
+        reach: CGFloat,
         exclusionHeight: CGFloat,
         drawableBottom: CGFloat
     ) -> Bool {
-        distanceFromEdge >= edgeClearance && distanceFromEdge <= footprint
+        distanceFromEdge >= edgeClearance && distanceFromEdge <= reach
             && y >= exclusionHeight && y <= drawableBottom
     }
 

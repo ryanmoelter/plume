@@ -64,6 +64,7 @@ struct ChatMinimap: View, ThemedView {
     @State private var genieY: CGFloat = 0
     @State private var genieStrength: CGFloat = 0
     @State private var clickMonitor = MinimapClickMonitor()
+    @State private var presentation = MinimapPresentation()
     #if DEBUG
     @State private var controlValue: String?
     #endif
@@ -97,7 +98,8 @@ struct ChatMinimap: View, ThemedView {
                         scrollOffset: scrollOffset,
                         centering: metrics.centering,
                         genieY: genieY,
-                        genieStrength: genieStrength
+                        genieStrength: genieStrength,
+                        presentation: presentation
                     ))
                     .animation(centeringAnimation, value: metrics.centering)
                     .frame(width: canvasWidth)
@@ -134,17 +136,19 @@ struct ChatMinimap: View, ThemedView {
             // leave the map drawn past its end until the pointer left.
             .onChange(of: metrics.travel) { _, travel in
                 guard hoveredRowID != nil else { return }
+                let next: CGFloat
                 if travel > 0, var current = hoverScroll {
                     current.repin(travel: travel)
                     hoverScroll = current
+                    next = current.offset
                 } else {
                     hoverScroll = nil
+                    next = min(max(scrollOffset, 0), travel)
                 }
-                let clamped = min(max(scrollOffset, 0), travel)
-                guard clamped != scrollOffset else { return }
+                guard next != scrollOffset else { return }
                 var transaction = Transaction()
                 transaction.disablesAnimations = true
-                withTransaction(transaction) { scrollOffset = clamped }
+                withTransaction(transaction) { scrollOffset = next }
             }
             // Kept where the reader is while the pointer is away. Watched
             // together with the hover so that leaving re-asserts the chat's
@@ -183,7 +187,7 @@ struct ChatMinimap: View, ThemedView {
     /// `MinimapClickMonitor` instead.
     private func hoverRegion(metrics: MinimapMetrics) -> some View {
         Color.clear
-            .frame(width: hoverWidth)
+            .frame(width: hoverRegionWidth)
             .offset(x: side == .leading ? -railInset : railInset)
             .contentShape(.rect)
             .allowsHitTesting(false)
@@ -222,11 +226,11 @@ struct ChatMinimap: View, ThemedView {
     /// Lets the next click select the hovered row, but only where it would
     /// not land on something else's target.
     private func armClick(at point: CGPoint, metrics: MinimapMetrics) {
-        let distance = side == .leading ? point.x : hoverWidth - point.x
+        let distance = side == .leading ? point.x : hoverRegionWidth - point.x
         let accepts = MinimapClickZone.accepts(
             distanceFromEdge: distance,
             y: point.y,
-            footprint: Self.railFootprint(forViewport: viewportWidth, dimensions: dimensions),
+            reach: MinimapClickZone.reach(inset: railInset, barWidth: hoveredBarWidth),
             exclusionHeight: revealExclusionHeight,
             drawableBottom: metrics.drawableBottom
         )
@@ -247,7 +251,14 @@ struct ChatMinimap: View, ThemedView {
                 current.move(to: absolute, travel: metrics.travel, gain: gain)
                 next = current
             } else {
-                next = MinimapHoverScroll(offset: scrollOffset, travel: metrics.travel, pointer: absolute, gain: gain)
+                // The follow may still be animating, so start from what is
+                // drawn rather than where it is headed.
+                next = MinimapHoverScroll(
+                    offset: presentation.scrollOffset ?? scrollOffset,
+                    travel: metrics.travel,
+                    pointer: absolute,
+                    gain: gain
+                )
             }
             hoverScroll = next
             if next.offset != scrollOffset {
@@ -258,7 +269,9 @@ struct ChatMinimap: View, ThemedView {
         } else {
             hoverScroll = nil
         }
-        guard let index = layout.nearestRow(toY: metrics.contentY(atY: y, scrollOffset: scrollOffset)) else { return }
+        let centering = presentation.centering ?? metrics.centering
+        let contentY = y - metrics.topMargin - centering + scrollOffset
+        guard let index = layout.nearestRow(toY: contentY) else { return }
         let id = layout.rows[index].id
         guard id != hoveredRowID else { return }
         let isFadingOut = leftAt.map { Date().timeIntervalSince($0) < tuning.values.fadeOutDuration } ?? false
@@ -481,6 +494,23 @@ struct ChatMinimap: View, ThemedView {
     private var railInset: CGFloat {
         Self.railInset(forViewport: viewportWidth, dimensions: dimensions)
     }
+
+    /// Widens while a row is hovered to cover the magnified bars, so the
+    /// pointer can reach and click the widest of them without leaving.
+    private var hoverRegionWidth: CGFloat {
+        guard hoveredRowID != nil else { return hoverWidth }
+        let widest = railWidth * max(1, tuning.values.genieWidthScale)
+        return max(hoverWidth, MinimapClickZone.reach(inset: railInset, barWidth: widest))
+    }
+
+    /// The hovered bar's length at full magnification. The end row draws a
+    /// dot rather than a bar.
+    private var hoveredBarWidth: CGFloat {
+        guard let index = hoveredRowID.flatMap(layout.index(ofRowID:)) else { return 0 }
+        let row = layout.rows[index]
+        if row.isEnd { return 3 * max(1, tuning.values.genieThicknessScale) }
+        return railWidth * row.widthFactor * max(1, tuning.values.genieWidthScale)
+    }
 }
 
 /// The rail's vertical frame: where the map's content sits in the pane, and
@@ -552,16 +582,26 @@ private final class MinimapClickMonitor {
     /// Nil wherever a click should reach the chat instead.
     var onClick: (() -> Void)?
     private var monitor: Any?
+    /// Set from a taken mouse-down to its mouse-up, so the drag between
+    /// them can't start a text selection in the chat.
     private var swallowsMouseUp = false
+    private var stopsAfterMouseUp = false
 
     func start() {
+        stopsAfterMouseUp = false
         guard monitor == nil else { return }
-        monitor = NSEvent.addLocalMonitorForEvents(matching: [.leftMouseDown, .leftMouseUp]) { [weak self] event in
+        monitor = NSEvent.addLocalMonitorForEvents(matching: [.leftMouseDown, .leftMouseDragged, .leftMouseUp]) { [weak self] event in
             guard let self, event.window === self.window else { return event }
-            if event.type == .leftMouseUp {
+            switch event.type {
+            case .leftMouseDragged:
+                return self.swallowsMouseUp ? nil : event
+            case .leftMouseUp:
                 guard self.swallowsMouseUp else { return event }
                 self.swallowsMouseUp = false
+                if self.stopsAfterMouseUp { self.removeMonitor() }
                 return nil
+            default:
+                break
             }
             guard let onClick = self.onClick,
                   event.modifierFlags.intersection(.deviceIndependentFlagsMask).isEmpty,
@@ -577,14 +617,31 @@ private final class MinimapClickMonitor {
         if let monitor { NSEvent.removeMonitor(monitor) }
     }
 
+    /// Waits for the mouse-up of a click already taken, so a pointer that
+    /// presses and leaves the rail doesn't hand the chat a drag.
     func stop() {
         onClick = nil
-        // A mouse-up still owed to a swallowed click arrives after a pointer
-        // that clicked and left at once; let it through rather than strand it.
-        swallowsMouseUp = false
+        if swallowsMouseUp {
+            stopsAfterMouseUp = true
+        } else {
+            removeMonitor()
+        }
+    }
+
+    private func removeMonitor() {
+        stopsAfterMouseUp = false
         if let monitor { NSEvent.removeMonitor(monitor) }
         monitor = nil
     }
+}
+
+/// What the canvas last drew. The follow and the centering animate, and
+/// their model values are where they are headed, so a hover starting mid
+/// animation reads these to map the pointer onto what is on screen. A plain
+/// class, not observed: the canvas writes it as it draws.
+private final class MinimapPresentation {
+    var scrollOffset: CGFloat?
+    var centering: CGFloat?
 }
 
 /// Draws every bar in one `Canvas`. Animatable over the scroll and the
@@ -603,6 +660,7 @@ private struct MinimapDrawing: ViewModifier, Animatable {
     var centering: CGFloat
     var genieY: CGFloat
     var genieStrength: CGFloat
+    let presentation: MinimapPresentation
 
     var animatableData: AnimatablePair<AnimatablePair<CGFloat, CGFloat>, AnimatablePair<CGFloat, CGFloat>> {
         get { AnimatablePair(AnimatablePair(scrollOffset, centering), AnimatablePair(genieY, genieStrength)) }
@@ -625,6 +683,8 @@ private struct MinimapDrawing: ViewModifier, Animatable {
     func body(content: Content) -> some View {
         content.overlay {
             Canvas { context, size in
+                presentation.scrollOffset = scrollOffset
+                presentation.centering = centering
                 draw(in: &context, size: size)
             }
         }
