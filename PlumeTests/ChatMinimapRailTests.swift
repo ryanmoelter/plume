@@ -5,7 +5,8 @@ import Testing
 
 /// The collapsed rail's drawn geometry: prompts as fixed full-width bars,
 /// responses as weighted half-width bars, stacked with the entry spacing, and
-/// a click mapped back to the entry whose row it lands in.
+/// a click mapped back to the entry whose row it lands in, and how far the
+/// rail travels to follow the chat.
 @MainActor
 struct ChatMinimapRailTests {
     private func entry(_ id: String, _ kind: ChatOutline.Kind, weight: CGFloat, pieces: Set<String> = []) -> ChatOutline.Entry {
@@ -64,6 +65,19 @@ struct ChatMinimapRailTests {
         #expect(ChatMinimap.entryIndex(at: CGPoint(x: 1, y: 20), in: bars) == 1)
         #expect(ChatMinimap.entryIndex(at: CGPoint(x: 1, y: 9), in: bars) == nil)
         #expect(ChatMinimap.entryIndex(at: CGPoint(x: 1, y: 500), in: bars) == nil)
+    }
+
+    @Test func anOffsetFromTallerContentClampsToTheShorterContentsTravel() {
+        // 1000 + 40 − 400 of travel at the bottom; the shorter content has
+        // only 500 + 40 − 400.
+        let revealed = ChatMinimap.offset(for: 1, contentHeight: 1000, paneHeight: 400, margins: 40)
+        #expect(revealed == 640)
+        #expect(ChatMinimap.clampedOffset(revealed, contentHeight: 500, paneHeight: 400, margins: 40) == 140)
+    }
+
+    @Test func contentThatFitsHasNoTravel() {
+        #expect(ChatMinimap.offset(for: 1, contentHeight: 300, paneHeight: 400, margins: 40) == 0)
+        #expect(ChatMinimap.clampedOffset(50, contentHeight: 300, paneHeight: 400, margins: 40) == 0)
     }
 }
 

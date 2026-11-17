@@ -11,10 +11,6 @@ import SwiftUI
 /// full map over the chat, where the cursor's height picks the part of the
 /// conversation shown — the same gesture as running a finger down the edge
 /// of a book.
-///
-/// The collapsed rail is drawn by a single view, and the entries mount only
-/// while the map is revealed or animating, because a long conversation's
-/// worth of entry views made every update of the chat pay for each of them.
 struct ChatMinimap: View, ThemedView {
     @Environment(\.theme) var theme
     @Environment(\.colorScheme) private var colorScheme
@@ -69,14 +65,14 @@ struct ChatMinimap: View, ThemedView {
 
     var body: some View {
         GeometryReader { proxy in
-            let layout = Self.railLayout(for: outline.entries, railWidth: railWidth)
+            let layout = mountsEntries ? nil : Self.railLayout(for: outline.entries, railWidth: railWidth)
             let live = liveHeight(in: proxy.size)
-            let contentHeight = mountsEntries ? measuredHeight : max(layout.height, live)
+            let contentHeight = layout.map { max($0.height, live) } ?? measuredHeight
             Group {
-                if mountsEntries {
-                    entries
-                } else {
+                if let layout {
                     drawnRail(layout)
+                } else {
+                    entries
                 }
             }
             // Held to at least the pane so a conversation too short to fill
@@ -97,7 +93,9 @@ struct ChatMinimap: View, ThemedView {
             .padding(.top, dimensions.verticalPadding)
             .padding(.bottom, bottomInset + dimensions.verticalPadding)
             .fixedSize(horizontal: false, vertical: true)
-            .offset(y: -scrollOffset)
+            // Clamped as drawn, so content that shrinks before the offset
+            // follows it never shows the map past its end.
+            .offset(y: -Self.clampedOffset(scrollOffset, contentHeight: contentHeight, paneHeight: proxy.size.height, margins: margins))
             .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
             .clipped()
             // Kept where the reader is, from the map's own geometry rather
@@ -108,11 +106,21 @@ struct ChatMinimap: View, ThemedView {
             // Watched together with the reveal so that closing re-asserts
             // the chat's position. The chat has not moved while the pointer
             // was steering, so nothing else would put the map back, and it
-            // would keep whatever the pointer left it showing.
-            .onChange(of: FollowDrive(position: outline.position(of: visiblePieceIDs), revealed: isRevealed)) { _, drive in
-                guard !drive.revealed, let fraction = drive.position else { return }
+            // would keep whatever the pointer left it showing. The height
+            // keeps it in step as the collapse shrinks the content.
+            .onChange(of: FollowDrive(
+                position: outline.position(of: visiblePieceIDs),
+                revealed: isRevealed,
+                contentHeight: contentHeight
+            )) { _, drive in
+                guard !drive.revealed, hoverFraction == nil, let fraction = drive.position else { return }
                 withAnimation(.easeOut(duration: 0.2)) {
-                    scrollOffset = offset(for: fraction, contentHeight: contentHeight, in: proxy.size)
+                    scrollOffset = Self.offset(
+                        for: fraction,
+                        contentHeight: drive.contentHeight,
+                        paneHeight: proxy.size.height,
+                        margins: margins
+                    )
                 }
             }
             // Keyed to the pointer and to the height it is measured
@@ -125,7 +133,12 @@ struct ChatMinimap: View, ThemedView {
             // throughout.
             .onChange(of: ScrollDrive(fraction: hoverFraction, contentHeight: contentHeight)) { _, drive in
                 guard let fraction = drive.fraction else { return }
-                scrollOffset = offset(for: fraction, contentHeight: drive.contentHeight, in: proxy.size)
+                scrollOffset = Self.offset(
+                    for: fraction,
+                    contentHeight: drive.contentHeight,
+                    paneHeight: proxy.size.height,
+                    margins: margins
+                )
             }
             // Drawn wider than the rail it sits in, toward the chat. Only
             // the rail holds layout space, so revealing the map never
@@ -331,14 +344,24 @@ struct ChatMinimap: View, ThemedView {
         max(0, size.height - 2 * dimensions.verticalPadding - bottomInset)
     }
 
+    /// Both margins count as content to travel past. Leaving the top one out
+    /// stops short of the end by its height, which cuts off the last entry.
+    private var margins: CGFloat {
+        2 * dimensions.verticalPadding + bottomInset
+    }
+
     /// Puts `fraction` of the way down the conversation in the middle of the
     /// pane, clamped so neither end travels past itself.
-    private func offset(for fraction: CGFloat, contentHeight: CGFloat, in size: CGSize) -> CGFloat {
-        // Both margins count as content to travel past. Leaving the top one
-        // out stops short of the end by its height, which cuts off the last
-        // entry.
-        let travel = max(0, contentHeight + 2 * dimensions.verticalPadding + bottomInset - size.height)
-        return travel * Self.eased(fraction)
+    static func offset(for fraction: CGFloat, contentHeight: CGFloat, paneHeight: CGFloat, margins: CGFloat) -> CGFloat {
+        travel(contentHeight: contentHeight, paneHeight: paneHeight, margins: margins) * eased(fraction)
+    }
+
+    static func clampedOffset(_ offset: CGFloat, contentHeight: CGFloat, paneHeight: CGFloat, margins: CGFloat) -> CGFloat {
+        min(max(offset, 0), travel(contentHeight: contentHeight, paneHeight: paneHeight, margins: margins))
+    }
+
+    private static func travel(contentHeight: CGFloat, paneHeight: CGFloat, margins: CGFloat) -> CGFloat {
+        max(0, contentHeight + margins - paneHeight)
     }
 
     /// Maps where the pointer is to how far through the conversation the map
@@ -479,11 +502,12 @@ private struct ScrollDrive: Equatable {
     var contentHeight: CGFloat
 }
 
-/// What returns the map to the conversation: where the chat is, and whether
-/// the pointer has stopped overriding it.
+/// What returns the map to the conversation: where the chat is, whether the
+/// pointer has stopped overriding it, and how tall the content has become.
 private struct FollowDrive: Equatable {
     var position: CGFloat?
     var revealed: Bool
+    var contentHeight: CGFloat
 }
 
 /// One entry: a legible line for something the user said or was asked, a
