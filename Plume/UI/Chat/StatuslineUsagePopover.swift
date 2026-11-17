@@ -118,8 +118,8 @@ struct ContextUsageSection: View, ThemedView {
             dismiss()
             compact.run()
         }
-        .disabled(reason != nil)
         .plumeID(AccessibilityID.statuslineCompactButton)
+        .disabled(reason != nil)
         .help(reason ?? "Summarize the conversation to free up context")
         .padding(.top, 6)
     }
