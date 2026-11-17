@@ -77,7 +77,7 @@ While split, a tab chip's label ends with its pane, counted from the left — `C
 | `tasks` | — | `{tasks: [{id, title, isSelected, tabKind?, expectsRows}]}` for the frontmost window's unarchived tasks, in sidebar order |
 | `selectTask` | `task`, `from?`, `repeat = 1` (at most 200), `timeout = 5`, `settle = 0.3` | `{samples, timedOut, visibleMs?, firstTurnMs?, rowsPlacedMs?, spans}`; see [Measuring a task switch](#measuring-a-task-switch) |
 | `appendTurn` | `repeat = 1` (at most 200), `timeout = 15`, `settle = 1`, `reply = true` | `{samples, timedOut, visibleMs?, firstTurnMs?, rowsPlacedMs?, longestTurnMs?, busyMs?, spans}`; see [Measuring a transcript append](#measuring-a-transcript-append) |
-| `scrollChat` | `to = "top" \| "bottom"` or `by` (signed points); `speed = 4000`, `settle = 0.3`, `maxSeconds = 30` (at most 300), `worst = 5` | `{clock, periodMs, frames, durationMs, startOffset, endOffset, distance, timedOut, realizations, intervalMs?, workMs?, over16, over33, over50, over100, hitchMs, hitchMsPerSecond, spans, worstFrames}`; see [Measuring a scroll](#measuring-a-scroll) |
+| `scrollChat` | `to = "top" \| "bottom"` or `by` (signed points); `speed = 4000`, `settle = 0.3`, `maxSeconds = 30` (at most 300), `worst = 5`, `clock = "auto" \| "timer"` | `{clock, periodMs, frames, durationMs, startOffset, endOffset, distance, timedOut, realizations, intervalMs?, workMs?, over16, over33, over50, over100, hitchMs, hitchMsPerSecond, spans, worstFrames}`; see [Measuring a scroll](#measuring-a-scroll) |
 
 `list` filters by `plumeID`, not `id`, because `id` at the top level is the request's correlation id.
 
@@ -131,7 +131,7 @@ c scrollChat to=top speed=4000
 c scrollChat by=-2000 worst=10
 ```
 
-The frame clock is the scroll view's display link. A hidden or occluded window, or a sleeping display, stops vsync, so a 120 Hz timer takes over when the link stays silent: 100 ms at the start, or a second mid-run. `clock` reports `displayLink`, `timer`, or `mixed`, and `periodMs` is the period hitches are measured against.
+The frame clock is the scroll view's display link. A hidden or occluded window, or a sleeping display, stops vsync, so a 120 Hz timer takes over when the link stays silent: 100 ms at the start, or a second mid-run. `clock` reports `displayLink`, `timer`, or `mixed`, and `periodMs` is the period hitches are measured against. `clock=timer` never creates the display link and ticks from the 120 Hz timer throughout; compare runs taken with the same clock, and use `timer` for repeatable ones.
 
 Each frame interval, from one tick's callback to the next, reports:
 

@@ -6,6 +6,7 @@ import QuartzCore
 extension InProcessControlBackend {
     func scrollChat(_ params: ScrollChatParams) async throws -> ScrollHitchReport {
         let destination = try params.destination()
+        _ = try params.clockChoice()
         let controller = try chatListController()
         guard controller.scrollView.window != nil else { throw ControlError.notFound("chat list") }
         guard ScrollHitchProbe.active == nil else { throw ControlError.badParams("a scrollChat is already running") }
@@ -57,6 +58,7 @@ final class ScrollChatDriver: NSObject {
     private var timer: Timer?
     private var observer: CFRunLoopObserver?
     private var clock = Clock.displayLink
+    private let forcesTimer: Bool
     private var linkTicks = 0
     private var timerTicks = 0
     private var linkPeriod: Double?
@@ -80,6 +82,8 @@ final class ScrollChatDriver: NSObject {
         self.controller = controller
         self.destination = destination
         self.params = params
+        forcesTimer = (try? params.clockChoice()) == .timer
+        if forcesTimer { clock = .timer }
         self.completion = completion
     }
 
@@ -96,9 +100,11 @@ final class ScrollChatDriver: NSObject {
         CFRunLoopAddObserver(CFRunLoopGetMain(), observer, .commonModes)
         self.observer = observer
 
-        let link = controller.scrollView.displayLink(target: self, selector: #selector(linkFired(_:)))
-        link.add(to: .main, forMode: .common)
-        self.link = link
+        if !forcesTimer {
+            let link = controller.scrollView.displayLink(target: self, selector: #selector(linkFired(_:)))
+            link.add(to: .main, forMode: .common)
+            self.link = link
+        }
         // An occluded window or a sleeping display stops vsync, and the
         // display link with it.
         let timer = Timer(timeInterval: Self.timerPeriod, repeats: true) { _ in

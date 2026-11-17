@@ -219,6 +219,11 @@ nonisolated struct ScrollChatParams: Decodable, Equatable {
         case by(Double)
     }
 
+    nonisolated enum ClockChoice: Equatable {
+        case auto
+        case timer
+    }
+
     var to: String?
     var by: Double?
     var speed: Double = 4000
@@ -227,10 +232,16 @@ nonisolated struct ScrollChatParams: Decodable, Equatable {
     var maxSeconds: Double = 30
     /// How many of the longest frame intervals to itemize.
     var worst: Int = 5
+    /// `"auto"` or `"timer"`, kept raw like `to` so a bad value fails as bad params.
+    var clock: String = "auto"
 
-    private enum CodingKeys: String, CodingKey { case to, by, speed, settle, maxSeconds, worst }
+    private enum CodingKeys: String, CodingKey { case to, by, speed, settle, maxSeconds, worst, clock }
 
-    init(to: String? = nil, by: Double? = nil, speed: Double = 4000, settle: Double = 0.3, maxSeconds: Double = 30, worst: Int = 5) {
+    init(
+        to: String? = nil, by: Double? = nil, speed: Double = 4000, settle: Double = 0.3, maxSeconds: Double = 30,
+        worst: Int = 5, clock: String = "auto"
+    ) {
+        self.clock = clock
         self.to = to
         self.by = by
         self.speed = max(speed, 1)
@@ -247,8 +258,17 @@ nonisolated struct ScrollChatParams: Decodable, Equatable {
             speed: try c.decodeIfPresent(Double.self, forKey: .speed) ?? 4000,
             settle: try c.decodeIfPresent(Double.self, forKey: .settle) ?? 0.3,
             maxSeconds: try c.decodeIfPresent(Double.self, forKey: .maxSeconds) ?? 30,
-            worst: try c.decodeIfPresent(Int.self, forKey: .worst) ?? 5
+            worst: try c.decodeIfPresent(Int.self, forKey: .worst) ?? 5,
+            clock: try c.decodeIfPresent(String.self, forKey: .clock) ?? "auto"
         )
+    }
+
+    func clockChoice() throws -> ClockChoice {
+        switch clock {
+        case "auto": return .auto
+        case "timer": return .timer
+        default: throw ControlError.badParams("clock must be \"auto\" or \"timer\", not \"\(clock)\"")
+        }
     }
 
     func destination() throws -> Destination {

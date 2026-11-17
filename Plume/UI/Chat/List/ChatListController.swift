@@ -650,6 +650,14 @@ final class ChatListController: NSObject {
     }
 
     private func tick(at now: TimeInterval) {
+        #if DEBUG
+        SwitchLatencyProbe.time("animatorTick") { tickNow(at: now) }
+        #else
+        tickNow(at: now)
+        #endif
+    }
+
+    private func tickNow(at now: TimeInterval) {
         for (key, ease) in animator.eases {
             let value = ease.value(at: now)
             if key == Self.insetEaseKey {
@@ -908,6 +916,9 @@ final class ChatListController: NSObject {
         guard from != to else { return }
         if inputs.animate, model.viewportHeight > 0, documentView.window != nil {
             let live: Bool = if case let .piece(piece)? = items[id] { piece.isLive } else { false }
+            #if DEBUG
+            SwitchLatencyProbe.note("heightEase")
+            #endif
             animator.ease(id, from: from, to: to, duration: live ? 0.12 : 0.2)
         } else {
             model.setDisplayHeight(to, for: id)

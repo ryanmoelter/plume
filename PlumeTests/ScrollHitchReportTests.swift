@@ -87,6 +87,12 @@ struct ScrollHitchReportTests {
         #expect(throws: ControlError.self) { try ScrollChatParams(to: "middle").destination() }
     }
 
+    @Test func clockTakesAutoOrTimer() throws {
+        #expect(try ScrollChatParams().clockChoice() == .auto)
+        #expect(try ScrollChatParams(clock: "timer").clockChoice() == .timer)
+        #expect(throws: ControlError.self) { try ScrollChatParams(clock: "vsync").clockChoice() }
+    }
+
     private func report(_ intervals: [Double?], periodMs: Double = 1000.0 / 120, realizations: [Int]? = nil) -> ScrollHitchReport {
         let samples = intervals.enumerated().map { index, interval in
             var made = sample(index, interval, spans: [])

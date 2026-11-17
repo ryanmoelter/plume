@@ -7,6 +7,7 @@
 #   EXTRA_ENV="A=1 B=2" ...   # extra environment for the app
 #   DISTANCE=30000 ...        # scroll this many points per pass instead of to the ends
 #   KEEP=1 ...                # leave the app running afterwards
+#   CLOCK=<auto|timer> ...    # scrollChat's frame clock; default timer (repeatable)
 #
 # Prints one compact JSON result per line, prefixed `up <n>` or `down <n>`.
 # Build the Debug app first. docs/control-server.md ("Measuring a scroll")
@@ -14,12 +15,13 @@
 set -euo pipefail
 
 if [ $# -lt 1 ]; then
-  sed -n '2,13p' "$0" >&2
+  sed -n '2,14p' "$0" >&2
   exit 2
 fi
 TRANSCRIPT="$1"
 PASSES="${2:-3}"
 SPEED="${3:-4000}"
+CLOCK="${CLOCK:-timer}"
 [ -f "$TRANSCRIPT" ] || { echo "no transcript at $TRANSCRIPT" >&2; exit 2; }
 
 ROOT="$(cd "$(dirname "$0")/../.." && pwd)"
@@ -88,11 +90,11 @@ compact() {
 
 for pass in $(seq 1 "$PASSES"); do
   if [ -n "${DISTANCE:-}" ]; then
-    c scrollChat by="-$DISTANCE" speed="$SPEED" worst=8 | compact "up $pass"
-    c scrollChat by="$DISTANCE" speed="$SPEED" worst=8 | compact "down $pass"
+    c scrollChat by="-$DISTANCE" speed="$SPEED" worst=8 clock="$CLOCK" | compact "up $pass"
+    c scrollChat by="$DISTANCE" speed="$SPEED" worst=8 clock="$CLOCK" | compact "down $pass"
   else
-    c scrollChat to=top speed="$SPEED" worst=8 | compact "up $pass"
-    c scrollChat to=bottom speed="$SPEED" worst=8 | compact "down $pass"
+    c scrollChat to=top speed="$SPEED" worst=8 clock="$CLOCK" | compact "up $pass"
+    c scrollChat to=bottom speed="$SPEED" worst=8 clock="$CLOCK" | compact "down $pass"
   fi
 done
 
