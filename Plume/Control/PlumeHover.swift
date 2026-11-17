@@ -13,23 +13,11 @@ extension View {
         onHover(perform: action)
         #endif
     }
-
-    /// Registers a hover region with the debug control server only, for a
-    /// view that follows the real pointer some other way, such as
-    /// `onContinuousHover`. Adds nothing in a release build.
-    func plumeSyntheticHover(perform action: @escaping (Bool) -> Void) -> some View {
-        #if DEBUG
-        modifier(PlumeHoverModifier(action: action, tracksPointer: false))
-        #else
-        self
-        #endif
-    }
 }
 
 #if DEBUG
 private struct PlumeHoverModifier: ViewModifier {
     let action: (Bool) -> Void
-    var tracksPointer = true
 
     @State private var registration = ViewRegistration()
     @Environment(\.plumeControlsHidden) private var isHidden
@@ -37,7 +25,7 @@ private struct PlumeHoverModifier: ViewModifier {
     func body(content: Content) -> some View {
         registration.hover = action
         return content
-            .onHover { if tracksPointer { action($0) } }
+            .onHover(perform: action)
             .background {
                 WindowProbe { window in
                     registration.window = window
