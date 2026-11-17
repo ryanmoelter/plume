@@ -1,12 +1,9 @@
 import Foundation
 
-/// The conversation reduced to what a minimap draws: the things the user
-/// said or was asked, legible, with everything the agent produced between
-/// them collapsed into de-emphasized mass.
-///
-/// The reader anchors on their own input — there is far less of it than agent
-/// output — so those entries keep their text and a whole run of replies
-/// between two of them becomes one weighted area.
+/// The conversation reduced to what the minimap needs: the things the user
+/// said or was asked, carrying their opening line, with each run of agent
+/// output between them collapsed into one weighted entry. `MinimapLayout`
+/// turns it into the minimap's rows.
 struct ChatOutline: Equatable {
     var entries: [Entry] = []
 

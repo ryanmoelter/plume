@@ -204,4 +204,17 @@ Called with no point, `drag` instead surveys the window: every registered destin
 - **A driven instance is never frontmost, so macOS throttles it.** Without an activity assertion, samples from one run swing between about 0.6 s and 3 s for the same switch, and every span slows together. `selectTask` holds a `userInitiated` + `latencyCritical` activity while it runs; time a switch any other way and the numbers are noise.
 - **A user-defaults write during a switch measures the defaults domain as much as Plume.** AppKit answers each write by rebuilding the merged domain on the main thread, at a cost that grows with its key count. Every debug build shares `com.ryanmoelter.Plume.debug`, which gathers thousands of keys over time, so one write there can cost hundreds of milliseconds that a user's machine never pays. `LastOpenTask` waits until selection has been still for two seconds for this reason. A span that jumps on one machine and not another is worth checking for a write.
 - **A chat's minimap and info pane mount a turn after its rows.** `visibleMs` ends with the frame that first shows the rows, and those two mount once it has committed (`AfterCommit`), fading in over 0.15 s. Their controls register then too, so a read sent the instant `selectTask` returns can miss them. Read again before calling one missing. The composer is never deferred: it must take keystrokes, and serve its focused scene value, from the first frame.
+- **The minimap is one registered control, driven through `setValue`.** The rail is a single `Canvas`, so it registers only `chat-minimap`, and it follows the pointer with `onContinuousHover`, which a synthetic `hover` never reaches. Its `value` is JSON: `side`, `spacing`, `scroll` (0–1, the map's own scroll) and `rows`, each `{index, label, kind, isVisible, isHovered}` with the end of the conversation as the last row (`kind: "end"`). `setValue` takes a command instead of a value:
+  - `hover <n>` hovers row `n`, scrolling the map to it first if it is off the rail. It shows the magnification and the preview as a real pointer would.
+  - `hover <fraction>` (it must contain a `.`, as in `hover 0.5`) puts the pointer that far down the rail. The map scrolls through `MinimapCatchUp`, so a sequence of fractions drives the catch-up exactly like a pointer moving.
+  - `leave` ends the hover. The map then returns to where the chat is.
+  - `click <n>` scrolls the chat to row `n`; `click end` scrolls it to the bottom.
+
+  ```
+  c describe target='{"id":"chat-minimap"}'
+  c setValue target='{"id":"chat-minimap"}' value="hover 3"
+  c setValue target='{"id":"chat-minimap"}' value="click end"
+  ```
+
+  Settings ▸ Debug ▸ Minimap switches the side and the spacing; their pickers answer `setValue` with `leading`/`trailing` and `even`/`proportional` (`settings-minimap-side-picker`, `settings-minimap-spacing-picker`).
 - **A SwiftUI `Menu`'s items mount only while it is open, so a `plumeID` inside one never registers.** Put `plumeMenuItem(_:)` on the `Menu` instead. It registers an always-mounted entry that runs the item's action. The entry has the menu's frame, so it answers `invoke` and not `click`. The tab strip's `+` menu and the device tab's Shut Down Emulator use it. A menu built from a list of entries registers each one from a `ForEach` behind the menu, with the row's `label:`, as the info pane's Linear row menu does.
