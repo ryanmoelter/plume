@@ -105,21 +105,21 @@ struct ChatMinimap: View, ThemedView {
                     .frame(width: canvasWidth)
                     .allowsHitTesting(false)
             }
-            .overlay(alignment: side == .leading ? .topLeading : .topTrailing) {
+            .overlay(alignment: .topLeading) {
                 preview(metrics: metrics)
             }
+            .padding(side == .leading ? .leading : .trailing, railInset)
+            // After the padding, so the region reaches the pane's edge and
+            // its x is measured from there.
             .overlay(alignment: edgeAlignment) {
                 hoverRegion(metrics: metrics)
-            }
-            .padding(side == .leading ? .leading : .trailing, railInset)
-            .background {
-                WindowProbe { clickMonitor.window = $0 }
-                    .allowsHitTesting(false)
             }
             .onDisappear { clickMonitor.stop() }
             .plumeID(AccessibilityID.chatMinimap, value: controlValueText, setValue: { drive($0, metrics: metrics) })
             #if DEBUG
             .onChange(of: ControlValueKey(
+                side: side,
+                spacing: spacing,
                 layout: layout,
                 visibleRows: visibleRows,
                 hoveredRowID: hoveredRowID,
@@ -188,7 +188,9 @@ struct ChatMinimap: View, ThemedView {
     private func hoverRegion(metrics: MinimapMetrics) -> some View {
         Color.clear
             .frame(width: hoverRegionWidth)
-            .offset(x: side == .leading ? -railInset : railInset)
+            .background {
+                MinimapRegionProbe { clickMonitor.regionView = $0 }
+            }
             .contentShape(.rect)
             .allowsHitTesting(false)
             .onContinuousHover(coordinateSpace: .local) { phase in
@@ -204,7 +206,7 @@ struct ChatMinimap: View, ThemedView {
                         return
                     }
                     pointerMoved(toY: point.y, metrics: metrics)
-                    armClick(at: point, metrics: metrics)
+                    armClick(metrics: metrics)
                 case .ended:
                     pointerLeft()
                 }
@@ -223,20 +225,26 @@ struct ChatMinimap: View, ThemedView {
         isPlaced ? .smooth(duration: tuning.values.snapDuration) : nil
     }
 
-    /// Lets the next click select the hovered row, but only where it would
-    /// not land on something else's target.
-    private func armClick(at point: CGPoint, metrics: MinimapMetrics) {
-        let distance = side == .leading ? point.x : hoverRegionWidth - point.x
-        let accepts = MinimapClickZone.accepts(
-            distanceFromEdge: distance,
-            y: point.y,
-            reach: MinimapClickZone.reach(inset: railInset, barWidth: hoveredBarWidth),
-            exclusionHeight: revealExclusionHeight,
-            drawableBottom: metrics.drawableBottom
-        )
-        guard accepts, let id = hoveredRowID else {
+    /// Lets a click select the hovered row, but only where it lands on the
+    /// rail and not on something else's target. The click's own point is
+    /// checked, not the last hover's.
+    private func armClick(metrics: MinimapMetrics) {
+        guard let id = hoveredRowID else {
             clickMonitor.onClick = nil
             return
+        }
+        let side = side
+        let reach = MinimapClickZone.reach(inset: railInset, barWidth: hoveredBarWidth)
+        let exclusionHeight = revealExclusionHeight
+        let drawableBottom = metrics.drawableBottom
+        clickMonitor.accepts = { point, regionWidth in
+            MinimapClickZone.accepts(
+                distanceFromEdge: side == .leading ? point.x : regionWidth - point.x,
+                y: point.y,
+                reach: reach,
+                exclusionHeight: exclusionHeight,
+                drawableBottom: drawableBottom
+            )
         }
         clickMonitor.onClick = { select(id: id) }
         clickMonitor.start()
@@ -248,7 +256,7 @@ struct ChatMinimap: View, ThemedView {
         if metrics.travel > 0 {
             var next: MinimapHoverScroll
             if var current = hoverScroll {
-                current.move(to: absolute, travel: metrics.travel, gain: gain)
+                current.move(to: absolute, pointerY: y, travel: metrics.travel, gain: gain)
                 next = current
             } else {
                 // The follow may still be animating, so start from what is
@@ -257,7 +265,9 @@ struct ChatMinimap: View, ThemedView {
                     offset: presentation.scrollOffset ?? scrollOffset,
                     travel: metrics.travel,
                     pointer: absolute,
-                    gain: gain
+                    gain: gain,
+                    entryY: y,
+                    deadZoneRadius: tuning.values.deadZoneRadius
                 )
             }
             hoverScroll = next
@@ -334,6 +344,15 @@ struct ChatMinimap: View, ThemedView {
         let clampedY = min(max(y, Self.previewEdgeMargin), max(Self.previewEdgeMargin, height - bottomInset - Self.previewEdgeMargin))
         let gap = railWidth * values.genieWidthScale + Self.previewGap
         let slide = isPreviewShown ? 0 : -values.slideDistance
+        let width = Self.previewWidth(
+            maximum: values.previewMaxWidth,
+            viewportWidth: viewportWidth,
+            railInset: railInset,
+            gap: gap
+        )
+        // In the rail's own space, whose x runs from the rail's leading edge.
+        // The preview always opens toward the chat.
+        let x = side == .leading ? gap + slide : railWidth - gap - slide - width
         return ZStack(alignment: .leading) {
             if let row {
                 MinimapPreviewLabel(row: row, maxLines: Int(values.previewMaxLines))
@@ -348,15 +367,23 @@ struct ChatMinimap: View, ThemedView {
         // A fixed width rather than a cap, so the overlay's rail-wide
         // proposal cannot squeeze it. The glass hugs the text inside it, so
         // a short prompt still gets a short pane.
-        .frame(width: values.previewMaxWidth, alignment: side == .leading ? .leading : .trailing)
+        .frame(width: width, alignment: side == .leading ? .leading : .trailing)
         .alignmentGuide(.top) { $0[VerticalAlignment.center] }
-        .offset(x: side == .leading ? gap + slide : -(gap + slide), y: clampedY)
+        .offset(x: x, y: clampedY)
         .animation(centeringAnimation, value: metrics.centering)
         .opacity(isPreviewShown && row != nil ? 1 : 0)
         .allowsHitTesting(false)
     }
 
     private static let previewGap: CGFloat = 6
+    /// Kept between the preview and the pane's far edge.
+    private static let previewFarMargin: CGFloat = 8
+
+    /// The preview's width, capped so it stays inside the chat pane.
+    static func previewWidth(maximum: CGFloat, viewportWidth: CGFloat, railInset: CGFloat, gap: CGFloat) -> CGFloat {
+        let room = viewportWidth - railInset - gap - previewFarMargin
+        return max(0, min(maximum, room))
+    }
     /// How close to the pane's ends the preview's center may sit.
     private static let previewEdgeMargin: CGFloat = 18
 
@@ -376,8 +403,8 @@ struct ChatMinimap: View, ThemedView {
             ]
         }
         let object: [String: Any] = [
-            "side": side.rawValue,
-            "spacing": spacing.rawValue,
+            "side": key.side.rawValue,
+            "spacing": key.spacing.rawValue,
             "scroll": Double(key.scrollPercent) / 100,
             "rows": rows
         ]
@@ -398,6 +425,7 @@ struct ChatMinimap: View, ThemedView {
         case "hover" where argument.contains("."):
             guard let fraction = Double(argument) else { return }
             pointerMoved(toY: metrics.topMargin + CGFloat(fraction) * metrics.live, metrics: metrics)
+            armClick(metrics: metrics)
         case "hover":
             guard let index = Int(argument), layout.positions.indices.contains(index) else { return }
             var y = metrics.screenY(contentY: layout.positions[index], scrollOffset: scrollOffset)
@@ -407,6 +435,7 @@ struct ChatMinimap: View, ThemedView {
                 y = metrics.screenY(contentY: layout.positions[index], scrollOffset: scrollOffset)
             }
             pointerMoved(toY: y, metrics: metrics)
+            armClick(metrics: metrics)
         case "leave":
             pointerLeft()
         case "click":
@@ -508,8 +537,11 @@ struct ChatMinimap: View, ThemedView {
     private var hoveredBarWidth: CGFloat {
         guard let index = hoveredRowID.flatMap(layout.index(ofRowID:)) else { return 0 }
         let row = layout.rows[index]
-        if row.isEnd { return 3 * max(1, tuning.values.genieThicknessScale) }
-        return railWidth * row.widthFactor * max(1, tuning.values.genieWidthScale)
+        switch row.mark {
+        case .bar(let factor): return railWidth * factor * max(1, tuning.values.genieWidthScale)
+        case .dot: return MinimapDrawing.dotDiameter * max(1, tuning.values.genieThicknessScale)
+        case .end: return MinimapDrawing.endDiameter * max(1, tuning.values.genieThicknessScale)
+        }
     }
 }
 
@@ -564,6 +596,8 @@ private struct FollowDrive: Equatable {
 /// What the control value is a function of. Kept small, so a pointer move
 /// that changes none of it rebuilds nothing.
 private struct ControlValueKey: Equatable {
+    var side: MinimapSide
+    var spacing: MinimapSpacing
     var layout: MinimapLayout
     var visibleRows: Set<Int>
     var hoveredRowID: String?
@@ -578,7 +612,11 @@ private struct ControlValueKey: Equatable {
 /// pointer is over the rail, and armed only where a click belongs to it.
 @MainActor
 private final class MinimapClickMonitor {
-    weak var window: NSWindow?
+    /// The hover region's own view, which a click's point is measured in.
+    weak var regionView: NSView?
+    /// Whether a point in the region, given the region's width, is on the
+    /// hovered rail.
+    var accepts: ((CGPoint, CGFloat) -> Bool)?
     /// Nil wherever a click should reach the chat instead.
     var onClick: (() -> Void)?
     private var monitor: Any?
@@ -591,7 +629,7 @@ private final class MinimapClickMonitor {
         stopsAfterMouseUp = false
         guard monitor == nil else { return }
         monitor = NSEvent.addLocalMonitorForEvents(matching: [.leftMouseDown, .leftMouseDragged, .leftMouseUp]) { [weak self] event in
-            guard let self, event.window === self.window else { return event }
+            guard let self, let region = self.regionView, event.window === region.window else { return event }
             switch event.type {
             case .leftMouseDragged:
                 return self.swallowsMouseUp ? nil : event
@@ -605,7 +643,8 @@ private final class MinimapClickMonitor {
             }
             guard let onClick = self.onClick,
                   event.modifierFlags.intersection(.deviceIndependentFlagsMask).isEmpty,
-                  MinimapClickZone.isChatContent(self.window?.contentView?.superview?.hitTest(event.locationInWindow))
+                  self.accepts?(region.convert(event.locationInWindow, from: nil), region.bounds.width) == true,
+                  MinimapClickZone.isChatContent(region.window?.contentView?.superview?.hitTest(event.locationInWindow))
             else { return event }
             self.swallowsMouseUp = true
             onClick()
@@ -632,6 +671,25 @@ private final class MinimapClickMonitor {
         stopsAfterMouseUp = false
         if let monitor { NSEvent.removeMonitor(monitor) }
         monitor = nil
+    }
+}
+
+/// Gives `MinimapClickMonitor` the hover region's own view, flipped so its
+/// y runs down like the region's SwiftUI space. Takes no hits.
+private struct MinimapRegionProbe: NSViewRepresentable {
+    let onView: (NSView) -> Void
+
+    func makeNSView(context: Context) -> ProbeView {
+        let view = ProbeView()
+        onView(view)
+        return view
+    }
+
+    func updateNSView(_ nsView: ProbeView, context: Context) {}
+
+    final class ProbeView: NSView {
+        override var isFlipped: Bool { true }
+        override func hitTest(_ point: NSPoint) -> NSView? { nil }
     }
 }
 
@@ -708,27 +766,64 @@ private struct MinimapDrawing: ViewModifier, Animatable {
                 let tickY = (contentY + layout.positions[index + 1]) / 2
                 drawTick(in: &context, size: size, contentY: tickY, strength: layout.tickStrengths[index])
             }
-            let row = layout.rows[index]
-            let widthScale = scale(at: contentY, maximum: tuning.genieWidthScale)
-            let thicknessScale = scale(at: contentY, maximum: tuning.genieThicknessScale)
-            let thickness = MinimapLayout.rowHeight * thicknessScale
-            let opacity = index == hoveredRow ? 1 : visibleRows.contains(index) ? 0.85 : 0.35
-            if row.isEnd {
-                let diameter = 3 * thicknessScale
-                let x = side == .leading ? 0 : size.width - diameter
-                context.fill(
-                    Path(ellipseIn: CGRect(x: x, y: y - diameter / 2, width: diameter, height: diameter)),
-                    with: .color(.primary.opacity(opacity))
-                )
-                continue
+            if layout.spacing == .proportional, index + 1 < layout.positions.count, layout.rows[index].trailingWeight > 0 {
+                drawResponseBox(in: &context, size: size, from: contentY, to: layout.positions[index + 1])
             }
-            let width = railWidth * row.widthFactor * widthScale
-            let x = side == .leading ? 0 : size.width - width
-            context.fill(
-                Path(roundedRect: CGRect(x: x, y: y - thickness / 2, width: width, height: thickness), cornerRadius: thickness / 2),
-                with: .color(.primary.opacity(opacity))
+            let row = layout.rows[index]
+            let thicknessScale = scale(at: contentY, maximum: tuning.genieThicknessScale)
+            let color = GraphicsContext.Shading.color(
+                .primary.opacity(index == hoveredRow ? 1 : visibleRows.contains(index) ? 0.85 : 0.35)
             )
+            switch row.mark {
+            case .end:
+                drawEndMark(in: &context, size: size, y: y, scale: thicknessScale, shading: color)
+            case .dot:
+                drawDot(in: &context, size: size, y: y, diameter: Self.dotDiameter * thicknessScale, shading: color)
+            case .bar(let factor):
+                let thickness = MinimapLayout.rowHeight * thicknessScale
+                let width = railWidth * factor * scale(at: contentY, maximum: tuning.genieWidthScale)
+                let x = side == .leading ? 0 : size.width - width
+                context.fill(
+                    Path(roundedRect: CGRect(x: x, y: y - thickness / 2, width: width, height: thickness), cornerRadius: thickness / 2),
+                    with: color
+                )
+            }
         }
+    }
+
+    /// A prompt the user didn't type: round, so magnified it grows into a
+    /// bigger dot and never reads as a prompt's bar.
+    static let dotDiameter: CGFloat = 3.5
+    static let endDiameter: CGFloat = 3
+
+    private func drawDot(in context: inout GraphicsContext, size: CGSize, y: CGFloat, diameter: CGFloat, shading: GraphicsContext.Shading) {
+        let x = side == .leading ? 0 : size.width - diameter
+        context.fill(Path(ellipseIn: CGRect(x: x, y: y - diameter / 2, width: diameter, height: diameter)), with: shading)
+    }
+
+    /// The end of the conversation.
+    private func drawEndMark(in context: inout GraphicsContext, size: CGSize, y: CGFloat, scale: CGFloat, shading: GraphicsContext.Shading) {
+        drawDot(in: &context, size: size, y: y, diameter: Self.endDiameter * scale, shading: shading)
+    }
+
+    /// A soft box over the gap between two rows, where the agent's reply to
+    /// the first sits. Fainter than any bar, and held clear of both rows'
+    /// marks at whatever size the magnification draws them.
+    private func drawResponseBox(in context: inout GraphicsContext, size: CGSize, from top: CGFloat, to bottom: CGFloat) {
+        let clearance: (CGFloat) -> CGFloat = { contentY in
+            MinimapLayout.rowHeight * scale(at: contentY, maximum: tuning.genieThicknessScale) / 2 + 1.5
+        }
+        let boxTop = screenY(contentY: top) + clearance(top)
+        let boxBottom = screenY(contentY: bottom) - clearance(bottom)
+        let height = boxBottom - boxTop
+        guard height >= 1.5 else { return }
+        let nearest = min(max(genieY, top), bottom)
+        let width = railWidth * 0.75 * scale(at: nearest, maximum: tuning.genieWidthScale)
+        let x = side == .leading ? 0 : size.width - width
+        context.fill(
+            Path(roundedRect: CGRect(x: x, y: boxTop, width: width, height: height), cornerRadius: min(2, height / 2)),
+            with: .color(.primary.opacity(0.07))
+        )
     }
 
     /// A faint mark in the gap after a row, as wide as the agent's output
@@ -774,19 +869,25 @@ private struct MinimapPreviewLabel: View, ThemedView {
     }
 }
 
+private enum MinimapMark {
+    /// A bar this fraction of the rail wide.
+    case bar(CGFloat)
+    case dot
+    case end
+}
+
 private extension MinimapRow {
-    /// Prompts draw the full rail, so they are the mark the eye lands on;
-    /// what the agent asked is shorter, an interruption shorter still.
-    var widthFactor: CGFloat {
+    /// Typed prompts draw the full rail, so they are the mark the eye lands
+    /// on. Anything else that opens a turn draws a dot.
+    var mark: MinimapMark {
         switch kind {
         case .anchor(let kind):
             switch kind {
-            case .prompt, .shellCommand: 1
-            case .question, .plan: 0.7
-            case .interruption: 0.45
-            case .response: 0.5
+            case .prompt: .bar(1)
+            case .response: .bar(0.5)
+            case .question, .plan, .interruption, .shellCommand: .dot
             }
-        case .end: 0
+        case .end: .end
         }
     }
 

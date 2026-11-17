@@ -72,6 +72,7 @@ While split, a tab chip's label ends with its pane, counted from the left — `C
 | `key` | `key`, `modifiers? = ["command"\|"shift"\|"option"\|"control"]`, `windowNumber?` | `{chord, keyCode, windowNumber, handledBy?, handledByEnabled?, firstResponder?}`. `key` is one character or a name: `left`, `right`, `up`, `down`, `home`, `end`, `pageup`, `pagedown`, `delete`, `forwarddelete`, `return`, `tab`, `escape`, `space`. An uppercase letter, or a character only Shift types (`@`), adds Shift |
 | `resize` | `width`, `height`, `windowNumber?`, `live = false`, `steps = 8` (at most 120), `stepDelay = 0.016` | `{windowNumber, width, height, sizes: [{width, height}], live}`; sets the content size in points. With `live`, steps there inside a live resize |
 | `menu` | — | `{items: [{path, keyEquivalent?, modifiers, isEnabled}]}` for the whole main menu |
+| `windowSize` | `width?`, `height?`, `windowNumber?` | `{windowNumber, width, height}`, the content size; with `width` and `height` it resizes the window's content to that size first |
 | `selection` | — | `{markdown, plainText, anchor?, focus?}` for the focused chat's transcript selection; anchor and focus are `{pieceID, offset}`, absent when nothing is selected |
 | `selectText` | `matching`, or `from` and `to?`; `occurrence = 0` | the same `{markdown, plainText, anchor, focus}` after selecting. `matching` selects that span; `from` and `to` select from the start of `from` to the end of the first `to` after it, across pieces. Searches the whole transcript, realized rows or not |
 | `tasks` | — | `{tasks: [{id, title, isSelected, tabKind?, expectsRows}]}` for the frontmost window's unarchived tasks, in sidebar order |
@@ -158,7 +159,7 @@ The minimap re-renders whenever the set of visible rows changes, and that cost c
 
 **Invoke is a click unless told otherwise.** SwiftUI `Button` actions are not introspectable, so `invoke` on a bare `plumeID` posts a synthetic click at the control's center. A site that passes `invoke:` runs that closure instead and reports `via: "closure"`.
 
-**Clicks go through `SyntheticClick`.** It builds `NSEvent`s for the window, calls `window.makeKey()` (never `NSApp.activate`, which would steal focus), posts the mouse-down, waits 150 ms, then posts the mouse-up. The gap is load-bearing: queued together, AppKit's tracking loop exits before it pumps the run loop, and the click behaves differently from a human one. `docs/selectable-text-link-hang.md` found this.
+**Clicks go through `SyntheticClick`.** It builds `NSEvent`s for the window, calls `window.makeKey()` (never `NSApp.activate`, which would steal focus), posts the mouse-down, waits 150 ms, then posts the mouse-up. The events go through `NSApp.postEvent`, so they pass every local `NSEvent` monitor on the way, as a real click does; `click` and `pointerDrag` therefore test a monitor such as the minimap's. The gap is load-bearing: queued together, AppKit's tracking loop exits before it pumps the run loop, and the click behaves differently from a human one. `docs/selectable-text-link-hang.md` found this.
 
 **A click on a text view is handed to the view.** A driven instance is never active, so `makeKey()` never makes its window key, and `NSWindow` spends a mouse-down on a non-key window making it key unless the view under the point accepts first mouse. SwiftUI's hosting views do; `NSTextView` does not, so a posted click never reached the composer. When the hit-tested view refuses first mouse, `SyntheticClick` makes it first responder and calls its `mouseDown(with:)` directly, which is the same entry a real click reaches, so the composer's own checkbox hit-test runs. The view's tracking loop runs the run loop in event-tracking mode until the mouse-up, where a sleeping task never resumes, so the mouse-up and drag events ride timers in the common modes. `view` in the result names the class the click went to.
 
@@ -206,15 +207,29 @@ Called with no point, `drag` instead surveys the window: every registered destin
 - **A chat's minimap and info pane mount a turn after its rows.** `visibleMs` ends with the frame that first shows the rows, and those two mount once it has committed (`AfterCommit`), fading in over 0.15 s. Their controls register then too, so a read sent the instant `selectTask` returns can miss them. Read again before calling one missing. The composer is never deferred: it must take keystrokes, and serve its focused scene value, from the first frame.
 - **The minimap is one registered control, driven through `setValue`.** The rail is a single `Canvas`, so it registers only `chat-minimap`, and it follows the pointer with `onContinuousHover`, which a synthetic `hover` never reaches. Its `value` is JSON: `side`, `spacing`, `scroll` (0–1, the map's own scroll) and `rows`, each `{index, label, kind, isVisible, isHovered}` with the end of the conversation as the last row (`kind: "end"`). `setValue` takes a command instead of a value:
   - `hover <n>` hovers row `n`, scrolling the map to it first if it is off the rail. It shows the magnification and the preview as a real pointer would.
-  - `hover <fraction>` (it must contain a `.`, as in `hover 0.5`) puts the pointer that far down the rail. The map scrolls through `MinimapCatchUp`, so a sequence of fractions drives the catch-up exactly like a pointer moving.
+  - `hover <fraction>` (it must contain a `.`, as in `hover 0.5`) puts the pointer that far down the rail. The map scrolls through `MinimapCatchUp`, so a sequence of fractions drives the catch-up exactly like a pointer moving. The first hover of a sequence sets where the pointer entered. The map holds still until a later one is the tuned dead zone (16 pt by default) away from it.
   - `leave` ends the hover. The map then returns to where the chat is.
-  - `click <n>` scrolls the chat to row `n`; `click end` scrolls it to the bottom.
+  - `click <n>` scrolls the chat to row `n`; `click end` scrolls it to the bottom. This calls the selection directly and skips the click monitor.
+
+  Either `hover` arms the minimap's click monitor, the way a real pointer over the rail does, until `leave`. A real `click` at a window point then goes through it: it selects the hovered row only if the point is on the rail, clear of the pane's edge, and over the chat's own content. Anywhere else, including a split divider, the click passes through. Use `describe` for the minimap's frame. The rail's edge is the frame's leading edge on the leading side, and its trailing edge on the trailing side.
 
   ```
   c describe target='{"id":"chat-minimap"}'
   c setValue target='{"id":"chat-minimap"}' value="hover 3"
+  c click x=12 y=300
+  c setValue target='{"id":"chat-minimap"}' value="leave"
   c setValue target='{"id":"chat-minimap"}' value="click end"
   ```
 
+  To make a short conversation overflow the rail, shrink the window with `windowSize`, as in `c windowSize width=900 height=420`.
+
   Settings ▸ Debug ▸ Minimap switches the side and the spacing; their pickers answer `setValue` with `leading`/`trailing` and `even`/`proportional` (`settings-minimap-side-picker`, `settings-minimap-spacing-picker`).
+- **A split is driven through `split-toggle` and `split-divider`.** The Split Right menu item reads disabled in a scratch instance, so `invoke` `split-toggle` instead. It splits the selected task to the right, or closes its split, and its label says which one it would do. While the task is split, `split-divider` registers the divider's grip with its frame. `invoke` on it resets the split to even, like a double-click. To test the gestures themselves, use `click` with `clickCount=2` on the grip's center, or `pointerDrag` from it.
+
+  ```
+  c invoke target='{"id":"split-toggle"}'
+  c describe target='{"id":"split-divider"}'
+  c pointerDrag fromX=640 fromY=300 toX=560 toY=300
+  c click x=560 y=300 clickCount=2
+  ```
 - **A SwiftUI `Menu`'s items mount only while it is open, so a `plumeID` inside one never registers.** Put `plumeMenuItem(_:)` on the `Menu` instead. It registers an always-mounted entry that runs the item's action. The entry has the menu's frame, so it answers `invoke` and not `click`. The tab strip's `+` menu and the device tab's Shut Down Emulator use it. A menu built from a list of entries registers each one from a `ForEach` behind the menu, with the row's `label:`, as the info pane's Linear row menu does.

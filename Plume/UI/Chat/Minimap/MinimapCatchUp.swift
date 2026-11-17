@@ -73,20 +73,38 @@ struct MinimapCatchUp: Equatable {
 struct MinimapHoverScroll: Equatable {
     private(set) var catchUp: MinimapCatchUp
     private(set) var travel: CGFloat
+    /// The pointer's height in the pane when the hover began.
+    let entryY: CGFloat
+    let deadZoneRadius: CGFloat
+    /// Whether the pointer is still within `deadZoneRadius` of `entryY`, where
+    /// the map holds still so a pointer settling onto a row doesn't scroll it.
+    private(set) var isHolding: Bool
     /// Where the map is scrolled, always within `0...travel`.
     var offset: CGFloat { catchUp.scroll * travel }
 
     /// Pins the catch-up to the map's current offset. An offset past the end
     /// clamps to it, which is where the map has to draw anyway.
-    init(offset: CGFloat, travel: CGFloat, pointer: CGFloat, gain: CGFloat) {
+    init(offset: CGFloat, travel: CGFloat, pointer: CGFloat, gain: CGFloat, entryY: CGFloat = 0, deadZoneRadius: CGFloat = 0) {
         self.travel = max(0, travel)
         let fraction = self.travel > 0 ? min(max(offset, 0), self.travel) / self.travel : 0
         catchUp = MinimapCatchUp(scroll: fraction, pointer: pointer, gain: gain)
+        self.entryY = entryY
+        self.deadZoneRadius = deadZoneRadius
+        isHolding = deadZoneRadius > 0
     }
 
-    mutating func move(to pointer: CGFloat, travel newTravel: CGFloat, gain: CGFloat) {
+    /// The move that leaves the dead zone only pins the catch-up to where the
+    /// pointer now is; the map starts following from the next one, so it
+    /// starts from rest rather than jumping by the distance already covered.
+    mutating func move(to pointer: CGFloat, pointerY: CGFloat = 0, travel newTravel: CGFloat, gain: CGFloat) {
         repin(travel: newTravel)
         catchUp.gain = gain
+        if isHolding {
+            guard abs(pointerY - entryY) >= deadZoneRadius else { return }
+            isHolding = false
+            catchUp = MinimapCatchUp(scroll: catchUp.scroll, pointer: pointer, gain: gain)
+            return
+        }
         catchUp.move(to: pointer)
     }
 
@@ -97,12 +115,15 @@ struct MinimapHoverScroll: Equatable {
     mutating func repin(travel newTravel: CGFloat) {
         guard newTravel != travel else { return }
         let pointer = catchUp.pointer
-        if catchUp.isLocked {
-            travel = max(0, newTravel)
-            catchUp = MinimapCatchUp(scroll: pointer, pointer: pointer, gain: catchUp.gain)
+        let newTravel = max(0, newTravel)
+        let fraction: CGFloat
+        if catchUp.isLocked && !isHolding {
+            fraction = pointer
         } else {
-            self = MinimapHoverScroll(offset: offset, travel: newTravel, pointer: pointer, gain: catchUp.gain)
+            fraction = newTravel > 0 ? min(max(offset, 0), newTravel) / newTravel : 0
         }
+        travel = newTravel
+        catchUp = MinimapCatchUp(scroll: fraction, pointer: pointer, gain: catchUp.gain)
     }
 }
 

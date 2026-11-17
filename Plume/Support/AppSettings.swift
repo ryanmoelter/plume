@@ -279,10 +279,10 @@ final class AppSettings {
         self.showsKeepAwakeDebugReadout = defaults.bool(forKey: Key.showsKeepAwakeDebugReadout)
         #if DEBUG
         self.minimapSide = defaults.string(forKey: Key.minimapSideRaw).flatMap(MinimapSide.init(rawValue:)) ?? .leading
-        self.minimapSpacing = defaults.string(forKey: Key.minimapSpacingRaw).flatMap(MinimapSpacing.init(rawValue:)) ?? .even
+        self.minimapSpacing = defaults.string(forKey: Key.minimapSpacingRaw).flatMap(MinimapSpacing.init(rawValue:)) ?? .proportional
         #else
         self.minimapSide = .leading
-        self.minimapSpacing = .even
+        self.minimapSpacing = .proportional
         #endif
 
         self.lidClosedThermalCutoff = defaults.string(forKey: Key.lidClosedThermalCutoffRaw)

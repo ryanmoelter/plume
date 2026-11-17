@@ -47,6 +47,8 @@ struct MinimapDebugSection: View {
                          range: MinimapTuning.durationRange, step: 0.01, format: Self.seconds)
             TuningSlider(title: "Catch-up gain", value: $tuning.values.catchUpGain,
                          range: MinimapTuning.catchUpGainRange, step: 0.5) { String(format: "%.1f", $0) }
+            TuningSlider(title: "Scroll dead zone", value: $tuning.values.deadZoneRadius,
+                         range: MinimapTuning.deadZoneRadiusRange, step: 1) { String(format: "%.0f pt", $0) }
             Button("Reset to defaults") { tuning.reset() }
                 .plumeID(AccessibilityID.settingsMinimapTuningReset)
                 .disabled(tuning.values == .defaults)

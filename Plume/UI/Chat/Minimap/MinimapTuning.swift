@@ -28,6 +28,9 @@ final class MinimapTuning {
         /// `MinimapCatchUp`'s gain: how much faster than the pointer the map
         /// scrolls per unit of gap.
         var catchUpGain: Double
+        /// Points the pointer can move from where it entered the rail before
+        /// the map starts to scroll. Rows still hover and preview inside it.
+        var deadZoneRadius: Double
 
         static let defaults = Values(
             genieRadius: 18,
@@ -40,7 +43,8 @@ final class MinimapTuning {
             slideDistance: 6,
             crossfadeDuration: 0.12,
             snapDuration: 0.14,
-            catchUpGain: 10
+            catchUpGain: 10,
+            deadZoneRadius: 16
         )
     }
 
@@ -52,6 +56,7 @@ final class MinimapTuning {
     static let durationRange: ClosedRange<Double> = 0...1
     static let slideDistanceRange: ClosedRange<Double> = 0...40
     static let catchUpGainRange: ClosedRange<Double> = 0...40
+    static let deadZoneRadiusRange: ClosedRange<Double> = 0...40
 
     var values: Values {
         didSet { scheduleSave() }
@@ -80,7 +85,8 @@ final class MinimapTuning {
             slideDistance: stored["slideDistance"] ?? fallback.slideDistance,
             crossfadeDuration: stored["crossfadeDuration"] ?? fallback.crossfadeDuration,
             snapDuration: stored["snapDuration"] ?? fallback.snapDuration,
-            catchUpGain: stored["catchUpGain"] ?? fallback.catchUpGain
+            catchUpGain: stored["catchUpGain"] ?? fallback.catchUpGain,
+            deadZoneRadius: stored["deadZoneRadius"] ?? fallback.deadZoneRadius
         )
     }
 
@@ -113,7 +119,8 @@ final class MinimapTuning {
             "slideDistance": values.slideDistance,
             "crossfadeDuration": values.crossfadeDuration,
             "snapDuration": values.snapDuration,
-            "catchUpGain": values.catchUpGain
+            "catchUpGain": values.catchUpGain,
+            "deadZoneRadius": values.deadZoneRadius
         ], forKey: Self.key)
         #endif
     }

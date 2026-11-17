@@ -375,3 +375,17 @@ struct ChatMinimapRevealExclusionTests {
         #expect(!ChatMinimap.tracksHover(atY: 301, isTracking: true, exclusionHeight: 0, drawableBottom: 300))
     }
 }
+
+/// The hover preview never runs past the chat pane's far edge.
+@MainActor
+struct ChatMinimapPreviewWidthTests {
+    @Test func aWidePaneGetsTheFullWidth() {
+        #expect(ChatMinimap.previewWidth(maximum: 280, viewportWidth: 900, railInset: 2, gap: 25) == 280)
+    }
+
+    /// 200 less the 2 pt inset, the 25 pt gap and the 8 pt margin.
+    @Test func aNarrowPaneCapsIt() {
+        #expect(ChatMinimap.previewWidth(maximum: 280, viewportWidth: 200, railInset: 2, gap: 25) == 165)
+        #expect(ChatMinimap.previewWidth(maximum: 280, viewportWidth: 10, railInset: 2, gap: 25) == 0)
+    }
+}

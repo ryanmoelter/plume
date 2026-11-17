@@ -110,6 +110,40 @@ struct MinimapHoverScrollTests {
         #expect(abs(scroll.offset - 0.6 * 410) < 0.0001)
     }
 
+    @Test func theMapHoldsStillInsideTheDeadZone() {
+        var scroll = MinimapHoverScroll(offset: 100, travel: 400, pointer: 0.6, gain: 10, entryY: 200, deadZoneRadius: 16)
+        for (pointer, y) in [(0.62, 205.0), (0.58, 190.0), (0.64, 215.0)] {
+            scroll.move(to: pointer, pointerY: y, travel: 400, gain: 10)
+            #expect(scroll.offset == 100)
+        }
+        #expect(scroll.isHolding)
+    }
+
+    @Test func aPointerOnTheMapsOwnPositionStillHolds() {
+        var scroll = MinimapHoverScroll(offset: 100, travel: 400, pointer: 0.25, gain: 10, entryY: 200, deadZoneRadius: 16)
+        scroll.move(to: 0.27, pointerY: 208, travel: 400, gain: 10)
+        #expect(scroll.offset == 100)
+    }
+
+    @Test func leavingTheDeadZoneStartsFromRest() {
+        var scroll = MinimapHoverScroll(offset: 100, travel: 400, pointer: 0.6, gain: 10, entryY: 200, deadZoneRadius: 16)
+        scroll.move(to: 0.66, pointerY: 230, travel: 400, gain: 10)
+        #expect(!scroll.isHolding)
+        #expect(scroll.offset == 100)
+
+        scroll.move(to: 0.67, pointerY: 235, travel: 400, gain: 10)
+        let step = scroll.offset - 100
+        #expect(step > 0)
+        // One pointer step of 0.01 at most (1 + gain × gap) of travel.
+        #expect(step <= 0.01 * (1 + 10 * 0.42) * 400 + 0.0001)
+    }
+
+    @Test func noDeadZoneFollowsAtOnce() {
+        var scroll = MinimapHoverScroll(offset: 100, travel: 400, pointer: 0.6, gain: 10)
+        scroll.move(to: 0.62, pointerY: 205, travel: 400, gain: 10)
+        #expect(scroll.offset > 100)
+    }
+
     @Test func aShrinkingTravelClampsTheOffset() {
         var scroll = MinimapHoverScroll(offset: 150, travel: 200, pointer: 0.5, gain: 10)
         scroll.repin(travel: 100)
