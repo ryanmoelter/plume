@@ -236,9 +236,13 @@ struct ComposerHostedTypingTests {
         try await Task.sleep(for: .milliseconds(50))
         let view = harness.view
         let wideWidth = view.frame.width
-        harness.draft.width = 260
-        for _ in 0..<100 where view.frame.width == wideWidth || view.needsFullLayout {
-            try await Task.sleep(for: .milliseconds(10))
+        await withCheckedContinuation { continuation in
+            view.didLayOutAllText = {
+                guard view.frame.width != wideWidth else { return }
+                view.didLayOutAllText = nil
+                continuation.resume()
+            }
+            harness.draft.width = 260
         }
         #expect(view.frame.width < wideWidth)
         #expect(!view.needsFullLayout)
@@ -333,13 +337,16 @@ extension ComposerHostedTypingTests {
             for withChips in [false, true] {
                 report.append(try await Self.measureKeystrokes(lineCount: lineCount, withChips: withChips))
             }
+            report.append(try await Self.measureKeystrokes(lineCount: lineCount, withChips: false, nearTop: true))
             if let output = Self.benchmarkOutput {
                 try report.joined(separator: "\n").write(toFile: output, atomically: true, encoding: .utf8)
             }
         }
     }
 
-    private static func measureKeystrokes(lineCount: Int, withChips: Bool) async throws -> String {
+    /// Types at the end of line 2 when `nearTop`, which lays out almost the
+    /// whole text after each key, or in the middle line otherwise.
+    private static func measureKeystrokes(lineCount: Int, withChips: Bool, nearTop: Bool = false) async throws -> String {
         let harness = try await makeHarness()
         defer { harness.close() }
         if withChips {
@@ -370,8 +377,9 @@ extension ComposerHostedTypingTests {
         let coordinator = try #require(view.composerCoordinator)
         let host = try #require(view.enclosingScrollView?.superview as? ScrollableComposerTextView)
         let ns = text as NSString
-        let middleLine = ns.range(of: "Plain line after code.", range: NSRange(location: ns.length / 2, length: ns.length / 2))
-        let caret = NSMaxRange(middleLine)
+        let caret = nearTop
+            ? NSMaxRange(ns.range(of: "## Section"))
+            : NSMaxRange(ns.range(of: "Plain line after code.", range: NSRange(location: ns.length / 2, length: ns.length / 2)))
         view.setSelectedRange(NSRange(location: caret, length: 0))
         view.scrollRangeToVisible(view.selectedRange())
 
@@ -421,7 +429,7 @@ extension ComposerHostedTypingTests {
             let middle = samples.map(value).sorted()[samples.count / 2]
             return String(format: "%.1f ms", Double(middle.components.seconds) * 1000 + Double(middle.components.attoseconds) / 1e15)
         }
-        return "lines=\(lineCount)\(withChips ? " chips" : "") key=\(median { $0.key }) restyle=\(median { $0.restyle }) layout=\(median { $0.layout }) "
+        return "lines=\(lineCount)\(withChips ? " chips" : "")\(nearTop ? " near-top" : "") key=\(median { $0.key }) restyle=\(median { $0.restyle }) layout=\(median { $0.layout }) "
             + "decorations=\(median { $0.decorations }) draw=\(median { $0.draw }) height=\(median { $0.height }) scroll=\(median { $0.scroll })"
     }
 

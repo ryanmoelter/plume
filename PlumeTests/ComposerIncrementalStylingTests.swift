@@ -150,16 +150,21 @@ struct ComposerIncrementalStylingTests {
 
     /// The attributes at `location` as drawn in light mode, since a dynamic
     /// color is a new object, never equal to another, on every call.
-    private static func drawn(_ storage: NSTextStorage, at location: Int) -> String {
-        let attributes = storage.attributes(at: location, effectiveRange: nil)
-        var color = ""
+    /// Every attribute at `location`, with colors resolved in aqua: a dynamic
+    /// `NSColor` never equals another instance with the same provider.
+    private static func drawn(_ storage: NSTextStorage, at location: Int) -> [String: String] {
+        var drawn: [String: String] = [:]
         NSAppearance(named: .aqua)?.performAsCurrentDrawingAppearance {
-            color = (attributes[.foregroundColor] as? NSColor)?.usingColorSpace(.sRGB).map { "\($0.redComponent) \($0.greenComponent) \($0.blueComponent) \($0.alphaComponent)" } ?? "none"
+            for (key, value) in storage.attributes(at: location, effectiveRange: nil) {
+                drawn[key.rawValue] = switch value {
+                case let color as NSColor:
+                    color.usingColorSpace(.sRGB).map { "\($0.redComponent) \($0.greenComponent) \($0.blueComponent) \($0.alphaComponent)" } ?? "\(color)"
+                case let font as NSFont: "\(font.fontName) \(font.pointSize)"
+                default: "\(value)"
+                }
+            }
         }
-        let font = (attributes[.font] as? NSFont).map { "\($0.fontName) \($0.pointSize)" } ?? "none"
-        let kern = (attributes[.kern] as? NSNumber)?.description ?? "none"
-        let paragraph = (attributes[.paragraphStyle] as? NSParagraphStyle)?.description ?? "none"
-        return [font, color, kern, paragraph].joined(separator: " | ")
+        return drawn
     }
 
     @discardableResult
