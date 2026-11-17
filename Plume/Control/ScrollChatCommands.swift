@@ -11,11 +11,7 @@ extension InProcessControlBackend {
         guard controller.scrollView.window != nil else { throw ControlError.notFound("chat list") }
         guard ScrollHitchProbe.active == nil else { throw ControlError.badParams("a scrollChat is already running") }
 
-        // A driven instance is never frontmost, and App Nap would otherwise
-        // throttle it into timings no user sees.
-        let activity = ProcessInfo.processInfo.beginActivity(
-            options: [.userInitiated, .latencyCritical], reason: "Measuring a chat scroll"
-        )
+        let activity = ControlActivity.begin(reason: "Measuring a chat scroll")
         defer { ProcessInfo.processInfo.endActivity(activity) }
         let report = await withCheckedContinuation { continuation in
             let driver = ScrollChatDriver(controller: controller, destination: destination, params: params) {
