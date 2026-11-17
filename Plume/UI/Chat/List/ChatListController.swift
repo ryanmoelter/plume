@@ -914,7 +914,8 @@ final class ChatListController: NSObject {
 
     private func animateHeight(of id: String, from: CGFloat, to: CGFloat) {
         guard from != to else { return }
-        if inputs.animate, model.viewportHeight > 0, documentView.window != nil {
+        let eases = animator.eases[id] != nil || ChatListMotion.easesHeightChange(from: from, to: to)
+        if eases, inputs.animate, model.viewportHeight > 0, documentView.window != nil {
             let live: Bool = if case let .piece(piece)? = items[id] { piece.isLive } else { false }
             #if DEBUG
             SwitchLatencyProbe.note("heightEase")
@@ -989,7 +990,7 @@ final class ChatListController: NSObject {
         } else if hadMeasurement, before != measured {
             // Realized again after its state was lost, at a different size.
             animateHeight(of: id, from: before, to: measured)
-            state.containerHeight = inputs.animate ? before : nil
+            state.containerHeight = inputs.animate ? model.displayHeight(of: id) : nil
         } else {
             state.containerHeight = inputs.animate ? measured : nil
         }
