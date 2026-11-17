@@ -185,6 +185,110 @@ struct TranscriptStoreTailReadTests {
         #expect(recorder.paths.contains(.appended))
     }
 
+    /// Holds one read between loading its bytes and parsing them, and reports
+    /// a read requested meanwhile.
+    @MainActor
+    private final class ReadGate {
+        private var holdsNext = false
+        private var held: CheckedContinuation<Void, Never>?
+        private var onHeld: CheckedContinuation<Void, Never>?
+        private var deferredReads = 0
+        private var onDeferred: CheckedContinuation<Void, Never>?
+
+        init(store: TranscriptStore) {
+            store.afterLoadingTranscript = { [weak self] _ in await self?.loaded() }
+            store.didDeferRead = { [weak self] _ in self?.deferred() }
+        }
+
+        func holdNextRead() { holdsNext = true }
+
+        func waitUntilHeld() async {
+            guard held == nil else { return }
+            await withCheckedContinuation { onHeld = $0 }
+        }
+
+        func waitForDeferredRead() async {
+            guard deferredReads == 0 else { return }
+            await withCheckedContinuation { onDeferred = $0 }
+        }
+
+        func release() {
+            held?.resume()
+            held = nil
+        }
+
+        private func loaded() async {
+            guard holdsNext else { return }
+            holdsNext = false
+            await withCheckedContinuation { continuation in
+                held = continuation
+                onHeld?.resume()
+                onHeld = nil
+            }
+        }
+
+        private func deferred() {
+            deferredReads += 1
+            onDeferred?.resume()
+            onDeferred = nil
+        }
+    }
+
+    @Test func aWriteDuringAReadIsReadFromWhereThatReadStopped() async throws {
+        let dir = makeTempDirectory()
+        defer { try? FileManager.default.removeItem(at: dir) }
+        let url = dir.appending(path: "session.jsonl")
+        try Data((line("u1", parent: nil, "start") + reply("a1", parent: "u1", id: "m1", "one")).utf8).write(to: url)
+
+        let (store, tab, recorder) = watching(url)
+        await waitUntil(store) { store.transcript(forTab: tab)?.messages.count == 2 }
+        let gate = ReadGate(store: store)
+
+        gate.holdNextRead()
+        append(line("u2", parent: "a1", "second"), to: url)
+        await gate.waitUntilHeld()
+        append(reply("a2", parent: "u2", id: "m2", "two"), to: url)
+        await gate.waitForDeferredRead()
+        gate.release()
+
+        let expected = fullParse(url)
+        await waitUntil(store) { store.transcript(forTab: tab) == expected }
+        #expect(store.transcript(forTab: tab) == expected)
+        #expect(recorder.paths.dropFirst().allSatisfy { $0 == .appended })
+    }
+
+    /// The re-watch's read finds no earlier parse and reads whole; the read
+    /// it replaced finishes later and must leave that parse alone.
+    @Test func aReadDiscardedByARewatchLeavesTheNewParseIntact() async throws {
+        let dir = makeTempDirectory()
+        defer { try? FileManager.default.removeItem(at: dir) }
+        let url = dir.appending(path: "session.jsonl")
+        let other = dir.appending(path: "other.jsonl")
+        try Data(line("u1", parent: nil, "start").utf8).write(to: url)
+        try Data(line("o1", parent: nil, "elsewhere").utf8).write(to: other)
+
+        let (store, tab, recorder) = watching(url)
+        await waitUntil(store) { store.transcript(forTab: tab)?.messages.count == 1 }
+        let gate = ReadGate(store: store)
+
+        gate.holdNextRead()
+        append(line("u2", parent: "u1", "second"), to: url)
+        await gate.waitUntilHeld()
+        store.watch(tabID: tab, transcriptPath: other.path)
+        store.watch(tabID: tab, transcriptPath: url.path)
+        var expected = fullParse(url)
+        await waitUntil(store) { store.transcript(forTab: tab) == expected }
+        let readsBeforeRelease = recorder.paths.count
+        gate.release()
+
+        append(line("u3", parent: "u2", "third"), to: url)
+        expected = fullParse(url)
+        await waitUntil(store) { store.transcript(forTab: tab) == expected }
+        #expect(store.transcript(forTab: tab) == expected)
+        #expect(recorder.paths[readsBeforeRelease...].contains(.appended))
+        #expect(!recorder.paths[readsBeforeRelease...].contains(.full))
+    }
+
     private func spawn(_ uuid: String, parent: String, toolUseID: String, description: String) -> String {
         #"{"type":"assistant","uuid":"\#(uuid)","parentUuid":"\#(parent)","message":{"id":"m-\#(uuid)","role":"assistant","content":[{"type":"tool_use","id":"\#(toolUseID)","name":"Agent","input":{"description":"\#(description)","subagent_type":"Explore","prompt":"look"}}]}}"#
             + "\n"
