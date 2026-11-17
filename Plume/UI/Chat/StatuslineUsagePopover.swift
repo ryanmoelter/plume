@@ -10,6 +10,7 @@ struct StatuslineUsagePopover: View, ThemedView {
     let quotaSummaries: [QuotaWindowSummary]
     /// Asked for a fresh breakdown each time the popover opens.
     let headlessSession: HeadlessSession?
+    var compact: CompactAction?
 
     var body: some View {
         VStack(alignment: .leading, spacing: 8) {
@@ -17,7 +18,8 @@ struct StatuslineUsagePopover: View, ThemedView {
                 ContextUsageSection(
                     usedTokens: contextUsedTokens,
                     maxTokens: contextMaxTokens,
-                    breakdown: headlessSession?.contextBreakdown
+                    breakdown: headlessSession?.contextBreakdown,
+                    compact: compact
                 )
             }
             ForEach(Array(quotaSummaries.enumerated()), id: \.offset) { index, summary in
@@ -42,12 +44,14 @@ struct ContextDetailsPopover: View, ThemedView {
     let contextMaxTokens: Int?
     /// Asked for a fresh breakdown each time the popover opens.
     let headlessSession: HeadlessSession?
+    var compact: CompactAction?
 
     var body: some View {
         ContextUsageSection(
             usedTokens: contextUsedTokens,
             maxTokens: contextMaxTokens,
-            breakdown: headlessSession?.contextBreakdown
+            breakdown: headlessSession?.contextBreakdown,
+            compact: compact
         )
         .usagePopoverStyle(typography: typography)
         .onAppear { headlessSession?.requestContextUsage() }
@@ -62,6 +66,9 @@ struct ContextUsageSection: View, ThemedView {
     let usedTokens: Int?
     let maxTokens: Int?
     let breakdown: ContextUsageBreakdown?
+    var compact: CompactAction?
+
+    @Environment(\.dismiss) private var dismiss
 
     private var percent: Double? {
         guard let usedTokens, let maxTokens, maxTokens > 0 else { return nil }
@@ -100,6 +107,20 @@ struct ContextUsageSection: View, ThemedView {
                 }
                 .padding(.top, 4)
             }
+            if let compact { compactButton(compact) }
         }
+    }
+
+    private func compactButton(_ compact: CompactAction) -> some View {
+        var reason: String?
+        if case .unavailable(let why) = compact.availability { reason = why }
+        return Button("Compact") {
+            dismiss()
+            compact.run()
+        }
+        .disabled(reason != nil)
+        .plumeID(AccessibilityID.statuslineCompactButton)
+        .help(reason ?? "Summarize the conversation to free up context")
+        .padding(.top, 6)
     }
 }

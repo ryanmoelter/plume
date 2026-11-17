@@ -51,6 +51,7 @@ struct StatuslineStripView: View, ThemedView {
     /// Supplies the context breakdown in the context popovers. Nil
     /// on every tab but a headless Claude one.
     let headlessSession: HeadlessSession?
+    let compact: CompactAction?
 
     @State private var showingUsage = false
     @State private var showingContext = false
@@ -67,7 +68,8 @@ struct StatuslineStripView: View, ThemedView {
         contextMaxTokens: Int? = nil,
         sessionCostUSD: Double? = nil,
         codexWindows: [CodexQuotaWindow] = [],
-        headlessSession: HeadlessSession? = nil
+        headlessSession: HeadlessSession? = nil,
+        compact: CompactAction? = nil
     ) {
         self.layout = layout
         self.provider = provider
@@ -76,6 +78,7 @@ struct StatuslineStripView: View, ThemedView {
         self.sessionCostUSD = sessionCostUSD
         self.codexWindows = codexWindows
         self.headlessSession = headlessSession
+        self.compact = compact
     }
 
     var body: some View {
@@ -211,7 +214,8 @@ struct StatuslineStripView: View, ThemedView {
                 contextUsedTokens: contextUsedTokens,
                 contextMaxTokens: contextMaxTokens,
                 quotaSummaries: quotaSummaries,
-                headlessSession: headlessSession
+                headlessSession: headlessSession,
+                compact: compact
             )
             .environment(\.theme, theme)
         }
@@ -275,7 +279,8 @@ struct StatuslineStripView: View, ThemedView {
                     ContextDetailsPopover(
                         contextUsedTokens: contextUsedTokens,
                         contextMaxTokens: contextMaxTokens,
-                        headlessSession: headlessSession
+                        headlessSession: headlessSession,
+                        compact: compact
                     )
                     .environment(\.theme, theme)
                 }

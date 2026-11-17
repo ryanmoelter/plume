@@ -358,6 +358,24 @@ struct ChatTabView: View, ThemedView {
         return AgentSessionManager.shared.existingSession(for: tab.id)
     }
 
+    private var compactAction: CompactAction? {
+        guard tab.provider == .claudeCode, let session = claudeSession else { return nil }
+        let hasConversation = !(tab.agentSessionID ?? "").isEmpty
+        return CompactAction(
+            availability: CompactAction.availability(
+                isWorking: session.isWorking,
+                isRestarting: session.isRestarting,
+                hasConversation: hasConversation
+            ),
+            run: { [tab, task] in
+                let live = session.hasExited
+                    ? AgentLauncher.relaunchHeadless(task: tab.task ?? task, tab: tab)
+                    : session
+                (live as? HeadlessSession)?.submit(text: CompactAction.command)
+            }
+        )
+    }
+
     /// Side questions, redo and fork are Claude Code control requests.
     private var claudeSession: HeadlessSession? {
         headlessSession as? HeadlessSession
@@ -810,7 +828,8 @@ struct ChatTabView: View, ThemedView {
                         ?? tab.model?.nominalContextWindow,
                     sessionCostUSD: displayedSessionCost,
                     codexWindows: tab.provider == .codex ? CodexQuotaStore.shared.windows : [],
-                    headlessSession: headlessSession as? HeadlessSession
+                    headlessSession: headlessSession as? HeadlessSession,
+                    compact: compactAction
                 )
                 if meters == .wide, tab.provider == .codex,
                    CodexQuotaStore.shared.windows.contains(where: { $0.usedPercent > 0 }) {
