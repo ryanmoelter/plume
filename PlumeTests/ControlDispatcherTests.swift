@@ -29,12 +29,13 @@ struct ControlDispatcherTests {
             #"{"id":"16","command":"tasks"}"#,
             #"{"id":"17","command":"selectTask","task":"Task 1","from":"Task 2","repeat":3}"#,
             #"{"id":"18","command":"appendTurn","repeat":4,"reply":false}"#,
+            #"{"id":"19","command":"resize","width":600,"height":400,"live":true,"steps":4}"#,
         ]
         for line in lines {
             let response = await ControlDispatcher.handle(line: line, backend: backend)
             #expect(response.ok, "\(line) → \(response.error ?? "")")
         }
-        #expect(backend.calls == ["list", "describe", "invoke", "setValue", "readText", "clickSpan", "click", "screenshot", "hierarchy", "hover", "clear", "selection", "selectText", "recordStart", "recordStop", "tasks", "selectTask", "appendTurn"])
+        #expect(backend.calls == ["list", "describe", "invoke", "setValue", "readText", "clickSpan", "click", "screenshot", "hierarchy", "hover", "clear", "selection", "selectText", "recordStart", "recordStop", "tasks", "selectTask", "appendTurn", "resize"])
         #expect(backend.lastValue == "v")
         #expect(backend.lastSelectTask == SelectTaskParams(task: "Task 1", from: "Task 2", repeatCount: 3))
         #expect(backend.lastAppendTurn == AppendTurnParams(repeatCount: 4, reply: false))
@@ -73,6 +74,7 @@ final class FakeControlBackend: ControlBackend {
     var listResult: [ControlDescription] = []
     var lastSelectTask: SelectTaskParams?
     var lastAppendTurn: AppendTurnParams?
+    var lastResize: ResizeParams?
 
     private func record(_ name: String) throws {
         calls.append(name)
@@ -188,6 +190,12 @@ final class FakeControlBackend: ControlBackend {
         try record("appendTurn")
         lastAppendTurn = params
         return SwitchLatencyReport(samples: [])
+    }
+
+    func resize(_ params: ResizeParams) async throws -> ResizeResult {
+        try record("resize")
+        lastResize = params
+        return ResizeResult(windowNumber: 0, width: params.width, height: params.height, sizes: [], live: params.live)
     }
 }
 

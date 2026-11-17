@@ -51,6 +51,8 @@ c click x=120 y=80
 c pointerDrag fromX=100 fromY=300 toX=400 toY=340 steps=12
 c hover target='{"id":"group-header","index":0}'
 c key key=j modifiers='["option"]'
+c key key=up modifiers='["shift"]'
+c resize width=900 height=700 live=true steps=10
 c menu
 c selectText from=hello to=world
 c selection
@@ -89,6 +91,6 @@ The server sees only what registers with it. A SwiftUI control with no `plumeID(
 
 Whether a menu command *ran*. SwiftUI fills a `focusedSceneValue` only while the app's scene is active, and a hidden instance's never is, so the whole Tab menu and most of the File menu read disabled and their chords do nothing — including chords that work fine for the user. `key` still proves which item owns a chord; `handledByEnabled` tells you the item was disabled, so read a no-op there as the harness, not a bug.
 
-Typed text in a field. A hidden instance never becomes active, so `window.makeKey()` is a no-op and posted key-downs reach the window, not the composer. `setValue` assigns the composer's string directly and skips its input rules. Neither proves typing is broken; verify typed composer behavior with a test that hosts a real `MarkdownComposerTextView` in an `NSWindow` and sends it `keyDown` events.
+Typed text before anything is focused. A driven instance never becomes active, so `window.makeKey()` never makes its window key. A key reaches the window's first responder, which `key` reports as `firstResponder`. Click the composer first (`clickSpan` or `click`) so it is the first responder, then type, and read the caret back from `readText`'s `selection`. `setValue` assigns the composer's string directly and skips its input rules.
 
 Terminal liveness. A tab's PTY is a real process, so whether it survived a switch is answered by the process tree, not by the window. The "Verifying terminal behavior" section of `CLAUDE.md` has that recipe; use both together when a change touches terminals.

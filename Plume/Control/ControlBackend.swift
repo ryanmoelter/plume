@@ -28,6 +28,7 @@ protocol ControlBackend {
     func tasks() throws -> TaskListResult
     func selectTask(_ params: SelectTaskParams) async throws -> SwitchLatencyReport
     func appendTurn(_ params: AppendTurnParams) async throws -> SwitchLatencyReport
+    func resize(_ params: ResizeParams) async throws -> ResizeResult
 }
 
 /// The one switch over `ControlCommand`, so a transport only moves bytes.
@@ -76,6 +77,7 @@ enum ControlDispatcher {
             case .tasks: result = .tasks(try backend.tasks())
             case .selectTask(let params): result = .switchLatency(try await backend.selectTask(params))
             case .appendTurn(let params): result = .switchLatency(try await backend.appendTurn(params))
+            case .resize(let params): result = .resize(try await backend.resize(params))
             }
             return .success(id: request.id, result)
         } catch {

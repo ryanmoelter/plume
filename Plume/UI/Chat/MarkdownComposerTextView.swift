@@ -858,6 +858,15 @@ final class ComposerNSTextView: NSTextView {
         apply(result)
     }
 
+    #if DEBUG
+    /// The checkboxes a click in the visible area can toggle, for the debug
+    /// control server.
+    var visibleCheckboxes: [ComposerDecorations.Checkbox] {
+        guard let markdownMetrics else { return [] }
+        return decorations(metrics: markdownMetrics, in: visibleRect).checkboxes
+    }
+    #endif
+
     override func mouseDown(with event: NSEvent) {
         if let markdownMetrics, editsMarkdown {
             let point = convert(event.locationInWindow, from: nil)
