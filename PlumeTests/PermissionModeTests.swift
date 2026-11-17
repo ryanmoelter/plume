@@ -21,7 +21,6 @@ struct PermissionModeTests {
     /// session running in one must not map onto a mode we do offer.
     @Test func doesNotRecognizeModesTheEnumOmits() {
         #expect(PermissionMode.recognizing("dontAsk") == nil)
-        #expect(PermissionMode.recognizing("default") == nil)
         #expect(PermissionMode.recognizing("") == nil)
     }
 
@@ -31,6 +30,11 @@ struct PermissionModeTests {
     @Test func recognizesBypassAndManualRegardlessOfPickerVisibility() {
         #expect(PermissionMode.recognizing("bypassPermissions") == .bypassPermissions)
         #expect(PermissionMode.recognizing("manual") == .manual)
+    }
+
+    @Test func recognizesTheCLIsDefaultAsManual() {
+        #expect(PermissionMode.recognizing("default") == .manual)
+        #expect(PermissionMode.manual.token == "manual")
     }
 
     @Test func offeredHidesBypassByDefault() {
