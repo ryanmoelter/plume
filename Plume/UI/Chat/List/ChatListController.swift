@@ -702,6 +702,15 @@ final class ChatListController: NSObject {
     }
 
     var realizedIDs: Set<String> { Set(hosts.keys) }
+    func displayHeight(of id: String) -> CGFloat { model.displayHeight(of: id) }
+    func containerHeight(of id: String) -> CGFloat? { hosts[id]?.state.containerHeight }
+    func heightEase(of id: String) -> ChatListAnimator.Ease? { animator.eases[id] }
+
+    /// Reports a realized row's height the way its root's `onMeasure` does.
+    func reportMeasurement(_ height: CGFloat, for id: String) {
+        guard let host = hosts[id] else { return }
+        report(id: id, height: height, width: model.measurementWidth, generation: host.generation)
+    }
     /// Every row built since the list was created, freed or not.
     private(set) var realizations = 0
 
