@@ -275,6 +275,20 @@ final class InProcessControlBackend: ControlBackend {
         )
     }
 
+    func windowSize(_ params: WindowSizeParams) throws -> WindowSizeResult {
+        let window = try window(for: params.windowNumber)
+        switch (params.width, params.height) {
+        case let (width?, height?):
+            window.setContentSize(NSSize(width: width, height: height))
+        case (nil, nil):
+            break
+        default:
+            throw ControlError.badParams("windowSize needs both width and height, or neither")
+        }
+        let size = window.contentView?.bounds.size ?? window.contentRect(forFrameRect: window.frame).size
+        return WindowSizeResult(windowNumber: window.windowNumber, width: size.width, height: size.height)
+    }
+
     func menu() throws -> MenuResult {
         guard let main = NSApp.mainMenu else { throw ControlError.notFound("main menu") }
         var items: [MenuItemDescription] = []

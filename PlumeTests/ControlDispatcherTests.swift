@@ -165,6 +165,11 @@ final class FakeControlBackend: ControlBackend {
         return MenuResult(items: [])
     }
 
+    func windowSize(_ params: WindowSizeParams) throws -> WindowSizeResult {
+        try record("windowSize")
+        return WindowSizeResult(windowNumber: 0, width: params.width ?? 0, height: params.height ?? 0)
+    }
+
     func selection() throws -> SelectionResult {
         try record("selection")
         return SelectionResult(markdown: "", plainText: "", anchor: nil, focus: nil)

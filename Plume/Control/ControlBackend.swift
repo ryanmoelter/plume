@@ -23,6 +23,7 @@ protocol ControlBackend {
     func drag(_ params: DragParams) async throws -> DragResult
     func key(_ params: KeyParams) async throws -> KeyResult
     func menu() throws -> MenuResult
+    func windowSize(_ params: WindowSizeParams) throws -> WindowSizeResult
     func selection() throws -> SelectionResult
     func selectText(_ params: SelectTextParams) throws -> SelectionResult
     func tasks() throws -> TaskListResult
@@ -73,6 +74,7 @@ enum ControlDispatcher {
             case .drag(let params): result = .drag(try await backend.drag(params))
             case .key(let params): result = .key(try await backend.key(params))
             case .menu: result = .menu(try backend.menu())
+            case .windowSize(let params): result = .windowSize(try backend.windowSize(params))
             case .selection: result = .selection(try backend.selection())
             case .selectText(let params): result = .selection(try backend.selectText(params))
             case .tasks: result = .tasks(try backend.tasks())

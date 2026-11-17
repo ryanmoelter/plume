@@ -177,6 +177,9 @@ enum AccessibilityID {
     /// One per on-screen tab; `value` is "focused" on the focused one.
     static let tabPane = "tab-pane"
     static let splitDivider = "split-divider"
+    /// Splits the selected task to the right, or closes its split. The menu
+    /// item reads disabled in a scratch instance, so drivers invoke this.
+    static let splitToggle = "split-toggle"
     static let newChatTabMenuItem = "new-chat-tab-menu-item"
     static let newTerminalTabMenuItem = "new-terminal-tab-menu-item"
     static let newAndroidDeviceTabMenuItem = "new-android-device-tab-menu-item"
