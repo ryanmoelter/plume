@@ -29,12 +29,11 @@ nonisolated struct FrameTimeSummary: Codable, Equatable {
     init?(_ samples: [Double]) {
         guard !samples.isEmpty else { return nil }
         let sorted = samples.sorted()
-        let n = sorted.count
-        count = n
-        median = n % 2 == 1 ? sorted[n / 2] : (sorted[n / 2 - 1] + sorted[n / 2]) / 2
+        count = sorted.count
+        median = sorted.median
         p90 = sorted.nearestRank(0.9)
         p99 = sorted.nearestRank(0.99)
-        max = sorted[n - 1]
+        max = sorted[count - 1]
     }
 }
 

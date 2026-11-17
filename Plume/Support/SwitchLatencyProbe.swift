@@ -77,7 +77,7 @@ enum SwitchLatencyProbe {
         let began = CACurrentMediaTime()
         defer {
             let elapsed = (CACurrentMediaTime() - began) * 1000
-            if run != nil { run?.spans[name, default: SwitchLatencySpan(name: name)].add(ms: elapsed) }
+            run?.spans[name, default: SwitchLatencySpan(name: name)].add(ms: elapsed)
             ScrollHitchProbe.record(name, ms: elapsed)
         }
         return body()
@@ -209,6 +209,11 @@ nonisolated extension [Double] {
     func nearestRank(_ quantile: Double) -> Double {
         self[Swift.max(Int((quantile * Double(count)).rounded(.up)), 1) - 1]
     }
+
+    /// Over ascending, non-empty samples.
+    var median: Double {
+        count % 2 == 1 ? self[count / 2] : (self[count / 2 - 1] + self[count / 2]) / 2
+    }
 }
 
 nonisolated struct LatencySummary: Codable, Equatable {
@@ -221,12 +226,11 @@ nonisolated struct LatencySummary: Codable, Equatable {
     init?(_ samples: [Double]) {
         guard !samples.isEmpty else { return nil }
         let sorted = samples.sorted()
-        let n = sorted.count
-        count = n
-        median = n % 2 == 1 ? sorted[n / 2] : (sorted[n / 2 - 1] + sorted[n / 2]) / 2
+        count = sorted.count
+        median = sorted.median
         p90 = sorted.nearestRank(0.9)
         min = sorted[0]
-        max = sorted[n - 1]
+        max = sorted[count - 1]
     }
 }
 

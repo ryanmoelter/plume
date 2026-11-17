@@ -706,7 +706,7 @@ final class ChatListController: NSObject {
     func containerHeight(of id: String) -> CGFloat? { hosts[id]?.state.containerHeight }
     func heightEase(of id: String) -> ChatListAnimator.Ease? { animator.eases[id] }
 
-    /// Reports a realized row's height the way its root's `onMeasure` does.
+    /// Feeds a measurement in as if the row reported it.
     func reportMeasurement(_ height: CGFloat, for id: String) {
         guard let host = hosts[id] else { return }
         report(id: id, height: height, width: model.measurementWidth, generation: host.generation)
