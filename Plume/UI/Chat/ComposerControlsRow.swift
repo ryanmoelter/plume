@@ -82,7 +82,14 @@ enum ComposerControlLabels {
     @MainActor
     static func model(_ state: ComposerSettings) -> String {
         guard let model = state.model else { return "Model" }
-        return state.isModelDefaulted ? "Default (\(model.label))" : model.label
+        let name = state.planModel.map { "\($0.label) → \(model.label)" } ?? model.label
+        return state.isModelDefaulted ? "Default (\(name))" : name
+    }
+
+    @MainActor
+    static func modelHelp(_ state: ComposerSettings) -> String {
+        guard let runs = state.model, let plans = state.planModel else { return "Model: \(model(state))" }
+        return "Plans with \(plans.label), then runs \(runs.label)"
     }
 }
 
@@ -254,10 +261,10 @@ private struct ModelControl: View, ThemedView {
                 isAskingForCustomID = true
             }
         }
-        .help(state.modeAndModelHelp("Model: \(label)"))
+        .help(state.modeAndModelHelp(ComposerControlLabels.modelHelp(state)))
         .accessibilityLabel("Model")
         .accessibilityValue(label)
-        .plumeID(AccessibilityID.composerModelControl)
+        .plumeID(AccessibilityID.composerModelControl, value: label)
         .popover(isPresented: $isAskingForCustomID) {
             CustomModelIDField(id: $customID) {
                 state.setModel(AgentModel(unrecognizedID: $0), provider: customProvider)

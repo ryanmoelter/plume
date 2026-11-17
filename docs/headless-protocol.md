@@ -85,7 +85,7 @@ The default is a separate value again: a *fresh* run with no `--model` reported 
 | `sonnet` | `claude-sonnet-5` | 1,000,000 |
 | `sonnet[1m]` | `claude-sonnet-5[1m]` | 1,000,000 |
 | `fable` | `claude-fable-5-1` | 1,000,000 |
-| `haiku` | `claude-haiku-4-5-20251001` | 200,000 |
+| `haiku` | `claude-haiku-5-5` (2.1.325; `claude-haiku-4-5-20251001` at 2.1.280) | 1,000,000 (200,000 at 2.1.280) |
 | `claude-haiku-4-5-20251001` | `claude-haiku-4-5-20251001` | 200,000 |
 | `haiku[1m]` | `claude-haiku-4-5-20251001[1m]` | 400 "long context beta is not yet available for this subscription" |
 | `not-a-real-model` | `not-a-real-model` | |
@@ -95,6 +95,22 @@ Three things follow.
 - **The `[1m]` suffix is redundant for Opus and Sonnet, and unusable for Haiku on this subscription.** `init` echoes the ID it was handed, suffix included, but for Opus/Sonnet the window is the same either way, and for Haiku the `[1m]` form 400s outright. So "More" offers every preset bare — `claude-opus-5-5`, `claude-opus-5`, `claude-sonnet-5` and `claude-haiku-4-5-20251001` — with no `[1m]` sibling, and `recognizing(_:)` strips a `[1m]` suffix before matching so a suffixed ID from an older release, or a stored `haiku[1m]` from before this subscription's beta status was known, lands on the same bare entry. `nominalContextWindow` reads 200K for Haiku and 1M for every other preset.
 - **The top-level picker sends `alias[1m]` for Opus and Sonnet** — `opus[1m]`/`sonnet[1m]` — and plain `fable`/`haiku`, and shows the bare family name until a session reports the resolved model. The CLI resolves the alias to its current model, so Plume never has to track a version for the default path.
 - **`init` echoes whatever ID it was handed**, including one the backend does not know, and it never lists the models on offer — `capabilities` names protocol features (`interrupt_receipt_v1` and friends). So there is no live model list to read, and `AgentModel.more` is maintained by hand. An ID with no preset round-trips as itself so the composer displays what the session actually runs on.
+
+### Plan mode swaps some aliases
+
+**In plan mode the CLI runs `haiku` on Sonnet and `opusplan` on Opus, but `init` still reports the alias's normal model.** The CLI bundle (2.1.325) holds the rule: `F$` matches exactly `opusplan` or `haiku`, `H_e` maps them to `opus` and `sonnet`, and `gat` swaps that model in only while `permissionMode` is `plan`. Measured by reading `init`'s `model` and each `assistant` row's `message.model`:
+
+| `--model` | `--permission-mode` | `init` reports | replies come from |
+| --- | --- | --- | --- |
+| `haiku` | `plan` | `claude-haiku-5-5` | `claude-sonnet-5-5` |
+| `haiku` | `default` | `claude-haiku-5-5` | `claude-haiku-5-5` |
+| `claude-haiku-5-5` | `plan` | `claude-haiku-5-5` | `claude-haiku-5-5` |
+| `opusplan` | `plan` | `claude-sonnet-5-5` | `claude-opus-5-5` |
+| `opusplan` | `default` | `claude-sonnet-5-5` | `claude-sonnet-5-5` |
+
+Only the bare alias swaps; a full ID plans on itself. `result.modelUsage` names the plan model too, but it also counts subagents, so it can't say which model the main thread used.
+
+**What Plume does with this.** The composer's model chip reads "Sonnet → Haiku 5.5" in plan mode, with the help text "Plans with Sonnet, then runs Haiku 5.5", and the plain model outside plan mode or when the two match. `PlanModeModel` owns the rule. `HeadlessSession` records the `message.model` of each main-thread reply while in plan mode, keyed to the run model at the time, and that observation overrides the prediction from the alias that `--model` or `set_model` last carried (`requestedModelID`). A different run model makes the observation stale.
 
 ## Sending a turn
 

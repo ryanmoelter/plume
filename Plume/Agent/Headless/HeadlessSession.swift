@@ -233,6 +233,13 @@ final class HeadlessSession: AgentSession {
     /// as unconfirmed until `init` reports what the conversation really has.
     private(set) var hasReportedModeAndModel = false
 
+    /// What `--model` or `set_model` last carried. `model` holds the ID
+    /// `init` resolved it to, which loses the alias plan mode keys off.
+    private(set) var requestedModelID: String?
+
+    /// The model the latest plan-mode reply came from.
+    private(set) var observedPlanModel: PlanModeModel.Observation?
+
     /// Messages typed while a turn is in flight, sent when it finishes.
     private(set) var queuedMessages: [[UserContentBlock]] = []
 
@@ -333,6 +340,7 @@ final class HeadlessSession: AgentSession {
         self.permissionMode = permissionMode
         permissionModeRequests.confirm(HeadlessCommand.launchPermissionMode(permissionMode))
         if let model { self.model = model }
+        requestedModelID = model?.id
         let arguments = HeadlessCommand.arguments(
             resumeSessionID: resumeSessionID,
             permissionMode: permissionMode,
@@ -753,6 +761,7 @@ final class HeadlessSession: AgentSession {
 
     func setModel(_ newModel: AgentModel) {
         model = newModel
+        requestedModelID = newModel.id
         send(StreamJSONEncoder.setModel(newModel.token, requestID: nextRequestID()))
     }
 
@@ -1090,6 +1099,10 @@ final class HeadlessSession: AgentSession {
             guard envelope.parentToolUseID == nil else { break }
             if !isWorking, !hasExited { beginUnpromptedTurn() }
             if let id = envelope.raw["id"]?.stringValue { lastAssistantMessageID = id }
+            if permissionMode == .plan, let runs = model,
+               let observation = PlanModeModel.observation(replyModel: envelope.raw["model"]?.stringValue, runs: runs) {
+                observedPlanModel = observation
+            }
 
         case .user:
             break
