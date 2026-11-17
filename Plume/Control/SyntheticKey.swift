@@ -26,22 +26,38 @@ enum SyntheticKey {
         return nil
     }
 
-    /// Keys that type no character on a layout, addressed by name over the
-    /// control socket. The characters are what AppKit reports for them, which
-    /// its key bindings match on (Page Up becomes `scrollPageUp:` in a text
-    /// view).
-    static let named: [(name: String, character: Character, code: CGKeyCode)] = [
-        ("pageup", "\u{F72C}", 116),
-        ("pagedown", "\u{F72D}", 121),
-        ("delete", MenuShortcut.backspace, 51),
+    struct NamedKey {
+        let name: String
+        let character: Character
+        let code: CGKeyCode
+        /// The flags AppKit sets on its own for this key: `.function` on the
+        /// navigation keys, and `.numericPad` too on the arrows.
+        let flags: NSEvent.ModifierFlags
+    }
+
+    /// Keys addressed by name over the control socket, mostly ones that type
+    /// no character on a layout. The characters are what AppKit reports for
+    /// them, which its key bindings match on (Page Up becomes `scrollPageUp:`
+    /// and ⌥← `moveWordLeft:` in a text view).
+    static let named: [NamedKey] = [
+        NamedKey(name: "pageup", character: "\u{F72C}", code: 116, flags: .function),
+        NamedKey(name: "pagedown", character: "\u{F72D}", code: 121, flags: .function),
+        NamedKey(name: "home", character: "\u{F729}", code: 115, flags: .function),
+        NamedKey(name: "end", character: "\u{F72B}", code: 119, flags: .function),
+        NamedKey(name: "left", character: "\u{F702}", code: 123, flags: [.function, .numericPad]),
+        NamedKey(name: "right", character: "\u{F703}", code: 124, flags: [.function, .numericPad]),
+        NamedKey(name: "up", character: "\u{F700}", code: 126, flags: [.function, .numericPad]),
+        NamedKey(name: "down", character: "\u{F701}", code: 125, flags: [.function, .numericPad]),
+        NamedKey(name: "delete", character: MenuShortcut.backspace, code: 51, flags: []),
+        NamedKey(name: "forwarddelete", character: "\u{F728}", code: 117, flags: .function),
+        NamedKey(name: "return", character: "\r", code: 36, flags: []),
+        NamedKey(name: "tab", character: "\t", code: 48, flags: []),
+        NamedKey(name: "escape", character: "\u{1B}", code: 53, flags: []),
+        NamedKey(name: "space", character: " ", code: 49, flags: []),
     ]
 
     static func character(named name: String) -> Character? {
         named.first { $0.name == name.lowercased() }?.character
-    }
-
-    private static func isFunctionKey(_ character: Character) -> Bool {
-        character == "\u{F72C}" || character == "\u{F72D}"
     }
 
     /// Delivers `shortcut` as a down/up pair to `window`.
@@ -53,8 +69,8 @@ enum SyntheticKey {
         guard let code = keyCode(for: shortcut.key) else {
             throw ControlError.badParams("no key on this layout types \"\(shortcut.key)\"")
         }
-        var flags = MenuShortcut.appKitFlags(shortcut.modifiers)
-        if isFunctionKey(shortcut.key) { flags.insert(.function) }
+        let namedKey = named.first { $0.character == shortcut.key }
+        let flags = MenuShortcut.appKitFlags(shortcut.modifiers).union(namedKey?.flags ?? [])
         // `charactersIgnoringModifiers` is what both the menu and
         // `TerminalShortcutMonitor` match on, so it carries the unmodified
         // character while `characters` carries what the chord composes to.
@@ -63,7 +79,7 @@ enum SyntheticKey {
             NSEvent.keyEvent(
                 with: type, location: .zero, modifierFlags: flags,
                 timestamp: ProcessInfo.processInfo.systemUptime, windowNumber: window.windowNumber,
-                context: nil, characters: Self.named.contains { $0.character == shortcut.key } ? bare : (composed(code, flags: flags) ?? bare),
+                context: nil, characters: namedKey != nil ? bare : (composed(code, flags: flags) ?? bare),
                 charactersIgnoringModifiers: bare, isARepeat: false, keyCode: UInt16(code)
             )
         }

@@ -43,6 +43,7 @@ nonisolated struct ControlServerRequest: Decodable {
         case "tasks": command = .tasks
         case "selectTask": command = .selectTask(try SelectTaskParams(from: decoder))
         case "appendTurn": command = .appendTurn(try AppendTurnParams(from: decoder))
+        case "resize": command = .resize(try ResizeParams(from: decoder))
         default:
             throw DecodingError.dataCorruptedError(
                 forKey: .command, in: container, debugDescription: "unknown command \"\(name)\""
@@ -74,6 +75,57 @@ nonisolated enum ControlCommand {
     case tasks
     case selectTask(SelectTaskParams)
     case appendTurn(AppendTurnParams)
+    case resize(ResizeParams)
+}
+
+/// Sets the window's content size, in points. With `live`, the size steps
+/// from the current one to the requested one inside a live resize, the way
+/// dragging the window's edge does: `viewWillStartLiveResize`, `steps`
+/// sizes, then `viewDidEndLiveResize`.
+nonisolated struct ResizeParams: Decodable, Equatable {
+    static let stepLimit = 120
+
+    var width: Double
+    var height: Double
+    var windowNumber: Int?
+    var live: Bool = false
+    var steps: Int = 8
+    /// Seconds between live steps, so each one gets a run-loop pass.
+    var stepDelay: Double = 0.016
+
+    private enum CodingKeys: String, CodingKey { case width, height, windowNumber, live, steps, stepDelay }
+
+    init(width: Double, height: Double, windowNumber: Int? = nil, live: Bool = false, steps: Int = 8, stepDelay: Double = 0.016) {
+        self.width = width
+        self.height = height
+        self.windowNumber = windowNumber
+        self.live = live
+        self.steps = min(max(steps, 1), Self.stepLimit)
+        self.stepDelay = min(max(stepDelay, 0), 1)
+    }
+
+    init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        self.init(
+            width: try c.decode(Double.self, forKey: .width),
+            height: try c.decode(Double.self, forKey: .height),
+            windowNumber: try c.decodeIfPresent(Int.self, forKey: .windowNumber),
+            live: try c.decodeIfPresent(Bool.self, forKey: .live) ?? false,
+            steps: try c.decodeIfPresent(Int.self, forKey: .steps) ?? 8,
+            stepDelay: try c.decodeIfPresent(Double.self, forKey: .stepDelay) ?? 0.016
+        )
+    }
+}
+
+nonisolated struct ResizeResult: Codable, Equatable {
+    var windowNumber: Int
+    /// The content size the window ended at, which AppKit clamps to the
+    /// window's minimum and maximum.
+    var width: Double
+    var height: Double
+    /// Every content size set along the way; one entry unless `live`.
+    var sizes: [Size]
+    var live: Bool
 }
 
 /// Selects `task` and measures the switch with `SwitchLatencyProbe`,
@@ -224,8 +276,9 @@ nonisolated struct SelectionResult: Codable, Equatable {
     var focus: SelectionPoint?
 }
 
-/// A chord to press, written the way the settings editor writes it: a single
-/// character plus modifier names (`command`, `shift`, `option`, `control`).
+/// A chord to press: a single character or a key name from
+/// `SyntheticKey.named`, plus modifier names (`command`, `shift`, `option`,
+/// `control`). An uppercase letter implies Shift.
 nonisolated struct KeyParams: Decodable {
     var key: String
     var modifiers: [String] = []
@@ -525,6 +578,16 @@ nonisolated enum ControlTarget: Codable, Equatable, CustomStringConvertible {
     }
 }
 
+nonisolated struct Size: Codable, Equatable {
+    var width: Double
+    var height: Double
+
+    init(_ size: CGSize) {
+        width = size.width
+        height = size.height
+    }
+}
+
 nonisolated struct Rect: Codable, Equatable {
     var x: Double
     var y: Double
@@ -561,11 +624,44 @@ nonisolated struct TextRow: Codable, Equatable {
 nonisolated struct TextResult: Codable, Equatable {
     var text: String
     var rows: [TextRow]?
+    /// The composer's selected range, in UTF-16 offsets into `text`.
+    var selection: TextRange?
+    /// The composer's checkboxes in its visible area, where a `click`
+    /// toggles them.
+    var checkboxes: [CheckboxDescription]?
+
+    init(text: String, rows: [TextRow]?, selection: TextRange? = nil, checkboxes: [CheckboxDescription]? = nil) {
+        self.text = text
+        self.rows = rows
+        self.selection = selection
+        self.checkboxes = checkboxes
+    }
+}
+
+nonisolated struct CheckboxDescription: Codable, Equatable {
+    /// Zero-based, counting every line of the composer's text.
+    var line: Int
+    var isChecked: Bool
+    var rect: Rect
+}
+
+nonisolated struct TextRange: Codable, Equatable {
+    var location: Int
+    var length: Int
 }
 
 nonisolated struct ClickResult: Codable, Equatable {
     var rect: Rect
     var windowNumber: Int
+    /// The class of the view the mouse-down hit-tested to, which is the view
+    /// AppKit sends it to.
+    var view: String?
+
+    init(rect: Rect, windowNumber: Int, view: String? = nil) {
+        self.rect = rect
+        self.windowNumber = windowNumber
+        self.view = view
+    }
 }
 
 nonisolated struct HoverResult: Codable, Equatable {
@@ -618,6 +714,9 @@ nonisolated struct KeyResult: Codable, Equatable {
     /// revalidates as it dispatches, so this can read false for an item that
     /// still fires.
     var handledByEnabled: Bool?
+    /// The class of the window's first responder after the press, which is
+    /// where an unclaimed key went.
+    var firstResponder: String?
 }
 
 /// One menu item, as AppKit holds it — the authority on what chord a command
@@ -676,6 +775,7 @@ nonisolated enum ControlResult: Encodable {
     case selection(SelectionResult)
     case tasks(TaskListResult)
     case switchLatency(SwitchLatencyReport)
+    case resize(ResizeResult)
 
     func encode(to encoder: Encoder) throws {
         switch self {
@@ -696,6 +796,7 @@ nonisolated enum ControlResult: Encodable {
         case .selection(let v): try v.encode(to: encoder)
         case .tasks(let v): try v.encode(to: encoder)
         case .switchLatency(let v): try v.encode(to: encoder)
+        case .resize(let v): try v.encode(to: encoder)
         }
     }
 }
