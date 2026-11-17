@@ -73,7 +73,8 @@ struct TranscriptStoreDebounceTests {
         return (tab, counter)
     }
 
-    /// Under a trailing-only debounce this would wait out the whole 60 s.
+    /// The debounce is far longer than the test runs, so the read it awaits
+    /// can only come from the leading edge.
     @Test func theFirstChangeIsReadWithoutWaitingOutTheDebounce() async throws {
         let dir = makeTempDirectory()
         defer { try? FileManager.default.removeItem(at: dir) }
