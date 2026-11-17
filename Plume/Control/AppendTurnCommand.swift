@@ -55,13 +55,26 @@ extension InProcessControlBackend {
     }
 }
 
-/// Whether `appendTurn` may write to a tab's transcript: a seeded fixture
-/// always, anything else only while no agent process could be writing it.
+/// Whether `appendTurn` may write to a tab's transcript. It never writes inside
+/// Claude Code's projects directory, since a later `--resume` would feed the
+/// synthetic rows to the model, and a process this instance cannot see (the
+/// installed app, a terminal `claude --resume`) may be writing there. Outside
+/// it, a seeded fixture is always writable and anything else only while no
+/// process of this instance backs the tab.
 nonisolated enum AppendTurnTarget {
     /// Nil when the append may go ahead, else why it may not.
-    static func refusal(path: String, seedPaths: [String], hasLiveProcess: Bool) -> String? {
-        let canonical = Set(seedPaths.map(Self.canonical))
-        if canonical.contains(Self.canonical(path)) || !hasLiveProcess { return nil }
+    static func refusal(
+        path: String,
+        seedPaths: [String],
+        hasLiveProcess: Bool,
+        projectsDirectory: URL = SessionJSONLReader.projectsDirectory
+    ) -> String? {
+        let target = canonical(path)
+        let projects = canonical(projectsDirectory.path)
+        if isInside(target, directory: projects) {
+            return "appendTurn never writes inside Claude Code's projects directory (\(projects)); seed the task with a scratch copy through PLUME_SEED_TRANSCRIPT_PATH"
+        }
+        if Set(seedPaths.map(canonical)).contains(target) || !hasLiveProcess { return nil }
         return "appendTurn writes only to a PLUME_SEED_TRANSCRIPT_PATH fixture or a transcript no agent process is writing, and an agent process backs this tab"
     }
 
@@ -71,8 +84,31 @@ nonisolated enum AppendTurnTarget {
         return paths.split(separator: ",").map { NSString(string: String($0)).expandingTildeInPath }
     }
 
+    /// Case-insensitive, as the volume is.
+    private static func isInside(_ path: String, directory: String) -> Bool {
+        let path = path.lowercased(), directory = directory.lowercased()
+        return path == directory || path.hasPrefix(directory + "/")
+    }
+
+    /// `realpath` of the longest prefix that exists, then the rest resolved
+    /// lexically. `resolvingSymlinksInPath` leaves a path whose file is
+    /// missing untouched, and strips `/private` only from one that exists.
     private static func canonical(_ path: String) -> String {
-        URL(fileURLWithPath: path).standardizedFileURL.resolvingSymlinksInPath().path
+        var head = path
+        var tail: [String] = []
+        while head != "/", !head.isEmpty {
+            if let resolved = realpath(head, nil) {
+                head = String(cString: resolved)
+                free(resolved)
+                break
+            }
+            tail.insert((head as NSString).lastPathComponent, at: 0)
+            head = (head as NSString).deletingLastPathComponent
+        }
+        for component in tail where component != "." {
+            head = component == ".." ? (head as NSString).deletingLastPathComponent : (head as NSString).appendingPathComponent(component)
+        }
+        return head
     }
 }
 

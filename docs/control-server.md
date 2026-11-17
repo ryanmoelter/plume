@@ -101,7 +101,8 @@ The report summarizes `visibleMs`, `firstTurnMs`, `rowsPlacedMs` and each span a
 
 `appendTurn` appends a synthetic user prompt, and with `reply = true` an assistant reply, to the transcript of the selected task's tab. It then times how long the chat takes to show the new prompt's row. It needs a selected task whose tab watches a transcript. The command writes to that file, so seed the task with `PLUME_SEED_TRANSCRIPT_PATH` pointing at a scratch copy, never the original. It refuses to write:
 
-- to a transcript that is not a `PLUME_SEED_TRANSCRIPT_PATH` path while a terminal or agent process backs the tab, since that process may be writing the same file;
+- to any path inside Claude Code's projects directory (`~/.claude/projects`), even a seeded one, after resolving symlinks and `..`. A later `--resume` would feed the synthetic rows to the model, and a process this instance can't see, such as the installed app or a terminal `claude --resume`, may be writing the file;
+- to a transcript that is not a `PLUME_SEED_TRANSCRIPT_PATH` path while a terminal or agent process of this instance backs the tab, since that process may be writing the same file;
 - to a file whose last byte is not a newline, since its last row may be half-written;
 - at all when opening, seeking or writing fails. That error returns at once, not after `timeout`.
 

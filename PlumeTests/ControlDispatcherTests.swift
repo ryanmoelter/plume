@@ -241,4 +241,26 @@ struct AppendTurnRefusalTests {
         #expect(AppendTurnTarget.refusal(path: "/tmp/c.jsonl", seedPaths: seeds, hasLiveProcess: true) != nil)
         #expect(AppendTurnTarget.refusal(path: "/tmp/c.jsonl", seedPaths: [], hasLiveProcess: true) != nil)
     }
+
+    @Test func refusesAnyPathInsideTheProjectsDirectory() throws {
+        let root = FileManager.default.temporaryDirectory.appendingPathComponent("append-turn-\(UUID().uuidString)")
+        defer { try? FileManager.default.removeItem(at: root) }
+        let projects = root.appendingPathComponent("projects")
+        let session = projects.appendingPathComponent("-Users-me-dev/session.jsonl").path
+        try FileManager.default.createDirectory(at: projects.appendingPathComponent("-Users-me-dev"), withIntermediateDirectories: true)
+        let link = root.appendingPathComponent("link")
+        try FileManager.default.createSymbolicLink(at: link, withDestinationURL: projects)
+        let viaLink = link.appendingPathComponent("-Users-me-dev/session.jsonl").path
+        let viaDotDot = root.appendingPathComponent("scratch/../projects/-Users-me-dev/session.jsonl").path
+        let sibling = root.appendingPathComponent("projects-copy/session.jsonl").path
+
+        for path in [session, viaLink, viaDotDot] {
+            #expect(AppendTurnTarget.refusal(
+                path: path, seedPaths: [path], hasLiveProcess: false, projectsDirectory: projects
+            ) != nil)
+        }
+        #expect(AppendTurnTarget.refusal(
+            path: sibling, seedPaths: [], hasLiveProcess: false, projectsDirectory: projects
+        ) == nil)
+    }
 }
