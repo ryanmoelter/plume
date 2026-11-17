@@ -15,7 +15,8 @@ enum ChatPieceSplitter {
         hiddenToolUseIDs: Set<String>,
         expandedAgentMessages: Set<String> = [],
         dimensions: Dimensions,
-        parse: (String) -> [MarkdownBlock.Parsed] = MarkdownBlock.parseWithSources
+        parse: (String) -> [MarkdownBlock.Parsed] = MarkdownBlock.parseWithSources,
+        memo: (any ChatPieceSplitMemo)? = nil
     ) -> [ChatPiece] {
         var result: [ChatPiece] = []
         let lastMessageID = messages.last?.id
@@ -32,27 +33,37 @@ enum ChatPieceSplitter {
                 lastMessageID: lastMessageID
             )
             let messageHiddenToolUseIDs = isLast ? hiddenToolUseIDs : []
-            let context = MessageContext(
+            let key = MessageSplitKey(
                 message: message,
                 needsInput: isLast && status.wantsAttention,
                 activity: isLast ? Self.activity(for: status) : nil,
                 hiddenToolUseIDs: messageHiddenToolUseIDs,
                 previousMessageKind: previousMessageKind,
-                expandedAgentMessages: expandedAgentMessages,
+                expandedAgentMessages: memo == nil
+                    ? expandedAgentMessages
+                    : Self.agentMessageKeys(of: message, in: expandedAgentMessages),
                 followsSlashCommand: previousMessage?.slashCommandText != nil,
                 dimensions: dimensions
             )
-            let group = pieces(of: context, parse: parse)
-            guard !group.isEmpty else { continue }
-            result += grouped(revealed(group, of: message), role: message.role)
+            if let reused = memo?.split(for: key) {
+                result += reused.pieces
+                previousMessageKind = reused.previousMessageKind
+                continue
+            }
+            let group = pieces(of: MessageContext(key), parse: parse)
+            let finished = group.isEmpty ? [] : grouped(revealed(group, of: message), role: message.role)
+            result += finished
             // The last *rendered* block, not the whole message: a message
             // ending in a call after prose still opens a run with whatever
             // follows it, and a message whose only call the dock has taken
             // over draws nothing here and must not count as either.
-            previousMessageKind = ChatBlockSpacing.lastRenderedKind(
-                message.blocks,
-                hiddenToolUseIDs: messageHiddenToolUseIDs
-            ) ?? previousMessageKind
+            if !group.isEmpty {
+                previousMessageKind = ChatBlockSpacing.lastRenderedKind(
+                    message.blocks,
+                    hiddenToolUseIDs: messageHiddenToolUseIDs
+                ) ?? previousMessageKind
+            }
+            memo?.store(MessageSplit(pieces: finished, previousMessageKind: previousMessageKind), for: key)
         }
 
         if !attachesToLastMessage, let activity = Self.activity(for: status) {
@@ -76,8 +87,9 @@ enum ChatPieceSplitter {
         return result
     }
 
-    /// Everything one message's pieces need that isn't the message.
-    private struct MessageContext {
+    /// Everything one message's finished pieces depend on, apart from what
+    /// `parse` returns for its texts.
+    struct MessageSplitKey: Equatable {
         let message: ChatMessage
         let needsInput: Bool
         /// The indicator closing the message, when it is the newest one and
@@ -90,6 +102,48 @@ enum ChatPieceSplitter {
         /// prompt this message may be.
         let followsSlashCommand: Bool
         let dimensions: Dimensions
+    }
+
+    /// One message's finished pieces, and the spacing kind it leaves for the
+    /// message after it.
+    struct MessageSplit {
+        let pieces: [ChatPiece]
+        let previousMessageKind: ChatBlockSpacing.Kind?
+    }
+
+    /// The expanded agent-message keys that belong to this message, so
+    /// expanding one message's agent reply leaves every other key unchanged.
+    private static func agentMessageKeys(of message: ChatMessage, in expanded: Set<String>) -> Set<String> {
+        guard !expanded.isEmpty else { return [] }
+        var keys: Set<String> = []
+        for (blockIndex, block) in message.blocks.enumerated() {
+            guard case .injected(.agentMessage, _) = block else { continue }
+            let key = "\(message.id)/\(blockIndex)"
+            if expanded.contains(key) { keys.insert(key) }
+        }
+        return keys
+    }
+
+    private struct MessageContext {
+        let message: ChatMessage
+        let needsInput: Bool
+        let activity: ChatPiece.Content?
+        let hiddenToolUseIDs: Set<String>
+        let previousMessageKind: ChatBlockSpacing.Kind?
+        let expandedAgentMessages: Set<String>
+        let followsSlashCommand: Bool
+        let dimensions: Dimensions
+
+        init(_ key: MessageSplitKey) {
+            message = key.message
+            needsInput = key.needsInput
+            activity = key.activity
+            hiddenToolUseIDs = key.hiddenToolUseIDs
+            previousMessageKind = key.previousMessageKind
+            expandedAgentMessages = key.expandedAgentMessages
+            followsSlashCommand = key.followsSlashCommand
+            dimensions = key.dimensions
+        }
 
         var wash: ChatPiece.Wash {
             switch message.role {
@@ -521,4 +575,14 @@ enum ChatPieceSplitter {
         if index == 0 { return .first }
         return index == count - 1 ? .last : .middle
     }
+}
+
+/// Reuses a message's finished pieces across builds. A conformer answers
+/// `split(for:)` only when what `parse` would return for the message's texts
+/// is unchanged too, since the key does not cover it.
+protocol ChatPieceSplitMemo: AnyObject {
+    func split(for key: ChatPieceSplitter.MessageSplitKey) -> ChatPieceSplitter.MessageSplit?
+    /// Called for every message `split(for:)` declined, after its pieces are
+    /// built, including one that drew nothing.
+    func store(_ split: ChatPieceSplitter.MessageSplit, for key: ChatPieceSplitter.MessageSplitKey)
 }

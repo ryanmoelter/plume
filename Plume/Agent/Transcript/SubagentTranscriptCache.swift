@@ -35,16 +35,11 @@ nonisolated struct SubagentTranscriptCache: Sendable {
     private struct Entry: Sendable {
         let fingerprint: FileFingerprint
         let transcript: Transcript
-        /// Decoded lines up to `consumed`, held only while the file is still
+        /// Decoded lines up to the cursor, held only while the file is still
         /// being written. A finished subagent stops writing, and holding its
         /// lines would double its memory for nothing.
         var lines: [TranscriptEntry]?
-        /// Bytes through the last newline. Anything after it is a line still
-        /// being written, decoded again on the next read.
-        let consumed: UInt64
-        /// The bytes just before `consumed`, compared on the next read to
-        /// tell an append from a rewrite of the same file.
-        let seam: Data
+        let cursor: AppendCursor
         var evidence: (subagent: LinearSubagentRef, value: [LinearEvidence])?
     }
 
@@ -59,7 +54,6 @@ nonisolated struct SubagentTranscriptCache: Sendable {
     /// A tab that goes idle reads no more, so the age limit alone would never
     /// release the lines of every subagent that was writing when it stopped.
     static let linesByteBudget: UInt64 = 64 << 20
-    private static let seamLength = 64
 
     private var entries: [String: Entry] = [:]
     /// Keyed by the subagent transcript's path, like `entries`.
@@ -109,7 +103,7 @@ nonisolated struct SubagentTranscriptCache: Sendable {
             .sorted { ($0.value.fingerprint.modifiedAt ?? .distantPast) > ($1.value.fingerprint.modifiedAt ?? .distantPast) }
         var kept: UInt64 = 0
         for (path, entry) in newestFirst {
-            kept += entry.consumed
+            kept += entry.cursor.consumed
             if kept > byteBudget { entries[path]?.lines = nil }
         }
     }
@@ -134,15 +128,14 @@ nonisolated struct SubagentTranscriptCache: Sendable {
 
         if let cached = entries[path], let lines = cached.lines,
            cached.fingerprint.fileNumber == fingerprint.fileNumber,
-           fingerprint.size >= cached.consumed,
-           let appended = Self.bytes(atPath: path, after: cached.consumed, seam: cached.seam) {
+           fingerprint.size >= cached.cursor.consumed,
+           let appended = cached.cursor.appendedBytes(atPath: path) {
             stats.appended += 1
             return store(
                 path: path,
                 fingerprint: fingerprint,
                 lines: lines,
-                consumed: cached.consumed,
-                seamSource: cached.seam,
+                cursor: cached.cursor,
                 newBytes: appended,
                 keepsLines: keepsLines
             )
@@ -157,8 +150,7 @@ nonisolated struct SubagentTranscriptCache: Sendable {
             path: path,
             fingerprint: fingerprint,
             lines: [],
-            consumed: 0,
-            seamSource: Data(),
+            cursor: AppendCursor(),
             newBytes: data,
             keepsLines: keepsLines
         )
@@ -168,15 +160,12 @@ nonisolated struct SubagentTranscriptCache: Sendable {
         path: String,
         fingerprint: FileFingerprint,
         lines previousLines: [TranscriptEntry],
-        consumed previousConsumed: UInt64,
-        seamSource: Data,
+        cursor previousCursor: AppendCursor,
         newBytes: Data,
         keepsLines: Bool
     ) -> (transcript: Transcript, modifiedAt: Date?) {
-        let completeLength = (newBytes.lastIndex(of: UInt8(ascii: "\n")).map { $0 + 1 } ?? newBytes.startIndex)
-            - newBytes.startIndex
-        let complete = newBytes.prefix(completeLength)
-        let unfinished = newBytes.dropFirst(completeLength)
+        var cursor = previousCursor
+        let (complete, unfinished) = cursor.advance(over: newBytes)
 
         var lines = previousLines
         lines.append(contentsOf: TranscriptParser.decodedEntries(in: Data(complete)))
@@ -188,28 +177,12 @@ nonisolated struct SubagentTranscriptCache: Sendable {
                 entries: lines + Array(TranscriptParser.decodedEntries(in: Data(unfinished))),
                 includeSidechain: true
             )
-        let seam = (seamSource + complete).suffix(Self.seamLength)
         entries[path] = Entry(
             fingerprint: fingerprint,
             transcript: transcript,
             lines: keepsLines ? lines : nil,
-            consumed: previousConsumed + UInt64(completeLength),
-            seam: Data(seam)
+            cursor: cursor
         )
         return (transcript, fingerprint.modifiedAt)
-    }
-
-    /// The bytes after `offset`, or nil when the bytes before it no longer
-    /// match `seam` — the file was rewritten rather than appended to.
-    private static func bytes(atPath path: String, after offset: UInt64, seam: Data) -> Data? {
-        guard let handle = FileHandle(forReadingAtPath: path) else { return nil }
-        defer { try? handle.close() }
-        let seamStart = offset - UInt64(seam.count)
-        guard (try? handle.seek(toOffset: seamStart)) != nil,
-              let data = try? handle.readToEnd() ?? Data(),
-              data.count >= seam.count,
-              data.prefix(seam.count) == seam
-        else { return nil }
-        return Data(data.dropFirst(seam.count))
     }
 }

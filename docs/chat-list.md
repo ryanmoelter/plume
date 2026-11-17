@@ -6,6 +6,8 @@ An earlier version rendered messages in a SwiftUI `LazyVStack` instead, and hung
 
 `ChatMessageList` still builds the pieces; this document is what happens once it hands them to the list. Read it before touching `Plume/UI/Chat/List/`.
 
+**A rebuild costs the messages that changed, not the transcript.** `ChatMessageList` rebuilds on every transcript update and every 100 ms batch of a streamed reply. `ChatPieceCache` keeps each message's finished pieces, keyed by `ChatPieceSplitter.MessageSplitKey`: the message, its live status, its hidden tool calls, its expanded agent messages, the spacing kind the message above ended on, whether that message ran a slash command, and the dimensions. A message is reused only if its key is equal and every chip title its links resolved to is unchanged. Titles are checked again only when the reference revision or the conversation's artifact titles change, because a later Artifact call can retitle an earlier message's chip. A new link base re-splits everything. Each message also keeps the parse of every markdown source it drew, so a re-split for a new width parses nothing again. The outline reuses each piece's weight while its content is unchanged. What remains proportional to the transcript is cheap per message: building and comparing each key, collecting the artifact titles, and the union of reference targets. `ChatPieceCacheIncrementalTests` and `ChatPieceCacheCorpusTests` compare each build against a fresh cache.
+
 ## The shape
 
 - **`ChatLayoutModel`** (`ChatLayoutModel.swift`) is the pure layout brain: item order, per-item heights (a target and an eased display value), prefix-sum offsets, which items fall in the realized window, the slack that pins a sent prompt to the top, and the arithmetic for keeping the reader's place. No AppKit, no SwiftUI, no `ChatPiece`. A measured height stops here and never flows back into `ChatPieceSplitter` or `ChatPieceEstimate`.
@@ -167,7 +169,7 @@ A link to a Linear issue, a GitHub pull request, a claude.ai artifact or a local
 - **Hovering a chip shows a tooltip with what its title leaves out** (`ReferenceChipTooltip`): an issue's full title, opening description lines, identifier, state, assignee and due date; a pull request's title, repository and number, state, author and review; a file's path relative to the tab directory. In the chat, `ReferenceChipToolTipOverlay` lays a `.help` region over each chip's rect from the `Text`'s layout, and that region takes the click and opens the link through `openURL`. In the composer, `ComposerReferenceToolTips` registers an AppKit tooltip rect per chip line from the decoration rects, and builds the text only when the tooltip shows. The details ride on `ReferenceChipStore.Resolution.detail`; a composer pull request no chat shows is looked up through `lookUpDetail(of:)`, so its author and review appear from the next hover.
 - **Clicking a file chip reveals it in Finder.** `ChatLinkOpener` selects a file target in a Finder window rather than opening it.
 - **Copy restores what was written.** A whole piece copies its `copySource`, which `ReferenceChipText.restoringCanonical` keeps as the original link. A partial selection widens to whole chips; markdown gets `[canonical](dest)`, while plain text and RTF get the title.
-- **Titles land together, and settle.** The store publishes titles only at a coalesced flush, and bumps the revision `ChatMessageList` builds pieces at. A rebuild at a new revision settles every message that is not live, so a title arriving under an old message never replays its reveal. Icons come from per-target boxes and redraw on their own, without a rebuild.
+- **Titles land together, and settle.** The store publishes titles only at a coalesced flush, and bumps the revision `ChatMessageList` builds pieces at. A flush bumps every owner that wants a changed target, and every released owner whatever changed: a list unmounted while a lookup was in flight still shows that chip when it mounts again, and `ChatPieceCache` re-checks a reused message's titles only at a new revision. A rebuild at a new revision settles every message that is not live, so a title arriving under an old message never replays its reveal. Icons come from per-target boxes and redraw on their own, without a rebuild.
 - **Lookups are per tab.** Linear issues go through `LinearStore.setWanted` under a per-tab owner. Pull requests go through `PullRequestLinkSource`, one `gh api graphql` query per repository, with its misses and its answers cached for a time. The composer draws the same chips from `MentionResolver` instead (`ComposerReferenceChips.swift`), with the text left untouched. A Linear or pull request chip there shows its title, as the chat does: the styler hides the whole token and widens its trigger's kern to hold the title, and `ComposerDecorations` draws the title over it. A selection's edge that lands among a titled chip's hidden characters snaps to the chip's edge, so a selection takes the chip whole; a caret inside it turns the chip back into text.
 
 ## The `chat-list` log category
@@ -184,8 +186,10 @@ pass items=<count> realized=<count> pool=<count> offset=<Int> max=<Int> total=<I
 
 Harness command line (DEBUG build):
 
+`PLUME_SEED_TRANSCRIPT_PATH` points tabs of the seeded tasks at the transcripts, so it needs `PLUME_SEED_TASKS` too. Without it there is no task to seed.
+
 ```
-PLUME_SEED_TRANSCRIPT_PATH=a.jsonl,b.jsonl \
+PLUME_SEED_TASKS=1 PLUME_SEED_TRANSCRIPT_PATH=a.jsonl,b.jsonl \
 PLUME_FAKE_STREAM=0.2 PLUME_CYCLE_SELECTION=5 PLUME_SCROLL_WHEEL=30 \
   <DerivedData>/Plume.app/Contents/MacOS/Plume &
 ```

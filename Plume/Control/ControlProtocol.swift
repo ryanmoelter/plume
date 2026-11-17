@@ -42,6 +42,7 @@ nonisolated struct ControlServerRequest: Decodable {
         case "selectText": command = .selectText(try SelectTextParams(from: decoder))
         case "tasks": command = .tasks
         case "selectTask": command = .selectTask(try SelectTaskParams(from: decoder))
+        case "appendTurn": command = .appendTurn(try AppendTurnParams(from: decoder))
         default:
             throw DecodingError.dataCorruptedError(
                 forKey: .command, in: container, debugDescription: "unknown command \"\(name)\""
@@ -72,6 +73,7 @@ nonisolated enum ControlCommand {
     case selectText(SelectTextParams)
     case tasks
     case selectTask(SelectTaskParams)
+    case appendTurn(AppendTurnParams)
 }
 
 /// Selects `task` and measures the switch with `SwitchLatencyProbe`,
@@ -111,6 +113,43 @@ nonisolated struct SelectTaskParams: Decodable, Equatable {
             repeatCount: try c.decodeIfPresent(Int.self, forKey: .repeatCount) ?? 1,
             timeout: try c.decodeIfPresent(Double.self, forKey: .timeout) ?? 5,
             settle: try c.decodeIfPresent(Double.self, forKey: .settle) ?? 0.3
+        )
+    }
+}
+
+/// Appends a synthetic prompt and reply to the selected task's transcript,
+/// `repeat` times, and measures each until the prompt's row is on screen.
+nonisolated struct AppendTurnParams: Decodable, Equatable {
+    static let repeatLimit = 200
+
+    var repeatCount: Int = 1
+    /// Seconds an append may take to show its row before it counts as timed out.
+    var timeout: Double = 15
+    /// Seconds to wait after each append, so its trailing work stays out of
+    /// the next one's measurement.
+    var settle: Double = 1
+    /// Whether a reply is written with each prompt, in the same write.
+    var reply = true
+
+    private enum CodingKeys: String, CodingKey {
+        case timeout, settle, reply
+        case repeatCount = "repeat"
+    }
+
+    init(repeatCount: Int = 1, timeout: Double = 15, settle: Double = 1, reply: Bool = true) {
+        self.repeatCount = min(max(repeatCount, 1), Self.repeatLimit)
+        self.timeout = max(timeout, 0.1)
+        self.settle = max(settle, 0)
+        self.reply = reply
+    }
+
+    init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        self.init(
+            repeatCount: try c.decodeIfPresent(Int.self, forKey: .repeatCount) ?? 1,
+            timeout: try c.decodeIfPresent(Double.self, forKey: .timeout) ?? 15,
+            settle: try c.decodeIfPresent(Double.self, forKey: .settle) ?? 1,
+            reply: try c.decodeIfPresent(Bool.self, forKey: .reply) ?? true
         )
     }
 }

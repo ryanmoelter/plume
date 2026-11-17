@@ -4,7 +4,7 @@ import Foundation
 /// the chat draws one list whichever source a message came from.
 ///
 /// A turn's text arrives twice: first as stream deltas, then as transcript
-/// lines the file watcher re-reads on a 250ms debounce. Both carry the API
+/// lines the file watcher re-reads, at most every 250ms. Both carry the API
 /// message id, and the transcript keys an assistant message by it, so the live
 /// reply is simply that message before the transcript has caught up —
 /// `HeadlessSession` retains the finished text until it has.

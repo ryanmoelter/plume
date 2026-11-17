@@ -1,12 +1,20 @@
 import Foundation
 
-/// Memoizes markdown parsing across rebuilds of one chat list's pieces.
+/// Memoizes a chat list's pieces across rebuilds, message by message.
 ///
 /// `TranscriptStore` replaces the whole message array on every file change,
-/// so a rebuild that parsed every message would cost the transcript's whole
-/// length each time. Keyed by the markdown source, which is what parsing
-/// depends on, and pruned to what the current messages hold — so the cache is
-/// exactly as large as the transcript on screen.
+/// and a streamed reply rebuilds every 100 ms, so a rebuild that re-split
+/// every message would cost the transcript's whole length each time. Instead
+/// each message keeps its finished pieces, and a rebuild re-splits only the
+/// messages whose `ChatPieceSplitter.MessageSplitKey` changed, or whose chip
+/// titles did. Typically that is the last one or two. Titles are checked
+/// again only at a new `referenceRevision`, so the caller must pass one that
+/// moves whenever a title it may show changes, even while it was unmounted;
+/// `ReferenceChipStore.revision(for:)` does. Each message also keeps
+/// the parse of every markdown source it drew, so a change that re-splits
+/// them all (a new width, say) parses nothing again. Everything is pruned to
+/// the messages the current build holds, so the cache is exactly as large as
+/// the transcript on screen.
 ///
 /// A tab's cache outlives its view (`forTab`), because switching tasks
 /// unmounts the chat and remounting it would otherwise re-split the whole
@@ -16,14 +24,13 @@ import Foundation
 /// realized rows: filling it from here would evict what the view needs.
 @MainActor
 final class ChatPieceCache {
-    private var parsed: [String: [MarkdownBlock.Parsed]] = [:]
     private var lastBuild: (inputs: Inputs, pieces: [ChatPiece])?
     private var builtOutline: ChatOutline?
-    /// Each source's link targets, in order, nil where a link isn't one.
-    private var linkTargets: [String: [ReferenceTarget?]] = [:]
-    /// The parse with each chip's title written in, keyed by the titles it
-    /// was written with.
-    private var rewritten: [RewriteKey: [MarkdownBlock.Parsed]] = [:]
+    private var entries: [String: MessageEntry] = [:]
+    private let sources = SourceTable()
+    private var artifactTitles: ArtifactChipTitles?
+    /// Each piece's outline weight, with the content it was computed from.
+    private var outlineWeights: [String: (content: ChatPiece.Content, weight: CGFloat)] = [:]
 
     private struct Inputs: Equatable {
         let messages: [ChatMessage]
@@ -35,9 +42,48 @@ final class ChatPieceCache {
         let linkBase: URL?
     }
 
-    private struct RewriteKey: Hashable {
-        let source: String
-        let titles: [String?]
+    /// One markdown source a message drew, parsed, with its chips written in.
+    private struct Source {
+        let blocks: [MarkdownBlock.Parsed]
+        /// Each link's target, in order, nil where a link isn't one. Nil
+        /// until scanned, and never scanned for a source with no link.
+        var targets: [ReferenceTarget?]?
+        /// The chip title each target resolved to when `chipped` was written.
+        var titles: [String?]?
+        var chipped: [MarkdownBlock.Parsed]?
+
+        var output: [MarkdownBlock.Parsed] { chipped ?? blocks }
+    }
+
+    /// Every source the kept messages drew, so a message drawing text an
+    /// earlier one drew parses nothing. Counted per message, and pruned when
+    /// no kept message draws it.
+    private final class SourceTable {
+        var sources: [String: Source] = [:]
+        var references: [String: Int] = [:]
+
+        func retain(_ entry: MessageEntry) {
+            for markdown in entry.sources.keys { references[markdown, default: 0] += 1 }
+        }
+
+        func release(_ entry: MessageEntry) {
+            for markdown in entry.sources.keys {
+                let count = (references[markdown] ?? 1) - 1
+                if count > 0 {
+                    references[markdown] = count
+                } else {
+                    references[markdown] = nil
+                    sources[markdown] = nil
+                }
+            }
+        }
+    }
+
+    private struct MessageEntry {
+        let key: ChatPieceSplitter.MessageSplitKey
+        let split: ChatPieceSplitter.MessageSplit
+        let sources: [String: Source]
+        let targets: [ReferenceTarget]
     }
 
     /// Every chip-shaped target the last build's links named.
@@ -45,6 +91,10 @@ final class ChatPieceCache {
 
     /// How many sources have actually been parsed since this cache was made.
     private(set) var parseCount = 0
+
+    /// How many messages have been split rather than reused since this cache
+    /// was made.
+    private(set) var splitCount = 0
 
     private static var byTab: [UUID: ChatPieceCache] = [:]
     /// Most recently used last. Bounds how many transcripts' parses stay in
@@ -67,7 +117,19 @@ final class ChatPieceCache {
     /// The minimap's outline of the last build's pieces, made once per build.
     var outline: ChatOutline {
         if let builtOutline { return builtOutline }
-        let outline = ChatOutlineBuilder.outline(from: lastBuild?.pieces ?? [])
+        let pieces = lastBuild?.pieces ?? []
+        var weights: [String: (content: ChatPiece.Content, weight: CGFloat)] = [:]
+        weights.reserveCapacity(pieces.count)
+        let outline = ChatOutlineBuilder.outline(from: pieces) { piece in
+            if let known = outlineWeights[piece.id], known.content == piece.content {
+                weights[piece.id] = known
+                return known.weight
+            }
+            let weight = ChatOutlineBuilder.weight(of: piece)
+            weights[piece.id] = (piece.content, weight)
+            return weight
+        }
+        outlineWeights = weights
         builtOutline = outline
         return outline
     }
@@ -85,7 +147,7 @@ final class ChatPieceCache {
         dimensions: Dimensions,
         referenceRevision: Int = 0,
         linkBase: URL? = nil,
-        referenceTitle: (ReferenceTarget) -> String? = { _ in nil }
+        referenceTitle: @escaping (ReferenceTarget) -> String? = { _ in nil }
     ) -> [ChatPiece] {
         let inputs = Inputs(
             messages: messages,
@@ -105,69 +167,182 @@ final class ChatPieceCache {
         #if DEBUG
         SwitchLatencyProbe.note("pieceCacheMiss")
         #endif
-        if lastBuild?.inputs.linkBase != linkBase { linkTargets = [:] }
-
-        var next: [String: [MarkdownBlock.Parsed]] = [:]
-        next.reserveCapacity(parsed.count)
-        var nextTargets: [String: [ReferenceTarget?]] = [:]
-        var nextRewritten: [RewriteKey: [MarkdownBlock.Parsed]] = [:]
-        var foundTargets = Set<ReferenceTarget>()
         let artifactTitles = ArtifactChipTitles(messages: messages)
-        func chipTitle(_ target: ReferenceTarget) -> String? {
-            if case .artifact(let id) = target { return artifactTitles.title(forArtifact: id) ?? "" }
-            return referenceTitle(target)
-        }
+        let build = Build(
+            previous: entries,
+            sources: sources,
+            linkBase: linkBase,
+            targetsReusable: lastBuild.map { $0.inputs.linkBase == linkBase } ?? true,
+            titlesReusable: lastBuild?.inputs.referenceRevision == referenceRevision
+                && self.artifactTitles == artifactTitles,
+            artifactTitles: artifactTitles,
+            referenceTitle: referenceTitle
+        )
         let pieces = ChatPieceSplitter.pieces(
             for: messages,
             status: status,
             hiddenToolUseIDs: hiddenToolUseIDs,
             expandedAgentMessages: expandedAgentMessages,
             dimensions: dimensions,
-            parse: { markdown in
-                let blocks = next[markdown] ?? parsed[markdown] ?? {
-                    parseCount += 1
-                    return MarkdownBlock.parseWithSources(markdown)
-                }()
-                next[markdown] = blocks
-                guard markdown.contains("](") || markdown.contains("://") else { return blocks }
-
-                let targets = nextTargets[markdown] ?? linkTargets[markdown] ?? Self.targets(in: blocks, base: linkBase)
-                nextTargets[markdown] = targets
-                foundTargets.formUnion(targets.compactMap { $0 })
-                let titles = targets.map { $0.flatMap(chipTitle) }
-                guard titles.contains(where: { $0 != nil }) else { return blocks }
-
-                let key = RewriteKey(source: markdown, titles: titles)
-                if let reused = nextRewritten[key] ?? rewritten[key] {
-                    nextRewritten[key] = reused
-                    return reused
-                }
-                let chipped = blocks.map { entry in
-                    MarkdownBlock.Parsed(
-                        block: entry.block.mappingInline { text in
-                            ReferenceChipText.rewrite(text) { destination, label in
-                                let target = ReferenceChipText.url(forDestination: destination)
-                                    .flatMap { ReferenceTarget.classify($0, base: linkBase) }
-                                if case .artifact(let id) = target {
-                                    return artifactTitles.title(forArtifact: id, label: label, destination: destination)
-                                }
-                                return target.flatMap(chipTitle)
-                            }
-                        },
-                        source: entry.source
-                    )
-                }
-                nextRewritten[key] = chipped
-                return chipped
-            }
+            parse: build.parse,
+            memo: build
         )
-        parsed = next
-        linkTargets = nextTargets
-        rewritten = nextRewritten
-        referenceTargets = foundTargets
+        build.releaseDropped()
+        entries = build.entries
+        self.artifactTitles = artifactTitles
+        parseCount += build.parseCount
+        splitCount += build.splitCount
+        referenceTargets = build.foundTargets
         lastBuild = (inputs, pieces)
         builtOutline = nil
         return pieces
+    }
+
+    /// One rebuild's state: the memo the splitter asks, and the parse it
+    /// calls while splitting a message the memo declined.
+    private final class Build: ChatPieceSplitMemo {
+        private let previous: [String: MessageEntry]
+        private let sources: SourceTable
+        private let linkBase: URL?
+        /// False when the link base changed, which reclassifies every link.
+        private let targetsReusable: Bool
+        /// False when a reference title or an artifact's title may have
+        /// changed, so each reused message's titles are looked up again.
+        private let titlesReusable: Bool
+        private let artifactTitles: ArtifactChipTitles
+        private let referenceTitle: (ReferenceTarget) -> String?
+
+        private(set) var entries: [String: MessageEntry] = [:]
+        private(set) var foundTargets = Set<ReferenceTarget>()
+        private(set) var parseCount = 0
+        private(set) var splitCount = 0
+        private var splitting: [String: Source] = [:]
+        private var reusedIDs = Set<String>()
+        private var storedIDs = Set<String>()
+
+        init(
+            previous: [String: MessageEntry],
+            sources: SourceTable,
+            linkBase: URL?,
+            targetsReusable: Bool,
+            titlesReusable: Bool,
+            artifactTitles: ArtifactChipTitles,
+            referenceTitle: @escaping (ReferenceTarget) -> String?
+        ) {
+            self.previous = previous
+            self.sources = sources
+            self.linkBase = linkBase
+            self.targetsReusable = targetsReusable
+            self.titlesReusable = titlesReusable
+            self.artifactTitles = artifactTitles
+            self.referenceTitle = referenceTitle
+            entries.reserveCapacity(previous.count + 1)
+            if !targetsReusable {
+                sources.sources = sources.sources.mapValues { Source(blocks: $0.blocks) }
+            }
+        }
+
+        func split(for key: ChatPieceSplitter.MessageSplitKey) -> ChatPieceSplitter.MessageSplit? {
+            let id = key.message.id
+            splitting = [:]
+            guard targetsReusable,
+                  let entry = previous[id],
+                  entry.key == key,
+                  titlesReusable || entry.sources.values.allSatisfy(titlesUnchanged)
+            else { return nil }
+            replace(id, with: entry)
+            reusedIDs.insert(id)
+            foundTargets.formUnion(entry.targets)
+            return entry.split
+        }
+
+        func store(_ split: ChatPieceSplitter.MessageSplit, for key: ChatPieceSplitter.MessageSplitKey) {
+            splitCount += 1
+            let id = key.message.id
+            let entry = MessageEntry(
+                key: key,
+                split: split,
+                sources: splitting,
+                targets: splitting.values.flatMap { $0.targets?.compactMap { $0 } ?? [] }
+            )
+            replace(id, with: entry)
+            reusedIDs.remove(id)
+            storedIDs.insert(id)
+            sources.retain(entry)
+        }
+
+        /// Only a transcript repeating a message id replaces an entry this
+        /// build already made.
+        private func replace(_ id: String, with entry: MessageEntry) {
+            if storedIDs.contains(id), let made = entries[id] {
+                sources.release(made)
+                storedIDs.remove(id)
+            }
+            entries[id] = entry
+        }
+
+        /// Releases the sources of every previous message this build didn't
+        /// reuse. Call once, after the splitter.
+        func releaseDropped() {
+            guard reusedIDs.count < previous.count else { return }
+            for (id, entry) in previous where !reusedIDs.contains(id) {
+                sources.release(entry)
+            }
+        }
+
+        private func titlesUnchanged(_ source: Source) -> Bool {
+            guard let targets = source.targets else { return true }
+            return source.titles == targets.map { $0.flatMap(chipTitle) }
+        }
+
+        private func chipTitle(_ target: ReferenceTarget) -> String? {
+            if case .artifact(let id) = target { return artifactTitles.title(forArtifact: id) ?? "" }
+            return referenceTitle(target)
+        }
+
+        func parse(_ markdown: String) -> [MarkdownBlock.Parsed] {
+            if let source = splitting[markdown] { return source.output }
+            var source: Source
+            if let shared = sources.sources[markdown] {
+                source = shared
+            } else {
+                parseCount += 1
+                source = Source(blocks: MarkdownBlock.parseWithSources(markdown))
+            }
+            defer {
+                splitting[markdown] = source
+                sources.sources[markdown] = source
+            }
+            guard markdown.contains("](") || markdown.contains("://") else { return source.output }
+
+            let targets = source.targets ?? ChatPieceCache.targets(in: source.blocks, base: linkBase)
+            source.targets = targets
+            foundTargets.formUnion(targets.compactMap { $0 })
+            let titles = targets.map { $0.flatMap(chipTitle) }
+            if source.titles != titles {
+                source.titles = titles
+                source.chipped = titles.contains(where: { $0 != nil }) ? chipped(source.blocks) : nil
+            }
+            return source.output
+        }
+
+        private func chipped(_ blocks: [MarkdownBlock.Parsed]) -> [MarkdownBlock.Parsed] {
+            blocks.map { entry in
+                MarkdownBlock.Parsed(
+                    block: entry.block.mappingInline { text in
+                        ReferenceChipText.rewrite(text) { destination, label in
+                            let target = ReferenceChipText.url(forDestination: destination)
+                                .flatMap { ReferenceTarget.classify($0, base: linkBase) }
+                            if case .artifact(let id) = target {
+                                return artifactTitles.title(forArtifact: id, label: label, destination: destination)
+                            }
+                            return target.flatMap(chipTitle)
+                        }
+                    },
+                    source: entry.source
+                )
+            }
+        }
     }
 
     /// Scanned per block, so a fence's backtick can't pair with an inline

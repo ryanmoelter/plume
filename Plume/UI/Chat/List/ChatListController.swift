@@ -816,7 +816,14 @@ final class ChatListController: NSObject {
         publishVisibleIDs(offset: offset)
         logPass(offset: offset, viewport: viewport)
         #if DEBUG
-        if hasRealizedRows { SwitchLatencyProbe.noteRowsPlaced(tabID: inputs.tabID) }
+        if hasRealizedRows {
+            SwitchLatencyProbe.noteRowsPlaced(tabID: inputs.tabID) { messageID in
+                hosts.keys.contains { id in
+                    if case .piece(let piece) = items[id] { return piece.messageID == messageID }
+                    return false
+                }
+            }
+        }
         #endif
     }
 

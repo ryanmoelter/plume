@@ -51,7 +51,8 @@ struct ChatPageList: View, ThemedView {
         .onChange(of: dimensions.contentWidth) { rebuildPieces() }
         .onChange(of: referenceRevision) { rebuildPieces() }
         .onChange(of: linkDirectory) { rebuildPieces() }
-        .onDisappear { ReferenceChipStore.shared.release(owner: chipOwner) }
+        // A fresh owner every mount, so nothing reads its revision again.
+        .onDisappear { ReferenceChipStore.shared.forget(owner: chipOwner) }
     }
 
     private var referenceRevision: Int {

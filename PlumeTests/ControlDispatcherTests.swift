@@ -28,14 +28,16 @@ struct ControlDispatcherTests {
             #"{"id":"15","command":"recordStop"}"#,
             #"{"id":"16","command":"tasks"}"#,
             #"{"id":"17","command":"selectTask","task":"Task 1","from":"Task 2","repeat":3}"#,
+            #"{"id":"18","command":"appendTurn","repeat":4,"reply":false}"#,
         ]
         for line in lines {
             let response = await ControlDispatcher.handle(line: line, backend: backend)
             #expect(response.ok, "\(line) → \(response.error ?? "")")
         }
-        #expect(backend.calls == ["list", "describe", "invoke", "setValue", "readText", "clickSpan", "click", "screenshot", "hierarchy", "hover", "clear", "selection", "selectText", "recordStart", "recordStop", "tasks", "selectTask"])
+        #expect(backend.calls == ["list", "describe", "invoke", "setValue", "readText", "clickSpan", "click", "screenshot", "hierarchy", "hover", "clear", "selection", "selectText", "recordStart", "recordStop", "tasks", "selectTask", "appendTurn"])
         #expect(backend.lastValue == "v")
         #expect(backend.lastSelectTask == SelectTaskParams(task: "Task 1", from: "Task 2", repeatCount: 3))
+        #expect(backend.lastAppendTurn == AppendTurnParams(repeatCount: 4, reply: false))
     }
 
     @Test func backendErrorsBecomeErrorResponsesOnTheSameID() async {
@@ -70,6 +72,7 @@ final class FakeControlBackend: ControlBackend {
     var failure: Error?
     var listResult: [ControlDescription] = []
     var lastSelectTask: SelectTaskParams?
+    var lastAppendTurn: AppendTurnParams?
 
     private func record(_ name: String) throws {
         calls.append(name)
@@ -179,5 +182,63 @@ final class FakeControlBackend: ControlBackend {
         try record("selectTask")
         lastSelectTask = params
         return SwitchLatencyReport(samples: [])
+    }
+
+    func appendTurn(_ params: AppendTurnParams) async throws -> SwitchLatencyReport {
+        try record("appendTurn")
+        lastAppendTurn = params
+        return SwitchLatencyReport(samples: [])
+    }
+}
+
+/// What `appendTurn` refuses to write to, below the dispatcher, where no live
+/// window or process is needed.
+struct AppendTurnRefusalTests {
+    private func transcript(_ contents: String) throws -> String {
+        let path = FileManager.default.temporaryDirectory
+            .appendingPathComponent("append-turn-\(UUID().uuidString).jsonl").path
+        try Data(contents.utf8).write(to: URL(fileURLWithPath: path))
+        return path
+    }
+
+    private func contents(_ path: String) throws -> String {
+        try String(contentsOfFile: path, encoding: .utf8)
+    }
+
+    @Test func appendsWholeRowsAfterAFinishedLine() throws {
+        let path = try transcript("{\"type\":\"user\"}\n")
+        defer { try? FileManager.default.removeItem(atPath: path) }
+        try SyntheticTurn(parentUUID: nil, index: 0, withReply: true).append(toFileAt: path)
+        let lines = try contents(path).split(separator: "\n", omittingEmptySubsequences: false)
+        #expect(lines.count == 4)
+        #expect(lines.last == "")
+    }
+
+    @Test func refusesAFileEndingMidLine() throws {
+        let original = "{\"type\":\"user\"}\n{\"type\":\"assis"
+        let path = try transcript(original)
+        defer { try? FileManager.default.removeItem(atPath: path) }
+        #expect(throws: ControlError.self) {
+            try SyntheticTurn(parentUUID: nil, index: 0, withReply: false).append(toFileAt: path)
+        }
+        #expect(try contents(path) == original)
+    }
+
+    @Test func refusesAnUnwritableFile() throws {
+        let path = try transcript("{\"type\":\"user\"}\n")
+        defer { try? FileManager.default.removeItem(atPath: path) }
+        try FileManager.default.setAttributes([.posixPermissions: 0o444], ofItemAtPath: path)
+        #expect(throws: ControlError.self) {
+            try SyntheticTurn(parentUUID: nil, index: 0, withReply: false).append(toFileAt: path)
+        }
+    }
+
+    @Test func refusesALiveTranscriptThatIsNoFixture() {
+        let seeds = AppendTurnTarget.seedPaths(in: ["PLUME_SEED_TRANSCRIPT_PATH": "/tmp/a.jsonl,,/tmp/b.jsonl"])
+        #expect(seeds == ["/tmp/a.jsonl", "/tmp/b.jsonl"])
+        #expect(AppendTurnTarget.refusal(path: "/tmp/b.jsonl", seedPaths: seeds, hasLiveProcess: true) == nil)
+        #expect(AppendTurnTarget.refusal(path: "/tmp/c.jsonl", seedPaths: seeds, hasLiveProcess: false) == nil)
+        #expect(AppendTurnTarget.refusal(path: "/tmp/c.jsonl", seedPaths: seeds, hasLiveProcess: true) != nil)
+        #expect(AppendTurnTarget.refusal(path: "/tmp/c.jsonl", seedPaths: [], hasLiveProcess: true) != nil)
     }
 }

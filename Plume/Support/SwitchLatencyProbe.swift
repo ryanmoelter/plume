@@ -23,10 +23,19 @@ enum SwitchLatencyProbe {
         var firstTurnEnd: CFTimeInterval?
         var rowsPlaced: CFTimeInterval?
         var spans: [String: SwitchLatencySpan] = [:]
+        /// Rows count only once one of this message's pieces is realized.
+        var awaitedMessageID: String?
+        var turnStart: CFTimeInterval?
+        var longestTurn: CFTimeInterval = 0
+        var busy: CFTimeInterval = 0
     }
 
     private static var run: Run?
     private static var observer: CFRunLoopObserver?
+    private static var wakeObserver: CFRunLoopObserver?
+
+    /// The message the running measurement waits to see, if any.
+    static var awaitedMessageID: String? { run?.awaitedMessageID }
 
     /// Rows count only when `tabID` places them, when given: the list
     /// controller of the tab being left can lay out in the same turn.
@@ -35,12 +44,15 @@ enum SwitchLatencyProbe {
         tabID: UUID? = nil,
         expectsRows: Bool = true,
         timeout: TimeInterval = 2,
+        awaitingMessageID: String? = nil,
         completion: ((SwitchLatencyMeasurement) -> Void)? = nil
     ) {
         if run != nil { finish(at: CACurrentMediaTime(), timedOut: true) }
+        let start = CACurrentMediaTime()
         run = Run(
-            label: label, start: CACurrentMediaTime(), tabID: tabID,
-            expectsRows: expectsRows, timeout: timeout, completion: completion
+            label: label, start: start, tabID: tabID,
+            expectsRows: expectsRows, timeout: timeout, completion: completion,
+            awaitedMessageID: awaitingMessageID, turnStart: start
         )
         installObserver()
         // A main thread with nothing to do never ends a turn, so wake it.
@@ -51,6 +63,12 @@ enum SwitchLatencyProbe {
                 turnEnded()
             }
         }
+    }
+
+    /// Ends the running measurement without reporting it.
+    static func cancel() {
+        run = nil
+        removeObserver()
     }
 
     static func time<T>(_ name: String, _ body: () -> T) -> T {
@@ -68,9 +86,12 @@ enum SwitchLatencyProbe {
         run?.spans[name, default: SwitchLatencySpan(name: name)].count += 1
     }
 
-    static func noteRowsPlaced(tabID: UUID?) {
+    /// `showsMessage` answers whether a piece of the awaited message is
+    /// realized; it is only called while a measurement awaits one.
+    static func noteRowsPlaced(tabID: UUID?, showsMessage: (String) -> Bool = { _ in true }) {
         guard let current = run, current.rowsPlaced == nil else { return }
         if let expected = current.tabID, expected != tabID { return }
+        if let awaited = current.awaitedMessageID, !showsMessage(awaited) { return }
         run?.rowsPlaced = CACurrentMediaTime()
     }
 
@@ -81,12 +102,18 @@ enum SwitchLatencyProbe {
         }
         CFRunLoopAddObserver(CFRunLoopGetMain(), observer, .commonModes)
         self.observer = observer
+        let wakeObserver = CFRunLoopObserverCreateWithHandler(nil, CFRunLoopActivity.afterWaiting.rawValue, true, Int.min) { _, _ in
+            MainActor.assumeIsolated { run?.turnStart = CACurrentMediaTime() }
+        }
+        CFRunLoopAddObserver(CFRunLoopGetMain(), wakeObserver, .commonModes)
+        self.wakeObserver = wakeObserver
     }
 
     private static func removeObserver() {
-        guard let observer else { return }
-        CFRunLoopRemoveObserver(CFRunLoopGetMain(), observer, .commonModes)
-        self.observer = nil
+        if let observer { CFRunLoopRemoveObserver(CFRunLoopGetMain(), observer, .commonModes) }
+        if let wakeObserver { CFRunLoopRemoveObserver(CFRunLoopGetMain(), wakeObserver, .commonModes) }
+        observer = nil
+        wakeObserver = nil
     }
 
     private static func turnEnded() {
@@ -94,6 +121,12 @@ enum SwitchLatencyProbe {
         let now = CACurrentMediaTime()
         current.turns += 1
         if current.firstTurnEnd == nil { current.firstTurnEnd = now }
+        if let turnStart = current.turnStart {
+            let turn = now - turnStart
+            current.longestTurn = max(current.longestTurn, turn)
+            current.busy += turn
+            current.turnStart = now
+        }
         run = current
         if current.rowsPlaced != nil || !current.expectsRows {
             finish(at: now, timedOut: false)
@@ -115,7 +148,9 @@ enum SwitchLatencyProbe {
             turns: current.turns,
             expectsRows: current.expectsRows,
             timedOut: timedOut,
-            spans: current.spans.values.sorted { $0.name < $1.name }
+            spans: current.spans.values.sorted { $0.name < $1.name },
+            longestTurnMs: current.longestTurn * 1000,
+            busyMs: current.busy * 1000
         )
         Log.app.info("switch-latency \(measurement.logLine, privacy: .public)")
         current.completion?(measurement)
@@ -148,6 +183,10 @@ nonisolated struct SwitchLatencyMeasurement: Codable, Equatable {
     /// The tab placed no rows within the timeout, or another switch began first.
     var timedOut: Bool
     var spans: [SwitchLatencySpan]
+    /// The longest single main-thread turn, the worst hitch the reader saw.
+    var longestTurnMs: Double?
+    /// Every main-thread turn's time added up.
+    var busyMs: Double?
 
     var logLine: String {
         let round = { (value: Double) in Int(value.rounded()) }
@@ -155,6 +194,7 @@ nonisolated struct SwitchLatencyMeasurement: Codable, Equatable {
         if let rowsPlacedMs { parts.append("rowsPlaced=\(round(rowsPlacedMs))ms") }
         parts.append(timedOut ? "timedOut" : "visible=\(round(visibleMs))ms")
         parts.append("turns=\(turns)")
+        if let longestTurnMs { parts.append("longestTurn=\(round(longestTurnMs))ms") }
         parts += spans.map { "\($0.name)=\(round($0.ms))ms/\($0.count)" }
         return parts.joined(separator: " ")
     }
@@ -195,6 +235,8 @@ nonisolated struct SwitchLatencyReport: Codable, Equatable {
     var visibleMs: LatencySummary?
     var firstTurnMs: LatencySummary?
     var rowsPlacedMs: LatencySummary?
+    var longestTurnMs: LatencySummary?
+    var busyMs: LatencySummary?
     var spans: [SpanSummary]
 
     init(samples: [SwitchLatencyMeasurement]) {
@@ -204,6 +246,8 @@ nonisolated struct SwitchLatencyReport: Codable, Equatable {
         visibleMs = LatencySummary(complete.map(\.visibleMs))
         firstTurnMs = LatencySummary(complete.map(\.firstTurnMs))
         rowsPlacedMs = LatencySummary(complete.compactMap(\.rowsPlacedMs))
+        longestTurnMs = LatencySummary(complete.compactMap(\.longestTurnMs))
+        busyMs = LatencySummary(complete.compactMap(\.busyMs))
         let names = Set(complete.flatMap { $0.spans.map(\.name) }).sorted()
         spans = names.compactMap { name in
             let recorded = complete.compactMap { $0.spans.first { $0.name == name } }

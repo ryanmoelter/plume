@@ -75,6 +75,7 @@ While split, a tab chip's label ends with its pane, counted from the left — `C
 | `selectText` | `matching`, or `from` and `to?`; `occurrence = 0` | the same `{markdown, plainText, anchor, focus}` after selecting. `matching` selects that span; `from` and `to` select from the start of `from` to the end of the first `to` after it, across pieces. Searches the whole transcript, realized rows or not |
 | `tasks` | — | `{tasks: [{id, title, isSelected, tabKind?, expectsRows}]}` for the frontmost window's unarchived tasks, in sidebar order |
 | `selectTask` | `task`, `from?`, `repeat = 1` (at most 200), `timeout = 5`, `settle = 0.3` | `{samples, timedOut, visibleMs?, firstTurnMs?, rowsPlacedMs?, spans}`; see [Measuring a task switch](#measuring-a-task-switch) |
+| `appendTurn` | `repeat = 1` (at most 200), `timeout = 15`, `settle = 1`, `reply = true` | `{samples, timedOut, visibleMs?, firstTurnMs?, rowsPlacedMs?, longestTurnMs?, busyMs?, spans}`; see [Measuring a transcript append](#measuring-a-transcript-append) |
 
 `list` filters by `plumeID`, not `id`, because `id` at the top level is the request's correlation id.
 
@@ -95,6 +96,28 @@ c selectTask task="Task 1" from="Task 3" repeat=15
 - `turns`, and `spans`: time and call counts for the instrumented sections, `reveal` (the selection change itself), `rebuildPieces`, `listUpdate`, `layoutPass`, `realizeMeasure`, and counts for `pieceCacheHit` and `pieceCacheMiss`. Spans nest: `realizeMeasure` runs inside `layoutPass`.
 
 The report summarizes `visibleMs`, `firstTurnMs`, `rowsPlacedMs` and each span as `{count, median, p90, min, max}` (p90 by nearest rank), leaving timed-out samples out. Every switch also logs a `switch-latency …` line under the `app` category, `SmokeHarness`'s `PLUME_CYCLE_SELECTION` cycling included.
+
+## Measuring a transcript append
+
+`appendTurn` appends a synthetic user prompt, and with `reply = true` an assistant reply, to the transcript of the selected task's tab. It then times how long the chat takes to show the new prompt's row. It needs a selected task whose tab watches a transcript. The command writes to that file, so seed the task with `PLUME_SEED_TRANSCRIPT_PATH` pointing at a scratch copy, never the original. It refuses to write:
+
+- to a transcript that is not a `PLUME_SEED_TRANSCRIPT_PATH` path while a terminal or agent process backs the tab, since that process may be writing the same file;
+- to a file whose last byte is not a newline, since its last row may be half-written;
+- at all when opening, seeking or writing fails. That error returns at once, not after `timeout`.
+
+```
+c appendTurn repeat=2
+c appendTurn repeat=10
+```
+
+The clock starts at the write. A sample ends with the main-thread turn whose commit first showed the new prompt's row. That includes the background parse. The store reads the first change of a burst at once, so the 250 ms debounce adds nothing unless the write lands inside a window an earlier change opened. `repeat` appends one turn per round, and `settle` seconds pass after each so trailing work stays out of the next sample. A sample that shows no row within `timeout` reports `timedOut: true` and is left out of the summaries.
+
+The report has the same fields as a task switch, plus two:
+
+- `longestTurnMs`: the longest single main-thread turn during the sample. This is the hitch a user sees.
+- `busyMs`: the sum of every main-thread turn during the sample.
+
+The `spans` add `storePublish`, the main-actor block of `TranscriptStore.read` that publishes a finished parse. Each transcript read also logs a `transcript-read …` line under the `app` category, with the time for the file load, the line decoding, the parse, each scanner, the subagents and the total. It also logs `bytes` (the file's size), `bytesRead` (what this read loaded), `tail` (whether it read only what was appended since the last read) and `reusedParent` (whether the file was unchanged).
 
 ## How it works
 
