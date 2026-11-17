@@ -649,7 +649,7 @@ final class InProcessControlBackend: ControlBackend {
         return try selectionResult(of: controller)
     }
 
-    private func chatListController() throws -> ChatListController {
+    func chatListController() throws -> ChatListController {
         guard let controller = try chatListDocumentView().controller else { throw ControlError.notFound("chat list") }
         return controller
     }

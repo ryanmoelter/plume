@@ -56,6 +56,9 @@ struct ChatMinimap: View, ThemedView {
     @State private var contentHeight: CGFloat = 0
 
     var body: some View {
+        #if DEBUG
+        let _ = SwitchLatencyProbe.note("minimapBody")
+        #endif
         GeometryReader { proxy in
             ScrollView {
                 VStack(alignment: .leading, spacing: isRevealed ? Self.entrySpacing * 2 : Self.entrySpacing) {
@@ -379,6 +382,9 @@ private struct ChatMinimapEntryView: View, ThemedView {
     let onSelect: (String) -> Void
 
     var body: some View {
+        #if DEBUG
+        let _ = SwitchLatencyProbe.note("minimapEntryBody")
+        #endif
         Button { onSelect(entry.id) } label: {
             if entry.kind.isUserInput {
                 promptEntry(entry.kind.text)

@@ -127,6 +127,8 @@ def response_timeout(request):
         return 30 + request.get("repeat", 1) * (request.get("timeout", 15) + request.get("settle", 1))
     if request["command"] == "resize":
         return 30 + request.get("steps", 8) * request.get("stepDelay", 0.016)
+    if request["command"] == "scrollChat":
+        return 30 + request.get("maxSeconds", 30) + request.get("settle", 0.3)
     if request["command"] != "selectTask":
         return 30
     switches = request.get("repeat", 1) * (2 if request.get("from") else 1)

@@ -71,17 +71,20 @@ enum SwitchLatencyProbe {
         removeObserver()
     }
 
+    /// Also feeds `ScrollHitchProbe` while a `scrollChat` runs.
     static func time<T>(_ name: String, _ body: () -> T) -> T {
-        guard run != nil else { return body() }
+        guard run != nil || ScrollHitchProbe.isActive else { return body() }
         let began = CACurrentMediaTime()
         defer {
             let elapsed = (CACurrentMediaTime() - began) * 1000
-            run?.spans[name, default: SwitchLatencySpan(name: name)].add(ms: elapsed)
+            if run != nil { run?.spans[name, default: SwitchLatencySpan(name: name)].add(ms: elapsed) }
+            ScrollHitchProbe.record(name, ms: elapsed)
         }
         return body()
     }
 
     static func note(_ name: String) {
+        ScrollHitchProbe.record(name, ms: nil)
         guard run != nil else { return }
         run?.spans[name, default: SwitchLatencySpan(name: name)].count += 1
     }
