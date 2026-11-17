@@ -112,6 +112,17 @@ struct ComposerSettings {
         )
     }
 
+    /// Nil outside plan mode, and when plan mode runs `model` itself.
+    var planModel: AgentModel? {
+        guard provider == .claudeCode, permissionMode == .plan, let model else { return nil }
+        let headless = session as? HeadlessSession
+        return PlanModeModel.differing(
+            runs: model,
+            requestedID: headless?.requestedModelID ?? tab.model?.id ?? defaultModel?.id,
+            observed: headless?.observedPlanModel
+        )
+    }
+
     /// True when the displayed value is a resolved default rather than a
     /// choice, so a control can label it as one.
     var isModelDefaulted: Bool { session?.model == nil && tab.model == nil }
