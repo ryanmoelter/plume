@@ -62,6 +62,7 @@ nonisolated struct MarkdownLine: Equatable {
         line.listContainer?.indent = move(listContainer?.indent ?? indent)
         return line
     }
+
     var quoteLevel: Int { quoteMarkers.count }
     var prefixStart: Int { range.location }
 
@@ -222,7 +223,7 @@ nonisolated enum MarkdownLineStructure {
         return lines[lineIndex(containing: location, in: lines)]
     }
 
-    /// The index of the line containing `location`, found by bisection.
+    /// The index of the line containing `location`.
     static func lineIndex(containing location: Int, in lines: [MarkdownLine]) -> Int {
         var low = 0
         var high = lines.count - 1

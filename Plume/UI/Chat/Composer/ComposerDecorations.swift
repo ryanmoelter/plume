@@ -547,8 +547,9 @@ enum ComposerDecorations {
         }
     }
 
-    /// Its height comes from the fragment frames, which include the spacing
-    /// the styler puts before the opening fence and after the closing one.
+    /// The box behind a fenced code block. Its height comes from the fragment
+    /// frames, which include the spacing the styler puts before the opening
+    /// fence and after the closing one.
     private static func codeBoxRect(_ first: MarkdownLine, _ last: MarkdownLine, _ context: Context) -> NSRect? {
         guard let frame = context.runRect(first, last) else { return nil }
         let column = first.listContainer == nil ? 0 : context.metrics.contentColumn(for: first)

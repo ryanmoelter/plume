@@ -235,10 +235,9 @@ struct MarkdownComposerTextView: NSViewRepresentable {
             self.onCaretChange = onCaretChange
         }
 
-        /// Styles for a change from outside a keystroke: initial mount, an
-        /// external `text` reset, a font size, mode, accent, command list,
-        /// reference or active mention change. Only a new text or body font
-        /// restyles and lays out everything.
+        /// Styles for a change from outside a keystroke. A new text, font size,
+        /// body font or accent restyles every line; any other change restyles
+        /// only the lines it touches.
         func apply(text: String, fontSize: CGFloat, to textView: NSTextView) {
             let bodyFont = isCommandMode
                 ? NSFont.monospacedSystemFont(ofSize: fontSize, weight: .regular)
@@ -689,10 +688,15 @@ final class ComposerNSTextView: NSTextView {
         if needsFullLayout { layOutAllText() }
     }
 
+    /// Called after every whole-text layout.
+    var didLayOutAllText: (() -> Void)?
+
     func layOutAllText() {
         needsFullLayout = false
         guard let textLayoutManager else { return }
         textLayoutManager.ensureLayout(for: textLayoutManager.documentRange)
+        needsDisplay = true
+        didLayOutAllText?()
     }
 
     private var decorationStructure: (textVersion: Int, structure: ComposerDecorations.Structure)?
@@ -745,8 +749,8 @@ final class ComposerNSTextView: NSTextView {
         unchangedEnds?.exclude(textStorage.editedRange, length: textStorage.length)
     }
 
-    private func decorations(metrics: ComposerMarkdownMetrics) -> ComposerDecorations.Decorations {
-        ComposerDecorations.rects(in: self, metrics: metrics, visibleRect: visibleRect, structure: currentDecorationStructure())
+    private func decorations(metrics: ComposerMarkdownMetrics, in rect: NSRect) -> ComposerDecorations.Decorations {
+        ComposerDecorations.rects(in: self, metrics: metrics, visibleRect: rect, structure: currentDecorationStructure())
     }
 
     /// Draws decorations and the placeholder here rather than in `draw(_:)`:
@@ -757,7 +761,7 @@ final class ComposerNSTextView: NSTextView {
         super.drawBackground(in: rect)
         var decorations: ComposerDecorations.Decorations?
         lastDecorationCost = debugDuration {
-            decorations = markdownMetrics.map { self.decorations(metrics: $0) }
+            decorations = markdownMetrics.map { self.decorations(metrics: $0, in: rect.union(visibleRect)) }
         }
         if let decorations, let markdownMetrics {
             ComposerDecorations.draw(decorations, in: rect, metrics: markdownMetrics)
@@ -857,7 +861,7 @@ final class ComposerNSTextView: NSTextView {
     override func mouseDown(with event: NSEvent) {
         if let markdownMetrics, editsMarkdown {
             let point = convert(event.locationInWindow, from: nil)
-            let checkboxes = decorations(metrics: markdownMetrics).checkboxes
+            let checkboxes = decorations(metrics: markdownMetrics, in: visibleRect).checkboxes
             if let hit = checkboxes.first(where: { $0.rect.insetBy(dx: -3, dy: -3).contains(point) }),
                let result = ComposerMarkdownEditing.toggleCheckbox(hit.box, in: string, selection: selectedRange()) {
                 apply(result, scrollsToSelection: false)
