@@ -38,6 +38,9 @@ struct ChatMessageList<SidePane: View>: View, ThemedView {
     /// Drawn over the list and under the minimap, so the minimap's preview
     /// covers it.
     let sidePane: SidePane
+    /// The composer's and the side pane's glass, so the minimap's preview
+    /// reads as the same chrome.
+    var panelGlass: Glass = .regular
 
     /// Whether the user has scrolled away far enough to want a jump back.
     ///
@@ -158,7 +161,8 @@ struct ChatMessageList<SidePane: View>: View, ThemedView {
                         revealExclusionHeight: settings.minimapSide == .trailing ? minimapExclusionHeight : 0,
                         side: settings.minimapSide,
                         spacing: settings.minimapSpacing,
-                        indirectShape: settings.minimapIndirectShape
+                        indirectShape: settings.minimapIndirectShape,
+                        previewGlass: panelGlass
                     )
                     .transition(.opacity)
                 }

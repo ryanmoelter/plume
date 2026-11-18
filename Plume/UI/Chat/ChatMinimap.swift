@@ -33,6 +33,7 @@ struct ChatMinimap: View, ThemedView {
     var side: MinimapSide = .leading
     var spacing: MinimapSpacing = .even
     var indirectShape: MinimapIndirectShape = .dot
+    var previewGlass: Glass = .regular
 
     /// The rail's narrowest width, and so a prompt bar's. The rail overlays
     /// the chat rather than taking a column, so this plus `edgeInset` on
@@ -382,7 +383,7 @@ struct ChatMinimap: View, ThemedView {
         .animation(.easeOut(duration: values.crossfadeDuration), value: previewRowID)
         .padding(.horizontal, 8)
         .padding(.vertical, 5)
-        .glassEffect(.regular, in: .rect(cornerRadius: 8))
+        .glassEffect(previewGlass, in: .rect(cornerRadius: 8))
         // A fixed width rather than a cap, so the overlay's rail-wide
         // proposal cannot squeeze it. The glass hugs the text inside it, so
         // a short prompt still gets a short pane.

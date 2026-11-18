@@ -1151,6 +1151,7 @@ struct ChatTabView: View, ThemedView {
             ),
             trailingReserve: geometry.chatTrailingReserve,
             sidePane: sideInfoPane(geometry: geometry, linearLinks: linearLinks),
+            panelGlass: planGlass,
             commands: listCommands
         )
         .onGeometryChange(for: CGFloat.self) { $0.size.height } action: { chatHeight = $0 }
