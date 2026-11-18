@@ -29,7 +29,7 @@ struct ToolCallRow: View, ThemedView {
         } else if let sent = call.sentFiles, !call.didFail {
             SentFilesView(sent: sent)
         } else if let proposalBoard,
-                  let offer = ChildSessionOfferCard.card(for: call, chatTabID: proposalBoard.chatTabID) {
+                  let offer = ChildSessionOfferCard.card(for: call, chatTabID: proposalBoard.tabID) {
             offer
         } else if let proposalBoard, let proposalID = ChildSessionFormats.proposalID(of: call) {
             ChildSessionProposalCard(

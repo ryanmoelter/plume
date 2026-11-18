@@ -185,16 +185,13 @@ struct ChatTabView: View, ThemedView {
         )
     }
 
+    /// A forked child's transcript carries copies of its parent's cards, but
+    /// a proposal belongs to the chat it was made in, so they read as made in
+    /// another session.
     private var proposalBoard: ChatProposalBoard {
-        guard let owner = ChildSessionCoordinator.proposalOwner(of: tab) else {
-            return ChatProposalBoard(
-                tabID: tab.id, chatTabID: tab.id, store: { ChildSessionProposalStore() }, start: { _ in }, dismiss: { _ in }
-            )
-        }
+        let owner = tab
         return ChatProposalBoard(
             tabID: owner.id,
-            chatTabID: tab.id,
-            // A child's rows can outlive its parent's tab, which is deleted on close.
             store: { [weak owner] in
                 guard let owner, owner.isLive else { return ChildSessionProposalStore() }
                 return ChildSessionProposalStoreCache.shared.store(for: owner)

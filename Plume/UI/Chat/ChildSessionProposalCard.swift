@@ -6,12 +6,10 @@ import SwiftUI
 /// Nil in the environment where no proposal can start, as inside a
 /// subagent's own transcript, and the call then renders as a plain tool row.
 struct ChatProposalBoard {
-    /// The tab that owns the proposals.
+    /// The tab whose chat this is, which owns the proposals made in it.
     let tabID: UUID
-    /// The tab whose chat this is: the owner, or one of its children.
-    let chatTabID: UUID
-    /// Reads the owner's persisted proposals, so a card calling this from
-    /// `body` redraws when one is started or dismissed. Empty when the owner
+    /// Reads the tab's persisted proposals, so a card calling this from
+    /// `body` redraws when one is started or dismissed. Empty once the tab
     /// has closed.
     let store: () -> ChildSessionProposalStore
     let start: (String) -> Void

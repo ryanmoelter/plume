@@ -603,18 +603,6 @@ struct ChildSessionProposalCoordinatorTests {
         #expect(activity.failure(of: "task_00000001", in: tabID, showing: .expired) == nil)
     }
 
-    @Test func aChildsCardsBelongToItsParentWhileItIsOpen() throws {
-        let (task, parent, _) = try makeParent()
-        defer { ChildSessionCoordinator.shared.tabForgotten(parent.id) }
-        let child = TaskStore.addChildTab(to: task, parent: parent, in: context)
-
-        #expect(ChildSessionCoordinator.proposalOwner(of: parent) === parent)
-        #expect(ChildSessionCoordinator.proposalOwner(of: child) === parent)
-
-        TaskStore.closeTab(parent, in: context)
-        #expect(ChildSessionCoordinator.proposalOwner(of: child) == nil)
-    }
-
     @Test func aParentInPlanModeCannotStartItsProposalAndTheCardSaysWhy() async throws {
         let (_, parent, _) = try makeParent()
         defer { ChildSessionCoordinator.shared.tabForgotten(parent.id) }

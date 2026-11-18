@@ -522,13 +522,6 @@ final class ChildSessionCoordinator {
         return result
     }
 
-    /// The tab whose proposals `tab`'s chat shows: a child's transcript
-    /// carries its parent's. Nil when that parent has closed.
-    static func proposalOwner(of tab: TaskTab) -> TaskTab? {
-        guard tab.isChildSession else { return tab }
-        return tab.parentTabID.flatMap { id in tab.task?.liveTabs.first { $0.id == id } }
-    }
-
     /// The tab's proposals as they read at `now`, without saving anything.
     func proposals(of tab: TaskTab, now: Date = .now) -> ChildSessionProposalStore {
         var store = ChildSessionProposalStore(json: tab.childProposalsJSON)
