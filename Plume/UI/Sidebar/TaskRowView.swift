@@ -377,7 +377,12 @@ struct TaskRowView: View {
                 deviceLeaseIcon(heldDevices, label: header.label)
             }
             Spacer(minLength: 4)
-            StatusBadge(status: header.status, isUnread: header.isUnread, showsElapsed: false)
+            StatusBadge(
+                status: header.status,
+                isUnread: header.isUnread,
+                showsElapsed: false,
+                scalesDotWithFont: true
+            )
                 .font(.caption)
                 .imageScale(.small)
                 .frame(width: Self.badgeColumnWidth)

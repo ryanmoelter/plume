@@ -13,6 +13,8 @@ struct StatusBadge: View {
     /// Centers the glyph in a column this wide, so badges of different sizes
     /// stacked in one column share a center.
     var glyphWidth: CGFloat?
+    /// Shrinks the unread dot with the font, for a badge drawn smaller than the task's.
+    var scalesDotWithFont = false
     @Environment(\.colorScheme) private var colorScheme
 
     var body: some View {
@@ -52,7 +54,7 @@ struct StatusBadge: View {
     @ViewBuilder
     private var glyph: some View {
         if isUnread {
-            UnreadDot()
+            UnreadDot(scalesWithFont: scalesDotWithFont)
                 .help("Finished a turn you haven't read")
                 .transition(.opacity)
         } else {
@@ -109,13 +111,30 @@ struct StatusBadge: View {
 
 /// Marks a finished turn the user hasn't read.
 struct UnreadDot: View {
+    /// Sizes the dot from a symbol, so it shrinks with the font and image scale
+    /// as the status symbols do. The fraction makes the dot 8 pt at the task
+    /// row's default font.
+    var scalesWithFont = false
     @Environment(\.colorScheme) private var colorScheme
 
     var body: some View {
-        Circle()
-            .fill(ChatRole.attention(for: colorScheme))
-            .frame(width: 8, height: 8)
+        if scalesWithFont {
+            Image(systemName: "circle.fill")
+                .hidden()
+                .overlay {
+                    GeometryReader { proxy in
+                        Circle()
+                            .fill(color)
+                            .frame(width: proxy.size.width * 0.53, height: proxy.size.height * 0.53)
+                            .position(x: proxy.size.width / 2, y: proxy.size.height / 2)
+                    }
+                }
+        } else {
+            Circle().fill(color).frame(width: 8, height: 8)
+        }
     }
+
+    private var color: Color { ChatRole.attention(for: colorScheme) }
 }
 
 /// How long the current stretch of work has been going, counting up.
