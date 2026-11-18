@@ -466,7 +466,11 @@ private struct TabChildrenToggle: View {
     let isCollapsed: Bool
     let toggle: () -> Void
 
+    @Environment(\.colorScheme) private var colorScheme
     @State private var isHovering = false
+
+    /// The strip's tint is the theme's foreground, so the accent is named here.
+    private var accent: Color { ChatRole.selection(for: colorScheme) }
 
     private var help: String {
         let sessions = childCount == 1 ? "session" : "sessions"
@@ -484,10 +488,10 @@ private struct TabChildrenToggle: View {
                         .monospacedDigit()
                 }
             }
-            .foregroundStyle(.tint)
+            .foregroundStyle(accent)
             .padding(.horizontal, 4)
             .frame(minWidth: 18, minHeight: 22)
-            .background(.tint.opacity(isHovering ? 0.18 : 0), in: .rect(cornerRadius: 5))
+            .background(accent.opacity(isHovering ? 0.18 : 0), in: .rect(cornerRadius: 5))
             .contentShape(.rect)
         }
         .buttonStyle(.plain)
