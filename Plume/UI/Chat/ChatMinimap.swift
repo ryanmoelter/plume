@@ -227,12 +227,12 @@ struct ChatMinimap: View, ThemedView {
     }
 
     private func pointerMoved(toY y: CGFloat, metrics: MinimapMetrics) {
-        let absolute = MinimapCatchUp.absolute(pointerFraction: metrics.pointerFraction(atY: y))
+        let position = MinimapCatchUp.position(pointerFraction: metrics.pointerFraction(atY: y))
         let gain = tuning.values.catchUpGain
         if metrics.travel > 0 {
             let next: MinimapHoverScroll
             if var current = hoverScroll {
-                current.move(to: absolute, pointerY: y, travel: metrics.travel, gain: gain)
+                current.move(to: position, pointerY: y, travel: metrics.travel, gain: gain)
                 next = current
             } else {
                 // The follow may still be animating, so start from what is
@@ -240,10 +240,11 @@ struct ChatMinimap: View, ThemedView {
                 next = MinimapHoverScroll(
                     offset: presentation.scrollOffset ?? scrollOffset,
                     travel: metrics.travel,
-                    pointer: absolute,
+                    pointer: position,
                     gain: gain,
                     entryY: y,
-                    deadZoneRadius: tuning.values.deadZoneRadius
+                    deadZoneRadius: tuning.values.deadZoneRadius,
+                    liveRangeY: metrics.liveRangeY
                 )
             }
             hoverScroll = next
@@ -547,6 +548,11 @@ struct MinimapMetrics: Equatable {
 
     func pointerFraction(atY y: CGFloat) -> CGFloat {
         min(max((y - topMargin) / live, 0), 1)
+    }
+
+    var liveRangeY: ClosedRange<CGFloat> {
+        let range = MinimapCatchUp.liveRange
+        return (topMargin + range.lowerBound * live)...(topMargin + range.upperBound * live)
     }
 }
 

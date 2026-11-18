@@ -4,12 +4,18 @@ import Foundation
 /// Maps the pointer onto the minimap's scroll position without ever jumping,
 /// the way a synth knob in pickup mode catches up with its parameter.
 ///
-/// Both values are fractions, 0 at the top and 1 at the bottom. The pointer's
-/// absolute position is where a direct mapping would put the scroll. While
-/// the two differ, a move that heads the scroll toward that position scrolls
-/// faster than the pointer, by `1 + gain × gap`, and a move away scrolls
-/// slower by the same factor, so either way the gap closes. Once it has
-/// closed they move together.
+/// Scroll is a fraction, 0 at the top and 1 at the bottom. The pointer is a
+/// `position`, which asks for the scroll it equals, clamped to `0...1`:
+/// past either end it is in an edge zone. While the two differ, a move that
+/// heads the scroll toward the asked-for scroll goes faster than the
+/// pointer, by `1 + gain × gap`, and a move away goes slower by the same
+/// factor, so either way the gap closes. Once it has closed they move
+/// together.
+///
+/// A move toward an end also scrolls at least fast enough to reach that end
+/// when the pointer reaches its edge zone, or, from inside the zone, the
+/// rail's end. Inside a zone the pointer asks for that end, so without this
+/// a gap still open there would never close.
 struct MinimapCatchUp: Equatable {
     private(set) var scroll: CGFloat
     private(set) var pointer: CGFloat
@@ -20,44 +26,72 @@ struct MinimapCatchUp: Equatable {
     /// proportion to itself, so without a threshold it never quite would.
     static let lockThreshold: CGFloat = 0.01
 
-    /// The pointer's place in the rail, as the scroll it asks for. The first
-    /// and last twentieth pin to the ends, so reaching either does not demand
-    /// the very edge of the window.
-    static func absolute(pointerFraction fraction: CGFloat) -> CGFloat {
+    /// The pointer's place in the rail, from its fraction of the rail. The
+    /// first and last twentieth are the edge zones, so reaching either end
+    /// does not demand the very edge of the window.
+    static func position(pointerFraction fraction: CGFloat) -> CGFloat {
         let span = liveRange.upperBound - liveRange.lowerBound
-        return min(max((fraction - liveRange.lowerBound) / span, 0), 1)
+        return (min(max(fraction, 0), 1) - liveRange.lowerBound) / span
     }
 
     static let liveRange: ClosedRange<CGFloat> = 0.05...0.95
 
+    static let positions = position(pointerFraction: 0)...position(pointerFraction: 1)
+
     /// Starts where the map already is, so whatever is under the pointer
-    /// stays under it.
+    /// stays under it. A gap under `lockThreshold` still starts unlocked,
+    /// since locking would snap the scroll onto the pointer on the next move;
+    /// only rounding's worth of gap counts as level.
     init(scroll: CGFloat, pointer: CGFloat, gain: CGFloat) {
         self.scroll = Self.clamped(scroll)
-        self.pointer = Self.clamped(pointer)
+        self.pointer = min(max(pointer, Self.positions.lowerBound), Self.positions.upperBound)
         self.gain = gain
-        isLocked = abs(self.pointer - self.scroll) < Self.lockThreshold
+        isLocked = abs(Self.clamped(self.pointer) - self.scroll) < 1e-9
     }
 
     mutating func move(to newPointer: CGFloat) {
-        let target = Self.clamped(newPointer)
-        let delta = target - pointer
-        pointer = target
-        guard delta != 0 else { return }
+        let previous = pointer
+        pointer = min(max(newPointer, Self.positions.lowerBound), Self.positions.upperBound)
+        guard pointer != previous else { return }
+        let target = Self.clamped(pointer)
         if isLocked {
             scroll = target
             return
         }
-        let gap = target - delta - scroll
+        let delta = target - Self.clamped(previous)
+        let gap = Self.clamped(previous) - scroll
         let factor = 1 + gain * abs(gap)
         let headsTowardGap = (delta > 0) == (gap > 0)
-        let moved = Self.clamped(scroll + (headsTowardGap ? delta * factor : delta / factor))
-        // Crossing the pointer, or meeting it, means caught up.
-        if (target - moved) * gap <= 0 || abs(target - moved) < Self.lockThreshold {
+        let caughtUp = Self.clamped(scroll + (headsTowardGap ? delta * factor : delta / factor))
+        let moved = Self.reachingTheEnd(caughtUp, from: scroll, pointer: previous, to: pointer)
+        // Crossing the pointer, or meeting it, means caught up. Coming
+        // within the threshold does too, unless locking would pull the
+        // scroll back against the move.
+        let isNear = abs(target - moved) < Self.lockThreshold && (target - moved) * (pointer - previous) >= 0
+        if (target - moved) * gap <= 0 || isNear {
             scroll = target
             isLocked = true
         } else {
             scroll = moved
+        }
+    }
+
+    /// `moved`, or further toward the end the pointer heads for if the
+    /// scroll would otherwise get there after the pointer reaches its edge
+    /// zone. It closes the remaining scroll in proportion to the pointer's
+    /// remaining way, so a sweep keeps one steady rate, and arrives exactly
+    /// as the pointer does.
+    private static func reachingTheEnd(_ moved: CGFloat, from scroll: CGFloat, pointer previous: CGFloat, to current: CGFloat) -> CGFloat {
+        if current > previous {
+            let (from, to, edge) = previous >= 1
+                ? (previous, current, positions.upperBound)
+                : (max(previous, 0), clamped(current), 1)
+            return max(moved, 1 - (1 - scroll) * (edge - to) / (edge - from))
+        } else {
+            let (from, to, edge) = previous <= 0
+                ? (previous, current, positions.lowerBound)
+                : (min(previous, 1), clamped(current), 0)
+            return min(moved, scroll * (to - edge) / (from - edge))
         }
     }
 
@@ -76,6 +110,9 @@ struct MinimapHoverScroll: Equatable {
     /// The pointer's height in the pane when the hover began.
     let entryY: CGFloat
     let deadZoneRadius: CGFloat
+    /// The pointer heights where the edge zones begin,
+    /// `MinimapCatchUp.liveRange` in the pane's points.
+    let liveRangeY: ClosedRange<CGFloat>
     /// Whether the pointer is still within `deadZoneRadius` of `entryY`, where
     /// the map holds still so a pointer settling onto a row doesn't scroll it.
     private(set) var isHolding: Bool
@@ -84,28 +121,50 @@ struct MinimapHoverScroll: Equatable {
 
     /// Pins the catch-up to the map's current offset. An offset past the end
     /// clamps to it, which is where the map has to draw anyway.
-    init(offset: CGFloat, travel: CGFloat, pointer: CGFloat, gain: CGFloat, entryY: CGFloat = 0, deadZoneRadius: CGFloat = 0) {
+    init(
+        offset: CGFloat,
+        travel: CGFloat,
+        pointer: CGFloat,
+        gain: CGFloat,
+        entryY: CGFloat = 0,
+        deadZoneRadius: CGFloat = 0,
+        liveRangeY: ClosedRange<CGFloat> = -.infinity ... .infinity
+    ) {
         self.travel = max(0, travel)
         let fraction = self.travel > 0 ? min(max(offset, 0), self.travel) / self.travel : 0
         catchUp = MinimapCatchUp(scroll: fraction, pointer: pointer, gain: gain)
         self.entryY = entryY
         self.deadZoneRadius = deadZoneRadius
+        self.liveRangeY = liveRangeY
         isHolding = deadZoneRadius > 0
     }
 
     /// The move that leaves the dead zone only pins the catch-up to where the
     /// pointer now is; the map starts following from the next one, so it
     /// starts from rest rather than jumping by the distance already covered.
+    /// A move toward an edge zone the dead zone overlaps is the exception:
+    /// the catch-up takes it at once, since the map has to reach the end by
+    /// the time the pointer reaches the zone.
     mutating func move(to pointer: CGFloat, pointerY: CGFloat = 0, travel newTravel: CGFloat, gain: CGFloat) {
         repin(travel: newTravel)
         catchUp.gain = gain
         if isHolding {
-            guard abs(pointerY - entryY) >= deadZoneRadius else { return }
-            isHolding = false
-            catchUp = MinimapCatchUp(scroll: catchUp.scroll, pointer: pointer, gain: gain)
-            return
+            if headsForANearEdgeZone(pointerY) {
+                isHolding = false
+            } else {
+                guard abs(pointerY - entryY) >= deadZoneRadius else { return }
+                isHolding = false
+                catchUp = MinimapCatchUp(scroll: catchUp.scroll, pointer: pointer, gain: gain)
+                return
+            }
         }
         catchUp.move(to: pointer)
+    }
+
+    private func headsForANearEdgeZone(_ pointerY: CGFloat) -> Bool {
+        if pointerY > entryY { return liveRangeY.upperBound - entryY < deadZoneRadius }
+        if pointerY < entryY { return entryY - liveRangeY.lowerBound < deadZoneRadius }
+        return false
     }
 
     /// Keeps the offset in points across a change of travel, clamped into
@@ -118,7 +177,7 @@ struct MinimapHoverScroll: Equatable {
         let newTravel = max(0, newTravel)
         let fraction: CGFloat
         if catchUp.isLocked && !isHolding {
-            fraction = pointer
+            fraction = min(max(pointer, 0), 1)
         } else {
             fraction = newTravel > 0 ? min(max(offset, 0), newTravel) / newTravel : 0
         }

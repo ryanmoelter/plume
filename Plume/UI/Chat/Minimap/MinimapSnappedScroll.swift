@@ -46,7 +46,7 @@ enum MinimapSnappedScroll {
         func advanced(_ state: MinimapHoverScroll, to y: CGFloat) -> MinimapHoverScroll {
             var next = state
             next.move(
-                to: MinimapCatchUp.absolute(pointerFraction: metrics.pointerFraction(atY: y)),
+                to: MinimapCatchUp.position(pointerFraction: metrics.pointerFraction(atY: y)),
                 pointerY: y,
                 travel: metrics.travel,
                 gain: gain

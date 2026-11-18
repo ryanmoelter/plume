@@ -70,10 +70,20 @@ struct MinimapCatchUpTests {
         }
     }
 
-    @Test func absolutePinsTheEnds() {
-        #expect(MinimapCatchUp.absolute(pointerFraction: 0.02) == 0)
-        #expect(MinimapCatchUp.absolute(pointerFraction: 0.98) == 1)
-        #expect(abs(MinimapCatchUp.absolute(pointerFraction: 0.5) - 0.5) < 0.0001)
+    @Test func theEdgeZonesAskForTheEnds() {
+        #expect(MinimapCatchUp.position(pointerFraction: 0.02) < 0)
+        #expect(MinimapCatchUp.position(pointerFraction: 0.98) > 1)
+        #expect(abs(MinimapCatchUp.position(pointerFraction: 0.5) - 0.5) < 0.0001)
+        let locked = MinimapCatchUp(scroll: 1, pointer: MinimapCatchUp.position(pointerFraction: 0.98), gain: 4)
+        #expect(locked.isLocked)
+    }
+
+    @Test func aMoveInsideAZoneClosesTheGap() {
+        var catchUp = MinimapCatchUp(scroll: 0.9, pointer: MinimapCatchUp.position(pointerFraction: 0.96), gain: 10)
+        catchUp.move(to: MinimapCatchUp.position(pointerFraction: 0.98))
+        #expect(catchUp.scroll > 0.9)
+        catchUp.move(to: MinimapCatchUp.position(pointerFraction: 1))
+        #expect(catchUp.scroll == 1)
     }
 }
 

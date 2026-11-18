@@ -22,7 +22,7 @@ struct MinimapSnappedScrollTests {
     }
 
     private static func pointer(atY y: CGFloat) -> CGFloat {
-        MinimapCatchUp.absolute(pointerFraction: metrics.pointerFraction(atY: y))
+        MinimapCatchUp.position(pointerFraction: metrics.pointerFraction(atY: y))
     }
 
     private static func project(_ scroll: MinimapHoverScroll, pointerY: CGFloat, toRowAt rowY: CGFloat) -> CGFloat {
@@ -153,6 +153,22 @@ struct MinimapSnappedScrollTests {
             for frame in Self.run(path) {
                 #expect(abs(frame.displayed - frame.target) <= Self.rowSpacing)
             }
+        }
+    }
+
+    /// The catch-up reaches the end by the edge zone, and the drawn map
+    /// follows it there through row changes alone, without skipping a row.
+    @Test(arguments: [(CGFloat(200), CGFloat(300), CGFloat(0)), (100, 0, 400)])
+    func aSweepIntoAZoneDrawsTheEnd(from start: CGFloat, to end: CGFloat, entryOffset: CGFloat) {
+        let path = Array(stride(from: start, through: end, by: end > start ? 0.5 : -0.5))
+        let frames = Self.run(path, entryOffset: entryOffset)
+        let zone: CGFloat = end > start ? 285 : 15
+        let atZone = zip(path, frames).first { end > start ? $0.0 >= zone : $0.0 <= zone }?.1
+        #expect(atZone?.target == end / 300 * 400)
+        #expect(frames.last?.displayed == end / 300 * 400)
+        for (previous, frame) in zip(frames, frames.dropFirst()) {
+            guard let row = frame.rowID, let before = previous.rowID else { continue }
+            #expect(abs(Int(row.dropFirst())! - Int(before.dropFirst())!) <= 1)
         }
     }
 
