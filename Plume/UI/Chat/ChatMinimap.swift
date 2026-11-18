@@ -532,15 +532,14 @@ struct ChatMinimap: View, ThemedView {
         return max(hoverWidth, MinimapClickZone.reach(inset: railInset, barWidth: widest))
     }
 
-    /// The hovered bar's length at full magnification. The end row draws a
-    /// dot rather than a bar.
+    /// The hovered bar's length at full magnification.
     private var hoveredBarWidth: CGFloat {
         guard let index = hoveredRowID.flatMap(layout.index(ofRowID:)) else { return 0 }
         let row = layout.rows[index]
         switch row.mark {
         case .bar(let factor): return railWidth * factor * max(1, tuning.values.genieWidthScale)
         case .dot: return MinimapDrawing.dotDiameter * max(1, tuning.values.genieThicknessScale)
-        case .end: return MinimapDrawing.endDiameter * max(1, tuning.values.genieThicknessScale)
+        case .end: return railWidth * max(1, tuning.values.genieWidthScale)
         }
     }
 }
@@ -772,7 +771,15 @@ private struct MinimapDrawing: ViewModifier, Animatable {
             )
             switch row.mark {
             case .end:
-                drawEndMark(in: &context, size: size, y: y, scale: thicknessScale, shading: color)
+                let thickness = MinimapLayout.rowHeight * thicknessScale
+                let width = railWidth * scale(at: contentY, maximum: tuning.genieWidthScale)
+                let x = side == .leading ? 0 : size.width - width
+                let outline = MinimapMarks.endOutline(barRect: CGRect(x: x, y: y - thickness / 2, width: width, height: thickness))
+                context.stroke(
+                    Path(roundedRect: outline, cornerRadius: outline.height / 2),
+                    with: color,
+                    lineWidth: MinimapMarks.endStrokeWidth
+                )
             case .dot:
                 drawDot(in: &context, size: size, y: y, diameter: Self.dotDiameter * thicknessScale, shading: color)
             case .bar(let factor):
@@ -790,16 +797,10 @@ private struct MinimapDrawing: ViewModifier, Animatable {
     /// A prompt the user didn't type: round, so magnified it grows into a
     /// bigger dot and never reads as a prompt's bar.
     static let dotDiameter: CGFloat = 3.5
-    static let endDiameter: CGFloat = 3
 
     private func drawDot(in context: inout GraphicsContext, size: CGSize, y: CGFloat, diameter: CGFloat, shading: GraphicsContext.Shading) {
         let x = side == .leading ? 0 : size.width - diameter
         context.fill(Path(ellipseIn: CGRect(x: x, y: y - diameter / 2, width: diameter, height: diameter)), with: shading)
-    }
-
-    /// The end of the conversation.
-    private func drawEndMark(in context: inout GraphicsContext, size: CGSize, y: CGFloat, scale: CGFloat, shading: GraphicsContext.Shading) {
-        drawDot(in: &context, size: size, y: y, diameter: Self.endDiameter * scale, shading: shading)
     }
 
     /// A soft box over the gap between two rows, where the agent's reply to
