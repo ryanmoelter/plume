@@ -276,7 +276,18 @@ struct ChatMinimap: View, ThemedView {
                 hoveredRowID: hoveredRowID,
                 displayed: scrollOffset,
                 target: hoverScroll?.offset ?? scrollOffset,
-                rowAt: rowID
+                rowAt: rowID,
+                project: { id in
+                    guard let scroll = hoverScroll, let index = layout.index(ofRowID: id) else { return scrollOffset }
+                    return MinimapSnappedScroll.projectedOffset(
+                        of: scroll,
+                        pointerY: y,
+                        toRowAt: layout.positions[index],
+                        metrics: metrics,
+                        centering: centering,
+                        gain: gain
+                    )
+                }
             )
             if step.offset != scrollOffset {
                 withAnimation(.smooth(duration: tuning.values.snapDuration)) { scrollOffset = step.offset }
