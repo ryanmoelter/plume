@@ -123,15 +123,13 @@ struct ChatMinimap: View, ThemedView {
             // leave the map drawn past its end until the pointer left.
             .onChange(of: metrics.travel) { _, travel in
                 guard hoveredRowID != nil else { return }
-                let next: CGFloat
                 if travel > 0, var current = hoverScroll {
                     current.repin(travel: travel)
                     hoverScroll = current
-                    next = tuning.values.snappedScroll ? min(max(scrollOffset, 0), travel) : current.offset
                 } else {
                     hoverScroll = nil
-                    next = min(max(scrollOffset, 0), travel)
                 }
+                let next = min(max(scrollOffset, 0), travel)
                 guard next != scrollOffset else { return }
                 var transaction = Transaction()
                 transaction.disablesAnimations = true
@@ -231,9 +229,8 @@ struct ChatMinimap: View, ThemedView {
     private func pointerMoved(toY y: CGFloat, metrics: MinimapMetrics) {
         let absolute = MinimapCatchUp.absolute(pointerFraction: metrics.pointerFraction(atY: y))
         let gain = tuning.values.catchUpGain
-        let snapped = tuning.values.snappedScroll
         if metrics.travel > 0 {
-            var next: MinimapHoverScroll
+            let next: MinimapHoverScroll
             if var current = hoverScroll {
                 current.move(to: absolute, pointerY: y, travel: metrics.travel, gain: gain)
                 next = current
@@ -250,11 +247,6 @@ struct ChatMinimap: View, ThemedView {
                 )
             }
             hoverScroll = next
-            if !snapped, next.offset != scrollOffset {
-                var transaction = Transaction()
-                transaction.disablesAnimations = true
-                withTransaction(transaction) { scrollOffset = next.offset }
-            }
         } else {
             hoverScroll = nil
         }
@@ -262,33 +254,27 @@ struct ChatMinimap: View, ThemedView {
         let rowID = { (offset: CGFloat) in
             layout.nearestRow(toY: y - metrics.topMargin - centering + offset).map { layout.rows[$0].id }
         }
-        let resolved: String?
-        if snapped {
-            let step = MinimapSnappedScroll.step(
-                hoveredRowID: hoveredRowID,
-                displayed: scrollOffset,
-                target: hoverScroll?.offset ?? scrollOffset,
-                rowAt: rowID,
-                project: { id in
-                    guard let scroll = hoverScroll, let index = layout.index(ofRowID: id) else { return scrollOffset }
-                    return MinimapSnappedScroll.projectedOffset(
-                        of: scroll,
-                        pointerY: y,
-                        toRowAt: layout.positions[index],
-                        metrics: metrics,
-                        centering: centering,
-                        gain: gain
-                    )
-                }
-            )
-            if step.offset != scrollOffset {
-                withAnimation(.smooth(duration: tuning.values.snapDuration)) { scrollOffset = step.offset }
+        let step = MinimapSnappedScroll.step(
+            hoveredRowID: hoveredRowID,
+            displayed: scrollOffset,
+            target: hoverScroll?.offset ?? scrollOffset,
+            rowAt: rowID,
+            project: { id in
+                guard let scroll = hoverScroll, let index = layout.index(ofRowID: id) else { return scrollOffset }
+                return MinimapSnappedScroll.projectedOffset(
+                    of: scroll,
+                    pointerY: y,
+                    toRowAt: layout.positions[index],
+                    metrics: metrics,
+                    centering: centering,
+                    gain: gain
+                )
             }
-            resolved = step.rowID
-        } else {
-            resolved = rowID(scrollOffset)
+        )
+        if step.offset != scrollOffset {
+            withAnimation(.smooth(duration: tuning.values.snapDuration)) { scrollOffset = step.offset }
         }
-        guard let id = resolved, id != hoveredRowID, let index = layout.index(ofRowID: id) else { return }
+        guard let id = step.rowID, id != hoveredRowID, let index = layout.index(ofRowID: id) else { return }
         let isFadingOut = leftAt.map { Date().timeIntervalSince($0) < tuning.values.fadeOutDuration } ?? false
         let wasShowing = hoveredRowID != nil || isFadingOut
         hoveredRowID = id
@@ -414,8 +400,7 @@ struct ChatMinimap: View, ThemedView {
             visibleRows: visibleRows,
             hoveredRowID: hoveredRowID,
             rail: rail,
-            scrollPercent: metrics.travel > 0 ? Int((scrollOffset / metrics.travel * 100).rounded()) : 0,
-            snappedScroll: tuning.values.snappedScroll
+            scrollPercent: metrics.travel > 0 ? Int((scrollOffset / metrics.travel * 100).rounded()) : 0
         ), make: makeControlValue)
     }
 
@@ -433,7 +418,6 @@ struct ChatMinimap: View, ThemedView {
             "scroll": Double(key.scrollPercent) / 100,
             "railWidth": Double(key.rail.width),
             "railInset": Double(key.rail.inset),
-            "snappedScroll": key.snappedScroll,
             "rows": rows
         ]
         guard let data = try? JSONSerialization.data(withJSONObject: object, options: [.sortedKeys]) else { return nil }
@@ -586,7 +570,6 @@ private struct ControlValueKey: Equatable {
     var hoveredRowID: String?
     var rail: MinimapRailGeometry
     var scrollPercent: Int
-    var snappedScroll: Bool
 }
 
 /// The control value, rebuilt in `body` only when its key changes. Not an

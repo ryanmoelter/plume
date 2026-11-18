@@ -433,7 +433,6 @@ enum AccessibilityID {
     static let chatMinimap = "chat-minimap"
     static let settingsMinimapTuningReset = "settings-minimap-tuning-reset"
     static let settingsMinimapTuningToggle = "settings-minimap-tuning-toggle"
-    static let settingsMinimapTuningSnappedScroll = "settings-minimap-tuning-snapped-scroll"
     /// Followed by a tuning slider's key, as in `settings-minimap-tuning-snap`.
     static let settingsMinimapTuningSliderPrefix = "settings-minimap-tuning-"
 

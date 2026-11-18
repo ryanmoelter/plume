@@ -2,10 +2,10 @@ import Foundation
 import Testing
 @testable import Plume
 
-/// The snapped scroll hovers exactly the rows the continuous scroll would,
-/// for any pointer input. Only the drawn offset differs: it holds while the
-/// hovered row stays the same, and on a change steps to the offset the
-/// continuous scroll would reach with the pointer on the new row's middle.
+/// The hover hovers the row under the pointer at the catch-up's offset, for
+/// any pointer input. The drawn offset holds while the hovered row stays the
+/// same, and on a change steps to the offset the catch-up would reach with
+/// the pointer on the new row's middle.
 @MainActor
 struct MinimapSnappedScrollTests {
     private static let rowSpacing: CGFloat = 10
@@ -42,9 +42,8 @@ struct MinimapSnappedScrollTests {
         var target: CGFloat
     }
 
-    /// Runs one pointer path through the catch-up, hovering as each mode
-    /// does: continuous draws at the target, snapped through `step`.
-    private static func run(_ path: [CGFloat], snapped: Bool, entryOffset: CGFloat = 120, deadZoneRadius: CGFloat = 16) -> [Frame] {
+    /// Runs one pointer path through the catch-up, hovering through `step`.
+    private static func run(_ path: [CGFloat], entryOffset: CGFloat = 120, deadZoneRadius: CGFloat = 16) -> [Frame] {
         guard let first = path.first else { return [] }
         var scroll = MinimapHoverScroll(
             offset: entryOffset,
@@ -61,25 +60,19 @@ struct MinimapSnappedScrollTests {
             if index > 0 {
                 scroll.move(to: pointer(atY: y), pointerY: y, travel: metrics.travel, gain: gain)
             }
-            let rowAt = rowAt(pointerY: y)
-            if snapped {
-                let current = scroll
-                let step = MinimapSnappedScroll.step(
-                    hoveredRowID: hovered,
-                    displayed: displayed,
-                    target: scroll.offset,
-                    rowAt: rowAt,
-                    project: { id in
-                        let row = CGFloat(Int(id.dropFirst())!) * rowSpacing
-                        return project(current, pointerY: y, toRowAt: row)
-                    }
-                )
-                hovered = step.rowID
-                displayed = step.offset
-            } else {
-                displayed = scroll.offset
-                hovered = rowAt(displayed)
-            }
+            let current = scroll
+            let step = MinimapSnappedScroll.step(
+                hoveredRowID: hovered,
+                displayed: displayed,
+                target: scroll.offset,
+                rowAt: rowAt(pointerY: y),
+                project: { id in
+                    let row = CGFloat(Int(id.dropFirst())!) * rowSpacing
+                    return project(current, pointerY: y, toRowAt: row)
+                }
+            )
+            hovered = step.rowID
+            displayed = step.offset
             frames.append(Frame(rowID: hovered, displayed: displayed, target: scroll.offset))
         }
         return frames
@@ -122,15 +115,17 @@ struct MinimapSnappedScrollTests {
     nonisolated private static let seeds: [UInt64] = [1, 7, 42, 1234, 99_991, 31_337]
 
     @Test(arguments: seeds)
-    func bothModesHoverTheSameRows(seed: UInt64) {
+    func theHoveredRowIsTheOneUnderThePointerAtTheCatchUp(seed: UInt64) {
         for path in [Self.wander(seed: seed), Self.sweeps(seed: seed)] {
-            #expect(Self.run(path, snapped: false).map(\.rowID) == Self.run(path, snapped: true).map(\.rowID))
+            for (y, frame) in zip(path, Self.run(path)) {
+                #expect(frame.rowID == Self.rowAt(pointerY: y)(frame.target))
+            }
         }
     }
 
     @Test(arguments: seeds)
     func theDrawnOffsetMovesOnlyWithTheHoveredRow(seed: UInt64) {
-        let frames = Self.run(Self.wander(seed: seed), snapped: true)
+        let frames = Self.run(Self.wander(seed: seed))
         for (previous, frame) in zip(frames, frames.dropFirst()) where frame.rowID == previous.rowID {
             #expect(frame.displayed == previous.displayed)
         }
@@ -142,7 +137,7 @@ struct MinimapSnappedScrollTests {
     @Test(arguments: seeds)
     func aSweepKeepsTheHoveredRowUnderThePointer(seed: UInt64) {
         let path = Self.sweeps(seed: seed)
-        let frames = Self.run(path, snapped: true, deadZoneRadius: 0)
+        let frames = Self.run(path, deadZoneRadius: 0)
         for (index, frame) in frames.enumerated() {
             #expect(Self.rowAt(pointerY: path[index])(frame.displayed) == frame.rowID)
             guard index > 0, let row = frame.rowID, let previous = frames[index - 1].rowID else { continue }
@@ -153,9 +148,9 @@ struct MinimapSnappedScrollTests {
     /// Half a row gap for the pointer's place within the row, plus however
     /// far one pointer move carries the content past the row's edge.
     @Test(arguments: seeds)
-    func theDrawnOffsetStaysNearTheContinuousOne(seed: UInt64) {
+    func theDrawnOffsetStaysNearTheCatchUp(seed: UInt64) {
         for path in [Self.wander(seed: seed), Self.sweeps(seed: seed)] {
-            for frame in Self.run(path, snapped: true) {
+            for frame in Self.run(path) {
                 #expect(abs(frame.displayed - frame.target) <= Self.rowSpacing)
             }
         }
@@ -194,8 +189,24 @@ struct MinimapSnappedScrollTests {
     }
 
     @Test func theDeadZoneStillHoldsTheMap() {
-        let frames = Self.run([150, 156, 141, 164, 137], snapped: true)
+        let frames = Self.run([150, 156, 141, 164, 137])
         #expect(Set(frames.map(\.displayed)) == [120])
         #expect(Set(frames.map(\.rowID)).count > 2)
+    }
+}
+
+/// Persisted tuning from a build that still had the snapped-scroll switch.
+@MainActor
+struct MinimapTuningTests {
+    @Test func aStoredSnappedScrollKeyStillDecodes() {
+        let defaults = UserDefaults(suiteName: "MinimapTuningTests.\(UUID().uuidString)")!
+        defaults.set(["catchUpGain": 14.0, "snappedScroll": 1.0], forKey: "minimapTuning")
+
+        let tuning = MinimapTuning(defaults: defaults)
+
+        #if DEBUG
+        #expect(tuning.values.catchUpGain == 14)
+        #endif
+        #expect(tuning.values.deadZoneRadius == MinimapTuning.Values.defaults.deadZoneRadius)
     }
 }

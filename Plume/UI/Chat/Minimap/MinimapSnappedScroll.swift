@@ -1,10 +1,10 @@
 import Foundation
 
-/// A debug alternative to scrolling the map continuously while hovering. The
-/// hovered row is always the one the continuous scroll would pick; only the
-/// drawn offset is sticky. It holds while that row stays the same, and when
-/// the row changes it steps to where the continuous scroll would be with the
-/// pointer on the new row's middle.
+/// How a hover draws the map: it scrolls only when the hovered row changes.
+/// `MinimapHoverScroll` runs on every pointer move, and the hovered row is
+/// the one under the pointer at its offset; the drawn offset holds while
+/// that row stays the same. When the row changes it steps to the catch-up's
+/// offset with the pointer moved on to the new row's middle.
 enum MinimapSnappedScroll {
     struct Step: Equatable {
         var rowID: String?
