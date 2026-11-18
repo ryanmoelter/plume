@@ -157,7 +157,8 @@ struct ChatMessageList<SidePane: View>: View, ThemedView {
                         // Only a trailing rail shares its edge with the info pane.
                         revealExclusionHeight: settings.minimapSide == .trailing ? minimapExclusionHeight : 0,
                         side: settings.minimapSide,
-                        spacing: settings.minimapSpacing
+                        spacing: settings.minimapSpacing,
+                        indirectShape: settings.minimapIndirectShape
                     )
                     .transition(.opacity)
                 }

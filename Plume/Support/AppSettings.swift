@@ -71,6 +71,7 @@ final class AppSettings {
         static let showsKeepAwakeDebugReadout = "showsKeepAwakeDebugReadout"
         static let minimapSideRaw = "minimapSideRaw"
         static let minimapSpacingRaw = "minimapSpacingRaw"
+        static let minimapIndirectShapeRaw = "minimapIndirectShapeRaw"
         static let lidClosedThermalCutoffRaw = "lidClosedThermalCutoffRaw"
         static let showsBypassPermissions = "showsBypassPermissions"
         static let showsCodexFullAccess = "showsCodexFullAccess"
@@ -280,9 +281,12 @@ final class AppSettings {
         #if DEBUG
         self.minimapSide = defaults.string(forKey: Key.minimapSideRaw).flatMap(MinimapSide.init(rawValue:)) ?? .leading
         self.minimapSpacing = defaults.string(forKey: Key.minimapSpacingRaw).flatMap(MinimapSpacing.init(rawValue:)) ?? .proportional
+        self.minimapIndirectShape = defaults.string(forKey: Key.minimapIndirectShapeRaw)
+            .flatMap(MinimapIndirectShape.init(rawValue:)) ?? .dot
         #else
         self.minimapSide = .leading
         self.minimapSpacing = .proportional
+        self.minimapIndirectShape = .dot
         #endif
 
         self.lidClosedThermalCutoff = defaults.string(forKey: Key.lidClosedThermalCutoffRaw)
@@ -821,6 +825,10 @@ final class AppSettings {
 
     var minimapSpacing: MinimapSpacing {
         didSet { defaults.set(minimapSpacing.rawValue, forKey: Key.minimapSpacingRaw) }
+    }
+
+    var minimapIndirectShape: MinimapIndirectShape {
+        didSet { defaults.set(minimapIndirectShape.rawValue, forKey: Key.minimapIndirectShapeRaw) }
     }
 
     /// The thermal level at or above which the lid-closed override releases,

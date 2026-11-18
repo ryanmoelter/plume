@@ -433,6 +433,7 @@ enum AccessibilityID {
     static let chatMinimap = "chat-minimap"
     static let settingsMinimapSidePicker = "settings-minimap-side-picker"
     static let settingsMinimapSpacingPicker = "settings-minimap-spacing-picker"
+    static let settingsMinimapIndirectShapePicker = "settings-minimap-indirect-shape-picker"
     static let settingsMinimapTuningReset = "settings-minimap-tuning-reset"
 
     // MARK: Queued messages

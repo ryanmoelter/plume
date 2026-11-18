@@ -14,6 +14,14 @@ enum MinimapSpacing: String, CaseIterable {
     case proportional
 }
 
+/// How the minimap marks a prompt the user didn't type: a question, a plan,
+/// an interruption or a shell command.
+enum MinimapIndirectShape: String, CaseIterable {
+    case dot
+    /// A quarter of a typed prompt's bar.
+    case line
+}
+
 /// One row of the minimap: something the user said or was asked, or the end
 /// of the conversation.
 struct MinimapRow: Equatable {

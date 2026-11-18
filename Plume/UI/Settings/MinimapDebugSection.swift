@@ -25,6 +25,15 @@ struct MinimapDebugSection: View {
                 value: settings.minimapSpacing.rawValue,
                 setValue: { MinimapSpacing(rawValue: $0).map { settings.minimapSpacing = $0 } }
             )
+            Picker("Indirect prompts", selection: $settings.minimapIndirectShape) {
+                Text("Dot").tag(MinimapIndirectShape.dot)
+                Text("Short line").tag(MinimapIndirectShape.line)
+            }
+            .plumeID(
+                AccessibilityID.settingsMinimapIndirectShapePicker,
+                value: settings.minimapIndirectShape.rawValue,
+                setValue: { MinimapIndirectShape(rawValue: $0).map { settings.minimapIndirectShape = $0 } }
+            )
             TuningSlider(title: "Magnify radius", value: $tuning.values.genieRadius,
                          range: MinimapTuning.genieRadiusRange, step: 1) { "\(Int($0)) pt" }
             TuningSlider(title: "Magnify width", value: $tuning.values.genieWidthScale,

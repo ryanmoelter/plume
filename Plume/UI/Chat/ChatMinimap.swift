@@ -32,6 +32,7 @@ struct ChatMinimap: View, ThemedView {
     var revealExclusionHeight: CGFloat = 0
     var side: MinimapSide = .leading
     var spacing: MinimapSpacing = .even
+    var indirectShape: MinimapIndirectShape = .dot
 
     /// The rail's narrowest width, and so a prompt bar's. The rail overlays
     /// the chat rather than taking a column, so this plus `edgeInset` on
@@ -93,6 +94,7 @@ struct ChatMinimap: View, ThemedView {
                         hoveredRow: hoveredIndex,
                         metrics: metrics,
                         side: side,
+                        indirectShape: indirectShape,
                         railWidth: railWidth,
                         tuning: tuning.values,
                         scrollOffset: scrollOffset,
@@ -120,6 +122,7 @@ struct ChatMinimap: View, ThemedView {
             .onChange(of: ControlValueKey(
                 side: side,
                 spacing: spacing,
+                indirectShape: indirectShape,
                 layout: layout,
                 visibleRows: visibleRows,
                 hoveredRowID: hoveredRowID,
@@ -405,6 +408,7 @@ struct ChatMinimap: View, ThemedView {
         let object: [String: Any] = [
             "side": key.side.rawValue,
             "spacing": key.spacing.rawValue,
+            "indirectShape": key.indirectShape.rawValue,
             "scroll": Double(key.scrollPercent) / 100,
             "rows": rows
         ]
@@ -535,11 +539,13 @@ struct ChatMinimap: View, ThemedView {
     /// The hovered bar's length at full magnification.
     private var hoveredBarWidth: CGFloat {
         guard let index = hoveredRowID.flatMap(layout.index(ofRowID:)) else { return 0 }
-        let row = layout.rows[index]
-        switch row.mark {
-        case .bar(let factor): return railWidth * factor * max(1, tuning.values.genieWidthScale)
-        case .dot: return MinimapDrawing.dotDiameter * max(1, tuning.values.genieThicknessScale)
-        case .end: return railWidth * max(1, tuning.values.genieWidthScale)
+        let promptLength = railWidth * max(1, tuning.values.genieWidthScale)
+        switch layout.rows[index].mark {
+        case .bar(let factor): return promptLength * factor
+        case .indirect:
+            let thickness = MinimapLayout.rowHeight * max(1, tuning.values.genieThicknessScale)
+            return MinimapMarks.indirectSize(shape: indirectShape, promptLength: promptLength, thickness: thickness).width
+        case .end: return promptLength
         }
     }
 }
@@ -597,6 +603,7 @@ private struct FollowDrive: Equatable {
 private struct ControlValueKey: Equatable {
     var side: MinimapSide
     var spacing: MinimapSpacing
+    var indirectShape: MinimapIndirectShape
     var layout: MinimapLayout
     var visibleRows: Set<Int>
     var hoveredRowID: String?
@@ -710,6 +717,7 @@ private struct MinimapDrawing: ViewModifier, Animatable {
     let hoveredRow: Int?
     let metrics: MinimapMetrics
     let side: MinimapSide
+    let indirectShape: MinimapIndirectShape
     let railWidth: CGFloat
     let tuning: MinimapTuning.Values
     var scrollOffset: CGFloat
@@ -780,8 +788,15 @@ private struct MinimapDrawing: ViewModifier, Animatable {
                     with: color,
                     lineWidth: MinimapMarks.endStrokeWidth
                 )
-            case .dot:
-                drawDot(in: &context, size: size, y: y, diameter: Self.dotDiameter * thicknessScale, shading: color)
+            case .indirect:
+                let thickness = MinimapLayout.rowHeight * thicknessScale
+                let promptLength = railWidth * scale(at: contentY, maximum: tuning.genieWidthScale)
+                let mark = MinimapMarks.indirectSize(shape: indirectShape, promptLength: promptLength, thickness: thickness)
+                let x = side == .leading ? 0 : size.width - mark.width
+                context.fill(
+                    Path(roundedRect: CGRect(x: x, y: y - thickness / 2, width: mark.width, height: thickness), cornerRadius: thickness / 2),
+                    with: color
+                )
             case .bar(let factor):
                 let thickness = MinimapLayout.rowHeight * thicknessScale
                 let width = railWidth * factor * scale(at: contentY, maximum: tuning.genieWidthScale)
@@ -792,15 +807,6 @@ private struct MinimapDrawing: ViewModifier, Animatable {
                 )
             }
         }
-    }
-
-    /// A prompt the user didn't type: round, so magnified it grows into a
-    /// bigger dot and never reads as a prompt's bar.
-    static let dotDiameter: CGFloat = 3.5
-
-    private func drawDot(in context: inout GraphicsContext, size: CGSize, y: CGFloat, diameter: CGFloat, shading: GraphicsContext.Shading) {
-        let x = side == .leading ? 0 : size.width - diameter
-        context.fill(Path(ellipseIn: CGRect(x: x, y: y - diameter / 2, width: diameter, height: diameter)), with: shading)
     }
 
     /// A soft box over the gap between two rows, where the agent's reply to
@@ -855,20 +861,21 @@ private struct MinimapPreviewLabel: View, ThemedView {
 private enum MinimapMark {
     /// A bar this fraction of the rail wide.
     case bar(CGFloat)
-    case dot
+    /// A prompt the user didn't type, drawn as `MinimapIndirectShape`.
+    case indirect
     case end
 }
 
 private extension MinimapRow {
     /// Typed prompts draw the full rail, so they are the mark the eye lands
-    /// on. Anything else that opens a turn draws a dot.
+    /// on. Anything else that opens a turn draws a smaller mark.
     var mark: MinimapMark {
         switch kind {
         case .anchor(let kind):
             switch kind {
             case .prompt: .bar(1)
             case .response: .bar(0.5)
-            case .question, .plan, .interruption, .shellCommand: .dot
+            case .question, .plan, .interruption, .shellCommand: .indirect
             }
         case .end: .end
         }
