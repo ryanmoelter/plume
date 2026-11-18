@@ -271,11 +271,11 @@ struct ChatMinimap: View, ThemedView {
             layout.nearestRow(toY: y - metrics.topMargin - centering + offset).map { layout.rows[$0].id }
         }
         let resolved: String?
-        if snapped, let target = hoverScroll?.offset {
+        if snapped {
             let step = MinimapSnappedScroll.step(
                 hoveredRowID: hoveredRowID,
                 displayed: scrollOffset,
-                target: target,
+                target: hoverScroll?.offset ?? scrollOffset,
                 rowAt: rowID
             )
             if step.offset != scrollOffset {

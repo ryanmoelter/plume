@@ -1,11 +1,9 @@
 import Foundation
 
-/// A debug alternative to scrolling the map continuously while hovering: the
-/// drawn offset holds still while the hovered row stays the same, and steps
-/// to the catch-up's offset only when the hovered row changes.
-///
-/// The hovered row is always the row under the pointer at the drawn offset,
-/// so a click or the preview lands on what is drawn.
+/// A debug alternative to scrolling the map continuously while hovering. The
+/// hovered row is always the one the continuous scroll would pick; only the
+/// drawn offset is sticky, holding while that row stays the same and stepping
+/// to the catch-up's offset when it changes.
 enum MinimapSnappedScroll {
     struct Step: Equatable {
         var rowID: String?
@@ -20,12 +18,8 @@ enum MinimapSnappedScroll {
         target: CGFloat,
         rowAt: (CGFloat) -> String?
     ) -> Step {
-        let drawnRow = rowAt(displayed)
-        guard drawnRow != hoveredRowID else { return Step(rowID: hoveredRowID, offset: displayed) }
-        let targetRow = rowAt(target)
-        // At the target the pointer would be back on the row it just left,
-        // so stepping there would scroll without changing the row.
-        guard targetRow != hoveredRowID else { return Step(rowID: drawnRow, offset: displayed) }
-        return Step(rowID: targetRow, offset: target)
+        let row = rowAt(target)
+        guard let row, row != hoveredRowID else { return Step(rowID: row, offset: displayed) }
+        return Step(rowID: row, offset: target)
     }
 }
