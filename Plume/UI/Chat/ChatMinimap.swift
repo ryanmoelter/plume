@@ -445,6 +445,7 @@ struct ChatMinimap: View, ThemedView {
             if y < metrics.topMargin || y > metrics.topMargin + metrics.live {
                 hoverScroll = nil
                 scrollOffset = min(max(layout.positions[index] - metrics.live / 2, 0), metrics.travel)
+                presentation.scrollOffset = scrollOffset
                 y = metrics.screenY(contentY: layout.positions[index], scrollOffset: scrollOffset)
             }
             pointerMoved(toY: y, metrics: metrics)
