@@ -71,17 +71,20 @@ enum SwitchLatencyProbe {
         removeObserver()
     }
 
+    /// Also feeds `ScrollHitchProbe` while a `scrollChat` runs.
     static func time<T>(_ name: String, _ body: () -> T) -> T {
-        guard run != nil else { return body() }
+        guard run != nil || ScrollHitchProbe.isActive else { return body() }
         let began = CACurrentMediaTime()
         defer {
             let elapsed = (CACurrentMediaTime() - began) * 1000
             run?.spans[name, default: SwitchLatencySpan(name: name)].add(ms: elapsed)
+            ScrollHitchProbe.record(name, ms: elapsed)
         }
         return body()
     }
 
     static func note(_ name: String) {
+        ScrollHitchProbe.record(name, ms: nil)
         guard run != nil else { return }
         run?.spans[name, default: SwitchLatencySpan(name: name)].count += 1
     }
@@ -200,10 +203,22 @@ nonisolated struct SwitchLatencyMeasurement: Codable, Equatable {
     }
 }
 
+nonisolated extension [Double] {
+    /// Over ascending samples, the smallest one that at least `quantile` of
+    /// them are at or below.
+    func nearestRank(_ quantile: Double) -> Double {
+        self[Swift.max(Int((quantile * Double(count)).rounded(.up)), 1) - 1]
+    }
+
+    /// Over ascending, non-empty samples.
+    var median: Double {
+        count % 2 == 1 ? self[count / 2] : (self[count / 2 - 1] + self[count / 2]) / 2
+    }
+}
+
 nonisolated struct LatencySummary: Codable, Equatable {
     var count: Int
     var median: Double
-    /// Nearest rank: the smallest sample at least 90% of samples are at or below.
     var p90: Double
     var min: Double
     var max: Double
@@ -211,12 +226,11 @@ nonisolated struct LatencySummary: Codable, Equatable {
     init?(_ samples: [Double]) {
         guard !samples.isEmpty else { return nil }
         let sorted = samples.sorted()
-        let n = sorted.count
-        count = n
-        median = n % 2 == 1 ? sorted[n / 2] : (sorted[n / 2 - 1] + sorted[n / 2]) / 2
-        p90 = sorted[Int((0.9 * Double(n)).rounded(.up)) - 1]
+        count = sorted.count
+        median = sorted.median
+        p90 = sorted.nearestRank(0.9)
         min = sorted[0]
-        max = sorted[n - 1]
+        max = sorted[count - 1]
     }
 }
 

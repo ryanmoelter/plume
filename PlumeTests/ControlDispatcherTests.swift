@@ -197,6 +197,13 @@ final class FakeControlBackend: ControlBackend {
         lastResize = params
         return ResizeResult(windowNumber: 0, width: params.width, height: params.height, sizes: [], live: params.live)
     }
+
+    func scrollChat(_ params: ScrollChatParams) async throws -> ScrollHitchReport {
+        try record("scrollChat")
+        return ScrollHitchReport(
+            clock: "timer", startOffset: 0, endOffset: 0, distance: 0, timedOut: false, samples: [], worst: 0
+        )
+    }
 }
 
 /// What `appendTurn` refuses to write to, below the dispatcher, where no live

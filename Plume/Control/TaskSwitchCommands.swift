@@ -33,11 +33,7 @@ extension InProcessControlBackend {
         }
         let source = fromID.flatMap { id in all.first { $0.id == id } }
 
-        // A driven instance is never frontmost, and App Nap would otherwise
-        // throttle it into timings no user sees.
-        let activity = ProcessInfo.processInfo.beginActivity(
-            options: [.userInitiated, .latencyCritical], reason: "Measuring task switches"
-        )
+        let activity = ControlActivity.begin(reason: "Measuring task switches")
         defer { ProcessInfo.processInfo.endActivity(activity) }
         var samples: [SwitchLatencyMeasurement] = []
         for round in 0..<params.repeatCount {

@@ -77,6 +77,7 @@ While split, a tab chip's label ends with its pane, counted from the left — `C
 | `tasks` | — | `{tasks: [{id, title, isSelected, tabKind?, expectsRows}]}` for the frontmost window's unarchived tasks, in sidebar order |
 | `selectTask` | `task`, `from?`, `repeat = 1` (at most 200), `timeout = 5`, `settle = 0.3` | `{samples, timedOut, visibleMs?, firstTurnMs?, rowsPlacedMs?, spans}`; see [Measuring a task switch](#measuring-a-task-switch) |
 | `appendTurn` | `repeat = 1` (at most 200), `timeout = 15`, `settle = 1`, `reply = true` | `{samples, timedOut, visibleMs?, firstTurnMs?, rowsPlacedMs?, longestTurnMs?, busyMs?, spans}`; see [Measuring a transcript append](#measuring-a-transcript-append) |
+| `scrollChat` | `to = "top" \| "bottom"` or `by` (signed points); `speed = 4000`, `settle = 0.3`, `maxSeconds = 30` (at most 300), `worst = 5`, `clock = "auto" \| "timer"` | `{clock, periodMs, frames, durationMs, startOffset, endOffset, distance, timedOut, realizations, intervalMs?, workMs?, overTwoPeriods, overFourPeriods, over50, over100, hitchMs, hitchMsPerSecond, spans, worstFrames}`; see [Measuring a scroll](#measuring-a-scroll) |
 
 `list` filters by `plumeID`, not `id`, because `id` at the top level is the request's correlation id.
 
@@ -120,6 +121,36 @@ The report has the same fields as a task switch, plus two:
 - `busyMs`: the sum of every main-thread turn during the sample.
 
 The `spans` add `storePublish`, the main-actor block of `TranscriptStore.read` that publishes a finished parse. Each transcript read also logs a `transcript-read …` line under the `app` category, with the time for the file load, the line decoding, the parse, each scanner, the subagents and the total. It also logs `bytes` (the file's size), `bytesRead` (what this read loaded), `tail` (whether it read only what was appended since the last read) and `reusedParent` (whether the file was unchanged).
+
+## Measuring a scroll
+
+`scrollChat` scrolls the focused chat list at a steady `speed` in points per second, to the top or bottom, or `by` a signed distance (negative is up). On every frame it moves the clip view by `speed × dt` with `clip.scroll(to:)` and `reflectScrolledClipView`, as a wheel would, so the list treats it as the reader's scroll. `to` re-reads the end every frame, because the document grows as rows measure. `by` counts the driver's own moves rather than comparing offsets: when rows above the viewport re-measure, the list shifts the offset to keep the reader's place, and the run still ends after `by` points. The report's `distance` is that count, so it can differ from `endOffset − startOffset` by those shifts. If the list leaves its window mid-run, a task switch say, the run fails with an error. The run measures for `settle` seconds after reaching its destination, and stops at `maxSeconds` regardless (`timedOut: true`). It holds the same activity assertion as `selectTask`.
+
+```
+c scrollChat to=top speed=4000
+c scrollChat by=-2000 worst=10
+```
+
+The frame clock is the scroll view's display link. A hidden or occluded window, or a sleeping display, stops vsync, so a 120 Hz timer takes over when the link stays silent: 100 ms at the start, or a second since its last tick mid-run. A busy main thread delays a pending link callback as long as it delays the check, so a check that runs late gives the link another 100 ms before the timer takes over. The timer's first tick has no interval, like the run's first, so the silence never counts as a frame. `clock` reports `displayLink`, `timer`, or `mixed`. Each interval is judged against the period of the clock that ended it, and `periodMs` is the median of those periods. `clock=timer` never creates the display link and ticks from the 120 Hz timer throughout; compare runs taken with the same clock, and use `timer` for repeatable ones.
+
+Each frame interval, from one tick's callback to the next, reports:
+
+- `intervalMs`: how late the main thread reached the next frame. This is the hitch metric: any main-thread work, whoever did it, shows as a long interval.
+- `workMs`: how long the main-thread turn the interval's first tick began ran, through Core Animation's commit. An interval much longer than its `workMs` waited on something other than that turn.
+- `realizations`: rows the list built in the interval, and `spans`: the instrumented sections that ran in it. `layoutPass` holds `realizeWindow`, `placeHosts` and `publishVisible`; `realizeWindow` holds `makeRoot`, `realizeMeasure` and `freeHost`. `minimapBody` and `minimapEntryBody` count SwiftUI body evaluations.
+
+The first tick has no interval and is left out. `intervalMs` and `workMs` are summarized as `{count, median, p90, p99, max}`, by nearest rank. `overTwoPeriods` and `overFourPeriods` count intervals longer than two and four periods: at least one and three missed frames. `over50` and `over100` count intervals longer than that many milliseconds. `hitchMs` adds up, over intervals longer than 1.5 periods, the time past one period. `spans` are run totals, slowest first, and `worstFrames` itemizes the `worst` longest intervals with their offset.
+
+Compare `hitchMsPerSecond` first, then `overTwoPeriods` and `overFourPeriods`, then `intervalMs.p99`. Every run also logs a `scroll-hitch …` line under the `app` category.
+
+`scripts/debug/measure-chat-scroll.sh <transcript.jsonl> [passes=3] [speed=4000]` launches a scratch instance seeded with a copy of the transcript and runs top-and-back passes. It sets each pass's `maxSeconds` from the distance and the speed, and warns and exits non-zero if a pass still times out. Environment variables change its defaults:
+
+- `CLOCK`: `timer` (the default) or `auto`.
+- `DISTANCE`: scroll this many points each way instead of to the ends. Unset by default.
+- `KEEP=1`: leave the app running afterwards. Off by default.
+- `EXTRA_ENV="A=1 B=2"`: extra environment for the app.
+
+The minimap re-renders whenever the set of visible rows changes, and that cost can hide the list's own. Launch with `PLUME_NO_VISIBLE_PUBLISH=1` (`EXTRA_ENV` in the script) to stop the list publishing that set, so the minimap stays still while the list scrolls. Debug builds only.
 
 ## How it works
 
@@ -169,6 +200,7 @@ Called with no point, `drag` instead surveys the window: every registered destin
 - **A click handed straight to a text view skips `NSApplication.sendEvent`**, so a local `NSEvent` monitor never sees its mouse-down. The mouse-up and drag events are still posted. A click on any view that accepts first mouse, every SwiftUI control included, is posted whole as before.
 - **With no key window, AppKit sends a posted key to the window last made key, not to the window the event names.** `key` calls `makeKey()` on its window first, which is enough with one window. Two test windows driven in parallel take each other's keys, so a test that types and clicks keeps both in one test.
 - **`selectTask` times only the main thread.** Work a switch moves off the main actor and publishes later is outside `visibleMs` unless it delays the first rows. A chat whose transcript is still being read places no rows until the read lands, so the first switch into a tab after launch measures the read too; discard it, or warm the tab with one unmeasured round. A sample that places no rows within `timeout` reports `timedOut: true` and is left out of the summaries; it means the target showed something other than chat rows, so check `tasks`' `expectsRows` and which tab the task has focused.
+- **`scrollChat` times the main thread only, and drives the clip view directly rather than through wheel events.** AppKit's responsive-scrolling path, momentum, and elasticity are never exercised, and render-server hitches that the main thread doesn't cause never show.
 - **A driven instance is never frontmost, so macOS throttles it.** Without an activity assertion, samples from one run swing between about 0.6 s and 3 s for the same switch, and every span slows together. `selectTask` holds a `userInitiated` + `latencyCritical` activity while it runs; time a switch any other way and the numbers are noise.
 - **A user-defaults write during a switch measures the defaults domain as much as Plume.** AppKit answers each write by rebuilding the merged domain on the main thread, at a cost that grows with its key count. Every debug build shares `com.ryanmoelter.Plume.debug`, which gathers thousands of keys over time, so one write there can cost hundreds of milliseconds that a user's machine never pays. `LastOpenTask` waits until selection has been still for two seconds for this reason. A span that jumps on one machine and not another is worth checking for a write.
 - **A chat's minimap and info pane mount a turn after its rows.** `visibleMs` ends with the frame that first shows the rows, and those two mount once it has committed (`AfterCommit`), fading in over 0.15 s. Their controls register then too, so a read sent the instant `selectTask` returns can miss them. Read again before calling one missing. The composer is never deferred: it must take keystrokes, and serve its focused scene value, from the first frame.

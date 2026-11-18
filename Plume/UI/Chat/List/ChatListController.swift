@@ -570,6 +570,14 @@ final class ChatListController: NSObject {
     // MARK: - Scroll events
 
     @objc private func clipBoundsChanged() {
+        #if DEBUG
+        SwitchLatencyProbe.time("clipBoundsChanged") { clipBoundsChangedNow() }
+        #else
+        clipBoundsChangedNow()
+        #endif
+    }
+
+    private func clipBoundsChangedNow() {
         guard !isOwnScroll, !isLayingOut else { return }
         let clip = scrollView.contentView
         // A size change is geometry, not intent; the pass it schedules
@@ -642,6 +650,14 @@ final class ChatListController: NSObject {
     }
 
     private func tick(at now: TimeInterval) {
+        #if DEBUG
+        SwitchLatencyProbe.time("animatorTick") { tickNow(at: now) }
+        #else
+        tickNow(at: now)
+        #endif
+    }
+
+    private func tickNow(at now: TimeInterval) {
         for (key, ease) in animator.eases {
             let value = ease.value(at: now)
             if key == Self.insetEaseKey {
@@ -686,6 +702,15 @@ final class ChatListController: NSObject {
     }
 
     var realizedIDs: Set<String> { Set(hosts.keys) }
+    func displayHeight(of id: String) -> CGFloat { model.displayHeight(of: id) }
+    func containerHeight(of id: String) -> CGFloat? { hosts[id]?.state.containerHeight }
+    func heightEase(of id: String) -> ChatListAnimator.Ease? { animator.eases[id] }
+
+    /// Feeds a measurement in as if the row reported it.
+    func reportMeasurement(_ height: CGFloat, for id: String) {
+        guard let host = hosts[id] else { return }
+        report(id: id, height: height, width: model.measurementWidth, generation: host.generation)
+    }
     /// Every row built since the list was created, freed or not.
     private(set) var realizations = 0
 
@@ -808,11 +833,11 @@ final class ChatListController: NSObject {
             setDetached(ChatScrollAnchor.isDetached(distanceFromBottom: distance, wasDetached: isDetached))
         }
 
-        for (id, host) in hosts {
-            guard let frame = model.frame(of: id) else { continue }
-            let overhang = ChatListItemState.overhang
-            host.view.frame = NSRect(x: 0, y: frame.minY - overhang, width: width, height: frame.height + 2 * overhang)
-        }
+        #if DEBUG
+        SwitchLatencyProbe.time("placeHosts") { placeHosts(width: width) }
+        #else
+        placeHosts(width: width)
+        #endif
         publishVisibleIDs(offset: offset)
         logPass(offset: offset, viewport: viewport)
         #if DEBUG
@@ -825,6 +850,14 @@ final class ChatListController: NSObject {
             }
         }
         #endif
+    }
+
+    private func placeHosts(width: CGFloat) {
+        for (id, host) in hosts {
+            guard let frame = model.frame(of: id) else { continue }
+            let overhang = ChatListItemState.overhang
+            host.view.frame = NSRect(x: 0, y: frame.minY - overhang, width: width, height: frame.height + 2 * overhang)
+        }
     }
 
     private var hasRealizedRows: Bool { hosts.keys.contains { $0 != Self.dockID } }
@@ -890,8 +923,12 @@ final class ChatListController: NSObject {
 
     private func animateHeight(of id: String, from: CGFloat, to: CGFloat) {
         guard from != to else { return }
-        if inputs.animate, model.viewportHeight > 0, documentView.window != nil {
+        let eases = animator.eases[id] != nil || ChatListMotion.easesHeightChange(from: from, to: to)
+        if eases, inputs.animate, model.viewportHeight > 0, documentView.window != nil {
             let live: Bool = if case let .piece(piece)? = items[id] { piece.isLive } else { false }
+            #if DEBUG
+            SwitchLatencyProbe.note("heightEase")
+            #endif
             animator.ease(id, from: from, to: to, duration: live ? 0.12 : 0.2)
         } else {
             model.setDisplayHeight(to, for: id)
@@ -911,6 +948,14 @@ final class ChatListController: NSObject {
     /// Realizes inside the window and frees only well outside it, so an item
     /// at the edge of a scroll is not built and torn down on every frame.
     private func realizeWindow(around offset: CGFloat) {
+        #if DEBUG
+        SwitchLatencyProbe.time("realizeWindow") { realizeWindowNow(around: offset) }
+        #else
+        realizeWindowNow(around: offset)
+        #endif
+    }
+
+    private func realizeWindowNow(around offset: CGFloat) {
         let range = model.realizedRange(offset: offset)
         lastRealizedRange = range
         let kept = Set(model.realizedRange(offset: offset, overscan: model.overscan * 3).map { model.id(at: $0) })
@@ -954,7 +999,7 @@ final class ChatListController: NSObject {
         } else if hadMeasurement, before != measured {
             // Realized again after its state was lost, at a different size.
             animateHeight(of: id, from: before, to: measured)
-            state.containerHeight = inputs.animate ? before : nil
+            state.containerHeight = inputs.animate ? model.displayHeight(of: id) : nil
         } else {
             state.containerHeight = inputs.animate ? measured : nil
         }
@@ -980,6 +1025,14 @@ final class ChatListController: NSObject {
     /// Returns a host to the pool. An evicted item keeps its host while it
     /// holds the keyboard focus; a deleted one (`force`) gives it up.
     private func free(_ id: String, force: Bool = false) {
+        #if DEBUG
+        SwitchLatencyProbe.time("freeHost") { freeNow(id, force: force) }
+        #else
+        freeNow(id, force: force)
+        #endif
+    }
+
+    private func freeNow(_ id: String, force: Bool) {
         guard let host = hosts[id] else { return }
         if let window = host.view.window, let responder = window.firstResponder as? NSView,
            responder.isDescendant(of: host.view) {
@@ -1031,6 +1084,14 @@ final class ChatListController: NSObject {
     }
 
     private func makeRoot(for item: Item, id: String, state: ChatListItemState, generation: Int) -> AnyView {
+        #if DEBUG
+        return SwitchLatencyProbe.time("makeRoot") { makeRootNow(for: item, id: id, state: state, generation: generation) }
+        #else
+        return makeRootNow(for: item, id: id, state: state, generation: generation)
+        #endif
+    }
+
+    private func makeRootNow(for item: Item, id: String, state: ChatListItemState, generation: Int) -> AnyView {
         let width = model.measurementWidth
         let onMeasure: (CGFloat) -> Void = { [weak self] height in
             self?.report(id: id, height: height, width: width, generation: generation)
@@ -1081,7 +1142,21 @@ final class ChatListController: NSObject {
         }
     }
 
+    #if DEBUG
+    /// Keeps the minimap's re-renders out of a scroll measurement.
+    private static let skipsVisiblePublish = ProcessInfo.processInfo.environment["PLUME_NO_VISIBLE_PUBLISH"] == "1"
+    #endif
+
     private func publishVisibleIDs(offset: CGFloat) {
+        #if DEBUG
+        guard !Self.skipsVisiblePublish else { return }
+        SwitchLatencyProbe.time("publishVisible") { publishVisibleIDsNow(offset: offset) }
+        #else
+        publishVisibleIDsNow(offset: offset)
+        #endif
+    }
+
+    private func publishVisibleIDsNow(offset: CGFloat) {
         let visible = Set(model.visibleIDs(offset: offset).filter { items[$0].map(isPiece) ?? false })
         guard visible != publishedVisibleIDs else { return }
         publishedVisibleIDs = visible

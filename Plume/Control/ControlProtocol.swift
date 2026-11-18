@@ -44,6 +44,7 @@ nonisolated struct ControlServerRequest: Decodable {
         case "selectTask": command = .selectTask(try SelectTaskParams(from: decoder))
         case "appendTurn": command = .appendTurn(try AppendTurnParams(from: decoder))
         case "resize": command = .resize(try ResizeParams(from: decoder))
+        case "scrollChat": command = .scrollChat(try ScrollChatParams(from: decoder))
         default:
             throw DecodingError.dataCorruptedError(
                 forKey: .command, in: container, debugDescription: "unknown command \"\(name)\""
@@ -76,6 +77,7 @@ nonisolated enum ControlCommand {
     case selectTask(SelectTaskParams)
     case appendTurn(AppendTurnParams)
     case resize(ResizeParams)
+    case scrollChat(ScrollChatParams)
 }
 
 /// Sets the window's content size, in points. With `live`, the size steps
@@ -203,6 +205,80 @@ nonisolated struct AppendTurnParams: Decodable, Equatable {
             settle: try c.decodeIfPresent(Double.self, forKey: .settle) ?? 1,
             reply: try c.decodeIfPresent(Bool.self, forKey: .reply) ?? true
         )
+    }
+}
+
+/// Scrolls the focused chat list at `speed` points per second, to `to` (`"top"`
+/// or `"bottom"`) or `by` signed points, and times every frame on the way.
+/// `to` and `by` are kept raw so a request naming both reaches the backend and
+/// fails as bad params rather than as a malformed request.
+nonisolated struct ScrollChatParams: Decodable, Equatable {
+    nonisolated enum Destination: Equatable {
+        case top
+        case bottom
+        case by(Double)
+    }
+
+    nonisolated enum ClockChoice: Equatable {
+        case auto
+        case timer
+    }
+
+    var to: String?
+    var by: Double?
+    var speed: Double = 4000
+    /// Seconds to keep measuring once the destination is reached.
+    var settle: Double = 0.3
+    var maxSeconds: Double = 30
+    /// How many of the longest frame intervals to itemize.
+    var worst: Int = 5
+    /// `"auto"` or `"timer"`, kept raw like `to` so a bad value fails as bad params.
+    var clock: String = "auto"
+
+    private enum CodingKeys: String, CodingKey { case to, by, speed, settle, maxSeconds, worst, clock }
+
+    init(
+        to: String? = nil, by: Double? = nil, speed: Double = 4000, settle: Double = 0.3, maxSeconds: Double = 30,
+        worst: Int = 5, clock: String = "auto"
+    ) {
+        self.clock = clock
+        self.to = to
+        self.by = by
+        self.speed = max(speed, 1)
+        self.settle = max(settle, 0)
+        self.maxSeconds = min(max(maxSeconds, 0.1), 300)
+        self.worst = min(max(worst, 0), 100)
+    }
+
+    init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        self.init(
+            to: try c.decodeIfPresent(String.self, forKey: .to),
+            by: try c.decodeIfPresent(Double.self, forKey: .by),
+            speed: try c.decodeIfPresent(Double.self, forKey: .speed) ?? 4000,
+            settle: try c.decodeIfPresent(Double.self, forKey: .settle) ?? 0.3,
+            maxSeconds: try c.decodeIfPresent(Double.self, forKey: .maxSeconds) ?? 30,
+            worst: try c.decodeIfPresent(Int.self, forKey: .worst) ?? 5,
+            clock: try c.decodeIfPresent(String.self, forKey: .clock) ?? "auto"
+        )
+    }
+
+    func clockChoice() throws -> ClockChoice {
+        switch clock {
+        case "auto": return .auto
+        case "timer": return .timer
+        default: throw ControlError.badParams("clock must be \"auto\" or \"timer\", not \"\(clock)\"")
+        }
+    }
+
+    func destination() throws -> Destination {
+        switch (to, by) {
+        case (nil, nil), ("top"?, nil): return .top
+        case ("bottom"?, nil): return .bottom
+        case (nil, let points?): return .by(points)
+        case (_?, _?): throw ControlError.badParams("scrollChat takes to or by, not both")
+        case (let other?, nil): throw ControlError.badParams("to must be \"top\" or \"bottom\", not \"\(other)\"")
+        }
     }
 }
 
@@ -776,6 +852,7 @@ nonisolated enum ControlResult: Encodable {
     case tasks(TaskListResult)
     case switchLatency(SwitchLatencyReport)
     case resize(ResizeResult)
+    case scrollHitch(ScrollHitchReport)
 
     func encode(to encoder: Encoder) throws {
         switch self {
@@ -797,6 +874,7 @@ nonisolated enum ControlResult: Encodable {
         case .tasks(let v): try v.encode(to: encoder)
         case .switchLatency(let v): try v.encode(to: encoder)
         case .resize(let v): try v.encode(to: encoder)
+        case .scrollHitch(let v): try v.encode(to: encoder)
         }
     }
 }
