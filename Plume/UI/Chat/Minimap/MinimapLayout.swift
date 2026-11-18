@@ -1,27 +1,5 @@
 import Foundation
 
-/// Which edge of the chat the minimap runs down.
-enum MinimapSide: String, CaseIterable {
-    case leading
-    case trailing
-}
-
-/// How the minimap spaces its rows.
-enum MinimapSpacing: String, CaseIterable {
-    /// Every row the same distance apart.
-    case even
-    /// The gap after a row grows with how much the agent wrote there.
-    case proportional
-}
-
-/// How the minimap marks a prompt the user didn't type: a question, a plan,
-/// an interruption or a shell command.
-enum MinimapIndirectShape: String, CaseIterable {
-    case dot
-    /// A quarter of a typed prompt's bar.
-    case line
-}
-
 /// One row of the minimap: something the user said or was asked, or the end
 /// of the conversation.
 struct MinimapRow: Equatable {
@@ -53,10 +31,10 @@ struct MinimapRow: Equatable {
 }
 
 /// Where each minimap row sits, in the map's own content space: 0 at the top
-/// of the first row, growing down.
+/// of the first row, growing down. The gap after a row grows with how much
+/// the agent wrote there.
 struct MinimapLayout: Equatable {
     var rows: [MinimapRow] = []
-    var spacing: MinimapSpacing = .even
     /// Each row's vertical center.
     var positions: [CGFloat] = []
     var contentHeight: CGFloat = 0
@@ -66,27 +44,24 @@ struct MinimapLayout: Equatable {
     /// What every row draws at, whatever its weight, so a bar's thickness
     /// never says anything about its turn.
     static let rowHeight: CGFloat = 2
-    static let evenPitch: CGFloat = 7
-    /// The closest two rows sit with nothing between them, in proportional
-    /// spacing.
-    static let proportionalMinimumPitch: CGFloat = 5
+    /// The closest two rows sit, with nothing between them.
+    static let minimumPitch: CGFloat = 5
     /// Points of gap per unit of `ChatOutlineBuilder` response weight.
-    static let proportionalPointsPerWeight: CGFloat = 0.3
+    static let pointsPerWeight: CGFloat = 0.3
 
     init() {}
 
-    init(outline: ChatOutline, spacing: MinimapSpacing) {
-        self.init(rows: Self.rows(from: outline), spacing: spacing)
+    init(outline: ChatOutline) {
+        self.init(rows: Self.rows(from: outline))
     }
 
-    init(rows: [MinimapRow], spacing: MinimapSpacing) {
+    init(rows: [MinimapRow]) {
         self.rows = rows
-        self.spacing = spacing
         var y = Self.rowHeight / 2
         positions.reserveCapacity(rows.count)
         for (index, row) in rows.enumerated() {
             positions.append(y)
-            y += Self.pitch(afterWeight: row.trailingWeight, spacing: spacing)
+            y += Self.pitch(afterWeight: row.trailingWeight)
             for piece in row.pieceIDs { rowByPiece[piece] = index }
             rowByID[row.id] = index
         }
@@ -95,11 +70,8 @@ struct MinimapLayout: Equatable {
 
     var isEmpty: Bool { rows.isEmpty }
 
-    static func pitch(afterWeight weight: CGFloat, spacing: MinimapSpacing) -> CGFloat {
-        switch spacing {
-        case .even: evenPitch
-        case .proportional: proportionalMinimumPitch + weight * proportionalPointsPerWeight
-        }
+    static func pitch(afterWeight weight: CGFloat) -> CGFloat {
+        minimumPitch + weight * pointsPerWeight
     }
 
     /// Anchors become the rows, each response folds into the row before it,
@@ -162,6 +134,6 @@ struct MinimapLayout: Equatable {
     }
 
     static func == (lhs: MinimapLayout, rhs: MinimapLayout) -> Bool {
-        lhs.rows == rhs.rows && lhs.spacing == rhs.spacing
+        lhs.rows == rhs.rows
     }
 }

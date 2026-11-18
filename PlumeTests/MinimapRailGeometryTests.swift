@@ -10,14 +10,14 @@ struct MinimapRailGeometryTests {
     private let bleedPadding: CGFloat = 12
 
     @Test func aReserveOnTheTrailingSideShrinksTheLeadingRoom() {
-        let open = MinimapRailGeometry.room(side: .leading, viewportWidth: 1000, columnReserve: 0, bleedWidth: 700)
-        let pinned = MinimapRailGeometry.room(side: .leading, viewportWidth: 1000, columnReserve: 280, bleedWidth: 700)
+        let open = MinimapRailGeometry.room(viewportWidth: 1000, columnReserve: 0, bleedWidth: 700)
+        let pinned = MinimapRailGeometry.room(viewportWidth: 1000, columnReserve: 280, bleedWidth: 700)
         #expect(open == 150)
         #expect(pinned == 10)
     }
 
     @Test func roomNeverGoesNegative() {
-        #expect(MinimapRailGeometry.room(side: .leading, viewportWidth: 600, columnReserve: 300, bleedWidth: 700) == 0)
+        #expect(MinimapRailGeometry.room(viewportWidth: 600, columnReserve: 300, bleedWidth: 700) == 0)
     }
 
     @Test func theRailIsCollapsedInsideTheBleedPadding() {

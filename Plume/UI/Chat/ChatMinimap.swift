@@ -1,7 +1,7 @@
 import AppKit
 import SwiftUI
 
-/// A skimmable map of the conversation, down one edge of the chat: one bar
+/// A skimmable map of the conversation, down the chat's leading edge: one bar
 /// per thing the user said or was asked, and a mark for the end.
 ///
 /// The whole rail is one `Canvas`, in every state. Hovering magnifies the
@@ -28,14 +28,6 @@ struct ChatMinimap: View, ThemedView {
     /// How much narrower than the pane the list makes its rows, which moves
     /// the conversation's column and so the room beside it.
     var columnReserve: CGFloat = 0
-    /// How far down from the top the pointer cannot start hovering, because
-    /// that stretch of a trailing rail sits beside the collapsed info pane's
-    /// click targets. A hover already under way keeps following the pointer
-    /// through it.
-    var revealExclusionHeight: CGFloat = 0
-    var side: MinimapSide = .leading
-    var spacing: MinimapSpacing = .even
-    var indirectShape: MinimapIndirectShape = .line
     var previewGlass: Glass = .regular
 
     @State private var layout = MinimapLayout()
@@ -86,15 +78,13 @@ struct ChatMinimap: View, ThemedView {
             .frame(width: railWidth)
             .frame(maxHeight: .infinity)
             .onGeometryChange(for: CGFloat.self) { $0.size.height } action: { height = $0 }
-            .overlay(alignment: edgeAlignment) {
+            .overlay(alignment: .leading) {
                 Color.clear
                     .modifier(MinimapDrawing(
                         layout: layout,
                         visibleRows: visibleRows,
                         hoveredRow: hoveredIndex,
                         metrics: metrics,
-                        side: side,
-                        indirectShape: indirectShape,
                         railWidth: railWidth,
                         tuning: tuning.values,
                         scrollOffset: scrollOffset,
@@ -113,19 +103,16 @@ struct ChatMinimap: View, ThemedView {
             .overlay(alignment: .topLeading) {
                 preview(metrics: metrics)
             }
-            .padding(side == .leading ? .leading : .trailing, railInset)
+            .padding(.leading, railInset)
             // After the padding, so the region reaches the pane's edge and
             // its x is measured from there.
-            .overlay(alignment: edgeAlignment) {
+            .overlay(alignment: .leading) {
                 hoverRegion(metrics: metrics)
             }
             .onDisappear { clickMonitor.stop() }
             .plumeID(AccessibilityID.chatMinimap, value: controlValueText, setValue: { drive($0, metrics: metrics) })
             #if DEBUG
             .onChange(of: ControlValueKey(
-                side: side,
-                spacing: spacing,
-                indirectShape: indirectShape,
                 layout: layout,
                 visibleRows: visibleRows,
                 hoveredRowID: hoveredRowID,
@@ -135,8 +122,8 @@ struct ChatMinimap: View, ThemedView {
                 controlValue = makeControlValue(key)
             }
             #endif
-            .onChange(of: LayoutInputs(outline: outline, spacing: spacing), initial: true) { _, inputs in
-                layout = MinimapLayout(outline: inputs.outline, spacing: inputs.spacing)
+            .onChange(of: outline, initial: true) { _, outline in
+                layout = MinimapLayout(outline: outline)
                 keepHoverOnItsRow()
             }
             // The follow is off during a hover, so a shrinking pane would
@@ -188,9 +175,8 @@ struct ChatMinimap: View, ThemedView {
     /// Only as wide as the rail's own footprint, out to the window edge, so
     /// a pointer that strays onto the map leaves it again with a short move.
     ///
-    /// Takes no hits: it sits over the chat's own scroll view and over the
-    /// info pane, and a hit-testable region would swallow their clicks and
-    /// the scroll wheel. A click on the hovered rail is taken by
+    /// Takes no hits: it sits over the chat's own scroll view, and a
+    /// hit-testable region would swallow its clicks and the scroll wheel. A click on the hovered rail is taken by
     /// `MinimapClickMonitor` instead.
     private func hoverRegion(metrics: MinimapMetrics) -> some View {
         Color.clear
@@ -203,12 +189,7 @@ struct ChatMinimap: View, ThemedView {
             .onContinuousHover(coordinateSpace: .local) { phase in
                 switch phase {
                 case .active(let point):
-                    guard Self.tracksHover(
-                        atY: point.y,
-                        isTracking: hoveredRowID != nil,
-                        exclusionHeight: revealExclusionHeight,
-                        drawableBottom: metrics.drawableBottom
-                    ) else {
+                    guard Self.tracksHover(atY: point.y, drawableBottom: metrics.drawableBottom) else {
                         pointerLeft()
                         return
                     }
@@ -222,8 +203,8 @@ struct ChatMinimap: View, ThemedView {
 
     /// The composer covers the rail below `drawableBottom`, so the pointer
     /// there is over the composer, not the map.
-    static func tracksHover(atY y: CGFloat, isTracking: Bool, exclusionHeight: CGFloat, drawableBottom: CGFloat) -> Bool {
-        y <= drawableBottom && (isTracking || y >= exclusionHeight)
+    static func tracksHover(atY y: CGFloat, drawableBottom: CGFloat) -> Bool {
+        y <= drawableBottom
     }
 
     /// A short conversation sits centered in the pane, so each row it gains
@@ -240,16 +221,13 @@ struct ChatMinimap: View, ThemedView {
             clickMonitor.onClick = nil
             return
         }
-        let side = side
         let reach = MinimapClickZone.reach(inset: railInset, barWidth: hoveredBarWidth)
-        let exclusionHeight = revealExclusionHeight
         let drawableBottom = metrics.drawableBottom
-        clickMonitor.accepts = { point, regionWidth in
+        clickMonitor.accepts = { point in
             MinimapClickZone.accepts(
-                distanceFromEdge: side == .leading ? point.x : regionWidth - point.x,
+                distanceFromEdge: point.x,
                 y: point.y,
                 reach: reach,
-                exclusionHeight: exclusionHeight,
                 drawableBottom: drawableBottom
             )
         }
@@ -372,8 +350,7 @@ struct ChatMinimap: View, ThemedView {
             gap: gap
         )
         // In the rail's own space, whose x runs from the rail's leading edge.
-        // The preview always opens toward the chat.
-        let x = side == .leading ? gap + slide : railWidth - gap - slide - width
+        let x = gap + slide
         return ZStack(alignment: .leading) {
             if let row {
                 MinimapPreviewLabel(row: row, maxLines: Int(values.previewMaxLines))
@@ -388,7 +365,7 @@ struct ChatMinimap: View, ThemedView {
         // A fixed width rather than a cap, so the overlay's rail-wide
         // proposal cannot squeeze it. The glass hugs the text inside it, so
         // a short prompt still gets a short pane.
-        .frame(width: width, alignment: side == .leading ? .leading : .trailing)
+        .frame(width: width, alignment: .leading)
         .alignmentGuide(.top) { $0[VerticalAlignment.center] }
         .offset(x: x, y: clampedY)
         .animation(centeringAnimation, value: metrics.centering)
@@ -424,9 +401,6 @@ struct ChatMinimap: View, ThemedView {
             ]
         }
         let object: [String: Any] = [
-            "side": key.side.rawValue,
-            "spacing": key.spacing.rawValue,
-            "indirectShape": key.indirectShape.rawValue,
             "scroll": Double(key.scrollPercent) / 100,
             "railWidth": Double(key.rail.width),
             "railInset": Double(key.rail.inset),
@@ -477,8 +451,6 @@ struct ChatMinimap: View, ThemedView {
 
     // MARK: Geometry
 
-    private var edgeAlignment: Alignment { side == .leading ? .leading : .trailing }
-
     /// Room for the most magnified bar.
     private var canvasWidth: CGFloat {
         railWidth * max(1, tuning.values.genieWidthScale) + 2
@@ -494,7 +466,6 @@ struct ChatMinimap: View, ThemedView {
     private var restingRail: MinimapRailGeometry {
         MinimapRailGeometry(
             room: MinimapRailGeometry.room(
-                side: side,
                 viewportWidth: viewportWidth,
                 columnReserve: columnReserve,
                 bleedWidth: dimensions.bleedWidth
@@ -565,11 +536,6 @@ struct MinimapMetrics: Equatable {
     }
 }
 
-private struct LayoutInputs: Equatable {
-    var outline: ChatOutline
-    var spacing: MinimapSpacing
-}
-
 /// What returns the map to the conversation: where the chat is, whether the
 /// pointer has stopped overriding it, and the room it scrolls in.
 private struct FollowDrive: Equatable {
@@ -585,9 +551,6 @@ private struct FollowDrive: Equatable {
 /// What the control value is a function of. Kept small, so a pointer move
 /// that changes none of it rebuilds nothing.
 private struct ControlValueKey: Equatable {
-    var side: MinimapSide
-    var spacing: MinimapSpacing
-    var indirectShape: MinimapIndirectShape
     var layout: MinimapLayout
     var visibleRows: Set<Int>
     var hoveredRowID: String?
@@ -605,9 +568,8 @@ private struct ControlValueKey: Equatable {
 private final class MinimapClickMonitor {
     /// The hover region's own view, which a click's point is measured in.
     weak var regionView: NSView?
-    /// Whether a point in the region, given the region's width, is on the
-    /// hovered rail.
-    var accepts: ((CGPoint, CGFloat) -> Bool)?
+    /// Whether a point in the region is on the hovered rail.
+    var accepts: ((CGPoint) -> Bool)?
     /// Nil wherever a click should reach the chat instead.
     var onClick: (() -> Void)?
     private var monitor: Any?
@@ -634,7 +596,7 @@ private final class MinimapClickMonitor {
             }
             guard let onClick = self.onClick,
                   event.modifierFlags.intersection(.deviceIndependentFlagsMask).isEmpty,
-                  self.accepts?(region.convert(event.locationInWindow, from: nil), region.bounds.width) == true,
+                  self.accepts?(region.convert(event.locationInWindow, from: nil)) == true,
                   MinimapClickZone.isChatContent(region.window?.contentView?.superview?.hitTest(event.locationInWindow))
             else { return event }
             self.swallowsMouseUp = true
@@ -701,8 +663,6 @@ private struct MinimapDrawing: ViewModifier, Animatable {
     let visibleRows: Set<Int>
     let hoveredRow: Int?
     let metrics: MinimapMetrics
-    let side: MinimapSide
-    let indirectShape: MinimapIndirectShape
     /// Animated, so a hover widening a narrow rail grows its bars.
     var railWidth: CGFloat
     let tuning: MinimapTuning.Values
@@ -779,8 +739,8 @@ private struct MinimapDrawing: ViewModifier, Animatable {
         for index in from...through {
             let contentY = layout.positions[index]
             let y = screenY(contentY: contentY)
-            if layout.spacing == .proportional, index + 1 < layout.positions.count, layout.rows[index].trailingWeight > 0 {
-                drawResponseBox(in: &context, size: size, from: contentY, to: layout.positions[index + 1])
+            if index + 1 < layout.positions.count, layout.rows[index].trailingWeight > 0 {
+                drawResponseBox(in: &context, from: contentY, to: layout.positions[index + 1])
             }
             let row = layout.rows[index]
             let thicknessScale = scale(at: contentY, maximum: tuning.genieThicknessScale)
@@ -789,8 +749,7 @@ private struct MinimapDrawing: ViewModifier, Animatable {
             case .end:
                 let thickness = MinimapLayout.rowHeight * thicknessScale
                 let width = railWidth * scale(at: contentY, maximum: tuning.genieWidthScale)
-                let x = side == .leading ? 0 : size.width - width
-                let outline = MinimapMarks.endOutline(barRect: CGRect(x: x, y: y - thickness / 2, width: width, height: thickness))
+                let outline = MinimapMarks.endOutline(barRect: CGRect(x: 0, y: y - thickness / 2, width: width, height: thickness))
                 context.stroke(
                     Path(roundedRect: outline, cornerRadius: outline.height / 2),
                     with: color,
@@ -799,23 +758,21 @@ private struct MinimapDrawing: ViewModifier, Animatable {
             case .indirect:
                 let thickness = MinimapLayout.rowHeight * thicknessScale
                 let promptLength = railWidth * scale(at: contentY, maximum: tuning.genieWidthScale)
-                let mark = MinimapMarks.indirectSize(shape: indirectShape, promptLength: promptLength, thickness: thickness)
+                let mark = MinimapMarks.indirectSize(promptLength: promptLength, thickness: thickness)
                 let offset = MinimapIndirectSlide.offset(
                     progress: slideProgress(forRowID: row.id),
                     promptLength: promptLength,
                     markLength: mark.width
                 )
-                let x = side == .leading ? offset : size.width - offset - mark.width
                 context.fill(
-                    Path(roundedRect: CGRect(x: x, y: y - thickness / 2, width: mark.width, height: thickness), cornerRadius: thickness / 2),
+                    Path(roundedRect: CGRect(x: offset, y: y - thickness / 2, width: mark.width, height: thickness), cornerRadius: thickness / 2),
                     with: color
                 )
             case .bar(let factor):
                 let thickness = MinimapLayout.rowHeight * thicknessScale
                 let width = railWidth * factor * scale(at: contentY, maximum: tuning.genieWidthScale)
-                let x = side == .leading ? 0 : size.width - width
                 context.fill(
-                    Path(roundedRect: CGRect(x: x, y: y - thickness / 2, width: width, height: thickness), cornerRadius: thickness / 2),
+                    Path(roundedRect: CGRect(x: 0, y: y - thickness / 2, width: width, height: thickness), cornerRadius: thickness / 2),
                     with: color
                 )
             }
@@ -834,16 +791,15 @@ private struct MinimapDrawing: ViewModifier, Animatable {
     /// the first sits. Fainter than any bar, and held clear of both rows'
     /// resting marks. It can't be selected, so the magnification leaves it
     /// alone.
-    private func drawResponseBox(in context: inout GraphicsContext, size: CGSize, from top: CGFloat, to bottom: CGFloat) {
+    private func drawResponseBox(in context: inout GraphicsContext, from top: CGFloat, to bottom: CGFloat) {
         let clearance = MinimapLayout.rowHeight / 2 + 1.5
         let boxTop = screenY(contentY: top) + clearance
         let boxBottom = screenY(contentY: bottom) - clearance
         let height = boxBottom - boxTop
         guard height >= 1.5 else { return }
         let width = railWidth * 0.75
-        let x = side == .leading ? 0 : size.width - width
         context.fill(
-            Path(roundedRect: CGRect(x: x, y: boxTop, width: width, height: height), cornerRadius: min(2, height / 2)),
+            Path(roundedRect: CGRect(x: 0, y: boxTop, width: width, height: height), cornerRadius: min(2, height / 2)),
             with: .color(.primary.opacity(0.07))
         )
     }
@@ -882,7 +838,7 @@ private struct MinimapPreviewLabel: View, ThemedView {
 private enum MinimapMark: Equatable {
     /// A bar this fraction of the rail wide.
     case bar(CGFloat)
-    /// A prompt the user didn't type, drawn as `MinimapIndirectShape`.
+    /// A prompt the user didn't type, drawn as a short line.
     case indirect
     case end
 }

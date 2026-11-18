@@ -32,16 +32,11 @@ struct MinimapRailGeometry: Equatable {
 
     static let normalCost: CGFloat = normalWidth + normalInset + normalGap
 
-    /// The space between the pane's edge on `side` and the near edge of the
-    /// bleed column. The list narrows its rows by `columnReserve` on the
-    /// trailing side, which moves the column toward the leading edge.
-    ///
-    /// A trailing rail ignores the reserve: the info pane that makes it sits
-    /// between the column and the rail, and its reserve already holds room
-    /// for a rail sized from the full pane.
-    static func room(side: MinimapSide, viewportWidth: CGFloat, columnReserve: CGFloat, bleedWidth: CGFloat) -> CGFloat {
-        let rowWidth = side == .leading ? viewportWidth - columnReserve : viewportWidth
-        return max(0, (rowWidth - bleedWidth) / 2)
+    /// The space between the pane's leading edge and the bleed column. The
+    /// list narrows its rows by `columnReserve` on the trailing side, which
+    /// moves the column toward the leading edge.
+    static func room(viewportWidth: CGFloat, columnReserve: CGFloat, bleedWidth: CGFloat) -> CGFloat {
+        max(0, (viewportWidth - columnReserve - bleedWidth) / 2)
     }
 
     /// How much of its normal size the rail can afford: 0 while the bars are

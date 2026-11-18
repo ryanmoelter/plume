@@ -69,9 +69,6 @@ final class AppSettings {
         static let keepsAwakeForRemoteControl = "keepsAwakeForRemoteControl"
         static let keepsAwakeForRemoteControlOnBattery = "keepsAwakeForRemoteControlOnBattery"
         static let showsKeepAwakeDebugReadout = "showsKeepAwakeDebugReadout"
-        static let minimapSideRaw = "minimapSideRaw"
-        static let minimapSpacingRaw = "minimapSpacingRaw"
-        static let minimapIndirectShapeRaw = "minimapIndirectShapeRaw"
         static let lidClosedThermalCutoffRaw = "lidClosedThermalCutoffRaw"
         static let showsBypassPermissions = "showsBypassPermissions"
         static let showsCodexFullAccess = "showsCodexFullAccess"
@@ -278,17 +275,6 @@ final class AppSettings {
             ? true
             : defaults.bool(forKey: Key.keepsAwakeForRemoteControlOnBattery)
         self.showsKeepAwakeDebugReadout = defaults.bool(forKey: Key.showsKeepAwakeDebugReadout)
-        #if DEBUG
-        self.minimapSide = defaults.string(forKey: Key.minimapSideRaw).flatMap(MinimapSide.init(rawValue:)) ?? .leading
-        self.minimapSpacing = defaults.string(forKey: Key.minimapSpacingRaw).flatMap(MinimapSpacing.init(rawValue:)) ?? .proportional
-        self.minimapIndirectShape = defaults.string(forKey: Key.minimapIndirectShapeRaw)
-            .flatMap(MinimapIndirectShape.init(rawValue:)) ?? .dot
-        #else
-        self.minimapSide = .leading
-        self.minimapSpacing = .proportional
-        self.minimapIndirectShape = .dot
-        #endif
-
         self.lidClosedThermalCutoff = defaults.string(forKey: Key.lidClosedThermalCutoffRaw)
             .flatMap(ThermalCutoffLevel.init(rawValue:)) ?? .serious
 
@@ -815,20 +801,6 @@ final class AppSettings {
         didSet {
             defaults.set(showsKeepAwakeDebugReadout, forKey: Key.showsKeepAwakeDebugReadout)
         }
-    }
-
-    /// Debug builds only, for comparing the two; a release build always
-    /// reads the defaults.
-    var minimapSide: MinimapSide {
-        didSet { defaults.set(minimapSide.rawValue, forKey: Key.minimapSideRaw) }
-    }
-
-    var minimapSpacing: MinimapSpacing {
-        didSet { defaults.set(minimapSpacing.rawValue, forKey: Key.minimapSpacingRaw) }
-    }
-
-    var minimapIndirectShape: MinimapIndirectShape {
-        didSet { defaults.set(minimapIndirectShape.rawValue, forKey: Key.minimapIndirectShapeRaw) }
     }
 
     /// The thermal level at or above which the lid-closed override releases,

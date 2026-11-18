@@ -171,8 +171,8 @@ struct MinimapHoverScrollTests {
 }
 
 /// A click on the hovered rail is the minimap's only out to the magnified
-/// bar's end and clear of the pane's edge, below the reveal exclusion and above the
-/// composer, and only when it lands on the chat's own content.
+/// bar's end and clear of the pane's edge, above the composer, and only when
+/// it lands on the chat's own content.
 @MainActor
 struct MinimapClickZoneTests {
     private func accepts(distance: CGFloat = 8, y: CGFloat = 100) -> Bool {
@@ -180,7 +180,6 @@ struct MinimapClickZoneTests {
             distanceFromEdge: distance,
             y: y,
             reach: MinimapClickZone.reach(inset: 2, barWidth: 19),
-            exclusionHeight: 40,
             drawableBottom: 300
         )
     }
@@ -216,8 +215,8 @@ struct MinimapClickZoneTests {
         #expect(!accepts(distance: 2 + 19 + MinimapClickZone.slop + 0.5))
     }
 
-    @Test func theExclusionBandAndComposerReachTheChat() {
-        #expect(!accepts(y: 39))
+    @Test func theComposerReachesTheChat() {
+        #expect(accepts(y: 0))
         #expect(!accepts(y: 301))
     }
 }

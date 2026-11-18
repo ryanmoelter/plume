@@ -2,39 +2,11 @@
 import SwiftUI
 
 struct MinimapDebugSection: View {
-    @State private var settings = AppSettings.shared
     @State private var tuning = MinimapTuning.shared
     @State private var showsTuning = false
 
     var body: some View {
         Section {
-            Picker("Side", selection: $settings.minimapSide) {
-                Text("Leading").tag(MinimapSide.leading)
-                Text("Trailing").tag(MinimapSide.trailing)
-            }
-            .plumeID(
-                AccessibilityID.settingsMinimapSidePicker,
-                value: settings.minimapSide.rawValue,
-                setValue: { MinimapSide(rawValue: $0).map { settings.minimapSide = $0 } }
-            )
-            Picker("Spacing", selection: $settings.minimapSpacing) {
-                Text("Even").tag(MinimapSpacing.even)
-                Text("Proportional").tag(MinimapSpacing.proportional)
-            }
-            .plumeID(
-                AccessibilityID.settingsMinimapSpacingPicker,
-                value: settings.minimapSpacing.rawValue,
-                setValue: { MinimapSpacing(rawValue: $0).map { settings.minimapSpacing = $0 } }
-            )
-            Picker("Indirect prompts", selection: $settings.minimapIndirectShape) {
-                Text("Dot").tag(MinimapIndirectShape.dot)
-                Text("Short line").tag(MinimapIndirectShape.line)
-            }
-            .plumeID(
-                AccessibilityID.settingsMinimapIndirectShapePicker,
-                value: settings.minimapIndirectShape.rawValue,
-                setValue: { MinimapIndirectShape(rawValue: $0).map { settings.minimapIndirectShape = $0 } }
-            )
             Button(showsTuning ? "Hide Tuning" : "Show Tuning") { showsTuning.toggle() }
                 .plumeID(
                     AccessibilityID.settingsMinimapTuningToggle,

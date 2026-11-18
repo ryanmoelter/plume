@@ -431,9 +431,6 @@ enum AccessibilityID {
     // MARK: Minimap
 
     static let chatMinimap = "chat-minimap"
-    static let settingsMinimapSidePicker = "settings-minimap-side-picker"
-    static let settingsMinimapSpacingPicker = "settings-minimap-spacing-picker"
-    static let settingsMinimapIndirectShapePicker = "settings-minimap-indirect-shape-picker"
     static let settingsMinimapTuningReset = "settings-minimap-tuning-reset"
     static let settingsMinimapTuningToggle = "settings-minimap-tuning-toggle"
     /// Followed by a tuning slider's key, as in `settings-minimap-tuning-snap`.

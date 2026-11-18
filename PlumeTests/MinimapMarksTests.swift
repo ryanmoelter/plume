@@ -21,15 +21,8 @@ struct MinimapMarksTests {
         #expect(inner.midY == bar.midY)
     }
 
-    @Test func anIndirectMarkIsAsThickAsAPromptBar() {
-        for shape in MinimapIndirectShape.allCases {
-            #expect(MinimapMarks.indirectSize(shape: shape, promptLength: 16, thickness: 3).height == 3)
-        }
-    }
-
-    @Test func aDotIsRoundAndALineIsAQuarterOfThePromptBar() {
-        #expect(MinimapMarks.indirectSize(shape: .dot, promptLength: 16, thickness: 3) == CGSize(width: 3, height: 3))
-        #expect(MinimapMarks.indirectSize(shape: .line, promptLength: 16, thickness: 3).width == 4)
+    @Test func anIndirectMarkIsAQuarterOfAPromptBarAndAsThick() {
+        #expect(MinimapMarks.indirectSize(promptLength: 16, thickness: 3) == CGSize(width: 4, height: 3))
     }
 
     @Test func theEndDrawsAtFullOpacityEvenOffScreen() {

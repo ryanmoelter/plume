@@ -373,10 +373,10 @@ enum InfoPaneLayout {
     }
 
     /// The room a pinned pane takes from the chat's trailing edge: the pane,
-    /// and the gap and minimap rail beyond it. The chat's own edge padding
-    /// is the gap on the pane's other side.
-    static func reservedWidth(paneWidth: CGFloat, railFootprint: CGFloat, gap: CGFloat) -> CGFloat {
-        paneWidth + gap + railFootprint
+    /// and the gap beyond it. The chat's own edge padding is the gap on the
+    /// pane's other side.
+    static func reservedWidth(paneWidth: CGFloat, gap: CGFloat) -> CGFloat {
+        paneWidth + gap
     }
 
     /// Whether a pinned pane sits beside the chat. It opens once the chat
@@ -403,7 +403,6 @@ enum InfoPaneLayout {
     /// beside a pinned pane, and never less than the chat's hard minimum.
     static func side(
         width: CGFloat,
-        railFootprint: CGFloat,
         gap: CGFloat,
         chatColumnWidth: CGFloat,
         comfortableChatWidth: CGFloat,
@@ -413,7 +412,7 @@ enum InfoPaneLayout {
         collapsedHeight: CGFloat
     ) -> SideGeometry {
         let paneWidth = clampedPaneWidth(paneWidth)
-        let reserved = reservedWidth(paneWidth: paneWidth, railFootprint: railFootprint, gap: gap)
+        let reserved = reservedWidth(paneWidth: paneWidth, gap: gap)
         // Before the first measurement, so a pane left pinned opens pinned
         // rather than animating out of the collapsed form.
         let isMeasured = width > 0
@@ -427,26 +426,17 @@ enum InfoPaneLayout {
             isPinned: true
         ))
         let maxPaneWidth = isMeasured
-            ? min(maximumPaneWidth, max(minimumPaneWidth, width - gap - railFootprint - comfortableChatWidth))
+            ? min(maximumPaneWidth, max(minimumPaneWidth, width - gap - comfortableChatWidth))
             : maximumPaneWidth
         return SideGeometry(
             fitsBeside: fits,
             isPinned: isPinned,
             paneWidth: paneWidth,
             maxPaneWidth: maxPaneWidth,
-            trailingInset: railFootprint + gap,
+            trailingInset: gap,
             chatTrailingReserve: isPinned ? reserved : 0,
             chatTopInset: collapsedHeight + gap
         )
-    }
-
-    /// How far down the minimap ignores the pointer: the collapsed pane's
-    /// row, or the pinned pane up to a third of the chat, so a tall pane
-    /// never walls off the whole minimap.
-    static func minimapExclusionHeight(
-        geometry: SideGeometry, openHeight: CGFloat, gap: CGFloat, chatHeight: CGFloat
-    ) -> CGFloat {
-        geometry.isPinned ? min(gap + openHeight, chatHeight / 3) : geometry.chatTopInset
     }
 
     struct SideGeometry: Equatable {
@@ -459,7 +449,7 @@ enum InfoPaneLayout {
         /// The widest a drag may make the pane without pushing the chat
         /// below its comfortable minimum.
         var maxPaneWidth: CGFloat
-        /// From the chat's trailing edge to the pane's, clear of the minimap.
+        /// From the chat's trailing edge to the pane's.
         var trailingInset: CGFloat
         /// Taken off the chat's trailing edge, so its columns center in what
         /// is left.

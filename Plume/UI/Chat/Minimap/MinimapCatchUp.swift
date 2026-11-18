@@ -149,11 +149,9 @@ enum MinimapClickZone {
         distanceFromEdge: CGFloat,
         y: CGFloat,
         reach: CGFloat,
-        exclusionHeight: CGFloat,
         drawableBottom: CGFloat
     ) -> Bool {
-        distanceFromEdge >= edgeClearance && distanceFromEdge <= reach
-            && y >= exclusionHeight && y <= drawableBottom
+        distanceFromEdge >= edgeClearance && distanceFromEdge <= reach && y <= drawableBottom
     }
 
     /// Whether the view a click lands on is the chat's own content, which a

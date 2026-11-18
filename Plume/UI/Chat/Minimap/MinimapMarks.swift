@@ -5,11 +5,8 @@ import Foundation
 enum MinimapMarks {
     /// An indirect prompt's mark, as thick as a prompt bar. `promptLength`
     /// is the bar a typed prompt would draw on the same row.
-    static func indirectSize(shape: MinimapIndirectShape, promptLength: CGFloat, thickness: CGFloat) -> CGSize {
-        switch shape {
-        case .dot: CGSize(width: thickness, height: thickness)
-        case .line: CGSize(width: promptLength / 4, height: thickness)
-        }
+    static func indirectSize(promptLength: CGFloat, thickness: CGFloat) -> CGSize {
+        CGSize(width: promptLength / 4, height: thickness)
     }
 
     /// The end stands for the composer, which is always on screen, so it

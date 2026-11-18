@@ -30,8 +30,6 @@ struct ChatMessageList<SidePane: View>: View, ThemedView {
     var onOpenPlan: (() -> Void)? = nil
     /// Room above the first message for the collapsed side pane.
     var topInset: CGFloat = 0
-    /// How far down the minimap ignores the pointer, beside the side pane.
-    var minimapExclusionHeight: CGFloat = 0
     /// Room the pinned side pane takes off the list's trailing edge; the
     /// rows lay out in what is left.
     var trailingReserve: CGFloat = 0
@@ -147,7 +145,7 @@ struct ChatMessageList<SidePane: View>: View, ThemedView {
                     sidePane.transition(.opacity)
                 }
             }
-            .overlay(alignment: settings.minimapSide == .leading ? .leading : .trailing) {
+            .overlay(alignment: .leading) {
                 if mountsChrome, !outline.isEmpty {
                     ChatMinimap(
                         outline: outline,
@@ -159,11 +157,6 @@ struct ChatMessageList<SidePane: View>: View, ThemedView {
                         // geometry is the rail's, not the pane's.
                         viewportWidth: viewportWidth,
                         columnReserve: trailingReserve,
-                        // Only a trailing rail shares its edge with the info pane.
-                        revealExclusionHeight: settings.minimapSide == .trailing ? minimapExclusionHeight : 0,
-                        side: settings.minimapSide,
-                        spacing: settings.minimapSpacing,
-                        indirectShape: settings.minimapIndirectShape,
                         previewGlass: panelGlass
                     )
                     .animation(.easeOut(duration: 0.22), value: trailingReserve)

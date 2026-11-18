@@ -3,8 +3,8 @@ import Testing
 @testable import Plume
 
 /// The minimap's rows: one per prompt or question, each carrying the agent
-/// output after it as weight, closed by an end row, and placed evenly or in
-/// proportion to that weight.
+/// output after it as weight, closed by an end row, and placed in proportion
+/// to that weight.
 @MainActor
 struct MinimapLayoutTests {
     private func entry(_ id: String, _ kind: ChatOutline.Kind, weight: CGFloat = 0) -> ChatOutline.Entry {
@@ -43,47 +43,37 @@ struct MinimapLayoutTests {
         #expect(rows.first?.trailingWeight == 0)
     }
 
-    @Test func evenSpacingPlacesRowsAtOnePitch() {
-        let layout = MinimapLayout(outline: outline, spacing: .even)
-        let gaps = zip(layout.positions.dropFirst(), layout.positions).map { $0 - $1 }
-        #expect(gaps.allSatisfy { $0 == MinimapLayout.evenPitch })
-    }
-
-    @Test func proportionalSpacingWidensTheGapAfterMoreText() {
-        let layout = MinimapLayout(outline: outline, spacing: .proportional)
+    @Test func theGapWidensAfterMoreText() {
+        let layout = MinimapLayout(outline: outline)
         let gaps = zip(layout.positions.dropFirst(), layout.positions).map { $0 - $1 }
         // After 40, after nothing, after 8.
         #expect(gaps[0] > gaps[2])
         #expect(gaps[2] > gaps[1])
-        #expect(gaps[1] == MinimapLayout.proportionalMinimumPitch)
+        #expect(gaps[1] == MinimapLayout.minimumPitch)
     }
 
-    @Test func positionsRunTopToBottomInBothModes() {
-        for spacing in MinimapSpacing.allCases {
-            let layout = MinimapLayout(outline: outline, spacing: spacing)
-            #expect(layout.positions == layout.positions.sorted())
-            #expect(layout.contentHeight >= (layout.positions.last ?? 0))
-        }
+    @Test func positionsRunTopToBottom() {
+        let layout = MinimapLayout(outline: outline)
+        #expect(layout.positions == layout.positions.sorted())
+        #expect(layout.contentHeight >= (layout.positions.last ?? 0))
     }
 
     @Test func everyRowHasTheSameHeight() {
         // Row height is a constant rather than per row: a row's size never
-        // varies with its turn, in either spacing mode.
-        let even = MinimapLayout(outline: outline, spacing: .even)
-        let proportional = MinimapLayout(outline: outline, spacing: .proportional)
-        #expect(even.contentHeight == (even.positions.last ?? 0) + MinimapLayout.rowHeight / 2)
-        #expect(proportional.contentHeight == (proportional.positions.last ?? 0) + MinimapLayout.rowHeight / 2)
+        // varies with its turn.
+        let layout = MinimapLayout(outline: outline)
+        #expect(layout.contentHeight == (layout.positions.last ?? 0) + MinimapLayout.rowHeight / 2)
     }
 
     @Test func visibleRowsComeFromAnyPieceOfTheirTurn() {
-        let layout = MinimapLayout(outline: outline, spacing: .even)
+        let layout = MinimapLayout(outline: outline)
         #expect(layout.visibleRows(for: ["r1b"]) == [0])
         #expect(layout.visibleRows(for: ["p2", "r3"]) == [1, 2])
         #expect(layout.visibleRows(for: ["unknown"]).isEmpty)
     }
 
     @Test func focusSitsBetweenTheVisibleRows() throws {
-        let layout = MinimapLayout(outline: outline, spacing: .even)
+        let layout = MinimapLayout(outline: outline)
         let top = try #require(layout.focusY(visibleRows: [0]))
         let bottom = try #require(layout.focusY(visibleRows: [2]))
         let both = try #require(layout.focusY(visibleRows: [0, 2]))
@@ -93,7 +83,7 @@ struct MinimapLayoutTests {
     }
 
     @Test func nearestRowSnaps() {
-        let layout = MinimapLayout(outline: outline, spacing: .even)
+        let layout = MinimapLayout(outline: outline)
         #expect(layout.nearestRow(toY: -50) == 0)
         #expect(layout.nearestRow(toY: layout.positions[1] + 1) == 1)
         #expect(layout.nearestRow(toY: layout.positions[2] - 1) == 2)
@@ -102,9 +92,9 @@ struct MinimapLayoutTests {
     }
 
     @Test func aRowKeepsItsIdentityWhenAnAnchorIsAppended() {
-        let before = MinimapLayout(outline: outline, spacing: .even)
+        let before = MinimapLayout(outline: outline)
         let longer = ChatOutline(entries: outline.entries + [entry("p4", .prompt("Fourth"))])
-        let after = MinimapLayout(outline: longer, spacing: .even)
+        let after = MinimapLayout(outline: longer)
 
         #expect(before.index(ofRowID: "") == 3)
         #expect(after.index(ofRowID: "") == 4)

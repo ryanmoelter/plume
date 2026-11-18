@@ -290,11 +290,10 @@ struct InfoPaneLayoutTests {
         #expect(dimensions.contentWidth == 600)
         #expect(dimensions.comfortableContentWidth == 400)
     }
-    private let rail: CGFloat = 30
     private let gap: CGFloat = 10
     private let pane = InfoPaneLayout.defaultPaneWidth
 
-    private var reserve: CGFloat { pane + gap + rail }
+    private var reserve: CGFloat { pane + gap }
 
     private func side(
         width: CGFloat,
@@ -304,7 +303,6 @@ struct InfoPaneLayoutTests {
     ) -> InfoPaneLayout.SideGeometry {
         InfoPaneLayout.side(
             width: width,
-            railFootprint: rail,
             gap: gap,
             chatColumnWidth: chatColumn,
             comfortableChatWidth: comfortable,
@@ -324,15 +322,6 @@ struct InfoPaneLayoutTests {
             isShown: isShown,
             isPinned: isPinned
         )
-    }
-
-    @Test func theMinimapIgnoresTheBandBesideEitherPaneForm() {
-        let pinned = side(width: 2000)
-        #expect(InfoPaneLayout.minimapExclusionHeight(geometry: pinned, openHeight: 300, gap: gap, chatHeight: 2000) == 310)
-        let collapsed = side(width: 2000, state: .collapsed)
-        #expect(InfoPaneLayout.minimapExclusionHeight(geometry: collapsed, openHeight: 300, gap: gap, chatHeight: 2000) == 38)
-        #expect(InfoPaneLayout.minimapExclusionHeight(geometry: pinned, openHeight: 900, gap: gap, chatHeight: 900) == 300)
-        #expect(InfoPaneLayout.minimapExclusionHeight(geometry: collapsed, openHeight: 900, gap: gap, chatHeight: 90) == 38)
     }
 
     @Test func wideningOpensThePaneOnlyOnceTheChatKeepsItsFullColumn() {
@@ -368,7 +357,7 @@ struct InfoPaneLayoutTests {
     @Test func aWiderPaneTakesItsWidthFromTheChat() {
         let pinned = side(width: 2000, paneWidth: 400)
         #expect(pinned.paneWidth == 400)
-        #expect(pinned.chatTrailingReserve == 400 + gap + rail)
+        #expect(pinned.chatTrailingReserve == 400 + gap)
     }
 
     @Test func thePaneWidthStaysWithinItsBounds() {
@@ -377,7 +366,7 @@ struct InfoPaneLayoutTests {
     }
 
     @Test func aDragNeverPushesTheChatBelowItsComfortableMinimum() {
-        let width: CGFloat = comfortable + gap + rail + 300
+        let width: CGFloat = comfortable + gap + 300
         #expect(side(width: width).maxPaneWidth == 300)
         #expect(side(width: 2000).maxPaneWidth == InfoPaneLayout.maximumPaneWidth)
         #expect(side(width: 100).maxPaneWidth == InfoPaneLayout.minimumPaneWidth)
@@ -407,7 +396,7 @@ struct InfoPaneLayoutTests {
         let narrow = side(width: 600)
         #expect(!narrow.isPinned)
         #expect(narrow.chatTrailingReserve == 0)
-        #expect(narrow.trailingInset == rail + gap)
+        #expect(narrow.trailingInset == gap)
     }
 
     @Test func remoteControlShowsWithASessionAndMarksTheCollapsedRowOnlyWhenOn() {
