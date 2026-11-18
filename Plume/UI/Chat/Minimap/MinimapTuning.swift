@@ -34,6 +34,9 @@ final class MinimapTuning {
         /// How long a hovered indirect prompt's mark takes to slide out to a
         /// prompt bar's end, and back.
         var indirectSlideDuration: Double
+        /// Whether a hover scrolls the map only when the hovered row changes,
+        /// rather than with every pointer move. `MinimapSnappedScroll`.
+        var snappedScroll: Bool
 
         static let defaults = Values(
             genieRadius: 18,
@@ -48,7 +51,8 @@ final class MinimapTuning {
             snapDuration: 0.14,
             catchUpGain: 10,
             deadZoneRadius: 16,
-            indirectSlideDuration: 0.18
+            indirectSlideDuration: 0.18,
+            snappedScroll: false
         )
     }
 
@@ -91,7 +95,8 @@ final class MinimapTuning {
             snapDuration: stored["snapDuration"] ?? fallback.snapDuration,
             catchUpGain: stored["catchUpGain"] ?? fallback.catchUpGain,
             deadZoneRadius: stored["deadZoneRadius"] ?? fallback.deadZoneRadius,
-            indirectSlideDuration: stored["indirectSlideDuration"] ?? fallback.indirectSlideDuration
+            indirectSlideDuration: stored["indirectSlideDuration"] ?? fallback.indirectSlideDuration,
+            snappedScroll: stored["snappedScroll"].map { $0 != 0 } ?? fallback.snappedScroll
         )
     }
 
@@ -126,7 +131,8 @@ final class MinimapTuning {
             "snapDuration": values.snapDuration,
             "catchUpGain": values.catchUpGain,
             "deadZoneRadius": values.deadZoneRadius,
-            "indirectSlideDuration": values.indirectSlideDuration
+            "indirectSlideDuration": values.indirectSlideDuration,
+            "snappedScroll": values.snappedScroll ? 1.0 : 0.0
         ], forKey: Self.key)
         #endif
     }

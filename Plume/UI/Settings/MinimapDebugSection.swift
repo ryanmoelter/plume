@@ -33,6 +33,12 @@ struct MinimapDebugSection: View {
 
     @ViewBuilder
     private var tuningSliders: some View {
+        Toggle("Scroll only on a row change", isOn: $tuning.values.snappedScroll)
+            .plumeID(
+                AccessibilityID.settingsMinimapTuningSnappedScroll,
+                value: String(tuning.values.snappedScroll),
+                setValue: { tuning.values.snappedScroll = ($0 == "true" || $0 == "1") }
+            )
         TuningSlider(key: "genie-radius", title: "Magnify radius", value: $tuning.values.genieRadius,
                      range: MinimapTuning.genieRadiusRange, step: 1) { "\(Int($0)) pt" }
         TuningSlider(key: "genie-width", title: "Magnify width", value: $tuning.values.genieWidthScale,
