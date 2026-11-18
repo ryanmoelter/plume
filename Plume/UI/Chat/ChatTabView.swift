@@ -1189,7 +1189,12 @@ struct ChatTabView: View, ThemedView {
         InfoPaneLayout.side(
             width: conversationWidth,
             railFootprint: settings.minimapSide == .trailing
-                ? ChatMinimap.railFootprint(forViewport: conversationWidth, dimensions: dimensions)
+                ? MinimapRailGeometry(
+                    room: MinimapRailGeometry.room(
+                        side: .trailing, viewportWidth: conversationWidth, columnReserve: 0, bleedWidth: dimensions.bleedWidth
+                    ),
+                    bleedPadding: dimensions.horizontalBleedPadding
+                ).footprint
                 : 0,
             gap: dimensions.panelInset,
             chatColumnWidth: dimensions.contentWidth + chatEdgePadding,

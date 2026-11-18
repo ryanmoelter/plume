@@ -23,8 +23,11 @@ struct ChatMinimap: View, ThemedView {
     /// What the composer and anything floating above it cover, matching the
     /// chat's own bottom margin.
     var bottomInset: CGFloat = 0
-    /// The pane's width, which decides whether the rail has room to spread.
+    /// The pane's width, which caps the preview's.
     var viewportWidth: CGFloat = 0
+    /// How much narrower than the pane the list makes its rows, which moves
+    /// the conversation's column and so the room beside it.
+    var columnReserve: CGFloat = 0
     /// How far down from the top the pointer cannot start hovering, because
     /// that stretch of a trailing rail sits beside the collapsed info pane's
     /// click targets. A hover already under way keeps following the pointer
@@ -32,15 +35,8 @@ struct ChatMinimap: View, ThemedView {
     var revealExclusionHeight: CGFloat = 0
     var side: MinimapSide = .leading
     var spacing: MinimapSpacing = .even
-    var indirectShape: MinimapIndirectShape = .dot
+    var indirectShape: MinimapIndirectShape = .line
     var previewGlass: Glass = .regular
-
-    /// The rail's narrowest width, and so a prompt bar's. The rail overlays
-    /// the chat rather than taking a column, so this plus `edgeInset` on
-    /// either side has to fit within `Dimensions.horizontalBleedPadding` —
-    /// otherwise the rail crosses a bleed item's column and sits over the
-    /// text.
-    static let collapsedWidth: CGFloat = 8
 
     @State private var layout = MinimapLayout()
     @State private var tuning = MinimapTuning.shared
@@ -65,6 +61,8 @@ struct ChatMinimap: View, ThemedView {
     /// between rows so a snap reads as a glide.
     @State private var genieY: CGFloat = 0
     @State private var genieStrength: CGFloat = 0
+    /// How far a hover has widened the rail toward its normal width.
+    @State private var expansion: CGFloat = 0
     @State private var indirectSlide = MinimapIndirectSlide()
     @State private var clickMonitor = MinimapClickMonitor()
     @State private var presentation = MinimapPresentation()
@@ -131,6 +129,7 @@ struct ChatMinimap: View, ThemedView {
                 layout: layout,
                 visibleRows: visibleRows,
                 hoveredRowID: hoveredRowID,
+                rail: rail,
                 scrollPercent: metrics.travel > 0 ? Int((scrollOffset / metrics.travel * 100).rounded()) : 0
             ), initial: true) { _, key in
                 controlValue = makeControlValue(key)
@@ -306,10 +305,11 @@ struct ChatMinimap: View, ThemedView {
             genieY = layout.positions[index]
             previewRowID = id
         }
-        if genieStrength < 1 || !isPreviewShown {
+        if genieStrength < 1 || !isPreviewShown || expansion < 1 {
             withAnimation(.easeOut(duration: tuning.values.fadeInDuration)) {
                 genieStrength = 1
                 isPreviewShown = true
+                expansion = 1
             }
         }
     }
@@ -324,6 +324,7 @@ struct ChatMinimap: View, ThemedView {
         withAnimation(.easeOut(duration: tuning.values.fadeOutDuration)) {
             genieStrength = 0
             isPreviewShown = false
+            expansion = 0
         }
     }
 
@@ -427,6 +428,8 @@ struct ChatMinimap: View, ThemedView {
             "spacing": key.spacing.rawValue,
             "indirectShape": key.indirectShape.rawValue,
             "scroll": Double(key.scrollPercent) / 100,
+            "railWidth": Double(key.rail.width),
+            "railInset": Double(key.rail.inset),
             "rows": rows
         ]
         guard let data = try? JSONSerialization.data(withJSONObject: object, options: [.sortedKeys]) else { return nil }
@@ -481,68 +484,35 @@ struct ChatMinimap: View, ThemedView {
         railWidth * max(1, tuning.values.genieWidthScale) + 2
     }
 
-    private static let edgeInset: CGFloat = 2
-
     /// The narrowest target the rail ever offers the pointer. The bars alone
     /// are too thin to aim at, and unlike them the target reaches the window
     /// edge — so throwing the pointer at the edge always finds it. Once the
     /// rail is wider than this the footprint takes over.
     private static let hoverWidth: CGFloat = 16
 
-    /// The bars at their widest, and how far they sit from the window edge
-    /// there. Between the two ends the rail interpolates, so it grows with
-    /// the pane rather than snapping at a threshold.
-    private static let spreadWidth: CGFloat = collapsedWidth * 2
-    private static let spreadInset: CGFloat = 8
-
-    /// Room left between the bars and the bleed column at full size. Nothing
-    /// draws it — it is what stops the rail from crowding the conversation
-    /// once both are at their full width.
-    private static let spreadLeading: CGFloat = spreadInset
-
-    private static let spreadCost: CGFloat = spreadWidth + spreadInset + spreadLeading
-
-    /// How much of its full size the rail can afford, 0 while the bars are
-    /// still within the bleed column's padding and 1 once they clear it with
-    /// room to spare. Growth starts where the bars would otherwise reach into
-    /// the padding beside a full-width bleed item, so widening the pane
-    /// never costs the conversation anything.
-    static func railSpread(forViewport width: CGFloat, dimensions: Dimensions) -> CGFloat {
-        let slack = (width - dimensions.bleedWidth) / 2
-        let floor = dimensions.horizontalBleedPadding
-        guard slack > floor else { return 0 }
-        return min((slack - floor) / (spreadCost - floor), 1)
+    /// The rail at rest, sized from the room beside the conversation.
+    private var restingRail: MinimapRailGeometry {
+        MinimapRailGeometry(
+            room: MinimapRailGeometry.room(
+                side: side,
+                viewportWidth: viewportWidth,
+                columnReserve: columnReserve,
+                bleedWidth: dimensions.bleedWidth
+            ),
+            bleedPadding: dimensions.horizontalBleedPadding
+        )
     }
 
-    static func railWidth(forViewport width: CGFloat, dimensions: Dimensions) -> CGFloat {
-        let spread = railSpread(forViewport: width, dimensions: dimensions)
-        return collapsedWidth + (spreadWidth - collapsedWidth) * spread
-    }
+    /// Everything the rail draws and accepts follows this, so a click lands
+    /// on what is drawn while a hover widens it.
+    private var rail: MinimapRailGeometry { restingRail.expanded(by: expansion) }
 
-    static func railInset(forViewport width: CGFloat, dimensions: Dimensions) -> CGFloat {
-        let spread = railSpread(forViewport: width, dimensions: dimensions)
-        return edgeInset + (spreadInset - edgeInset) * spread
-    }
+    private var railWidth: CGFloat { rail.width }
 
-    /// What the rail draws at rest: the bars and the inset holding them off
-    /// the window edge. The leading gap is left out — it is empty space over
-    /// the conversation, and reaching into it made the map react while the
-    /// pointer was still on the text.
-    static func railFootprint(forViewport width: CGFloat, dimensions: Dimensions) -> CGFloat {
-        railWidth(forViewport: width, dimensions: dimensions)
-            + railInset(forViewport: width, dimensions: dimensions)
-    }
-
-    private var railWidth: CGFloat {
-        Self.railWidth(forViewport: viewportWidth, dimensions: dimensions)
-    }
+    private var railInset: CGFloat { rail.inset }
 
     private var hoverWidth: CGFloat {
-        max(Self.hoverWidth, Self.railFootprint(forViewport: viewportWidth, dimensions: dimensions))
-    }
-
-    private var railInset: CGFloat {
-        Self.railInset(forViewport: viewportWidth, dimensions: dimensions)
+        max(Self.hoverWidth, rail.footprint)
     }
 
     /// Widens while a row is hovered to cover the magnified bars, so the
@@ -621,6 +591,7 @@ private struct ControlValueKey: Equatable {
     var layout: MinimapLayout
     var visibleRows: Set<Int>
     var hoveredRowID: String?
+    var rail: MinimapRailGeometry
     var scrollPercent: Int
 }
 #endif
@@ -732,7 +703,8 @@ private struct MinimapDrawing: ViewModifier, Animatable {
     let metrics: MinimapMetrics
     let side: MinimapSide
     let indirectShape: MinimapIndirectShape
-    let railWidth: CGFloat
+    /// Animated, so a hover widening a narrow rail grows its bars.
+    var railWidth: CGFloat
     let tuning: MinimapTuning.Values
     var scrollOffset: CGFloat
     /// Drawn from here rather than `metrics`, so it animates.
@@ -748,12 +720,12 @@ private struct MinimapDrawing: ViewModifier, Animatable {
 
     var animatableData: AnimatablePair<
         AnimatablePair<AnimatablePair<CGFloat, CGFloat>, AnimatablePair<CGFloat, CGFloat>>,
-        AnimatablePair<CGFloat, CGFloat>
+        AnimatablePair<AnimatablePair<CGFloat, CGFloat>, CGFloat>
     > {
         get {
             AnimatablePair(
                 AnimatablePair(AnimatablePair(scrollOffset, centering), AnimatablePair(genieY, genieStrength)),
-                AnimatablePair(slideProgress, otherSlideProgress)
+                AnimatablePair(AnimatablePair(slideProgress, otherSlideProgress), railWidth)
             )
         }
         set {
@@ -761,8 +733,9 @@ private struct MinimapDrawing: ViewModifier, Animatable {
             centering = newValue.first.first.second
             genieY = newValue.first.second.first
             genieStrength = newValue.first.second.second
-            slideProgress = newValue.second.first
-            otherSlideProgress = newValue.second.second
+            slideProgress = newValue.second.first.first
+            otherSlideProgress = newValue.second.first.second
+            railWidth = newValue.second.second
         }
     }
 

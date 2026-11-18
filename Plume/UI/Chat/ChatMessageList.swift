@@ -128,7 +128,8 @@ struct ChatMessageList<SidePane: View>: View, ThemedView {
     /// prompt the user just sent can be told from a transcript loading.
     let commands: ChatListCommands
     @State private var previousMessageIDs: [String] = []
-    /// The pane's width, which decides how much room the rail gives itself.
+    /// The pane's width, which with `trailingReserve` decides how much room
+    /// the rail gives itself.
     @State private var viewportWidth: CGFloat = 0
     @Environment(\.chatFontSize) private var chatFontSize
     @Environment(\.chatLinkDirectory) private var linkDirectory
@@ -157,6 +158,7 @@ struct ChatMessageList<SidePane: View>: View, ThemedView {
                         // The rail cannot measure this itself — its own
                         // geometry is the rail's, not the pane's.
                         viewportWidth: viewportWidth,
+                        columnReserve: trailingReserve,
                         // Only a trailing rail shares its edge with the info pane.
                         revealExclusionHeight: settings.minimapSide == .trailing ? minimapExclusionHeight : 0,
                         side: settings.minimapSide,
@@ -164,6 +166,7 @@ struct ChatMessageList<SidePane: View>: View, ThemedView {
                         indirectShape: settings.minimapIndirectShape,
                         previewGlass: panelGlass
                     )
+                    .animation(.easeOut(duration: 0.22), value: trailingReserve)
                     .transition(.opacity)
                 }
             }
