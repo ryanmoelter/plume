@@ -4,7 +4,8 @@ import Testing
 @testable import Plume
 
 /// The geometry of the minimap's non-prompt marks: an indirect prompt is as
-/// thick as a prompt bar, and the end of the conversation outlines one.
+/// thick as a prompt bar, and the end of the conversation outlines one at
+/// full opacity whether or not its row is on screen.
 @MainActor
 struct MinimapMarksTests {
     @Test func theEndOutlineSpansThePromptBarAndHollowsItsThickness() {
@@ -29,5 +30,18 @@ struct MinimapMarksTests {
     @Test func aDotIsRoundAndALineIsAQuarterOfThePromptBar() {
         #expect(MinimapMarks.indirectSize(shape: .dot, promptLength: 16, thickness: 3) == CGSize(width: 3, height: 3))
         #expect(MinimapMarks.indirectSize(shape: .line, promptLength: 16, thickness: 3).width == 4)
+    }
+
+    @Test func theEndDrawsAtFullOpacityEvenOffScreen() {
+        #expect(MinimapMarks.opacity(isHovered: false, isEnd: true, isVisible: false) == 1)
+        #expect(MinimapMarks.opacity(isHovered: false, isEnd: true, isVisible: true) == 1)
+    }
+
+    @Test func aPromptDimsOffScreenAndBrightensUnderTheHover() {
+        let offScreen = MinimapMarks.opacity(isHovered: false, isEnd: false, isVisible: false)
+        let onScreen = MinimapMarks.opacity(isHovered: false, isEnd: false, isVisible: true)
+        #expect(offScreen < onScreen)
+        #expect(onScreen < 1)
+        #expect(MinimapMarks.opacity(isHovered: true, isEnd: false, isVisible: false) == 1)
     }
 }

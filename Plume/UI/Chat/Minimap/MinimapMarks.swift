@@ -12,6 +12,13 @@ enum MinimapMarks {
         }
     }
 
+    /// The end stands for the composer, which is always on screen, so it
+    /// never dims with the rows scrolled out of view.
+    static func opacity(isHovered: Bool, isEnd: Bool, isVisible: Bool) -> Double {
+        if isHovered || isEnd { return 1 }
+        return isVisible ? 0.85 : 0.35
+    }
+
     static let endStrokeWidth: CGFloat = 0.75
 
     /// The path the end mark strokes, given the bar a prompt would fill in

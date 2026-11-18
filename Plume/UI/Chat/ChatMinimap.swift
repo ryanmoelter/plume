@@ -811,9 +811,7 @@ private struct MinimapDrawing: ViewModifier, Animatable {
             }
             let row = layout.rows[index]
             let thicknessScale = scale(at: contentY, maximum: tuning.genieThicknessScale)
-            let color = GraphicsContext.Shading.color(
-                .primary.opacity(index == hoveredRow ? 1 : visibleRows.contains(index) ? 0.85 : 0.35)
-            )
+            let color = GraphicsContext.Shading.color(.primary.opacity(opacity(ofRowAt: index)))
             switch row.mark {
             case .end:
                 let thickness = MinimapLayout.rowHeight * thicknessScale
@@ -849,6 +847,14 @@ private struct MinimapDrawing: ViewModifier, Animatable {
                 )
             }
         }
+    }
+
+    private func opacity(ofRowAt index: Int) -> Double {
+        MinimapMarks.opacity(
+            isHovered: index == hoveredRow,
+            isEnd: layout.rows[index].isEnd,
+            isVisible: visibleRows.contains(index)
+        )
     }
 
     /// A soft box over the gap between two rows, where the agent's reply to
