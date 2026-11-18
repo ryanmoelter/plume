@@ -15,10 +15,11 @@ extension View {
         label: String? = nil,
         value: String? = nil,
         invoke: (() -> Void)? = nil,
-        setValue: ((String) -> Void)? = nil
+        setValue: ((String) -> Void)? = nil,
+        lazyValue: (() -> String?)? = nil
     ) -> some View {
         #if DEBUG
-        modifier(PlumeIDModifier(id: id, label: label, value: value, invoke: invoke, setValue: setValue))
+        modifier(PlumeIDModifier(id: id, label: label, value: value, lazyValue: lazyValue, invoke: invoke, setValue: setValue))
         #else
         accessibilityIdentifier(id)
         #endif
@@ -59,6 +60,7 @@ private struct PlumeIDModifier: ViewModifier {
     let id: String
     let label: String?
     let value: String?
+    let lazyValue: (() -> String?)?
     let invoke: (() -> Void)?
     let setValue: ((String) -> Void)?
 
@@ -68,7 +70,11 @@ private struct PlumeIDModifier: ViewModifier {
 
     func body(content: Content) -> some View {
         registration.invoke = invoke
+        registration.lazyValue = lazyValue
         registration.setValue = setValue
+        // The `onChange` below can be skipped for a value that changes twice
+        // in one update, which left the entry holding the first.
+        ControlRegistry.shared.update(token: registration.token) { $0.value = value }
         return content
             .accessibilityIdentifier(id)
             .background {
@@ -91,7 +97,7 @@ private struct PlumeIDModifier: ViewModifier {
                 registration.isMounted = false
                 ControlRegistry.shared.remove(token: registration.token)
             }
-            .onChange(of: [id, label ?? "", value ?? "", String(isEnabled), String(isHidden), String(invoke != nil), String(setValue != nil)]) { sync() }
+            .onChange(of: [id, label ?? "", value ?? "", String(isEnabled), String(isHidden), String(invoke != nil), String(setValue != nil), String(lazyValue != nil)]) { sync() }
     }
 
     /// Geometry and window arrive before `onAppear`, and in either order, so
@@ -103,7 +109,9 @@ private struct PlumeIDModifier: ViewModifier {
         }
         let registration = registration
         ControlRegistry.shared.register(ControlEntry(
-            token: registration.token, id: id, label: label, value: value, isEnabled: isEnabled,
+            token: registration.token, id: id, label: label, value: value,
+            valueProvider: lazyValue == nil ? nil : { registration.lazyValue?() },
+            isEnabled: isEnabled,
             frame: WindowGeometry.contentRect(fromGlobal: registration.frame, in: registration.window), window: registration.window,
             invoke: invoke == nil ? nil : { registration.invoke?() },
             setValue: setValue == nil ? nil : { registration.setValue?($0) }
@@ -114,7 +122,7 @@ private struct PlumeIDModifier: ViewModifier {
 /// What a self-registering modifier knows about its view so far. Geometry
 /// and window arrive before `onAppear`, and in either order.
 ///
-/// `invoke`, `setValue` and `hover` are rewritten on every body evaluation,
+/// `invoke`, `lazyValue`, `setValue` and `hover` are rewritten on every body evaluation,
 /// and the registered entry calls through them, because a view can re-render
 /// with new captured state (another task's tab strip, say) without any
 /// `sync()` trigger firing. Not observable, so writing them during `body`
@@ -126,6 +134,7 @@ final class ViewRegistration {
     weak var window: NSWindow?
     var isMounted = false
     var invoke: (() -> Void)?
+    var lazyValue: (() -> String?)?
     var setValue: ((String) -> Void)?
     var hover: ((Bool) -> Void)?
 }

@@ -26,7 +26,7 @@ extension EnvironmentValues {
 ///
 /// The edge padding sits outside the clamp, so a column's width is the item's
 /// real visual bound wherever the window can seat it. Every item keeps that
-/// band, since it is what the collapsed minimap overlays — an item that
+/// band, since it is what the minimap rail overlays — an item that
 /// skipped it would draw under the rail.
 private struct ListItemPadding: ViewModifier, ThemedView {
     @Environment(\.theme) var theme

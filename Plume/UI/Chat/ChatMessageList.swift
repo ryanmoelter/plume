@@ -30,13 +30,15 @@ struct ChatMessageList<SidePane: View>: View, ThemedView {
     var onOpenPlan: (() -> Void)? = nil
     /// Room above the first message for the collapsed side pane.
     var topInset: CGFloat = 0
-    /// How far down the minimap ignores the pointer, beside the side pane.
-    var minimapExclusionHeight: CGFloat = 0
     /// Room the pinned side pane takes off the list's trailing edge; the
     /// rows lay out in what is left.
     var trailingReserve: CGFloat = 0
-    /// Drawn over the list and under the minimap, so the open map covers it.
+    /// Drawn over the list and under the minimap, so the minimap's preview
+    /// covers it.
     let sidePane: SidePane
+    /// The composer's and the side pane's glass, so the minimap's preview
+    /// reads as the same chrome.
+    var panelGlass: Glass = .regular
 
     /// Whether the user has scrolled away far enough to want a jump back.
     ///
@@ -124,7 +126,8 @@ struct ChatMessageList<SidePane: View>: View, ThemedView {
     /// prompt the user just sent can be told from a transcript loading.
     let commands: ChatListCommands
     @State private var previousMessageIDs: [String] = []
-    /// The pane's width, which decides how much room the rail gives itself.
+    /// The pane's width, which with `trailingReserve` decides how much room
+    /// the rail gives itself.
     @State private var viewportWidth: CGFloat = 0
     @Environment(\.chatFontSize) private var chatFontSize
     @Environment(\.chatLinkDirectory) private var linkDirectory
@@ -142,7 +145,7 @@ struct ChatMessageList<SidePane: View>: View, ThemedView {
                     sidePane.transition(.opacity)
                 }
             }
-            .overlay(alignment: .trailing) {
+            .overlay(alignment: .leading) {
                 if mountsChrome, !outline.isEmpty {
                     ChatMinimap(
                         outline: outline,
@@ -153,8 +156,10 @@ struct ChatMessageList<SidePane: View>: View, ThemedView {
                         // The rail cannot measure this itself — its own
                         // geometry is the rail's, not the pane's.
                         viewportWidth: viewportWidth,
-                        revealExclusionHeight: minimapExclusionHeight
+                        columnReserve: trailingReserve,
+                        previewGlass: panelGlass
                     )
+                    .animation(.easeOut(duration: 0.22), value: trailingReserve)
                     .transition(.opacity)
                 }
             }

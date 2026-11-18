@@ -19,7 +19,6 @@ struct InfoSidePane: View, ThemedView {
     /// composer.
     let bottomInset: CGFloat
     let onCollapsedHeight: (CGFloat) -> Void
-    var onOpenHeight: (CGFloat) -> Void = { _ in }
     let onPin: () -> Void
     let onOpenSubagent: (SubagentTranscript) -> Void
     let onOpenPlan: () -> Void
@@ -82,7 +81,6 @@ struct InfoSidePane: View, ThemedView {
         .animation(.snappy(duration: 0.22), value: isOpen)
         // Hover never reports an exit for a view that changes under the
         // pointer, so a pin or a resize clears it by hand.
-        .onChange(of: min(expandedHeight, maxExpandedHeight), initial: true) { _, height in onOpenHeight(height) }
         .onChange(of: settings.infoPaneState) { closeTransient() }
         .onChange(of: geometry.fitsBeside) { closeTransient() }
         .onChange(of: holdsHoverOpen) { updateHoverOpen() }

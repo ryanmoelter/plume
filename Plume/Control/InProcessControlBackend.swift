@@ -30,7 +30,7 @@ final class InProcessControlBackend: ControlBackend {
     private func describe(_ match: (index: Int, entry: ControlEntry)) -> ControlDescription {
         let entry = match.entry
         return ControlDescription(
-            id: entry.id, index: match.index, label: entry.label, value: entry.value, isEnabled: entry.isEnabled,
+            id: entry.id, index: match.index, label: entry.label, value: entry.currentValue, isEnabled: entry.isEnabled,
             frame: Rect(entry.frame), windowNumber: entry.window?.windowNumber,
             hasInvoke: entry.invoke != nil, hasSetValue: entry.setValue != nil
         )
@@ -87,7 +87,7 @@ final class InProcessControlBackend: ControlBackend {
             return TextResult(text: rows.joined(separator: "\n"), rows: rows.enumerated().map { TextRow(index: $0.offset, text: $0.element) })
         case .control:
             let entry = try registry.resolve(target)
-            if let value = entry.value { return TextResult(text: value, rows: nil) }
+            if let value = entry.currentValue { return TextResult(text: value, rows: nil) }
             let rows = try textItems(within: entry).map(\.text).filter { !$0.isEmpty }
             if rows.isEmpty, let label = entry.label { return TextResult(text: label, rows: nil) }
             return TextResult(text: rows.joined(separator: "\n"), rows: nil)
@@ -273,6 +273,20 @@ final class InProcessControlBackend: ControlBackend {
             handledBy: item.map(Self.path(of:)), handledByEnabled: item?.isEnabled,
             firstResponder: window.firstResponder.map { String(describing: type(of: $0)) }
         )
+    }
+
+    func windowSize(_ params: WindowSizeParams) throws -> WindowSizeResult {
+        let window = try window(for: params.windowNumber)
+        switch (params.width, params.height) {
+        case let (width?, height?):
+            window.setContentSize(NSSize(width: width, height: height))
+        case (nil, nil):
+            break
+        default:
+            throw ControlError.badParams("windowSize needs both width and height, or neither")
+        }
+        let size = window.contentView?.bounds.size ?? window.contentRect(forFrameRect: window.frame).size
+        return WindowSizeResult(windowNumber: window.windowNumber, width: size.width, height: size.height)
     }
 
     func menu() throws -> MenuResult {

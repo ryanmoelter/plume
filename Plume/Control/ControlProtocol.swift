@@ -38,6 +38,7 @@ nonisolated struct ControlServerRequest: Decodable {
         case "drag": command = .drag(try DragParams(from: decoder))
         case "key": command = .key(try KeyParams(from: decoder))
         case "menu": command = .menu
+        case "windowSize": command = .windowSize(try WindowSizeParams(from: decoder))
         case "selection": command = .selection
         case "selectText": command = .selectText(try SelectTextParams(from: decoder))
         case "tasks": command = .tasks
@@ -71,6 +72,7 @@ nonisolated enum ControlCommand {
     case drag(DragParams)
     case key(KeyParams)
     case menu
+    case windowSize(WindowSizeParams)
     case selection
     case selectText(SelectTextParams)
     case tasks
@@ -726,6 +728,20 @@ nonisolated struct TextRange: Codable, Equatable {
     var length: Int
 }
 
+/// Sets the window's content size when `width` and `height` are given, and
+/// reports it either way.
+nonisolated struct WindowSizeParams: Decodable {
+    var width: Double?
+    var height: Double?
+    var windowNumber: Int?
+}
+
+nonisolated struct WindowSizeResult: Codable, Equatable {
+    var windowNumber: Int
+    var width: Double
+    var height: Double
+}
+
 nonisolated struct ClickResult: Codable, Equatable {
     var rect: Rect
     var windowNumber: Int
@@ -848,6 +864,7 @@ nonisolated enum ControlResult: Encodable {
     case drag(DragResult)
     case key(KeyResult)
     case menu(MenuResult)
+    case windowSize(WindowSizeResult)
     case selection(SelectionResult)
     case tasks(TaskListResult)
     case switchLatency(SwitchLatencyReport)
@@ -870,6 +887,7 @@ nonisolated enum ControlResult: Encodable {
         case .drag(let v): try v.encode(to: encoder)
         case .key(let v): try v.encode(to: encoder)
         case .menu(let v): try v.encode(to: encoder)
+        case .windowSize(let v): try v.encode(to: encoder)
         case .selection(let v): try v.encode(to: encoder)
         case .tasks(let v): try v.encode(to: encoder)
         case .switchLatency(let v): try v.encode(to: encoder)

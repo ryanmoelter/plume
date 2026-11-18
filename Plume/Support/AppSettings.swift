@@ -275,7 +275,6 @@ final class AppSettings {
             ? true
             : defaults.bool(forKey: Key.keepsAwakeForRemoteControlOnBattery)
         self.showsKeepAwakeDebugReadout = defaults.bool(forKey: Key.showsKeepAwakeDebugReadout)
-
         self.lidClosedThermalCutoff = defaults.string(forKey: Key.lidClosedThermalCutoffRaw)
             .flatMap(ThermalCutoffLevel.init(rawValue:)) ?? .serious
 

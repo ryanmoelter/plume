@@ -62,7 +62,6 @@ struct ChatTabView: View, ThemedView {
     /// already in place rather than animating there.
     @State private var conversationWidth = Self.lastConversationWidth
     @State private var collapsedInfoPaneHeight = Self.lastCollapsedInfoPaneHeight
-    @State private var openInfoPaneHeight: CGFloat = 0
     /// What `InfoPaneLayout.showsBeside` last answered. Seeded across mounts,
     /// so switching tasks inside the dead band keeps the pane as it was.
     @State private var showsInfoPaneBeside = Self.lastShowsInfoPaneBeside
@@ -1145,12 +1144,9 @@ struct ChatTabView: View, ThemedView {
             redoContext: redoContext(transcript: transcript),
             onOpenPlan: hasPlan ? { openPlan() } : nil,
             topInset: geometry.chatTopInset,
-            minimapExclusionHeight: InfoPaneLayout.minimapExclusionHeight(
-                geometry: geometry, openHeight: openInfoPaneHeight, gap: dimensions.panelInset,
-                chatHeight: chatHeight
-            ),
             trailingReserve: geometry.chatTrailingReserve,
             sidePane: sideInfoPane(geometry: geometry, linearLinks: linearLinks),
+            panelGlass: planGlass,
             commands: listCommands
         )
         .onGeometryChange(for: CGFloat.self) { $0.size.height } action: { chatHeight = $0 }
@@ -1187,7 +1183,6 @@ struct ChatTabView: View, ThemedView {
     private var sideInfoPaneGeometry: InfoPaneLayout.SideGeometry {
         InfoPaneLayout.side(
             width: conversationWidth,
-            railFootprint: ChatMinimap.railFootprint(forViewport: conversationWidth, dimensions: dimensions),
             gap: dimensions.panelInset,
             chatColumnWidth: dimensions.contentWidth + chatEdgePadding,
             comfortableChatWidth: max(
@@ -1217,7 +1212,6 @@ struct ChatTabView: View, ThemedView {
                 collapsedInfoPaneHeight = height
                 Self.lastCollapsedInfoPaneHeight = height
             },
-            onOpenHeight: { openInfoPaneHeight = $0 },
             onPin: pinInfoPane,
             onOpenSubagent: { openSubagentID = $0.id },
             onOpenPlan: openPlan,

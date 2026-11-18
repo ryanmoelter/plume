@@ -223,8 +223,20 @@ struct MainWindow: View {
     private struct SceneCommands: ViewModifier {
         let window: MainWindow
 
+        private var splitToggle: (() -> Void)? {
+            guard let task = window.selectedTask else { return nil }
+            if task.isSplit { return { TaskStore.closeSplit(in: task) } }
+            return TaskStore.canSplitRight(in: task) ? { TaskStore.splitRight(in: task) } : nil
+        }
+
         func body(content: Content) -> some View {
             content
+                .plumeMenuItem(
+                    AccessibilityID.splitToggle,
+                    label: window.selectedTask?.isSplit == true ? "close split" : "split right",
+                    isPresent: window.selectedTask != nil,
+                    isEnabled: splitToggle != nil
+                ) { splitToggle?() }
                 .focusedSceneValue(\.showHomeAction) { window.choose(.home) }
                 .focusedSceneValue(\.selectAdjacentTask) { offset in
                     let destination = SidebarKeyboardNavigation.destination(
@@ -268,9 +280,7 @@ struct MainWindow: View {
                             { window.tabPendingStartFresh = tab }
                         },
                         isSplit: task.isSplit,
-                        toggleSplit: task.isSplit
-                            ? { TaskStore.closeSplit(in: task) }
-                            : TaskStore.canSplitRight(in: task) ? { TaskStore.splitRight(in: task) } : nil,
+                        toggleSplit: splitToggle,
                         focusOtherPane: task.isSplit ? { TaskStore.focusOtherPane(in: task) } : nil
                     )
                 })

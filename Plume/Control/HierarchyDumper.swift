@@ -76,7 +76,7 @@ enum HierarchyDumper {
         let me = ObjectIdentifier(view)
         for (index, entry) in controls where owners[entry.token] == me {
             node.children.append(HierarchyNode(
-                kind: "control", plumeID: entry.id, index: index, label: entry.label, value: entry.value,
+                kind: "control", plumeID: entry.id, index: index, label: entry.label, value: entry.currentValue,
                 text: nil, isEnabled: entry.isEnabled, frame: Rect(entry.frame)
             ))
         }
