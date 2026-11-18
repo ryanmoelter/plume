@@ -11,6 +11,15 @@ struct TaskRowView: View {
     /// set releases the watch it took rather than whatever the task points at
     /// now.
     @State private var watched = DirectoryWatchSet()
+    /// Indices of the detail lines under the pointer. A set, not one index,
+    /// so moving between two lines of a group never drops its hover when the
+    /// exit lands after the enter.
+    @State private var hoveredLines: Set<Int> = []
+    #if DEBUG
+    @AppStorage(AgentGroupBar.debugHoverEmphasisKey) private var hoverEmphasizes = false
+    #else
+    private let hoverEmphasizes = false
+    #endif
 
     private var appearance: SidebarTaskAppearance {
         SidebarTaskAppearance(task: task, settings: .shared)
@@ -189,14 +198,21 @@ struct TaskRowView: View {
         let icons = hasSeveralAgents ? nil : projectLineIcons(in: rawLines, agentTabIDs: agentTabIDs)
         let owners = TaskRowDetails.owningAgentLabels(rawLines)
         let nesting = TaskRowDetails.agentGroupNesting(rawLines)
+        let groups = AgentGroupState(
+            nesting: hasSeveralAgents ? nesting : rawLines.map { _ in [] },
+            targets: TaskRowDetails.agentTabTargets(rawLines, nesting: nesting),
+            focused: hasSeveralAgents && isSelected
+                ? TaskRowDetails.focusedAgentGroup(rawLines, focusedTabID: task.selectedTabID) : nil,
+            hovered: hasSeveralAgents ? TaskRowDetails.hoveredAgentGroup(hoveredLines: hoveredLines, nesting: nesting) : nil,
+            hoverEmphasizes: hoverEmphasizes
+        )
         VStack(alignment: .leading, spacing: 1) {
             HStack(alignment: .top, spacing: 6) {
                 VStack(alignment: .leading, spacing: 1) {
                     title(heldDevices: hasSeveralAgents ? taskLevelHeldDevices() : nil)
                     descriptionLine
                     ForEach(Array(lines.prefix(badgeLineCount)), id: \.offset) { index, line in
-                        detailLine(line, at: index, owner: owners[index], icons: icons)
-                            .agentGroupMember(hasSeveralAgents ? nesting[index] : [])
+                        groupedDetailLine(line, at: index, owner: owners[index], icons: icons, groups: groups)
                     }
                 }
                 Spacer(minLength: 4)
@@ -209,8 +225,7 @@ struct TaskRowView: View {
             }
 
             ForEach(Array(lines.dropFirst(badgeLineCount)), id: \.offset) { index, line in
-                detailLine(line, at: index, owner: owners[index], icons: icons)
-                    .agentGroupMember(hasSeveralAgents ? nesting[index] : [])
+                groupedDetailLine(line, at: index, owner: owners[index], icons: icons, groups: groups)
             }
 
             TaskActivityRow(tabIDs: agentTabIDs)
@@ -218,7 +233,11 @@ struct TaskRowView: View {
         .agentGroupBars(
             isEnabled: hasSeveralAgents,
             color: theme.colors.surface(AgentGroupBar.emphasis),
-            lineWidth: AgentGroupBar.lineWidth(captionSize: theme.typography.caption.size)
+            lineWidth: AgentGroupBar.lineWidth(captionSize: theme.typography.caption.size),
+            highlights: barHighlights(groups),
+            wash: groups.hoverEmphasizes ? nil : groups.hovered.map {
+                AgentGroupBar.Wash(group: $0, color: Color.chatSurface(.divider, colorScheme: colorScheme))
+            }
         )
         .padding(.vertical, 2)
         .contentShape(.rect)
@@ -363,7 +382,79 @@ struct TaskRowView: View {
     /// centered in. The agent's is drawn smaller, so the task's reads first.
     static let badgeColumnWidth: CGFloat = 16
 
-    private func agentHeaderLine(_ header: TaskRowDetails.AgentHeader) -> some View {
+    /// What the row's agent groups need to draw and answer clicks, each group
+    /// named by its header's line index.
+    private struct AgentGroupState {
+        /// Empty for every line of a row with one agent tab.
+        var nesting: [[Int]]
+        var targets: [UUID?]
+        var focused: Int?
+        var hovered: Int?
+        var hoverEmphasizes: Bool
+
+        func emphasis(ofLine index: Int) -> Emphasis {
+            guard hoverEmphasizes, let hovered, nesting[index].contains(hovered) else { return .secondary }
+            return .primary
+        }
+    }
+
+    /// The focused agent's bar takes the task's color, or the accent when the
+    /// task has none. The focused bar keeps its color under the pointer.
+    private func barHighlights(_ groups: AgentGroupState) -> [Int: Color] {
+        var highlights: [Int: Color] = [:]
+        if groups.hoverEmphasizes, let hovered = groups.hovered {
+            highlights[hovered] = theme.colors.surface(.secondary)
+        }
+        if let focused = groups.focused {
+            highlights[focused] = SidebarTint.effective(for: task).flatMap(theme.colors.color(for:))
+                ?? ChatRole.selection(for: colorScheme)
+        }
+        return highlights
+    }
+
+    /// A line inside an agent group selects that agent's tab when clicked.
+    /// The tap is simultaneous so the row's own tap, drag and double-click
+    /// still see the mouse.
+    @ViewBuilder
+    private func groupedDetailLine(
+        _ line: TaskRowDetails.Line,
+        at index: Int,
+        owner: String?,
+        icons: ProjectLineIcons?,
+        groups: AgentGroupState
+    ) -> some View {
+        let member = detailLine(line, at: index, owner: owner, icons: icons, groups: groups)
+            .agentGroupMember(groups.nesting[index])
+        if !groups.nesting[index].isEmpty, let tabID = groups.targets[index] {
+            member
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .contentShape(.rect)
+                .simultaneousGesture(TapGesture().onEnded { selectAgentTab(tabID) })
+                .plumeHover { hovering in
+                    if hovering {
+                        hoveredLines.insert(index)
+                    } else {
+                        hoveredLines.remove(index)
+                    }
+                }
+        } else {
+            member
+        }
+    }
+
+    /// Selecting the task as well lets the control server's `invoke` stand in
+    /// for a click, which the row's own tap also answers.
+    private func selectAgentTab(_ tabID: UUID) {
+        onSelect?()
+        guard let tab = task.liveTabs.first(where: { $0.id == tabID }) else { return }
+        TaskStore.selectTab(tab, in: task)
+    }
+
+    private func agentHeaderLine(
+        _ header: TaskRowDetails.AgentHeader,
+        isFocused: Bool,
+        isHovered: Bool
+    ) -> some View {
         HStack(spacing: 4) {
             Text(header.title)
                 .font(.caption)
@@ -387,7 +478,12 @@ struct TaskRowView: View {
                 .imageScale(.small)
                 .frame(width: Self.badgeColumnWidth)
         }
-        .plumeID(AccessibilityID.taskAgentGroup, label: header.label, value: header.statusText)
+        .plumeID(
+            AccessibilityID.taskAgentGroup,
+            label: header.label,
+            value: header.controlValue(isFocused: isFocused, isHovered: isHovered),
+            invoke: { selectAgentTab(header.tabID) }
+        )
     }
 
     @ViewBuilder
@@ -395,8 +491,10 @@ struct TaskRowView: View {
         _ line: TaskRowDetails.Line,
         at index: Int,
         owner: String?,
-        icons: ProjectLineIcons?
+        icons: ProjectLineIcons?,
+        groups: AgentGroupState
     ) -> some View {
+        let emphasis = groups.emphasis(ofLine: index)
         switch line {
         case .text(let text):
             Text(text)
@@ -405,12 +503,12 @@ struct TaskRowView: View {
                 .lineLimit(1)
                 .truncationMode(.middle)
         case .agentHeader(let header):
-            agentHeaderLine(header)
+            agentHeaderLine(header, isFocused: groups.focused == index, isHovered: groups.hovered == index)
         case .project(let name):
             HStack(spacing: 4) {
                 Text(name)
                     .font(.caption)
-                    .emphasis(.secondary)
+                    .emphasis(emphasis)
                     .lineLimit(1)
                     .truncationMode(.middle)
                 if let icons, index == icons.lineIndex {
@@ -436,15 +534,15 @@ struct TaskRowView: View {
                     Image(systemName: "tree")
                         .font(.caption)
                         .imageScale(.small)
-                        .emphasis(.secondary)
+                        .emphasis(emphasis)
                 }
                 Text(branch)
                     .font(.caption)
-                    .emphasis(.secondary)
+                    .emphasis(emphasis)
                     .lineLimit(1)
                     .truncationMode(.middle)
                 if let companion {
-                    PullRequestChip(state: companion, emphasis: .secondary, symbolWeight: .bold)
+                    PullRequestChip(state: companion, emphasis: emphasis, symbolWeight: .bold)
                 }
             }
             .plumeID(

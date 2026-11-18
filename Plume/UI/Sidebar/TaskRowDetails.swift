@@ -92,6 +92,13 @@ enum TaskRowDetails {
         var statusText: String {
             ([status.label] + (isUnread ? ["unread"] : [])).joined(separator: ", ")
         }
+
+        /// The header's control-server value: its status, then whether its
+        /// group holds the task's focused tab and whether it is hovered.
+        func controlValue(isFocused: Bool, isHovered: Bool) -> String {
+            ([statusText] + (isFocused ? ["focused"] : []) + (isHovered ? ["hovered"] : []))
+                .joined(separator: "; ")
+        }
     }
 
     /// A title that appears once stays bare; one that repeats is numbered on
@@ -358,6 +365,33 @@ enum TaskRowDetails {
             }
             return open.map(\.index)
         }
+    }
+
+    /// For each line, the agent tab a click on it selects: its innermost
+    /// group's, since a child's lines sit inside its parent's group too.
+    static func agentTabTargets(_ lines: [Line], nesting: [[Int]]) -> [UUID?] {
+        nesting.map { groups in groups.last.flatMap { agentTabID(ofGroup: $0, in: lines) } }
+    }
+
+    /// The group headed by the task's focused tab, if an agent header shows it.
+    static func focusedAgentGroup(_ lines: [Line], focusedTabID: UUID?) -> Int? {
+        guard let focusedTabID else { return nil }
+        return lines.indices.first { agentTabID(ofGroup: $0, in: lines) == focusedTabID }
+    }
+
+    /// The innermost group under the pointer. Moving between two lines can
+    /// briefly hover both; the deeper group wins, then the later one.
+    static func hoveredAgentGroup(hoveredLines: Set<Int>, nesting: [[Int]]) -> Int? {
+        hoveredLines
+            .compactMap { nesting.indices.contains($0) ? nesting[$0] : nil }
+            .compactMap { groups in groups.last.map { (depth: groups.count, group: $0) } }
+            .max { ($0.depth, $0.group) < ($1.depth, $1.group) }?
+            .group
+    }
+
+    private static func agentTabID(ofGroup index: Int, in lines: [Line]) -> UUID? {
+        guard lines.indices.contains(index), case .agentHeader(let header) = lines[index] else { return nil }
+        return header.tabID
     }
 
     /// The control-server label for a directory line: the text it shows.

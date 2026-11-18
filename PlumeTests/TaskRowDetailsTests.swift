@@ -633,6 +633,52 @@ struct TaskRowAgentLinesTests {
         #expect(TaskRowDetails.agentGroupNesting(lines) == [[0], [0], [0, 2], [0, 2], [0, 4], [5], [5]])
     }
 
+    @Test func aClickSelectsTheInnermostGroupsTab() {
+        let parent = UUID(), child = UUID(), sibling = UUID()
+        func header(_ id: UUID, depth: Int) -> TaskRowDetails.Line {
+            .agentHeader(TaskRowDetails.AgentHeader(tabID: id, title: "Chat", status: .working, depth: depth))
+        }
+        let lines: [TaskRowDetails.Line] = [
+            .project("Plume"),
+            header(parent, depth: 0),
+            .branch("main"),
+            header(child, depth: 1),
+            .branch("fix"),
+            header(sibling, depth: 0),
+        ]
+        let nesting = TaskRowDetails.agentGroupNesting(lines)
+        #expect(TaskRowDetails.agentTabTargets(lines, nesting: nesting)
+            == [nil, parent, parent, child, child, sibling])
+    }
+
+    @Test func theFocusedGroupIsTheOneHeadedByTheFocusedTab() {
+        let one = UUID(), two = UUID()
+        let lines: [TaskRowDetails.Line] = [
+            .agentHeader(TaskRowDetails.AgentHeader(tabID: one, title: "One", status: .working)),
+            .branch("main"),
+            .agentHeader(TaskRowDetails.AgentHeader(tabID: two, title: "Two", status: .working)),
+        ]
+        #expect(TaskRowDetails.focusedAgentGroup(lines, focusedTabID: two) == 2)
+        #expect(TaskRowDetails.focusedAgentGroup(lines, focusedTabID: UUID()) == nil)
+        #expect(TaskRowDetails.focusedAgentGroup(lines, focusedTabID: nil) == nil)
+    }
+
+    @Test func theDeeperHoveredGroupWins() {
+        let nesting: [[Int]] = [[], [1], [1], [1, 3], [1, 3], [5]]
+        #expect(TaskRowDetails.hoveredAgentGroup(hoveredLines: [], nesting: nesting) == nil)
+        #expect(TaskRowDetails.hoveredAgentGroup(hoveredLines: [0], nesting: nesting) == nil)
+        #expect(TaskRowDetails.hoveredAgentGroup(hoveredLines: [2], nesting: nesting) == 1)
+        #expect(TaskRowDetails.hoveredAgentGroup(hoveredLines: [2, 3], nesting: nesting) == 3)
+        #expect(TaskRowDetails.hoveredAgentGroup(hoveredLines: [4, 5], nesting: nesting) == 3)
+        #expect(TaskRowDetails.hoveredAgentGroup(hoveredLines: [9], nesting: nesting) == nil)
+    }
+
+    @Test func aHeadersValueAddsFocusAndHover() {
+        let header = TaskRowDetails.AgentHeader(tabID: UUID(), title: "Chat", status: .working, isUnread: true)
+        #expect(header.controlValue(isFocused: false, isHovered: false) == header.statusText)
+        #expect(header.controlValue(isFocused: true, isHovered: true) == "\(header.statusText); focused; hovered")
+    }
+
     @Test func aOneAgentRowHasNoGroups() {
         let lines: [TaskRowDetails.Line] = [.project("Plume"), .branch("main"), .linearOverflow(1)]
         #expect(TaskRowDetails.agentGroupNesting(lines) == [[], [], []])

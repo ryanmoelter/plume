@@ -30,6 +30,7 @@ struct DebugSettingsPane: View {
             MinimapDebugSection()
             UpdatesDebugSection()
             ThemeDebugSection()
+            SidebarDebugSection()
             GreetingDebugSection()
         }
         .formStyle(.grouped)
