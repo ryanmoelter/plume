@@ -59,7 +59,7 @@ struct ChatMinimap: View, ThemedView {
     @State private var clickMonitor = MinimapClickMonitor()
     @State private var presentation = MinimapPresentation()
     #if DEBUG
-    @State private var controlValue: String?
+    @State private var controlValue = MinimapControlValue()
     #endif
 
     var body: some View {
@@ -110,19 +110,11 @@ struct ChatMinimap: View, ThemedView {
                 hoverRegion(metrics: metrics)
             }
             .onDisappear { clickMonitor.stop() }
-            .plumeID(AccessibilityID.chatMinimap, value: controlValueText, setValue: { drive($0, metrics: metrics) })
-            #if DEBUG
-            .onChange(of: ControlValueKey(
-                layout: layout,
-                visibleRows: visibleRows,
-                hoveredRowID: hoveredRowID,
-                rail: rail,
-                scrollPercent: metrics.travel > 0 ? Int((scrollOffset / metrics.travel * 100).rounded()) : 0,
-                snappedScroll: tuning.values.snappedScroll
-            ), initial: true) { _, key in
-                controlValue = makeControlValue(key)
-            }
-            #endif
+            .plumeID(
+                AccessibilityID.chatMinimap,
+                value: controlValueText(metrics: metrics, visibleRows: visibleRows),
+                setValue: { drive($0, metrics: metrics) }
+            )
             .onChange(of: outline, initial: true) { _, outline in
                 layout = MinimapLayout(outline: outline)
                 keepHoverOnItsRow()
@@ -416,7 +408,16 @@ struct ChatMinimap: View, ThemedView {
     // MARK: Driving
 
     #if DEBUG
-    private var controlValueText: String? { controlValue }
+    private func controlValueText(metrics: MinimapMetrics, visibleRows: Set<Int>) -> String? {
+        controlValue.text(for: ControlValueKey(
+            layout: layout,
+            visibleRows: visibleRows,
+            hoveredRowID: hoveredRowID,
+            rail: rail,
+            scrollPercent: metrics.travel > 0 ? Int((scrollOffset / metrics.travel * 100).rounded()) : 0,
+            snappedScroll: tuning.values.snappedScroll
+        ), make: makeControlValue)
+    }
 
     private func makeControlValue(_ key: ControlValueKey) -> String? {
         let rows = key.layout.rows.enumerated().map { index, row -> [String: Any] in
@@ -474,7 +475,7 @@ struct ChatMinimap: View, ThemedView {
         }
     }
     #else
-    private var controlValueText: String? { nil }
+    private func controlValueText(metrics: MinimapMetrics, visibleRows: Set<Int>) -> String? { nil }
     private func drive(_ command: String, metrics: MinimapMetrics) {}
     #endif
 
@@ -586,6 +587,22 @@ private struct ControlValueKey: Equatable {
     var rail: MinimapRailGeometry
     var scrollPercent: Int
     var snappedScroll: Bool
+}
+
+/// The control value, rebuilt in `body` only when its key changes. Not an
+/// `onChange`, which SwiftUI skipped when the follow moved the map in the
+/// same update as a leave, so the value kept the hover's scroll.
+private final class MinimapControlValue {
+    private var key: ControlValueKey?
+    private var text: String?
+
+    func text(for key: ControlValueKey, make: (ControlValueKey) -> String?) -> String? {
+        if key != self.key {
+            self.key = key
+            text = make(key)
+        }
+        return text
+    }
 }
 #endif
 

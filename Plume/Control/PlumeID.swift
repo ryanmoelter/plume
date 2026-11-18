@@ -69,6 +69,9 @@ private struct PlumeIDModifier: ViewModifier {
     func body(content: Content) -> some View {
         registration.invoke = invoke
         registration.setValue = setValue
+        // The `onChange` below can be skipped for a value that changes twice
+        // in one update, which left the entry holding the first.
+        ControlRegistry.shared.update(token: registration.token) { $0.value = value }
         return content
             .accessibilityIdentifier(id)
             .background {
