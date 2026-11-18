@@ -435,6 +435,9 @@ enum AccessibilityID {
     static let settingsMinimapSpacingPicker = "settings-minimap-spacing-picker"
     static let settingsMinimapIndirectShapePicker = "settings-minimap-indirect-shape-picker"
     static let settingsMinimapTuningReset = "settings-minimap-tuning-reset"
+    static let settingsMinimapTuningToggle = "settings-minimap-tuning-toggle"
+    /// Followed by a tuning slider's key, as in `settings-minimap-tuning-snap`.
+    static let settingsMinimapTuningSliderPrefix = "settings-minimap-tuning-"
 
     // MARK: Queued messages
 
