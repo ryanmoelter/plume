@@ -52,10 +52,15 @@ struct ChildSessionTabTests {
         #expect(ChildSessionCoordinator.launchDirectories(for: child).isEmpty)
     }
 
-    @Test func theInsertionPointFollowsTheLastChild() {
-        let parent = UUID(), other = UUID(), child = UUID()
+    @Test func theInsertionPointEndsTheParentsGroup() {
+        let parent = UUID(), other = UUID(), child = UUID(), grandchild = UUID()
         #expect(TaskStore.childInsertionIndex(parentID: parent, in: [(parent, nil), (other, nil)]) == 1)
-        #expect(TaskStore.childInsertionIndex(parentID: parent, in: [(parent, nil), (other, nil), (child, parent)]) == 3)
+        #expect(TaskStore.childInsertionIndex(parentID: parent, in: [(parent, nil), (child, parent), (other, nil)]) == 2)
+        #expect(TaskStore.childInsertionIndex(
+            parentID: parent, in: [(parent, nil), (child, parent), (grandchild, child), (other, nil)]
+        ) == 3)
+        // A child sitting apart from its parent is outside the group.
+        #expect(TaskStore.childInsertionIndex(parentID: parent, in: [(parent, nil), (other, nil), (child, parent)]) == 1)
         #expect(TaskStore.childInsertionIndex(parentID: parent, in: [(other, nil)]) == 1)
     }
 

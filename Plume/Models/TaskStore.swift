@@ -134,7 +134,7 @@ enum TaskStore {
     }
 
     /// A headless Claude tab for a session `parent`'s agent started, placed
-    /// after the parent's other children in its pane and left unselected, so
+    /// at the end of the parent's group in its pane and left unselected, so
     /// the user stays where they are.
     static func addChildTab(to task: WorkTask, parent: TaskTab, in context: ModelContext) -> TaskTab {
         let tab = addTab(
@@ -149,11 +149,11 @@ enum TaskStore {
         return tab
     }
 
-    /// Just after the parent's last child, or after the parent itself.
+    /// Just after the parent's group, past its children's own children, or
+    /// at the end when the parent is not among `tabs`.
     static func childInsertionIndex(parentID: UUID, in tabs: [(id: UUID, parentID: UUID?)]) -> Int {
-        if let last = tabs.lastIndex(where: { $0.parentID == parentID }) { return last + 1 }
-        if let parent = tabs.firstIndex(where: { $0.id == parentID }) { return parent + 1 }
-        return tabs.count
+        let entries = tabs.map { TabStripGrouping.Entry(id: $0.id, parentID: $0.parentID) }
+        return TabStripGrouping(entries).landingGaps(forChildOf: parentID).last ?? tabs.count
     }
 
     /// `tabs` with each child moved right after its parent, and how deep it
@@ -221,9 +221,23 @@ enum TaskStore {
     // MARK: - Child session groups
 
     static func grouping(of tabs: [TaskTab]) -> TabStripGrouping {
-        TabStripGrouping(tabs.map {
-            TabStripGrouping.Entry(id: $0.id, parentID: $0.parentTabID, childrenCollapsed: $0.childrenCollapsed)
-        })
+        TabStripGrouping(stripEntries(tabs))
+    }
+
+    private static func stripEntries(_ tabs: [TaskTab]) -> [TabStripGrouping.Entry] {
+        tabs.map { TabStripGrouping.Entry(id: $0.id, parentID: $0.parentTabID, childrenCollapsed: $0.childrenCollapsed) }
+    }
+
+    /// False for a child whose parent shares its pane: it moves only with
+    /// its parent.
+    static func canLeavePane(_ tab: TaskTab, in task: WorkTask) -> Bool {
+        grouping(of: task.tabs(inPane: tab.paneIndex)).parentInPane[tab.id] == nil
+    }
+
+    /// `tab` and the group it leads, in strip order.
+    private static func subtree(of tab: TaskTab, in tabs: [TaskTab]) -> [TaskTab] {
+        guard let block = grouping(of: tabs).block(of: tab.id) else { return [tab] }
+        return Array(tabs[block])
     }
 
     static func visibleTabs(inPane pane: Int, of task: WorkTask) -> [TaskTab] {
@@ -270,15 +284,26 @@ enum TaskStore {
         case right
     }
 
-    /// Whether `tab` can move out into a new pane: only while unsplit, and
-    /// never the last tab, which would leave its strip empty.
+    /// Whether `tab` can move out into a new pane: only while unsplit, never
+    /// a child apart from its parent, and never with every tab of the strip,
+    /// which would leave it empty.
     static func canOpenInSplit(_ tab: TaskTab, in task: WorkTask) -> Bool {
-        !task.isSplit && task.tabs.count > 1 && task.tabs.contains { $0.id == tab.id }
+        guard !task.isSplit, task.tabs.contains(where: { $0.id == tab.id }), canLeavePane(tab, in: task) else {
+            return false
+        }
+        let strip = task.tabs(inPane: tab.paneIndex)
+        return subtree(of: tab, in: strip).count < strip.count
     }
 
-    /// Moves `tab` out of its strip into a new pane on `side`, and focuses it.
-    /// Already split, `tab` moves onto the end of the pane on `side` instead,
-    /// unless it is already there, where it only takes focus.
+    /// Whether `openInSplit(_:side:in:)` would do anything.
+    static func canOpenInSplit(_ tab: TaskTab, side: SplitSide, in task: WorkTask) -> Bool {
+        guard task.isSplit else { return canOpenInSplit(tab, in: task) }
+        return tab.paneIndex == (side == .left ? 0 : task.paneCount - 1) || canLeavePane(tab, in: task)
+    }
+
+    /// Moves `tab` and its group out of its strip into a new pane on `side`,
+    /// and focuses it. Already split, `tab` moves onto the end of the pane on
+    /// `side` instead, unless it is already there, where it only takes focus.
     static func openInSplit(_ tab: TaskTab, side: SplitSide, in task: WorkTask) {
         if task.isSplit {
             let pane = side == .left ? 0 : task.paneCount - 1
@@ -291,8 +316,9 @@ enum TaskStore {
         }
         guard canOpenInSplit(tab, in: task) else { return }
         var panes = paneStates(of: task)
-        remove(tab, from: &panes)
-        let pane = PaneState(tabs: [tab], shown: tab.id)
+        guard let source = panes.firstIndex(where: { $0.tabs.contains { $0.id == tab.id } }) else { return }
+        let moved = take(subtree(of: tab, in: panes[source].tabs).map(\.id), from: &panes[source])
+        let pane = PaneState(tabs: moved, shown: tab.id)
         if side == .left { panes.insert(pane, at: 0) } else { panes.append(pane) }
         commit(panes, to: task, focusing: tab.id)
         selectTab(tab, in: task)
@@ -348,22 +374,23 @@ enum TaskStore {
         return tab
     }
 
-    /// Moves `tab` into `pane`'s strip at the gap `position` (counted in the
-    /// strip as drawn, `tab` included), or onto its end. A tab arriving from
-    /// another pane takes focus, and a pane left empty closes; a reorder
-    /// within one strip leaves focus alone.
+    /// Moves `tab` and its group into `pane`'s strip at the gap `position`
+    /// (counted in the strip as drawn, `tab` included), or onto its end,
+    /// wherever `TabStripMove` lets it land. A tab arriving from another pane
+    /// takes focus, and a pane left empty closes; a reorder within one strip
+    /// leaves focus alone.
     static func moveTab(_ tab: TaskTab, toPane pane: Int, at position: Int? = nil, in task: WorkTask) {
         var panes = paneStates(of: task)
-        guard panes.indices.contains(pane) else { return }
+        guard panes.indices.contains(pane),
+              let source = panes.firstIndex(where: { $0.tabs.contains { $0.id == tab.id } }),
+              let move = plannedMove(
+                of: tab, from: panes[source].tabs, to: source == pane ? nil : panes[pane].tabs, at: position
+              )
+        else { return }
         let shownBefore = panes[pane].shown
-        guard let source = remove(tab, from: &panes) else { return }
-        let isReorder = source.pane == pane
-        var destination = panes[pane].tabs
-        var insertion = min(position ?? destination.count, destination.count)
-        if isReorder, let position, position > source.index { insertion = min(position - 1, destination.count) }
-        destination.insert(tab, at: insertion)
-        panes[pane].tabs = destination
-        if isReorder {
+        let moved = take(move.ids, from: &panes[source])
+        panes[pane].tabs.insert(contentsOf: moved, at: min(move.gap, panes[pane].tabs.count))
+        if source == pane {
             panes[pane].shown = shownBefore
             commit(panes, to: task, focusing: task.selectedTabID)
             return
@@ -371,6 +398,31 @@ enum TaskStore {
         panes[pane].shown = tab.id
         commit(panes, to: task, focusing: tab.id)
         selectTab(tab, in: task)
+    }
+
+    /// Where dropping `tab` at `position` would put it in `pane`'s strip,
+    /// counted as `position` is, or nil when it cannot move there.
+    static func landingIndex(of tab: TaskTab, toPane pane: Int, at position: Int?, in task: WorkTask) -> Int? {
+        let panes = task.panes
+        guard panes.indices.contains(pane),
+              let source = panes.firstIndex(where: { $0.contains { $0.id == tab.id } }),
+              let move = plannedMove(of: tab, from: panes[source], to: source == pane ? nil : panes[pane], at: position)
+        else { return nil }
+        guard source == pane, let first = panes[pane].firstIndex(where: { $0.id == tab.id }) else { return move.gap }
+        return move.gap <= first ? move.gap : move.gap + move.ids.count
+    }
+
+    /// A reorder when `destination` is nil.
+    private static func plannedMove(
+        of tab: TaskTab,
+        from source: [TaskTab],
+        to destination: [TaskTab]?,
+        at position: Int?
+    ) -> TabStripMove? {
+        guard let destination else {
+            return TabStripMove.reorder(tab.id, in: stripEntries(source), toward: position)
+        }
+        return TabStripMove.transfer(tab.id, from: stripEntries(source), to: stripEntries(destination), toward: position)
     }
 
     /// Every pane's tabs join the leftmost strip, in pane order. The focused
@@ -426,6 +478,17 @@ enum TaskStore {
             return (pane, index)
         }
         return nil
+    }
+
+    /// Takes `ids` out of `pane`, in strip order. The pane falls back to
+    /// showing its first tab if it was showing one of them.
+    @discardableResult
+    private static func take(_ ids: [UUID], from pane: inout PaneState) -> [TaskTab] {
+        let taken = Set(ids)
+        let moved = pane.tabs.filter { taken.contains($0.id) }
+        pane.tabs.removeAll { taken.contains($0.id) }
+        if let shown = pane.shown, taken.contains(shown) { pane.shown = pane.tabs.first?.id }
+        return moved
     }
 
     /// Writes `panes` back: drops empty ones, numbers the rest densely, and

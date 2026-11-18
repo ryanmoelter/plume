@@ -23,6 +23,7 @@ struct TabStripView: View {
     @State private var toggleFrames: [UUID: CGRect] = [:]
 
     private static let chipSpacing: CGFloat = 6
+    private static let groupAnimation = Animation.snappy(duration: 0.25)
     private nonisolated static let coordinateSpace = "tabStrip"
 
     private func addTab(_ kind: TabKind) {
@@ -60,6 +61,7 @@ struct TabStripView: View {
                 .onGeometryChange(for: CGRect.self) {
                     $0.frame(in: .named(Self.coordinateSpace))
                 } action: { chipFrames[tab.id] = $0 }
+                .transition(.opacity.combined(with: .scale(scale: 0.6, anchor: .leading)))
                 if let group = grouping.group(parentID: tab.id) {
                     TabChildrenToggle(
                         title: paneLabel.map { "\(chipTitle(of: tab)) (\($0))" } ?? chipTitle(of: tab),
@@ -97,12 +99,15 @@ struct TabStripView: View {
 
             Spacer()
         }
+        // Keyed on `hidden` so only collapsing and expanding animate, not a
+        // reorder.
+        .animation(Self.groupAnimation, value: grouping.hidden)
         .padding(.horizontal, 8)
         .padding(.vertical, 6)
         .plumeID(AccessibilityID.tabStrip, label: paneLabel)
         .coordinateSpace(.named(Self.coordinateSpace))
         .background(alignment: .topLeading) {
-            TabStripGroupBars(bars: groupBars(grouping), color: groupBarColor)
+            TabStripGroupBars(bars: groupBars(grouping), color: groupBarColor, animation: Self.groupAnimation)
         }
         // One destination for the whole strip, placing the drop by its
         // location, so there is no gap between chips where a drop misses.
@@ -121,6 +126,7 @@ struct TabStripView: View {
             taskID: task.id,
             pane: pane,
             chips: { chipExtents },
+            landing: landingGap,
             perform: reorder
         ))
         .themeTint(colorScheme: colorScheme)
@@ -153,6 +159,16 @@ struct TabStripView: View {
                 y: parent.maxY + 2 + CGFloat(group.depth) * 3
             )
         }
+    }
+
+    /// The shown gap a drop of `draggedID` at shown gap `gap` lands in, after
+    /// `TabStripMove` keeps it among its siblings, or nil when it cannot
+    /// land in this strip at all.
+    private func landingGap(_ draggedID: UUID, near gap: Int) -> Int? {
+        guard let tab = task.tabs.first(where: { $0.id == draggedID }) else { return nil }
+        let grouping = grouping
+        return TaskStore.landingIndex(of: tab, toPane: pane, at: grouping.paneIndex(forVisibleGap: gap), in: task)
+            .map(grouping.visibleGap(forPaneIndex:))
     }
 
     /// Moves the dragged tab into the gap before shown chip `gap`, from this
@@ -313,6 +329,7 @@ private struct TabChip: View {
                 Button("Move to Other Pane") {
                     TaskStore.moveTab(tab, toPane: (pane + 1) % paneCount, in: task)
                 }
+                .disabled(!TaskStore.canLeavePane(tab, in: task))
                 Button("Close Split") { TaskStore.closeSplit(in: task) }
             } else {
                 Button("Open in Split") { TaskStore.openInSplit(tab, side: .right, in: task) }
@@ -449,6 +466,8 @@ private struct TabChildrenToggle: View {
     let isCollapsed: Bool
     let toggle: () -> Void
 
+    @State private var isHovering = false
+
     private var help: String {
         let sessions = childCount == 1 ? "session" : "sessions"
         return isCollapsed ? "Show \(childCount) child \(sessions)" : "Hide \(childCount) child \(sessions)"
@@ -458,18 +477,21 @@ private struct TabChildrenToggle: View {
         Button(action: toggle) {
             HStack(spacing: 2) {
                 Image(systemName: isCollapsed ? "chevron.right" : "chevron.left")
-                    .font(.system(size: 9, weight: .bold))
+                    .font(.system(size: 10, weight: .bold))
                 if isCollapsed {
                     Text("\(childCount)")
-                        .font(.caption)
+                        .font(.caption.weight(.semibold))
                         .monospacedDigit()
                 }
             }
-            .foregroundStyle(.secondary)
-            .frame(minWidth: 12, minHeight: 22)
+            .foregroundStyle(.tint)
+            .padding(.horizontal, 4)
+            .frame(minWidth: 18, minHeight: 22)
+            .background(.tint.opacity(isHovering ? 0.18 : 0), in: .rect(cornerRadius: 5))
             .contentShape(.rect)
         }
         .buttonStyle(.plain)
+        .plumeHover { isHovering = $0 }
         .help(help)
         .accessibilityLabel(help)
         .plumeID(
@@ -483,7 +505,7 @@ private struct TabChildrenToggle: View {
 
 /// The bars under each group of a parent tab and its child sessions.
 private struct TabStripGroupBars: View {
-    struct Bar: Identifiable {
+    struct Bar: Identifiable, Equatable {
         let id: UUID
         let minX: CGFloat
         let maxX: CGFloat
@@ -492,6 +514,7 @@ private struct TabStripGroupBars: View {
 
     let bars: [Bar]
     let color: Color
+    let animation: Animation
 
     var body: some View {
         ZStack(alignment: .topLeading) {
@@ -502,6 +525,9 @@ private struct TabStripGroupBars: View {
                     .offset(x: bar.minX, y: bar.y)
             }
         }
+        // The chips' frames arrive already at their new places, so the bars
+        // animate on their own to keep pace with the chips.
+        .animation(animation, value: bars)
         .allowsHitTesting(false)
     }
 }
@@ -511,6 +537,7 @@ private struct TabStripDropDelegate: DropDelegate {
     let taskID: UUID
     let pane: Int
     let chips: () -> [ClosedRange<CGFloat>]
+    let landing: @MainActor (UUID, Int) -> Int?
     let perform: @MainActor (UUID, Int) -> Void
 
     func validateDrop(info: DropInfo) -> Bool {
@@ -523,8 +550,12 @@ private struct TabStripDropDelegate: DropDelegate {
         case .task, .group:
             drag.clearTabStripGap(in: taskID, pane: pane)
             return DropProposal(operation: .forbidden)
-        case .tab:
-            let gap = TabStripInsertion.gap(forX: info.location.x, chips: chips())
+        case .tab(let id):
+            let requested = TabStripInsertion.gap(forX: info.location.x, chips: chips())
+            guard let gap = landing(id, requested) else {
+                drag.clearTabStripGap(in: taskID, pane: pane)
+                return DropProposal(operation: .forbidden)
+            }
             drag.showTabStripGap(TabStripGap(taskID: taskID, pane: pane, gap: gap))
             return DropProposal(operation: .move)
         case nil:
