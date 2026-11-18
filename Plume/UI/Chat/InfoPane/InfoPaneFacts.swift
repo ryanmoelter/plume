@@ -111,6 +111,10 @@ struct InfoPaneFacts: Equatable {
         var depth = 0
         /// Set only when it differs from this tab's branch.
         var branch: String?
+
+        var caption: String {
+            [status.label, branch].compactMap(\.self).joined(separator: " · ")
+        }
     }
 
     var tabID: UUID

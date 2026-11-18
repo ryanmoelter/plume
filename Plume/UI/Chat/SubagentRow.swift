@@ -16,25 +16,7 @@ struct SubagentRow: View, ThemedView {
     /// Separate in the chat, so a driver can tell its row from the info pane's.
     let controlID: String
 
-    /// Where the badge and the text start, so a host with its own icon column
-    /// can line the row up with it.
-    struct Columns {
-        var leadingIndent: CGFloat = 0
-        var badgeWidth: CGFloat = 12
-        var spacing: CGFloat = 8
-        var leadingWashInset: CGFloat = Columns.washInset
-        var trailingWashInset: CGFloat = Columns.washInset
-        var washCornerRadius: CGFloat = 6
-
-        /// How far the hover wash reaches past the badge and the chevron.
-        static let washInset: CGFloat = 8
-
-        /// The badge in the info pane's icon column, under its section's icon.
-        static let infoPane = Columns(
-            badgeWidth: InfoPaneLayout.iconColumnWidth,
-            spacing: InfoPaneLayout.columnSpacing
-        )
-    }
+    typealias Columns = StatusRowColumns
 
     /// Routes a status override to the store that owns this subagent.
     init(
@@ -59,8 +41,6 @@ struct SubagentRow: View, ThemedView {
         self.currentOverride = SubagentStatusOverrides.shared.override(tabID: tabID, subagentID: subagent.id)
     }
 
-    @State private var isHovering = false
-
     /// What the row leads with — the ask, not the agent type, which the
     /// caption below states instead. Falls back to the id, matching the help
     /// text below it.
@@ -69,39 +49,9 @@ struct SubagentRow: View, ThemedView {
     }
 
     var body: some View {
-        let caption = SubagentCaption(subagent: subagent)
-        Button(action: onOpen) {
-            HStack(alignment: .firstTextBaseline, spacing: columns.spacing) {
-                StatusBadge(status: subagent.status)
-                    .frame(width: columns.badgeWidth, alignment: .center)
-                VStack(alignment: .leading, spacing: 1) {
-                    Text(title)
-                        .lineLimit(1)
-                        .truncationMode(.tail)
-                    // Rendered even while empty, so a row keeps its height as
-                    // the facts arrive on the next read.
-                    captionLine(caption)
-                        .font(typography.caption.font)
-                        .emphasis(.subtle)
-                        .lineLimit(1)
-                }
-                Spacer(minLength: 8)
-                Image(systemName: "chevron.right")
-                    .font(typography.caption.font)
-                    .foregroundStyle(colors.selection)
-            }
-            .padding(.leading, columns.leadingIndent)
-            .padding(.leading, columns.leadingWashInset)
-            .padding(.trailing, columns.trailingWashInset)
-            .padding(.vertical, 5)
-            .contentShape(.rect(cornerRadius: columns.washCornerRadius))
-            .background(
-                isHovering ? colors.surfaceTint : Color.clear,
-                in: .rect(cornerRadius: columns.washCornerRadius)
-            )
+        StatusRow(title: title, caption: captionLine(SubagentCaption(subagent: subagent)), columns: columns, onOpen: onOpen) {
+            StatusBadge(status: subagent.status)
         }
-        .buttonStyle(.plain)
-        .plumeHover { isHovering = $0 }
         .help(subagent.descriptor?.description ?? subagent.id)
         .plumeID(controlID, label: subagent.title, value: subagent.status.rawValue, invoke: onOpen)
         .contextMenu { menu }
@@ -128,5 +78,74 @@ struct SubagentRow: View, ThemedView {
             Button("Mark as Interrupted") { onOverride(.interrupted) }
                 .plumeID(AccessibilityID.subagentMarkInterrupted)
         }
+    }
+}
+
+/// Where a `StatusRow`'s badge and text start, so a host with its own icon
+/// column can line the row up with it.
+struct StatusRowColumns {
+    var leadingIndent: CGFloat = 0
+    var badgeWidth: CGFloat = 12
+    var spacing: CGFloat = 8
+    var leadingWashInset: CGFloat = StatusRowColumns.washInset
+    var trailingWashInset: CGFloat = StatusRowColumns.washInset
+    var washCornerRadius: CGFloat = 6
+
+    /// How far the hover wash reaches past the badge and the chevron.
+    static let washInset: CGFloat = 8
+
+    /// The badge in the info pane's icon column, under its section's icon.
+    static let infoPane = StatusRowColumns(
+        badgeWidth: InfoPaneLayout.iconColumnWidth,
+        spacing: InfoPaneLayout.columnSpacing
+    )
+}
+
+/// A status badge, a title over a one-line caption, and a chevron: a row that
+/// opens another conversation, a subagent's or a child session's.
+struct StatusRow<Badge: View>: View, ThemedView {
+    @Environment(\.theme) var theme
+
+    let title: String
+    let caption: Text
+    let columns: StatusRowColumns
+    let onOpen: () -> Void
+    @ViewBuilder let badge: Badge
+
+    @State private var isHovering = false
+
+    var body: some View {
+        Button(action: onOpen) {
+            HStack(alignment: .firstTextBaseline, spacing: columns.spacing) {
+                badge
+                    .frame(width: columns.badgeWidth, alignment: .center)
+                VStack(alignment: .leading, spacing: 1) {
+                    Text(title)
+                        .lineLimit(1)
+                        .truncationMode(.tail)
+                    // Rendered even while empty, so a row keeps its height as
+                    // the facts arrive on the next read.
+                    caption
+                        .font(typography.caption.font)
+                        .emphasis(.subtle)
+                        .lineLimit(1)
+                }
+                Spacer(minLength: 8)
+                Image(systemName: "chevron.right")
+                    .font(typography.caption.font)
+                    .foregroundStyle(colors.selection)
+            }
+            .padding(.leading, columns.leadingIndent)
+            .padding(.leading, columns.leadingWashInset)
+            .padding(.trailing, columns.trailingWashInset)
+            .padding(.vertical, 5)
+            .contentShape(.rect(cornerRadius: columns.washCornerRadius))
+            .background(
+                isHovering ? colors.surfaceTint : Color.clear,
+                in: .rect(cornerRadius: columns.washCornerRadius)
+            )
+        }
+        .buttonStyle(.plain)
+        .plumeHover { isHovering = $0 }
     }
 }

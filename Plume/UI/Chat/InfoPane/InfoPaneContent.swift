@@ -105,7 +105,7 @@ struct InfoPaneContent: View, ThemedView {
             InfoPaneSectionHeader(
                 title: "Sessions",
                 icon: .symbol("arrow.turn.down.right"),
-                count: facts.childSessions.count,
+                count: isExpanded ? nil : facts.childSessions.count,
                 isExpanded: isExpanded,
                 accessibilityID: AccessibilityID.infoPaneSessionsToggle
             ) {
@@ -113,38 +113,11 @@ struct InfoPaneContent: View, ThemedView {
             }
         } rows: {
             if isExpanded {
-                ForEach(facts.childSessions) { childSessionRow($0) }
+                ForEach(facts.childSessions) { child in
+                    InfoPaneChildSessionRow(child: child) { onSelectTab(child.id) }
+                }
             }
         }
-    }
-
-    private func childSessionRow(_ child: InfoPaneFacts.ChildSessionFacts) -> some View {
-        let select = { onSelectTab(child.id) }
-        return Button(action: select) {
-            HStack(spacing: InfoPaneLayout.columnSpacing) {
-                InfoPaneIcon {
-                    StatusBadge(status: child.status, isUnread: child.isUnread, showsElapsed: false)
-                        .imageScale(.small)
-                }
-                Text(child.title)
-                    .lineLimit(1)
-                    .truncationMode(.tail)
-                Spacer(minLength: 4)
-                if let branch = child.branch {
-                    Text(branch)
-                        .lineLimit(1)
-                        .truncationMode(.middle)
-                        .emphasis(.subtle)
-                        .layoutPriority(-1)
-                }
-                Image(systemName: "chevron.right")
-                    .foregroundStyle(colors.selection)
-            }
-            .padding(.leading, CGFloat(child.depth) * (InfoPaneLayout.iconColumnWidth + InfoPaneLayout.columnSpacing))
-        }
-        .buttonStyle(InfoPaneRowButtonStyle())
-        .help(child.branch.map { "Show \(child.title), on \($0)" } ?? "Show \(child.title)")
-        .plumeID(AccessibilityID.infoPaneChildSessionRow, label: child.title, value: child.status.rawValue, invoke: select)
     }
 
     // MARK: Subagents
@@ -561,12 +534,37 @@ private struct InfoPaneSubagentRow: View {
     let onOpen: () -> Void
 
     var body: some View {
-        SubagentRow(subagent: subagent, tabID: tabID, columns: columns, onOpen: onOpen)
+        SubagentRow(subagent: subagent, tabID: tabID, columns: .infoPane(wash: wash), onOpen: onOpen)
             .padding(.horizontal, -wash.inset)
     }
+}
 
-    private var columns: SubagentRow.Columns {
-        var columns = SubagentRow.Columns.infoPane
+private struct InfoPaneChildSessionRow: View {
+    @Environment(\.infoPaneRowWash) private var wash
+
+    let child: InfoPaneFacts.ChildSessionFacts
+    let onSelect: () -> Void
+
+    var body: some View {
+        StatusRow(
+            title: child.title,
+            caption: Text(child.caption),
+            columns: .infoPane(wash: wash, depth: child.depth),
+            onOpen: onSelect
+        ) {
+            StatusBadge(status: child.status, isUnread: child.isUnread, showsElapsed: false)
+        }
+        .padding(.horizontal, -wash.inset)
+        .help("Show \(child.title)")
+        .plumeID(AccessibilityID.infoPaneChildSessionRow, label: child.title, value: child.status.rawValue, invoke: onSelect)
+    }
+}
+
+extension StatusRowColumns {
+    /// Each level of `depth` indents one icon column further.
+    static func infoPane(wash: InfoPaneRowWash, depth: Int = 0) -> StatusRowColumns {
+        var columns = StatusRowColumns.infoPane
+        columns.leadingIndent = CGFloat(depth) * (InfoPaneLayout.iconColumnWidth + InfoPaneLayout.columnSpacing)
         columns.leadingWashInset = wash.inset
         columns.trailingWashInset = wash.inset
         columns.washCornerRadius = wash.cornerRadius

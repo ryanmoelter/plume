@@ -10,6 +10,15 @@ struct InfoPaneFactsTests {
         SubagentTranscript(id: id, transcript: Transcript(), modifiedAt: nil, status: status)
     }
 
+    @Test func aChildSessionsCaptionAddsItsBranchOnlyWhenItDiffers() {
+        let working = InfoPaneFacts.ChildSessionFacts(id: UUID(), title: "fix", status: .working)
+        var elsewhere = working
+        elsewhere.branch = "fix-login"
+
+        #expect(working.caption == "Working")
+        #expect(elsewhere.caption == "Working · fix-login")
+    }
+
     @Test func linkedPullRequestsLeaveOutTheBranchsOwn() {
         let own = PullRequestReference(owner: "a", repo: "b", number: 1)
         let other = PullRequestReference(owner: "a", repo: "b", number: 2)
