@@ -31,6 +31,9 @@ final class MinimapTuning {
         /// Points the pointer can move from where it entered the rail before
         /// the map starts to scroll. Rows still hover and preview inside it.
         var deadZoneRadius: Double
+        /// How long a hovered indirect prompt's mark takes to slide out to a
+        /// prompt bar's end, and back.
+        var indirectSlideDuration: Double
 
         static let defaults = Values(
             genieRadius: 18,
@@ -44,7 +47,8 @@ final class MinimapTuning {
             crossfadeDuration: 0.12,
             snapDuration: 0.14,
             catchUpGain: 10,
-            deadZoneRadius: 16
+            deadZoneRadius: 16,
+            indirectSlideDuration: 0.18
         )
     }
 
@@ -86,7 +90,8 @@ final class MinimapTuning {
             crossfadeDuration: stored["crossfadeDuration"] ?? fallback.crossfadeDuration,
             snapDuration: stored["snapDuration"] ?? fallback.snapDuration,
             catchUpGain: stored["catchUpGain"] ?? fallback.catchUpGain,
-            deadZoneRadius: stored["deadZoneRadius"] ?? fallback.deadZoneRadius
+            deadZoneRadius: stored["deadZoneRadius"] ?? fallback.deadZoneRadius,
+            indirectSlideDuration: stored["indirectSlideDuration"] ?? fallback.indirectSlideDuration
         )
     }
 
@@ -120,7 +125,8 @@ final class MinimapTuning {
             "crossfadeDuration": values.crossfadeDuration,
             "snapDuration": values.snapDuration,
             "catchUpGain": values.catchUpGain,
-            "deadZoneRadius": values.deadZoneRadius
+            "deadZoneRadius": values.deadZoneRadius,
+            "indirectSlideDuration": values.indirectSlideDuration
         ], forKey: Self.key)
         #endif
     }

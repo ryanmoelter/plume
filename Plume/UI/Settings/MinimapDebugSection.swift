@@ -54,6 +54,8 @@ struct MinimapDebugSection: View {
                          range: MinimapTuning.durationRange, step: 0.01, format: Self.seconds)
             TuningSlider(title: "Snap", value: $tuning.values.snapDuration,
                          range: MinimapTuning.durationRange, step: 0.01, format: Self.seconds)
+            TuningSlider(title: "Indirect slide", value: $tuning.values.indirectSlideDuration,
+                         range: MinimapTuning.durationRange, step: 0.01, format: Self.seconds)
             TuningSlider(title: "Catch-up gain", value: $tuning.values.catchUpGain,
                          range: MinimapTuning.catchUpGainRange, step: 0.5) { String(format: "%.1f", $0) }
             TuningSlider(title: "Scroll dead zone", value: $tuning.values.deadZoneRadius,

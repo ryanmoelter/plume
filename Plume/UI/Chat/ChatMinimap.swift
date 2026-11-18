@@ -64,6 +64,7 @@ struct ChatMinimap: View, ThemedView {
     /// between rows so a snap reads as a glide.
     @State private var genieY: CGFloat = 0
     @State private var genieStrength: CGFloat = 0
+    @State private var indirectSlide = MinimapIndirectSlide()
     @State private var clickMonitor = MinimapClickMonitor()
     @State private var presentation = MinimapPresentation()
     #if DEBUG
@@ -101,6 +102,9 @@ struct ChatMinimap: View, ThemedView {
                         centering: metrics.centering,
                         genieY: genieY,
                         genieStrength: genieStrength,
+                        slideRowIDs: indirectSlide.rowIDs,
+                        slideProgress: indirectSlide.targets[0],
+                        otherSlideProgress: indirectSlide.targets[1],
                         presentation: presentation
                     ))
                     .animation(centeringAnimation, value: metrics.centering)
@@ -291,6 +295,7 @@ struct ChatMinimap: View, ThemedView {
         let wasShowing = hoveredRowID != nil || isFadingOut
         hoveredRowID = id
         leftAt = nil
+        slideIndirect(toRowAt: index)
         if wasShowing {
             withAnimation(.smooth(duration: tuning.values.snapDuration)) {
                 genieY = layout.positions[index]
@@ -314,10 +319,21 @@ struct ChatMinimap: View, ThemedView {
         hoveredRowID = nil
         leftAt = Date()
         clickMonitor.stop()
+        slideIndirect(toRowAt: nil)
         withAnimation(.easeOut(duration: tuning.values.fadeOutDuration)) {
             genieStrength = 0
             isPreviewShown = false
         }
+    }
+
+    /// Slides the mark of the row at `index` out if it is an indirect
+    /// prompt, and any other back home.
+    private func slideIndirect(toRowAt index: Int?) {
+        let id = index.flatMap { layout.rows[$0].mark == .indirect ? layout.rows[$0].id : nil }
+        var next = indirectSlide
+        next.select(id)
+        guard next != indirectSlide else { return }
+        withAnimation(.smooth(duration: tuning.values.indirectSlideDuration)) { indirectSlide = next }
     }
 
     /// After the rows change, moves the magnification to wherever the
@@ -542,10 +558,7 @@ struct ChatMinimap: View, ThemedView {
         let promptLength = railWidth * max(1, tuning.values.genieWidthScale)
         switch layout.rows[index].mark {
         case .bar(let factor): return promptLength * factor
-        case .indirect:
-            let thickness = MinimapLayout.rowHeight * max(1, tuning.values.genieThicknessScale)
-            return MinimapMarks.indirectSize(shape: indirectShape, promptLength: promptLength, thickness: thickness).width
-        case .end: return promptLength
+        case .indirect, .end: return promptLength
         }
     }
 }
@@ -725,15 +738,38 @@ private struct MinimapDrawing: ViewModifier, Animatable {
     var centering: CGFloat
     var genieY: CGFloat
     var genieStrength: CGFloat
+    /// `MinimapIndirectSlide`'s two slots, drawn from the progress values
+    /// so they animate.
+    let slideRowIDs: [String?]
+    var slideProgress: CGFloat
+    var otherSlideProgress: CGFloat
     let presentation: MinimapPresentation
 
-    var animatableData: AnimatablePair<AnimatablePair<CGFloat, CGFloat>, AnimatablePair<CGFloat, CGFloat>> {
-        get { AnimatablePair(AnimatablePair(scrollOffset, centering), AnimatablePair(genieY, genieStrength)) }
+    var animatableData: AnimatablePair<
+        AnimatablePair<AnimatablePair<CGFloat, CGFloat>, AnimatablePair<CGFloat, CGFloat>>,
+        AnimatablePair<CGFloat, CGFloat>
+    > {
+        get {
+            AnimatablePair(
+                AnimatablePair(AnimatablePair(scrollOffset, centering), AnimatablePair(genieY, genieStrength)),
+                AnimatablePair(slideProgress, otherSlideProgress)
+            )
+        }
         set {
-            scrollOffset = newValue.first.first
-            centering = newValue.first.second
-            genieY = newValue.second.first
-            genieStrength = newValue.second.second
+            scrollOffset = newValue.first.first.first
+            centering = newValue.first.first.second
+            genieY = newValue.first.second.first
+            genieStrength = newValue.first.second.second
+            slideProgress = newValue.second.first
+            otherSlideProgress = newValue.second.second
+        }
+    }
+
+    private func slideProgress(forRowID id: String) -> CGFloat {
+        switch slideRowIDs.firstIndex(of: id) {
+        case 0: slideProgress
+        case 1: otherSlideProgress
+        default: 0
         }
     }
 
@@ -792,7 +828,12 @@ private struct MinimapDrawing: ViewModifier, Animatable {
                 let thickness = MinimapLayout.rowHeight * thicknessScale
                 let promptLength = railWidth * scale(at: contentY, maximum: tuning.genieWidthScale)
                 let mark = MinimapMarks.indirectSize(shape: indirectShape, promptLength: promptLength, thickness: thickness)
-                let x = side == .leading ? 0 : size.width - mark.width
+                let offset = MinimapIndirectSlide.offset(
+                    progress: slideProgress(forRowID: row.id),
+                    promptLength: promptLength,
+                    markLength: mark.width
+                )
+                let x = side == .leading ? offset : size.width - offset - mark.width
                 context.fill(
                     Path(roundedRect: CGRect(x: x, y: y - thickness / 2, width: mark.width, height: thickness), cornerRadius: thickness / 2),
                     with: color
@@ -858,7 +899,7 @@ private struct MinimapPreviewLabel: View, ThemedView {
     }
 }
 
-private enum MinimapMark {
+private enum MinimapMark: Equatable {
     /// A bar this fraction of the rail wide.
     case bar(CGFloat)
     /// A prompt the user didn't type, drawn as `MinimapIndirectShape`.
