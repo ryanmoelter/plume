@@ -18,11 +18,6 @@ struct TaskRowView: View {
     /// Whether the left button is down over the hovered group.
     @State private var isPressingGroup = false
     @State private var pressMonitor = AgentGroupPressMonitor()
-    #if DEBUG
-    @AppStorage(AgentGroupBar.debugHoverWashKey) private var hoverShowsWash = false
-    #else
-    private let hoverShowsWash = false
-    #endif
 
     private var appearance: SidebarTaskAppearance {
         SidebarTaskAppearance(task: task, settings: .shared)
@@ -208,8 +203,7 @@ struct TaskRowView: View {
             focused: hasSeveralAgents && isSelected
                 ? TaskRowDetails.focusedAgentGroup(rawLines, focusedTabID: task.selectedTabID) : nil,
             hovered: hovered,
-            pressed: isPressingGroup ? hovered : nil,
-            hoverShowsWash: hoverShowsWash
+            pressed: isPressingGroup ? hovered : nil
         )
         VStack(alignment: .leading, spacing: Self.lineSpacing) {
             HStack(alignment: .top, spacing: 6) {
@@ -401,23 +395,15 @@ struct TaskRowView: View {
         var focused: Int?
         var hovered: Int?
         var pressed: Int?
-        var hoverShowsWash: Bool
 
-        /// Whether the pointer raises this line's text to full strength,
-        /// which it does only while the bar, not the wash, answers hover.
+        /// Whether the pointer raises this line's text to full strength.
         func isEmphasized(_ index: Int) -> Bool {
-            guard !hoverShowsWash, let hovered else { return false }
+            guard let hovered else { return false }
             return nesting[index].contains(hovered)
         }
 
         func look(ofGroup group: Int) -> AgentGroupBar.Look {
-            AgentGroupBar.look(
-                ofGroup: group,
-                focused: focused,
-                hovered: hovered,
-                pressed: pressed,
-                hoverShowsWash: hoverShowsWash
-            )
+            AgentGroupBar.look(ofGroup: group, focused: focused, hovered: hovered, pressed: pressed)
         }
     }
 
@@ -433,12 +419,6 @@ struct TaskRowView: View {
         if let focused = groups.focused {
             style.colors[focused] = SidebarTint.effective(for: task).flatMap(theme.colors.color(for:))
                 ?? ChatRole.selection(for: colorScheme)
-        }
-        if groups.hoverShowsWash {
-            style.wash = AgentGroupBar.Wash(
-                group: groups.hovered,
-                color: Color.chatSurface(.divider, colorScheme: colorScheme)
-            )
         }
         return style
     }

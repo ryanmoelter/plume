@@ -690,7 +690,7 @@ struct TaskRowAgentLinesTests {
 
     @Test func aBarShowsPressThenHoverThenFocus() {
         func look(_ group: Int, focused: Int? = nil, hovered: Int? = nil, pressed: Int? = nil) -> AgentGroupBar.Look {
-            AgentGroupBar.look(ofGroup: group, focused: focused, hovered: hovered, pressed: pressed, hoverShowsWash: false)
+            AgentGroupBar.look(ofGroup: group, focused: focused, hovered: hovered, pressed: pressed)
         }
         #expect(look(1) == .normal)
         #expect(look(1, focused: 1) == .focused)
@@ -698,11 +698,6 @@ struct TaskRowAgentLinesTests {
         #expect(look(1, focused: 1, hovered: 1, pressed: 1) == .pressed)
         #expect(look(1, focused: 1, hovered: 3, pressed: 3) == .focused)
         #expect(look(3, focused: 1, hovered: 3) == .hovered)
-    }
-
-    @Test func withTheWashABarShowsOnlyFocus() {
-        #expect(AgentGroupBar.look(ofGroup: 1, focused: 1, hovered: 1, pressed: 1, hoverShowsWash: true) == .focused)
-        #expect(AgentGroupBar.look(ofGroup: 1, focused: nil, hovered: 1, pressed: 1, hoverShowsWash: true) == .normal)
     }
 
     @Test func aHoveredBarIsWidestAndAPressShrinksIt() {

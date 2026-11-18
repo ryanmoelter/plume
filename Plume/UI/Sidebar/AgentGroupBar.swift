@@ -13,12 +13,9 @@ enum AgentGroupBar {
     /// Stronger than the info pane's divider tone, which vanishes over the
     /// selected row's wash.
     static let emphasis: Emphasis = .disabled
-    /// How far a hovered group's wash reaches past its lines.
-    static let washOutset = CGSize(width: 4, height: 1)
-    static let washCornerRadius: CGFloat = 6
-    /// How far past the row's own frame its bars and wash may draw. The row
-    /// clips to its frame, which would square off the wash's corners.
-    static let drawingOutset: CGFloat = washOutset.width
+    /// How far past the row's own frame its bars may draw. The row clips to
+    /// its frame, which would cut off a bar widening into the gutter.
+    static let drawingOutset: CGFloat = hoveredWidth
 
     static let focusedWidth: CGFloat = 2
     static let pressedWidth: CGFloat = 2.5
@@ -26,11 +23,6 @@ enum AgentGroupBar {
     /// How far a pointer may travel with the button down before the press
     /// gives way to the row's drag.
     static let pressSlop: CGFloat = 3
-
-    #if DEBUG
-    /// Swaps the widening bar on hover for a wash behind the group.
-    static let debugHoverWashKey = "PlumeDebugAgentGroupHoverWash"
-    #endif
 
     static func lineWidth(captionSize: CGFloat) -> CGFloat {
         InfoPaneBracketStub(pointSize: captionSize, centerX: 0).lineWidth
@@ -44,18 +36,9 @@ enum AgentGroupBar {
         case pressed
     }
 
-    /// With the wash on, the bar shows only focus; the wash answers the pointer.
-    static func look(
-        ofGroup group: Int,
-        focused: Int?,
-        hovered: Int?,
-        pressed: Int?,
-        hoverShowsWash: Bool
-    ) -> Look {
-        if !hoverShowsWash {
-            if pressed == group { return .pressed }
-            if hovered == group { return .hovered }
-        }
+    static func look(ofGroup group: Int, focused: Int?, hovered: Int?, pressed: Int?) -> Look {
+        if pressed == group { return .pressed }
+        if hovered == group { return .hovered }
         return focused == group ? .focused : .normal
     }
 
@@ -82,14 +65,6 @@ enum AgentGroupBar {
         var looks: [Int: Look] = [:]
         /// Replaces `color` for a group's bar.
         var colors: [Int: Color] = [:]
-        var wash: Wash?
-    }
-
-    /// The wash behind the hovered group, when the wash stands in for the
-    /// widening bar.
-    struct Wash {
-        var group: Int?
-        var color: Color
     }
 }
 
@@ -130,12 +105,7 @@ extension View {
     /// Draws the bars of the groups reported inside this view, and keeps their
     /// frames from reaching any view above it.
     func agentGroupBars(isEnabled: Bool, style: AgentGroupBar.Style) -> some View {
-        backgroundPreferenceValue(AgentGroupBarFrames.self) { groups in
-            if isEnabled, let wash = style.wash {
-                AgentGroupBar.washes(groups, wash: wash)
-            }
-        }
-        .overlayPreferenceValue(AgentGroupBarFrames.self) { groups in
+        overlayPreferenceValue(AgentGroupBarFrames.self) { groups in
             if isEnabled, !groups.isEmpty {
                 AgentGroupBar.bars(groups, style: style)
             }
@@ -164,31 +134,6 @@ extension AgentGroupBar {
                             )
                             .animation(animation(to: look), value: look)
                     }
-                }
-            }
-        }
-        .allowsHitTesting(false)
-    }
-
-    /// Every group gets a wash, shown only while hovered, so one fades out as
-    /// the next fades in.
-    fileprivate static func washes(_ groups: [Int: AgentGroupBarFrames.Group], wash: Wash) -> some View {
-        GeometryReader { proxy in
-            ForEach(groups.keys.sorted(), id: \.self) { key in
-                if let group = groups[key], let frame = frame(of: group, in: proxy) {
-                    let leading = frame.minX + CGFloat(group.level) * indent - washOutset.width
-                    let rect = CGRect(
-                        x: leading,
-                        y: frame.minY - washOutset.height,
-                        width: frame.maxX + washOutset.width - leading,
-                        height: frame.height + 2 * washOutset.height
-                    )
-                    RoundedRectangle(cornerRadius: washCornerRadius, style: .continuous)
-                        .fill(wash.color)
-                        .frame(width: rect.width, height: rect.height)
-                        .position(x: rect.midX, y: rect.midY)
-                        .opacity(wash.group == key ? 1 : 0)
-                        .animation(fade, value: wash.group == key)
                 }
             }
         }

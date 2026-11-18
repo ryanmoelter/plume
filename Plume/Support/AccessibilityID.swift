@@ -169,7 +169,6 @@ enum AccessibilityID {
     static let debugUpdatesResetStateButton = "debug-updates-reset-state-button"
     static let debugThemeOverridePicker = "debug-theme-override-picker"
     static let debugGreetingOverridePicker = "debug-greeting-override-picker"
-    static let debugAgentGroupHoverWashToggle = "debug-agent-group-hover-wash-toggle"
 
     // MARK: Tab strip
 
