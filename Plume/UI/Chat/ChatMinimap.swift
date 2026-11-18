@@ -112,8 +112,8 @@ struct ChatMinimap: View, ThemedView {
             .onDisappear { clickMonitor.stop() }
             .plumeID(
                 AccessibilityID.chatMinimap,
-                value: controlValueText(metrics: metrics, visibleRows: visibleRows),
-                setValue: { drive($0, metrics: metrics) }
+                setValue: { drive($0, metrics: metrics) },
+                lazyValue: { controlValueText(metrics: metrics, visibleRows: visibleRows) }
             )
             .onChange(of: outline, initial: true) { _, outline in
                 layout = MinimapLayout(outline: outline)

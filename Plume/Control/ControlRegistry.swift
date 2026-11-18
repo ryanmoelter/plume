@@ -8,11 +8,16 @@ struct ControlEntry {
     var id: String
     var label: String?
     var value: String?
+    /// Read when the server asks, for a value costly enough that building it on
+    /// every render would show. Wins over `value`.
+    var valueProvider: (() -> String?)?
     var isEnabled: Bool
     var frame: CGRect
     weak var window: NSWindow?
     var invoke: (() -> Void)?
     var setValue: ((String) -> Void)?
+
+    var currentValue: String? { valueProvider?() ?? value }
 }
 
 /// The controls currently on screen, by the `plumeID` each declared. SwiftUI

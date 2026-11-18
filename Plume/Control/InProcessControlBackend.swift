@@ -30,7 +30,7 @@ final class InProcessControlBackend: ControlBackend {
     private func describe(_ match: (index: Int, entry: ControlEntry)) -> ControlDescription {
         let entry = match.entry
         return ControlDescription(
-            id: entry.id, index: match.index, label: entry.label, value: entry.value, isEnabled: entry.isEnabled,
+            id: entry.id, index: match.index, label: entry.label, value: entry.currentValue, isEnabled: entry.isEnabled,
             frame: Rect(entry.frame), windowNumber: entry.window?.windowNumber,
             hasInvoke: entry.invoke != nil, hasSetValue: entry.setValue != nil
         )
@@ -87,7 +87,7 @@ final class InProcessControlBackend: ControlBackend {
             return TextResult(text: rows.joined(separator: "\n"), rows: rows.enumerated().map { TextRow(index: $0.offset, text: $0.element) })
         case .control:
             let entry = try registry.resolve(target)
-            if let value = entry.value { return TextResult(text: value, rows: nil) }
+            if let value = entry.currentValue { return TextResult(text: value, rows: nil) }
             let rows = try textItems(within: entry).map(\.text).filter { !$0.isEmpty }
             if rows.isEmpty, let label = entry.label { return TextResult(text: label, rows: nil) }
             return TextResult(text: rows.joined(separator: "\n"), rows: nil)
