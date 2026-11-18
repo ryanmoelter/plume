@@ -673,10 +673,65 @@ struct TaskRowAgentLinesTests {
         #expect(TaskRowDetails.hoveredAgentGroup(hoveredLines: [9], nesting: nesting) == nil)
     }
 
-    @Test func aHeadersValueAddsFocusAndHover() {
+    @Test func movingBetweenTwoLinesOfAGroupKeepsItHovered() {
+        let nesting: [[Int]] = [[], [1], [1], [1], [4]]
+        #expect(TaskRowDetails.hoveredAgentGroup(hoveredLines: [1, 2], nesting: nesting) == 1)
+        #expect(TaskRowDetails.hoveredAgentGroup(hoveredLines: [2, 3], nesting: nesting) == 1)
+        #expect(TaskRowDetails.hoveredAgentGroup(hoveredLines: [3, 4], nesting: nesting) == 4)
+    }
+
+    @Test func aHeadersValueAddsFocusHoverAndPress() {
         let header = TaskRowDetails.AgentHeader(tabID: UUID(), title: "Chat", status: .working, isUnread: true)
         #expect(header.controlValue(isFocused: false, isHovered: false) == header.statusText)
         #expect(header.controlValue(isFocused: true, isHovered: true) == "\(header.statusText); focused; hovered")
+        #expect(header.controlValue(isFocused: false, isHovered: true, isPressed: true)
+            == "\(header.statusText); hovered; pressed")
+    }
+
+    @Test func aBarShowsPressThenHoverThenFocus() {
+        func look(_ group: Int, focused: Int? = nil, hovered: Int? = nil, pressed: Int? = nil) -> AgentGroupBar.Look {
+            AgentGroupBar.look(ofGroup: group, focused: focused, hovered: hovered, pressed: pressed, hoverShowsWash: false)
+        }
+        #expect(look(1) == .normal)
+        #expect(look(1, focused: 1) == .focused)
+        #expect(look(1, focused: 1, hovered: 1) == .hovered)
+        #expect(look(1, focused: 1, hovered: 1, pressed: 1) == .pressed)
+        #expect(look(1, focused: 1, hovered: 3, pressed: 3) == .focused)
+        #expect(look(3, focused: 1, hovered: 3) == .hovered)
+    }
+
+    @Test func withTheWashABarShowsOnlyFocus() {
+        #expect(AgentGroupBar.look(ofGroup: 1, focused: 1, hovered: 1, pressed: 1, hoverShowsWash: true) == .focused)
+        #expect(AgentGroupBar.look(ofGroup: 1, focused: nil, hovered: 1, pressed: 1, hoverShowsWash: true) == .normal)
+    }
+
+    @Test func aHoveredBarIsWidestAndAPressShrinksIt() {
+        let line: CGFloat = 1
+        let normal = AgentGroupBar.width(of: .normal, lineWidth: line)
+        let focused = AgentGroupBar.width(of: .focused, lineWidth: line)
+        let hovered = AgentGroupBar.width(of: .hovered, lineWidth: line)
+        let pressed = AgentGroupBar.width(of: .pressed, lineWidth: line)
+        #expect(normal == line)
+        #expect(normal < focused)
+        #expect(focused < hovered)
+        #expect(pressed < hovered)
+        #expect(pressed > normal)
+    }
+
+    /// A widened bar keeps its center at `lineWidth / 2` from the line's
+    /// leading edge, so it must still clear the text `indent` away.
+    @Test func theWidestBarStaysInsideTheGutter() {
+        let line: CGFloat = 1
+        let hovered = AgentGroupBar.width(of: .hovered, lineWidth: line)
+        #expect(line / 2 + hovered / 2 < AgentGroupBar.indent)
+        #expect(hovered / 2 - line / 2 <= AgentGroupBar.drawingOutset)
+    }
+
+    @Test func anAgentTitleDimsOnlyWhileInactiveAndUnhovered() {
+        #expect(TaskRowView.agentTitleEmphasis(status: .working, isEmphasized: false) == .primary)
+        #expect(TaskRowView.agentTitleEmphasis(status: .awaitingReply, isEmphasized: false) == .primary)
+        #expect(TaskRowView.agentTitleEmphasis(status: .notStarted, isEmphasized: false) == .secondary)
+        #expect(TaskRowView.agentTitleEmphasis(status: .notStarted, isEmphasized: true) == .primary)
     }
 
     @Test func aOneAgentRowHasNoGroups() {

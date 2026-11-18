@@ -94,9 +94,12 @@ enum TaskRowDetails {
         }
 
         /// The header's control-server value: its status, then whether its
-        /// group holds the task's focused tab and whether it is hovered.
-        func controlValue(isFocused: Bool, isHovered: Bool) -> String {
-            ([statusText] + (isFocused ? ["focused"] : []) + (isHovered ? ["hovered"] : []))
+        /// group holds the task's focused tab, is hovered and is pressed.
+        func controlValue(isFocused: Bool, isHovered: Bool, isPressed: Bool = false) -> String {
+            ([statusText]
+                + (isFocused ? ["focused"] : [])
+                + (isHovered ? ["hovered"] : [])
+                + (isPressed ? ["pressed"] : []))
                 .joined(separator: "; ")
         }
     }
