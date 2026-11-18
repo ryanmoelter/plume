@@ -631,7 +631,7 @@ private final class MinimapClickMonitor {
                 break
             }
             guard let onClick = self.onClick,
-                  event.modifierFlags.intersection(.deviceIndependentFlagsMask).isEmpty,
+                  MinimapClickZone.isPlainClick(event.modifierFlags),
                   self.accepts?(region.convert(event.locationInWindow, from: nil)) == true,
                   MinimapClickZone.isChatContent(region.window?.contentView?.superview?.hitTest(event.locationInWindow))
             else { return event }

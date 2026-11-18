@@ -213,6 +213,13 @@ enum MinimapClickZone {
         distanceFromEdge >= edgeClearance && distanceFromEdge <= reach && y <= drawableBottom
     }
 
+    /// Whether a click's modifiers leave it a plain click. Caps Lock, the
+    /// numeric pad and the function key ride along in the event's flags and
+    /// don't count.
+    static func isPlainClick(_ flags: NSEvent.ModifierFlags) -> Bool {
+        flags.intersection([.shift, .control, .option, .command]).isEmpty
+    }
+
     /// Whether the view a click lands on is the chat's own content, which a
     /// click on the rail may take. Anything else under the pointer — a
     /// divider, a scroller, the window frame — owns the click.

@@ -206,6 +206,13 @@ struct MinimapClickZoneTests {
         #expect(!accepts(distance: MinimapClickZone.edgeClearance - 0.5))
     }
 
+    @Test func capsLockDoesNotMakeAClickModified() {
+        #expect(MinimapClickZone.isPlainClick([]))
+        #expect(MinimapClickZone.isPlainClick([.capsLock, .numericPad, .function]))
+        #expect(!MinimapClickZone.isPlainClick([.command]))
+        #expect(!MinimapClickZone.isPlainClick([.capsLock, .shift]))
+    }
+
     @Test func onlyTheChatsContentGivesUpItsClick() {
         let document = ChatListDocumentView()
         let row = NSView()
