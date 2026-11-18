@@ -804,17 +804,15 @@ private struct MinimapDrawing: ViewModifier, Animatable {
 
     /// A soft box over the gap between two rows, where the agent's reply to
     /// the first sits. Fainter than any bar, and held clear of both rows'
-    /// marks at whatever size the magnification draws them.
+    /// resting marks. It can't be selected, so the magnification leaves it
+    /// alone.
     private func drawResponseBox(in context: inout GraphicsContext, size: CGSize, from top: CGFloat, to bottom: CGFloat) {
-        let clearance: (CGFloat) -> CGFloat = { contentY in
-            MinimapLayout.rowHeight * scale(at: contentY, maximum: tuning.genieThicknessScale) / 2 + 1.5
-        }
-        let boxTop = screenY(contentY: top) + clearance(top)
-        let boxBottom = screenY(contentY: bottom) - clearance(bottom)
+        let clearance = MinimapLayout.rowHeight / 2 + 1.5
+        let boxTop = screenY(contentY: top) + clearance
+        let boxBottom = screenY(contentY: bottom) - clearance
         let height = boxBottom - boxTop
         guard height >= 1.5 else { return }
-        let nearest = min(max(genieY, top), bottom)
-        let width = railWidth * 0.75 * scale(at: nearest, maximum: tuning.genieWidthScale)
+        let width = railWidth * 0.75
         let x = side == .leading ? 0 : size.width - width
         context.fill(
             Path(roundedRect: CGRect(x: x, y: boxTop, width: width, height: height), cornerRadius: min(2, height / 2)),
