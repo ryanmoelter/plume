@@ -8,8 +8,7 @@ enum MinimapSide: String, CaseIterable {
 
 /// How the minimap spaces its rows.
 enum MinimapSpacing: String, CaseIterable {
-    /// Every row the same distance apart, with a faint tick in each gap
-    /// showing how much the agent wrote there.
+    /// Every row the same distance apart.
     case even
     /// The gap after a row grows with how much the agent wrote there.
     case proportional
@@ -52,10 +51,6 @@ struct MinimapLayout: Equatable {
     var spacing: MinimapSpacing = .even
     /// Each row's vertical center.
     var positions: [CGFloat] = []
-    /// For each row, how strongly the gap after it is marked, 0...1. Only
-    /// even spacing draws them; proportional spacing shows the same thing as
-    /// distance.
-    var tickStrengths: [CGFloat] = []
     var contentHeight: CGFloat = 0
     private var rowByPiece: [String: Int] = [:]
     private var rowByID: [String: Int] = [:]
@@ -81,10 +76,8 @@ struct MinimapLayout: Equatable {
         self.spacing = spacing
         var y = Self.rowHeight / 2
         positions.reserveCapacity(rows.count)
-        tickStrengths.reserveCapacity(rows.count)
         for (index, row) in rows.enumerated() {
             positions.append(y)
-            tickStrengths.append(Self.tickStrength(forWeight: row.trailingWeight))
             y += Self.pitch(afterWeight: row.trailingWeight, spacing: spacing)
             for piece in row.pieceIDs { rowByPiece[piece] = index }
             rowByID[row.id] = index
@@ -99,11 +92,6 @@ struct MinimapLayout: Equatable {
         case .even: evenPitch
         case .proportional: proportionalMinimumPitch + weight * proportionalPointsPerWeight
         }
-    }
-
-    static func tickStrength(forWeight weight: CGFloat) -> CGFloat {
-        guard weight > 0 else { return 0 }
-        return min(max(weight / ChatOutlineBuilder.maximumResponseWeight, 0), 1)
     }
 
     /// Anchors become the rows, each response folds into the row before it,

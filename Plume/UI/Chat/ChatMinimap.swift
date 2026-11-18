@@ -762,10 +762,6 @@ private struct MinimapDrawing: ViewModifier, Animatable {
         for index in from...through {
             let contentY = layout.positions[index]
             let y = screenY(contentY: contentY)
-            if layout.spacing == .even, index + 1 < layout.positions.count, layout.tickStrengths[index] > 0 {
-                let tickY = (contentY + layout.positions[index + 1]) / 2
-                drawTick(in: &context, size: size, contentY: tickY, strength: layout.tickStrengths[index])
-            }
             if layout.spacing == .proportional, index + 1 < layout.positions.count, layout.rows[index].trailingWeight > 0 {
                 drawResponseBox(in: &context, size: size, from: contentY, to: layout.positions[index + 1])
             }
@@ -823,18 +819,6 @@ private struct MinimapDrawing: ViewModifier, Animatable {
         context.fill(
             Path(roundedRect: CGRect(x: x, y: boxTop, width: width, height: height), cornerRadius: min(2, height / 2)),
             with: .color(.primary.opacity(0.07))
-        )
-    }
-
-    /// A faint mark in the gap after a row, as wide as the agent's output
-    /// there was long.
-    private func drawTick(in context: inout GraphicsContext, size: CGSize, contentY: CGFloat, strength: CGFloat) {
-        let y = screenY(contentY: contentY)
-        let width = railWidth * (0.2 + 0.5 * strength) * scale(at: contentY, maximum: tuning.genieWidthScale)
-        let x = side == .leading ? 0 : size.width - width
-        context.fill(
-            Path(CGRect(x: x, y: y - 0.5, width: width, height: 1)),
-            with: .color(.primary.opacity(0.1 + 0.15 * strength))
         )
     }
 

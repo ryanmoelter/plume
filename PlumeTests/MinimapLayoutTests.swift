@@ -66,18 +66,6 @@ struct MinimapLayoutTests {
         }
     }
 
-    @Test func ticksGrowWithWeight() {
-        var previous: CGFloat = 0
-        for weight in stride(from: CGFloat(0), through: 60, by: 2) {
-            let strength = MinimapLayout.tickStrength(forWeight: weight)
-            #expect(strength >= previous)
-            #expect((0...1).contains(strength))
-            previous = strength
-        }
-        #expect(MinimapLayout.tickStrength(forWeight: 0) == 0)
-        #expect(MinimapLayout.tickStrength(forWeight: 4) > 0)
-    }
-
     @Test func everyRowHasTheSameHeight() {
         // Row height is a constant rather than per row: a row's size never
         // varies with its turn, in either spacing mode.

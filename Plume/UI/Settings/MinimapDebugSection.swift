@@ -17,7 +17,7 @@ struct MinimapDebugSection: View {
                 setValue: { MinimapSide(rawValue: $0).map { settings.minimapSide = $0 } }
             )
             Picker("Spacing", selection: $settings.minimapSpacing) {
-                Text("Even, with gap ticks").tag(MinimapSpacing.even)
+                Text("Even").tag(MinimapSpacing.even)
                 Text("Proportional").tag(MinimapSpacing.proportional)
             }
             .plumeID(
