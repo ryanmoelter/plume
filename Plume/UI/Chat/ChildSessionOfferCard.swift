@@ -34,7 +34,7 @@ struct ChildSessionOfferCard: View, ThemedView {
     var body: some View {
         VStack(alignment: .leading, spacing: DecisionCard.rowSpacing) {
             DecisionCardHeader(
-                title: "Offered session",
+                title: "Proposed session",
                 symbol: "arrow.turn.down.right",
                 subject: state.isLive ? .inquiry : nil
             )
@@ -106,7 +106,7 @@ struct ChildSessionOfferCard: View, ThemedView {
         case .declined:
             settled("Doing it here")
         case .withdrawn:
-            settled("Withdrawn")
+            settled("Interrupted")
         case .unanswered:
             settled("Never answered")
         case .waiting:

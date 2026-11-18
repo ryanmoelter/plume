@@ -60,7 +60,7 @@ nonisolated enum ChildSessionFormats {
         if let id = object["proposal_id"] as? String, !id.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
             return nil
         }
-        return ((object["title"] as? String) ?? "Offered session", (object["prompt"] as? String) ?? "")
+        return ((object["title"] as? String) ?? "Proposed session", (object["prompt"] as? String) ?? "")
     }
 
     static func proposed(title: String, taskID: String) -> String {

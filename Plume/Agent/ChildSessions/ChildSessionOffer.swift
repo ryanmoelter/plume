@@ -57,7 +57,7 @@ nonisolated enum ChildSessionOfferCardState: Equatable {
         case .starting: "starting"
         case .started: "started"
         case .declined: "doing it here"
-        case .withdrawn: "withdrawn"
+        case .withdrawn: "interrupted"
         case .unanswered: "never answered"
         }
     }
