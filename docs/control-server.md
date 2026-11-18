@@ -52,6 +52,8 @@ A **target** is either a registered control — `{"id": "composer-send-button", 
 
 While split, a tab chip's label ends with its pane, counted from the left — `Chat (pane 2)` — and each strip's `tab-strip` and `new-tab-button` are labelled `pane 1` or `pane 2`. So `label: "(pane 2)"` picks out the right strip's chips. A chip reports `value: "selected"` for the focused tab and `"shown"` for the tab the other pane shows. Unsplit, labels are the bare title. Crop a screenshot to `tab-strip` to see one strip.
 
+A parent tab whose child sessions follow it in the strip has a `tab-children-toggle` after its chip, labelled like the parent's chip and with `value` `expanded` or `collapsed`; `invoke` flips it. A collapsed group's child chips are not mounted, so `list plumeID=tab-chip` leaves them out. The info pane lists a tab's child sessions as `info-pane-child-session-row`, labelled by title with the status as `value`; `invoke` selects the child's tab. `info-pane-sessions-toggle` folds the section.
+
 | Command | Params | Result |
 |---|---|---|
 | `list` | `plumeID?`, `label?`, `windowNumber?` | `[{id, index, label?, value?, isEnabled, frame, windowNumber, hasInvoke, hasSetValue}]` |

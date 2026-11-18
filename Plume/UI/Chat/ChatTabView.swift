@@ -291,6 +291,7 @@ struct ChatTabView: View, ThemedView {
             : nil
         return InfoPaneFacts(
             tabID: tab.id,
+            childSessions: childSessionFacts(parentBranch: branch?.name),
             liveSubagents: split.live,
             completedSubagents: split.completed,
             backgroundTasks: BackgroundTaskTracker.shared.inFlight(tabID: tab.id),
@@ -321,6 +322,34 @@ struct ChatTabView: View, ThemedView {
             artifacts: ConversationArtifact.artifacts(in: conversationMessages),
             remoteControl: headlessSession.flatMap(RemoteControlStatus.init(session:))
         )
+    }
+
+    private func childSessionFacts(parentBranch: String?) -> [InfoPaneFacts.ChildSessionFacts] {
+        InfoPaneFacts.descendants(of: tab.id, in: task.orderedLiveTabs, id: \.id, parentID: \.parentTabID)
+            .map { child, depth in
+                let status = TaskRowView.status(of: child)
+                let directory = TabDirectoryStore.shared.directory(for: child)
+                let branch = GitState.displayedBranch(
+                    state: directory.flatMap { GitStateStore.shared.state(for: $0) },
+                    storedBranchName: child.branchName
+                )
+                return InfoPaneFacts.ChildSessionFacts(
+                    id: child.id,
+                    title: TitleStore.shared.chipTitle(for: child, hasConversation: child.hasConversation),
+                    status: status,
+                    isUnread: UnreadStore.showsUnread(
+                        taskStatus: status,
+                        hasUnreadTab: UnreadStore.shared.isUnread(tabID: child.id)
+                    ),
+                    depth: depth,
+                    branch: branch == parentBranch ? nil : branch
+                )
+            }
+    }
+
+    private func selectTab(id: UUID) {
+        guard let target = task.liveTabs.first(where: { $0.id == id }) else { return }
+        TaskStore.selectTab(target, in: task)
     }
 
     private var planTitle: String {
@@ -1219,7 +1248,8 @@ struct ChatTabView: View, ThemedView {
             remoteControlSession: headlessSession,
             linearActions: linearActions,
             pullRequestActions: pullRequestActions,
-            folderActions: folderActions
+            folderActions: folderActions,
+            onSelectTab: selectTab(id:)
         )
     }
 

@@ -27,6 +27,7 @@ struct InfoSidePane: View, ThemedView {
     let linearActions: InfoPaneLinearActions
     var pullRequestActions: InfoPanePullRequestActions = .none
     let folderActions: InfoPaneFolderActions
+    var onSelectTab: (UUID) -> Void = { _ in }
 
     @State private var settings = AppSettings.shared
     @State private var isHovering = false
@@ -155,6 +156,10 @@ struct InfoSidePane: View, ThemedView {
             linearActions: linearActions,
             pullRequestActions: pullRequestActions,
             folderActions: folderActions,
+            onSelectTab: { id in
+                closeTransient()
+                onSelectTab(id)
+            },
             showsCompleted: $showsCompletedSubagents,
             showsMentionedLinearIssues: $showsMentionedLinearIssues,
             showsMentionedPullRequests: $showsMentionedPullRequests

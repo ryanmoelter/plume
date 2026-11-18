@@ -18,6 +18,9 @@ struct TabStripView: View {
     /// Each chip's frame in the strip's coordinate space, which is where a
     /// drop reports its location.
     @State private var chipFrames: [UUID: CGRect] = [:]
+    /// Each children toggle's frame, keyed by its parent tab, so a collapsed
+    /// group's bar reaches under it.
+    @State private var toggleFrames: [UUID: CGRect] = [:]
 
     private static let chipSpacing: CGFloat = 6
     private nonisolated static let coordinateSpace = "tabStrip"
@@ -26,10 +29,14 @@ struct TabStripView: View {
         TaskStore.addTab(to: task, kind: kind, pane: pane, in: context)
     }
 
+    private var grouping: TabStripGrouping { TaskStore.grouping(of: tabs) }
+
     var body: some View {
         let paneLabel = paneCount > 1 ? "pane \(pane + 1)" : nil
+        let grouping = grouping
+        let visibleTabs = tabs.filter { !grouping.hidden.contains($0.id) }
         HStack(spacing: Self.chipSpacing) {
-            ForEach(tabs) { tab in
+            ForEach(visibleTabs) { tab in
                 TabChip(
                     task: task,
                     tab: tab,
@@ -53,6 +60,17 @@ struct TabStripView: View {
                 .onGeometryChange(for: CGRect.self) {
                     $0.frame(in: .named(Self.coordinateSpace))
                 } action: { chipFrames[tab.id] = $0 }
+                if let group = grouping.group(parentID: tab.id) {
+                    TabChildrenToggle(
+                        title: paneLabel.map { "\(chipTitle(of: tab)) (\($0))" } ?? chipTitle(of: tab),
+                        childCount: group.descendantCount,
+                        isCollapsed: group.isCollapsed,
+                        toggle: { TaskStore.setChildrenCollapsed(!group.isCollapsed, of: tab, in: task) }
+                    )
+                    .onGeometryChange(for: CGRect.self) {
+                        $0.frame(in: .named(Self.coordinateSpace))
+                    } action: { toggleFrames[tab.id] = $0 }
+                }
             }
 
             Menu {
@@ -83,6 +101,9 @@ struct TabStripView: View {
         .padding(.vertical, 6)
         .plumeID(AccessibilityID.tabStrip, label: paneLabel)
         .coordinateSpace(.named(Self.coordinateSpace))
+        .background(alignment: .topLeading) {
+            TabStripGroupBars(bars: groupBars(grouping), color: groupBarColor)
+        }
         // One destination for the whole strip, placing the drop by its
         // location, so there is no gap between chips where a drop misses.
         // The marker is an overlay so it never takes part in the strip's
@@ -105,17 +126,41 @@ struct TabStripView: View {
         .themeTint(colorScheme: colorScheme)
     }
 
-    /// The chips' horizontal extents, in strip order.
+    /// The shown chips' horizontal extents, in strip order.
     private var chipExtents: [ClosedRange<CGFloat>] {
-        tabs.compactMap { chipFrames[$0.id].map { $0.minX...$0.maxX } }
+        grouping.visibleIDs.compactMap { chipFrames[$0].map { $0.minX...$0.maxX } }
     }
 
-    /// Moves the dragged tab into `gap`, from this strip or the other
-    /// pane's. Only `orderIndex` and `paneIndex` change — surfaces are keyed
-    /// by tab id and untouched by it.
+    private func chipTitle(of tab: TaskTab) -> String {
+        TitleStore.shared.chipTitle(for: tab, hasConversation: tab.hasConversation)
+    }
+
+    private var groupBarColor: Color {
+        (ThemeChrome.foreground(for: colorScheme) ?? .primary).opacity(0.3)
+    }
+
+    /// One bar per shown group, under its parent through its last shown
+    /// chip, each level of nesting a step lower.
+    private func groupBars(_ grouping: TabStripGrouping) -> [TabStripGroupBars.Bar] {
+        grouping.visibleGroups.compactMap { group in
+            guard let parent = chipFrames[group.parentID],
+                  let last = chipFrames[grouping.lastVisibleID(in: group)] else { return nil }
+            let end = max(last.maxX, toggleFrames[group.parentID]?.maxX ?? last.maxX)
+            return TabStripGroupBars.Bar(
+                id: group.parentID,
+                minX: parent.minX,
+                maxX: end,
+                y: parent.maxY + 2 + CGFloat(group.depth) * 3
+            )
+        }
+    }
+
+    /// Moves the dragged tab into the gap before shown chip `gap`, from this
+    /// strip or the other pane's. Only `orderIndex` and `paneIndex` change —
+    /// surfaces are keyed by tab id and untouched by it.
     private func reorder(_ draggedID: UUID, into gap: Int) {
         guard let tab = task.tabs.first(where: { $0.id == draggedID }) else { return }
-        TaskStore.moveTab(tab, toPane: pane, at: gap, in: task)
+        TaskStore.moveTab(tab, toPane: pane, at: grouping.paneIndex(forVisibleGap: gap), in: task)
     }
 
     /// Splits `tab` into a new ungrouped task, as a sibling of every other
@@ -393,6 +438,71 @@ private struct TabChip: View {
     private var chipValue: String? {
         if isSelected { return "selected" }
         return isInOtherPane ? "shown" : nil
+    }
+}
+
+/// Shows or hides the chips of the child sessions grouped after a tab.
+private struct TabChildrenToggle: View {
+    /// The parent's chip title, which labels the toggle for the control server.
+    let title: String
+    let childCount: Int
+    let isCollapsed: Bool
+    let toggle: () -> Void
+
+    private var help: String {
+        let sessions = childCount == 1 ? "session" : "sessions"
+        return isCollapsed ? "Show \(childCount) child \(sessions)" : "Hide \(childCount) child \(sessions)"
+    }
+
+    var body: some View {
+        Button(action: toggle) {
+            HStack(spacing: 2) {
+                Image(systemName: isCollapsed ? "chevron.right" : "chevron.left")
+                    .font(.system(size: 9, weight: .bold))
+                if isCollapsed {
+                    Text("\(childCount)")
+                        .font(.caption)
+                        .monospacedDigit()
+                }
+            }
+            .foregroundStyle(.secondary)
+            .frame(minWidth: 12, minHeight: 22)
+            .contentShape(.rect)
+        }
+        .buttonStyle(.plain)
+        .help(help)
+        .accessibilityLabel(help)
+        .plumeID(
+            AccessibilityID.tabChildrenToggle,
+            label: title,
+            value: isCollapsed ? "collapsed" : "expanded",
+            invoke: toggle
+        )
+    }
+}
+
+/// The bars under each group of a parent tab and its child sessions.
+private struct TabStripGroupBars: View {
+    struct Bar: Identifiable {
+        let id: UUID
+        let minX: CGFloat
+        let maxX: CGFloat
+        let y: CGFloat
+    }
+
+    let bars: [Bar]
+    let color: Color
+
+    var body: some View {
+        ZStack(alignment: .topLeading) {
+            ForEach(bars) { bar in
+                Capsule()
+                    .fill(color)
+                    .frame(width: max(bar.maxX - bar.minX, 0), height: 2)
+                    .offset(x: bar.minX, y: bar.y)
+            }
+        }
+        .allowsHitTesting(false)
     }
 }
 

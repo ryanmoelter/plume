@@ -20,6 +20,7 @@ struct InfoPaneContent: View, ThemedView {
     let linearActions: InfoPaneLinearActions
     var pullRequestActions: InfoPanePullRequestActions = .none
     var folderActions: InfoPaneFolderActions = .none
+    var onSelectTab: (UUID) -> Void = { _ in }
     /// Held by the presentation, which outlives this view as the side pane
     /// opens and closes.
     @Binding var showsCompleted: Bool
@@ -68,6 +69,7 @@ struct InfoPaneContent: View, ThemedView {
     @ViewBuilder
     private func section(_ section: InfoPaneSection) -> some View {
         switch section {
+        case .childSessions: childSessions
         case .subagents: subagents
         case .backgroundTasks: backgroundTasks
         case .plan: plan
@@ -93,6 +95,56 @@ struct InfoPaneContent: View, ThemedView {
         case .linearIssues:
             LinearIssuesSection(linear: facts.linear, actions: linearActions, showsMentioned: $showsMentionedLinearIssues)
         }
+    }
+
+    // MARK: Child sessions
+
+    private var childSessions: some View {
+        let isExpanded = settings.infoPaneSessionsExpanded
+        return InfoPaneBracketedSection(isExpanded: isExpanded) {
+            InfoPaneSectionHeader(
+                title: "Sessions",
+                icon: .symbol("arrow.turn.down.right"),
+                count: facts.childSessions.count,
+                isExpanded: isExpanded,
+                accessibilityID: AccessibilityID.infoPaneSessionsToggle
+            ) {
+                withAnimation(InfoPaneLayout.sectionAnimation) { settings.infoPaneSessionsExpanded.toggle() }
+            }
+        } rows: {
+            if isExpanded {
+                ForEach(facts.childSessions) { childSessionRow($0) }
+            }
+        }
+    }
+
+    private func childSessionRow(_ child: InfoPaneFacts.ChildSessionFacts) -> some View {
+        let select = { onSelectTab(child.id) }
+        return Button(action: select) {
+            HStack(spacing: InfoPaneLayout.columnSpacing) {
+                InfoPaneIcon {
+                    StatusBadge(status: child.status, isUnread: child.isUnread, showsElapsed: false)
+                        .imageScale(.small)
+                }
+                Text(child.title)
+                    .lineLimit(1)
+                    .truncationMode(.tail)
+                Spacer(minLength: 4)
+                if let branch = child.branch {
+                    Text(branch)
+                        .lineLimit(1)
+                        .truncationMode(.middle)
+                        .emphasis(.subtle)
+                        .layoutPriority(-1)
+                }
+                Image(systemName: "chevron.right")
+                    .foregroundStyle(colors.selection)
+            }
+            .padding(.leading, CGFloat(child.depth) * (InfoPaneLayout.iconColumnWidth + InfoPaneLayout.columnSpacing))
+        }
+        .buttonStyle(InfoPaneRowButtonStyle())
+        .help(child.branch.map { "Show \(child.title), on \($0)" } ?? "Show \(child.title)")
+        .plumeID(AccessibilityID.infoPaneChildSessionRow, label: child.title, value: child.status.rawValue, invoke: select)
     }
 
     // MARK: Subagents
@@ -381,6 +433,13 @@ struct InfoPaneCollapsedIcons: View, ThemedView {
     @ViewBuilder
     private func icon(for section: InfoPaneSection) -> some View {
         switch section {
+        case .childSessions:
+            HStack(spacing: 2) {
+                Image(systemName: "arrow.turn.down.right")
+                Text("\(facts.childSessions.count)")
+            }
+            .emphasis(.secondary)
+            .help("Sessions this conversation started")
         case .subagents:
             HStack(spacing: 4) {
                 Image(systemName: StatusSymbol.subagents.name)

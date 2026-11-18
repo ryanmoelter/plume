@@ -119,10 +119,12 @@ A session whose process has exited is resumed to take a note through `AgentLaunc
 - **The parent's chat shows each note as one row** (`SideSessionEventRow`, `side-session-event-row`): an `arrow.turn.down.right` symbol, then "fix-login finished a turn: All green", or "sent a message". Clicking it selects the child's tab. A queued note shows the same line as text, marked "↳". `InjectedContent` recognizes `<side-sessions-event>`, so neither the reminder nor the footer renders as the user's prose. Desktop's own prose footers render the same way.
 - **A child's tab chip starts with an `arrow.turn.down.right` symbol** (`tab-chip-child-marker`) while its parent is open.
 - **The sidebar nests a child under its parent**, one level deep (`AgentHeader.depth`), right after the parent.
+- **The parent's info pane lists its sessions** (`info-pane-child-session-row`): every open tab below it, each grandchild indented under its parent, with its status badge, its chip title and its branch when that differs from the parent's. Clicking a row selects that tab.
+- **The tab strip groups a parent with its descendants** (`TabStripGrouping`): a thin bar runs under the parent and the unbroken run of descendants right after it in the same pane, and each nested group draws its own bar a step lower. A child dragged away from its parent, or into another pane, leaves the group. A chevron after the parent's chip (`tab-children-toggle`) collapses the group. Collapsing hides only the descendants' chips; their tabs stay open and mounted. A pane showing a tab the collapse hides shows the parent instead. Selecting a hidden tab by any route (the info pane, the sidebar, an event row) expands the groups that hide it, through `TaskStore.selectTab`. ⌘1–9 and Next/Previous Tab count only the chips shown. `TaskTab.childrenCollapsed` persists the state.
 
 ## What persists
 
-Only `TaskTab.parentTabIDRaw`. Held notes, batches, the interrupted state, names and `wake_when_done` live in memory, so after a relaunch a child still reports to its parent, and nothing else carries over.
+`TaskTab.parentTabIDRaw`, and `TaskTab.childrenCollapsed` for the strip. Held notes, batches, the interrupted state, names and `wake_when_done` live in memory, so after a relaunch a child still reports to its parent, and nothing else carries over.
 
 ## Driving it
 

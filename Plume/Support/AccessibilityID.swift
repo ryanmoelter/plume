@@ -178,6 +178,7 @@ enum AccessibilityID {
     static let tabChipClose = "tab-chip-close"
     /// The arrow in front of a child session's title.
     static let tabChipChildMarker = "tab-chip-child-marker"
+    static let tabChildrenToggle = "tab-children-toggle"
     /// A note from another session in the chat, which selects its tab.
     static let sideSessionEventRow = "side-session-event-row"
     /// In both the task row's and the tab chip's context menu.
@@ -388,6 +389,8 @@ enum AccessibilityID {
     static let infoPaneCompletedToggle = "info-pane-completed-toggle"
     static let infoPaneBackgroundTasksToggle = "info-pane-background-tasks-toggle"
     static let infoPaneBackgroundTask = "info-pane-background-task"
+    static let infoPaneSessionsToggle = "info-pane-sessions-toggle"
+    static let infoPaneChildSessionRow = "info-pane-child-session-row"
     static let infoPanePlanRow = "info-pane-plan-row"
     static let infoPaneSideChatRow = "info-pane-side-chat-row"
     static let infoPaneRemoteControlMenu = "info-pane-remote-control-menu"

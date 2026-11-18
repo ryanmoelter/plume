@@ -192,6 +192,7 @@ enum TaskStore {
     /// pane's selected tab cannot drift out of step with it. Selecting a tab
     /// focuses its pane.
     static func selectTab(_ tab: TaskTab, in task: WorkTask) {
+        revealInStrip(tab, in: task)
         task.selectedTabID = tab.id
         if tab.kind == .agent {
             task.lastFocusedAgentTabID = tab.id
@@ -202,19 +203,64 @@ enum TaskStore {
         }
     }
 
-    /// ⌘1–9: counts within the focused pane's strip.
+    /// ⌘1–9: counts the chips the focused pane's strip shows.
     static func selectTab(atIndex index: Int, in task: WorkTask) {
-        let tabs = task.tabs(inPane: task.focusedPane)
+        let tabs = visibleTabs(inPane: task.focusedPane, of: task)
         guard tabs.indices.contains(index) else { return }
         selectTab(tabs[index], in: task)
     }
 
     /// Next and Previous Tab, wrapping within the focused pane's strip.
     static func cycleTab(by offset: Int, in task: WorkTask) {
-        let tabs = task.tabs(inPane: task.focusedPane)
+        let tabs = visibleTabs(inPane: task.focusedPane, of: task)
         guard let current = tabs.firstIndex(where: { $0.id == task.selectedTabID }) else { return }
         let next = ((current + offset) % tabs.count + tabs.count) % tabs.count
         selectTab(tabs[next], in: task)
+    }
+
+    // MARK: - Child session groups
+
+    static func grouping(of tabs: [TaskTab]) -> TabStripGrouping {
+        TabStripGrouping(tabs.map {
+            TabStripGrouping.Entry(id: $0.id, parentID: $0.parentTabID, childrenCollapsed: $0.childrenCollapsed)
+        })
+    }
+
+    static func visibleTabs(inPane pane: Int, of task: WorkTask) -> [TaskTab] {
+        let tabs = task.tabs(inPane: pane)
+        let hidden = grouping(of: tabs).hidden
+        return tabs.filter { !hidden.contains($0.id) }
+    }
+
+    /// Collapsing never leaves a pane showing a tab whose chip it hides: the
+    /// pane shows the parent instead.
+    static func setChildrenCollapsed(_ collapsed: Bool, of tab: TaskTab, in task: WorkTask) {
+        guard tab.childrenCollapsed != collapsed else { return }
+        tab.childrenCollapsed = collapsed
+        guard collapsed else { return }
+        let panes = task.panes
+        let pane = tab.paneIndex
+        let shownIDs = task.paneTabIDs(in: panes)
+        guard panes.indices.contains(pane), shownIDs.indices.contains(pane) else { return }
+        let shown = shownIDs[pane]
+        guard grouping(of: panes[pane]).shownAfterCollapsing(tab.id, shown: shown) != nil else { return }
+        if shown == task.selectedTabID {
+            selectTab(tab, in: task)
+        } else {
+            var remembered = shownIDs.map(Optional.some)
+            remembered[pane] = tab.id
+            task.paneSelectedTabIDs = remembered
+        }
+    }
+
+    /// Expands every collapsed group hiding `tab`'s chip.
+    private static func revealInStrip(_ tab: TaskTab, in task: WorkTask) {
+        guard tab.isChildSession else { return }
+        let tabs = task.tabs(inPane: tab.paneIndex)
+        let parents = Set(grouping(of: tabs).collapsedParentsHiding(tab.id))
+        for parent in tabs where parents.contains(parent.id) {
+            parent.childrenCollapsed = false
+        }
     }
 
     // MARK: - Split

@@ -108,7 +108,7 @@ struct TaskRowView: View {
         )
     }
 
-    private static func status(of tab: TaskTab) -> TaskStatus {
+    static func status(of tab: TaskTab) -> TaskStatus {
         let live = StatusEngine.shared.status(forTab: tab.id)
         return live == .notStarted ? tab.lastStatus.afterRelaunch : live
     }

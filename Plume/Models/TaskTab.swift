@@ -109,6 +109,9 @@ final class TaskTab {
     /// The tab whose agent started this one as a child session, or empty.
     /// `docs/child-sessions.md` is the reference.
     var parentTabIDRaw: String = ""
+    /// Hides the chips of the child sessions grouped after this tab in its
+    /// strip. Their tabs stay open; see `TabStripGrouping`.
+    var childrenCollapsed: Bool = false
 
     init(kind: TabKind, orderIndex: Int, task: WorkTask? = nil) {
         self.id = UUID()

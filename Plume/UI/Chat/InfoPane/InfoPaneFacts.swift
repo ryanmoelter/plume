@@ -101,7 +101,20 @@ struct InfoPaneFacts: Equatable {
         var isEmpty: Bool { main.isEmpty && mentioned.isEmpty }
     }
 
+    /// An open tab whose session this tab's agent started, or one below it.
+    struct ChildSessionFacts: Equatable, Identifiable {
+        let id: UUID
+        let title: String
+        let status: TaskStatus
+        var isUnread = false
+        /// 0 for a direct child of this tab.
+        var depth = 0
+        /// Set only when it differs from this tab's branch.
+        var branch: String?
+    }
+
     var tabID: UUID
+    var childSessions: [ChildSessionFacts] = []
     var liveSubagents: [SubagentTranscript] = []
     var completedSubagents: [SubagentTranscript] = []
     var backgroundTasks: [BackgroundTaskTracker.Entry] = []
@@ -130,6 +143,7 @@ struct InfoPaneFacts: Equatable {
 
     var sections: [InfoPaneSection] {
         var sections: [InfoPaneSection] = []
+        if !childSessions.isEmpty { sections.append(.childSessions) }
         if !liveSubagents.isEmpty || !completedSubagents.isEmpty { sections.append(.subagents) }
         if !backgroundTasks.isEmpty { sections.append(.backgroundTasks) }
         if pullRequest?.hasPullRequest == true || !linkedPullRequests.isEmpty || canPinPullRequests {
@@ -151,6 +165,7 @@ struct InfoPaneFacts: Equatable {
         sections.filter { section in
             switch section {
             case .subagents: !liveSubagents.isEmpty
+            case .childSessions: true
             case .branch: branch?.isWorktree == true
             case .linearIssues: (linear?.workingCount ?? 0) > 0
             case .remoteControl: remoteControl == .on
@@ -206,6 +221,30 @@ extension InfoPaneFacts {
         default:
             return PullRequestFacts(state: state, checkRollup: nil, forge: forge)
         }
+    }
+}
+
+extension InfoPaneFacts {
+    /// Every tab below `rootID`, each right after its parent, in `tabs`'
+    /// order otherwise.
+    static func descendants<T>(
+        of rootID: UUID,
+        in tabs: [T],
+        id: (T) -> UUID,
+        parentID: (T) -> UUID?
+    ) -> [(item: T, depth: Int)] {
+        var below: Set<UUID> = [rootID]
+        var found: [T] = []
+        var remaining = tabs.filter { id($0) != rootID }
+        while true {
+            let next = remaining.filter { parentID($0).map(below.contains) ?? false }
+            guard !next.isEmpty else { break }
+            below.formUnion(next.map(id))
+            found.append(contentsOf: next)
+            remaining.removeAll { below.contains(id($0)) }
+        }
+        let foundIDs = Set(found.map(id))
+        return TaskStore.nestedByParent(tabs.filter { foundIDs.contains(id($0)) }, id: id, parentID: parentID)
     }
 }
 
@@ -331,6 +370,7 @@ enum LinearIssueOrder {
 }
 
 enum InfoPaneSection: Equatable {
+    case childSessions
     case linearIssues
     case subagents
     case backgroundTasks
