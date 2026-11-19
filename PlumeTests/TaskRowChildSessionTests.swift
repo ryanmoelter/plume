@@ -146,9 +146,43 @@ struct TaskRowChildLinesTests {
             .agentHeader(TaskRowDetails.AgentHeader(tabID: UUID(), title: "Two", status: .working)),
             .branch("two"),
         ]
-        #expect(TaskRowDetails.lines(lines, keepingHeaders: 1) == Array(lines.prefix(3)))
-        #expect(TaskRowDetails.lines(lines, keepingHeaders: 2) == lines)
+        #expect(TaskRowDetails.lines(lines, keepingHeaders: 1) == (Array(lines.prefix(3)), 1))
+        #expect(TaskRowDetails.lines(lines, keepingHeaders: 2) == (lines, 0))
         #expect(TaskRowDetails.headerCount(lines) == 2)
+    }
+
+    @Test func foldingKeepsTheFocusedAgentAndItsParents() {
+        let focused = UUID()
+        func header(_ title: String, depth: Int = 0, id: UUID = UUID()) -> TaskRowDetails.Line {
+            .agentHeader(TaskRowDetails.AgentHeader(tabID: id, title: title, status: .working, depth: depth))
+        }
+        let lines: [TaskRowDetails.Line] = [
+            header("1"), header("2"), header("3"), header("4"),
+            header("5"),
+            header("6"),
+            header("6a", depth: 1, id: focused),
+            .branch("fix"),
+            header("7"),
+        ]
+        let folded = AgentRowCap.fold(lines, isExpanded: false, focusedTabID: focused)
+        #expect(folded.lines == Array(lines.prefix(4)) + Array(lines[5...7]))
+        #expect(folded.layout == AgentRowCap.Layout(visibleCount: 6, toggleTitle: "Show 2 more", toggleSymbol: "chevron.down"))
+    }
+
+    @Test func aFocusedAgentThatWouldBeTheOnlyHiddenOneLeavesNoToggle() {
+        let focused = UUID()
+        let lines: [TaskRowDetails.Line] = (1...4).map {
+            .agentHeader(TaskRowDetails.AgentHeader(tabID: UUID(), title: "\($0)", status: .working))
+        } + [.agentHeader(TaskRowDetails.AgentHeader(tabID: focused, title: "5", status: .working))]
+        let folded = AgentRowCap.fold(lines, isExpanded: false, focusedTabID: focused)
+        #expect(folded.lines == lines)
+        #expect(folded.layout.toggleTitle == nil)
+    }
+
+    @Test func theRowsIconsRideOnlyAProjectLineAboveEveryHeader() {
+        let header = TaskRowDetails.Line.agentHeader(TaskRowDetails.AgentHeader(tabID: UUID(), title: "Child", status: .working))
+        #expect(TaskRowDetails.rowProjectLineIndex([.linearOverflow(1), .project("Plume"), header]) == 1)
+        #expect(TaskRowDetails.rowProjectLineIndex([.linearOverflow(1), header, .project("Other")]) == nil)
     }
 
     @Test func aChildsValueNamesItsParent() {
@@ -211,6 +245,20 @@ struct TaskRowChildSelectionTests {
         store.setTitle("Child work", forTab: child.id, source: .reply)
 
         #expect(store.displayTitle(for: task) == "Parent work")
+    }
+
+    @Test func oneAgentWithNoChildrenKeepsTheOldTitleRule() throws {
+        let task = TaskStore.createTask(in: context, siblings: [])
+        let agent = try #require(task.tabs.first)
+        let terminal = TaskStore.addTab(to: task, kind: .terminal, in: context)
+        TaskStore.selectTab(terminal, in: task)
+        task.lastFocusedAgentTabID = nil
+
+        let store = TitleStore()
+        store.setTitle("Agent work", forTab: agent.id, source: .reply)
+        store.setTitle("vim", forTab: terminal.id, source: .reply)
+
+        #expect(store.displayTitle(for: task) == "vim")
     }
 
     @Test func severalTopLevelAgentsKeepTheLastFocusedTitle() throws {

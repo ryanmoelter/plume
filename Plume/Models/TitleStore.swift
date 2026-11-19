@@ -128,15 +128,17 @@ final class TitleStore {
     }
 
     /// The tab whose title stands in for the task: its one top-level agent
-    /// tab when it has exactly one, else the last agent tab the user focused,
-    /// else the selected tab, else the first.
+    /// tab when it has exactly one and child sessions under it, else the last
+    /// agent tab the user focused, else the selected tab, else the first.
     ///
     /// The sole top-level tab wins so opening one of its child sessions never
     /// renames the task. Preferring the last-focused *agent* tab keeps the
     /// sidebar showing what the agent is doing when the user dips into a
     /// terminal tab.
     static func representativeTab(of task: WorkTask) -> TaskTab? {
-        if let topLevel = TaskStore.soleTopLevelAgentTab(of: task) { return topLevel }
+        if TaskStore.nestedAgentTabs(of: task).count > 1, let topLevel = TaskStore.soleTopLevelAgentTab(of: task) {
+            return topLevel
+        }
         let tabs = task.orderedTabs
         if let id = task.lastFocusedAgentTabID, let tab = tabs.first(where: { $0.id == id }) {
             return tab

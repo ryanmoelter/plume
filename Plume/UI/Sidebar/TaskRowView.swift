@@ -173,7 +173,7 @@ struct TaskRowView: View {
         agentTabIDs: [UUID],
         headerTabIDs: Set<UUID>
     ) -> ProjectLineIcons? {
-        guard let index = lines.firstIndex(where: { if case .project = $0 { true } else { false } }) else { return nil }
+        guard let index = TaskRowDetails.rowProjectLineIndex(lines) else { return nil }
         return ProjectLineIcons(
             lineIndex: index,
             isRemoteControlled: Self.isRemoteControlled(tabIDs: agentTabIDs.filter { !headerTabIDs.contains($0) }),
@@ -202,19 +202,19 @@ struct TaskRowView: View {
         let nestedAgentTabs = TaskStore.nestedAgentTabs(of: task)
         let agentTabIDs = nestedAgentTabs.map(\.item.id)
         let hasSeveralAgents = agentTabIDs.count > 1
-        // With one top-level agent, the row stands for it and only its
-        // children take headers.
         let rowAgentTabID = hasSeveralAgents ? TaskStore.soleTopLevelAgentTab(of: task)?.id : agentTabIDs.first
         let headerTabIDs = Set(hasSeveralAgents ? agentTabIDs.filter { $0 != rowAgentTabID } : [])
         let working = workingLinearIssues
         let pinned = pinnedPullRequests
         let allLines = detailLines(nestedAgentTabs: nestedAgentTabs, working: working, pinned: pinned)
-        let cap = AgentRowCap.layout(total: TaskRowDetails.headerCount(allLines), isExpanded: showsAllAgents)
-        let rawLines = TaskRowDetails.lines(allLines, keepingHeaders: cap.visibleCount)
+        let folded = AgentRowCap.fold(allLines, isExpanded: showsAllAgents, focusedTabID: task.selectedTabID)
+        let cap = folded.layout
+        let rawLines = folded.lines
         let lines = Array(rawLines.enumerated())
         let badgeLineCount = Self.badgeLineCount(of: rawLines)
-        let icons = rowAgentTabID == nil
-            ? nil : projectLineIcons(in: rawLines, agentTabIDs: agentTabIDs, headerTabIDs: headerTabIDs)
+        let rowOwnsIcons = !hasSeveralAgents || rowAgentTabID != nil
+        let icons = rowOwnsIcons
+            ? projectLineIcons(in: rawLines, agentTabIDs: agentTabIDs, headerTabIDs: headerTabIDs) : nil
         let owners = TaskRowDetails.owningAgentLabels(rawLines)
         let nesting = TaskRowDetails.agentGroupNesting(rawLines)
         let hovered = hasSeveralAgents ? TaskRowDetails.hoveredAgentGroup(hoveredLines: hoveredLines, nesting: nesting) : nil
@@ -229,7 +229,7 @@ struct TaskRowView: View {
         VStack(alignment: .leading, spacing: Self.lineSpacing) {
             HStack(alignment: .top, spacing: 6) {
                 VStack(alignment: .leading, spacing: Self.lineSpacing) {
-                    title(heldDevices: hasSeveralAgents && rowAgentTabID == nil ? taskLevelHeldDevices() : nil)
+                    title(heldDevices: rowOwnsIcons ? nil : taskLevelHeldDevices())
                     descriptionLine
                     ForEach(Array(lines.prefix(badgeLineCount)), id: \.offset) { index, line in
                         groupedDetailLine(line, at: index, owner: owners[index], icons: icons, groups: groups)
@@ -252,7 +252,7 @@ struct TaskRowView: View {
                 agentCapToggle(title: title, symbol: symbol)
             }
 
-            TaskActivityRow(tabIDs: rowAgentTabID.map { hasSeveralAgents ? [$0] : agentTabIDs } ?? [])
+            TaskActivityRow(tabIDs: hasSeveralAgents ? rowAgentTabID.map { [$0] } ?? [] : agentTabIDs)
         }
         .agentGroupBars(isEnabled: hasSeveralAgents, style: barStyle(groups))
         .padding(.vertical, 2)
@@ -292,6 +292,9 @@ struct TaskRowView: View {
             } else {
                 pressMonitor.start { isPressingGroup = $0 }
             }
+        }
+        .onChange(of: TaskRowDetails.headerCount(allLines) > AgentRowCap.limit) { _, isOverCap in
+            if !isOverCap { showsAllAgents = false }
         }
         .onDisappear {
             watch([])
@@ -470,7 +473,7 @@ struct TaskRowView: View {
                 .padding(.vertical, Self.lineSpacing / 2)
                 .contentShape(.rect)
                 .simultaneousGesture(TapGesture().onEnded {
-                    TaskRowClick.claim(taskID: task.id)
+                    TaskRowClick.claim()
                     selectAgentTab(tabID)
                 })
                 .plumeHover { hovering in
@@ -505,7 +508,7 @@ struct TaskRowView: View {
         .frame(maxWidth: .infinity, alignment: .leading)
         .contentShape(.rect)
         .simultaneousGesture(TapGesture().onEnded {
-            TaskRowClick.claim(taskID: task.id)
+            TaskRowClick.claim()
             toggleAgentCap()
         })
         .plumeID(
@@ -544,17 +547,17 @@ struct TaskRowView: View {
     ) -> some View {
         let titleEmphasis = Self.agentTitleEmphasis(status: header.status, isEmphasized: isEmphasized)
         return HStack(spacing: 4) {
-            if header.parentLabel != nil {
-                Image(systemName: "arrow.turn.down.right")
-                    .font(.caption)
-                    .emphasis(.secondary)
-                    .plumeID(AccessibilityID.taskAgentChildMarker, label: header.label, value: "child")
-            } else if header.isDetachedChild {
+            if header.isDetachedChild {
                 Image(systemName: "arrow.turn.down.right")
                     .font(.caption)
                     .emphasis(.secondary)
                     .help("Started by a session that is elsewhere")
                     .plumeID(AccessibilityID.taskAgentChildMarker, label: header.label, value: "detached")
+            } else if header.parentLabel != nil {
+                Image(systemName: "arrow.turn.down.right")
+                    .font(.caption)
+                    .emphasis(.secondary)
+                    .plumeID(AccessibilityID.taskAgentChildMarker, label: header.label, value: "child")
             }
             Text(header.title)
                 .font(.caption)

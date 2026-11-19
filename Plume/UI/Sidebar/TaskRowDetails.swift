@@ -247,7 +247,7 @@ enum TaskRowDetails {
 
     /// A child's lines, less the ones its parent already shows: the project
     /// when it reads the same, and the branch and pull request when they also
-    /// sit in the same folder, by the rule `lines(agents:)` shares them with.
+    /// sit in the same folder.
     static func lines(of child: DirectoryGroup, differingFrom parent: DirectoryGroup) -> [Line] {
         let parentLines = lines(for: parent)
         let sameFolder = child.directory == parent.directory
@@ -260,16 +260,48 @@ enum TaskRowDetails {
         }
     }
 
-    /// `lines` up to, not including, the header past the first `count`.
-    /// A header's own lines travel with it.
-    static func lines(_ lines: [Line], keepingHeaders count: Int) -> [Line] {
-        var seen = 0
-        for index in lines.indices {
-            guard case .agentHeader = lines[index] else { continue }
-            if seen == count { return Array(lines[..<index]) }
-            seen += 1
+    /// `lines` keeping the first `count` headers, plus the header of
+    /// `keptTabID` and every header above it, so a kept child never loses
+    /// its parent. A header's own lines travel with it.
+    static func lines(
+        _ lines: [Line],
+        keepingHeaders count: Int,
+        alsoKeeping keptTabID: UUID? = nil
+    ) -> (lines: [Line], hiddenHeaders: Int) {
+        let starts = lines.indices.filter { if case .agentHeader = lines[$0] { true } else { false } }
+        guard let first = starts.first else { return (lines, 0) }
+        let headers = starts.map { index -> AgentHeader in
+            guard case .agentHeader(let header) = lines[index] else { preconditionFailure() }
+            return header
         }
-        return lines
+        var kept = Set(headers.indices.prefix(count))
+        if let keptIndex = headers.firstIndex(where: { $0.tabID == keptTabID }), !kept.contains(keptIndex) {
+            kept.insert(keptIndex)
+            var depth = headers[keptIndex].depth
+            for index in headers.indices[..<keptIndex].reversed() where headers[index].depth < depth {
+                kept.insert(index)
+                depth = headers[index].depth
+            }
+        }
+        var result = Array(lines[..<first])
+        for (group, start) in starts.enumerated() where kept.contains(group) {
+            let end = group + 1 < starts.count ? starts[group + 1] : lines.endIndex
+            result.append(contentsOf: lines[start..<end])
+        }
+        return (result, headers.count - kept.count)
+    }
+
+    /// The first project line above every agent header: the one the row's
+    /// own agent shows, where its icons ride.
+    static func rowProjectLineIndex(_ lines: [Line]) -> Int? {
+        for index in lines.indices {
+            switch lines[index] {
+            case .project: return index
+            case .agentHeader: return nil
+            default: continue
+            }
+        }
+        return nil
     }
 
     static func headerCount(_ lines: [Line]) -> Int {

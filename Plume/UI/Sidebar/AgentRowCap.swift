@@ -19,4 +19,26 @@ enum AgentRowCap {
         }
         return Layout(visibleCount: limit, toggleTitle: "Show \(total - limit) more", toggleSymbol: "chevron.down")
     }
+
+    /// `lines` folded past the limit. Folding never hides the focused
+    /// agent's header, and the toggle counts only what it does hide.
+    static func fold(
+        _ lines: [TaskRowDetails.Line],
+        isExpanded: Bool,
+        focusedTabID: UUID?
+    ) -> (lines: [TaskRowDetails.Line], layout: Layout) {
+        let total = TaskRowDetails.headerCount(lines)
+        let unfolded = layout(total: total, isExpanded: isExpanded)
+        guard total > limit, !isExpanded else { return (lines, unfolded) }
+        let folded = TaskRowDetails.lines(lines, keepingHeaders: limit, alsoKeeping: focusedTabID)
+        let visible = total - folded.hiddenHeaders
+        guard folded.hiddenHeaders > 0 else {
+            return (folded.lines, Layout(visibleCount: visible, toggleTitle: nil, toggleSymbol: nil))
+        }
+        return (folded.lines, Layout(
+            visibleCount: visible,
+            toggleTitle: "Show \(folded.hiddenHeaders) more",
+            toggleSymbol: "chevron.down"
+        ))
+    }
 }
