@@ -69,4 +69,35 @@ struct AgentProcessOutputTests {
         #expect(linesAtExit.withLock { $0 } == ["first"])
         #expect(lines.withLock { $0 } == ["first"])
     }
+
+    /// The child exits 3 while a grandchild keeps stdout open, so the exit is
+    /// still held when the caller terminates.
+    @Test(.timeLimit(.minutes(1))) func anExitTheChildReachedSurvivesATerminateDuringTheDrain() async throws {
+        let exits = Mutex<[Int32]>([])
+        let firstLine = Mutex<CheckedContinuation<Void, Never>?>(nil)
+        let process = AgentProcess(
+            label: "terminate during drain test",
+            onLine: { _ in firstLine.withLock { $0?.resume(); $0 = nil } },
+            onExit: { status, _ in exits.withLock { $0.append(status) } }
+        )
+        await withCheckedContinuation { continuation in
+            firstLine.withLock { $0 = continuation }
+            do {
+                try process.start(
+                    arguments: ["/bin/sh", "-c", "echo first; (sleep 4; echo late) & exit 3"],
+                    workingDirectory: nil, environment: [:])
+            } catch {
+                firstLine.withLock { $0?.resume(); $0 = nil }
+            }
+        }
+        await process.waitUntilExited()
+        #expect(process.processIdentifier == nil)
+        process.terminate()
+        for _ in 0..<60 where exits.withLock({ $0.isEmpty }) {
+            try await Task.sleep(for: .milliseconds(50))
+        }
+        try await Task.sleep(for: .milliseconds(300))
+        process.terminate()
+        #expect(exits.withLock { $0 } == [3])
+    }
 }

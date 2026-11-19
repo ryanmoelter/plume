@@ -275,6 +275,9 @@ final class HeadlessSession: AgentSession {
     let supportsPlanApproval = true
 
     private var process: AgentProcess?
+    /// Bumped whenever `process` changes hands, so an exit reported by a
+    /// process this session already let go of changes nothing.
+    private var processGeneration = 0
     private var pendingControlRequests: [String: PendingControlRequest] = [:]
     private var permissionModeRequests = PermissionModeRequests()
     private var nextRequestNumber = 0
@@ -413,6 +416,8 @@ final class HeadlessSession: AgentSession {
             addDirectories: addDirectories,
             systemPromptRulePath: AgentPromptRule.formattingPath
         )
+        processGeneration += 1
+        let generation = processGeneration
         let handler = AgentProcess(
             label: "claude",
             onLine: { [weak self] line in
@@ -420,7 +425,10 @@ final class HeadlessSession: AgentSession {
                 Task { @MainActor in self?.handle(message) }
             },
             onExit: { [weak self] status, errorLine in
-                Task { @MainActor in self?.handleExit(status: status, errorLine: errorLine) }
+                Task { @MainActor in
+                    guard let self, self.processGeneration == generation else { return }
+                    self.handleExit(status: status, errorLine: errorLine)
+                }
             }
         )
         do {
@@ -482,6 +490,7 @@ final class HeadlessSession: AgentSession {
         mcpServer?.cancelAllCalls()
         let closing = process
         process = nil
+        processGeneration += 1
         if markingExited { hasExited = true }
         // Forgotten rather than emptied, so a tab switched to the terminal
         // transport reads its tasks from the transcript again.

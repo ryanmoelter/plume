@@ -663,9 +663,7 @@ final class InProcessControlBackend: ControlBackend {
     // MARK: Scrolling
 
     func scrollTo(_ params: ScrollToParams) throws {
-        if (params.target == nil) == (params.edge == nil) {
-            throw ControlError.badParams("scrollTo takes target or edge, not both")
-        }
+        try params.validate()
         let window = try window(for: params.windowNumber, target: params.target)
         guard let content = window.contentView else { throw ControlError.noWindow }
         let scrollable = ViewFinder.all(NSScrollView.self, in: content).filter { scrollView in

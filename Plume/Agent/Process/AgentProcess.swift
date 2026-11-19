@@ -16,6 +16,7 @@ nonisolated final class AgentProcess: @unchecked Sendable {
     /// Partial trailing line carried between reads: a pipe read can split a
     /// JSON line anywhere, and a half line decodes to nothing.
     private var buffer = Data()
+    /// False once the caller ends the process or its exit is delivered.
     private var isRunning = false
 
     /// Last stderr line, kept so a nonzero exit can say why it failed. A
@@ -156,7 +157,7 @@ nonisolated final class AgentProcess: @unchecked Sendable {
     /// The spawned pid, or nil before launch. Distinguishes an agent this app
     /// owns from one orphaned by a previous run.
     var processIdentifier: pid_t? {
-        queue.sync { isRunning ? process.processIdentifier : nil }
+        queue.sync { isRunning && !hasProcessExited ? process.processIdentifier : nil }
     }
 
     /// Writes one NDJSON line, reporting `false` when the process is already
@@ -189,18 +190,22 @@ nonisolated final class AgentProcess: @unchecked Sendable {
     /// Returns at once: the escalation waits seconds for the child, so it runs
     /// on a background queue. A quitting app calls `awaitTerminations` so the
     /// escalation still finishes before the process exits.
+    ///
+    /// A child that already exited on its own still reports through `onExit`,
+    /// after its remaining lines: only a process this call ends is silent.
     func terminate() {
-        let wasRunning = queue.sync {
-            guard isRunning else { return false }
+        let state: (wasRunning: Bool, hadExited: Bool) = queue.sync {
+            guard isRunning else { return (false, false) }
+            if hasProcessExited { return (true, true) }
             isRunning = false
-            return true
+            return (true, false)
         }
-        // Whoever ends the process wants no more of its output. One that
-        // exited on its own has already drained it before `onExit`.
+        try? inPipe.fileHandleForWriting.close()
+        guard !state.hadExited else { return }
+        // Whoever ends the process wants no more of its output.
         outPipe.fileHandleForReading.readabilityHandler = nil
         errPipe.fileHandleForReading.readabilityHandler = nil
-        try? inPipe.fileHandleForWriting.close()
-        guard wasRunning else { return }
+        guard state.wasRunning else { return }
 
         guard process.isRunning else { return }
         let pid = process.processIdentifier

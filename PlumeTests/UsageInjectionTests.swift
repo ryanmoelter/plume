@@ -64,15 +64,21 @@ struct UsageInjectionTests {
         #expect(harness.poller.status == .idle)
     }
 
-    @Test func endingAnInjectionKeepsAnExistingCreditOffChecking() throws {
+    @Test func endingAnInjectionChecksOnlyWhereTheReplyWouldShow() throws {
         let harness = try Harness()
         defer { harness.cleanup() }
         harness.settings.readsClaudeUsage = true
-        let credit = UsageCredit(usedCents: 100, limitCents: 500, balanceCents: nil, isEnabled: true, currency: "USD")
-        harness.store.record(ClaudeUsageReading(credit: credit), at: Date())
+        let unlimited = UsageCredit(usedCents: 100, limitCents: nil, balanceCents: nil, isEnabled: true, currency: "USD")
+        harness.store.record(ClaudeUsageReading(credit: unlimited), at: Date())
         _ = try harness.inject(InjectUsageParams(fable: 0.4))
         _ = try harness.inject(InjectUsageParams())
-        #expect(harness.poller.status != .checking)
+        #expect(harness.poller.status == .idle)
+
+        let limited = UsageCredit(usedCents: 100, limitCents: 500, balanceCents: nil, isEnabled: true, currency: "USD")
+        harness.store.record(ClaudeUsageReading(credit: limited), at: Date())
+        _ = try harness.inject(InjectUsageParams(fable: 0.4))
+        _ = try harness.inject(InjectUsageParams())
+        #expect(harness.poller.status == .checking)
     }
 
     @Test func theRegistryReadsAnInjectionOnceSettled() async throws {

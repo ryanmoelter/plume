@@ -119,6 +119,14 @@ nonisolated struct ScrollToParams: Decodable, Equatable {
     var target: ControlTarget?
     var edge: String?
     var windowNumber: Int?
+
+    func validate() throws {
+        switch (target, edge) {
+        case (nil, nil): throw ControlError.badParams("scrollTo needs a target or an edge")
+        case (.some, .some): throw ControlError.badParams("scrollTo takes target or edge, not both")
+        default: break
+        }
+    }
 }
 
 /// Sets the window's content size, in points. With `live`, the size steps

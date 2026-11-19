@@ -94,20 +94,19 @@ final class QuotaStore {
     /// Drops what only `get_usage` reports, for when reading it is
     /// turned off. A Fable window the stream reported stays.
     func forgetEndpointReadings() {
-        guard var next = snapshot else { return }
-        next.credit = nil
-        next.creditReceivedAt = nil
-        if next.fableSource == .endpoint {
-            next = next.with(fable: nil, receivedAt: nil)
-        }
-        persist(next)
+        guard let snapshot else { return }
+#if DEBUG
+        let baseline = injection?.baseline?.withoutEndpointReadings()
+        injection?.baseline = baseline
+#endif
+        persist(snapshot.withoutEndpointReadings())
     }
 
 #if DEBUG
     /// What a driver's injected reading replaced, so the readings on disk
     /// stay the real ones.
     private struct Injection {
-        let baseline: QuotaSnapshot?
+        var baseline: QuotaSnapshot?
         var overridesOverage: Bool
         var clearsWindows = false
     }
@@ -290,6 +289,16 @@ struct QuotaSnapshot: Equatable, Codable {
         let creditHeardAt = credit == nil ? .distantPast : creditReceivedAt ?? receivedAt
         let newest = max(windowsHeardAt, fableHeardAt, creditHeardAt)
         return newest == .distantPast ? receivedAt : newest
+    }
+
+    func withoutEndpointReadings() -> QuotaSnapshot {
+        var next = self
+        next.credit = nil
+        next.creditReceivedAt = nil
+        if next.fableSource == .endpoint {
+            next = next.with(fable: nil, receivedAt: nil)
+        }
+        return next
     }
 
     func with(fable: RateLimitInfo.Window?, receivedAt fableDate: Date?) -> QuotaSnapshot {

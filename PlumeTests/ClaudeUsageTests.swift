@@ -181,6 +181,7 @@ struct ClaudeUsageTests {
     @Test func withoutClaudeCodeNothingIsFetched() async throws {
         let (settings, cleanup) = try scratchSettings()
         defer { cleanup() }
+        settings.alwaysShowsCreditAndFableQuota = true
         let calls = Mutex(0)
         let poller = ClaudeUsagePoller(
             store: QuotaStore(),
@@ -222,6 +223,7 @@ struct ClaudeUsageTests {
     @Test func aPollStartedByStartSurfacesCheckingThenFailure() async throws {
         let (settings, cleanup) = try scratchSettings()
         defer { cleanup() }
+        settings.alwaysShowsCreditAndFableQuota = true
         let gate = FetchGate()
         let poller = ClaudeUsagePoller(
             store: QuotaStore(), settings: settings, fetch: { _ in await gate.fetch() }, canPoll: true
@@ -240,6 +242,7 @@ struct ClaudeUsageTests {
     @Test func aLoginThatDoesNotReportUsageShowsNoFailure() async throws {
         let (settings, cleanup) = try scratchSettings()
         defer { cleanup() }
+        settings.alwaysShowsCreditAndFableQuota = true
         let gate = FetchGate()
         let poller = ClaudeUsagePoller(
             store: QuotaStore(), settings: settings, fetch: { _ in await gate.fetch() }, canPoll: true
@@ -251,6 +254,59 @@ struct ClaudeUsageTests {
         for _ in 0..<200 where poller.status == .checking { try await Task.sleep(for: .milliseconds(10)) }
         poller.stop()
         #expect(poller.status == .idle)
+    }
+
+    @Test func checkingShowsOnlyWhereTheReplyWouldShow() {
+        let none = QuotaSnapshot.empty(at: start)
+        #expect(ClaudeUsageStatus.beforeFirstReply(alwaysShows: false, snapshot: nil, now: start) == .idle)
+        #expect(ClaudeUsageStatus.beforeFirstReply(alwaysShows: false, snapshot: none, now: start) == .idle)
+        #expect(ClaudeUsageStatus.beforeFirstReply(alwaysShows: true, snapshot: nil, now: start) == .checking)
+
+        var noLimit = none
+        noLimit.credit = UsageCredit(usedCents: 1240, limitCents: nil)
+        #expect(ClaudeUsageStatus.beforeFirstReply(alwaysShows: false, snapshot: noLimit, now: start) == .idle)
+
+        var spent = none
+        spent.credit = UsageCredit(usedCents: 1240, limitCents: 5000)
+        #expect(ClaudeUsageStatus.beforeFirstReply(alwaysShows: false, snapshot: spent, now: start) == .checking)
+        let fable = none.with(fable: window(0.3), receivedAt: start)
+        #expect(ClaudeUsageStatus.beforeFirstReply(alwaysShows: false, snapshot: fable, now: start) == .checking)
+    }
+
+    @Test func anAccountWithNothingShowableSurfacesNoFailure() async throws {
+        let (settings, cleanup) = try scratchSettings()
+        defer { cleanup() }
+        let store = QuotaStore()
+        store.record(streamInfo(fable: nil), at: start)
+        let gate = FetchGate()
+        let poller = ClaudeUsagePoller(store: store, settings: settings, fetch: { _ in await gate.fetch() }, canPoll: true)
+        poller.start()
+        #expect(poller.status == .idle)
+        await gate.waitForRequest()
+        gate.resume(.failed)
+        for _ in 0..<50 { await Task.yield() }
+        poller.stop()
+        #expect(poller.status == .idle)
+    }
+
+    @Test func turningReadingBackOnMidFetchPollsAsSoonAsTheOldFetchEnds() async throws {
+        let (settings, cleanup) = try scratchSettings()
+        defer { cleanup() }
+        let gate = FetchGate()
+        let poller = ClaudeUsagePoller(store: QuotaStore(), settings: settings, fetch: { _ in await gate.fetch() }, canPoll: true)
+        poller.start()
+        await gate.waitForRequest()
+        poller.setEnabled(false)
+        poller.setEnabled(true)
+        // Let the new loop's first poll find the old request in flight.
+        for _ in 0..<50 { await Task.yield() }
+        #expect(gate.requests == 1)
+        gate.resume(.failed)
+        for _ in 0..<200 where gate.requests < 2 { try await Task.sleep(for: .milliseconds(10)) }
+        poller.stop()
+        #expect(gate.requests == 2)
+        await gate.waitForRequest()
+        gate.resume(.failed)
     }
 
     @Test func turningReadingOffWhileLookingForClaudeCodeFetchesNothing() async throws {
@@ -281,6 +337,7 @@ struct ClaudeUsageTests {
     @Test func anInjectionWhileLookingForClaudeCodeKeepsItsState() async throws {
         let (settings, cleanup) = try scratchSettings()
         defer { cleanup() }
+        settings.alwaysShowsCreditAndFableQuota = true
         let availability = AvailabilityGate()
         let poller = ClaudeUsagePoller(
             store: QuotaStore(),
@@ -454,6 +511,27 @@ struct ClaudeUsageTests {
         #expect(persisted.rateLimit.sevenDay?.utilization == 0.5)
     }
 
+    @Test func forgettingEndpointReadingsDuringAnInjectionKeepsThemOffDisk() throws {
+        let suite = "ClaudeUsageTests-\(UUID().uuidString)"
+        let defaults = try #require(UserDefaults(suiteName: suite))
+        defer { defaults.removePersistentDomain(forName: suite) }
+        let store = QuotaStore(defaults: defaults)
+        store.record(streamInfo(fable: nil), at: start)
+        store.record(ClaudeUsageReading(fable: window(0.1), credit: UsageCredit(usedCents: 100, limitCents: 500)), at: start)
+        store.inject(fable: window(0.9), credit: UsageCredit(usedCents: 9999, limitCents: 10000), isUsingOverage: nil)
+
+        store.forgetEndpointReadings()
+        let saved = try #require(defaults.data(forKey: QuotaStore.defaultsKey))
+        let persisted = try JSONDecoder().decode(QuotaSnapshot.self, from: saved)
+        #expect(persisted.credit == nil)
+        #expect(persisted.rateLimit.fable == nil)
+
+        store.endInjection()
+        #expect(store.snapshot?.credit == nil)
+        #expect(store.snapshot?.rateLimit.fable == nil)
+        #expect(store.snapshot?.rateLimit.fiveHour?.utilization == 0.1)
+    }
+
     @Test func creditDimsAfterTwoMissedPolls() {
         let limit = QuotaFreshness.creditStaleAfter
         #expect(limit == 40 * 60)
@@ -507,6 +585,19 @@ struct ClaudeUsageTests {
         #expect(SidebarQuotaSummary.percent(reading.fiveHour!.utilization) == "999%")
         #expect(SidebarQuotaSummary.percent(.nan) == "—")
         #expect(SidebarQuotaSummary.percent(0.214) == "21%")
+    }
+
+    @Test func amountsHonorTheReplysExponent() throws {
+        let spend = #"{"spend":{"used":{"amount_minor":124000,"currency":"USD","exponent":4},"limit":{"amount_minor":50,"currency":"USD","exponent":0}}}"#
+        let spendCredit = try #require(ClaudeUsageParser.parse(Data(spend.utf8))?.credit)
+        #expect(spendCredit.usedCents == 1240)
+        #expect(spendCredit.limitCents == 5000)
+
+        let extra = #"{"extra_usage":{"is_enabled":true,"monthly_limit":500,"used_credits":124,"currency":"USD","decimal_places":1}}"#
+        let extraCredit = try #require(ClaudeUsageParser.parse(Data(extra.utf8))?.credit)
+        #expect(extraCredit.usedCents == 1240)
+        #expect(extraCredit.limitCents == 5000)
+        #expect(UsageCreditFormat.amount(minorUnits: extraCredit.usedCents!, currency: extraCredit.currency, locale: Locale(identifier: "en_US")) == "$12.40")
     }
 
     @Test func theLoggedShapeCarriesNoValues() throws {
@@ -596,6 +687,7 @@ struct ClaudeUsageTests {
     @Test func turningReadingOnEndsAnInjectionSoTheRealPollReplacesIt() async throws {
         let (settings, cleanup) = try scratchSettings()
         defer { cleanup() }
+        settings.alwaysShowsCreditAndFableQuota = true
         settings.readsClaudeUsage = false
         let store = QuotaStore()
         store.record(streamInfo(fable: nil), at: start)
@@ -632,6 +724,15 @@ struct ClaudeUsageTests {
         #expect(byEdge.edge == "bottom")
     }
 
+    @Test func scrollToNamesWhatIsWrongWithItsParams() {
+        func message(_ params: ScrollToParams) -> String? {
+            do { try params.validate(); return nil } catch { return error.localizedDescription }
+        }
+        #expect(message(ScrollToParams())?.contains("needs a target or an edge") == true)
+        #expect(message(ScrollToParams(target: .control(id: "x", index: nil, label: nil), edge: "top"))?.contains("not both") == true)
+        #expect(message(ScrollToParams(edge: "top")) == nil)
+    }
+
     @Test func injectUsageRejectsOutOfRangeParams() throws {
         #expect(throws: ControlError.self) { try InjectUsageParams(fable: 1.5).validate() }
         #expect(throws: ControlError.self) { try InjectUsageParams(fable: -0.1).validate() }
@@ -645,6 +746,7 @@ struct ClaudeUsageTests {
     @Test func turningReadingOnChecksUntilTheFirstReplyAndSurfacesItsFailure() async throws {
         let (settings, cleanup) = try scratchSettings()
         defer { cleanup() }
+        settings.alwaysShowsCreditAndFableQuota = true
         let gate = FetchGate()
         let poller = ClaudeUsagePoller(store: QuotaStore(), settings: settings, fetch: { _ in await gate.fetch() })
         #expect(poller.status == .idle)

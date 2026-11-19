@@ -74,13 +74,22 @@ nonisolated enum ClaudeUsagePollSchedule {
     }
 }
 
-/// What the quota row says about reading usage itself, so turning it on
-/// always shows something until the first reply lands.
+/// What the quota row says about reading usage itself, between turning it
+/// on and the first reply.
 enum ClaudeUsageStatus: Equatable {
     case idle
     case checking
     /// A sentence for the row's tooltip.
     case failed(String)
+
+    /// The status before the first reply. Checking, and a failure after it,
+    /// show only where that reply would show something: the setting forces
+    /// credit and Fable on, or one of them is already on screen. An account
+    /// whose replies carry nothing showable would otherwise pulse on every
+    /// launch.
+    static func beforeFirstReply(alwaysShows: Bool, snapshot: QuotaSnapshot?, now: Date) -> ClaudeUsageStatus {
+        SidebarQuotaExtras(snapshot: snapshot, alwaysShows: alwaysShows, now: now).showsAny ? .checking : .idle
+    }
 
     /// For a driver reading the row's `plumeID` value.
     var description: String {
@@ -110,7 +119,11 @@ final class ClaudeUsagePoller {
     private var loop: Task<Void, Never>?
     /// Bumped by `stop`, so a reply to a request sent before it is dropped.
     private var generation = 0
-    private var isFetching = false
+    /// The generation of the request in flight, if any.
+    private var fetchingGeneration: Int?
+    /// A poll found a request from before a toggle in flight, so that one's
+    /// end polls again instead of leaving the wait to the loop.
+    private var pollsWhenStaleFetchEnds = false
     private var lastAttempt: Date?
     private var lastOutcome: ClaudeUsagePollOutcome = .success
     private var consecutiveFailures = 0
@@ -145,10 +158,14 @@ final class ClaudeUsagePoller {
 
     func start() {
         guard loop == nil, settings.readsClaudeUsage, canPoll else { return }
-        if status == .idle, store.snapshot?.credit == nil { status = .checking }
+        if status == .idle { status = statusBeforeFirstReply }
         loop = Task { [weak self] in
             while !Task.isCancelled {
-                await self?.pollIfDue()
+                // Scoped so the sleep holds no reference.
+                do {
+                    guard let self else { return }
+                    await self.pollIfDue()
+                }
                 try? await Task.sleep(for: Self.checkInterval)
             }
         }
@@ -158,6 +175,10 @@ final class ClaudeUsagePoller {
         loop?.cancel()
         loop = nil
         generation += 1
+    }
+
+    private var statusBeforeFirstReply: ClaudeUsageStatus {
+        .beforeFirstReply(alwaysShows: settings.alwaysShowsCreditAndFableQuota, snapshot: store.snapshot, now: store.now)
     }
 
     /// The Settings toggle: turning it on polls straight away.
@@ -180,7 +201,7 @@ final class ClaudeUsagePoller {
 
     private func restart() {
         stop()
-        if store.snapshot?.credit == nil { status = .checking }
+        status = statusBeforeFirstReply
         lastAttempt = nil
         consecutiveFailures = 0
         lastOutcome = .success
@@ -244,11 +265,15 @@ final class ClaudeUsagePoller {
     private func poll(at sentAt: Date) async {
         // A request still in flight from before a toggle holds the slot, so
         // turning polling off and on never runs two at once.
-        guard !isFetching, mayApply(generation: generation) else { return }
+        guard mayApply(generation: generation) else { return }
+        if let fetchingGeneration {
+            if fetchingGeneration != generation { pollsWhenStaleFetchEnds = true }
+            return
+        }
         lastAttempt = sentAt
-        isFetching = true
-        defer { isFetching = false }
         let sentGeneration = generation
+        fetchingGeneration = sentGeneration
+        defer { fetchEnded() }
         let isAvailable = await isClaudeAvailable()
         guard mayApply(generation: sentGeneration) else { return }
         guard isAvailable else {
@@ -259,6 +284,14 @@ final class ClaudeUsagePoller {
         let result = await fetch(sentAt)
         guard mayApply(generation: sentGeneration) else { return }
         apply(result, sentAt: sentAt)
+    }
+
+    private func fetchEnded() {
+        fetchingGeneration = nil
+        guard pollsWhenStaleFetchEnds else { return }
+        pollsWhenStaleFetchEnds = false
+        guard loop != nil else { return }
+        Task { await pollIfDue() }
     }
 
     /// Checked again after every wait, since a toggle, a `stop` or an

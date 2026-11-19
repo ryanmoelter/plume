@@ -403,7 +403,7 @@ enum UsageCreditFormat {
     }
 
     /// ISO 4217's minor-unit exponent: 2 for USD, 0 for JPY.
-    static func minorUnitDigits(currency: String) -> Int {
+    nonisolated static func minorUnitDigits(currency: String) -> Int {
         let probe = NumberFormatter()
         probe.locale = Locale(identifier: "en_US_POSIX")
         probe.numberStyle = .currencyISOCode

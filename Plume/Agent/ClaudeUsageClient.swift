@@ -76,14 +76,18 @@ nonisolated enum ClaudeUsageParser {
         let extra = root["extra_usage"]?.objectValue
         let spend = root["spend"]?.objectValue
         guard extra != nil || spend != nil else { return nil }
+        let currency = spend?["currency"]?.stringValue
+            ?? spend?["used"]?.objectValue?["currency"]?.stringValue
+            ?? extra?["currency"]?.stringValue
+        let extraExponent = extra?["decimal_places"]?.doubleValue.flatMap { Int(exactly: $0) }
+        let spendCents = { (key: String) in cents(spend?[key], exponent: nil, currency: currency) }
+        let extraCents = { (key: String) in cents(extra?[key], exponent: extraExponent, currency: currency) }
         let credit = UsageCredit(
-            usedCents: cents(spend?["used"]) ?? cents(extra?["used_credits"]),
-            limitCents: cents(spend?["limit"]) ?? cents(extra?["monthly_limit"]),
-            balanceCents: cents(spend?["balance"]),
+            usedCents: spendCents("used") ?? extraCents("used_credits"),
+            limitCents: spendCents("limit") ?? extraCents("monthly_limit"),
+            balanceCents: spendCents("balance"),
             isEnabled: spend?["is_enabled"]?.boolValue ?? spend?["enabled"]?.boolValue ?? extra?["is_enabled"]?.boolValue,
-            currency: spend?["currency"]?.stringValue
-                ?? spend?["used"]?.objectValue?["currency"]?.stringValue
-                ?? extra?["currency"]?.stringValue,
+            currency: currency,
             resetsAt: creditReset(in: root)
         )
         return credit == UsageCredit() ? nil : credit
@@ -100,9 +104,19 @@ nonisolated enum ClaudeUsageParser {
         return RateLimitInfo.Window(utilization: percent / 100, resetsAt: date(object["resets_at"]))
     }
 
-    private static func cents(_ value: JSONValue?) -> Int? {
-        let amount = value?.objectValue.map { $0["amount_minor"] } ?? value
-        return amount?.doubleValue.flatMap { Int(exactly: $0.rounded()) }
+    /// An amount rescaled from the reply's exponent to the currency's ISO
+    /// minor units, which is what `UsageCredit` stores. An amount object's own
+    /// `exponent` wins over `exponent` (`extra_usage`'s `decimal_places`);
+    /// with neither, the amount is taken to be in ISO minor units already.
+    private static func cents(_ value: JSONValue?, exponent: Int?, currency: String?) -> Int? {
+        let object = value?.objectValue
+        let amount = object.map { $0["amount_minor"] } ?? value
+        guard let raw = amount?.doubleValue else { return nil }
+        let replyExponent = object?["exponent"]?.doubleValue.flatMap { Int(exactly: $0) } ?? exponent
+        let code = (object?["currency"]?.stringValue ?? currency ?? "USD").uppercased()
+        let shift = replyExponent.map { UsageCreditFormat.minorUnitDigits(currency: code) - $0 } ?? 0
+        guard (-18...18).contains(shift) else { return nil }
+        return Int(exactly: (raw * pow(10, Double(shift))).rounded())
     }
 
     private static func date(_ value: JSONValue?) -> Date? {
