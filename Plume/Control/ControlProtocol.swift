@@ -356,6 +356,14 @@ nonisolated struct InjectUsageParams: Decodable, Equatable {
     var isUsingOverage: Bool?
     /// Sets the persisted "Always show credit and Fable quota" setting.
     var alwaysShow: Bool?
+    /// Shows the quota row's offer again: undoes its dismissal and turns
+    /// reading usage off, both persisted. Given alone, nothing is injected.
+    var resetUsageOffer: Bool?
+
+    var injectsReadings: Bool {
+        fable != nil || fableResetsInHours != nil || creditUsed != nil || creditLimit != nil
+            || creditBalance != nil || isUsingOverage != nil || alwaysShow != nil
+    }
 
     func validate() throws {
         if let fable, !(0...1).contains(fable) {

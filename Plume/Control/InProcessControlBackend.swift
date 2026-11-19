@@ -654,6 +654,11 @@ final class InProcessControlBackend: ControlBackend {
 
     func injectUsage(_ params: InjectUsageParams) throws {
         try params.validate()
+        if params.resetUsageOffer == true {
+            AppSettings.shared.dismissedClaudeUsageOffer = false
+            ClaudeUsagePoller.shared.setEnabled(false)
+            if !params.injectsReadings { return }
+        }
         let cents = InjectUsageParams.cents
         let fable = params.fable.map { utilization in
             RateLimitInfo.Window(

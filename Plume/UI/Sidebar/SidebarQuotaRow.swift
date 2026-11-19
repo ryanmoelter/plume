@@ -34,14 +34,20 @@ struct SidebarQuotaRow: View, ThemedView {
         } ?? false
         let extras = SidebarQuotaExtras(snapshot: snapshot, alwaysShows: settings.alwaysShowsCreditAndFableQuota, now: quota.now)
         let windows = snapshot.flatMap { Self.hasWindows($0) ? $0 : nil }
+        let showsOffer = !settings.readsClaudeUsage && !settings.dismissedClaudeUsageOffer
 
         HStack(spacing: 8) {
             AgentProviderIcon(provider: .claudeCode, size: 16)
                 // A row with nothing to say reads as quiet as one gone stale.
                 .opacity(rowIsStale || !(snapshot?.hasReading ?? false) ? colors.emphasis[.secondary] : 1)
+            // The offer goes first when the row runs out of room, then the extras.
             if let windows {
-                // The extras go first when the row runs out of room.
                 ViewThatFits(in: .horizontal) {
+                    HStack(spacing: 8) {
+                        meters(windows, isStale: windowsAreStale)
+                        extraReadings(snapshot, extras: extras, compact: false)
+                        if showsOffer { usageOffer }
+                    }
                     HStack(spacing: 8) {
                         meters(windows, isStale: windowsAreStale)
                         extraReadings(snapshot, extras: extras, compact: false)
@@ -54,6 +60,10 @@ struct SidebarQuotaRow: View, ThemedView {
                 ViewThatFits(in: .horizontal) {
                     HStack(spacing: 8) {
                         extraReadings(snapshot, extras: extras, compact: false)
+                        if showsOffer { usageOffer }
+                    }
+                    HStack(spacing: 8) {
+                        extraReadings(snapshot, extras: extras, compact: false)
                     }
                     HStack(spacing: 6) {
                         extraReadings(snapshot, extras: extras, compact: true)
@@ -63,6 +73,14 @@ struct SidebarQuotaRow: View, ThemedView {
                         .accessibilityLabel(SidebarQuotaSummary.text(snapshot, extras: extras))
                 }
                 .transition(.opacity)
+            } else if showsOffer {
+                ViewThatFits(in: .horizontal) {
+                    HStack(spacing: 8) {
+                        noReading
+                        usageOffer
+                    }
+                    noReading
+                }
             } else {
                 noReading
             }
@@ -76,6 +94,27 @@ struct SidebarQuotaRow: View, ThemedView {
         .accessibilityElement(children: .contain)
         .accessibilityLabel("Claude account quota")
         .plumeID(AccessibilityID.sidebarQuotaRow)
+    }
+
+    private var usageOffer: some View {
+        Button("Show credit", action: acceptUsageOffer)
+            .buttonStyle(.plain)
+            .foregroundStyle(colors.foreground.opacity(colors.emphasis[.secondary]))
+            .help("Show usage credit and the Fable quota here. Plume reads Claude Code's login from your Keychain to fetch them, so macOS asks once. Right-click to hide this.")
+            .contextMenu {
+                Button("Don't Show This", action: dismissUsageOffer)
+            }
+            .transition(.opacity)
+            .plumeID(AccessibilityID.sidebarQuotaUsageOffer, invoke: acceptUsageOffer)
+            .plumeMenuItem(AccessibilityID.sidebarQuotaUsageOfferDismiss, invoke: dismissUsageOffer)
+    }
+
+    private func acceptUsageOffer() {
+        ClaudeUsagePoller.shared.setEnabled(true)
+    }
+
+    private func dismissUsageOffer() {
+        settings.dismissedClaudeUsageOffer = true
     }
 
     private var noReading: some View {
@@ -95,6 +134,7 @@ struct SidebarQuotaRow: View, ThemedView {
             snapshot?.rateLimit.sevenDay != nil,
             extras.showsFable,
             extras.showsCredit,
+            !settings.readsClaudeUsage && !settings.dismissedClaudeUsageOffer,
         ]
     }
 

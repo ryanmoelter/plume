@@ -126,7 +126,10 @@ nonisolated enum ClaudeCredentials {
     enum Read: Equatable {
         case token(String, expiresAt: Date?)
         case missing
+        /// Keychain access refused outright.
         case denied
+        /// The user dismissed the Keychain prompt.
+        case cancelled
     }
 
     struct Item: Equatable {
@@ -212,7 +215,9 @@ nonisolated enum ClaudeCredentials {
         case errSecSuccess:
             guard let data, let token = parse(data) else { return .missing }
             return token
-        case errSecUserCanceled, errSecAuthFailed:
+        case errSecUserCanceled:
+            return .cancelled
+        case errSecAuthFailed:
             return .denied
         default:
             // A locked Keychain among them, which a later poll can get past.
@@ -241,6 +246,9 @@ nonisolated enum ClaudeUsageFetchResult: Equatable, Sendable {
     case unauthorized
     /// The Keychain refused the read, which means the user declined access.
     case credentialsDenied
+    /// The user dismissed the Keychain prompt, which may have been a
+    /// misclick, so it counts for less than a denial.
+    case credentialsCancelled
     case failed
 }
 
@@ -258,6 +266,7 @@ nonisolated struct ClaudeUsageClient: Sendable {
         switch readCredentials() {
         case .missing: return .unauthorized
         case .denied: return .credentialsDenied
+        case .cancelled: return .credentialsCancelled
         case .token(let value, let expiresAt):
             if let expiresAt, expiresAt <= now { return .unauthorized }
             token = value

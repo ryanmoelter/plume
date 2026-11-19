@@ -59,9 +59,6 @@ final class ClaudeUsagePoller {
     /// How often the loop re-checks whether a poll is due, so a window going
     /// over its limit shortens the wait without waiting out the long one.
     static let checkInterval: Duration = .seconds(60)
-    /// Debug builds are re-signed on every build, so each one would prompt
-    /// for the CLI's Keychain item again. They poll only when asked to.
-    static let debugOptInKey = "PlumeClaudeUsagePollInDebug"
 
     private let store: QuotaStore
     private let fetch: @Sendable (Date) async -> ClaudeUsageFetchResult
@@ -70,6 +67,10 @@ final class ClaudeUsagePoller {
     /// Bumped by `stop`, so a reply to a request sent before it is dropped.
     private var generation = 0
     private var isFetching = false
+    /// Set by a dismissed Keychain prompt, so it isn't asked again this launch.
+    private var isPausedThisLaunch = false
+    /// Dismissed prompts that turn polling off.
+    static let cancelsBeforeTurningOff = 2
     private var lastAttempt: Date?
     private var lastOutcome: ClaudeUsagePollOutcome = .success
     private var consecutiveFailures = 0
@@ -89,7 +90,7 @@ final class ClaudeUsagePoller {
     }
 
     func start() {
-        guard loop == nil, settings.readsClaudeUsage, Self.shouldPoll() else { return }
+        guard loop == nil, settings.readsClaudeUsage, !isPausedThisLaunch, Self.shouldPoll() else { return }
         loop = Task { [weak self] in
             while !Task.isCancelled {
                 await self?.pollIfDue()
@@ -104,8 +105,8 @@ final class ClaudeUsagePoller {
         generation += 1
     }
 
-    /// The Settings toggle: turning it on clears a declined Keychain prompt
-    /// and polls straight away.
+    /// The Settings toggle and the quota row's offer: turning it on clears
+    /// any declined or dismissed Keychain prompt and polls straight away.
     func setEnabled(_ enabled: Bool) {
         settings.readsClaudeUsage = enabled
         stop()
@@ -113,19 +114,18 @@ final class ClaudeUsagePoller {
             store.forgetEndpointReadings()
             return
         }
+        settings.claudeUsageKeychainCancels = 0
+        isPausedThisLaunch = false
         lastAttempt = nil
         consecutiveFailures = 0
         lastOutcome = .success
         start()
     }
 
+    /// Never under a test run, which would otherwise read the developer's
+    /// own login.
     private static func shouldPoll() -> Bool {
-        guard QuotaPersistence.sharedDefaults() != nil else { return false }
-#if DEBUG
-        return UserDefaults.standard.bool(forKey: debugOptInKey)
-#else
-        return true
-#endif
+        QuotaPersistence.sharedDefaults() != nil
     }
 
     private func isDue(now: Date) -> Bool {
@@ -145,7 +145,7 @@ final class ClaudeUsagePoller {
         let sentAt = Date()
         // A request still in flight from before a toggle holds the slot, so
         // turning polling off and on never runs two at once.
-        guard settings.readsClaudeUsage, !isFetching, isDue(now: sentAt) else { return }
+        guard settings.readsClaudeUsage, !isPausedThisLaunch, !isFetching, isDue(now: sentAt) else { return }
         lastAttempt = sentAt
         isFetching = true
         let sentGeneration = generation
@@ -161,6 +161,7 @@ final class ClaudeUsagePoller {
     private func apply(_ result: ClaudeUsageFetchResult, sentAt: Date) {
         switch result {
         case .reading(let reading):
+            settings.claudeUsageKeychainCancels = 0
             consecutiveFailures = 0
             lastOutcome = .success
             store.record(reading, at: sentAt)
@@ -175,9 +176,23 @@ final class ClaudeUsagePoller {
             lastOutcome = .skipped
         case .credentialsDenied:
             Log.agent.info("Claude usage polling turned off: Keychain access to the CLI's login was declined")
-            settings.readsClaudeUsage = false
-            stop()
-            store.forgetEndpointReadings()
+            turnOff()
+        case .credentialsCancelled:
+            settings.claudeUsageKeychainCancels += 1
+            if settings.claudeUsageKeychainCancels >= Self.cancelsBeforeTurningOff {
+                Log.agent.info("Claude usage polling turned off: the Keychain prompt was dismissed twice")
+                turnOff()
+            } else {
+                Log.agent.info("Claude usage polling paused until relaunch: the Keychain prompt was dismissed")
+                isPausedThisLaunch = true
+                stop()
+            }
         }
+    }
+
+    private func turnOff() {
+        settings.readsClaudeUsage = false
+        stop()
+        store.forgetEndpointReadings()
     }
 }

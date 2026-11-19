@@ -269,12 +269,14 @@ struct ClaudeUsageTests {
     }
 
     @Test func declinedKeychainAccessStopsThePoll() async {
-        #expect(ClaudeCredentials.read(status: errSecUserCanceled, data: nil) == .denied)
+        #expect(ClaudeCredentials.read(status: errSecUserCanceled, data: nil) == .cancelled)
         #expect(ClaudeCredentials.read(status: errSecAuthFailed, data: nil) == .denied)
         #expect(ClaudeCredentials.read(status: errSecItemNotFound, data: nil) == .missing)
         #expect(ClaudeCredentials.read(status: errSecInteractionNotAllowed, data: nil) == .missing)
         let client = ClaudeUsageClient(readCredentials: { .denied })
         #expect(await client.fetch() == .credentialsDenied)
+        let cancelling = ClaudeUsageClient(readCredentials: { .cancelled })
+        #expect(await cancelling.fetch() == .credentialsCancelled)
     }
 
     @Test func declinedKeychainAccessTurnsTheSettingOff() async throws {
@@ -282,7 +284,8 @@ struct ClaudeUsageTests {
         let defaults = try #require(UserDefaults(suiteName: suite))
         defer { defaults.removePersistentDomain(forName: suite) }
         let settings = AppSettings(defaults: defaults, domainName: suite)
-        #expect(settings.readsClaudeUsage)
+        #expect(!settings.readsClaudeUsage)
+        settings.readsClaudeUsage = true
         let poller = ClaudeUsagePoller(store: QuotaStore(), settings: settings, fetch: { _ in .credentialsDenied })
 
         await poller.pollIfDue()
@@ -492,10 +495,73 @@ struct ClaudeUsageTests {
         #expect(store.snapshot?.rateLimit.fable?.utilization == 0.4)
     }
 
+    @Test func aDismissedPromptPausesThisLaunchAndASecondTurnsPollingOff() async throws {
+        let (settings, cleanup) = try scratchSettings()
+        defer { cleanup() }
+        let calls = Mutex(0)
+        func launch() -> ClaudeUsagePoller {
+            ClaudeUsagePoller(store: QuotaStore(), settings: settings, fetch: { _ in
+                calls.withLock { $0 += 1 }
+                return .credentialsCancelled
+            })
+        }
+
+        let first = launch()
+        await first.pollIfDue()
+        #expect(settings.claudeUsageKeychainCancels == 1)
+        #expect(settings.readsClaudeUsage)
+        await first.pollIfDue()
+        #expect(calls.withLock { $0 } == 1)
+
+        await launch().pollIfDue()
+        #expect(settings.claudeUsageKeychainCancels == 2)
+        #expect(!settings.readsClaudeUsage)
+    }
+
+    @Test func aReadOrAnOptInClearsTheDismissedPrompts() async throws {
+        let (settings, cleanup) = try scratchSettings()
+        defer { cleanup() }
+        let results = Mutex<[ClaudeUsageFetchResult]>([.credentialsCancelled, .reading(ClaudeUsageReading())])
+        let poller = ClaudeUsagePoller(store: QuotaStore(), settings: settings, fetch: { _ in
+            results.withLock { $0.removeFirst() }
+        })
+
+        await poller.pollIfDue()
+        #expect(settings.claudeUsageKeychainCancels == 1)
+        poller.setEnabled(true)
+        #expect(settings.claudeUsageKeychainCancels == 0)
+
+        settings.claudeUsageKeychainCancels = 1
+        await poller.pollIfDue()
+        #expect(settings.claudeUsageKeychainCancels == 0)
+        #expect(settings.readsClaudeUsage)
+    }
+
+    @Test func readingUsageIsOffUntilTheUserOptsIn() async throws {
+        let suite = "ClaudeUsageTests-\(UUID().uuidString)"
+        let defaults = try #require(UserDefaults(suiteName: suite))
+        defer { defaults.removePersistentDomain(forName: suite) }
+        let settings = AppSettings(defaults: defaults, domainName: suite)
+        #expect(!settings.readsClaudeUsage)
+        let calls = Mutex(0)
+        let poller = ClaudeUsagePoller(store: QuotaStore(), settings: settings, fetch: { _ in
+            calls.withLock { $0 += 1 }
+            return .unauthorized
+        })
+
+        await poller.pollIfDue()
+        #expect(calls.withLock { $0 } == 0)
+        poller.setEnabled(true)
+        await poller.pollIfDue()
+        #expect(calls.withLock { $0 } == 1)
+    }
+
     private func scratchSettings() throws -> (AppSettings, () -> Void) {
         let suite = "ClaudeUsageTests-\(UUID().uuidString)"
         let defaults = try #require(UserDefaults(suiteName: suite))
-        return (AppSettings(defaults: defaults, domainName: suite), { defaults.removePersistentDomain(forName: suite) })
+        let settings = AppSettings(defaults: defaults, domainName: suite)
+        settings.readsClaudeUsage = true
+        return (settings, { defaults.removePersistentDomain(forName: suite) })
     }
 
     // MARK: Sidebar
