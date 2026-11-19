@@ -159,10 +159,11 @@ struct TaskRowView: View {
     /// The remote-control and device icons of the agent the task row stands
     /// for, when it shows no header of its own. Its project header repeats per
     /// directory, and the icons belong to the task rather than to any one of
-    /// them, so they ride on the first. Every agent with a header carries its
-    /// own tab's icons instead.
+    /// them, so they ride on the first, or on the title when no project line
+    /// sits above the headers. Every agent with a header carries its own
+    /// tab's icons instead.
     private struct ProjectLineIcons {
-        var lineIndex: Int
+        var lineIndex: Int?
         var isRemoteControlled: Bool
         var heldDevices: [DeviceLease]
     }
@@ -172,10 +173,9 @@ struct TaskRowView: View {
         in lines: [TaskRowDetails.Line],
         agentTabIDs: [UUID],
         headerTabIDs: Set<UUID>
-    ) -> ProjectLineIcons? {
-        guard let index = TaskRowDetails.rowProjectLineIndex(lines) else { return nil }
-        return ProjectLineIcons(
-            lineIndex: index,
+    ) -> ProjectLineIcons {
+        ProjectLineIcons(
+            lineIndex: TaskRowDetails.rowProjectLineIndex(lines),
             isRemoteControlled: Self.isRemoteControlled(tabIDs: agentTabIDs.filter { !headerTabIDs.contains($0) }),
             heldDevices: DeviceLeaseStore.shared.leases(
                 ownedBy: task.orderedLiveTabs.map(\.id).filter { !headerTabIDs.contains($0) }
@@ -202,7 +202,7 @@ struct TaskRowView: View {
         let nestedAgentTabs = TaskStore.nestedAgentTabs(of: task)
         let agentTabIDs = nestedAgentTabs.map(\.item.id)
         let hasSeveralAgents = agentTabIDs.count > 1
-        let rowAgentTabID = hasSeveralAgents ? TaskStore.soleTopLevelAgentTab(of: task)?.id : agentTabIDs.first
+        let rowAgentTabID = hasSeveralAgents ? TaskStore.soleTopLevelAgentTab(in: nestedAgentTabs)?.id : agentTabIDs.first
         let headerTabIDs = Set(hasSeveralAgents ? agentTabIDs.filter { $0 != rowAgentTabID } : [])
         let working = workingLinearIssues
         let pinned = pinnedPullRequests
@@ -215,6 +215,7 @@ struct TaskRowView: View {
         let rowOwnsIcons = !hasSeveralAgents || rowAgentTabID != nil
         let icons = rowOwnsIcons
             ? projectLineIcons(in: rawLines, agentTabIDs: agentTabIDs, headerTabIDs: headerTabIDs) : nil
+        let titleIcons = icons?.lineIndex == nil ? icons : nil
         let owners = TaskRowDetails.owningAgentLabels(rawLines)
         let nesting = TaskRowDetails.agentGroupNesting(rawLines)
         let hovered = hasSeveralAgents ? TaskRowDetails.hoveredAgentGroup(hoveredLines: hoveredLines, nesting: nesting) : nil
@@ -229,7 +230,12 @@ struct TaskRowView: View {
         VStack(alignment: .leading, spacing: Self.lineSpacing) {
             HStack(alignment: .top, spacing: 6) {
                 VStack(alignment: .leading, spacing: Self.lineSpacing) {
-                    title(heldDevices: rowOwnsIcons ? nil : taskLevelHeldDevices())
+                    title(
+                        heldDevices: rowOwnsIcons
+                            ? titleIcons.flatMap { $0.heldDevices.isEmpty ? nil : DeviceLeaseStore.summary($0.heldDevices) }
+                            : taskLevelHeldDevices(),
+                        isRemoteControlled: titleIcons?.isRemoteControlled ?? false
+                    )
                     descriptionLine
                     ForEach(Array(lines.prefix(badgeLineCount)), id: \.offset) { index, line in
                         groupedDetailLine(line, at: index, owner: owners[index], icons: icons, groups: groups)
@@ -252,7 +258,10 @@ struct TaskRowView: View {
                 agentCapToggle(title: title, symbol: symbol)
             }
 
-            TaskActivityRow(tabIDs: hasSeveralAgents ? rowAgentTabID.map { [$0] } ?? [] : agentTabIDs)
+            // A folded header's activity shows here until it unfolds.
+            TaskActivityRow(
+                tabIDs: (hasSeveralAgents ? rowAgentTabID.map { [$0] } ?? [] : agentTabIDs) + folded.hiddenTabIDs
+            )
         }
         .agentGroupBars(isEnabled: hasSeveralAgents, style: barStyle(groups))
         .padding(.vertical, 2)
@@ -323,7 +332,7 @@ struct TaskRowView: View {
         watched.apply(change)
     }
 
-    private func title(heldDevices: String?) -> some View {
+    private func title(heldDevices: String?, isRemoteControlled: Bool) -> some View {
         SidebarIconTitle(
             icon: icon,
             iconMinWidth: SidebarMetrics.taskIconMinWidth,
@@ -331,6 +340,9 @@ struct TaskRowView: View {
         ) {
             HStack(spacing: 4) {
                 titleText
+                if isRemoteControlled {
+                    remoteControlIcon
+                }
                 if let heldDevices {
                     deviceLeaseIcon(heldDevices, label: TitleStore.shared.displayTitle(for: task))
                 }

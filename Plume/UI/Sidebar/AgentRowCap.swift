@@ -20,25 +20,26 @@ enum AgentRowCap {
         return Layout(visibleCount: limit, toggleTitle: "Show \(total - limit) more", toggleSymbol: "chevron.down")
     }
 
+    struct Folded {
+        let lines: [TaskRowDetails.Line]
+        let layout: Layout
+        /// The tabs whose headers the fold hides, in row order.
+        let hiddenTabIDs: [UUID]
+    }
+
     /// `lines` folded past the limit. Folding never hides the focused
     /// agent's header, and the toggle counts only what it does hide.
-    static func fold(
-        _ lines: [TaskRowDetails.Line],
-        isExpanded: Bool,
-        focusedTabID: UUID?
-    ) -> (lines: [TaskRowDetails.Line], layout: Layout) {
+    static func fold(_ lines: [TaskRowDetails.Line], isExpanded: Bool, focusedTabID: UUID?) -> Folded {
         let total = TaskRowDetails.headerCount(lines)
         let unfolded = layout(total: total, isExpanded: isExpanded)
-        guard total > limit, !isExpanded else { return (lines, unfolded) }
+        guard total > limit, !isExpanded else { return Folded(lines: lines, layout: unfolded, hiddenTabIDs: []) }
         let folded = TaskRowDetails.lines(lines, keepingHeaders: limit, alsoKeeping: focusedTabID)
-        let visible = total - folded.hiddenHeaders
-        guard folded.hiddenHeaders > 0 else {
-            return (folded.lines, Layout(visibleCount: visible, toggleTitle: nil, toggleSymbol: nil))
-        }
-        return (folded.lines, Layout(
-            visibleCount: visible,
-            toggleTitle: "Show \(folded.hiddenHeaders) more",
-            toggleSymbol: "chevron.down"
-        ))
+        let hidden = folded.hiddenTabIDs.count
+        let layout = Layout(
+            visibleCount: total - hidden,
+            toggleTitle: hidden > 0 ? "Show \(hidden) more" : nil,
+            toggleSymbol: hidden > 0 ? "chevron.down" : nil
+        )
+        return Folded(lines: folded.lines, layout: layout, hiddenTabIDs: folded.hiddenTabIDs)
     }
 }

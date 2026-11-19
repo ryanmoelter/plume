@@ -139,15 +139,17 @@ struct TaskRowChildLinesTests {
     }
 
     @Test func foldingKeepsEachHeadersLinesWithIt() {
+        let two = UUID()
         let lines: [TaskRowDetails.Line] = [
             .project("Plume"),
             .agentHeader(TaskRowDetails.AgentHeader(tabID: UUID(), title: "One", status: .working)),
             .branch("one"),
-            .agentHeader(TaskRowDetails.AgentHeader(tabID: UUID(), title: "Two", status: .working)),
+            .agentHeader(TaskRowDetails.AgentHeader(tabID: two, title: "Two", status: .working)),
             .branch("two"),
+            .activity(tabID: two),
         ]
-        #expect(TaskRowDetails.lines(lines, keepingHeaders: 1) == (Array(lines.prefix(3)), 1))
-        #expect(TaskRowDetails.lines(lines, keepingHeaders: 2) == (lines, 0))
+        #expect(TaskRowDetails.lines(lines, keepingHeaders: 1) == (Array(lines.prefix(3)), [two]))
+        #expect(TaskRowDetails.lines(lines, keepingHeaders: 2) == (lines, []))
         #expect(TaskRowDetails.headerCount(lines) == 2)
     }
 
@@ -167,6 +169,10 @@ struct TaskRowChildLinesTests {
         let folded = AgentRowCap.fold(lines, isExpanded: false, focusedTabID: focused)
         #expect(folded.lines == Array(lines.prefix(4)) + Array(lines[5...7]))
         #expect(folded.layout == AgentRowCap.Layout(visibleCount: 6, toggleTitle: "Show 2 more", toggleSymbol: "chevron.down"))
+        #expect(folded.hiddenTabIDs.count == 2)
+        let expanded = AgentRowCap.fold(lines, isExpanded: true, focusedTabID: focused)
+        #expect(expanded.lines == lines)
+        #expect(expanded.hiddenTabIDs.isEmpty)
     }
 
     @Test func aFocusedAgentThatWouldBeTheOnlyHiddenOneLeavesNoToggle() {
@@ -245,6 +251,18 @@ struct TaskRowChildSelectionTests {
         store.setTitle("Child work", forTab: child.id, source: .reply)
 
         #expect(store.displayTitle(for: task) == "Parent work")
+    }
+
+    @Test func anUntitledTopLevelAgentLeavesTheTitleToTheFocusedChild() throws {
+        let task = TaskStore.createTask(in: context, siblings: [])
+        let parent = try #require(task.tabs.first)
+        let child = TaskStore.addChildTab(to: task, parent: parent, in: context)
+        TaskStore.selectTab(child, in: task)
+
+        let store = TitleStore()
+        store.setTitle("Child work", forTab: child.id, source: .reply)
+
+        #expect(store.displayTitle(for: task) == "Child work")
     }
 
     @Test func oneAgentWithNoChildrenKeepsTheOldTitleRule() throws {

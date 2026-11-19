@@ -267,9 +267,9 @@ enum TaskRowDetails {
         _ lines: [Line],
         keepingHeaders count: Int,
         alsoKeeping keptTabID: UUID? = nil
-    ) -> (lines: [Line], hiddenHeaders: Int) {
+    ) -> (lines: [Line], hiddenTabIDs: [UUID]) {
         let starts = lines.indices.filter { if case .agentHeader = lines[$0] { true } else { false } }
-        guard let first = starts.first else { return (lines, 0) }
+        guard let first = starts.first else { return (lines, []) }
         let headers = starts.map { index -> AgentHeader in
             guard case .agentHeader(let header) = lines[index] else { preconditionFailure() }
             return header
@@ -288,7 +288,7 @@ enum TaskRowDetails {
             let end = group + 1 < starts.count ? starts[group + 1] : lines.endIndex
             result.append(contentsOf: lines[start..<end])
         }
-        return (result, headers.count - kept.count)
+        return (result, headers.indices.filter { !kept.contains($0) }.map { headers[$0].tabID })
     }
 
     /// The first project line above every agent header: the one the row's

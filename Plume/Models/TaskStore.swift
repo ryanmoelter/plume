@@ -196,7 +196,11 @@ enum TaskStore {
     /// with no parent in the task. A child whose parent is in another task
     /// counts as top-level here.
     static func soleTopLevelAgentTab(of task: WorkTask) -> TaskTab? {
-        let topLevel = nestedAgentTabs(of: task).filter { $0.depth == 0 }
+        soleTopLevelAgentTab(in: nestedAgentTabs(of: task))
+    }
+
+    static func soleTopLevelAgentTab(in nested: [(item: TaskTab, depth: Int)]) -> TaskTab? {
+        let topLevel = nested.filter { $0.depth == 0 }
         return topLevel.count == 1 ? topLevel[0].item : nil
     }
 
@@ -206,7 +210,7 @@ enum TaskStore {
     /// it does in any other task.
     static func rowClickTab(of task: WorkTask) -> TaskTab? {
         let nested = nestedAgentTabs(of: task)
-        guard nested.count > 1, let parent = soleTopLevelAgentTab(of: task), task.selectedTabID != parent.id else {
+        guard nested.count > 1, let parent = soleTopLevelAgentTab(in: nested), task.selectedTabID != parent.id else {
             return nil
         }
         let selected = task.liveTabs.first { $0.id == task.selectedTabID }
