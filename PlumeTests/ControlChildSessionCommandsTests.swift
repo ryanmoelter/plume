@@ -73,7 +73,7 @@ struct ControlChildSessionCommandsTests {
 
         _ = try ControlChildSessionCommands.report(.init(child: child.id.uuidString, text: "All green"), in: context)
 
-        let preamble = try #require(session.userMessagePreamble?())
+        let preamble = try #require(session.userMessagePreamble?()?.wire.plainText)
         #expect(preamble.contains("All green"))
         #expect(preamble.contains("<side-sessions-event>"))
     }
@@ -99,7 +99,7 @@ struct ControlChildSessionCommandsTests {
 
         let text = reply?["result"]?["content"]?.arrayValue?.first?["text"]?.stringValue ?? ""
         #expect(text.hasPrefix("Delivered with the user's next message"))
-        #expect(parentSession.userMessagePreamble?()?.contains("Need a decision") == true)
+        #expect(parentSession.userMessagePreamble?()?.wire.plainText.contains("Need a decision") == true)
     }
 
     private final class Lines {
@@ -154,7 +154,7 @@ struct ControlChildSessionCommandsTests {
             HostMessage(display: [.text("Run the tests")], wire: [.text("framed")], origin: .fromParent(text: "Run the tests"))
         ])
 
-        let preamble = try #require(parentSession.userMessagePreamble?())
+        let preamble = try #require(parentSession.userMessagePreamble?()?.wire.plainText)
         #expect(preamble.contains("WAKE NOTE"))
         #expect(preamble.contains("removed your message"))
         #expect(preamble.contains("Run the tests"))
@@ -179,9 +179,41 @@ struct ControlChildSessionCommandsTests {
 
         TaskStore.closeTab(child, in: context)
 
-        let preamble = try #require(parentSession.userMessagePreamble?())
+        let preamble = try #require(parentSession.userMessagePreamble?()?.wire.plainText)
         #expect(preamble.contains("closed the session"))
         #expect(preamble.contains("Run the tests"))
+    }
+
+    @Test func notesRidingAWithdrawnMessageStillWakeTheParent() throws {
+        let task = TaskStore.createTask(in: context, title: "Task", siblings: [])
+        let parent = try #require(task.tabs.first)
+        let child = TaskStore.addChildTab(to: task, parent: parent, in: context)
+        let session = try #require(AgentSessionManager.shared.session(for: parent.id, taskID: task.id) as? HeadlessSession)
+        defer {
+            _ = AgentSessionManager.shared.detachSession(for: parent.id)
+            ChildSessionCoordinator.shared.tabForgotten(parent.id)
+        }
+        let lines = Lines()
+        session.debugLineSink = { lines.all.append($0) }
+        ChildSessionCoordinator.shared.attach(to: session, task: task, tab: parent)
+        session.submit(text: "first")
+        _ = try ControlChildSessionCommands.report(.init(child: child.id.uuidString, text: "All green"), in: context)
+        session.sendNow(appending: [.text("second")])
+        #expect(lines.all.last?.contains("All green") == true)
+        let delivering = try #require(session.deliveringMessages.first)
+
+        session.withdrawDeliveringMessage(id: delivering.id)
+        let request = try JSONSerialization.jsonObject(with: Data(try #require(lines.all.last).utf8)) as? [String: Any]
+        let requestID = try #require(request?["request_id"] as? String)
+        session.handle(try #require(StreamJSONDecoder.decode(
+            line: #"{"type":"control_response","response":{"subtype":"success","request_id":""# + requestID + #"","response":{"cancelled":true}}}"#
+        )))
+        lines.all = []
+        session.handle(try #require(StreamJSONDecoder.decode(line: Self.result)))
+
+        #expect(lines.all.last?.contains("All green") == true)
+        #expect(lines.all.last?.contains("second") == false)
+        #expect(session.isWorking)
     }
 
     @Test func aQueuedNoteShowsItsEventSummaries() {

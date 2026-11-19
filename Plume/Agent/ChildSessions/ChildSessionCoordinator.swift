@@ -382,13 +382,20 @@ final class ChildSessionCoordinator {
     }
 
     /// Notes the user took off the parent's queue are held for its next
-    /// turn, whoever starts it. A parent's message taken off a child's queue
-    /// goes back to the parent as a held note saying so.
+    /// turn, whoever starts it. Notes that rode a message the user withdrew
+    /// go back as they were, so a waking one still wakes the parent. A
+    /// parent's message taken off a child's queue goes back to the parent as
+    /// a held note saying so.
     private func hostMessagesReturned(_ messages: [HostMessage], by tab: TaskTab) {
         for message in messages {
             switch message.origin {
             case .notes(let notes):
                 hold(notes, for: tab)
+            case .preamble(let taken):
+                var policy = policies[tab.id] ?? ChildSessionWakePolicy()
+                let due = policy.userMessageWithdrawn(taken, activity(of: tab))
+                policies[tab.id] = policy
+                settle(tab, due)
             case .fromParent(let text):
                 guard let parent = parent(of: tab) else { continue }
                 let note = ChildSessionFormats.messageRemovedNote(child: participant(tab), text: text)
@@ -399,11 +406,13 @@ final class ChildSessionCoordinator {
         }
     }
 
-    private func takePreamble(forParent tabID: UUID) -> String? {
+    private func takePreamble(forParent tabID: UUID) -> HostMessage? {
         guard var policy = policies[tabID] else { return nil }
-        let notes = policy.userWillSend()
+        let taken = policy.userWillSend()
         policies[tabID] = policy
-        return notes.isEmpty ? nil : Self.joined(notes)
+        guard !taken.all.isEmpty else { return nil }
+        let text = Self.joined(taken.all)
+        return HostMessage(display: [.text(text)], wire: [.text(text)], origin: .preamble(taken))
     }
 
     nonisolated static func joined(_ notes: [ChildSessionWakePolicy.Note]) -> String {

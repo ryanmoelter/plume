@@ -171,7 +171,7 @@ struct HeadlessChildSessionTests {
     @Test func thePreambleGoesInFrontOfTheUsersMessageOnly() throws {
         let (session, recorder) = makeSession()
         var preamble: String? = "NOTE"
-        session.userMessagePreamble = { defer { preamble = nil }; return preamble }
+        session.userMessagePreamble = { defer { preamble = nil }; return preamble.map(Self.note) }
 
         session.submit(text: "hi")
         try receive(session, Self.result)
@@ -181,6 +181,10 @@ struct HeadlessChildSessionTests {
         #expect(texts == ["NOTE\n\nhi", "from host"])
     }
 
+    private static func note(_ text: String) -> HostMessage {
+        HostMessage(display: [.text(text)], wire: [.text(text)])
+    }
+
     private func sentTexts(_ recorder: Recorder) throws -> [String?] {
         try recorder.lines.map { try json($0)["message"]?["content"]?.arrayValue?.first?["text"]?.stringValue }
     }
@@ -188,7 +192,7 @@ struct HeadlessChildSessionTests {
     @Test func aQueuedMessageTakesThePreambleOnlyWhenItIsSent() throws {
         let (session, recorder) = makeSession()
         var asked = 0
-        session.userMessagePreamble = { asked += 1; return asked == 1 ? "NOTE" : nil }
+        session.userMessagePreamble = { asked += 1; return asked == 1 ? Self.note("NOTE") : nil }
 
         session.submitFromHost(blocks: [.text("host")])
         session.submit(text: "typed")
@@ -335,10 +339,12 @@ struct HeadlessChildSessionTests {
         #expect(recorder.outcomes.isEmpty)
     }
 
-    @Test func aWithdrawnPreambleRidesWithNewerNotes() throws {
+    @Test func aWithdrawnMessageHandsItsPreambleBackToTheHost() throws {
         let (session, recorder) = makeSession()
         var notes = ["OLD", "NEW"]
-        session.userMessagePreamble = { notes.isEmpty ? nil : notes.removeFirst() }
+        session.userMessagePreamble = { notes.isEmpty ? nil : Self.note(notes.removeFirst()) }
+        var returned: [HostMessage] = []
+        session.onHostMessagesReturned = { returned += $0 }
         session.submitFromHost(blocks: [.text("host")])
         session.sendNow(appending: [.text("first")])
         let delivering = try #require(session.deliveringMessages.first)
@@ -350,14 +356,15 @@ struct HeadlessChildSessionTests {
 
         session.submit(text: "second")
 
-        #expect(try sentTexts(recorder).last == "OLD\n\nNEW\n\nsecond")
+        #expect(returned == [Self.note("OLD")])
+        #expect(try sentTexts(recorder).last == "NEW\n\nsecond")
         #expect(notes.isEmpty)
     }
 
     @Test func aSlashCommandLeavesThePreambleForTheNextMessage() throws {
         let (session, recorder) = makeSession()
         var preamble: String? = "NOTE"
-        session.userMessagePreamble = { defer { preamble = nil }; return preamble }
+        session.userMessagePreamble = { defer { preamble = nil }; return preamble.map(Self.note) }
 
         session.submit(text: "/effort high")
         try receive(session, Self.result)

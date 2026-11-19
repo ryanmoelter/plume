@@ -294,12 +294,13 @@ final class HeadlessSession: AgentSession {
     /// Told at the end of every turn, once the session has moved on to
     /// whatever comes next.
     @ObservationIgnored var onTurnFinished: ((AgentTurnOutcome) -> Void)?
-    /// Read as a message the user wrote is sent, which carries the text in
-    /// front.
-    @ObservationIgnored var userMessagePreamble: (() -> String?)?
-    /// A preamble already taken for a message that never reached the CLI,
+    /// Read as a message the user wrote is sent, which carries its wire text
+    /// in front. A withdrawn message hands it back through
+    /// `onHostMessagesReturned`.
+    @ObservationIgnored var userMessagePreamble: (() -> HostMessage?)?
+    /// Preambles already taken for a message that never reached the CLI,
     /// which the next one carries instead.
-    @ObservationIgnored private var unsentPreamble: String?
+    @ObservationIgnored private var unsentPreamble: [HostMessage] = []
     /// Handed host messages the user took off the queue or withdrew, which
     /// never reach the composer.
     @ObservationIgnored var onHostMessagesReturned: (([HostMessage]) -> Void)?
@@ -546,12 +547,8 @@ final class HeadlessSession: AgentSession {
               !turn.body.plainText.trimmingCharacters(in: .whitespacesAndNewlines).hasPrefix("/")
         else { return turn }
         // Always asked, so the host learns the user is sending and newer notes ride along.
-        let preamble = [unsentPreamble, userMessagePreamble?()]
-            .compactMap { $0 }
-            .filter { !$0.isEmpty }
-            .joined(separator: "\n\n")
-        unsentPreamble = nil
-        if !preamble.isEmpty { turn.preamble = preamble }
+        turn.preamble = (unsentPreamble + [userMessagePreamble?()].compactMap { $0 }).filter { $0.wire.hasContent }
+        unsentPreamble = []
         return turn
     }
 
@@ -569,8 +566,7 @@ final class HeadlessSession: AgentSession {
     }
 
     private func restorePreamble(of turn: OutgoingTurn) {
-        guard let preamble = turn.preamble else { return }
-        unsentPreamble = [preamble, unsentPreamble].compactMap { $0 }.joined(separator: "\n\n")
+        unsentPreamble = turn.preamble + unsentPreamble
     }
 
     /// Host messages queued or sent into a turn that the CLI has not taken in.
@@ -732,12 +728,11 @@ final class HeadlessSession: AgentSession {
             return
         }
         if let index { deliveringMessages.remove(at: index) }
-        restorePreamble(of: message.turn)
         let withdrawnHosts = message.turn.hosts.count
         let awaiting = min(withdrawnHosts, hostMessagesAwaitingTurn)
         hostMessagesAwaitingTurn -= awaiting
         turnHostMessageCount = max(0, turnHostMessageCount - (withdrawnHosts - awaiting))
-        returnToHost(message.turn.hosts)
+        returnToHost(message.turn.preamble + message.turn.hosts)
         completion(message.turn.userBlocks)
         // Nothing is left for the CLI to run after the `result` it already sent.
         if deliveringMessages.isEmpty, let held = heldResult {
@@ -891,7 +886,7 @@ final class HeadlessSession: AgentSession {
             }
         } + sideQuestions
         openingMessage = openingMessage ?? previous.openingMessage
-        unsentPreamble = unsentPreamble ?? previous.unsentPreamble
+        if unsentPreamble.isEmpty { unsentPreamble = previous.unsentPreamble }
         titleRequester = previous.titleRequester
         hasUserSubmitted = hasUserSubmitted || previous.hasUserSubmitted
         rewoundBeforeMessageID = rewoundBeforeMessageID ?? previous.rewoundBeforeMessageID
@@ -1889,7 +1884,8 @@ extension [QueuedMessage.Part] {
 /// One user turn as the queue shows it and as the CLI gets it.
 struct OutgoingTurn: Equatable {
     let parts: [QueuedMessage.Part]
-    var preamble: String?
+    /// Host text carried in front of what the user wrote.
+    var preamble: [HostMessage] = []
 
     var display: [UserContentBlock] { parts.map(\.display).mergedIntoOneTurn }
     /// The wire form, before any preamble.
@@ -1898,8 +1894,8 @@ struct OutgoingTurn: Equatable {
     var userBlocks: [UserContentBlock]? { parts.userBlocks }
 
     var wire: [UserContentBlock] {
-        guard let preamble else { return body }
-        return [[.text(preamble)], body].mergedIntoOneTurn
+        guard !preamble.isEmpty else { return body }
+        return (preamble.map(\.wire) + [body]).mergedIntoOneTurn
     }
 }
 

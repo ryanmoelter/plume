@@ -36,7 +36,7 @@ struct ChildSessionWakePolicyTests {
         policy.deliveryFailed(due + [note(childB, "b1")])
 
         #expect(policy.parentTurnFinished(interrupted: false, idle) == nil)
-        #expect(policy.userWillSend() == [note(childA, "a"), note(childB, "b2")])
+        #expect(policy.userWillSend().all == [note(childA, "a"), note(childB, "b2")])
     }
 
     @Test func wakingNotesBatchWhileTheParentWorks() {
@@ -107,7 +107,7 @@ struct ChildSessionWakePolicyTests {
         #expect(policy.noteArrived(note(childA, "old"), wakes: false, idle) == nil)
         #expect(policy.noteArrived(note(childA, "new"), wakes: false, idle) == nil)
         #expect(policy.parentTurnFinished(interrupted: false, idle) == nil)
-        #expect(policy.userWillSend() == [note(childA, "new")])
+        #expect(policy.userWillSend().all == [note(childA, "new")])
         #expect(policy.isEmpty)
     }
 
@@ -138,13 +138,36 @@ struct ChildSessionWakePolicyTests {
         #expect(policy.parentTurnFinished(interrupted: false, idle) == [note(childA, "interrupted"), note(childB, "b")])
     }
 
+    @Test func notesTakenForAWithdrawnMessageGoBackAndCanStillWake() {
+        var policy = ChildSessionWakePolicy()
+        _ = policy.parentTurnFinished(interrupted: true, idle)
+        _ = policy.noteArrived(note(childA, "held"), wakes: false, idle)
+        _ = policy.noteArrived(message(childB, "wake"), wakes: true, idle)
+        let taken = policy.userWillSend()
+        #expect(policy.isEmpty)
+
+        #expect(policy.userMessageWithdrawn(taken, parentWorking) == nil)
+        #expect(policy.parentTurnFinished(interrupted: false, idle) == [note(childA, "held"), message(childB, "wake")])
+    }
+
+    @Test func aWithdrawnReportYieldsToANewerOne() {
+        var policy = ChildSessionWakePolicy()
+        _ = policy.noteArrived(note(childA, "old"), wakes: false, idle)
+        let taken = policy.userWillSend()
+        _ = policy.noteArrived(note(childA, "new"), wakes: true, parentWorking)
+
+        _ = policy.userMessageWithdrawn(taken, parentWorking)
+
+        #expect(policy.parentTurnFinished(interrupted: false, idle) == [note(childA, "new")])
+    }
+
     @Test func afterAnInterruptNotesWaitForTheUser() {
         var policy = ChildSessionWakePolicy()
         #expect(policy.parentTurnFinished(interrupted: true, idle) == nil)
         #expect(policy.noteArrived(note(childA, "a"), wakes: true, idle) == nil)
         #expect(policy.parentTurnFinished(interrupted: false, idle) == nil)
         #expect(policy.childrenChanged(idle) == nil)
-        #expect(policy.userWillSend() == [note(childA, "a")])
+        #expect(policy.userWillSend().all == [note(childA, "a")])
         #expect(policy.noteArrived(note(childB, "b"), wakes: true, idle) == [note(childB, "b")])
     }
 
@@ -163,7 +186,7 @@ struct ChildSessionWakePolicyTests {
         _ = policy.noteArrived(message(childA, "second"), wakes: true, idle)
         _ = policy.noteArrived(note(childA, "newer report"), wakes: false, idle)
 
-        #expect(policy.userWillSend() == [
+        #expect(policy.userWillSend().all == [
             note(childA, "newer report"), message(childA, "first"), message(childA, "second"),
         ])
     }
@@ -174,7 +197,7 @@ struct ChildSessionWakePolicyTests {
 
         policy.deliveryFailed([message(childA, "one"), note(childA, "old report"), message(childA, "two")])
 
-        #expect(policy.userWillSend() == [message(childA, "one"), message(childA, "two"), note(childA, "newer report")])
+        #expect(policy.userWillSend().all == [message(childA, "one"), message(childA, "two"), note(childA, "newer report")])
     }
 
     @Test func aNoteWaitsForTheUserOnlyWhenHeldOrInterrupted() {

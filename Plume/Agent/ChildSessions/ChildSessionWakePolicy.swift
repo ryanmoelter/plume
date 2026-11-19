@@ -79,10 +79,22 @@ nonisolated struct ChildSessionWakePolicy: Equatable {
     }
 
     /// Notes a wake could not deliver, held for the user's next message.
-    /// A turn report already held from the same child is newer, so it stays.
+    /// A turn report already waiting from the same child is newer, so it stays.
     mutating func deliveryFailed(_ notes: [Note]) {
-        let newer = Set(held.filter { $0.kind == .turnReport }.map(\.childID))
-        held = notes.filter { $0.kind == .message || !newer.contains($0.childID) } + held
+        held = notes.filter(isNotSuperseded) + held
+    }
+
+    /// Notes taken for a message of the user's that never reached the
+    /// parent go back where they were, so a waking one can still wake it.
+    mutating func userMessageWithdrawn(_ taken: Taken, _ activity: Activity) -> [Note]? {
+        held = taken.held.filter(isNotSuperseded) + held
+        waking = taken.waking.filter(isNotSuperseded) + waking
+        return dueWake(activity)
+    }
+
+    /// Whether `note` is not a turn report older than one already waiting.
+    private func isNotSuperseded(_ note: Note) -> Bool {
+        note.kind == .message || !(held + waking).contains { $0.isTurnReport(from: note.childID) }
     }
 
     /// Whether `note` is waiting for the user's next message rather than
@@ -91,23 +103,30 @@ nonisolated struct ChildSessionWakePolicy: Equatable {
         held.contains(note) || (isInterrupted && waking.contains(note))
     }
 
+    /// The notes taken in one go, split by whether they were waking.
+    struct Taken: Equatable {
+        var held: [Note] = []
+        var waking: [Note] = []
+        var all: [Note] { held + waking }
+    }
+
     /// Every note, to go in front of the message the user is sending.
-    mutating func userWillSend() -> [Note] {
+    mutating func userWillSend() -> Taken {
         isInterrupted = false
         return takeAll()
     }
 
     private mutating func dueWake(_ activity: Activity) -> [Note]? {
         guard !isInterrupted, !activity.parentIsWorking, !activity.childIsWorking, !waking.isEmpty else { return nil }
-        return takeAll()
+        return takeAll().all
     }
 
-    private mutating func takeAll() -> [Note] {
+    private mutating func takeAll() -> Taken {
         defer {
             held = []
             waking = []
         }
-        return held + waking
+        return Taken(held: held, waking: waking)
     }
 }
 

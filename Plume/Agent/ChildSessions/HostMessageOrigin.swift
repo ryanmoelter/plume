@@ -5,6 +5,8 @@ import Foundation
 enum HostMessageOrigin: Equatable {
     /// Notes from child sessions, waking their parent.
     case notes([ChildSessionWakePolicy.Note])
+    /// Notes riding in front of a message the user wrote.
+    case preamble(ChildSessionWakePolicy.Taken)
     /// The parent's brief or message to a child.
     case fromParent(text: String)
 }
