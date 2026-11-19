@@ -48,7 +48,7 @@ struct SidebarQuotaRow: View, ThemedView {
             AgentProviderIcon(provider: .claudeCode, size: 16)
                 // A row with nothing to say reads as quiet as one gone stale.
                 .opacity(rowIsStale || !(snapshot?.hasReading ?? false) ? colors.emphasis[.secondary] : 1)
-            SidebarQuotaFlow(horizontalSpacing: 8, verticalSpacing: 4) {
+            SidebarQuotaFlow(horizontalSpacing: 8) {
                 if let windows {
                     meters(windows, isStale: windowsAreStale)
                 }
@@ -71,7 +71,9 @@ struct SidebarQuotaRow: View, ThemedView {
                         .transition(.opacity)
                 }
             }
-            Spacer(minLength: 0)
+            // A trailing Spacer would split the free width with the flow and
+            // wrap it well short of the footer chevrons' edge.
+            .frame(maxWidth: .infinity, alignment: .leading)
         }
         .animation(QuotaTransition.animation, value: presence(snapshot, extras: extras))
         .font(typography.caption.font)
@@ -394,7 +396,11 @@ struct UsageCreditPopover: View, ThemedView {
 /// dropping some.
 struct SidebarQuotaFlow: Layout {
     var horizontalSpacing: CGFloat
-    var verticalSpacing: CGFloat
+    /// Room above every line after the first. Wide enough that a bordered
+    /// button or a body-size glyph on a wrapped line clears the meters.
+    var verticalSpacing: CGFloat = SidebarQuotaFlow.wrappedLineSpacing
+
+    static let wrappedLineSpacing: CGFloat = 8
 
     private struct Line {
         var indices: [Int] = []

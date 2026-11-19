@@ -13,12 +13,15 @@ struct SidebarQuotaRowLayoutTests {
 
     enum Extra: Sendable { case none, offer, fable, credit, fableAndCredit }
 
-    /// A nil width measures the ideal: everything on one line.
+    /// A nil width measures the ideal: everything on one line. A width pins
+    /// the row to it, the way the sidebar does.
     private func size(_ view: some View, width: CGFloat?) -> CGSize {
         let bounds = CGSize(width: width ?? 10_000, height: 10_000)
-        return width == nil
-            ? NSHostingController(rootView: view.fixedSize()).sizeThatFits(in: bounds)
-            : NSHostingController(rootView: view).sizeThatFits(in: bounds)
+        return if let width {
+            NSHostingController(rootView: view.frame(width: width)).sizeThatFits(in: bounds)
+        } else {
+            NSHostingController(rootView: view.fixedSize()).sizeThatFits(in: bounds)
+        }
     }
 
     private func row(_ extra: Extra) throws -> (SidebarQuotaRow, () -> Void) {
@@ -68,6 +71,29 @@ struct SidebarQuotaRowLayoutTests {
         #expect(fitted.height == unbounded.height, "at 240 pt the row stays one line")
     }
 
+    /// The flow gets the row's width less 16 pt of padding each side, the
+    /// Keep Awake chevron's trailing inset, and the icon with its spacing.
+    @Test func theFlowGetsTheRowsFullWidth() throws {
+        let (withGlyphs, clean) = try row(.fableAndCredit)
+        defer { clean() }
+        let unbounded = size(withGlyphs, width: nil)
+        let flowAtDefault = defaultSidebarWidth - 2 * (12 + SidebarFooterMetrics.inset) - 16 - 8
+        #expect(flowAtDefault == 184)
+        #expect(unbounded.width - (2 * (12 + SidebarFooterMetrics.inset) + 16 + 8) < flowAtDefault, "meters, Fable and credit need less than the flow's width")
+    }
+
+    @Test func wrappedGlyphsSitBelowTheMetersWithLineSpacing() throws {
+        let narrow: CGFloat = 200
+        let (metersOnly, cleanMeters) = try row(.none)
+        defer { cleanMeters() }
+        let (withGlyphs, cleanGlyphs) = try row(.fableAndCredit)
+        defer { cleanGlyphs() }
+        let meters = size(metersOnly, width: narrow)
+        let wrapped = size(withGlyphs, width: narrow)
+        #expect(meters.height == size(metersOnly, width: nil).height, "the meters must fit on one line, or this measures nothing")
+        #expect(wrapped.height >= meters.height + SidebarQuotaFlow.wrappedLineSpacing + 10, "meters \(meters.height), wrapped \(wrapped.height)")
+    }
+
     @Test func theOfferWrapsBelowTheMetersAtTheDefaultWidth() throws {
         let (metersOnly, cleanMeters) = try row(.none)
         defer { cleanMeters() }
@@ -102,10 +128,24 @@ struct SidebarQuotaFlowAlignmentTests {
         var glyph: CGRect = .zero
     }
 
+    @Test func everyWrappedLineGetsTheSameSpacingAboveIt() {
+        let spacing = SidebarQuotaFlow.wrappedLineSpacing
+        let flow = SidebarQuotaFlow(horizontalSpacing: 8) {
+            Color.clear.frame(width: 100, height: 10)
+            Color.clear.frame(width: 100, height: 20)
+            Color.clear.frame(width: 100, height: 16)
+        }
+        let oneLine = NSHostingController(rootView: flow.frame(width: 400)).sizeThatFits(in: CGSize(width: 400, height: 1000))
+        let wrapped = NSHostingController(rootView: flow.frame(width: 150)).sizeThatFits(in: CGSize(width: 150, height: 1000))
+        #expect(spacing >= 8, "a bordered button needs room below the meters")
+        #expect(oneLine.height == 20)
+        #expect(wrapped.height == 10 + 20 + 16 + 2 * spacing)
+    }
+
     @Test func aBodyGlyphCentresOnTheMeterBlock() {
         let typography = Typography(bodySize: CGFloat(AppSettings.defaultChatFontSize))
         let frames = Frames()
-        let flow = SidebarQuotaFlow(horizontalSpacing: 8, verticalSpacing: 4) {
+        let flow = SidebarQuotaFlow(horizontalSpacing: 8) {
             StatuslineMeterSegment(
                 label: "5h",
                 utilization: 0,
