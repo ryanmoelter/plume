@@ -38,7 +38,7 @@ enum ControlTabCommands {
         return TabTaskResult(tabID: tab.id, taskID: task.id)
     }
 
-    private static let childStaysWithParent = ControlError.badParams("a child session moves only with its parent")
+    private static let childStaysWithParent = ControlError.badParams("A child session can only be moved within its parent")
 
     /// The frontmost main window's store, which every window shares.
     static func frontmostContext() throws -> ModelContext {
