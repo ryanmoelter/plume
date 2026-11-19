@@ -61,7 +61,10 @@ final class QuotaStore {
             next.fableSource = previous.fableSource
         }
 #if DEBUG
-        if hasWindows { injection?.overridesOverage = false }
+        if hasWindows {
+            injection?.overridesOverage = false
+            injection?.clearsWindows = false
+        }
 #endif
         persist(next)
         now = date
@@ -106,21 +109,31 @@ final class QuotaStore {
     private struct Injection {
         let baseline: QuotaSnapshot?
         var overridesOverage: Bool
+        var clearsWindows = false
     }
 
     @ObservationIgnored private var injection: Injection?
 
     /// Seeds the Fable window and credit for a driver; nil clears either.
-    func inject(fable: RateLimitInfo.Window?, credit: UsageCredit?, isUsingOverage: Bool?, at date: Date = Date()) {
+    /// `clearsWindows` drops the 5h and 7d windows, for a row that has only
+    /// heard from the usage endpoint.
+    func inject(
+        fable: RateLimitInfo.Window?,
+        credit: UsageCredit?,
+        isUsingOverage: Bool?,
+        clearsWindows: Bool = false,
+        at date: Date = Date()
+    ) {
         if injection == nil {
             injection = Injection(baseline: snapshot, overridesOverage: false)
         }
         if isUsingOverage != nil { injection?.overridesOverage = true }
+        if clearsWindows { injection?.clearsWindows = true }
         let base = snapshot ?? .empty(at: date)
         var next = QuotaSnapshot(
             rateLimit: RateLimitInfo(
-                fiveHour: base.rateLimit.fiveHour,
-                sevenDay: base.rateLimit.sevenDay,
+                fiveHour: clearsWindows ? nil : base.rateLimit.fiveHour,
+                sevenDay: clearsWindows ? nil : base.rateLimit.sevenDay,
                 isUsingOverage: isUsingOverage ?? base.rateLimit.isUsingOverage
             ),
             receivedAt: base.receivedAt
@@ -134,15 +147,16 @@ final class QuotaStore {
     private func withoutInjection(_ snapshot: QuotaSnapshot) -> QuotaSnapshot {
         guard let injection else { return snapshot }
         let baseline = injection.baseline
+        let windows = injection.clearsWindows ? baseline : snapshot
         var real = QuotaSnapshot(
             rateLimit: RateLimitInfo(
-                fiveHour: snapshot.rateLimit.fiveHour,
-                sevenDay: snapshot.rateLimit.sevenDay,
+                fiveHour: windows?.rateLimit.fiveHour,
+                sevenDay: windows?.rateLimit.sevenDay,
                 isUsingOverage: injection.overridesOverage
                     ? baseline?.rateLimit.isUsingOverage ?? false
                     : snapshot.rateLimit.isUsingOverage
             ),
-            receivedAt: snapshot.receivedAt
+            receivedAt: windows?.receivedAt ?? snapshot.receivedAt
         ).with(fable: baseline?.rateLimit.fable, receivedAt: baseline?.fableReceivedAt)
         real.fableSource = baseline?.fableSource
         real.credit = baseline?.credit

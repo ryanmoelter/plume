@@ -677,10 +677,81 @@ final class InProcessControlBackend: ControlBackend {
             )
             : nil
         ClaudeUsagePoller.shared.isSuspended = true
-        QuotaStore.shared.inject(fable: fable, credit: credit, isUsingOverage: params.isUsingOverage)
+        QuotaStore.shared.inject(
+            fable: fable, credit: credit, isUsingOverage: params.isUsingOverage, clearsWindows: params.clearWindows == true
+        )
         if let alwaysShow = params.alwaysShow {
             AppSettings.shared.alwaysShowsCreditAndFableQuota = alwaysShow
         }
+    }
+
+    // MARK: Scrolling
+
+    func scrollTo(_ params: ScrollToParams) throws {
+        if (params.target == nil) == (params.edge == nil) {
+            throw ControlError.badParams("scrollTo takes target or edge, not both")
+        }
+        let window = try window(for: params.windowNumber, target: params.target)
+        guard let content = window.contentView else { throw ControlError.noWindow }
+        let scrollable = ViewFinder.all(NSScrollView.self, in: content).filter { scrollView in
+            guard !scrollView.isHiddenOrHasHiddenAncestor, let document = scrollView.documentView else { return false }
+            return document.frame.height > scrollView.contentView.bounds.height
+        }
+        let height = contentHeight(of: window)
+        let topLeftFrame = { (view: NSView) in
+            WindowGeometry.topLeftRect(fromAppKit: view.convert(view.bounds, to: nil), contentHeight: height)
+        }
+
+        if let edge = params.edge {
+            guard edge == "top" || edge == "bottom" else { throw ControlError.badParams("edge is top or bottom") }
+            guard let scrollView = scrollable.max(by: { $0.frame.width * $0.frame.height < $1.frame.width * $1.frame.height })
+            else { throw ControlError.notFound("a scrollable view") }
+            scroll(scrollView, toBottom: edge == "bottom")
+            return
+        }
+
+        let entry = try registry.resolve(params.target!)
+        // The innermost scroll view whose column holds the control.
+        let containing = scrollable
+            .filter { let frame = topLeftFrame($0); return frame.minX <= entry.frame.midX && entry.frame.midX <= frame.maxX }
+            .min { $0.frame.width * $0.frame.height < $1.frame.width * $1.frame.height }
+        guard let scrollView = containing else { throw ControlError.notFound("a scroll view around \(params.target!)") }
+        let visible = topLeftFrame(scrollView.contentView)
+        let margin: CGFloat = 12
+        let delta: CGFloat
+        if entry.frame.minY < visible.minY {
+            delta = entry.frame.minY - visible.minY - margin
+        } else if entry.frame.maxY > visible.maxY {
+            delta = min(entry.frame.maxY - visible.maxY + margin, entry.frame.minY - visible.minY - margin)
+        } else {
+            return
+        }
+        scroll(scrollView, by: delta)
+    }
+
+    /// `delta` is in screen direction: positive moves the content up, the
+    /// way scrolling down does.
+    private func scroll(_ scrollView: NSScrollView, by delta: CGFloat) {
+        let clip = scrollView.contentView
+        let flipped = scrollView.documentView?.isFlipped ?? true
+        var origin = clip.bounds.origin
+        origin.y += flipped ? delta : -delta
+        setOrigin(origin, of: scrollView)
+    }
+
+    private func scroll(_ scrollView: NSScrollView, toBottom: Bool) {
+        let flipped = scrollView.documentView?.isFlipped ?? true
+        let maxY = (scrollView.documentView?.frame.height ?? 0) - scrollView.contentView.bounds.height
+        var origin = scrollView.contentView.bounds.origin
+        origin.y = toBottom == flipped ? maxY : 0
+        setOrigin(origin, of: scrollView)
+    }
+
+    private func setOrigin(_ origin: CGPoint, of scrollView: NSScrollView) {
+        let clip = scrollView.contentView
+        let maxY = max((scrollView.documentView?.frame.height ?? 0) - clip.bounds.height, 0)
+        clip.scroll(to: CGPoint(x: origin.x, y: min(max(origin.y, 0), maxY)))
+        scrollView.reflectScrolledClipView(clip)
     }
 
     func selectText(_ params: SelectTextParams) throws -> SelectionResult {

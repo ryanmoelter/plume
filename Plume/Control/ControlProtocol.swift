@@ -60,6 +60,7 @@ nonisolated struct ControlServerRequest: Decodable {
         case "child-session.offers": command = .listChildSessionOffers(try ChildSessionProposalsParams(from: decoder))
         case "child-session.offer.answer": command = .answerChildSessionOffer(try ChildSessionOfferAnswerParams(from: decoder))
         case "injectUsage": command = .injectUsage(try InjectUsageParams(from: decoder))
+        case "scrollTo": command = .scrollTo(try ScrollToParams(from: decoder))
         default:
             throw DecodingError.dataCorruptedError(
                 forKey: .command, in: container, debugDescription: "unknown command \"\(name)\""
@@ -108,6 +109,16 @@ nonisolated enum ControlCommand {
     case listChildSessionOffers(ChildSessionProposalsParams)
     case answerChildSessionOffer(ChildSessionOfferAnswerParams)
     case injectUsage(InjectUsageParams)
+    case scrollTo(ScrollToParams)
+}
+
+/// Scrolls the scroll view under `target` until the control is visible, or
+/// the largest one in the window to an `edge` (`top` or `bottom`) — for rows
+/// a lazy container hasn't mounted, which have no registered control yet.
+nonisolated struct ScrollToParams: Decodable, Equatable {
+    var target: ControlTarget?
+    var edge: String?
+    var windowNumber: Int?
 }
 
 /// Sets the window's content size, in points. With `live`, the size steps
@@ -359,10 +370,13 @@ nonisolated struct InjectUsageParams: Decodable, Equatable {
     /// Shows the quota row's offer again: undoes its dismissal and turns
     /// reading usage off, both persisted. Given alone, nothing is injected.
     var resetUsageOffer: Bool?
+    /// Drops the 5h and 7d windows, as for a row only the usage endpoint has
+    /// reported to. Injected like the readings, so never persisted.
+    var clearWindows: Bool?
 
     var injectsReadings: Bool {
         fable != nil || fableResetsInHours != nil || creditUsed != nil || creditLimit != nil
-            || creditBalance != nil || isUsingOverage != nil || alwaysShow != nil
+            || creditBalance != nil || isUsingOverage != nil || alwaysShow != nil || clearWindows != nil
     }
 
     func validate() throws {

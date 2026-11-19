@@ -16,8 +16,13 @@ import SwiftUI
 /// materializes shifts every footer button under it.
 struct SidebarQuotaRow: View, ThemedView {
     @Environment(\.theme) var theme
-    @State private var quota = QuotaStore.shared
-    @State private var settings = AppSettings.shared
+    @State private var quota: QuotaStore
+    @State private var settings: AppSettings
+
+    init(quota: QuotaStore = .shared, settings: AppSettings = .shared) {
+        _quota = State(initialValue: quota)
+        _settings = State(initialValue: settings)
+    }
 
     var body: some View {
         content(quota.snapshot)
@@ -36,53 +41,19 @@ struct SidebarQuotaRow: View, ThemedView {
         let windows = snapshot.flatMap { Self.hasWindows($0) ? $0 : nil }
         let showsOffer = !settings.readsClaudeUsage && !settings.dismissedClaudeUsageOffer
 
-        HStack(spacing: 8) {
+        HStack(alignment: .quotaFirstLine, spacing: 8) {
             AgentProviderIcon(provider: .claudeCode, size: 16)
                 // A row with nothing to say reads as quiet as one gone stale.
                 .opacity(rowIsStale || !(snapshot?.hasReading ?? false) ? colors.emphasis[.secondary] : 1)
-            // The offer goes first when the row runs out of room, then the extras.
-            if let windows {
-                ViewThatFits(in: .horizontal) {
-                    HStack(spacing: 8) {
-                        meters(windows, isStale: windowsAreStale)
-                        extraReadings(snapshot, extras: extras, compact: false)
-                        if showsOffer { usageOffer }
-                    }
-                    HStack(spacing: 8) {
-                        meters(windows, isStale: windowsAreStale)
-                        extraReadings(snapshot, extras: extras, compact: false)
-                    }
-                    HStack(spacing: 8) {
-                        meters(windows, isStale: windowsAreStale)
-                    }
+            SidebarQuotaFlow(horizontalSpacing: 8, verticalSpacing: 4) {
+                if let windows {
+                    meters(windows, isStale: windowsAreStale)
                 }
-            } else if extras.showsAny {
-                ViewThatFits(in: .horizontal) {
-                    HStack(spacing: 8) {
-                        extraReadings(snapshot, extras: extras, compact: false)
-                        if showsOffer { usageOffer }
-                    }
-                    HStack(spacing: 8) {
-                        extraReadings(snapshot, extras: extras, compact: false)
-                    }
-                    HStack(spacing: 6) {
-                        extraReadings(snapshot, extras: extras, compact: true)
-                    }
-                    placeholder
-                        .help(SidebarQuotaSummary.text(snapshot, extras: extras))
-                        .accessibilityLabel(SidebarQuotaSummary.text(snapshot, extras: extras))
-                }
-                .transition(.opacity)
-            } else if showsOffer {
-                ViewThatFits(in: .horizontal) {
-                    HStack(spacing: 8) {
-                        noReading
-                        usageOffer
-                    }
+                extraReadings(snapshot, extras: extras)
+                if windows == nil && !extras.showsAny {
                     noReading
                 }
-            } else {
-                noReading
+                if showsOffer { usageOffer }
             }
             Spacer(minLength: 0)
         }
@@ -98,15 +69,15 @@ struct SidebarQuotaRow: View, ThemedView {
 
     private var usageOffer: some View {
         Button("Show credit", action: acceptUsageOffer)
-            .buttonStyle(.plain)
-            .foregroundStyle(colors.foreground.opacity(colors.emphasis[.secondary]))
-            .help("Show usage credit and the Fable quota here. Plume reads Claude Code's login from your Keychain to fetch them, so macOS asks once. Right-click to hide this.")
-            .contextMenu {
-                Button("Don't Show This", action: dismissUsageOffer)
-            }
-            .transition(.opacity)
-            .plumeID(AccessibilityID.sidebarQuotaUsageOffer, invoke: acceptUsageOffer)
-            .plumeMenuItem(AccessibilityID.sidebarQuotaUsageOfferDismiss, invoke: dismissUsageOffer)
+        .buttonStyle(.plain)
+        .foregroundStyle(colors.foreground.opacity(colors.emphasis[.secondary]))
+        .help("Show usage credit and the Fable quota here. Plume reads Claude Code's login from your Keychain to fetch them, so macOS asks once. Right-click to hide this.")
+        .contextMenu {
+            Button("Don't Show This", action: dismissUsageOffer)
+        }
+        .transition(.opacity)
+        .plumeID(AccessibilityID.sidebarQuotaUsageOffer, invoke: acceptUsageOffer)
+        .plumeMenuItem(AccessibilityID.sidebarQuotaUsageOfferDismiss, invoke: dismissUsageOffer)
     }
 
     private func acceptUsageOffer() {
@@ -173,31 +144,25 @@ struct SidebarQuotaRow: View, ThemedView {
     }
 
     @ViewBuilder
-    private func extraReadings(_ snapshot: QuotaSnapshot?, extras: SidebarQuotaExtras, compact: Bool) -> some View {
+    private func extraReadings(_ snapshot: QuotaSnapshot?, extras: SidebarQuotaExtras) -> some View {
         if extras.showsFable {
-            fableReading(snapshot, compact: compact)
+            fableReading(snapshot)
                 .transition(.opacity)
         }
         if extras.showsCredit {
-            creditReading(snapshot, compact: compact)
+            creditReading(snapshot)
                 .transition(.opacity)
         }
     }
 
-    private func fableReading(_ snapshot: QuotaSnapshot?, compact: Bool) -> some View {
+    private func fableReading(_ snapshot: QuotaSnapshot?) -> some View {
         let fable = snapshot?.rateLimit.fable
         let isStale = snapshot.map { QuotaFreshness.isStale(receivedAt: $0.fableHeardAt, now: quota.now) } ?? false
         return HStack(spacing: 3) {
             Image(systemName: "f.circle")
                 .foregroundStyle(colors.foreground.opacity(colors.emphasis[.secondary]))
                 .accessibilityHidden(true)
-            if compact, let fable {
-                Text(SidebarQuotaSummary.percent(fable.utilization))
-                    .foregroundStyle(colors.foreground.opacity(colors.emphasis[.secondary]))
-                    .monospacedDigit()
-                    .opacity(isStale ? colors.emphasis[.secondary] : 1)
-                    .help("Fable weekly quota")
-            } else if let snapshot, let fable {
+            if let snapshot, let fable {
                 StatuslineMeterSegment(
                     label: "Fable",
                     utilization: fable.utilization,
@@ -219,16 +184,14 @@ struct SidebarQuotaRow: View, ThemedView {
         )
     }
 
-    private func creditReading(_ snapshot: QuotaSnapshot?, compact: Bool) -> some View {
+    private func creditReading(_ snapshot: QuotaSnapshot?) -> some View {
         let credit = snapshot?.credit
         let used = credit?.usedCents.map { UsageCreditFormat.amount(minorUnits: $0, currency: credit?.currency) }
         let isStale = credit != nil && QuotaFreshness.isCreditStale(receivedAt: snapshot?.creditReceivedAt, now: quota.now)
         return HStack(spacing: 3) {
-            if !compact || used == nil {
-                Image(systemName: "dollarsign.circle")
-                    .foregroundStyle(colors.foreground.opacity(colors.emphasis[.secondary]))
-                    .accessibilityHidden(true)
-            }
+            Image(systemName: "dollarsign.circle")
+                .foregroundStyle(colors.foreground.opacity(colors.emphasis[.secondary]))
+                .accessibilityHidden(true)
             if let used {
                 Text(used)
                     .foregroundStyle(colors.foreground.opacity(colors.emphasis[.secondary]))
@@ -273,25 +236,89 @@ struct SidebarQuotaExtras: Equatable {
     }
 }
 
-/// What the row would say when it has no room to say it.
 enum SidebarQuotaSummary {
-    static func text(_ snapshot: QuotaSnapshot?, extras: SidebarQuotaExtras, locale: Locale = .current) -> String {
-        var parts: [String] = []
-        if extras.showsFable, let fable = snapshot?.rateLimit.fable {
-            parts.append("Fable weekly quota \(percent(fable.utilization))")
-        }
-        if extras.showsCredit, let credit = snapshot?.credit, let used = credit.usedCents {
-            parts.append("Usage credits \(UsageCreditFormat.amount(minorUnits: used, currency: credit.currency, locale: locale)) used")
-        }
-        return parts.isEmpty ? "No quota reading yet" : parts.joined(separator: ", ")
-    }
-
     /// Clamped, since the value comes off the wire and `Int.init` traps on
     /// anything out of range.
     static func percent(_ utilization: Double) -> String {
         guard let whole = Int(exactly: (min(max(utilization, 0), 9.99) * 100).rounded()) else { return "—" }
         return "\(whole)%"
     }
+}
+
+/// Lays the row's readings out left to right and wraps whatever doesn't fit
+/// onto the next line, so a narrow sidebar shows every reading instead of
+/// dropping some.
+struct SidebarQuotaFlow: Layout {
+    var horizontalSpacing: CGFloat
+    var verticalSpacing: CGFloat
+
+    private struct Line {
+        var indices: [Int] = []
+        var width: CGFloat = 0
+        var height: CGFloat = 0
+    }
+
+    private func lines(for subviews: Subviews, maxWidth: CGFloat?) -> (lines: [Line], sizes: [CGSize]) {
+        let limit = maxWidth ?? .infinity
+        let sizes = subviews.map { subview in
+            let ideal = subview.sizeThatFits(.unspecified)
+            return ideal.width > limit ? subview.sizeThatFits(ProposedViewSize(width: limit, height: nil)) : ideal
+        }
+        var lines: [Line] = []
+        var line = Line()
+        for (index, size) in sizes.enumerated() where size.width > 0 || size.height > 0 {
+            let width = line.indices.isEmpty ? size.width : line.width + horizontalSpacing + size.width
+            if !line.indices.isEmpty && width > limit {
+                lines.append(line)
+                line = Line(indices: [index], width: size.width, height: size.height)
+            } else {
+                line.indices.append(index)
+                line.width = width
+                line.height = max(line.height, size.height)
+            }
+        }
+        if !line.indices.isEmpty { lines.append(line) }
+        return (lines, sizes)
+    }
+
+    func sizeThatFits(proposal: ProposedViewSize, subviews: Subviews, cache: inout ()) -> CGSize {
+        let lines = lines(for: subviews, maxWidth: proposal.width).lines
+        let height = lines.map(\.height).reduce(0, +) + verticalSpacing * CGFloat(max(lines.count - 1, 0))
+        return CGSize(width: lines.map(\.width).max() ?? 0, height: height)
+    }
+
+    func placeSubviews(in bounds: CGRect, proposal: ProposedViewSize, subviews: Subviews, cache: inout ()) {
+        let (lines, sizes) = lines(for: subviews, maxWidth: bounds.width)
+        var y = bounds.minY
+        for line in lines {
+            var x = bounds.minX
+            for index in line.indices {
+                let size = sizes[index]
+                subviews[index].place(
+                    at: CGPoint(x: x, y: y + line.height / 2),
+                    anchor: .leading,
+                    proposal: ProposedViewSize(size)
+                )
+                x += size.width + horizontalSpacing
+            }
+            y += line.height + verticalSpacing
+        }
+    }
+
+    /// Lines up the provider icon beside the row with the first line, not the
+    /// middle of a wrapped row.
+    func explicitAlignment(of guide: VerticalAlignment, in bounds: CGRect, proposal: ProposedViewSize, subviews: Subviews, cache: inout ()) -> CGFloat? {
+        guard guide == .quotaFirstLine, let first = lines(for: subviews, maxWidth: bounds.width).lines.first else { return nil }
+        return first.height / 2
+    }
+}
+
+nonisolated extension VerticalAlignment {
+    private enum QuotaFirstLine: AlignmentID {
+        static func defaultValue(in context: ViewDimensions) -> CGFloat { context[VerticalAlignment.center] }
+    }
+
+    static let quotaFirstLine = VerticalAlignment(QuotaFirstLine.self)
 }
 
 enum UsageCreditFormat {

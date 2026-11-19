@@ -394,18 +394,38 @@ struct ClaudeUsageTests {
         #expect(QuotaSnapshot.empty(at: start).with(fable: window(0), receivedAt: start).hasReading)
     }
 
-    @Test func theNarrowRowSummarizesWhatItHides() {
-        let locale = Locale(identifier: "en_US")
-        let forced = SidebarQuotaExtras(snapshot: nil, alwaysShows: true, now: start)
-        #expect(SidebarQuotaSummary.text(nil, extras: forced, locale: locale) == "No quota reading yet")
+#if DEBUG
+    @Test func clearedWindowsAreInjectedOnly() throws {
+        let suite = "ClaudeUsageTests-\(UUID().uuidString)"
+        let defaults = try #require(UserDefaults(suiteName: suite))
+        defer { defaults.removePersistentDomain(forName: suite) }
+        let store = QuotaStore(defaults: defaults)
+        store.record(streamInfo(fable: nil), at: start)
 
-        var snapshot = QuotaSnapshot.empty(at: start).with(fable: window(0.21), receivedAt: start)
-        snapshot.credit = UsageCredit(usedCents: 1240, limitCents: 5000)
-        let extras = SidebarQuotaExtras(snapshot: snapshot, alwaysShows: false, now: start)
-        #expect(SidebarQuotaSummary.text(snapshot, extras: extras, locale: locale) == "Fable weekly quota 21%, Usage credits $12.40 used")
+        store.inject(fable: window(0.3), credit: UsageCredit(usedCents: 1240), isUsingOverage: nil, clearsWindows: true)
+        #expect(store.snapshot?.rateLimit.fiveHour == nil)
+        #expect(store.snapshot?.rateLimit.sevenDay == nil)
+        store.forgetEndpointReadings()
+
+        let saved = try #require(defaults.data(forKey: QuotaStore.defaultsKey))
+        let persisted = try JSONDecoder().decode(QuotaSnapshot.self, from: saved)
+        #expect(persisted.rateLimit.fiveHour?.utilization == 0.1)
+        #expect(persisted.rateLimit.sevenDay?.utilization == 0.5)
+        #expect(persisted.receivedAt == start)
     }
 
-#if DEBUG
+    @Test func scrollToDecodesATargetOrAnEdge() throws {
+        let decode = { (json: String) in try JSONDecoder().decode(ControlServerRequest.self, from: Data(json.utf8)).command }
+        guard case .scrollTo(let byTarget) = try decode(#"{"id":"1","command":"scrollTo","target":{"id":"x"}}"#) else {
+            Issue.record("not scrollTo"); return
+        }
+        #expect(byTarget.target == .control(id: "x", index: nil, label: nil))
+        guard case .scrollTo(let byEdge) = try decode(#"{"id":"2","command":"scrollTo","edge":"bottom"}"#) else {
+            Issue.record("not scrollTo"); return
+        }
+        #expect(byEdge.edge == "bottom")
+    }
+
     @Test func injectUsageRejectsOutOfRangeParams() throws {
         #expect(throws: ControlError.self) { try InjectUsageParams(fable: 1.5).validate() }
         #expect(throws: ControlError.self) { try InjectUsageParams(fable: -0.1).validate() }

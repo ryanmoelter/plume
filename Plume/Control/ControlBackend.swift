@@ -32,6 +32,7 @@ protocol ControlBackend {
     func resize(_ params: ResizeParams) async throws -> ResizeResult
     func scrollChat(_ params: ScrollChatParams) async throws -> ScrollHitchReport
     func injectUsage(_ params: InjectUsageParams) throws
+    func scrollTo(_ params: ScrollToParams) throws
 }
 
 /// The one switch over `ControlCommand`, so a transport only moves bytes.
@@ -131,6 +132,9 @@ enum ControlDispatcher {
                 result = .childSession(try ControlChildSessionCommands.answerOffer(params))
             case .injectUsage(let params):
                 try backend.injectUsage(params)
+                result = .empty
+            case .scrollTo(let params):
+                try backend.scrollTo(params)
                 result = .empty
             }
             return .success(id: request.id, result)
