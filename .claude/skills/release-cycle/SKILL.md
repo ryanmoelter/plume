@@ -18,11 +18,17 @@ Pull `main` first (`git pull --ff-only`) and read the latest `v*` tag without a 
 
 Invoke the `roadmap` skill to list the To do queue, and read each issue's description. Group the queued issues into work packages so that **no two packages edit the same files**. An issue names files only where they matter, so read the code to find the real footprint before clustering.
 
+- Pick each package's **runner**. Use a **child session** (`mcp__plume__start_session`) if any of these apply:
+  - It's user-visible, and the issue leaves the look, feel, motion or copy open.
+  - It carries a design choice the user hasn't settled, or a recently settled `Needs decision`.
+  - The user would plausibly say "not quite, try…" after seeing it. When in doubt, apply this test.
+
+  Use a **subagent** (`Agent`) for everything else: S fixes with a clear repro, internal, protocol or backend work, and every cross-cutting sweep, merge conflict, verifier, Release build, media capture and doc edit. A child session lets the user iterate with the implementer in its own tab, and it keeps its context across rounds. If `mcp__plume__start_session` is unavailable (a terminal tab, or outside Plume), every package uses a subagent.
 - S-only groups (estimate 2) go to **Sonnet**; anything M or larger (estimate 3+), unsized, or touching the headless wire protocol, goes to **Opus**. Always set `model` explicitly.
 - Cross-cutting passes (accessibility identifiers, a styling sweep) touch every view. Run them **after** the merge, on the release branch, not in parallel.
 - Note the seams where packages share a file anyway (`ChatTabView`, `ChatComposer` are the usual ones) and tell each agent which other agents are in that file so they keep their footprint minimal.
 
-Write the package table into the plan file before launching anything.
+Write the package table into the plan file before launching anything, with a column for each package's runner and model. Plan mode refuses `start_session`, so leave plan mode before starting a child session.
 
 Once the plan is approved, create the release issue as a placeholder through the `roadmap` skill. Title it `Release <version>`, put it in team Plume, project Admin, and set it to In Progress. Its description is `GitHub release: *link added on publish.*`. Its `relatedTo` lists the previous release's `Release <version>` issue and every issue planned for this release. Add an issue to it if it joins mid-cycle, and remove one if it drops out.
 
@@ -30,7 +36,9 @@ Once the plan is approved, create the release issue as a placeholder through the
 
 ## 2. Launch implementers
 
-One `Agent` call per package, all in one message, with `isolation: "worktree"` and the chosen `model`. Each prompt carries the package description plus the rule block below verbatim.
+### Subagent packages
+
+One `Agent` call per subagent package, all in one message, with `isolation: "worktree"` and the chosen `model`. Each prompt carries the package description plus the rule block below verbatim.
 
 ```
 You are running inside a dedicated git worktree of <repo root>. First run `pwd` to learn your
@@ -67,9 +75,25 @@ Report back: branch name, worktree absolute path, commit SHAs, a one-paragraph s
 results, the media files with one line each on what they show, and anything left unverified.
 ```
 
-As soon as the agents launch, move every issue they own to **In Progress** through the `roadmap` skill. Do the same for an issue whose package launches later, at its launch, and for one already running in another agent that will fold into this release.
+### Child-session packages
 
-Do not poll. Completion notifications arrive on their own. Use the wait to write or refine this skill and the plan.
+Start one child session per package with `mcp__plume__start_session`: `initiation: "user_asked"`, `use_worktree: true`, `name: <slug>`, a `title`, and the chosen `model`. A coordinator in the primary checkout defaults to no worktree, so always pass `use_worktree: true`. Plume cuts the worktree from the coordinator's HEAD, not `origin/main`, and names its branch from `name`. A child session started while the release branch is checked out therefore avoids the stale fork in step 3.
+
+The brief carries the package description and tells the child session to:
+
+- Run the `implement` skill on its issues. Skip its worktree step, because the child session already has a worktree and branch. Once the release branch exists, base the work on `<prefix>/release-<version>`.
+- Never run `git stash`, run every build and test in the foreground, and use `<prefix>` for any branch it creates.
+- Leave issue status to the coordinator.
+- Iterate with the user in its own tab, on its own debug build. Builds, reviews and verifiers still go to subagents. A child session can't start child sessions.
+- Merge nothing. After the user approves, send the hand-off from `implement` step 6 with `mcp__plume__send_message` to `"parent"`.
+
+Every turn a child session ends sends you a note, including turns the user drives. Treat those notes as status, and act only on the hand-off message.
+
+### After launch
+
+As soon as packages launch, move every issue they own to **In Progress** through the `roadmap` skill. Do the same for an issue whose package launches later, at its launch, and for one already running in another agent that will fold into this release.
+
+Do not poll. Completion notifications and child-session notes arrive on their own. Notes wait while any child session is mid-turn, so a long user iteration delays them. Use the wait to write or refine this skill and the plan.
 
 ## 3. Merge to a release branch
 
@@ -86,7 +110,7 @@ When a package merges into the release branch, move its issues to **In Review**.
 
 ### Hand-offs from implement agents
 
-An agent running the `implement` skill may send a branch with `SendMessage` once the user approves it. The message names the issue, branch, worktree, commits, base, signing state, changelog bullets and media folder. Merge it like a package, re-signing any unsigned commit. Then reply to the sender with `SendMessage`, naming the merge SHA, so it can clean up its worktree. Its issue stays open until the release reaches `main`.
+An agent running the `implement` skill may send a branch once the user approves it. Another session sends it with `SendMessage`; a child session sends it as a `send_message` note. The message names the issue, branch, worktree, commits, base, signing state, changelog bullets and media folder. Merge it like a package, re-signing any unsigned commit. Then reply the same way, with `SendMessage` or `mcp__plume__send_message`, naming the merge SHA. Another session then cleans up its own worktree; a child session leaves its worktree to you. Its issue stays open until the release reaches `main`.
 
 ### Clean up as each package lands
 
@@ -99,6 +123,8 @@ git worktree prune
 git branch -D <prefix>/<slug> worktree-agent-<id>
 ```
 
+A child session's worktree and branch go the same way. Once both are gone, ask the user to close the child session's tab, and not before.
+
 **`git branch --merged` is the check, but it answers about commits, not content.** A branch whose work reached the release branch by cherry-pick or by a re-signing rebase reads as *unmerged*, because its original SHAs are not ancestors. Confirm with `git diff <branch>..HEAD --stat` instead — an empty diff means the content landed and the branch is safe to delete.
 
 **Remove each removed worktree's DerivedData and debug data too.** Quit its debug app first (only the PID from `pgrep -f "^<app>/Contents/MacOS/Plume"`). Its DerivedData is the `~/Library/Developer/Xcode/DerivedData/Plume-*` whose `info.plist` has `WorkspacePath` equal to `<worktree>/Plume.xcodeproj`; read it with `/usr/libexec/PlistBuddy -c 'Print :WorkspacePath' <dir>/info.plist`. Delete only an exact match, never the primary checkout's. Its debug data is `~/Library/Application Support/Plume.debug-<worktreeName>/`.
@@ -107,7 +133,7 @@ git branch -D <prefix>/<slug> worktree-agent-<id>
 
 **A test chat's permission answers can persist outside the worktree.** The debug build runs a real `claude`, and an accepted "Always allow … in this project" suggestion makes that CLI write the rule to the primary checkout's `.claude/settings.local.json`, not the worktree's. Tell any agent that drives the app to start its test chats in a new folder under `~/Development/plume-scratch` (the `drive-plume` skill says why), and check that file after the run.
 
-**Keep a worktree while anything the package started still runs.** An implementer's report can mention a verification agent it handed off to, and that agent keeps driving the worktree's build after the implementer's turn ends. In the 0.20.0 run, removing the worktree mid-check stranded a debug instance and left a test binding in the shared debug defaults. Wait for that agent's report, and look for a running app with `pgrep -f "<DerivedData dir>"` as well as the worktree path, since the app runs from DerivedData.
+**Keep a worktree while anything the package started still runs.** An implementer's report can mention a verification agent it handed off to, and that agent keeps driving the worktree's build after the implementer's turn ends. In the 0.20.0 run, removing the worktree mid-check stranded a debug instance and left a test binding in the shared debug defaults. Wait for that agent's report, and for any child session on the package to end its turn. Look for a running app with `pgrep -f "<DerivedData dir>"` as well as the worktree path, since the app runs from DerivedData.
 
 ## 4. Debug build for manual evaluation
 
@@ -120,9 +146,14 @@ Delegate to a Sonnet verifier, on the release branch in the primary checkout:
 - A verifier that starts chats must start them on Haiku. When it is done, it archives every chat it created. Leftover test tasks crowd the sidebar and slow down the next verifier.
 - Drive each package's behavior with the `drive-plume` skill and read back the result. If a step can't be reached, a targeted agent adds the missing hook on the release branch, and the verifier runs again before the user's checklist.
 
-Publish a review page with the `Artifact` tool before telling the user (load `artifact-design` first). It has one section per package: the issue identifier and title, its checklist, and that package's screenshots and recordings from `~/Library/Caches/Plume-agent-media/<issue>/`, each captioned with what it shows. `files` accepts only paths under the working directory or the scratchpad, so copy each package's media into a folder in the scratchpad and publish from there. Republish the same page path as later packages land, so the user keeps one link for the release.
+Publish a review page with the `Artifact` tool before telling the user (load `artifact-design` first). It has one section per package: the issue identifier and title, its checklist, and that package's screenshots and recordings from `~/Library/Caches/Plume-agent-media/<issue>/` (for a child session's package, the media folder its hand-off names), each captioned with what it shows. `files` accepts only paths under the working directory or the scratchpad, so copy each package's media into a folder in the scratchpad and publish from there. Republish the same page path as later packages land, so the user keeps one link for the release.
 
-Tell the user the app is running, give the review page's link, and give a per-package checklist of what to try. Each round of feedback becomes targeted agents on the release branch (Sonnet for tweaks, Opus for behavior bugs), then rebuild and relaunch through the verifier. The verifier recaptures the media a fix changed, and the coordinator republishes the review page.
+Tell the user the app is running, give the review page's link, and give a per-package checklist of what to try. Route each round of feedback by the runner rule in step 1:
+
+- A taste-heavy round goes to a child session. If the package's child session is still open, message it, and have it move onto the release branch with `git checkout -B <its branch> <prefix>/release-<version>` in its worktree. Otherwise, start a new child session while the release branch is checked out. Either way, it hands off again once the user approves.
+- A tweak with an obvious fix goes to a Sonnet subagent on the release branch, and a behavior bug to an Opus subagent.
+
+After each round, rebuild and relaunch through the verifier. The verifier recaptures the media a fix changed, and the coordinator republishes the review page.
 
 If the user wants what has merged so far in beta users' hands before the cycle ends, use the `release-beta` skill. It ships a beta from `main` and keeps the cycle going on the same release branch.
 
