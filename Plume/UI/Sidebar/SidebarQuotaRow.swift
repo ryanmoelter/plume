@@ -26,32 +26,38 @@ struct SidebarQuotaRow: View, ThemedView {
 
     @ViewBuilder
     private func content(_ snapshot: QuotaSnapshot?) -> some View {
-        let isStale = snapshot.map {
+        let windowsAreStale = snapshot.map {
             QuotaFreshness.isStale(receivedAt: $0.receivedAt, now: quota.now)
         } ?? false
+        let rowIsStale = snapshot.map {
+            QuotaFreshness.isStale(receivedAt: $0.lastHeardAt, now: quota.now)
+        } ?? false
         let extras = SidebarQuotaExtras(snapshot: snapshot, alwaysShows: settings.alwaysShowsCreditAndFableQuota)
-        let hasReading = snapshot.map(Self.hasWindows) == true || extras.showsAny
+        let windows = snapshot.flatMap { Self.hasWindows($0) ? $0 : nil }
 
         HStack(spacing: 8) {
             AgentProviderIcon(provider: .claudeCode, size: 16)
                 // A row with nothing to say reads as quiet as one gone stale.
-                .opacity(isStale || !hasReading ? colors.emphasis[.secondary] : 1)
-            if let snapshot, hasReading {
+                .opacity(rowIsStale || (windows == nil && !extras.showsAny) ? colors.emphasis[.secondary] : 1)
+            if windows != nil || extras.showsAny {
                 // The extras go first when the row runs out of room.
                 ViewThatFits(in: .horizontal) {
                     HStack(spacing: 8) {
-                        meters(snapshot, isStale: isStale)
+                        if let windows {
+                            meters(windows, isStale: windowsAreStale)
+                        }
                         extraReadings(snapshot, extras: extras)
                     }
-                    HStack(spacing: 8) {
-                        meters(snapshot, isStale: isStale)
+                    if let windows {
+                        HStack(spacing: 8) {
+                            meters(windows, isStale: windowsAreStale)
+                        }
+                    } else {
+                        noReading
                     }
                 }
             } else {
-                Text("\u{2014}")
-                    .foregroundStyle(colors.foreground.opacity(colors.emphasis[.secondary]))
-                    .accessibilityLabel("No quota reading yet")
-                    .transition(.opacity)
+                noReading
             }
             Spacer(minLength: 0)
         }
@@ -63,6 +69,12 @@ struct SidebarQuotaRow: View, ThemedView {
         .accessibilityElement(children: .contain)
         .accessibilityLabel("Claude account quota")
         .plumeID(AccessibilityID.sidebarQuotaRow)
+    }
+
+    private var noReading: some View {
+        placeholder
+            .accessibilityLabel("No quota reading yet")
+            .transition(.opacity)
     }
 
     private static func hasWindows(_ snapshot: QuotaSnapshot) -> Bool {
@@ -114,24 +126,24 @@ struct SidebarQuotaRow: View, ThemedView {
     }
 
     @ViewBuilder
-    private func extraReadings(_ snapshot: QuotaSnapshot, extras: SidebarQuotaExtras) -> some View {
+    private func extraReadings(_ snapshot: QuotaSnapshot?, extras: SidebarQuotaExtras) -> some View {
         if extras.showsFable {
             fableReading(snapshot)
                 .transition(.opacity)
         }
         if extras.showsCredit {
-            creditReading(snapshot.credit)
+            creditReading(snapshot)
                 .transition(.opacity)
         }
     }
 
-    private func fableReading(_ snapshot: QuotaSnapshot) -> some View {
-        let fable = snapshot.rateLimit.fable
+    private func fableReading(_ snapshot: QuotaSnapshot?) -> some View {
+        let fable = snapshot?.rateLimit.fable
         return HStack(spacing: 3) {
             Image(systemName: "f.circle")
                 .foregroundStyle(colors.foreground.opacity(colors.emphasis[.secondary]))
                 .accessibilityHidden(true)
-            if let fable {
+            if let snapshot, let fable {
                 StatuslineMeterSegment(
                     label: "Fable",
                     utilization: fable.utilization,
@@ -153,8 +165,10 @@ struct SidebarQuotaRow: View, ThemedView {
         )
     }
 
-    private func creditReading(_ credit: UsageCredit?) -> some View {
-        let used = credit?.usedCents.map { UsageCreditFormat.amount(cents: $0, currency: credit?.currency) }
+    private func creditReading(_ snapshot: QuotaSnapshot?) -> some View {
+        let credit = snapshot?.credit
+        let used = credit?.usedCents.map { UsageCreditFormat.amount(minorUnits: $0, currency: credit?.currency) }
+        let isStale = credit != nil && QuotaFreshness.isCreditStale(receivedAt: snapshot?.creditReceivedAt, now: quota.now)
         return HStack(spacing: 3) {
             Image(systemName: "dollarsign.circle")
                 .foregroundStyle(colors.foreground.opacity(colors.emphasis[.secondary]))
@@ -167,11 +181,12 @@ struct SidebarQuotaRow: View, ThemedView {
                 placeholder
             }
         }
+        .opacity(isStale ? colors.emphasis[.secondary] : 1)
         .help(UsageCreditFormat.tooltip(credit))
         .accessibilityElement(children: .ignore)
         .accessibilityLabel("Usage credits")
         .accessibilityValue(UsageCreditFormat.tooltip(credit))
-        .plumeID(AccessibilityID.sidebarQuotaCredit, value: used ?? "none")
+        .plumeID(AccessibilityID.sidebarQuotaCredit, value: used.map { isStale ? "\($0) stale" : $0 } ?? "none")
     }
 
     private var placeholder: some View {
@@ -201,17 +216,41 @@ struct SidebarQuotaExtras: Equatable {
 }
 
 enum UsageCreditFormat {
-    static func amount(cents: Int, currency: String?, locale: Locale = .current) -> String {
+    private static var formatters: [String: NumberFormatter] = [:]
+
+    /// Keyed by currency and locale; a view asks on every body pass.
+    static func formatter(currency: String?, locale: Locale = .current) -> NumberFormatter {
+        let code = currency?.uppercased() ?? "USD"
+        let key = "\(code)|\(locale.identifier)"
+        if let cached = formatters[key] { return cached }
         let formatter = NumberFormatter()
         formatter.locale = locale
         formatter.numberStyle = .currency
-        formatter.currencyCode = currency?.uppercased() ?? "USD"
-        return formatter.string(from: NSNumber(value: Double(cents) / 100)) ?? "\(cents)"
+        formatter.currencyCode = code
+        formatter.minimumFractionDigits = minorUnitDigits(currency: code)
+        formatter.maximumFractionDigits = minorUnitDigits(currency: code)
+        formatters[key] = formatter
+        return formatter
+    }
+
+    /// ISO 4217's minor-unit exponent: 2 for USD, 0 for JPY.
+    static func minorUnitDigits(currency: String) -> Int {
+        let probe = NumberFormatter()
+        probe.locale = Locale(identifier: "en_US_POSIX")
+        probe.numberStyle = .currencyISOCode
+        probe.currencyCode = currency
+        return probe.maximumFractionDigits
+    }
+
+    static func amount(minorUnits: Int, currency: String?, locale: Locale = .current) -> String {
+        let formatter = formatter(currency: currency, locale: locale)
+        let value = Decimal(minorUnits) / pow(Decimal(10), formatter.maximumFractionDigits)
+        return formatter.string(from: value as NSDecimalNumber) ?? "\(minorUnits)"
     }
 
     static func tooltip(_ credit: UsageCredit?, locale: Locale = .current) -> String {
         guard let credit, let used = credit.usedCents else { return "Usage credits: no reading yet" }
-        let format = { (cents: Int) in amount(cents: cents, currency: credit.currency, locale: locale) }
+        let format = { (units: Int) in amount(minorUnits: units, currency: credit.currency, locale: locale) }
         var lines = ["Usage credits: \(format(used)) used this month"]
         if let limit = credit.limitCents {
             lines.append("Monthly limit: \(format(limit))")

@@ -11,6 +11,9 @@ nonisolated struct UsageCredit: Equatable, Codable, Sendable {
     var balanceCents: Int?
     var isEnabled: Bool?
     var currency: String?
+    /// When the billing period resets, from the active `spend` row of
+    /// `limits[]`.
+    var resetsAt: Date?
 
     var remainingCents: Int? {
         if let balanceCents { return balanceCents }
@@ -75,9 +78,16 @@ nonisolated enum ClaudeUsageParser {
             limitCents: cents(spend?["limit"]) ?? cents(extra?["monthly_limit"]),
             balanceCents: cents(spend?["balance"]),
             isEnabled: spend?["is_enabled"]?.boolValue ?? extra?["is_enabled"]?.boolValue,
-            currency: spend?["currency"]?.stringValue ?? extra?["currency"]?.stringValue
+            currency: spend?["currency"]?.stringValue ?? extra?["currency"]?.stringValue,
+            resetsAt: creditReset(in: root)
         )
         return credit == UsageCredit() ? nil : credit
+    }
+
+    private static func creditReset(in root: [String: JSONValue]) -> Date? {
+        let rows = root["limits"]?.arrayValue?.compactMap(\.objectValue).filter { $0["kind"]?.stringValue == "spend" } ?? []
+        let row = rows.first { $0["is_active"]?.boolValue == true } ?? rows.first
+        return date(row?["resets_at"])
     }
 
     private static func percentWindow(_ object: [String: JSONValue]?) -> RateLimitInfo.Window? {
@@ -132,9 +142,13 @@ nonisolated enum ClaudeCredentials {
         ]
         var result: CFTypeRef?
         let status = SecItemCopyMatching(query as CFDictionary, &result)
+        return read(status: status, data: result as? Data)
+    }
+
+    static func read(status: OSStatus, data: Data?) -> Read {
         switch status {
         case errSecSuccess:
-            guard let data = result as? Data, let token = parse(data) else { return .missing }
+            guard let data, let token = parse(data) else { return .missing }
             return token
         case errSecUserCanceled, errSecAuthFailed:
             return .denied

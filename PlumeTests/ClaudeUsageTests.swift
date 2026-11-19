@@ -1,4 +1,5 @@
 import Foundation
+import Security
 import Testing
 @testable import Plume
 
@@ -192,6 +193,89 @@ struct ClaudeUsageTests {
         #expect(snapshot.restored(now: weekAfterReceived.addingTimeInterval(86400)).rateLimit.fable?.utilization == 0)
     }
 
+    @Test func aStreamReadingThatArrivesMidRequestBeatsTheReply() {
+        let store = QuotaStore()
+        let sentAt = start
+        store.record(streamInfo(fable: 0.4), at: sentAt.addingTimeInterval(2))
+        store.record(ClaudeUsageReading(fable: window(0.3)), at: sentAt)
+
+        #expect(store.snapshot?.rateLimit.fable?.utilization == 0.4)
+    }
+
+    @Test func injectedReadingsNeverReachDisk() throws {
+        let suite = "ClaudeUsageTests-\(UUID().uuidString)"
+        let defaults = try #require(UserDefaults(suiteName: suite))
+        defer { defaults.removePersistentDomain(forName: suite) }
+        let store = QuotaStore(defaults: defaults)
+        let realCredit = UsageCredit(usedCents: 100, limitCents: 500)
+        store.record(ClaudeUsageReading(fable: window(0.1), credit: realCredit), at: start)
+
+        store.inject(fable: window(0.9), credit: UsageCredit(usedCents: 9999, limitCents: 10000), isUsingOverage: true)
+        store.record(streamInfo(fable: nil), at: start.addingTimeInterval(60))
+        #expect(store.snapshot?.credit?.usedCents == 9999)
+
+        let saved = try #require(defaults.data(forKey: QuotaStore.defaultsKey))
+        let persisted = try JSONDecoder().decode(QuotaSnapshot.self, from: saved)
+        #expect(persisted.rateLimit.fable?.utilization == 0.1)
+        #expect(persisted.credit == realCredit)
+        #expect(persisted.rateLimit.isUsingOverage == false)
+        #expect(persisted.rateLimit.sevenDay?.utilization == 0.5)
+    }
+
+    @Test func creditDimsAfterTwoMissedPolls() {
+        let limit = QuotaFreshness.creditStaleAfter
+        #expect(limit == 40 * 60)
+        #expect(!QuotaFreshness.isCreditStale(receivedAt: start, now: start.addingTimeInterval(limit)))
+        #expect(QuotaFreshness.isCreditStale(receivedAt: start, now: start.addingTimeInterval(limit + 1)))
+    }
+
+    @Test func endpointRecordsWhenCreditWasHeard() {
+        let store = QuotaStore()
+        store.record(ClaudeUsageReading(credit: UsageCredit(usedCents: 1, limitCents: 2)), at: start)
+        store.record(streamInfo(fable: nil), at: start.addingTimeInterval(60))
+
+        #expect(store.snapshot?.creditReceivedAt == start)
+    }
+
+    @Test func creditFromAnEndedBillingPeriodIsDroppedOnRestore() {
+        var snapshot = QuotaSnapshot.empty(at: start)
+        snapshot.credit = UsageCredit(usedCents: 1, limitCents: 2, resetsAt: start.addingTimeInterval(3600))
+        snapshot.creditReceivedAt = start
+
+        #expect(snapshot.restored(now: start.addingTimeInterval(60)).credit != nil)
+        let restored = snapshot.restored(now: start.addingTimeInterval(3600))
+        #expect(restored.credit == nil)
+        #expect(restored.creditReceivedAt == nil)
+    }
+
+    @Test func parsesTheBillingPeriodResetFromTheActiveSpendRow() throws {
+        let body = #"""
+        {"extra_usage":{"is_enabled":true,"monthly_limit":5000,"used_credits":100},
+         "limits":[{"kind":"spend","group":"daily","percent":1,"resets_at":"2026-11-19T00:00:00Z","is_active":false},
+                   {"kind":"spend","group":"monthly","percent":2,"resets_at":"2026-12-01T00:00:00Z","is_active":true}]}
+        """#
+        let reading = try #require(ClaudeUsageParser.parse(Data(body.utf8)))
+        #expect(reading.credit?.resetsAt == ISO8601DateFormatter().date(from: "2026-12-01T00:00:00Z"))
+    }
+
+    @Test func aPollOnlyRowIsAsFreshAsItsNewestReading() {
+        var snapshot = QuotaSnapshot.empty(at: start)
+        #expect(snapshot.lastHeardAt == start)
+        snapshot.credit = UsageCredit(usedCents: 1)
+        snapshot.creditReceivedAt = start.addingTimeInterval(3600)
+        snapshot = snapshot.with(fable: window(0.1), receivedAt: start.addingTimeInterval(1800))
+        #expect(snapshot.lastHeardAt == start.addingTimeInterval(3600))
+    }
+
+    @Test func declinedKeychainAccessStopsThePoll() async {
+        #expect(ClaudeCredentials.read(status: errSecUserCanceled, data: nil) == .denied)
+        #expect(ClaudeCredentials.read(status: errSecAuthFailed, data: nil) == .denied)
+        #expect(ClaudeCredentials.read(status: errSecItemNotFound, data: nil) == .missing)
+        #expect(ClaudeCredentials.read(status: errSecInteractionNotAllowed, data: nil) == .missing)
+        let client = ClaudeUsageClient(readCredentials: { .denied })
+        #expect(await client.fetch() == .credentialsDenied)
+    }
+
     // MARK: Sidebar
 
     @Test func extrasShowOnlyOnceTheyApply() {
@@ -224,8 +308,10 @@ struct ClaudeUsageTests {
 
     @Test func creditFormatsAsCurrency() {
         let locale = Locale(identifier: "en_US")
-        #expect(UsageCreditFormat.amount(cents: 1240, currency: "USD", locale: locale) == "$12.40")
-        #expect(UsageCreditFormat.amount(cents: 1240, currency: nil, locale: locale) == "$12.40")
+        #expect(UsageCreditFormat.amount(minorUnits: 1240, currency: "USD", locale: locale) == "$12.40")
+        #expect(UsageCreditFormat.amount(minorUnits: 1240, currency: nil, locale: locale) == "$12.40")
+        #expect(UsageCreditFormat.amount(minorUnits: 1240, currency: "JPY", locale: locale) == "¥1,240")
+        #expect(UsageCreditFormat.formatter(currency: "usd", locale: locale) === UsageCreditFormat.formatter(currency: "USD", locale: locale))
         #expect(
             UsageCreditFormat.tooltip(UsageCredit(usedCents: 1240, limitCents: 5000), locale: locale)
                 == "Usage credits: $12.40 used this month\nMonthly limit: $50.00\n$37.60 left"
@@ -245,10 +331,26 @@ struct ClaudeUsageTests {
         let over = QuotaSnapshot(rateLimit: RateLimitInfo(fiveHour: window(1), sevenDay: window(0.5), isUsingOverage: false), receivedAt: start)
         let under = QuotaSnapshot(rateLimit: RateLimitInfo(fiveHour: window(0.99), sevenDay: window(0.5), isUsingOverage: false), receivedAt: start)
         let overage = QuotaSnapshot(rateLimit: RateLimitInfo(fiveHour: nil, sevenDay: nil, isUsingOverage: true), receivedAt: start)
-        #expect(ClaudeUsagePollSchedule.isOverLimit(over))
-        #expect(!ClaudeUsagePollSchedule.isOverLimit(under))
-        #expect(ClaudeUsagePollSchedule.isOverLimit(overage))
-        #expect(!ClaudeUsagePollSchedule.isOverLimit(nil))
+        #expect(ClaudeUsagePollSchedule.isOverLimit(over, now: start))
+        #expect(!ClaudeUsagePollSchedule.isOverLimit(under, now: start))
+        #expect(ClaudeUsagePollSchedule.isOverLimit(overage, now: start))
+        #expect(!ClaudeUsagePollSchedule.isOverLimit(nil, now: start))
+    }
+
+    @Test func aWindowPastItsResetNoLongerShortensThePoll() {
+        let full = RateLimitInfo.Window(utilization: 1, resetsAt: start.addingTimeInterval(600))
+        let snapshot = QuotaSnapshot(rateLimit: RateLimitInfo(fiveHour: full, sevenDay: nil, isUsingOverage: false), receivedAt: start)
+
+        #expect(ClaudeUsagePollSchedule.isOverLimit(snapshot, now: start.addingTimeInterval(599)))
+        #expect(!ClaudeUsagePollSchedule.isOverLimit(snapshot, now: start.addingTimeInterval(600)))
+    }
+
+    @Test func anOldReadingNoLongerShortensThePoll() {
+        let snapshot = QuotaSnapshot(rateLimit: RateLimitInfo(fiveHour: nil, sevenDay: window(1), isUsingOverage: true), receivedAt: start)
+        let maxAge = ClaudeUsagePollSchedule.overLimitReadingMaxAge
+
+        #expect(ClaudeUsagePollSchedule.isOverLimit(snapshot, now: start.addingTimeInterval(maxAge)))
+        #expect(!ClaudeUsagePollSchedule.isOverLimit(snapshot, now: start.addingTimeInterval(maxAge + 1)))
     }
 
     @Test func rateLimitWithoutRetryAfterBacksOffExponentially() {

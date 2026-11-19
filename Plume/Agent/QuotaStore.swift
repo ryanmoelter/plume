@@ -48,20 +48,27 @@ final class QuotaStore {
         guard hasWindows || rateLimit.fable != nil else { return }
         let previous = snapshot
         var next = hasWindows
-            ? QuotaSnapshot(rateLimit: rateLimit, receivedAt: date, credit: previous?.credit)
+            ? QuotaSnapshot(rateLimit: rateLimit, receivedAt: date)
             : previous ?? .empty(at: date)
+        next.credit = previous?.credit
+        next.creditReceivedAt = previous?.creditReceivedAt
         if let fable = rateLimit.fable {
             next = next.with(fable: fable, receivedAt: date)
         } else if let previous {
             // Only a Fable turn reports the Fable window.
             next = next.with(fable: previous.rateLimit.fable, receivedAt: previous.fableReceivedAt)
         }
+#if DEBUG
+        if hasWindows { injection?.overridesOverage = false }
+#endif
         persist(next)
         now = date
     }
 
     /// A reading from the usage endpoint, which brings what the stream never
     /// does: the credit spend, and the Fable window between Fable turns.
+    /// `date` is when the request was sent, so a stream reading that arrives
+    /// while it is in flight is newer than the reply.
     func record(_ usage: ClaudeUsageReading, at date: Date = Date()) {
         guard usage.fable != nil || usage.credit != nil else { return }
         var next = snapshot ?? .empty(at: date)
@@ -70,13 +77,27 @@ final class QuotaStore {
         }
         if let credit = usage.credit {
             next.credit = credit
+            next.creditReceivedAt = date
         }
         persist(next)
     }
 
 #if DEBUG
+    /// What a driver's injected reading replaced, so the readings on disk
+    /// stay the real ones.
+    private struct Injection {
+        let baseline: QuotaSnapshot?
+        var overridesOverage: Bool
+    }
+
+    @ObservationIgnored private var injection: Injection?
+
     /// Seeds the Fable window and credit for a driver; nil clears either.
     func inject(fable: RateLimitInfo.Window?, credit: UsageCredit?, isUsingOverage: Bool?, at date: Date = Date()) {
+        if injection == nil {
+            injection = Injection(baseline: snapshot, overridesOverage: false)
+        }
+        if isUsingOverage != nil { injection?.overridesOverage = true }
         let base = snapshot ?? .empty(at: date)
         var next = QuotaSnapshot(
             rateLimit: RateLimitInfo(
@@ -87,14 +108,35 @@ final class QuotaStore {
             receivedAt: base.receivedAt
         ).with(fable: fable, receivedAt: date)
         next.credit = credit
-        // Not persisted, so a seeded reading never outlives the run.
+        next.creditReceivedAt = credit == nil ? nil : date
         snapshot = next
         now = date
+    }
+
+    private func withoutInjection(_ snapshot: QuotaSnapshot) -> QuotaSnapshot {
+        guard let injection else { return snapshot }
+        let baseline = injection.baseline
+        var real = QuotaSnapshot(
+            rateLimit: RateLimitInfo(
+                fiveHour: snapshot.rateLimit.fiveHour,
+                sevenDay: snapshot.rateLimit.sevenDay,
+                isUsingOverage: injection.overridesOverage
+                    ? baseline?.rateLimit.isUsingOverage ?? false
+                    : snapshot.rateLimit.isUsingOverage
+            ),
+            receivedAt: snapshot.receivedAt
+        ).with(fable: baseline?.rateLimit.fable, receivedAt: baseline?.fableReceivedAt)
+        real.credit = baseline?.credit
+        real.creditReceivedAt = baseline?.creditReceivedAt
+        return real
     }
 #endif
 
     private func persist(_ snapshot: QuotaSnapshot) {
         self.snapshot = snapshot
+#if DEBUG
+        let snapshot = withoutInjection(snapshot)
+#endif
         if let defaults, let data = try? JSONEncoder().encode(snapshot) {
             defaults.set(data, forKey: Self.defaultsKey)
         }
@@ -176,6 +218,7 @@ struct QuotaSnapshot: Equatable, Codable {
     /// `receivedAt`: the usage endpoint reports it between turns.
     var fableReceivedAt: Date?
     var credit: UsageCredit?
+    var creditReceivedAt: Date?
 
     static func empty(at date: Date) -> QuotaSnapshot {
         QuotaSnapshot(rateLimit: RateLimitInfo(fiveHour: nil, sevenDay: nil, isUsingOverage: false), receivedAt: date)
@@ -183,6 +226,15 @@ struct QuotaSnapshot: Equatable, Codable {
 
     var fableHeardAt: Date {
         rateLimit.fable == nil ? .distantPast : fableReceivedAt ?? receivedAt
+    }
+
+    /// The newest of the readings it holds, which is what says whether the
+    /// row as a whole has gone quiet.
+    var lastHeardAt: Date {
+        let windowsHeardAt = rateLimit.fiveHour != nil || rateLimit.sevenDay != nil ? receivedAt : .distantPast
+        let creditHeardAt = credit == nil ? .distantPast : creditReceivedAt ?? receivedAt
+        let newest = max(windowsHeardAt, fableHeardAt, creditHeardAt)
+        return newest == .distantPast ? receivedAt : newest
     }
 
     func with(fable: RateLimitInfo.Window?, receivedAt fableDate: Date?) -> QuotaSnapshot {
@@ -195,7 +247,8 @@ struct QuotaSnapshot: Equatable, Codable {
             ),
             receivedAt: receivedAt,
             fableReceivedAt: fable == nil ? nil : fableDate,
-            credit: credit
+            credit: credit,
+            creditReceivedAt: creditReceivedAt
         )
     }
 
@@ -210,6 +263,9 @@ struct QuotaSnapshot: Equatable, Codable {
             )
             return refilled ? .init(utilization: 0, resetsAt: nil) : window
         }
+        // A reading from a billing period that has ended says nothing about
+        // the new one.
+        let creditPeriodEnded = credit?.resetsAt.map { $0 <= now } ?? false
         return QuotaSnapshot(
             rateLimit: RateLimitInfo(
                 fiveHour: restore(rateLimit.fiveHour, length: QuotaWindowLength.fiveHour, heardAt: receivedAt),
@@ -219,7 +275,8 @@ struct QuotaSnapshot: Equatable, Codable {
             ),
             receivedAt: receivedAt,
             fableReceivedAt: fableReceivedAt,
-            credit: credit
+            credit: creditPeriodEnded ? nil : credit,
+            creditReceivedAt: creditPeriodEnded ? nil : creditReceivedAt
         )
     }
 }
@@ -235,8 +292,16 @@ enum QuotaFreshness {
     static let focusRefreshInterval: TimeInterval = 3 * 60
     static let staleAfter: TimeInterval = 30 * 60
 
+    /// Two missed polls of the usage endpoint.
+    static let creditStaleAfter: TimeInterval = 2 * ClaudeUsagePollSchedule.interval
+
     static func isStale(receivedAt: Date, now: Date) -> Bool {
         now.timeIntervalSince(receivedAt) > staleAfter
+    }
+
+    static func isCreditStale(receivedAt: Date?, now: Date) -> Bool {
+        guard let receivedAt else { return true }
+        return now.timeIntervalSince(receivedAt) > creditStaleAfter
     }
 
     /// A live reading whose reset time has passed is not zeroed: the session

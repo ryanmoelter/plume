@@ -35,11 +35,18 @@ nonisolated enum ClaudeUsagePollSchedule {
         return min(base * pow(2, Double(doublings)), max(maxBackoff, base))
     }
 
-    static func isOverLimit(_ snapshot: QuotaSnapshot?) -> Bool {
-        guard let rateLimit = snapshot?.rateLimit else { return false }
-        return rateLimit.isUsingOverage
-            || (rateLimit.fiveHour?.utilization ?? 0) >= 1
-            || (rateLimit.sevenDay?.utilization ?? 0) >= 1
+    /// Past this, a stream reading no longer says the account is still
+    /// spending: nothing on this Mac has taken a turn in that long.
+    static let overLimitReadingMaxAge: TimeInterval = 2 * 3600
+
+    static func isOverLimit(_ snapshot: QuotaSnapshot?, now: Date) -> Bool {
+        guard let snapshot, now.timeIntervalSince(snapshot.receivedAt) <= overLimitReadingMaxAge else { return false }
+        func isFull(_ window: RateLimitInfo.Window?) -> Bool {
+            guard let window, window.utilization >= 1 else { return false }
+            return window.resetsAt.map { $0 > now } ?? true
+        }
+        let rateLimit = snapshot.rateLimit
+        return rateLimit.isUsingOverage || isFull(rateLimit.fiveHour) || isFull(rateLimit.sevenDay)
     }
 }
 
@@ -96,35 +103,36 @@ final class ClaudeUsagePoller {
 #endif
     }
 
-    private var isDue: Bool {
+    private func isDue(now: Date) -> Bool {
         guard let lastAttempt else { return true }
         let delay = ClaudeUsagePollSchedule.delay(
             after: lastOutcome,
             consecutiveFailures: consecutiveFailures,
-            isOverLimit: ClaudeUsagePollSchedule.isOverLimit(store.snapshot)
+            isOverLimit: ClaudeUsagePollSchedule.isOverLimit(store.snapshot, now: now)
         )
-        return Date().timeIntervalSince(lastAttempt) >= delay
+        return now.timeIntervalSince(lastAttempt) >= delay
     }
 
     private func pollIfDue() async {
 #if DEBUG
         guard !isSuspended else { return }
 #endif
-        guard isDue else { return }
-        lastAttempt = Date()
-        let result: ClaudeUsageFetchResult = await client.fetch()
+        let sentAt = Date()
+        guard isDue(now: sentAt) else { return }
+        lastAttempt = sentAt
+        let result: ClaudeUsageFetchResult = await client.fetch(now: sentAt)
 #if DEBUG
         guard !isSuspended else { return }
 #endif
-        apply(result)
+        apply(result, sentAt: sentAt)
     }
 
-    private func apply(_ result: ClaudeUsageFetchResult) {
+    private func apply(_ result: ClaudeUsageFetchResult, sentAt: Date) {
         switch result {
         case .reading(let reading):
             consecutiveFailures = 0
             lastOutcome = .success
-            store.record(reading)
+            store.record(reading, at: sentAt)
         case .rateLimited(let retryAfter):
             consecutiveFailures += 1
             lastOutcome = .rateLimited(retryAfter: retryAfter)
