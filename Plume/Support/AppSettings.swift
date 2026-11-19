@@ -46,6 +46,7 @@ final class AppSettings {
         static let sidebarShowsTaskColorBar = "sidebarShowsTaskColorBar"
         static let sidebarColorsTaskNames = "sidebarColorsTaskNames"
         static let sidebarBoldTaskNames = "sidebarBoldTaskNames"
+        static let alwaysShowsCreditAndFableQuota = "alwaysShowsCreditAndFableQuota"
         static let sidebarColorsTaskIcons = "sidebarColorsTaskIcons"
         static let sidebarSuggestsFilledIcons = "sidebarSuggestsFilledIcons"
         static let sidebarTwoToneIcons = "sidebarTwoToneIcons"
@@ -215,6 +216,7 @@ final class AppSettings {
             : defaults.bool(forKey: Key.sidebarShowsTaskColorBar)
         self.sidebarColorsTaskNames = defaults.bool(forKey: Key.sidebarColorsTaskNames)
         self.sidebarBoldTaskNames = defaults.bool(forKey: Key.sidebarBoldTaskNames)
+        self.alwaysShowsCreditAndFableQuota = defaults.bool(forKey: Key.alwaysShowsCreditAndFableQuota)
         self.sidebarColorsTaskIcons = defaults.object(forKey: Key.sidebarColorsTaskIcons) == nil
             ? true
             : defaults.bool(forKey: Key.sidebarColorsTaskIcons)
@@ -658,6 +660,14 @@ final class AppSettings {
     var sidebarBoldTaskNames: Bool {
         didSet {
             defaults.set(sidebarBoldTaskNames, forKey: Key.sidebarBoldTaskNames)
+        }
+    }
+
+    /// Shows the sidebar's credit and Fable readings even while they have
+    /// nothing to report.
+    var alwaysShowsCreditAndFableQuota: Bool {
+        didSet {
+            defaults.set(alwaysShowsCreditAndFableQuota, forKey: Key.alwaysShowsCreditAndFableQuota)
         }
     }
 

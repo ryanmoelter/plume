@@ -45,6 +45,12 @@ struct VisualsSettingsPane: View {
                         value: settings.sidebarBoldTaskNames ? "on" : "off",
                         invoke: { settings.sidebarBoldTaskNames.toggle() }
                     )
+                Toggle("Always show credit and Fable quota", isOn: $settings.alwaysShowsCreditAndFableQuota)
+                    .plumeID(
+                        AccessibilityID.settingsAlwaysShowsCreditAndFableQuotaToggle,
+                        value: settings.alwaysShowsCreditAndFableQuota ? "on" : "off",
+                        invoke: { settings.alwaysShowsCreditAndFableQuota.toggle() }
+                    )
             } header: {
                 Text("Sidebar")
             }

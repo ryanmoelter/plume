@@ -347,6 +347,7 @@ enum StatuslineMeterWidth {
     /// from the strip's own widths so the two can be tuned independently.
     static let sidebarQuota: CGFloat = 54
     static let sidebarShortQuota: CGFloat = 42
+    static let sidebarFableQuota: CGFloat = 30
 }
 
 /// How long each quota window runs, for deriving how far through it the clock

@@ -62,7 +62,8 @@ nonisolated enum StreamJSONDecoder {
         return RateLimitInfo(
             fiveHour: window(from: windows["five_hour"]?.objectValue),
             sevenDay: window(from: windows["seven_day"]?.objectValue),
-            isUsingOverage: info["isUsingOverage"]?.boolValue ?? false
+            isUsingOverage: info["isUsingOverage"]?.boolValue ?? false,
+            fable: window(from: windows["seven_day_overage_included"]?.objectValue)
         )
     }
 

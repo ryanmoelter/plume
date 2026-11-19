@@ -2,7 +2,8 @@ import AppKit
 import Foundation
 import Observation
 
-/// The account's 5h and 7d quota windows, shared by every chat.
+/// The account's 5h, 7d and Fable quota windows and its usage-credit spend,
+/// shared by every chat.
 ///
 /// The windows are a property of the account, not of a conversation, but they
 /// only arrive as `rate_limit_event` messages inside whichever session happens
@@ -41,12 +42,59 @@ final class QuotaStore {
     }
 
     func record(_ rateLimit: RateLimitInfo, at date: Date = Date()) {
+        let hasWindows = rateLimit.fiveHour != nil || rateLimit.sevenDay != nil
         // The windows go missing from a payload that reports neither, which is
         // not the same as the account having no quota — keep the last reading.
-        guard rateLimit.fiveHour != nil || rateLimit.sevenDay != nil else { return }
-        let snapshot = QuotaSnapshot(rateLimit: rateLimit, receivedAt: date)
-        self.snapshot = snapshot
+        guard hasWindows || rateLimit.fable != nil else { return }
+        let previous = snapshot
+        var next = hasWindows
+            ? QuotaSnapshot(rateLimit: rateLimit, receivedAt: date, credit: previous?.credit)
+            : previous ?? .empty(at: date)
+        if let fable = rateLimit.fable {
+            next = next.with(fable: fable, receivedAt: date)
+        } else if let previous {
+            // Only a Fable turn reports the Fable window.
+            next = next.with(fable: previous.rateLimit.fable, receivedAt: previous.fableReceivedAt)
+        }
+        persist(next)
         now = date
+    }
+
+    /// A reading from the usage endpoint, which brings what the stream never
+    /// does: the credit spend, and the Fable window between Fable turns.
+    func record(_ usage: ClaudeUsageReading, at date: Date = Date()) {
+        guard usage.fable != nil || usage.credit != nil else { return }
+        var next = snapshot ?? .empty(at: date)
+        if let fable = usage.fable, next.fableHeardAt <= date {
+            next = next.with(fable: fable, receivedAt: date)
+        }
+        if let credit = usage.credit {
+            next.credit = credit
+        }
+        persist(next)
+    }
+
+#if DEBUG
+    /// Seeds the Fable window and credit for a driver; nil clears either.
+    func inject(fable: RateLimitInfo.Window?, credit: UsageCredit?, isUsingOverage: Bool?, at date: Date = Date()) {
+        let base = snapshot ?? .empty(at: date)
+        var next = QuotaSnapshot(
+            rateLimit: RateLimitInfo(
+                fiveHour: base.rateLimit.fiveHour,
+                sevenDay: base.rateLimit.sevenDay,
+                isUsingOverage: isUsingOverage ?? base.rateLimit.isUsingOverage
+            ),
+            receivedAt: base.receivedAt
+        ).with(fable: fable, receivedAt: date)
+        next.credit = credit
+        // Not persisted, so a seeded reading never outlives the run.
+        snapshot = next
+        now = date
+    }
+#endif
+
+    private func persist(_ snapshot: QuotaSnapshot) {
+        self.snapshot = snapshot
         if let defaults, let data = try? JSONEncoder().encode(snapshot) {
             defaults.set(data, forKey: Self.defaultsKey)
         }
@@ -122,26 +170,56 @@ enum QuotaPersistence {
 
 struct QuotaSnapshot: Equatable, Codable {
     let rateLimit: RateLimitInfo
+    /// When the 5h and 7d windows were heard.
     let receivedAt: Date
+    /// When `rateLimit.fable` was heard, which can be later than
+    /// `receivedAt`: the usage endpoint reports it between turns.
+    var fableReceivedAt: Date?
+    var credit: UsageCredit?
+
+    static func empty(at date: Date) -> QuotaSnapshot {
+        QuotaSnapshot(rateLimit: RateLimitInfo(fiveHour: nil, sevenDay: nil, isUsingOverage: false), receivedAt: date)
+    }
+
+    var fableHeardAt: Date {
+        rateLimit.fable == nil ? .distantPast : fableReceivedAt ?? receivedAt
+    }
+
+    func with(fable: RateLimitInfo.Window?, receivedAt fableDate: Date?) -> QuotaSnapshot {
+        QuotaSnapshot(
+            rateLimit: RateLimitInfo(
+                fiveHour: rateLimit.fiveHour,
+                sevenDay: rateLimit.sevenDay,
+                isUsingOverage: rateLimit.isUsingOverage,
+                fable: fable
+            ),
+            receivedAt: receivedAt,
+            fableReceivedAt: fable == nil ? nil : fableDate,
+            credit: credit
+        )
+    }
 
     /// A persisted reading as it should show at launch: any window that has
     /// reset since it was saved reads 0%, with no reset time until a live
     /// reading brings one.
     func restored(now: Date) -> QuotaSnapshot {
-        func restore(_ window: RateLimitInfo.Window?, length: TimeInterval) -> RateLimitInfo.Window? {
+        func restore(_ window: RateLimitInfo.Window?, length: TimeInterval, heardAt: Date) -> RateLimitInfo.Window? {
             guard let window else { return nil }
             let refilled = QuotaFreshness.hasRefilled(
-                resetsAt: window.resetsAt, receivedAt: receivedAt, windowLength: length, now: now
+                resetsAt: window.resetsAt, receivedAt: heardAt, windowLength: length, now: now
             )
             return refilled ? .init(utilization: 0, resetsAt: nil) : window
         }
         return QuotaSnapshot(
             rateLimit: RateLimitInfo(
-                fiveHour: restore(rateLimit.fiveHour, length: QuotaWindowLength.fiveHour),
-                sevenDay: restore(rateLimit.sevenDay, length: QuotaWindowLength.sevenDay),
-                isUsingOverage: rateLimit.isUsingOverage
+                fiveHour: restore(rateLimit.fiveHour, length: QuotaWindowLength.fiveHour, heardAt: receivedAt),
+                sevenDay: restore(rateLimit.sevenDay, length: QuotaWindowLength.sevenDay, heardAt: receivedAt),
+                isUsingOverage: rateLimit.isUsingOverage,
+                fable: restore(rateLimit.fable, length: QuotaWindowLength.sevenDay, heardAt: fableReceivedAt ?? receivedAt)
             ),
-            receivedAt: receivedAt
+            receivedAt: receivedAt,
+            fableReceivedAt: fableReceivedAt,
+            credit: credit
         )
     }
 }

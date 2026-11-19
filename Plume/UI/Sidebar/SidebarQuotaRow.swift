@@ -1,6 +1,7 @@
 import SwiftUI
 
-/// The account's 5h and 7d quota, at the bottom of the sidebar.
+/// The account's 5h and 7d quota, at the bottom of the sidebar, with the
+/// Fable window and the usage-credit spend beside them once they apply.
 ///
 /// The same reading a chat's statusline shows, in the one place that is not
 /// about any single chat — the quota is the account's, so it belongs beside
@@ -16,6 +17,7 @@ import SwiftUI
 struct SidebarQuotaRow: View, ThemedView {
     @Environment(\.theme) var theme
     @State private var quota = QuotaStore.shared
+    @State private var settings = AppSettings.shared
 
     var body: some View {
         content(quota.snapshot)
@@ -27,13 +29,24 @@ struct SidebarQuotaRow: View, ThemedView {
         let isStale = snapshot.map {
             QuotaFreshness.isStale(receivedAt: $0.receivedAt, now: quota.now)
         } ?? false
+        let extras = SidebarQuotaExtras(snapshot: snapshot, alwaysShows: settings.alwaysShowsCreditAndFableQuota)
+        let hasReading = snapshot.map(Self.hasWindows) == true || extras.showsAny
 
         HStack(spacing: 8) {
             AgentProviderIcon(provider: .claudeCode, size: 16)
                 // A row with nothing to say reads as quiet as one gone stale.
-                .opacity(isStale || snapshot == nil ? colors.emphasis[.secondary] : 1)
-            if let snapshot {
-                meters(snapshot, isStale: isStale)
+                .opacity(isStale || !hasReading ? colors.emphasis[.secondary] : 1)
+            if let snapshot, hasReading {
+                // The extras go first when the row runs out of room.
+                ViewThatFits(in: .horizontal) {
+                    HStack(spacing: 8) {
+                        meters(snapshot, isStale: isStale)
+                        extraReadings(snapshot, extras: extras)
+                    }
+                    HStack(spacing: 8) {
+                        meters(snapshot, isStale: isStale)
+                    }
+                }
             } else {
                 Text("\u{2014}")
                     .foregroundStyle(colors.foreground.opacity(colors.emphasis[.secondary]))
@@ -42,7 +55,7 @@ struct SidebarQuotaRow: View, ThemedView {
             }
             Spacer(minLength: 0)
         }
-        .animation(QuotaTransition.animation, value: presence(snapshot))
+        .animation(QuotaTransition.animation, value: presence(snapshot, extras: extras))
         .font(typography.caption.font)
         .padding(.horizontal, 12)
         .padding(.vertical, 5)
@@ -52,11 +65,17 @@ struct SidebarQuotaRow: View, ThemedView {
         .plumeID(AccessibilityID.sidebarQuotaRow)
     }
 
-    private func presence(_ snapshot: QuotaSnapshot?) -> [Bool] {
+    private static func hasWindows(_ snapshot: QuotaSnapshot) -> Bool {
+        snapshot.rateLimit.fiveHour != nil || snapshot.rateLimit.sevenDay != nil
+    }
+
+    private func presence(_ snapshot: QuotaSnapshot?, extras: SidebarQuotaExtras) -> [Bool] {
         [
             snapshot != nil,
             snapshot?.rateLimit.fiveHour != nil,
             snapshot?.rateLimit.sevenDay != nil,
+            extras.showsFable,
+            extras.showsCredit,
         ]
     }
 
@@ -93,8 +112,118 @@ struct SidebarQuotaRow: View, ThemedView {
             }
         }
     }
+
+    @ViewBuilder
+    private func extraReadings(_ snapshot: QuotaSnapshot, extras: SidebarQuotaExtras) -> some View {
+        if extras.showsFable {
+            fableReading(snapshot)
+                .transition(.opacity)
+        }
+        if extras.showsCredit {
+            creditReading(snapshot.credit)
+                .transition(.opacity)
+        }
+    }
+
+    private func fableReading(_ snapshot: QuotaSnapshot) -> some View {
+        let fable = snapshot.rateLimit.fable
+        return HStack(spacing: 3) {
+            Image(systemName: "f.circle")
+                .foregroundStyle(colors.foreground.opacity(colors.emphasis[.secondary]))
+                .accessibilityHidden(true)
+            if let fable {
+                StatuslineMeterSegment(
+                    label: "Fable",
+                    utilization: fable.utilization,
+                    resetsAt: fable.resetsAt,
+                    now: quota.now,
+                    isStale: QuotaFreshness.isStale(receivedAt: snapshot.fableHeardAt, now: quota.now),
+                    receivedAt: snapshot.fableHeardAt,
+                    barWidth: StatuslineMeterWidth.sidebarFableQuota,
+                    windowLength: QuotaWindowLength.sevenDay,
+                    readingAlignment: .leading
+                )
+            } else {
+                placeholder.help("Fable weekly quota: no reading yet")
+            }
+        }
+        .plumeID(
+            AccessibilityID.sidebarQuotaFable,
+            value: fable.map { "\(Int(($0.utilization * 100).rounded()))%" } ?? "none"
+        )
+    }
+
+    private func creditReading(_ credit: UsageCredit?) -> some View {
+        let used = credit?.usedCents.map { UsageCreditFormat.amount(cents: $0, currency: credit?.currency) }
+        return HStack(spacing: 3) {
+            Image(systemName: "dollarsign.circle")
+                .foregroundStyle(colors.foreground.opacity(colors.emphasis[.secondary]))
+                .accessibilityHidden(true)
+            if let used {
+                Text(used)
+                    .foregroundStyle(colors.foreground.opacity(colors.emphasis[.secondary]))
+                    .monospacedDigit()
+            } else {
+                placeholder
+            }
+        }
+        .help(UsageCreditFormat.tooltip(credit))
+        .accessibilityElement(children: .ignore)
+        .accessibilityLabel("Usage credits")
+        .accessibilityValue(UsageCreditFormat.tooltip(credit))
+        .plumeID(AccessibilityID.sidebarQuotaCredit, value: used ?? "none")
+    }
+
+    private var placeholder: some View {
+        Text("\u{2014}")
+            .foregroundStyle(colors.foreground.opacity(colors.emphasis[.secondary]))
+    }
 }
 
+/// Which of the sidebar's optional readings show: each only once it has
+/// something to say, unless the setting forces both on.
+struct SidebarQuotaExtras: Equatable {
+    let showsFable: Bool
+    let showsCredit: Bool
+
+    var showsAny: Bool { showsFable || showsCredit }
+
+    init(snapshot: QuotaSnapshot?, alwaysShows: Bool) {
+        showsFable = alwaysShows || (snapshot?.rateLimit.fable?.utilization ?? 0) > 0
+        showsCredit = alwaysShows || Self.creditIsRelevant(snapshot)
+    }
+
+    private static func creditIsRelevant(_ snapshot: QuotaSnapshot?) -> Bool {
+        guard let snapshot, let credit = snapshot.credit else { return false }
+        if snapshot.rateLimit.isUsingOverage { return true }
+        return credit.limitCents != nil && (credit.usedCents ?? 0) > 0
+    }
+}
+
+enum UsageCreditFormat {
+    static func amount(cents: Int, currency: String?, locale: Locale = .current) -> String {
+        let formatter = NumberFormatter()
+        formatter.locale = locale
+        formatter.numberStyle = .currency
+        formatter.currencyCode = currency?.uppercased() ?? "USD"
+        return formatter.string(from: NSNumber(value: Double(cents) / 100)) ?? "\(cents)"
+    }
+
+    static func tooltip(_ credit: UsageCredit?, locale: Locale = .current) -> String {
+        guard let credit, let used = credit.usedCents else { return "Usage credits: no reading yet" }
+        let format = { (cents: Int) in amount(cents: cents, currency: credit.currency, locale: locale) }
+        var lines = ["Usage credits: \(format(used)) used this month"]
+        if let limit = credit.limitCents {
+            lines.append("Monthly limit: \(format(limit))")
+        } else {
+            lines.append("No monthly limit")
+        }
+        if let remaining = credit.remainingCents {
+            lines.append("\(format(remaining)) left")
+        }
+        return lines.joined(separator: "\n")
+    }
+}
 
 /// Keep the Codex row visible while installed, even before its first reading.
 struct SidebarCodexQuotaRow: View, ThemedView {
