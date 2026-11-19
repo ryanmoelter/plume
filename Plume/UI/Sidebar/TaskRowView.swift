@@ -15,6 +15,7 @@ struct TaskRowView: View {
     /// so moving between two lines of a group never drops its hover when the
     /// exit lands after the enter.
     @State private var hoveredLines: Set<Int> = []
+    @State private var isHoveringCapToggle = false
     /// Whether the left button is down over the hovered group.
     @State private var isPressingGroup = false
     @State private var pressMonitor = AgentGroupPressMonitor()
@@ -216,9 +217,6 @@ struct TaskRowView: View {
         let icons = rowOwnsIcons
             ? projectLineIcons(in: rawLines, agentTabIDs: agentTabIDs, headerTabIDs: headerTabIDs) : nil
         let titleIcons = icons?.lineIndex == nil ? icons : nil
-        // The row's own agent has no header to carry its detached marker.
-        let detachedRowTab = hasSeveralAgents
-            ? nestedAgentTabs.first { $0.item.id == rowAgentTabID && TaskStore.isDetachedChild($0.item) }?.item : nil
         let owners = TaskRowDetails.owningAgentLabels(rawLines)
         let nesting = TaskRowDetails.agentGroupNesting(rawLines)
         let hovered = hasSeveralAgents ? TaskRowDetails.hoveredAgentGroup(hoveredLines: hoveredLines, nesting: nesting) : nil
@@ -228,7 +226,8 @@ struct TaskRowView: View {
             focused: hasSeveralAgents && isSelected
                 ? TaskRowDetails.focusedAgentGroup(rawLines, focusedTabID: task.selectedTabID) : nil,
             hovered: hovered,
-            pressed: isPressingGroup ? hovered : nil
+            pressed: isPressingGroup ? hovered : nil,
+            showsChildMarkers: hasSeveralAgents && rowAgentTabID != nil
         )
         VStack(alignment: .leading, spacing: Self.lineSpacing) {
             HStack(alignment: .top, spacing: 6) {
@@ -237,8 +236,7 @@ struct TaskRowView: View {
                         heldDevices: rowOwnsIcons
                             ? titleIcons.flatMap { $0.heldDevices.isEmpty ? nil : DeviceLeaseStore.summary($0.heldDevices) }
                             : taskLevelHeldDevices(),
-                        isRemoteControlled: titleIcons?.isRemoteControlled ?? false,
-                        detachedLabel: detachedRowTab.map { TitleStore.shared.chipTitle(for: $0) }
+                        isRemoteControlled: titleIcons?.isRemoteControlled ?? false
                     )
                     descriptionLine
                     ForEach(Array(lines.prefix(badgeLineCount)), id: \.offset) { index, line in
@@ -346,7 +344,7 @@ struct TaskRowView: View {
         return selected?.kind == .agent ? selected?.id : task.lastFocusedAgentTabID
     }
 
-    private func title(heldDevices: String?, isRemoteControlled: Bool, detachedLabel: String?) -> some View {
+    private func title(heldDevices: String?, isRemoteControlled: Bool) -> some View {
         SidebarIconTitle(
             icon: icon,
             iconMinWidth: SidebarMetrics.taskIconMinWidth,
@@ -354,9 +352,6 @@ struct TaskRowView: View {
         ) {
             HStack(spacing: 4) {
                 titleText
-                if let detachedLabel {
-                    detachedMarker(label: detachedLabel)
-                }
                 if isRemoteControlled {
                     remoteControlIcon
                 }
@@ -460,6 +455,7 @@ struct TaskRowView: View {
         var focused: Int?
         var hovered: Int?
         var pressed: Int?
+        var showsChildMarkers = false
 
         /// Whether the pointer raises this line's text to full strength.
         func isEmphasized(_ index: Int) -> Bool {
@@ -538,20 +534,24 @@ struct TaskRowView: View {
         HStack(spacing: 4) {
             Image(systemName: symbol)
                 .imageScale(.small)
+                .fontWeight(isHoveringCapToggle ? .bold : .regular)
             Text(title)
         }
         .font(.caption)
-        .emphasis(.secondary)
+        .emphasis(isHoveringCapToggle ? .primary : .secondary)
+        .animation(AgentGroupBar.fade, value: isHoveringCapToggle)
         .frame(maxWidth: .infinity, alignment: .leading)
         .contentShape(.rect)
         .simultaneousGesture(TapGesture().onEnded {
             TaskRowClick.claim()
             toggleAgentCap()
         })
+        .plumeHover { isHoveringCapToggle = $0 }
+        .onDisappear { isHoveringCapToggle = false }
         .plumeID(
             AccessibilityID.taskAgentCapToggle,
             label: TitleStore.shared.displayTitle(for: task),
-            value: showsAllAgents ? "expanded" : "collapsed",
+            value: AgentRowCap.toggleValue(isExpanded: showsAllAgents, isHovered: isHoveringCapToggle),
             invoke: toggleAgentCap
         )
     }
@@ -580,17 +580,21 @@ struct TaskRowView: View {
         isFocused: Bool,
         isHovered: Bool,
         isPressed: Bool,
-        isEmphasized: Bool
+        isEmphasized: Bool,
+        showsChildMarkers: Bool
     ) -> some View {
         let titleEmphasis = Self.agentTitleEmphasis(status: header.status, isEmphasized: isEmphasized)
         return HStack(spacing: 4) {
-            if header.isDetachedChild {
+            switch header.marker(showsChildMarkers: showsChildMarkers) {
+            case .detached:
                 detachedMarker(label: header.label)
-            } else if header.parentLabel != nil {
+            case .child:
                 Image(systemName: "arrow.turn.down.right")
                     .font(.caption)
                     .emphasis(.secondary)
                     .plumeID(AccessibilityID.taskAgentChildMarker, label: header.label, value: "child")
+            case nil:
+                EmptyView()
             }
             Text(header.title)
                 .font(.caption)
@@ -646,7 +650,8 @@ struct TaskRowView: View {
                 isFocused: groups.focused == index,
                 isHovered: groups.hovered == index,
                 isPressed: groups.pressed == index,
-                isEmphasized: groups.isEmphasized(index)
+                isEmphasized: groups.isEmphasized(index),
+                showsChildMarkers: groups.showsChildMarkers
             )
         case .project(let name):
             HStack(spacing: 4) {

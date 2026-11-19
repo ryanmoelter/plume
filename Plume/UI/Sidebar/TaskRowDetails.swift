@@ -100,6 +100,19 @@ enum TaskRowDetails {
             self.parentLabel = parentLabel
         }
 
+        enum Marker: Equatable {
+            case child
+            case detached
+        }
+
+        /// A child's marker draws only under a sole top-level agent, since with
+        /// several the nesting alone shows the family.
+        func marker(showsChildMarkers: Bool) -> Marker? {
+            if depth == 0 { return isDetachedChild ? .detached : nil }
+            guard showsChildMarkers else { return nil }
+            return isDetachedChild ? .detached : .child
+        }
+
         /// Whether the title draws bold: the agent has stopped for the user.
         var needsAttention: Bool {
             status.wantsAttention || isUnread

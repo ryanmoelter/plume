@@ -207,6 +207,19 @@ struct TaskRowChildLinesTests {
         #expect(header.controlValue(isFocused: false, isHovered: false) == "\(header.statusText); child of Parent")
     }
 
+    @Test func aNestedHeadersMarkerDrawsOnlyUnderASoleTopLevelAgent() {
+        func marker(depth: Int, detached: Bool, sole: Bool) -> TaskRowDetails.AgentHeader.Marker? {
+            TaskRowDetails.AgentHeader(tabID: UUID(), title: "Chat", status: .working, depth: depth, isDetachedChild: detached)
+                .marker(showsChildMarkers: sole)
+        }
+        #expect(marker(depth: 1, detached: false, sole: true) == .child)
+        #expect(marker(depth: 1, detached: true, sole: true) == .detached)
+        #expect(marker(depth: 1, detached: false, sole: false) == nil)
+        #expect(marker(depth: 2, detached: true, sole: false) == nil)
+        #expect(marker(depth: 0, detached: true, sole: false) == .detached)
+        #expect(marker(depth: 0, detached: false, sole: false) == nil)
+    }
+
     @Test func aHeaderNeedsAttentionWhenItsStatusWantsTheUserOrItIsUnread() {
         for status in TaskStatus.allCases {
             let header = TaskRowDetails.AgentHeader(tabID: UUID(), title: "Chat", status: status)
@@ -227,6 +240,12 @@ struct AgentRowCapTests {
     @Test func fourHeadersFit() {
         #expect(AgentRowCap.layout(total: 4, isExpanded: false)
             == AgentRowCap.Layout(visibleCount: 4, toggleTitle: nil, toggleSymbol: nil))
+    }
+
+    @Test func theTogglesValueAddsHover() {
+        #expect(AgentRowCap.toggleValue(isExpanded: false, isHovered: false) == "collapsed")
+        #expect(AgentRowCap.toggleValue(isExpanded: false, isHovered: true) == "collapsed; hovered")
+        #expect(AgentRowCap.toggleValue(isExpanded: true, isHovered: true) == "expanded; hovered")
     }
 
     @Test func aFifthFoldsBehindAToggle() {

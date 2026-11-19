@@ -20,6 +20,10 @@ enum AgentRowCap {
         return Layout(visibleCount: limit, toggleTitle: "Show \(total - limit) more", toggleSymbol: "chevron.down")
     }
 
+    static func toggleValue(isExpanded: Bool, isHovered: Bool) -> String {
+        ([isExpanded ? "expanded" : "collapsed"] + (isHovered ? ["hovered"] : [])).joined(separator: "; ")
+    }
+
     struct Folded {
         let lines: [TaskRowDetails.Line]
         let layout: Layout
