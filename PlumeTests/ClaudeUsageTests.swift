@@ -118,6 +118,17 @@ struct ClaudeUsageTests {
         #expect(ClaudeUsageRequest.result(forLine: line) == .unavailable)
     }
 
+    @Test func onlyAnExplicitNoSaysUsageIsUnavailable() {
+        let reply = { (body: String) in
+            #"{"type":"control_response","response":{"subtype":"success","request_id":"usage""# + body + "}}"
+        }
+        #expect(ClaudeUsageRequest.result(forLine: reply(#","response":{"rate_limits_available":false}"#)) == .unavailable)
+        #expect(ClaudeUsageRequest.result(forLine: reply("")) == .failed, "no inner response")
+        #expect(ClaudeUsageRequest.result(forLine: reply(#","response":{"rate_limits_available":true}"#)) == .failed, "no rate_limits")
+        #expect(ClaudeUsageRequest.result(forLine: reply(#","response":{"rate_limits":null}"#)) == .failed, "null without saying unavailable")
+        #expect(ClaudeUsageRequest.result(forLine: reply(#","response":{"rate_limits":[]}"#)) == .failed)
+    }
+
     @Test func aReplyWithNoRecognisedFieldFails() {
         let line = #"{"type":"control_response","response":{"subtype":"success","request_id":"usage","response":{"rate_limits":{"something_new":[{"x":1}]}}}}"#
         #expect(ClaudeUsageRequest.result(forLine: line) == .failed)
@@ -224,6 +235,67 @@ struct ClaudeUsageTests {
             Issue.record("expected a failure, got \(poller.status)"); return
         }
     }
+
+    @Test func aLoginThatDoesNotReportUsageShowsNoFailure() async throws {
+        let (settings, cleanup) = try scratchSettings()
+        defer { cleanup() }
+        let gate = FetchGate()
+        let poller = ClaudeUsagePoller(
+            store: QuotaStore(), settings: settings, fetch: { _ in await gate.fetch() }, canPoll: true
+        )
+        poller.start()
+        #expect(poller.status == .checking)
+        await gate.waitForRequest()
+        gate.resume(.unavailable)
+        for _ in 0..<200 where poller.status == .checking { try await Task.sleep(for: .milliseconds(10)) }
+        poller.stop()
+        #expect(poller.status == .idle)
+    }
+
+    @Test func turningReadingOffWhileLookingForClaudeCodeFetchesNothing() async throws {
+        let (settings, cleanup) = try scratchSettings()
+        defer { cleanup() }
+        let availability = AvailabilityGate()
+        let calls = Mutex(0)
+        let poller = ClaudeUsagePoller(
+            store: QuotaStore(),
+            settings: settings,
+            fetch: { _ in
+                calls.withLock { $0 += 1 }
+                return .failed
+            },
+            isClaudeAvailable: { await availability.check() }
+        )
+        poller.setEnabled(true)
+        let poll = Task { await poller.pollIfDue() }
+        await availability.waitForCheck()
+        poller.setEnabled(false)
+        availability.resume(true)
+        await poll.value
+        #expect(calls.withLock { $0 } == 0)
+        #expect(poller.status == .idle)
+    }
+
+#if DEBUG
+    @Test func anInjectionWhileLookingForClaudeCodeKeepsItsState() async throws {
+        let (settings, cleanup) = try scratchSettings()
+        defer { cleanup() }
+        let availability = AvailabilityGate()
+        let poller = ClaudeUsagePoller(
+            store: QuotaStore(),
+            settings: settings,
+            fetch: { _ in .failed },
+            isClaudeAvailable: { await availability.check() }
+        )
+        poller.setEnabled(true)
+        let poll = Task { await poller.pollIfDue() }
+        await availability.waitForCheck()
+        poller.isSuspended = true
+        availability.resume(false)
+        await poll.value
+        #expect(poller.status == .checking, "a suspended poll surfaces nothing")
+    }
+#endif
 
     @Test func aFinishedProbeReleasesItsProcess() async throws {
         weak var weakProbe: UsageProbe?
@@ -580,12 +652,12 @@ struct ClaudeUsageTests {
         #expect(poller.status == .checking)
         var poll = Task { await poller.pollIfDue() }
         await gate.waitForRequest()
-        gate.resume(.unavailable)
+        gate.resume(.failed)
         await poll.value
         guard case .failed(let reason) = poller.status else {
             Issue.record("expected a failure, got \(poller.status)"); return
         }
-        #expect(reason.contains("doesn't report usage"))
+        #expect(reason.contains("couldn't read usage"))
 
         poller.setEnabled(true)
         poll = Task { await poller.pollIfDue() }
@@ -721,6 +793,19 @@ struct ClaudeUsageTests {
         #expect(ClaudeUsagePollSchedule.isDue(now: start.addingTimeInterval(20 * 60), lastAttempt: start, outcome: .success, consecutiveFailures: 0))
     }
 
+    @Test func aLoginWithoutUsageIsAskedAgainOnlyHourly() {
+        #expect(ClaudeUsagePollSchedule.delay(after: .unavailable, consecutiveFailures: 0) == 60 * 60)
+        #expect(!ClaudeUsagePollSchedule.isDue(
+            now: start.addingTimeInterval(59 * 60), lastAttempt: start, outcome: .unavailable, consecutiveFailures: 0
+        ))
+        #expect(ClaudeUsagePollSchedule.isDue(
+            now: start.addingTimeInterval(60 * 60), lastAttempt: start, outcome: .unavailable, consecutiveFailures: 0
+        ))
+        #expect(!ClaudeUsagePollSchedule.isDueAtTurnEnd(
+            now: start.addingTimeInterval(3 * 3600), isOverLimit: true, lastAttempt: start, consecutiveFailures: 0, lastOutcome: .unavailable
+        ))
+    }
+
     @Test func failuresBackOffToTheCap() {
         let delays = [1, 2, 3, 50].map { ClaudeUsagePollSchedule.delay(after: .failed, consecutiveFailures: $0) }
         #expect(delays == [20, 40, 60, 60].map { $0 * 60.0 })
@@ -804,5 +889,23 @@ private nonisolated final class FetchGate: Sendable {
 
     func resume(_ result: ClaudeUsageFetchResult) {
         state.withLock { $0.pending.removeFirst() }.resume(returning: result)
+    }
+}
+
+private nonisolated final class AvailabilityGate: Sendable {
+    private let pending = Mutex<[CheckedContinuation<Bool, Never>]>([])
+
+    func check() async -> Bool {
+        await withCheckedContinuation { continuation in
+            pending.withLock { $0.append(continuation) }
+        }
+    }
+
+    func waitForCheck() async {
+        while pending.withLock({ $0.isEmpty }) { await Task.yield() }
+    }
+
+    func resume(_ isAvailable: Bool) {
+        pending.withLock { $0.removeFirst() }.resume(returning: isAvailable)
     }
 }

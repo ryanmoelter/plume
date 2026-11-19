@@ -504,7 +504,7 @@ Feeds the context breakdown in the statusline's usage popover. Probed against 2.
 
 ## Account usage — `get_usage`
 
-Feeds the credit and Fable readings in the sidebar's quota row and the statusline. **The request is marked experimental**, so `ClaudeUsageRequest` decodes every field as optional, and any surprise reads as a failed poll: the readings hide and the row's status says the check failed. Verified against 2.1.328.
+Feeds the credit and Fable readings in the sidebar's quota row and the statusline. **The request is marked experimental**, so `ClaudeUsageRequest` decodes every field as optional. A reply Plume doesn't recognise is a failed poll: the last readings stay, and the next poll backs off. A reply saying usage is unavailable hides the credit and Fable readings with no failure shown. Verified against 2.1.328.
 
 Plume never sends it to a chat's own process. `ClaudeUsageClient` launches a short-lived `claude -p --input-format stream-json --output-format stream-json --verbose`, through the login shell like every headless launch, writes two lines and ends the process when the reply arrives, when it exits, or after 30 seconds:
 
@@ -530,12 +530,12 @@ The CLI answers before any user message, so the request costs no inference. The 
 
 - `utilization` and `percent` are 0–100. Amounts are minor units of `currency`.
 - `ClaudeUsageParser` reads `rate_limits`: the Fable window from the `weekly_scoped` row of `limits[]` whose model is Fable, else from `model_scoped[]`, and the credit from `spend`, else `extra_usage`. `rate_limits` carries many more keys, most of them null; the parser ignores them. `QuotaStore` keeps taking the 5h and 7d windows from the stream.
-- **A login without the profile scope gets `"rate_limits_available": false` and `"rate_limits": null`.** Plume treats that as nothing to show, not as a failure, so it does not back off.
+- **A login that reports no usage gets `"rate_limits_available": false` and `"rate_limits": null`.** An API key, Bedrock, Vertex, or a login without the profile scope all do. Plume treats that as nothing to show, not as a failure, and asks again only hourly. Only that explicit `false` means unavailable; a reply missing `rate_limits` for any other reason is a failed poll.
 - A refusal arrives as an error-shaped response (below).
 - The run takes `--no-session-persistence`, `--strict-mcp-config` and `--settings '{"disableAllHooks":true}'`, and runs in `usage/` under Plume's Application Support folder. Without a user message the CLI writes no transcript even without the first flag (checked against `~/.claude/projects`), but the user's `SessionStart` hooks do fire, and MCP servers would start, so the run turns both off.
-- `env -u` drops `CLAUDECODE` and `CLAUDE_CODE_CHILD_SESSION`, so a Plume launched from inside Claude Code doesn't pass that session's markers on.
+- `LoginShellCommand.childEnvironment(removing:)` drops `CLAUDECODE` and `CLAUDE_CODE_CHILD_SESSION`, so a Plume launched from inside Claude Code doesn't pass that session's markers on.
 
-`ClaudeUsagePoller` polls every 20 minutes, with a doubling backoff after a failure, capped at an hour. While a 5h or 7d window is full, or the account is using overage, the end of any Claude turn polls too, at most every 2 minutes, since credits are being spent then. The Settings ▸ Agents toggle turns it off.
+`ClaudeUsagePoller` polls every 20 minutes, with a doubling backoff after a failure, capped at an hour, and hourly for a login that reports no usage. While a 5h or 7d window is full, or the account is using overage, the end of any Claude turn polls too, at most every 2 minutes, since credits are being spent then. The Settings ▸ Agents toggle turns it off.
 
 ## Session titles — `generate_session_title`
 

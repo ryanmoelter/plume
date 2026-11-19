@@ -5,9 +5,11 @@ import OSLog
 nonisolated enum ClaudeUsagePollOutcome: Equatable, Sendable {
     case success
     case failed
-    /// The CLI answered without rate limits. Not a failure, so it never
-    /// backs off.
+    /// Claude Code isn't installed, so nothing was asked.
     case skipped
+    /// The login doesn't report usage. Not a failure, but no later poll is
+    /// likely to differ, so the next waits as long as the longest backoff.
+    case unavailable
 }
 
 /// When to ask for usage next. Pure so the timing is testable.
@@ -26,6 +28,8 @@ nonisolated enum ClaudeUsagePollSchedule {
             return interval
         case .failed:
             return backoff(failures: consecutiveFailures)
+        case .unavailable:
+            return maxBackoff
         }
     }
 
@@ -49,7 +53,7 @@ nonisolated enum ClaudeUsagePollSchedule {
         consecutiveFailures: Int,
         lastOutcome: ClaudeUsagePollOutcome = .success
     ) -> Bool {
-        guard isOverLimit, lastOutcome != .skipped else { return false }
+        guard isOverLimit, lastOutcome != .skipped, lastOutcome != .unavailable else { return false }
         guard let lastAttempt else { return true }
         let wait = consecutiveFailures > 0 ? backoff(failures: consecutiveFailures) : turnEndThrottle
         return now.timeIntervalSince(lastAttempt) >= wait
@@ -159,8 +163,8 @@ final class ClaudeUsagePoller {
     /// The Settings toggle: turning it on polls straight away.
     func setEnabled(_ enabled: Bool) {
         settings.readsClaudeUsage = enabled
-        stop()
         guard enabled else {
+            stop()
             status = .idle
             store.forgetEndpointReadings()
             return
@@ -171,12 +175,27 @@ final class ClaudeUsagePoller {
         isSuspended = false
         store.endInjection()
 #endif
+        restart()
+    }
+
+    private func restart() {
+        stop()
         status = .checking
         lastAttempt = nil
         consecutiveFailures = 0
         lastOutcome = .success
         start()
     }
+
+#if DEBUG
+    /// Puts the real readings back and polls straight away.
+    func endInjection() {
+        isSuspended = false
+        store.endInjection()
+        guard settings.readsClaudeUsage else { return }
+        restart()
+    }
+#endif
 
     /// A Claude tab's turn ended. Polls only while the account is over a
     /// limit; the schedule decides.
@@ -222,29 +241,32 @@ final class ClaudeUsagePoller {
     }
 
     private func poll(at sentAt: Date) async {
-#if DEBUG
-        guard !isSuspended else { return }
-#endif
         // A request still in flight from before a toggle holds the slot, so
         // turning polling off and on never runs two at once.
-        guard settings.readsClaudeUsage, !isFetching else { return }
+        guard !isFetching, mayApply(generation: generation) else { return }
         lastAttempt = sentAt
         isFetching = true
+        defer { isFetching = false }
         let sentGeneration = generation
-        guard await isClaudeAvailable() else {
-            isFetching = false
-            guard sentGeneration == generation else { return }
+        let isAvailable = await isClaudeAvailable()
+        guard mayApply(generation: sentGeneration) else { return }
+        guard isAvailable else {
             lastOutcome = .skipped
             surface("Plume can't find Claude Code, so it can't read usage.")
             return
         }
         let result = await fetch(sentAt)
-        isFetching = false
-#if DEBUG
-        guard !isSuspended else { return }
-#endif
-        guard sentGeneration == generation, settings.readsClaudeUsage else { return }
+        guard mayApply(generation: sentGeneration) else { return }
         apply(result, sentAt: sentAt)
+    }
+
+    /// Checked again after every wait, since a toggle, a `stop` or an
+    /// injection can land during one.
+    private func mayApply(generation sentGeneration: Int) -> Bool {
+#if DEBUG
+        if isSuspended { return false }
+#endif
+        return sentGeneration == generation && settings.readsClaudeUsage
     }
 
     private func apply(_ result: ClaudeUsageFetchResult, sentAt: Date) {
@@ -259,10 +281,12 @@ final class ClaudeUsagePoller {
             lastOutcome = .failed
             surface("Plume couldn't read usage from Claude Code. It will try again.")
         case .unavailable:
+            // Nothing to show is the answer, not a failure: the glyphs just
+            // don't appear.
             consecutiveFailures = 0
-            lastOutcome = .skipped
+            lastOutcome = .unavailable
+            status = .idle
             store.forgetEndpointReadings()
-            surface("Claude Code's login doesn't report usage.")
         }
     }
 

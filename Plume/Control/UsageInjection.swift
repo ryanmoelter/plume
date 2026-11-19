@@ -28,6 +28,10 @@ enum UsageInjection {
     }
 
     private static func inject(_ params: InjectUsageParams, store: QuotaStore, poller: ClaudeUsagePoller, now: Date) {
+        guard params.hasReadings else {
+            poller.endInjection()
+            return
+        }
         let cents = InjectUsageParams.cents
         let fable = params.fable.map { utilization in
             RateLimitInfo.Window(

@@ -371,6 +371,12 @@ nonisolated struct InjectUsageParams: Decodable, Equatable {
     /// reported to. Injected like the readings, so never persisted.
     var clearWindows: Bool?
 
+    /// Without any, an `injectUsage` ends the injection instead.
+    var hasReadings: Bool {
+        fable != nil || creditUsed != nil || creditLimit != nil || creditBalance != nil
+            || isUsingOverage != nil || clearWindows != nil
+    }
+
     func validate() throws {
         if let fable, !(0...1).contains(fable) {
             throw ControlError.badParams("fable is a 0–1 utilization")

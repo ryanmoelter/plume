@@ -40,14 +40,20 @@ struct UsageInjectionTests {
         #expect(second.shows == ["fable", "credit"])
     }
 
-    @Test func aBareInjectClearsBothReadings() throws {
+    @Test func aBareInjectPutsTheRealReadingsBackAndResumesPolling() throws {
         let harness = try Harness()
         defer { harness.cleanup() }
+        harness.settings.readsClaudeUsage = true
+        harness.store.record(ClaudeUsageReading(fable: RateLimitInfo.Window(utilization: 0.2, resetsAt: nil)), at: Date())
         _ = try harness.inject(InjectUsageParams(fable: 0.4, creditUsed: 12, creditLimit: 50))
+        #expect(harness.poller.isSuspended)
+
         let cleared = try harness.inject(InjectUsageParams())
-        #expect(cleared.fable == nil)
+        #expect(cleared.fable == 0.2)
         #expect(cleared.creditUsed == nil)
-        #expect(cleared.shows == [])
+        #expect(cleared.shows == ["fable"])
+        #expect(!harness.poller.isSuspended)
+        #expect(harness.poller.status == .checking)
     }
 
     @Test func theRegistryReadsAnInjectionOnceSettled() async throws {

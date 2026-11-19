@@ -119,8 +119,9 @@ nonisolated enum ClaudeUsageParser {
 
 nonisolated enum ClaudeUsageFetchResult: Equatable, Sendable {
     case reading(ClaudeUsageReading)
-    /// The CLI answered without rate limits, which it does for a login that
-    /// lacks the profile scope. Not a failure, so it never backs off.
+    /// The CLI said the login reports no rate limits (`rate_limits_available:
+    /// false`), as for an API key, Bedrock, Vertex, or a login that lacks the
+    /// profile scope.
     case unavailable
     case failed
 }
@@ -168,9 +169,11 @@ nonisolated enum ClaudeUsageRequest {
             return .failed
         }
         let body = response["response"]?.objectValue
-        guard body?["rate_limits_available"]?.boolValue != false,
-              let rateLimits = body?["rate_limits"]?.objectValue
-        else { return .unavailable }
+        guard let rateLimits = body?["rate_limits"]?.objectValue else {
+            if body?["rate_limits_available"]?.boolValue == false { return .unavailable }
+            Log.agent.info("get_usage answered without rate_limits")
+            return .failed
+        }
         ClaudeUsageClient.logShapeOnce(.object(rateLimits))
         let reading = ClaudeUsageParser.parse(root: rateLimits)
         guard reading != ClaudeUsageReading() else {
