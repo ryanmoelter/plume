@@ -558,6 +558,7 @@ struct TaskRowView: View {
             }
             Text(header.title)
                 .font(.caption)
+                .bold(header.needsAttention)
                 .emphasis(titleEmphasis)
                 .animation(AgentGroupBar.fade, value: titleEmphasis)
                 .lineLimit(1)

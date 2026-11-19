@@ -100,6 +100,11 @@ enum TaskRowDetails {
             self.parentLabel = parentLabel
         }
 
+        /// Whether the title draws bold: the agent has stopped for the user.
+        var needsAttention: Bool {
+            status.wantsAttention || isUnread
+        }
+
         var statusText: String {
             ([status.label] + (isUnread ? ["unread"] : [])).joined(separator: ", ")
         }
@@ -108,6 +113,7 @@ enum TaskRowDetails {
         /// group holds the task's focused tab, is hovered and is pressed.
         func controlValue(isFocused: Bool, isHovered: Bool, isPressed: Bool = false) -> String {
             ([statusText]
+                + (needsAttention ? ["attention"] : [])
                 + (parentLabel.map { ["child of \($0)"] } ?? [])
                 + (isDetachedChild ? ["detached child"] : [])
                 + (isFocused ? ["focused"] : [])

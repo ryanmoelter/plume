@@ -155,6 +155,20 @@ struct TaskRowChildLinesTests {
         let header = TaskRowDetails.AgentHeader(tabID: UUID(), title: "fix", status: .awaitingReply, parentLabel: "Parent")
         #expect(header.controlValue(isFocused: false, isHovered: false) == "\(header.statusText); child of Parent")
     }
+
+    @Test func aHeaderNeedsAttentionWhenItsStatusWantsTheUserOrItIsUnread() {
+        for status in TaskStatus.allCases {
+            let header = TaskRowDetails.AgentHeader(tabID: UUID(), title: "Chat", status: status)
+            let expected: Bool = switch status {
+            case .permissionNeeded, .questionAsked, .planApproval, .needsTerminalInput: true
+            default: false
+            }
+            #expect(header.needsAttention == expected, "\(status)")
+        }
+        let unread = TaskRowDetails.AgentHeader(tabID: UUID(), title: "Chat", status: .done, isUnread: true)
+        #expect(unread.needsAttention)
+        #expect(unread.controlValue(isFocused: false, isHovered: false) == "\(unread.statusText); attention")
+    }
 }
 
 @MainActor
