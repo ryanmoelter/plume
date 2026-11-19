@@ -179,6 +179,13 @@ enum AccessibilityID {
     /// The arrow in front of a child session's title.
     static let tabChipChildMarker = "tab-chip-child-marker"
     static let tabChildrenToggle = "tab-children-toggle"
+    /// The chip's context menu, each labelled like its `tabChip`.
+    static let tabMoveToOtherPaneMenuItem = "tab-move-to-other-pane-menu-item"
+    static let tabCloseSplitMenuItem = "tab-close-split-menu-item"
+    static let tabOpenInSplitMenuItem = "tab-open-in-split-menu-item"
+    static let tabSwitchTransportMenuItem = "tab-switch-transport-menu-item"
+    static let tabStartFreshMenuItem = "tab-start-fresh-menu-item"
+    static let tabMoveToNewTaskMenuItem = "tab-move-to-new-task-menu-item"
     /// A note from another session in the chat, which selects its tab.
     static let sideSessionEventRow = "side-session-event-row"
     /// In both the task row's and the tab chip's context menu.

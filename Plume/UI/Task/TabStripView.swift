@@ -308,20 +308,18 @@ private struct TabChip: View {
         .plumeHover { isHovering = $0 }
         .plumeID(
             AccessibilityID.tabChip,
-            label: paneLabel.map { "\(chipTitle) (\($0))" } ?? chipTitle,
+            label: controlLabel,
             value: chipValue,
             invoke: select
         )
         .contextMenu {
             if tab.isEmulatorTab {
                 Button("Shut Down Emulator…") { isConfirmingEmulatorShutDown = true }
-                    .plumeID(AccessibilityID.shutDownEmulatorMenuItem)
                     .disabled(!DeviceSessionManager.shared.canShutDownEmulator(for: tab.id))
                 Divider()
             }
-            if tab.isRemoteDeviceTab || DeviceSessionManager.shared.existingSession(for: tab.id)?.isRemote == true {
+            if offersEndReservation {
                 Button("End Reservation…") { isConfirmingEndReservation = true }
-                    .plumeID(AccessibilityID.endReservationMenuItem)
                     .disabled(!DeviceSessionManager.shared.canEndReservation(for: tab.id))
                 Divider()
             }
@@ -351,8 +349,9 @@ private struct TabChip: View {
             Button("Move to New Task") { moveToNewTask() }
                 .disabled(!TaskStore.canMoveToNewTask(tab))
             Divider()
-            ReadStateButton(tabIDs: [tab.id], label: paneLabel.map { "\(chipTitle) (\($0))" } ?? chipTitle)
+            ReadStateButton(tabIDs: [tab.id], label: controlLabel)
         }
+        .background { contextMenuItems }
         .confirmationDialog(
             "Shut down the emulator?",
             isPresented: $isConfirmingEmulatorShutDown
@@ -388,7 +387,7 @@ private struct TabChip: View {
         }
         .plumeMenuItem(
             AccessibilityID.refreshConversationMenuItem,
-            label: chipTitle,
+            label: controlLabel,
             isPresent: offersRefresh,
             invoke: requestRefresh
         )
@@ -419,6 +418,62 @@ private struct TabChip: View {
         } message: {
             Text("This ends the running agent and starts it again on the other transport. \(AppIdentity.displayName) will resume the same conversation if it can.")
         }
+    }
+
+    /// Matches the chip's own label, so a driver can tell which tab an item
+    /// belongs to.
+    private var controlLabel: String {
+        paneLabel.map { "\(chipTitle) (\($0))" } ?? chipTitle
+    }
+
+    private var offersEndReservation: Bool {
+        tab.isRemoteDeviceTab || DeviceSessionManager.shared.existingSession(for: tab.id)?.isRemote == true
+    }
+
+    private var contextMenuItems: some View {
+        Color.clear
+            .plumeMenuItem(
+                AccessibilityID.shutDownEmulatorMenuItem,
+                label: controlLabel,
+                isPresent: tab.isEmulatorTab,
+                isEnabled: DeviceSessionManager.shared.canShutDownEmulator(for: tab.id)
+            ) { isConfirmingEmulatorShutDown = true }
+            .plumeMenuItem(
+                AccessibilityID.endReservationMenuItem,
+                label: controlLabel,
+                isPresent: offersEndReservation,
+                isEnabled: DeviceSessionManager.shared.canEndReservation(for: tab.id)
+            ) { isConfirmingEndReservation = true }
+            .plumeMenuItem(
+                AccessibilityID.tabMoveToOtherPaneMenuItem,
+                label: controlLabel,
+                isPresent: paneCount > 1,
+                isEnabled: TaskStore.canLeavePane(tab, in: task)
+            ) { TaskStore.moveTab(tab, toPane: (pane + 1) % paneCount, in: task) }
+            .plumeMenuItem(AccessibilityID.tabCloseSplitMenuItem, label: controlLabel, isPresent: paneCount > 1) {
+                TaskStore.closeSplit(in: task)
+            }
+            .plumeMenuItem(
+                AccessibilityID.tabOpenInSplitMenuItem,
+                label: controlLabel,
+                isPresent: paneCount <= 1,
+                isEnabled: TaskStore.canOpenInSplit(tab, in: task)
+            ) { TaskStore.openInSplit(tab, side: .right, in: task) }
+            .plumeMenuItem(AccessibilityID.tabSwitchTransportMenuItem, label: controlLabel, isPresent: tab.kind == .agent) {
+                isConfirmingTransportSwitch = true
+            }
+            .plumeMenuItem(
+                AccessibilityID.tabStartFreshMenuItem,
+                label: controlLabel,
+                isPresent: tab.kind == .agent && !(tab.agentSessionID ?? "").isEmpty
+            ) { isConfirmingStartFresh = true }
+            .plumeMenuItem(
+                AccessibilityID.tabMoveToNewTaskMenuItem,
+                label: controlLabel,
+                isEnabled: TaskStore.canMoveToNewTask(tab),
+                invoke: moveToNewTask
+            )
+            .plumeReadStateMenuItem(tabIDs: [tab.id], label: controlLabel)
     }
 
     private var offersRefresh: Bool {
