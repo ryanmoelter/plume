@@ -10,6 +10,12 @@ import SwiftUI
 /// `PLUME_SEED_TASKS=<n>` creates n tasks and selects the first.
 /// `PLUME_SEED_SIDEBAR_FIXTURES=1` seeds the sidebar fixture group; `linear`
 /// seeds only its Linear tasks.
+/// `PLUME_SEED_CHILD_SESSIONS=<cases>` seeds one task per comma-separated
+/// case of child sessions nested in the sidebar row, and selects the first:
+/// `nested` (a parent with two children and a grandchild), `two-top` (two
+/// top-level agents, each with a child), `cap` (a parent with six children)
+/// and `detached` (a child whose parent is in another task). `all` seeds
+/// every case. It works with or without `PLUME_SEED_TASKS`.
 /// `PLUME_CYCLE_SELECTION=<seconds>` then rotates the selection on that
 /// interval, so surface survival across task switches is observable from
 /// outside the app by watching the child processes.
@@ -20,6 +26,10 @@ enum SmokeHarness {
         if let fixtures = environment["PLUME_SEED_SIDEBAR_FIXTURES"], fixtures == "1" || fixtures == "linear" {
             let groups = (try? context.fetch(FetchDescriptor<TaskGroup>(sortBy: [SortDescriptor(\.orderIndex)]))) ?? []
             SidebarFixtures.seed(in: context, existingGroups: groups)
+        }
+        if let spec = environment["PLUME_SEED_CHILD_SESSIONS"],
+           let first = seedChildSessions(spec, in: context).first {
+            selection.wrappedValue = first.id
         }
         guard let countValue = environment["PLUME_SEED_TASKS"],
               let count = Int(countValue), count > 0
@@ -268,6 +278,75 @@ enum SmokeHarness {
         case nil:
             session.resolve(permission, with: .allow(updatedInput: permission.input))
         }
+    }
+
+    /// No seeded tab has a session ID, so none launches `claude` before the
+    /// user sends it a message. Task titles stay empty, so each row's title
+    /// comes from its agents.
+    private static func seedChildSessions(_ spec: String, in context: ModelContext) -> [WorkTask] {
+        var cases = spec.split(separator: ",").map { $0.trimmingCharacters(in: .whitespaces) }
+        if cases.contains("all") { cases = ["nested", "two-top", "cap", "detached"] }
+        let existing = (try? context.fetch(FetchDescriptor<WorkTask>())) ?? []
+        let cwd = ProcessInfo.processInfo.environment["PLUME_SEED_CWD"]
+        var tasks: [WorkTask] = []
+
+        func name(_ tab: TaskTab, _ title: String) {
+            tab.transport = .headless
+            if let cwd { tab.workspace = .directory(cwd) }
+            tab.title = title
+            TitleStore.shared.setTitle(title, forTab: tab.id, source: .reply)
+        }
+        func newTask(_ agent: String) -> (WorkTask, TaskTab) {
+            let task = TaskStore.createTask(in: context, siblings: existing + tasks)
+            tasks.append(task)
+            let tab = task.orderedTabs[0]
+            name(tab, agent)
+            return (task, tab)
+        }
+        func child(_ title: String, of parent: TaskTab, in task: WorkTask) -> TaskTab {
+            let tab = TaskStore.addChildTab(to: task, parent: parent, in: context)
+            name(tab, title)
+            return tab
+        }
+        func set(_ status: TaskStatus, on tab: TaskTab, in task: WorkTask) {
+            tab.lastStatus = status
+            StatusEngine.shared.setStatus(status, taskID: task.id, tabID: tab.id, notifiable: false)
+        }
+
+        for seedCase in cases {
+            switch seedCase {
+            case "nested":
+                let (task, parent) = newTask("Plan the refactor")
+                let survey = child("Survey call sites", of: parent, in: task)
+                let models = child("Update the models", of: parent, in: task)
+                _ = child("Migrate the store tests", of: models, in: task)
+                set(.permissionNeeded, on: survey, in: task)
+                set(.awaitingReply, on: models, in: task)
+                UnreadStore.shared.markUnread([models.id])
+            case "two-top":
+                let (task, login) = newTask("Fix the login bug")
+                let notes = TaskStore.addTab(to: task, kind: .agent, selecting: false, in: context)
+                name(notes, "Write release notes")
+                let repro = child("Reproduce the crash", of: login, in: task)
+                _ = child("Collect merged PRs", of: notes, in: task)
+                set(.questionAsked, on: repro, in: task)
+            case "cap":
+                let (task, parent) = newTask("Audit the docs")
+                let pages = ["cli", "releasing", "testing", "chat-list", "child-sessions", "control-server"]
+                let children = pages.map { child("Check docs/\($0).md", of: parent, in: task) }
+                set(.planApproval, on: children[1], in: task)
+            case "detached":
+                let (_, parent) = newTask("Start the review")
+                let (task, detached) = newTask("Review the diff")
+                detached.parentTabID = parent.id
+                ChildSessionIndex.shared.record(child: detached, parent: parent)
+                _ = child("Check the tests", of: detached, in: task)
+            default:
+                Log.app.error("Unknown PLUME_SEED_CHILD_SESSIONS case \(seedCase, privacy: .public)")
+            }
+        }
+        Log.app.info("Smoke harness seeded \(tasks.count) child-session task(s)")
+        return tasks
     }
 }
 #endif

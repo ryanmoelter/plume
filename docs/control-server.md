@@ -40,6 +40,16 @@ c screenshot
 
 To tear the instance down, capture its pid at launch — `open` reports none itself, so diff `pgrep -f "$APP/Contents/MacOS/Plume"` before and after — and `kill` that pid. Never `pkill -f` on the app's path: it matches every instance built from that DerivedData path, including a developer's own debug Plume. The `drive-plume` skill has the full launch-and-capture recipe.
 
+**`PLUME_SEED_CHILD_SESSIONS=<cases>` seeds sidebar rows with child sessions** in place of `PLUME_SEED_TASKS`, one task per comma-separated case, and selects the first:
+
+- `nested`: one parent with two children, and a grandchild under the second child.
+- `two-top`: two top-level agents, each with a child.
+- `cap`: one parent with six children, so the row folds behind "Show N more".
+- `detached`: a child whose parent sits in another task, with its own child.
+- `all`: every case above, in that order.
+
+Every seeded tab has a distinct title and a headless transport. Some children carry a live attention status or an unread mark, so their headers read bold. No tab has a session ID, so nothing launches `claude` until a message is sent. `PLUME_SEED_CWD` gives the tabs a folder. `SmokeHarness` builds them.
+
 ## Wire format
 
 One JSON object per line in each direction. A request is `{"id": "<any string>", "command": "<name>", ...params}`; the response repeats `id` and carries `"ok": true, "result": {...}` or `"ok": false, "error": "..."`. Requests on one connection are answered in order, so a driver can queue a click and a read and trust the read sees the click. A malformed line gets an error response with `"id": null`.
