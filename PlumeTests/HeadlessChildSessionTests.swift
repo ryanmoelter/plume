@@ -102,7 +102,7 @@ struct HeadlessChildSessionTests {
         #expect(session.pendingPermissions.map(\.id) == ["p3"])
     }
 
-    @Test(arguments: ["default", "dontAsk"])
+    @Test(arguments: ["dontAsk", "someFutureMode"])
     func aStartAsksInAModePlumeDoesNotRecognize(mode: String) throws {
         let (session, recorder) = makeSession()
         try receive(session, #"{"type":"system","subtype":"init","session_id":"s1","permissionMode":"auto"}"#)
