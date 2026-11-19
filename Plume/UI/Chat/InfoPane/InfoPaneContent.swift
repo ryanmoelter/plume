@@ -105,11 +105,15 @@ struct InfoPaneContent: View, ThemedView {
             InfoPaneSectionHeader(
                 title: "Sessions",
                 icon: .symbol("arrow.turn.down.right"),
-                count: isExpanded ? nil : facts.childSessions.count,
                 isExpanded: isExpanded,
                 accessibilityID: AccessibilityID.infoPaneSessionsToggle
             ) {
                 withAnimation(InfoPaneLayout.sectionAnimation) { settings.infoPaneSessionsExpanded.toggle() }
+            } accessory: {
+                if !isExpanded, !facts.childSessions.isEmpty {
+                    StatusGlyphs(glyphs: facts.childSessions.map(StatusGlyphs.Glyph.init))
+                        .layoutPriority(1)
+                }
             }
         } rows: {
             if isExpanded {
@@ -134,7 +138,7 @@ struct InfoPaneContent: View, ThemedView {
                 withAnimation(InfoPaneLayout.sectionAnimation) { settings.infoPaneSubagentsExpanded.toggle() }
             } accessory: {
                 if !isExpanded, !facts.liveSubagents.isEmpty {
-                    SubagentGlyphs(subagents: facts.liveSubagents)
+                    StatusGlyphs(glyphs: facts.liveSubagents.map(StatusGlyphs.Glyph.init))
                         .layoutPriority(1)
                 }
             }
@@ -407,17 +411,17 @@ struct InfoPaneCollapsedIcons: View, ThemedView {
     private func icon(for section: InfoPaneSection) -> some View {
         switch section {
         case .childSessions:
-            HStack(spacing: 2) {
+            HStack(spacing: 4) {
                 Image(systemName: "arrow.turn.down.right")
-                Text("\(facts.childSessions.count)")
+                    .emphasis(.secondary)
+                    .help("Sessions this conversation started")
+                StatusGlyphs(glyphs: facts.childSessions.map(StatusGlyphs.Glyph.init))
             }
-            .emphasis(.secondary)
-            .help("Sessions this conversation started")
         case .subagents:
             HStack(spacing: 4) {
                 Image(systemName: StatusSymbol.subagents.name)
                     .emphasis(.secondary)
-                SubagentGlyphs(subagents: facts.liveSubagents)
+                StatusGlyphs(glyphs: facts.liveSubagents.map(StatusGlyphs.Glyph.init))
             }
         case .backgroundTasks:
             HStack(spacing: 2) {
@@ -467,24 +471,44 @@ struct InfoPaneCollapsedIcons: View, ThemedView {
     }
 }
 
-/// One status glyph per subagent, capped so a busy session can't push the
-/// row past its container.
-private struct SubagentGlyphs: View, ThemedView {
+/// One status glyph per subagent or session, capped so a busy session can't
+/// push the row past its container.
+private struct StatusGlyphs: View, ThemedView {
     @Environment(\.theme) var theme
 
-    let subagents: [SubagentTranscript]
+    struct Glyph: Identifiable {
+        let id: String
+        let status: TaskStatus
+        var isUnread = false
+        let title: String
+
+        init(_ subagent: SubagentTranscript) {
+            id = subagent.id
+            status = subagent.status
+            title = subagent.title
+        }
+
+        init(_ child: InfoPaneFacts.ChildSessionFacts) {
+            id = child.id.uuidString
+            status = child.status
+            isUnread = child.isUnread
+            title = child.title
+        }
+    }
+
+    let glyphs: [Glyph]
 
     private static let limit = 6
 
     var body: some View {
         HStack(spacing: 4) {
-            ForEach(subagents.prefix(Self.limit)) { subagent in
-                StatusBadge(status: subagent.status)
+            ForEach(glyphs.prefix(Self.limit)) { glyph in
+                StatusBadge(status: glyph.status, isUnread: glyph.isUnread)
                     .imageScale(.small)
-                    .help(subagent.title)
+                    .help(glyph.title)
             }
-            if subagents.count > Self.limit {
-                Text("+\(subagents.count - Self.limit)")
+            if glyphs.count > Self.limit {
+                Text("+\(glyphs.count - Self.limit)")
                     .emphasis(.subtle)
             }
         }
@@ -555,7 +579,7 @@ private struct InfoPaneChildSessionRow: View {
             StatusBadge(status: child.status, isUnread: child.isUnread, showsElapsed: false)
         }
         .padding(.horizontal, -wash.inset)
-        .help("Show \(child.title)")
+        .help(child.title)
         .plumeID(AccessibilityID.infoPaneChildSessionRow, label: child.title, value: child.status.rawValue, invoke: onSelect)
     }
 }
