@@ -1,4 +1,5 @@
 import Foundation
+import Observation
 import OSLog
 
 nonisolated enum ClaudeUsagePollOutcome: Equatable, Sendable {
@@ -50,9 +51,28 @@ nonisolated enum ClaudeUsagePollSchedule {
     }
 }
 
+/// What the quota row says about reading usage itself, so opting in always
+/// shows something until the first reply lands.
+enum ClaudeUsageStatus: Equatable {
+    case idle
+    case checking
+    /// A sentence for the row's tooltip.
+    case failed(String)
+
+    /// For a driver reading the row's `plumeID` value.
+    var description: String {
+        switch self {
+        case .idle: "idle"
+        case .checking: "checking"
+        case .failed(let reason): "failed: \(reason)"
+        }
+    }
+}
+
 /// Reads the credit spend and the Fable window from Claude Code's usage
 /// endpoint on a schedule, and records them in `QuotaStore`.
 @MainActor
+@Observable
 final class ClaudeUsagePoller {
     static let shared = ClaudeUsagePoller()
 
@@ -74,6 +94,9 @@ final class ClaudeUsagePoller {
     private var lastAttempt: Date?
     private var lastOutcome: ClaudeUsagePollOutcome = .success
     private var consecutiveFailures = 0
+    /// Ordinary failures surface only between opting in and the first
+    /// reading; after that the row keeps showing the last good one.
+    private(set) var status: ClaudeUsageStatus = .idle
 #if DEBUG
     /// Set once a driver injects a reading, so a poll cannot overwrite it.
     var isSuspended = false
@@ -111,9 +134,17 @@ final class ClaudeUsagePoller {
         settings.readsClaudeUsage = enabled
         stop()
         guard enabled else {
+            status = .idle
             store.forgetEndpointReadings()
             return
         }
+#if DEBUG
+        // A driver's injected readings would otherwise hold the poll off and
+        // pass for real ones.
+        isSuspended = false
+        store.endInjection()
+#endif
+        status = .checking
         settings.claudeUsageKeychainCancels = 0
         isPausedThisLaunch = false
         lastAttempt = nil
@@ -164,19 +195,24 @@ final class ClaudeUsagePoller {
             settings.claudeUsageKeychainCancels = 0
             consecutiveFailures = 0
             lastOutcome = .success
+            status = .idle
             store.record(reading, at: sentAt)
         case .rateLimited(let retryAfter):
             consecutiveFailures += 1
             lastOutcome = .rateLimited(retryAfter: retryAfter)
+            surface("Claude's usage service asked Plume to wait. Plume will try again.")
         case .failed:
             consecutiveFailures += 1
             lastOutcome = .failed
+            surface("Plume couldn't reach Claude's usage service. It will try again.")
         case .unauthorized:
             consecutiveFailures = 0
             lastOutcome = .skipped
+            surface("Claude Code isn't signed in, or its login has expired. Sign in with claude and Plume will try again.")
         case .credentialsDenied:
             Log.agent.info("Claude usage polling turned off: Keychain access to the CLI's login was declined")
             turnOff()
+            status = .failed("Keychain access to Claude Code's login was declined, so Plume stopped reading usage.")
         case .credentialsCancelled:
             settings.claudeUsageKeychainCancels += 1
             if settings.claudeUsageKeychainCancels >= Self.cancelsBeforeTurningOff {
@@ -187,7 +223,13 @@ final class ClaudeUsagePoller {
                 isPausedThisLaunch = true
                 stop()
             }
+            status = .failed("The Keychain prompt was dismissed, so Plume couldn't read Claude Code's login.")
         }
+    }
+
+    private func surface(_ reason: String) {
+        guard status != .idle else { return }
+        status = .failed(reason)
     }
 
     private func turnOff() {

@@ -358,7 +358,7 @@ struct ClaudeUsageTests {
             rateLimit: RateLimitInfo(fiveHour: full, sevenDay: window(0.5), isUsingOverage: true),
             receivedAt: start
         )
-        snapshot.credit = UsageCredit(usedCents: 0)
+        snapshot.credit = UsageCredit(usedCents: 0, limitCents: 5000)
 
         #expect(snapshot.restored(now: start.addingTimeInterval(300)).rateLimit.isUsingOverage)
         let refilled = snapshot.restored(now: start.addingTimeInterval(600))
@@ -377,20 +377,19 @@ struct ClaudeUsageTests {
             rateLimit: RateLimitInfo(fiveHour: window(1), sevenDay: nil, isUsingOverage: true),
             receivedAt: start
         )
-        snapshot.credit = UsageCredit(usedCents: 0)
+        snapshot.credit = UsageCredit(usedCents: 0, limitCents: 5000)
         let maxAge = ClaudeUsagePollSchedule.overLimitReadingMaxAge
 
         #expect(SidebarQuotaExtras(snapshot: snapshot, alwaysShows: false, now: start.addingTimeInterval(maxAge)).showsCredit)
         #expect(!SidebarQuotaExtras(snapshot: snapshot, alwaysShows: false, now: start.addingTimeInterval(maxAge + 1)).showsCredit)
     }
 
-    @Test func creditGlyphFillsTowardTheLimitAndOtherwiseShowsWholeUnits() {
+    @Test func creditGlyphFillsTowardTheLimit() {
         let locale = Locale(identifier: "en_US")
         #expect(UsageCreditFormat.fraction(UsageCredit(usedCents: 1240, limitCents: 5000)) == 0.248)
         #expect(UsageCreditFormat.fraction(UsageCredit(usedCents: 9000, limitCents: 5000)) == 1)
         #expect(UsageCreditFormat.fraction(UsageCredit(usedCents: 1240)) == nil)
         #expect(UsageCreditFormat.fraction(UsageCredit(usedCents: 1240, limitCents: 0)) == nil)
-        #expect(UsageCreditFormat.wholeAmount(minorUnits: 1299, currency: "USD", locale: locale) == "$12")
         #expect(UsageCreditFormat.detailLines(UsageCredit(usedCents: 1240, limitCents: 5000), locale: locale)
             == ["$12.40 used this month", "Monthly limit: $50.00", "$37.60 left"])
         #expect(UsageCreditFormat.detailLines(nil) == ["No reading yet"])
@@ -426,6 +425,33 @@ struct ClaudeUsageTests {
         #expect(persisted.receivedAt == start)
     }
 
+    @Test func optingInEndsAnInjectionSoTheRealPollReplacesIt() async throws {
+        let (settings, cleanup) = try scratchSettings()
+        defer { cleanup() }
+        settings.readsClaudeUsage = false
+        let store = QuotaStore()
+        store.record(streamInfo(fable: nil), at: start)
+        let gate = FetchGate()
+        let poller = ClaudeUsagePoller(store: store, settings: settings, fetch: { _ in await gate.fetch() })
+        poller.isSuspended = true
+        store.inject(fable: window(0.42), credit: UsageCredit(usedCents: 1240, limitCents: 5000), isUsingOverage: nil, clearsWindows: true)
+
+        poller.setEnabled(true)
+        #expect(!poller.isSuspended)
+        #expect(store.snapshot?.rateLimit.fable == nil)
+        #expect(store.snapshot?.credit == nil)
+        #expect(store.snapshot?.rateLimit.fiveHour?.utilization == 0.1)
+        #expect(poller.status == .checking)
+
+        let poll = Task { await poller.pollIfDue() }
+        await gate.waitForRequest()
+        gate.resume(.reading(ClaudeUsageReading(fable: window(0.3), credit: UsageCredit(usedCents: 700, limitCents: 5000))))
+        await poll.value
+        #expect(store.snapshot?.rateLimit.fable?.utilization == 0.3)
+        #expect(store.snapshot?.credit?.usedCents == 700)
+        #expect(poller.status == .idle)
+    }
+
     @Test func scrollToDecodesATargetOrAnEdge() throws {
         let decode = { (json: String) in try JSONDecoder().decode(ControlServerRequest.self, from: Data(json.utf8)).command }
         guard case .scrollTo(let byTarget) = try decode(#"{"id":"1","command":"scrollTo","target":{"id":"x"}}"#) else {
@@ -447,6 +473,36 @@ struct ClaudeUsageTests {
         #expect(InjectUsageParams.cents(12.4) == 1240)
     }
 #endif
+
+    @Test func optingInChecksUntilTheFirstReplyAndSurfacesItsFailure() async throws {
+        let (settings, cleanup) = try scratchSettings()
+        defer { cleanup() }
+        let gate = FetchGate()
+        let poller = ClaudeUsagePoller(store: QuotaStore(), settings: settings, fetch: { _ in await gate.fetch() })
+        #expect(poller.status == .idle)
+
+        poller.setEnabled(true)
+        #expect(poller.status == .checking)
+        var poll = Task { await poller.pollIfDue() }
+        await gate.waitForRequest()
+        gate.resume(.unauthorized)
+        await poll.value
+        guard case .failed(let reason) = poller.status else {
+            Issue.record("expected a failure, got \(poller.status)"); return
+        }
+        #expect(reason.contains("signed in"))
+
+        poller.setEnabled(true)
+        poll = Task { await poller.pollIfDue() }
+        await gate.waitForRequest()
+        gate.resume(.reading(ClaudeUsageReading(fable: window(0.3))))
+        await poll.value
+        #expect(poller.status == .idle)
+
+        poller.setEnabled(true)
+        poller.setEnabled(false)
+        #expect(poller.status == .idle)
+    }
 
     @Test func aReplyFromBeforePollingWasTurnedOffIsDropped() async throws {
         let (settings, cleanup) = try scratchSettings()
@@ -613,7 +669,8 @@ struct ClaudeUsageTests {
         credit.credit = UsageCredit(usedCents: 0, limitCents: 5000)
         #expect(!SidebarQuotaExtras(snapshot: credit, alwaysShows: false, now: start).showsCredit)
         credit.credit = UsageCredit(usedCents: 1240, limitCents: nil)
-        #expect(SidebarQuotaExtras(snapshot: credit, alwaysShows: false, now: start).showsCredit)
+        #expect(!SidebarQuotaExtras(snapshot: credit, alwaysShows: false, now: start).showsCredit)
+        #expect(!SidebarQuotaExtras(snapshot: credit, alwaysShows: true, now: start).showsCredit)
         credit.credit = UsageCredit(usedCents: 1240, limitCents: 5000)
         #expect(SidebarQuotaExtras(snapshot: credit, alwaysShows: false, now: start).showsCredit)
 
@@ -622,7 +679,7 @@ struct ClaudeUsageTests {
             receivedAt: start
         )
         #expect(!SidebarQuotaExtras(snapshot: overage, alwaysShows: false, now: start).showsCredit)
-        overage.credit = UsageCredit(usedCents: 0, limitCents: nil)
+        overage.credit = UsageCredit(usedCents: 0, limitCents: 5000)
         #expect(SidebarQuotaExtras(snapshot: overage, alwaysShows: false, now: start).showsCredit)
     }
 

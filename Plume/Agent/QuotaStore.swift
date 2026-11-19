@@ -144,6 +144,14 @@ final class QuotaStore {
         now = date
     }
 
+    /// Puts back the real readings an injection covered.
+    func endInjection() {
+        guard injection != nil, let snapshot else { return }
+        let real = withoutInjection(snapshot)
+        injection = nil
+        self.snapshot = real
+    }
+
     private func withoutInjection(_ snapshot: QuotaSnapshot) -> QuotaSnapshot {
         guard let injection else { return snapshot }
         let baseline = injection.baseline

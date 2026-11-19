@@ -18,10 +18,12 @@ struct SidebarQuotaRow: View, ThemedView {
     @Environment(\.theme) var theme
     @State private var quota: QuotaStore
     @State private var settings: AppSettings
+    @State private var poller: ClaudeUsagePoller
 
-    init(quota: QuotaStore = .shared, settings: AppSettings = .shared) {
+    init(quota: QuotaStore = .shared, settings: AppSettings = .shared, poller: ClaudeUsagePoller = .shared) {
         _quota = State(initialValue: quota)
         _settings = State(initialValue: settings)
+        _poller = State(initialValue: poller)
     }
 
     var body: some View {
@@ -40,6 +42,7 @@ struct SidebarQuotaRow: View, ThemedView {
         let extras = SidebarQuotaExtras(snapshot: snapshot, alwaysShows: settings.alwaysShowsCreditAndFableQuota, now: quota.now)
         let windows = snapshot.flatMap { Self.hasWindows($0) ? $0 : nil }
         let showsOffer = !settings.readsClaudeUsage && !settings.dismissedClaudeUsageOffer
+        let isChecking = poller.status == .checking
 
         HStack(alignment: .quotaFirstLine, spacing: 8) {
             AgentProviderIcon(provider: .claudeCode, size: 16)
@@ -49,11 +52,25 @@ struct SidebarQuotaRow: View, ThemedView {
                 if let windows {
                     meters(windows, isStale: windowsAreStale)
                 }
-                extraReadings(snapshot, extras: extras)
+                extraReadings(snapshot, extras: extras, isChecking: isChecking)
                 if windows == nil && !extras.showsAny {
                     noReading
                 }
                 if showsOffer { usageOffer }
+                // With no glyph to pulse, the offer's old slot spins instead.
+                if isChecking && !extras.showsAny {
+                    ProgressView()
+                        .controlSize(.mini)
+                        .help("Reading usage credit and the Fable quota…")
+                }
+                if case .failed(let reason) = poller.status {
+                    placeholder
+                        .opacity(colors.emphasis[.secondary])
+                        .help(reason)
+                        .accessibilityLabel(reason)
+                        .quotaTextCentre(typography.caption)
+                        .transition(.opacity)
+                }
             }
             Spacer(minLength: 0)
         }
@@ -64,24 +81,25 @@ struct SidebarQuotaRow: View, ThemedView {
         .padding(.horizontal, SidebarFooterMetrics.inset)
         .accessibilityElement(children: .contain)
         .accessibilityLabel("Claude account quota")
-        .plumeID(AccessibilityID.sidebarQuotaRow)
+        .plumeID(AccessibilityID.sidebarQuotaRow, value: poller.status.description)
     }
 
     private var usageOffer: some View {
         Button("Show credit", action: acceptUsageOffer)
-        .buttonStyle(.plain)
-        .foregroundStyle(colors.foreground.opacity(colors.emphasis[.secondary]))
-        .help("Show usage credit and the Fable quota here. Plume reads Claude Code's login from your Keychain to fetch them, so macOS asks once. Right-click to hide this.")
-        .contextMenu {
-            Button("Don't Show This", action: dismissUsageOffer)
-        }
-        .transition(.opacity)
-        .plumeID(AccessibilityID.sidebarQuotaUsageOffer, invoke: acceptUsageOffer)
-        .plumeMenuItem(AccessibilityID.sidebarQuotaUsageOfferDismiss, invoke: dismissUsageOffer)
+            .buttonStyle(.plain)
+            .foregroundStyle(colors.foreground.opacity(colors.emphasis[.secondary]))
+            .help("Show usage credit and the Fable quota here. Plume reads Claude Code's login from your Keychain to fetch them, so macOS asks once. Right-click to hide this.")
+            .contextMenu {
+                Button("Don't Show This", action: dismissUsageOffer)
+            }
+            .quotaTextCentre(typography.caption)
+            .transition(.opacity)
+            .plumeID(AccessibilityID.sidebarQuotaUsageOffer, invoke: acceptUsageOffer)
+            .plumeMenuItem(AccessibilityID.sidebarQuotaUsageOfferDismiss, invoke: dismissUsageOffer)
     }
 
     private func acceptUsageOffer() {
-        ClaudeUsagePoller.shared.setEnabled(true)
+        poller.setEnabled(true)
     }
 
     private func dismissUsageOffer() {
@@ -91,6 +109,7 @@ struct SidebarQuotaRow: View, ThemedView {
     private var noReading: some View {
         placeholder
             .accessibilityLabel("No quota reading yet")
+            .quotaTextCentre(typography.caption)
             .transition(.opacity)
     }
 
@@ -106,6 +125,7 @@ struct SidebarQuotaRow: View, ThemedView {
             extras.showsFable,
             extras.showsCredit,
             !settings.readsClaudeUsage && !settings.dismissedClaudeUsageOffer,
+            poller.status != .idle,
         ]
     }
 
@@ -124,6 +144,7 @@ struct SidebarQuotaRow: View, ThemedView {
                     windowLength: QuotaWindowLength.fiveHour,
                     readingAlignment: .leading
                 )
+                .quotaTextCentre(typography.caption)
                 .transition(.opacity)
             }
             if let sevenDay = snapshot.rateLimit.sevenDay {
@@ -138,24 +159,25 @@ struct SidebarQuotaRow: View, ThemedView {
                     windowLength: QuotaWindowLength.sevenDay,
                     readingAlignment: .leading
                 )
+                .quotaTextCentre(typography.caption)
                 .transition(.opacity)
             }
         }
     }
 
     @ViewBuilder
-    private func extraReadings(_ snapshot: QuotaSnapshot?, extras: SidebarQuotaExtras) -> some View {
+    private func extraReadings(_ snapshot: QuotaSnapshot?, extras: SidebarQuotaExtras, isChecking: Bool) -> some View {
         if extras.showsFable {
-            fableReading(snapshot)
+            fableReading(snapshot, isChecking: isChecking)
                 .transition(.opacity)
         }
         if extras.showsCredit {
-            creditReading(snapshot)
+            creditReading(snapshot, isChecking: isChecking)
                 .transition(.opacity)
         }
     }
 
-    private func fableReading(_ snapshot: QuotaSnapshot?) -> some View {
+    private func fableReading(_ snapshot: QuotaSnapshot?, isChecking: Bool) -> some View {
         let fable = snapshot?.rateLimit.fable
         let isStale = snapshot.map { QuotaFreshness.isStale(receivedAt: $0.fableHeardAt, now: quota.now) } ?? false
         let summary = fable.map {
@@ -173,8 +195,9 @@ struct SidebarQuotaRow: View, ThemedView {
         return SidebarQuotaGlyph(
             symbol: "f.circle",
             fraction: StatuslineMeterMath.fraction(percent: percent),
-            fill: StatuslineColors.meter(for: StatuslineAttention.attention(percent: percent), colors: colors),
+            fill: glyphFill(percent: percent),
             isStale: isStale,
+            isPulsing: isChecking,
             help: summary?.text ?? "Fable weekly quota: no reading yet",
             accessibilityLabel: "Fable weekly quota",
             id: AccessibilityID.sidebarQuotaFable,
@@ -190,7 +213,7 @@ struct SidebarQuotaRow: View, ThemedView {
         }
     }
 
-    private func creditReading(_ snapshot: QuotaSnapshot?) -> some View {
+    private func creditReading(_ snapshot: QuotaSnapshot?, isChecking: Bool) -> some View {
         let credit = snapshot?.credit
         let used = credit?.usedCents.map { UsageCreditFormat.amount(minorUnits: $0, currency: credit?.currency) }
         let isStale = credit != nil && QuotaFreshness.isCreditStale(receivedAt: snapshot?.creditReceivedAt, now: quota.now)
@@ -198,9 +221,9 @@ struct SidebarQuotaRow: View, ThemedView {
         return SidebarQuotaGlyph(
             symbol: "dollarsign.circle",
             fraction: fraction ?? 0,
-            fill: StatuslineColors.meter(for: StatuslineAttention.attention(percent: (fraction ?? 0) * 100), colors: colors),
+            fill: glyphFill(percent: (fraction ?? 0) * 100),
             isStale: isStale,
-            amount: fraction == nil ? credit?.usedCents.map { UsageCreditFormat.wholeAmount(minorUnits: $0, currency: credit?.currency) } : nil,
+            isPulsing: isChecking,
             help: UsageCreditFormat.tooltip(credit),
             accessibilityLabel: "Usage credits",
             id: AccessibilityID.sidebarQuotaCredit,
@@ -212,6 +235,15 @@ struct SidebarQuotaRow: View, ThemedView {
         }
     }
 
+    /// Full foreground rather than the meters' secondary, so the drawn arc
+    /// stands clear of the track at a glance.
+    private func glyphFill(percent: Double) -> Color {
+        switch StatuslineAttention.attention(percent: percent) {
+        case .neutral: colors.foreground
+        case let attention: StatuslineColors.meter(for: attention, colors: colors)
+        }
+    }
+
     private var placeholder: some View {
         Text("\u{2014}")
             .foregroundStyle(colors.foreground.opacity(colors.emphasis[.secondary]))
@@ -219,7 +251,8 @@ struct SidebarQuotaRow: View, ThemedView {
 }
 
 /// Which of the sidebar's optional readings show: each only once it has
-/// something to say, unless the setting forces both on.
+/// something to say, unless the setting forces both on. Credit with no
+/// monthly limit never shows: its glyph has nothing to fill toward.
 struct SidebarQuotaExtras: Equatable {
     let showsFable: Bool
     let showsCredit: Bool
@@ -228,7 +261,8 @@ struct SidebarQuotaExtras: Equatable {
 
     init(snapshot: QuotaSnapshot?, alwaysShows: Bool, now: Date) {
         showsFable = alwaysShows || (snapshot?.rateLimit.fable?.utilization ?? 0) > 0
-        showsCredit = alwaysShows || Self.creditIsRelevant(snapshot, now: now)
+        let hasNoLimit = snapshot?.credit.map { $0.limitCents == nil } ?? false
+        showsCredit = !hasNoLimit && (alwaysShows || Self.creditIsRelevant(snapshot, now: now))
     }
 
     private static func creditIsRelevant(_ snapshot: QuotaSnapshot?, now: Date) -> Bool {
@@ -260,7 +294,7 @@ struct SidebarQuotaGlyph<Detail: View>: View, ThemedView {
     let fraction: Double
     let fill: Color
     let isStale: Bool
-    var amount: String?
+    let isPulsing: Bool
     let help: String
     let accessibilityLabel: String
     let id: String
@@ -271,24 +305,22 @@ struct SidebarQuotaGlyph<Detail: View>: View, ThemedView {
 
     var body: some View {
         Button(action: showDetails) {
-            HStack(spacing: 3) {
-                ZStack {
-                    Image(systemName: symbol)
-                        .foregroundStyle(colors.foreground.opacity(colors.emphasis[.divider]))
-                    Image(systemName: symbol, variableValue: fraction)
-                        .symbolVariableValueMode(.draw)
-                        .foregroundStyle(fill)
-                }
-                if let amount {
-                    Text(amount)
-                        .foregroundStyle(colors.foreground.opacity(colors.emphasis[.secondary]))
-                        .monospacedDigit()
-                }
+            ZStack {
+                Image(systemName: symbol)
+                    .foregroundStyle(colors.foreground.opacity(colors.emphasis[.backgroundTint]))
+                Image(systemName: symbol, variableValue: fraction)
+                    .symbolVariableValueMode(.draw)
+                    .foregroundStyle(fill)
             }
+            // Body size and semibold, since a caption-size hairline arc
+            // barely separates from its track.
+            .font(typography.body.semibold)
             .opacity(isStale ? colors.emphasis[.secondary] : 1)
+            .modifier(QuotaPulse(isActive: isPulsing))
             .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
+        .quotaTextCentre(typography.body)
         .help(help)
         .accessibilityLabel(accessibilityLabel)
         .accessibilityValue(help)
@@ -302,6 +334,30 @@ struct SidebarQuotaGlyph<Detail: View>: View, ThemedView {
 
     private func showDetails() {
         showingDetails = true
+    }
+}
+
+/// Fades a reading in and out while a fetch for it is in flight. Driven by
+/// a `TimelineView` rather than a repeating symbol effect, which would
+/// re-rasterize the glyph every frame on the main thread; it exists only
+/// while active.
+struct QuotaPulse: ViewModifier {
+    let isActive: Bool
+
+    static let step: TimeInterval = 0.6
+    private static let epoch = Date(timeIntervalSinceReferenceDate: 0)
+
+    func body(content: Content) -> some View {
+        if isActive {
+            TimelineView(.periodic(from: Self.epoch, by: Self.step)) { context in
+                let isDim = Int(context.date.timeIntervalSince(Self.epoch) / Self.step) % 2 == 1
+                content
+                    .opacity(isDim ? 0.35 : 1)
+                    .animation(.easeInOut(duration: Self.step), value: isDim)
+            }
+        } else {
+            content
+        }
     }
 }
 
@@ -342,14 +398,21 @@ struct SidebarQuotaFlow: Layout {
     private struct Line {
         var indices: [Int] = []
         var width: CGFloat = 0
-        var height: CGFloat = 0
+        /// Above and below the line's `quotaFirstLine` guide, which every
+        /// item on it shares.
+        var above: CGFloat = 0
+        var below: CGFloat = 0
+        var height: CGFloat { above + below }
     }
 
-    private func lines(for subviews: Subviews, maxWidth: CGFloat?) -> (lines: [Line], sizes: [CGSize]) {
+    private func lines(for subviews: Subviews, maxWidth: CGFloat?) -> (lines: [Line], sizes: [CGSize], guides: [CGFloat]) {
         let limit = maxWidth ?? .infinity
         let sizes = subviews.map { subview in
             let ideal = subview.sizeThatFits(.unspecified)
             return ideal.width > limit ? subview.sizeThatFits(ProposedViewSize(width: limit, height: nil)) : ideal
+        }
+        let guides = zip(subviews, sizes).map { subview, size in
+            subview.dimensions(in: ProposedViewSize(size))[.quotaFirstLine]
         }
         var lines: [Line] = []
         var line = Line()
@@ -357,15 +420,15 @@ struct SidebarQuotaFlow: Layout {
             let width = line.indices.isEmpty ? size.width : line.width + horizontalSpacing + size.width
             if !line.indices.isEmpty && width > limit {
                 lines.append(line)
-                line = Line(indices: [index], width: size.width, height: size.height)
-            } else {
-                line.indices.append(index)
-                line.width = width
-                line.height = max(line.height, size.height)
+                line = Line()
             }
+            line.width = line.indices.isEmpty ? size.width : line.width + horizontalSpacing + size.width
+            line.indices.append(index)
+            line.above = max(line.above, guides[index])
+            line.below = max(line.below, size.height - guides[index])
         }
         if !line.indices.isEmpty { lines.append(line) }
-        return (lines, sizes)
+        return (lines, sizes, guides)
     }
 
     func sizeThatFits(proposal: ProposedViewSize, subviews: Subviews, cache: inout ()) -> CGSize {
@@ -375,15 +438,15 @@ struct SidebarQuotaFlow: Layout {
     }
 
     func placeSubviews(in bounds: CGRect, proposal: ProposedViewSize, subviews: Subviews, cache: inout ()) {
-        let (lines, sizes) = lines(for: subviews, maxWidth: bounds.width)
+        let (lines, sizes, guides) = lines(for: subviews, maxWidth: bounds.width)
         var y = bounds.minY
         for line in lines {
             var x = bounds.minX
             for index in line.indices {
                 let size = sizes[index]
                 subviews[index].place(
-                    at: CGPoint(x: x, y: y + line.height / 2),
-                    anchor: .leading,
+                    at: CGPoint(x: x, y: y + line.above - guides[index]),
+                    anchor: .topLeading,
                     proposal: ProposedViewSize(size)
                 )
                 x += size.width + horizontalSpacing
@@ -392,11 +455,11 @@ struct SidebarQuotaFlow: Layout {
         }
     }
 
-    /// Lines up the provider icon beside the row with the first line, not the
-    /// middle of a wrapped row.
+    /// Lines up the provider icon beside the row with the first line's text,
+    /// not the middle of a wrapped row.
     func explicitAlignment(of guide: VerticalAlignment, in bounds: CGRect, proposal: ProposedViewSize, subviews: Subviews, cache: inout ()) -> CGFloat? {
         guard guide == .quotaFirstLine, let first = lines(for: subviews, maxWidth: bounds.width).lines.first else { return nil }
-        return first.height / 2
+        return first.above
     }
 }
 
@@ -406,6 +469,17 @@ nonisolated extension VerticalAlignment {
     }
 
     static let quotaFirstLine = VerticalAlignment(QuotaFirstLine.self)
+}
+
+extension View {
+    /// Puts the row's shared guide on this view's text centre — the middle
+    /// of the cap height above the first baseline, where an SF Symbol of the
+    /// same style centres itself — so readings of different sizes, and a
+    /// meter whose bar hangs below its text, line up on the text.
+    func quotaTextCentre(_ style: Typography.Style) -> some View {
+        let halfCap = NSFont.systemFont(ofSize: style.size).capHeight / 2
+        return alignmentGuide(.quotaFirstLine) { $0[.firstTextBaseline] - halfCap }
+    }
 }
 
 enum UsageCreditFormat {
@@ -447,21 +521,13 @@ enum UsageCreditFormat {
         return min(max(Double(used) / Double(limit), 0), 1)
     }
 
-    /// "$12" for $12.40: a glyph's companion, where cents only crowd it.
-    static func wholeAmount(minorUnits: Int, currency: String?, locale: Locale = .current) -> String {
-        let formatter = formatter(currency: currency, locale: locale).copy() as! NumberFormatter
-        let value = Decimal(minorUnits) / pow(Decimal(10), formatter.maximumFractionDigits)
-        formatter.minimumFractionDigits = 0
-        formatter.maximumFractionDigits = 0
-        formatter.roundingMode = .down
-        return formatter.string(from: value as NSDecimalNumber) ?? "\(minorUnits)"
-    }
-
     static func detailLines(_ credit: UsageCredit?, locale: Locale = .current) -> [String] {
         guard let credit, let used = credit.usedCents else { return ["No reading yet"] }
         let format = { (units: Int) in amount(minorUnits: units, currency: credit.currency, locale: locale) }
         var lines = ["\(format(used)) used this month"]
-        lines.append(credit.limitCents.map { "Monthly limit: \(format($0))" } ?? "No monthly limit")
+        if let limit = credit.limitCents {
+            lines.append("Monthly limit: \(format(limit))")
+        }
         if let remaining = credit.remainingCents {
             lines.append("\(format(remaining)) left")
         }

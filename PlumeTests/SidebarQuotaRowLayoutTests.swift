@@ -3,15 +3,15 @@ import SwiftUI
 import Testing
 @testable import Plume
 
-/// At the sidebar's default 240 pt width, the Fable and credit glyphs fit
-/// beside full 5h and 7d meters, alone or together, and so does a credit
-/// glyph with a two-digit amount. The "Show credit" offer has no room there
-/// and wraps onto a second line rather than disappearing.
+/// At the sidebar's default 240 pt width, the body-size Fable and credit
+/// glyphs fit beside full 5h and 7d meters, alone or together. The "Show
+/// credit" offer has no room there and wraps onto a second line rather than
+/// disappearing.
 @MainActor
 struct SidebarQuotaRowLayoutTests {
     private let defaultSidebarWidth: CGFloat = 240
 
-    enum Extra: Sendable { case none, offer, fable, credit, fableAndCredit, creditWithoutLimit }
+    enum Extra: Sendable { case none, offer, fable, credit, fableAndCredit }
 
     /// A nil width measures the ideal: everything on one line.
     private func size(_ view: some View, width: CGFloat?) -> CGSize {
@@ -46,15 +46,13 @@ struct SidebarQuotaRowLayoutTests {
             quota.record(ClaudeUsageReading(credit: credit), at: now)
         case .fableAndCredit:
             quota.record(ClaudeUsageReading(fable: fable, credit: credit), at: now)
-        case .creditWithoutLimit:
-            quota.record(ClaudeUsageReading(credit: UsageCredit(usedCents: 1240)), at: now)
         case .none, .offer:
             break
         }
         return (SidebarQuotaRow(quota: quota, settings: settings), { defaults.removePersistentDomain(forName: suite) })
     }
 
-    @Test(arguments: [Extra.fable, .credit, .fableAndCredit, .creditWithoutLimit])
+    @Test(arguments: [Extra.fable, .credit, .fableAndCredit])
     func theGlyphsFitBesideTheMetersAtTheDefaultWidth(_ extra: Extra) throws {
         let (metersOnly, cleanMeters) = try row(.none)
         defer { cleanMeters() }
@@ -67,7 +65,7 @@ struct SidebarQuotaRowLayoutTests {
 
         #expect(unbounded.width > meters.width, "the glyph must add width, or this measures nothing")
         #expect(unbounded.width <= defaultSidebarWidth, "row with the glyph is \(unbounded.width) pt")
-        #expect(fitted.height == meters.height)
+        #expect(fitted.height == unbounded.height, "at 240 pt the row stays one line")
     }
 
     @Test func theOfferWrapsBelowTheMetersAtTheDefaultWidth() throws {
@@ -85,5 +83,38 @@ struct SidebarQuotaRowLayoutTests {
         #expect(unbounded.width > defaultSidebarWidth, "the offer must not fit beside the meters, or this measures nothing")
         #expect(wrapped.width <= defaultSidebarWidth)
         #expect(wrapped.height > oneLine.height, "the offer moves onto a second line")
+    }
+}
+
+/// Readings of different sizes share one line by their text centre: a
+/// body-size symbol's middle sits on a caption label's cap-height midline.
+@MainActor
+struct SidebarQuotaFlowAlignmentTests {
+    private final class Frames {
+        var text: CGRect = .zero
+        var glyph: CGRect = .zero
+    }
+
+    @Test func aBodyGlyphCentresOnACaptionLabel() {
+        let typography = Typography(bodySize: CGFloat(AppSettings.defaultChatFontSize))
+        let frames = Frames()
+        let flow = SidebarQuotaFlow(horizontalSpacing: 8, verticalSpacing: 4) {
+            Text("5h 0%")
+                .font(.system(size: typography.caption.size))
+                .quotaTextCentre(typography.caption)
+                .onGeometryChange(for: CGRect.self) { $0.frame(in: .global) } action: { frames.text = $0 }
+            Image(systemName: "f.circle")
+                .font(.system(size: typography.body.size, weight: .semibold))
+                .quotaTextCentre(typography.body)
+                .onGeometryChange(for: CGRect.self) { $0.frame(in: .global) } action: { frames.glyph = $0 }
+        }
+        let host = NSHostingView(rootView: flow.fixedSize())
+        host.frame = CGRect(x: 0, y: 0, width: 300, height: 100)
+        host.layoutSubtreeIfNeeded()
+
+        let caption = NSFont.systemFont(ofSize: typography.caption.size)
+        let textCentre = frames.text.minY + caption.ascender - caption.capHeight / 2
+        #expect(frames.glyph.height > 0)
+        #expect(abs(frames.glyph.midY - textCentre) <= 1, "glyph centre \(frames.glyph.midY), text centre \(textCentre)")
     }
 }
