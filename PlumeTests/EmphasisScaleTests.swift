@@ -65,6 +65,7 @@ struct EmphasisScaleTests {
             (ChatRole.activity, .attention, .blue),
             (ChatRole.warning, .warning, .orange),
             (ChatRole.danger, .danger, .red),
+            (ChatRole.conflict, .danger, .red),
             (ChatRole.success, .success, .green),
         ]
 
