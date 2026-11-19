@@ -387,7 +387,7 @@ struct ChildSessionOfferTests {
         }
         #expect(lines.all.isEmpty)
         #expect(!session.isWorking)
-        let preamble = try #require(session.userMessagePreamble?())
+        let preamble = try #require(session.userMessagePreamble?()?.wire.plainText)
         #expect(preamble.contains("started your offered session"))
         #expect(preamble.contains("offer_started"))
     }
