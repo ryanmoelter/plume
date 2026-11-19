@@ -58,8 +58,9 @@ struct TabContentView: View {
                 if let draggedTab {
                     SplitDropCatcher(
                         update: { x in
-                            let accepts = panes.count > 1 || TaskStore.canOpenInSplit(draggedTab, in: task)
-                            dropSide = accepts ? layout.side(forX: x) : nil
+                            let side = layout.side(forX: x)
+                            let accepts = TaskStore.canOpenInSplit(draggedTab, side: side, in: task)
+                            dropSide = accepts ? side : nil
                             return accepts
                         },
                         exit: { dropSide = nil },

@@ -46,6 +46,19 @@ nonisolated struct ControlServerRequest: Decodable {
         case "appendTurn": command = .appendTurn(try AppendTurnParams(from: decoder))
         case "resize": command = .resize(try ResizeParams(from: decoder))
         case "scrollChat": command = .scrollChat(try ScrollChatParams(from: decoder))
+        case "tab.move": command = .moveTab(try TabMoveParams(from: decoder))
+        case "tab.split": command = .splitTab(try TabMoveParams(from: decoder))
+        case "sidebar.reveal": command = .revealInSidebar(try SidebarRevealParams(from: decoder))
+        case "tab.status": command = .setTabStatus(try TabStatusParams(from: decoder))
+        case "child-session.start": command = .startChildSession(try ChildSessionStartParams(from: decoder))
+        case "child-session.report": command = .reportChildSession(try ChildSessionReportParams(from: decoder))
+        case "child-session.propose": command = .proposeChildSession(try ChildSessionProposeParams(from: decoder))
+        case "child-session.proposals": command = .listChildSessionProposals(try ChildSessionProposalsParams(from: decoder))
+        case "child-session.proposal.start": command = .startChildSessionProposal(try ChildSessionProposalParams(from: decoder))
+        case "child-session.proposal.dismiss": command = .dismissChildSessionProposal(try ChildSessionProposalParams(from: decoder))
+        case "child-session.offer": command = .offerChildSession(try ChildSessionProposeParams(from: decoder))
+        case "child-session.offers": command = .listChildSessionOffers(try ChildSessionProposalsParams(from: decoder))
+        case "child-session.offer.answer": command = .answerChildSessionOffer(try ChildSessionOfferAnswerParams(from: decoder))
         default:
             throw DecodingError.dataCorruptedError(
                 forKey: .command, in: container, debugDescription: "unknown command \"\(name)\""
@@ -80,6 +93,19 @@ nonisolated enum ControlCommand {
     case appendTurn(AppendTurnParams)
     case resize(ResizeParams)
     case scrollChat(ScrollChatParams)
+    case moveTab(TabMoveParams)
+    case splitTab(TabMoveParams)
+    case revealInSidebar(SidebarRevealParams)
+    case setTabStatus(TabStatusParams)
+    case startChildSession(ChildSessionStartParams)
+    case reportChildSession(ChildSessionReportParams)
+    case proposeChildSession(ChildSessionProposeParams)
+    case listChildSessionProposals(ChildSessionProposalsParams)
+    case startChildSessionProposal(ChildSessionProposalParams)
+    case dismissChildSessionProposal(ChildSessionProposalParams)
+    case offerChildSession(ChildSessionProposeParams)
+    case listChildSessionOffers(ChildSessionProposalsParams)
+    case answerChildSessionOffer(ChildSessionOfferAnswerParams)
 }
 
 /// Sets the window's content size, in points. With `live`, the size steps
@@ -870,6 +896,12 @@ nonisolated enum ControlResult: Encodable {
     case switchLatency(SwitchLatencyReport)
     case resize(ResizeResult)
     case scrollHitch(ScrollHitchReport)
+    case tab(TabTaskResult)
+    case sidebarReveal(SidebarRevealResult)
+    case tabStatus(TabStatusResult)
+    case childSession(ChildSessionResult)
+    case childSessionProposals(ChildSessionProposalsResult)
+    case childSessionOffers(ChildSessionOffersResult)
 
     func encode(to encoder: Encoder) throws {
         switch self {
@@ -893,6 +925,12 @@ nonisolated enum ControlResult: Encodable {
         case .switchLatency(let v): try v.encode(to: encoder)
         case .resize(let v): try v.encode(to: encoder)
         case .scrollHitch(let v): try v.encode(to: encoder)
+        case .tab(let v): try v.encode(to: encoder)
+        case .sidebarReveal(let v): try v.encode(to: encoder)
+        case .tabStatus(let v): try v.encode(to: encoder)
+        case .childSession(let v): try v.encode(to: encoder)
+        case .childSessionProposals(let v): try v.encode(to: encoder)
+        case .childSessionOffers(let v): try v.encode(to: encoder)
         }
     }
 }

@@ -95,15 +95,17 @@ enum Importer {
                 orderIndex: inheritedIndex ?? (siblings.map(\.orderIndex).max() ?? -1) + 1,
                 group: group
             )
-            task.workingDirectoryPath = candidate.workingDirectoryPath
-            task.repoPath = candidate.workspace.repoPath
-            task.branchName = candidate.workspace.branchName
-            task.workspaceKind = candidate.workspace.kind
             task.importedStableID = candidate.stableID
             context.insert(task)
 
             for (index, plan) in candidate.tabs.enumerated() {
                 let tab = makeTab(plan, index: index, in: task, heldSessions: &heldSessions)
+                tab.workspace = TabWorkspace(
+                    kind: candidate.workspace.kind,
+                    directory: plan.workingDirectoryPath ?? candidate.workingDirectoryPath,
+                    repoPath: candidate.workspace.repoPath,
+                    branchName: candidate.workspace.branchName
+                )
                 context.insert(tab)
                 task.tabs.append(tab)
             }
@@ -131,7 +133,6 @@ enum Importer {
         let tab = TaskTab(kind: kind, orderIndex: index, task: task)
         tab.provider = plan.provider
         tab.title = plan.title
-        tab.workingDirectoryPath = plan.workingDirectoryPath
 
         if kind == .agent, let sessionID {
             // Pinned rather than read from settings: headless is the only

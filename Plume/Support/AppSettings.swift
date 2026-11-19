@@ -56,6 +56,8 @@ final class AppSettings {
         static let infoPaneLinearExpanded = "infoPaneLinearExpanded"
         static let infoPaneBackgroundTasksExpanded = "infoPaneBackgroundTasksExpanded"
         static let infoPaneArtifactsExpanded = "infoPaneArtifactsExpanded"
+        static let infoPaneSessionsExpanded = "infoPaneSessionsExpanded"
+        static let infoPaneParentSessionExpanded = "infoPaneParentSessionExpanded"
         static let infoPaneLinkedPullRequestsExpanded = "infoPaneLinkedPullRequestsExpanded"
         static let infoPaneFoldersExpanded = "infoPaneFoldersExpanded"
         /// The retired Settings ▸ Integrations list, read only to migrate it.
@@ -236,6 +238,12 @@ final class AppSettings {
         self.infoPaneArtifactsExpanded = defaults.object(forKey: Key.infoPaneArtifactsExpanded) == nil
             ? true
             : defaults.bool(forKey: Key.infoPaneArtifactsExpanded)
+        self.infoPaneSessionsExpanded = defaults.object(forKey: Key.infoPaneSessionsExpanded) == nil
+            ? true
+            : defaults.bool(forKey: Key.infoPaneSessionsExpanded)
+        self.infoPaneParentSessionExpanded = defaults.object(forKey: Key.infoPaneParentSessionExpanded) == nil
+            ? true
+            : defaults.bool(forKey: Key.infoPaneParentSessionExpanded)
         self.infoPaneLinkedPullRequestsExpanded = defaults.object(forKey: Key.infoPaneLinkedPullRequestsExpanded) == nil
             ? true
             : defaults.bool(forKey: Key.infoPaneLinkedPullRequestsExpanded)
@@ -723,6 +731,18 @@ final class AppSettings {
     var infoPaneArtifactsExpanded: Bool {
         didSet {
             defaults.set(infoPaneArtifactsExpanded, forKey: Key.infoPaneArtifactsExpanded)
+        }
+    }
+
+    var infoPaneSessionsExpanded: Bool {
+        didSet {
+            defaults.set(infoPaneSessionsExpanded, forKey: Key.infoPaneSessionsExpanded)
+        }
+    }
+
+    var infoPaneParentSessionExpanded: Bool {
+        didSet {
+            defaults.set(infoPaneParentSessionExpanded, forKey: Key.infoPaneParentSessionExpanded)
         }
     }
 

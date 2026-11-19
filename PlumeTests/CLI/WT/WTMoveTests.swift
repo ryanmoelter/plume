@@ -102,6 +102,20 @@ struct WTMoveTests {
         #expect(ctx.fakeGit.added.map(\.path) == ["/repo/.plume/worktrees/feat"])
     }
 
+    // MARK: what a task owns
+
+    @Test func backgroundOffTheBaseCreatesOnlyTheWorktree() throws {
+        let ctx = context(branch: "ryanm/feat")
+        try WT.background(ctx, ["--task"])
+        #expect(ctx.recordingTabs.opened.map(\.created) == [.init(worktree: true, branch: false)])
+    }
+
+    @Test func backgroundOnTheBaseCreatesTheBranchToo() throws {
+        let ctx = context(branch: "main")
+        try WT.background(ctx, ["feat", "--task"])
+        #expect(ctx.recordingTabs.opened.map(\.created) == [.init(worktree: true, branch: true)])
+    }
+
     @Test func foregroundDetachesAtTheBranchNotATagOfTheSameName() throws {
         let ctx = context(branch: "main", clean: true)
         ctx.fakeGit.checkoutFails = { _, ref, detach in detach && ref != GitRef.local("ryanm/other") }

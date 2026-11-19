@@ -8,24 +8,56 @@ struct ReadStateButton: View {
     let label: String
 
     var body: some View {
-        if UnreadStore.shared.hasUnread(among: tabIDs) {
-            Button { markRead() } label: { Label("Mark as Read", systemImage: "circle") }
+        let item = ReadStateItem(tabIDs: tabIDs)
+        if item.marksRead {
+            Button(action: item.perform) { Label("Mark as Read", systemImage: "circle") }
                 .plainMenuIcon()
-                .plumeID(AccessibilityID.markReadButton, label: label)
+                .plumeID(item.controlID, label: label)
+        } else {
+            Button(action: item.perform) { Label("Mark as Unread", systemImage: "circle.fill") }
+                .plainMenuIcon()
+                .plumeID(item.controlID, label: label)
+                .disabled(!item.isEnabled)
+        }
+    }
+}
+
+extension View {
+    /// Registers `ReadStateButton` for a context menu, which mounts it only
+    /// while open.
+    func plumeReadStateMenuItem(tabIDs: [UUID], label: String) -> some View {
+        let item = ReadStateItem(tabIDs: tabIDs)
+        return plumeMenuItem(item.controlID, label: label, isEnabled: item.isEnabled, invoke: item.perform)
+    }
+}
+
+private struct ReadStateItem {
+    let tabIDs: [UUID]
+    let marksRead: Bool
+    private let unreadTargets: [UUID]
+
+    init(tabIDs: [UUID]) {
+        self.tabIDs = tabIDs
+        marksRead = UnreadStore.shared.hasUnread(among: tabIDs)
+        if marksRead {
+            unreadTargets = []
         } else {
             let statuses = Dictionary(
                 tabIDs.map { ($0, StatusEngine.shared.status(forTab: $0)) },
                 uniquingKeysWith: { first, _ in first }
             )
-            let targets = UnreadStore.shared.tabsToMarkUnread(statuses)
-            Button { UnreadStore.shared.markUnread(targets) } label: { Label("Mark as Unread", systemImage: "circle.fill") }
-                .plainMenuIcon()
-                .plumeID(AccessibilityID.markUnreadButton, label: label)
-                .disabled(targets.isEmpty)
+            unreadTargets = UnreadStore.shared.tabsToMarkUnread(statuses)
         }
     }
 
-    private func markRead() {
+    var controlID: String { marksRead ? AccessibilityID.markReadButton : AccessibilityID.markUnreadButton }
+    var isEnabled: Bool { marksRead || !unreadTargets.isEmpty }
+
+    func perform() {
+        guard marksRead else {
+            UnreadStore.shared.markUnread(unreadTargets)
+            return
+        }
         UnreadStore.shared.markRead(tabIDs)
         for tabID in tabIDs {
             BellStore.shared.markSeen(tabID: tabID)

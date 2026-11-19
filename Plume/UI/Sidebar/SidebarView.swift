@@ -64,6 +64,7 @@ struct SidebarView: View {
                     guard let task = tasks.first(where: { $0.id == selection?.taskID }) else { return }
                     withAnimation { proxy.scrollTo(task.sidebarRowID) }
                 }
+                .controlSidebarReveal(proxy: proxy) { id in tasks.first { $0.id == id }?.sidebarRowID }
             }
             // Hand-built because `List(.sidebar)` paints its own accent
             // highlight on a row selected from code or right-clicked, with no
@@ -184,6 +185,15 @@ struct SidebarView: View {
                         .plumeID(AccessibilityID.taskEditButton, label: TitleStore.shared.displayTitle(for: task))
                     taskContextMenu(for: task)
                 }
+                .plumeMenuItem(
+                    AccessibilityID.taskArchiveButton,
+                    label: TitleStore.shared.displayTitle(for: task),
+                    isPresent: !task.hasNeverStarted
+                ) { requestArchive(task) }
+                .plumeMenuItem(
+                    AccessibilityID.taskDeleteButton,
+                    label: TitleStore.shared.displayTitle(for: task)
+                ) { requestDelete(task) }
                 .sidebarDragAndDrop(
                     .task(task.id),
                     target: .task(task.id),
@@ -218,8 +228,9 @@ struct SidebarView: View {
         }
     }
 
-    /// Moves a tab into `task`. Only the SwiftData relationship and ordering
-    /// change — never the surface registry keyed by the tab's id.
+    /// Moves a tab and its attached children into `task`. Only the SwiftData
+    /// relationship and ordering change — never the surface registry keyed by
+    /// the tab's id.
     private func dropTab(_ tabID: UUID, onto task: WorkTask) {
         guard let tab = tasks.flatMap(\.liveTabs).first(where: { $0.id == tabID }),
               tab.task?.id != task.id
@@ -293,7 +304,6 @@ struct SidebarView: View {
         }
         if !task.hasNeverStarted {
             Button("Archive") { requestArchive(task) }
-                .plumeID(AccessibilityID.taskArchiveButton)
         }
         linearMenuItems(for: task)
         Divider()

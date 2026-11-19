@@ -101,7 +101,24 @@ struct InfoPaneFacts: Equatable {
         var isEmpty: Bool { main.isEmpty && mentioned.isEmpty }
     }
 
+    /// An open tab directly related to this one: its parent, or a child its
+    /// agent started.
+    struct SessionFacts: Equatable, Identifiable {
+        let id: UUID
+        let title: String
+        let status: TaskStatus
+        var isUnread = false
+        /// Set only when it differs from this tab's branch.
+        var branch: String?
+
+        var caption: String {
+            [status.label, branch].compactMap(\.self).joined(separator: " · ")
+        }
+    }
+
     var tabID: UUID
+    var parentSession: SessionFacts?
+    var childSessions: [SessionFacts] = []
     var liveSubagents: [SubagentTranscript] = []
     var completedSubagents: [SubagentTranscript] = []
     var backgroundTasks: [BackgroundTaskTracker.Entry] = []
@@ -130,6 +147,8 @@ struct InfoPaneFacts: Equatable {
 
     var sections: [InfoPaneSection] {
         var sections: [InfoPaneSection] = []
+        if parentSession != nil { sections.append(.parentSession) }
+        if !childSessions.isEmpty { sections.append(.childSessions) }
         if !liveSubagents.isEmpty || !completedSubagents.isEmpty { sections.append(.subagents) }
         if !backgroundTasks.isEmpty { sections.append(.backgroundTasks) }
         if pullRequest?.hasPullRequest == true || !linkedPullRequests.isEmpty || canPinPullRequests {
@@ -151,11 +170,12 @@ struct InfoPaneFacts: Equatable {
         sections.filter { section in
             switch section {
             case .subagents: !liveSubagents.isEmpty
+            case .childSessions: true
             case .branch: branch?.isWorktree == true
             case .linearIssues: (linear?.workingCount ?? 0) > 0
             case .remoteControl: remoteControl == .on
             case .pullRequests: pullRequest?.hasPullRequest == true
-            case .folder, .sideChat: false
+            case .folder, .sideChat, .parentSession: false
             case .backgroundTasks, .plan, .artifacts: true
             }
         }
@@ -206,6 +226,24 @@ extension InfoPaneFacts {
         default:
             return PullRequestFacts(state: state, checkRollup: nil, forge: forge)
         }
+    }
+}
+
+extension InfoPaneFacts {
+    /// The tab's own parent and the tabs whose parent it is, in `tabs`' order.
+    /// Grandchildren are left out: each tab's pane shows only its own
+    /// relations.
+    static func directRelations<T>(
+        of tabID: UUID,
+        in tabs: [T],
+        id: (T) -> UUID,
+        parentID: (T) -> UUID?
+    ) -> (parent: T?, children: [T]) {
+        let parent = tabs.first { id($0) == tabID }
+            .flatMap(parentID)
+            .flatMap { parentTabID in tabs.first { id($0) == parentTabID } }
+        let children = tabs.filter { id($0) != tabID && parentID($0) == tabID }
+        return (parent, children)
     }
 }
 
@@ -331,6 +369,8 @@ enum LinearIssueOrder {
 }
 
 enum InfoPaneSection: Equatable {
+    case parentSession
+    case childSessions
     case linearIssues
     case subagents
     case backgroundTasks

@@ -1,0 +1,349 @@
+import Foundation
+import SwiftData
+import Testing
+
+@testable import Plume
+
+/// `child-session.start` and `child-session.report` decode from the wire,
+/// name tabs by ID or title, and refuse what the coordinator would refuse.
+@MainActor
+struct ControlChildSessionCommandsTests {
+    private let context: ModelContext
+
+    init() throws {
+        context = ModelContext(try ModelContainer(
+            for: Schema([TaskGroup.self, WorkTask.self, TaskTab.self]),
+            configurations: [ModelConfiguration(isStoredInMemoryOnly: true)]
+        ))
+    }
+
+    private func decode(_ json: String) throws -> ControlCommand {
+        try JSONDecoder().decode(ControlServerRequest.self, from: Data(json.utf8)).command
+    }
+
+    @Test func theWireNamesBothCommands() throws {
+        guard case .startChildSession(let start) = try decode(
+            #"{"id":"1","command":"child-session.start","parent":"Lead","title":"Fix","prompt":"Go","use_worktree":false,"context":"fork"}"#
+        ) else {
+            Issue.record("expected child-session.start")
+            return
+        }
+        #expect(start == ChildSessionStartParams(parent: "Lead", title: "Fix", prompt: "Go", useWorktree: false, context: "fork"))
+
+        guard case .reportChildSession(let report) = try decode(
+            #"{"id":"2","command":"child-session.report","child":"Fix","text":"Done","wakes":false}"#
+        ) else {
+            Issue.record("expected child-session.report")
+            return
+        }
+        #expect(report == ChildSessionReportParams(child: "Fix", text: "Done", wakes: false))
+    }
+
+    @Test func startRefusesArgumentsStartSessionWouldRefuse() async throws {
+        let task = TaskStore.createTask(in: context, title: "Task", siblings: [])
+        let parent = try #require(task.tabs.first)
+        parent.title = "Lead"
+        try context.save()
+
+        await #expect(throws: ControlError.self) {
+            try await ControlChildSessionCommands.start(.init(parent: "Lead", title: "Fix"), in: context)
+        }
+        #expect(task.tabs.count == 1)
+    }
+
+    @Test func reportNeedsAnOpenParent() throws {
+        let task = TaskStore.createTask(in: context, title: "Task", siblings: [])
+        let orphan = try #require(task.tabs.first)
+        try context.save()
+
+        #expect(throws: ControlError.self) {
+            try ControlChildSessionCommands.report(.init(child: orphan.id.uuidString, text: "Done"), in: context)
+        }
+    }
+
+    /// The parent has no conversation to resume, so the wake cannot reach it.
+    @Test func aWakeThatCannotReachTheParentLeavesTheNoteForTheUser() throws {
+        let task = TaskStore.createTask(in: context, title: "Task", siblings: [])
+        let parent = try #require(task.tabs.first)
+        let child = TaskStore.addChildTab(to: task, parent: parent, in: context)
+        try context.save()
+        let session = HeadlessSession(tabID: parent.id, taskID: task.id)
+        ChildSessionCoordinator.shared.attach(to: session, task: task, tab: parent)
+        defer { ChildSessionCoordinator.shared.tabForgotten(parent.id) }
+
+        _ = try ControlChildSessionCommands.report(.init(child: child.id.uuidString, text: "All green"), in: context)
+
+        let preamble = try #require(session.userMessagePreamble?()?.wire.plainText)
+        #expect(preamble.contains("All green"))
+        #expect(preamble.contains("<side-sessions-event>"))
+    }
+
+    @Test func aChildsMessageToAParentThatCannotWakeSaysItWaitsForTheUser() async throws {
+        let task = TaskStore.createTask(in: context, title: "Task", siblings: [])
+        let parent = try #require(task.tabs.first)
+        let child = TaskStore.addChildTab(to: task, parent: parent, in: context)
+        try context.save()
+        let parentSession = HeadlessSession(tabID: parent.id, taskID: task.id)
+        let childSession = HeadlessSession(tabID: child.id, taskID: task.id)
+        ChildSessionCoordinator.shared.attach(to: parentSession, task: task, tab: parent)
+        ChildSessionCoordinator.shared.attach(to: childSession, task: task, tab: child)
+        defer { ChildSessionCoordinator.shared.tabForgotten(parent.id) }
+        let server = try #require(childSession.mcpServer)
+
+        let reply = await server.handle(.object([
+            "jsonrpc": .string("2.0"), "id": .number(1), "method": .string("tools/call"),
+            "params": .object(["name": .string("send_message"), "arguments": .object([
+                "to": .string("parent"), "message": .string("Need a decision")
+            ])])
+        ]))
+
+        let text = reply?["result"]?["content"]?.arrayValue?.first?["text"]?.stringValue ?? ""
+        #expect(text.hasPrefix("Delivered with the user's next message"))
+        #expect(parentSession.userMessagePreamble?()?.wire.plainText.contains("Need a decision") == true)
+    }
+
+    private final class Lines {
+        var all: [String] = []
+    }
+
+    private static let result = #"{"type":"result","subtype":"success","is_error":false,"result":"DONE"}"#
+
+    @Test func aMessageQueuedBehindAnInterruptLetsAChildWakeTheParentAgain() throws {
+        let task = TaskStore.createTask(in: context, title: "Task", siblings: [])
+        let parent = try #require(task.tabs.first)
+        let child = TaskStore.addChildTab(to: task, parent: parent, in: context)
+        try context.save()
+        let session = try #require(AgentSessionManager.shared.session(for: parent.id, taskID: task.id) as? HeadlessSession)
+        defer {
+            _ = AgentSessionManager.shared.detachSession(for: parent.id)
+            ChildSessionCoordinator.shared.tabForgotten(parent.id)
+        }
+        session.queuedMessageDelivery = { .endOfTurn }
+        let lines = Lines()
+        session.debugLineSink = { lines.all.append($0) }
+        ChildSessionCoordinator.shared.attach(to: session, task: task, tab: parent)
+        _ = try ControlChildSessionCommands.report(.init(child: child.id.uuidString, text: "Earlier", wakes: false), in: context)
+
+        session.submit(text: "first")
+        session.submit(text: "second")
+        session.interrupt()
+        session.handle(try #require(StreamJSONDecoder.decode(line: Self.result)))
+        session.handle(try #require(StreamJSONDecoder.decode(line: Self.result)))
+        _ = try ControlChildSessionCommands.report(.init(child: child.id.uuidString, text: "All green"), in: context)
+
+        #expect(lines.all.last?.contains("All green") == true)
+        #expect(session.isWorking)
+    }
+
+    @Test func hostMessagesTheUserRemovesGoBackToTheParentAsHeldNotes() throws {
+        let task = TaskStore.createTask(in: context, title: "Task", siblings: [])
+        let parent = try #require(task.tabs.first)
+        let child = TaskStore.addChildTab(to: task, parent: parent, in: context)
+        try context.save()
+        let parentSession = HeadlessSession(tabID: parent.id, taskID: task.id)
+        let childSession = HeadlessSession(tabID: child.id, taskID: task.id)
+        ChildSessionCoordinator.shared.attach(to: parentSession, task: task, tab: parent)
+        ChildSessionCoordinator.shared.attach(to: childSession, task: task, tab: child)
+        defer { ChildSessionCoordinator.shared.tabForgotten(parent.id) }
+        let wake = ChildSessionWakePolicy.Note(childID: child.id, text: "WAKE NOTE", kind: .message)
+
+        parentSession.onHostMessagesReturned?([
+            HostMessage(display: [.text("shown")], wire: [.text("WAKE NOTE")], origin: .notes([wake]))
+        ])
+        childSession.onHostMessagesReturned?([
+            HostMessage(display: [.text("Run the tests")], wire: [.text("framed")], origin: .fromParent(text: "Run the tests"))
+        ])
+
+        let preamble = try #require(parentSession.userMessagePreamble?()?.wire.plainText)
+        #expect(preamble.contains("WAKE NOTE"))
+        #expect(preamble.contains("removed your message"))
+        #expect(preamble.contains("Run the tests"))
+    }
+
+    @Test func closingAChildWithAParentsMessageQueuedTellsTheParent() throws {
+        let task = TaskStore.createTask(in: context, title: "Task", siblings: [])
+        let parent = try #require(task.tabs.first)
+        let child = TaskStore.addChildTab(to: task, parent: parent, in: context)
+        try context.save()
+        let parentSession = HeadlessSession(tabID: parent.id, taskID: task.id)
+        ChildSessionCoordinator.shared.attach(to: parentSession, task: task, tab: parent)
+        let childSession = try #require(AgentSessionManager.shared.session(for: child.id, taskID: task.id) as? HeadlessSession)
+        defer {
+            _ = AgentSessionManager.shared.detachSession(for: child.id)
+            ChildSessionCoordinator.shared.tabForgotten(parent.id)
+        }
+        childSession.debugLineSink = { _ in }
+        childSession.queuedMessageDelivery = { .endOfTurn }
+        childSession.submit(text: "busy")
+        childSession.submitFromHost(blocks: [.text("framed")], display: [.text("Run the tests")], origin: .fromParent(text: "Run the tests"))
+
+        TaskStore.closeTab(child, in: context)
+
+        let preamble = try #require(parentSession.userMessagePreamble?()?.wire.plainText)
+        #expect(preamble.contains("closed the session"))
+        #expect(preamble.contains("Run the tests"))
+    }
+
+    /// Opens a child of `parent` with a running session holding the
+    /// parent's unread message.
+    private func childHoldingParentsMessage(of parent: TaskTab, in task: WorkTask) throws -> TaskTab {
+        let child = TaskStore.addChildTab(to: task, parent: parent, in: context)
+        let childSession = try #require(AgentSessionManager.shared.session(for: child.id, taskID: task.id) as? HeadlessSession)
+        childSession.debugLineSink = { _ in }
+        childSession.queuedMessageDelivery = { .endOfTurn }
+        childSession.submit(text: "busy")
+        childSession.submitFromHost(blocks: [.text("framed")], display: [.text("Run the tests")], origin: .fromParent(text: "Run the tests"))
+        return child
+    }
+
+    @Test(arguments: [false, true])
+    func closingAChildsTaskTellsAParentInAnotherTask(deletes: Bool) throws {
+        let task = TaskStore.createTask(in: context, title: "Task", siblings: [])
+        let parent = try #require(task.tabs.first)
+        let parentSession = HeadlessSession(tabID: parent.id, taskID: task.id)
+        ChildSessionCoordinator.shared.attach(to: parentSession, task: task, tab: parent)
+        defer { ChildSessionCoordinator.shared.tabForgotten(parent.id) }
+        let child = try childHoldingParentsMessage(of: parent, in: task)
+        let elsewhere = TaskStore.createTask(in: context, title: "Elsewhere", siblings: [task])
+        #expect(TaskStore.moveTab(child, to: elsewhere))
+
+        if deletes {
+            TaskStore.delete(elsewhere, in: context)
+        } else {
+            TaskStore.archive(elsewhere)
+        }
+
+        let preamble = try #require(parentSession.userMessagePreamble?()?.wire.plainText)
+        #expect(preamble.contains("closed the session"))
+        #expect(preamble.contains("Run the tests"))
+    }
+
+    @Test(arguments: [false, true])
+    func closingATaskWithParentAndChildDropsTheParentsNotes(deletes: Bool) throws {
+        let task = TaskStore.createTask(in: context, title: "Task", siblings: [])
+        let parent = try #require(task.tabs.first)
+        let parentSession = HeadlessSession(tabID: parent.id, taskID: task.id)
+        ChildSessionCoordinator.shared.attach(to: parentSession, task: task, tab: parent)
+        defer { ChildSessionCoordinator.shared.tabForgotten(parent.id) }
+        _ = try childHoldingParentsMessage(of: parent, in: task)
+
+        if deletes {
+            TaskStore.delete(task, in: context)
+        } else {
+            TaskStore.archive(task)
+        }
+
+        #expect(parentSession.userMessagePreamble?() == nil)
+    }
+
+    @Test func archivingAWorkingChildsTaskReleasesTheParentsBatch() throws {
+        let task = TaskStore.createTask(in: context, title: "Task", siblings: [])
+        let parent = try #require(task.tabs.first)
+        let reporter = TaskStore.addChildTab(to: task, parent: parent, in: context)
+        let session = try #require(AgentSessionManager.shared.session(for: parent.id, taskID: task.id) as? HeadlessSession)
+        defer {
+            _ = AgentSessionManager.shared.detachSession(for: parent.id)
+            ChildSessionCoordinator.shared.tabForgotten(parent.id)
+        }
+        let lines = Lines()
+        session.debugLineSink = { lines.all.append($0) }
+        ChildSessionCoordinator.shared.attach(to: session, task: task, tab: parent)
+        let worker = try childHoldingParentsMessage(of: parent, in: task)
+        let elsewhere = TaskStore.createTask(in: context, title: "Elsewhere", siblings: [task])
+        #expect(TaskStore.moveTab(worker, to: elsewhere))
+        _ = try ControlChildSessionCommands.report(.init(child: reporter.id.uuidString, text: "All green"), in: context)
+        #expect(!lines.all.contains { $0.contains("All green") })
+
+        TaskStore.archive(elsewhere)
+
+        #expect(lines.all.last?.contains("All green") == true)
+    }
+
+    @Test func notesRidingAWithdrawnMessageStillWakeTheParent() throws {
+        let task = TaskStore.createTask(in: context, title: "Task", siblings: [])
+        let parent = try #require(task.tabs.first)
+        let child = TaskStore.addChildTab(to: task, parent: parent, in: context)
+        let session = try #require(AgentSessionManager.shared.session(for: parent.id, taskID: task.id) as? HeadlessSession)
+        defer {
+            _ = AgentSessionManager.shared.detachSession(for: parent.id)
+            ChildSessionCoordinator.shared.tabForgotten(parent.id)
+        }
+        let lines = Lines()
+        session.debugLineSink = { lines.all.append($0) }
+        ChildSessionCoordinator.shared.attach(to: session, task: task, tab: parent)
+        session.submit(text: "first")
+        _ = try ControlChildSessionCommands.report(.init(child: child.id.uuidString, text: "All green"), in: context)
+        session.sendNow(appending: [.text("second")])
+        #expect(lines.all.last?.contains("All green") == true)
+        let delivering = try #require(session.deliveringMessages.first)
+
+        session.withdrawDeliveringMessage(id: delivering.id)
+        let request = try JSONSerialization.jsonObject(with: Data(try #require(lines.all.last).utf8)) as? [String: Any]
+        let requestID = try #require(request?["request_id"] as? String)
+        session.handle(try #require(StreamJSONDecoder.decode(
+            line: #"{"type":"control_response","response":{"subtype":"success","request_id":""# + requestID + #"","response":{"cancelled":true}}}"#
+        )))
+        lines.all = []
+        session.handle(try #require(StreamJSONDecoder.decode(line: Self.result)))
+
+        #expect(lines.all.last?.contains("All green") == true)
+        #expect(lines.all.last?.contains("second") == false)
+        #expect(session.isWorking)
+    }
+
+    @Test func aQueuedNoteShowsItsEventSummaries() {
+        let child = ChildSessionFormats.Participant(sessionID: "C1", title: "Fix", name: "fix")
+        let notes = ChildSessionCoordinator.joined([
+            .init(childID: UUID(), text: ChildSessionFormats.turnFinishedNote(child: child, text: "Done")),
+            .init(childID: UUID(), text: ChildSessionFormats.messageFromChildNote(child: child, text: "Help")),
+        ])
+        #expect(ChildSessionFormats.summary(ofNotes: notes) == "↳ fix finished a turn: Done\n↳ fix sent a message: Help")
+    }
+
+    // MARK: - Proposals
+
+    @Test func theWireNamesTheProposalCommands() throws {
+        guard case .proposeChildSession(let propose) = try decode(
+            #"{"id":"1","command":"child-session.propose","parent":"Lead","title":"Fix","prompt":"Go","permission_mode":"plan"}"#
+        ), case .listChildSessionProposals(let list) = try decode(
+            #"{"id":"2","command":"child-session.proposals","parent":"Lead"}"#
+        ), case .startChildSessionProposal(let start) = try decode(
+            #"{"id":"3","command":"child-session.proposal.start","parent":"Lead","task_id":"task_0000abcd","by":"agent"}"#
+        ), case .dismissChildSessionProposal(let dismiss) = try decode(
+            #"{"id":"4","command":"child-session.proposal.dismiss","parent":"Lead","task_id":"task_0000abcd","reason":"done"}"#
+        ) else {
+            Issue.record("expected the four proposal commands")
+            return
+        }
+        #expect(propose == ChildSessionProposeParams(parent: "Lead", title: "Fix", prompt: "Go", permissionMode: "plan"))
+        #expect(list == ChildSessionProposalsParams(parent: "Lead"))
+        #expect(start == ChildSessionProposalParams(parent: "Lead", taskID: "task_0000abcd", by: .agent))
+        #expect(dismiss == ChildSessionProposalParams(parent: "Lead", taskID: "task_0000abcd", reason: "done"))
+    }
+
+    @Test func aProposalIsListedThenDismissedWithoutAModel() throws {
+        let task = TaskStore.createTask(in: context, title: "Task", siblings: [])
+        let parent = try #require(task.tabs.first)
+        parent.title = "Lead"
+        try context.save()
+
+        let proposed = try ControlChildSessionCommands.propose(.init(parent: "Lead", title: "Fix", prompt: "Go"), in: context)
+        let taskID = try #require(proposed.taskID)
+        #expect(proposed.message.contains("(task_id: \(taskID))"))
+        // Padding the stored JSON shows whether listing writes it back.
+        parent.childProposalsJSON = " " + parent.childProposalsJSON
+        let stored = parent.childProposalsJSON
+        #expect(try ControlChildSessionCommands.proposals(.init(parent: "Lead"), in: context).proposals.map(\.state) == ["pending"])
+        #expect(parent.childProposalsJSON == stored)
+
+        _ = try ControlChildSessionCommands.dismissProposal(.init(parent: "Lead", taskID: taskID), in: context)
+
+        let listed = try ControlChildSessionCommands.proposals(.init(parent: "Lead"), in: context).proposals
+        #expect(listed.map(\.taskID) == [taskID])
+        #expect(listed.map(\.state) == ["dismissed"])
+        #expect(throws: ControlError.self) {
+            try ControlChildSessionCommands.dismissProposal(.init(parent: "Lead", taskID: taskID), in: context)
+        }
+        #expect(task.tabs.count == 1)
+    }
+}

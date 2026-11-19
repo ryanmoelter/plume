@@ -21,14 +21,14 @@ struct ForkedTabWatchTests {
     @Test func aTabThatKnowsItsSessionCanDeriveAPathToWatch() throws {
         let context = try context()
         let task = WorkTask(title: "forked", orderIndex: 0)
-        task.workingDirectoryPath = "/tmp/plume-fork-test"
         context.insert(task)
         let tab = TaskStore.addTab(to: task, kind: .agent, in: context)
+        tab.workingDirectoryPath = "/tmp/plume-fork-test"
 
         let sessionID = UUID().uuidString.lowercased()
         tab.agentSessionID = sessionID
         tab.sessionJSONLPath = SessionJSONLReader.resolvedTranscriptPath(
-            workingDirectory: try #require(task.workingDirectoryPath),
+            workingDirectory: try #require(tab.workingDirectoryPath),
             sessionID: sessionID
         )
 

@@ -10,6 +10,33 @@ struct InfoPaneFactsTests {
         SubagentTranscript(id: id, transcript: Transcript(), modifiedAt: nil, status: status)
     }
 
+    @Test func aChildSessionsCaptionAddsItsBranchOnlyWhenItDiffers() {
+        let working = InfoPaneFacts.SessionFacts(id: UUID(), title: "fix", status: .working)
+        var elsewhere = working
+        elsewhere.branch = "fix-login"
+
+        #expect(working.caption == "Working")
+        #expect(elsewhere.caption == "Working · fix-login")
+    }
+
+    @Test func theParentSessionLeadsTheChildSessionsAndStaysOutOfTheCollapsedRow() {
+        var facts = InfoPaneFacts(tabID: UUID())
+        facts.parentSession = InfoPaneFacts.SessionFacts(id: UUID(), title: "parent", status: .awaitingReply)
+        #expect(facts.sections == [.parentSession])
+        #expect(facts.collapsedSections.isEmpty)
+
+        facts.childSessions = [InfoPaneFacts.SessionFacts(id: UUID(), title: "child", status: .notStarted)]
+        #expect(facts.sections == [.parentSession, .childSessions])
+        #expect(facts.collapsedSections == [.childSessions])
+    }
+
+    @Test func aSessionBadgeIsNeverBlank() {
+        for status in TaskStatus.allCases {
+            #expect(!StatusBadge.isBlank(status: status, isUnread: false, showsRestingGlyph: true), "\(status)")
+        }
+        #expect(StatusBadge.isBlank(status: .awaitingReply, isUnread: false))
+    }
+
     @Test func linkedPullRequestsLeaveOutTheBranchsOwn() {
         let own = PullRequestReference(owner: "a", repo: "b", number: 1)
         let other = PullRequestReference(owner: "a", repo: "b", number: 2)

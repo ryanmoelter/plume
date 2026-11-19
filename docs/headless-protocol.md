@@ -216,6 +216,16 @@ Verified: the model received `Your questions have been answered: "Tabs or spaces
 
 Same shape. `input` carries `plan` (markdown) and `planFilePath`. `allow` approves the plan and leaves plan mode; `deny` with a `message` rejects it and hands the model the reason.
 
+### Plan mode the model enters itself — `EnterPlanMode`
+
+Probed against 2.1.321, launched with `--permission-mode default`. `EnterPlanMode` needs no permission: no `can_use_tool` arrives for it. Between the `tool_use` and its result the CLI writes a `status` line that carries the new mode:
+
+```json
+{"type":"system","subtype":"status","status":null,"permissionMode":"plan","uuid":"…","session_id":"…"}
+```
+
+`HeadlessSession` reads `permissionMode` off any `status` line and treats it as confirmed, the same as `init`. Without that, the picker and anything reading the session's live mode would keep showing the mode it launched in.
+
 ### A message mid-turn
 
 A `user` line written while a turn runs takes an optional `priority`, which says when the model sees it. The field sits in the CLI's own SDK user-message schema beside `uuid` and `shouldQuery`, as `priority: "now" | "next" | "later"`, and it is not marked `@internal`. Measured on **2.1.304** with Plume's flags, in a trusted directory. The probe turn ran `sleep 3` four times through Bash, and the second line arrived just after the first tool result:
@@ -416,7 +426,13 @@ claude -p --resume <old-id> --fork-session --session-id <new-id> --resume-sessio
 
 - `--fork-session` writes a **new `.jsonl` under a new session id**, copying history verbatim with uuids preserved. The original file is untouched.
 - `--session-id` lets the host choose the fork's id up front, so a tab can record it before the process exists.
-- `--resume-session-at` resumes only up to a given entry. Cut at the **parent** of the message being redone, not the message itself — cutting at the message keeps it, and the fork opens on two consecutive user turns.
+- `--resume-session-at` resumes only up to a given entry. Leaving it out forks the whole conversation, and that works while the source is mid tool call: a child session forks its parent from inside the parent's `start_session` call this way.
+- `--resume-session-at` cuts at the entry it names. Cut at the **parent** of the message being redone, not the message itself — cutting at the message keeps it, and the fork opens on two consecutive user turns.
+- **A cut must name a row on the live branch.** A uuid on an abandoned branch, a uuid the file lacks and a made-up one all exit 1 with `No message found with message.uuid of: <uuid>` on stderr, and write no file. The CLI walks only the branch the file's tip hangs from.
+- **A cut inside a tool call is accepted, but breaks the fork.** Cutting at an assistant `tool_use` row starts the fork, which then reads that call's result as "Tool result missing due to internal error". There is no `target_splits_tool_call` refusal here; that is a rewind reason only. Cut at a user row with no call open after it: a prompt, or the `tool_result` that answered the last open call.
+- **Every row on the stream carries its transcript `uuid`.** A main-thread `user` row with a `tool_result` has the same `uuid` as in the file. The prompt a host sends with a `uuid` is written under that `uuid`, and the turn's first `assistant` row names it as `user_message_uuid`; a fork cut at it is accepted. A prompt sent without a `uuid` gets one the stream never reports, and `user_message_uuid` is absent, so Plume sends a `uuid` with every turn it starts. That is enough to know a cut point live, without reading the file.
+
+Probed against 2.1.321 with `claude -p --model claude-haiku-5-5 --resume <id> --fork-session --session-id <new> --resume-session-at <uuid>`, on a session that ran `echo hi` through Bash and then replied. Cutting at the prompt row gave a fork that saw only the request. Cutting at the `tool_result` row gave a fork that knew `echo hi` printed `hi` and had not yet replied.
 
 **`--resume-session-at` is undocumented**: the CLI parses it but `claude --help` does not list it, so an upgrade can withdraw it without warning. That is why forking is the secondary path and `rewind_conversation` is the default. Companion hidden flags: `--resume-drops-turn`, `--rewind-files`, `--reply-on-resume`.
 
@@ -427,6 +443,37 @@ claude -p --resume <old-id> --fork-session --session-id <new-id> --resume-sessio
 **A forked session writes nothing until its first turn produces content.** Plume forks with an empty prompt, so the process sits idle and no `.jsonl` exists until the user sends something. A missing transcript straight after a fork is the expected state, not a failed launch — and a tab that waits for one before enabling its composer can never get one.
 
 **Resuming a session whose process is still running does not disturb the original.** Both processes stay alive and independent; measured across a fork with a per-second process watch.
+
+## The host's own MCP server — `mcp_message`
+
+Measured against 2.1.321. The host can serve MCP tools itself, over the control plane, with no process or socket of its own. Plume serves child sessions this way; `docs/child-sessions.md` covers the tools.
+
+Name the server in `initialize`:
+
+```json
+{"type":"control_request","request_id":"plume-1","request":{"subtype":"initialize","hooks":{},"sdkMcpServers":["plume"]}}
+```
+
+The CLI then speaks JSON-RPC to it, one message per control request:
+
+```json
+{"type":"control_request","request_id":"…","request":{"subtype":"mcp_message","server_name":"plume","message":{"method":"tools/list","jsonrpc":"2.0","id":1}}}
+```
+
+- **The sequence is `initialize`, `notifications/initialized`, `tools/list`, then a `tools/call` per use.** The first three arrive about 0.3 s after the host's own `initialize`, before the CLI has replied to it. Answer them whatever state the handshake is in.
+- **Reply with the JSON-RPC message under `mcp_response`:**
+
+  ```json
+  {"type":"control_response","response":{"subtype":"success","request_id":"…","response":{"mcp_response":{"jsonrpc":"2.0","id":1,"result":{…}}}}}
+  ```
+
+  A notification has no id and takes no JSON-RPC reply, but the control request still needs an answer: send `"response":{}`.
+- **In `tools/call`, `params.name` is the bare tool name** (`start_session`), and `params._meta["claudecode/toolUseId"]` carries the call's `tool_use` id. A tool's failure is a `result` with `isError: true`, not a JSON-RPC `error`, so the model reads the message.
+- **The model knows the tool as `mcp__<server>__<tool>`**, and so does `can_use_tool`, which also carries `"mcp_server":{"name":"plume","source":"sdk"}`. Without a rule allowing it, every call asks like any other tool. Plume allows its own tools in the `can_use_tool` handler, except a `start_session` that starts a session in manual mode, or that would start one in bypass from a parent not in bypass, which it lets ask.
+- **Plan mode does not stop an MCP call.** Probed against 2.1.321 in `--permission-mode plan`: `can_use_tool` still arrived for `mcp__plume__start_session`, and an `allow` ran it. Plume denies a `start_session` that starts a session or offers one there instead, with a message telling the model to exit plan mode (`PlumeMCPServer.decision`). A proposal (`own_initiative` without `proposal_id`) starts nothing without the user's click, so it is allowed.
+- **The server's `instructions` reach the model**, but the tools themselves are deferred and load through ToolSearch, so the instructions must name each tool in full for the model to find it.
+- **A `tools/call` may wait as long as the host likes.** Probed against 2.1.323 with a call left unanswered: the CLI sent no timeout and no cancel in 65 minutes of waiting. It emits a `tool_progress` event every 30 s while the call is pending. Plume's offer card relies on this to wait for the user.
+- **An interrupt cancels the pending call with a JSON-RPC notification.** The CLI sends `mcp_message` with `{"method":"notifications/cancelled","params":{"requestId":<the tools/call id>,"reason":"AbortError: remote-cancel"}}`, answers the interrupt with `{"still_queued":[]}`, and writes its own `tool_result` ("The user doesn't want to proceed with this tool use. …") followed by `[Request interrupted by user for tool use]`. A late answer to the cancelled `mcp_message` is ignored without error. `PlumeMCPServer` cancels the matching call's task.
 
 ## Context usage — `get_context_usage`
 

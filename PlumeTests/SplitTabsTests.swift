@@ -324,7 +324,7 @@ struct SplitTabsTests {
         let (task, tabs) = try makeTask(in: context)
         TaskStore.openInSplit(tabs[2], side: .right, in: task)
 
-        let newTask = TaskStore.splitTabIntoNewTask(tabs[2], in: context, siblings: [task])
+        let newTask = try #require(TaskStore.splitTabIntoNewTask(tabs[2], in: context, siblings: [task]))
 
         #expect(!task.isSplit)
         #expect(ids(newTask) == ids([tabs[2]]))

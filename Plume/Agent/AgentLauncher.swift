@@ -30,21 +30,26 @@ enum AgentLauncher {
     }
 
     /// `fork` branches the resumed conversation into a new session instead of
-    /// continuing it, and is honoured on Claude Code's headless transport
-    /// only — no other path has a way to pass the cut through.
+    /// continuing it, and `sessionID` names a new conversation up front. Both
+    /// are honoured on Claude Code's headless transport only — no other path
+    /// has a way to pass them through. So is `effort`, which only a child
+    /// session launches with; every other launch sets effort with `/effort`.
     static func launch(
         blocks: [UserContentBlock],
         task: WorkTask,
         tab: TaskTab,
         resumeSessionID: String? = nil,
-        fork: HeadlessCommand.Fork? = nil
+        fork: HeadlessCommand.Fork? = nil,
+        sessionID: String? = nil,
+        effort: AgentEffort? = nil
     ) {
         let normalized = blocks.normalized
         let text = normalized.plainText
         switch (tab.provider, tab.transport) {
         case (.claudeCode, .headless):
             launchClaudeHeadless(
-                blocks: normalized, task: task, tab: tab, resumeSessionID: resumeSessionID, fork: fork
+                blocks: normalized, task: task, tab: tab, resumeSessionID: resumeSessionID, fork: fork,
+                sessionID: sessionID, effort: effort
             )
         case (.claudeCode, .terminal):
             launchClaudeTerminal(message: text.isEmpty ? nil : text, task: task, tab: tab, resumeSessionID: resumeSessionID)
@@ -108,10 +113,45 @@ enum AgentLauncher {
     @discardableResult
     static func relaunchHeadless(task: WorkTask, tab: TaskTab) -> (any AgentSession)? {
         let previous = AgentSessionManager.shared.existingSession(for: tab.id)
-        let queued = previous?.queuedMessages ?? []
+        let queued = queue(of: previous)
         if let previous = previous as? HeadlessSession { persistLiveSettings(of: previous, to: tab) }
         if previous != nil { AgentSessionManager.shared.closeSession(for: tab.id) }
         return resume(task: task, tab: tab, inheriting: previous, queued: queued)
+    }
+
+    /// Relaunches a fork whose cut the CLI refused, keeping the whole
+    /// conversation instead. The refused launch wrote nothing, so the fork
+    /// keeps its session id. `resending` goes first: the opening turn the
+    /// refused process was sent, which no session keeps once sent.
+    @discardableResult
+    static func relaunchForkWithoutCut(
+        task: WorkTask,
+        tab: TaskTab,
+        resumeSessionID: String,
+        newSessionID: String,
+        effort: AgentEffort?,
+        resending: [QueuedMessage]
+    ) -> (any AgentSession)? {
+        let previous = AgentSessionManager.shared.existingSession(for: tab.id)
+        let queued = resending + carriedQueue(queue(of: previous), resending: resending)
+        if previous != nil { AgentSessionManager.shared.closeSession(for: tab.id) }
+        return resume(task: task, tab: tab, inheriting: previous, queued: queued) {
+            launch(
+                blocks: [], task: task, tab: tab, resumeSessionID: resumeSessionID,
+                fork: HeadlessCommand.Fork(newSessionID: newSessionID, cutAfterMessageUUID: nil), effort: effort
+            )
+        }
+    }
+
+    /// `queue` without any part of `resending`, which a send that failed may
+    /// already have put back.
+    static func carriedQueue(_ queue: [QueuedMessage], resending: [QueuedMessage]) -> [QueuedMessage] {
+        let resent = resending.flatMap(\.parts)
+        return queue.compactMap { message in
+            let parts = message.parts.filter { !resent.contains($0) }
+            if parts.count == message.parts.count { return message }
+            return parts.isEmpty ? nil : QueuedMessage(parts: parts)
+        }
     }
 
     /// Restarts a running headless session so it relaunches with the tab's
@@ -140,9 +180,15 @@ enum AgentLauncher {
                   AgentSessionManager.shared.existingSession(for: tab.id) as? HeadlessSession === previous
             else { return }
             _ = AgentSessionManager.shared.detachSession(for: tab.id)
-            resume(task: tab.task ?? task, tab: tab, inheriting: previous, queued: previous.queuedMessages)
+            resume(task: tab.task ?? task, tab: tab, inheriting: previous, queued: previous.queue)
+            ChildSessionCoordinator.shared.childRestarted(tab)
         }
         return true
+    }
+
+    private static func queue(of session: (any AgentSession)?) -> [QueuedMessage] {
+        if let headless = session as? HeadlessSession { return headless.queue }
+        return (session?.queuedMessages ?? []).map { QueuedMessage(parts: [.user($0)]) }
     }
 
     /// A launch that fails still leaves a failed session holding the
@@ -152,20 +198,33 @@ enum AgentLauncher {
         task: WorkTask,
         tab: TaskTab,
         inheriting previous: (any AgentSession)?,
-        queued: [[UserContentBlock]]
+        queued: [QueuedMessage],
+        launching: (() -> Void)? = nil
     ) -> (any AgentSession)? {
-        launch(message: nil, task: task, tab: tab, resumeSessionID: tab.agentSessionID)
+        if let launching {
+            launching()
+        } else {
+            launch(message: nil, task: task, tab: tab, resumeSessionID: tab.agentSessionID)
+        }
         let resumed = AgentSessionManager.shared.existingSession(for: tab.id)
         if let previous = previous as? HeadlessSession, let resumed = resumed as? HeadlessSession {
             resumed.inherit(from: previous)
         }
-        if let resumed = resumed as? HeadlessSession, resumed.hasExited {
-            resumed.requeue(queued)
+        if let resumed = resumed as? HeadlessSession {
+            if resumed.hasExited {
+                resumed.requeue(queued)
+            } else {
+                for message in queued { resumed.submit(message) }
+            }
         } else if let resumed {
-            for message in queued { resumed.submit(blocks: message) }
+            for message in queued { resumed.submit(blocks: message.display) }
         } else if !queued.isEmpty {
-            let draft = [DraftStore.shared.draft(forTab: tab.id)] + queued.map(\.plainText)
-            DraftStore.shared.setDraft(draft.filter { !$0.isEmpty }.joined(separator: "\n\n"), forTab: tab.id)
+            let parts = queued.flatMap(\.parts)
+            if let written = parts.userBlocks {
+                let draft = [DraftStore.shared.draft(forTab: tab.id), written.plainText]
+                DraftStore.shared.setDraft(draft.filter { !$0.isEmpty }.joined(separator: "\n\n"), forTab: tab.id)
+            }
+            (previous as? HeadlessSession)?.onHostMessagesReturned?(parts.hosts)
         }
         return resumed
     }
@@ -197,7 +256,7 @@ enum AgentLauncher {
         tab.agentSessionID = sessionID
         // Only Claude Code keeps a transcript on disk; Codex serves its
         // history over the protocol, so a Codex tab has no path to derive.
-        guard tab.provider == .claudeCode, let workingDirectory = tab.task?.workingDirectoryPath else { return }
+        guard tab.provider == .claudeCode, let workingDirectory = TabDirectoryStore.shared.directory(for: tab) else { return }
         tab.sessionJSONLPath = SessionJSONLReader.resolvedTranscriptPath(
             workingDirectory: workingDirectory,
             sessionID: sessionID
@@ -209,7 +268,9 @@ enum AgentLauncher {
         task: WorkTask,
         tab: TaskTab,
         resumeSessionID: String?,
-        fork: HeadlessCommand.Fork? = nil
+        fork: HeadlessCommand.Fork? = nil,
+        sessionID: String? = nil,
+        effort: AgentEffort? = nil
     ) {
         // `claude -p` skips the folder-trust prompt outright rather than
         // blocking on it, so a directory the user never accepted would run
@@ -269,6 +330,7 @@ enum AgentLauncher {
             Log.agent.error("Tab \(tab.id, privacy: .public) already holds another CLI's session")
             return
         }
+        ChildSessionCoordinator.shared.attach(to: session, task: task, tab: tab)
         session.start(
             workingDirectory: workingDirectory,
             permissionMode: resolvedPermissionMode(
@@ -280,10 +342,15 @@ enum AgentLauncher {
             settingsPath: settingsPath,
             model: tab.model ?? AppSettings.shared.defaultClaudeModel.pinnedModel,
             isModelExplicitlyChosen: tab.isModelUserChosen,
+            effort: effort,
             environment: HeadlessCommand.environment
                 .merging(LoginShellCommand.plumeEnvironment(taskID: task.id, tabID: tab.id)) { current, _ in current },
             fork: fork,
-            addDirectories: AdditionalDirectories.list(tab.additionalDirectories, excluding: workingDirectory)
+            sessionID: sessionID,
+            addDirectories: AdditionalDirectories.list(
+                tab.additionalDirectories + ChildSessionCoordinator.launchDirectories(for: tab),
+                excluding: workingDirectory
+            )
         )
         session.onAdoptDirectories = { [weak tab] paths in
             guard let tab else { return }

@@ -9,6 +9,8 @@ enum TaskRowDetails {
     /// One line, either words or the pull request chip's own drawing.
     enum Line: Equatable {
         case text(String)
+        /// One agent tab of a task that has several, heading its own lines.
+        case agentHeader(AgentHeader)
         /// The group header: which project this directory belongs to.
         case project(String)
         /// A branch, marked when its checkout is a linked worktree, and with
@@ -30,7 +32,8 @@ enum TaskRowDetails {
     }
 
     /// One open directory of a task: where it is, what it is on, and its pull
-    /// request. A task shows one of these per distinct agent-tab directory.
+    /// request. A task with one agent tab shows one per distinct directory;
+    /// with several, each agent's `AgentGroup` carries one.
     struct DirectoryGroup: Equatable {
         var directory: String?
         var branch: String?
@@ -52,10 +55,131 @@ enum TaskRowDetails {
         }
     }
 
+    struct AgentHeader: Equatable {
+        var tabID: UUID
+        var title: String
+        /// The title, numbered when another agent of the task shares it, so a
+        /// driver can tell the headers apart.
+        var label: String
+        var status: TaskStatus
+        var isUnread: Bool
+        /// How far the agent nests under the one that started it.
+        var depth: Int
+        var isRemotelyControlled: Bool
+        /// A child session outside its parent's run in the strip.
+        var isDetachedChild: Bool
+        /// The devices the tab holds, as `DeviceLeaseStore.summary` words them.
+        var heldDevices: String?
+
+        init(
+            tabID: UUID,
+            title: String,
+            label: String? = nil,
+            status: TaskStatus,
+            isUnread: Bool = false,
+            depth: Int = 0,
+            isRemotelyControlled: Bool = false,
+            isDetachedChild: Bool = false,
+            heldDevices: String? = nil
+        ) {
+            self.tabID = tabID
+            self.title = title
+            self.label = label ?? title
+            self.status = status
+            self.isUnread = isUnread
+            self.depth = depth
+            self.isRemotelyControlled = isRemotelyControlled
+            self.isDetachedChild = isDetachedChild
+            self.heldDevices = heldDevices
+        }
+
+        var statusText: String {
+            ([status.label] + (isUnread ? ["unread"] : [])).joined(separator: ", ")
+        }
+
+        /// The header's control-server value: its status, then whether its
+        /// group holds the task's focused tab, is hovered and is pressed.
+        func controlValue(isFocused: Bool, isHovered: Bool, isPressed: Bool = false) -> String {
+            ([statusText]
+                + (isDetachedChild ? ["detached child"] : [])
+                + (isFocused ? ["focused"] : [])
+                + (isHovered ? ["hovered"] : [])
+                + (isPressed ? ["pressed"] : []))
+                .joined(separator: "; ")
+        }
+    }
+
+    /// A title that appears once stays bare; one that repeats is numbered on
+    /// every copy, "Chat #1", "Chat #2". Numbering only the later copies would
+    /// leave "Chat" matching all of them, since the control server matches a
+    /// label as a substring.
+    static func distinctLabels(_ titles: [String]) -> [String] {
+        let totals = titles.reduce(into: [String: Int]()) { $0[$1, default: 0] += 1 }
+        var seen: [String: Int] = [:]
+        return titles.map { title in
+            guard totals[title, default: 0] > 1 else { return title }
+            let count = seen[title, default: 0] + 1
+            seen[title] = count
+            return "\(title) #\(count)"
+        }
+    }
+
+    /// One agent tab of a task, with the directory it is open in.
+    struct AgentGroup: Equatable {
+        var header: AgentHeader
+        var workspace: DirectoryGroup
+    }
+
     /// The agent's status is the trailing badge's job, so it takes no line of
     /// its own.
     static func lines(groups: [DirectoryGroup]) -> [Line] {
         groups.flatMap(lines(for:))
+    }
+
+    /// One kind of line a directory contributes.
+    enum Attribute: CaseIterable {
+        case project, branch, pullRequest
+    }
+
+    static func attribute(of line: Line) -> Attribute? {
+        switch line {
+        case .project: .project
+        case .branch: .branch
+        case .pullRequest: .pullRequest
+        default: nil
+        }
+    }
+
+    /// A shared attribute, absence included, shows once at the task level,
+    /// where a one-agent row shows it; the rest show under each agent's
+    /// header. The project is shared when every agent's reads the same. A
+    /// branch or pull request is shared only when every agent is also in the
+    /// same folder: two clones on one branch are still two checkouts, and a
+    /// shared branch above per-agent projects would sit outside its header.
+    /// `taskLines` follow the shared lines, before the first header.
+    static func lines(agents: [AgentGroup], taskLines: [Line] = []) -> [Line] {
+        let perAgent = agents.map { lines(for: $0.workspace) }
+        func readsTheSameEverywhere(_ attribute: Attribute) -> Bool {
+            let values = perAgent.map { $0.first { self.attribute(of: $0) == attribute } }
+            return values.allSatisfy { $0 == values.first }
+        }
+        let sharesProject = readsTheSameEverywhere(.project)
+        let sharesFolder = sharesProject && Set(agents.map(\.workspace.directory)).count <= 1
+        let shared = Set(Attribute.allCases.filter { attribute in
+            switch attribute {
+            case .project: sharesProject
+            case .branch, .pullRequest: sharesFolder && readsTheSameEverywhere(attribute)
+            }
+        })
+        func isShared(_ line: Line) -> Bool {
+            attribute(of: line).map(shared.contains) ?? false
+        }
+        var lines = (perAgent.first ?? []).filter(isShared) + taskLines
+        for (agent, agentLines) in zip(agents, perAgent) {
+            lines.append(.agentHeader(agent.header))
+            lines.append(contentsOf: agentLines.filter { !isShared($0) })
+        }
+        return lines
     }
 
     /// Project first: it is the header the branch and pull request under it
@@ -113,6 +237,8 @@ enum TaskRowDetails {
         details: (PullRequestReference) -> LinkedPullRequestStore.Detail?,
         cap: Int = pinnedLineCap
     ) -> [Line] {
+        // An agent with no folder has no pull request to wait for.
+        let groups = groups.filter { !($0.directory ?? "").isEmpty }
         guard !pinned.isEmpty,
               !groups.contains(where: { $0.pullRequest == nil || $0.pullRequest == .loading })
         else { return [] }
@@ -142,22 +268,42 @@ enum TaskRowDetails {
         }
     }
 
+    /// Each agent tab's folder, in tab order, nil where none resolves. When
+    /// no agent tab has a folder, every one takes `taskDirectory`, which may
+    /// come from any tab. When some do, a folderless one takes only
+    /// `savedAgentDirectory`, a folder an agent tab saved: a terminal's folder
+    /// follows `cd`, which must not move an agent's lines.
+    static func agentTabDirectories(
+        _ directories: [String?],
+        savedAgentDirectory: String?,
+        taskDirectory: String?
+    ) -> [String?] {
+        let anyHasFolder = directories.contains { nonEmpty($0) != nil }
+        let fallback = anyHasFolder ? savedAgentDirectory : taskDirectory
+        return directories.map { nonEmpty($0) ?? nonEmpty(fallback) }
+    }
+
     /// The distinct directories a task shows a group for, in the order its
     /// agent tabs report them. Two tabs in one folder are one group; a task
-    /// whose agent tabs have reported nothing falls back to its own folder.
+    /// whose agent tabs have no folder falls back to `fallbackDirectory`.
     static func distinctDirectories(
         agentTabDirectories: [String?],
-        taskDirectory: String?
+        fallbackDirectory: String?
     ) -> [String] {
         var seen: Set<String> = []
         var directories: [String] = []
-        for directory in agentTabDirectories.compactMap({ $0 }) where !directory.isEmpty {
-            if seen.insert(directory).inserted { directories.append(directory) }
+        for directory in agentTabDirectories.compactMap(nonEmpty) where seen.insert(directory).inserted {
+            directories.append(directory)
         }
-        if directories.isEmpty, let taskDirectory, !taskDirectory.isEmpty {
-            directories = [taskDirectory]
+        if directories.isEmpty, let fallbackDirectory = nonEmpty(fallbackDirectory) {
+            directories = [fallbackDirectory]
         }
         return directories
+    }
+
+    private static func nonEmpty(_ directory: String?) -> String? {
+        guard let directory, !directory.isEmpty else { return nil }
+        return directory
     }
 
     /// Drawing nothing and taking no row are separate facts: these states keep
@@ -193,9 +339,100 @@ enum TaskRowDetails {
         return name.isEmpty ? nil : name
     }
 
+    /// For each line, the label of the agent header it sits under. Only a
+    /// directory's own lines have one; the rest belong to the task.
+    static func owningAgentLabels(_ lines: [Line]) -> [String?] {
+        var owner: String?
+        return lines.map { line in
+            switch line {
+            case .agentHeader(let header):
+                owner = header.label
+                return nil
+            case .project, .branch, .pullRequest:
+                return owner
+            default:
+                return nil
+            }
+        }
+    }
+
+    /// For each line, the agent groups it sits in, outermost first, each named
+    /// by its header's index. A child's group sits inside its parent's, so the
+    /// parent's group runs on past its children. Task-level lines sit in none.
+    static func agentGroupNesting(_ lines: [Line]) -> [[Int]] {
+        var open: [(index: Int, depth: Int)] = []
+        return lines.indices.map { index in
+            switch lines[index] {
+            case .agentHeader(let header):
+                open.removeAll { $0.depth >= header.depth }
+                open.append((index, header.depth))
+            case .project, .branch, .pullRequest:
+                break
+            default:
+                open = []
+            }
+            return open.map(\.index)
+        }
+    }
+
+    /// For each line, the agent tab a click on it selects: its innermost
+    /// group's, since a child's lines sit inside its parent's group too.
+    static func agentTabTargets(_ lines: [Line], nesting: [[Int]]) -> [UUID?] {
+        nesting.map { groups in groups.last.flatMap { agentTabID(ofGroup: $0, in: lines) } }
+    }
+
+    /// The group headed by the task's focused tab, if an agent header shows it.
+    static func focusedAgentGroup(_ lines: [Line], focusedTabID: UUID?) -> Int? {
+        guard let focusedTabID else { return nil }
+        return lines.indices.first { agentTabID(ofGroup: $0, in: lines) == focusedTabID }
+    }
+
+    /// The innermost group under the pointer. Moving between two lines can
+    /// briefly hover both; the deeper group wins, then the later one.
+    static func hoveredAgentGroup(hoveredLines: Set<Int>, nesting: [[Int]]) -> Int? {
+        hoveredLines
+            .compactMap { nesting.indices.contains($0) ? nesting[$0] : nil }
+            .compactMap { groups in groups.last.map { (depth: groups.count, group: $0) } }
+            .max { ($0.depth, $0.group) < ($1.depth, $1.group) }?
+            .group
+    }
+
+    private static func agentTabID(ofGroup index: Int, in lines: [Line]) -> UUID? {
+        guard lines.indices.contains(index), case .agentHeader(let header) = lines[index] else { return nil }
+        return header.tabID
+    }
+
+    /// The control-server label for a directory line: the text it shows.
+    static func controlLabel(_ line: Line) -> String? {
+        switch line {
+        case .project(let name): name
+        case .branch(let branch, _, _): branch
+        case .pullRequest(_, let state): PullRequestChipContent.accessibilityText(for: state)
+        default: nil
+        }
+    }
+
+    /// The control-server value for a directory line: what tells two lines
+    /// with the same text apart.
+    static func controlValue(_ line: Line, owner: String?) -> String? {
+        var parts = [owner.map { "agent: \($0)" }]
+        switch line {
+        case .branch(_, let isWorktree, let companion):
+            parts.append(isWorktree ? "worktree" : nil)
+            parts.append(companion.flatMap(PullRequestChipContent.accessibilityText(for:)))
+        case .pullRequest(let directory, _):
+            parts.append(directory.map { "directory: \($0)" })
+        default:
+            break
+        }
+        let value = parts.compactMap { $0 }.joined(separator: "; ")
+        return value.isEmpty ? nil : value
+    }
+
     static func accessibilityText(_ line: Line) -> String? {
         switch line {
         case .text(let text): text
+        case .agentHeader(let header): "\(header.title), \(header.statusText)"
         case .project(let name): name
         case .branch(let branch, let isWorktree, let companion):
             [isWorktree ? "worktree" : nil, branch,

@@ -20,6 +20,7 @@ struct InfoPaneContent: View, ThemedView {
     let linearActions: InfoPaneLinearActions
     var pullRequestActions: InfoPanePullRequestActions = .none
     var folderActions: InfoPaneFolderActions = .none
+    var onSelectTab: (UUID) -> Void = { _ in }
     /// Held by the presentation, which outlives this view as the side pane
     /// opens and closes.
     @Binding var showsCompleted: Bool
@@ -68,6 +69,8 @@ struct InfoPaneContent: View, ThemedView {
     @ViewBuilder
     private func section(_ section: InfoPaneSection) -> some View {
         switch section {
+        case .parentSession: parentSession
+        case .childSessions: childSessions
         case .subagents: subagents
         case .backgroundTasks: backgroundTasks
         case .plan: plan
@@ -95,6 +98,69 @@ struct InfoPaneContent: View, ThemedView {
         }
     }
 
+    // MARK: Parent session
+
+    @ViewBuilder
+    private var parentSession: some View {
+        if let parent = facts.parentSession {
+            let isExpanded = settings.infoPaneParentSessionExpanded
+            InfoPaneBracketedSection(isExpanded: isExpanded) {
+                InfoPaneSectionHeader(
+                    title: "Parent Session",
+                    icon: .symbol("arrow.turn.left.up"),
+                    isExpanded: isExpanded,
+                    accessibilityID: AccessibilityID.infoPaneParentSessionToggle
+                ) {
+                    withAnimation(InfoPaneLayout.sectionAnimation) { settings.infoPaneParentSessionExpanded.toggle() }
+                } accessory: {
+                    if !isExpanded {
+                        StatusGlyphs(glyphs: [StatusGlyphs.Glyph(parent)])
+                            .layoutPriority(1)
+                    }
+                }
+            } rows: {
+                if isExpanded {
+                    InfoPaneSessionRow(
+                        session: parent,
+                        caption: parent.caption,
+                        accessibilityID: AccessibilityID.infoPaneParentSessionRow
+                    ) { onSelectTab(parent.id) }
+                }
+            }
+        }
+    }
+
+    // MARK: Child sessions
+
+    private var childSessions: some View {
+        let isExpanded = settings.infoPaneSessionsExpanded
+        return InfoPaneBracketedSection(isExpanded: isExpanded) {
+            InfoPaneSectionHeader(
+                title: "Sessions",
+                icon: .symbol("arrow.turn.down.right"),
+                isExpanded: isExpanded,
+                accessibilityID: AccessibilityID.infoPaneSessionsToggle
+            ) {
+                withAnimation(InfoPaneLayout.sectionAnimation) { settings.infoPaneSessionsExpanded.toggle() }
+            } accessory: {
+                if !isExpanded, !facts.childSessions.isEmpty {
+                    StatusGlyphs(glyphs: facts.childSessions.map(StatusGlyphs.Glyph.init))
+                        .layoutPriority(1)
+                }
+            }
+        } rows: {
+            if isExpanded {
+                ForEach(facts.childSessions) { child in
+                    InfoPaneSessionRow(
+                        session: child,
+                        caption: child.caption,
+                        accessibilityID: AccessibilityID.infoPaneChildSessionRow
+                    ) { onSelectTab(child.id) }
+                }
+            }
+        }
+    }
+
     // MARK: Subagents
 
     private var subagents: some View {
@@ -109,7 +175,7 @@ struct InfoPaneContent: View, ThemedView {
                 withAnimation(InfoPaneLayout.sectionAnimation) { settings.infoPaneSubagentsExpanded.toggle() }
             } accessory: {
                 if !isExpanded, !facts.liveSubagents.isEmpty {
-                    SubagentGlyphs(subagents: facts.liveSubagents)
+                    StatusGlyphs(glyphs: facts.liveSubagents.map(StatusGlyphs.Glyph.init))
                         .layoutPriority(1)
                 }
             }
@@ -381,11 +447,18 @@ struct InfoPaneCollapsedIcons: View, ThemedView {
     @ViewBuilder
     private func icon(for section: InfoPaneSection) -> some View {
         switch section {
+        case .childSessions:
+            HStack(spacing: 4) {
+                Image(systemName: "arrow.turn.down.right")
+                    .emphasis(.secondary)
+                    .help("Sessions this conversation started")
+                StatusGlyphs(glyphs: facts.childSessions.map(StatusGlyphs.Glyph.init))
+            }
         case .subagents:
             HStack(spacing: 4) {
                 Image(systemName: StatusSymbol.subagents.name)
                     .emphasis(.secondary)
-                SubagentGlyphs(subagents: facts.liveSubagents)
+                StatusGlyphs(glyphs: facts.liveSubagents.map(StatusGlyphs.Glyph.init))
             }
         case .backgroundTasks:
             HStack(spacing: 2) {
@@ -429,30 +502,52 @@ struct InfoPaneCollapsedIcons: View, ThemedView {
             Image(systemName: StatusSymbol.remoteControl.name)
                 .foregroundStyle(colors.attention)
                 .help("Remote Control is on")
-        case .folder, .sideChat:
+        case .folder, .sideChat, .parentSession:
             EmptyView()
         }
     }
 }
 
-/// One status glyph per subagent, capped so a busy session can't push the
-/// row past its container.
-private struct SubagentGlyphs: View, ThemedView {
+/// One status glyph per subagent or session, capped so a busy session can't
+/// push the row past its container.
+private struct StatusGlyphs: View, ThemedView {
     @Environment(\.theme) var theme
 
-    let subagents: [SubagentTranscript]
+    struct Glyph: Identifiable {
+        let id: String
+        let status: TaskStatus
+        var isUnread = false
+        var showsRestingGlyph = false
+        let title: String
+
+        init(_ subagent: SubagentTranscript) {
+            id = subagent.id
+            status = subagent.status
+            title = subagent.title
+        }
+
+        init(_ session: InfoPaneFacts.SessionFacts) {
+            id = session.id.uuidString
+            status = session.status
+            isUnread = session.isUnread
+            showsRestingGlyph = true
+            title = session.title
+        }
+    }
+
+    let glyphs: [Glyph]
 
     private static let limit = 6
 
     var body: some View {
         HStack(spacing: 4) {
-            ForEach(subagents.prefix(Self.limit)) { subagent in
-                StatusBadge(status: subagent.status)
+            ForEach(glyphs.prefix(Self.limit)) { glyph in
+                StatusBadge(status: glyph.status, isUnread: glyph.isUnread, showsRestingGlyph: glyph.showsRestingGlyph)
                     .imageScale(.small)
-                    .help(subagent.title)
+                    .help(glyph.title)
             }
-            if subagents.count > Self.limit {
-                Text("+\(subagents.count - Self.limit)")
+            if glyphs.count > Self.limit {
+                Text("+\(glyphs.count - Self.limit)")
                     .emphasis(.subtle)
             }
         }
@@ -502,12 +597,38 @@ private struct InfoPaneSubagentRow: View {
     let onOpen: () -> Void
 
     var body: some View {
-        SubagentRow(subagent: subagent, tabID: tabID, columns: columns, onOpen: onOpen)
+        SubagentRow(subagent: subagent, tabID: tabID, columns: .infoPane(wash: wash), onOpen: onOpen)
             .padding(.horizontal, -wash.inset)
     }
+}
 
-    private var columns: SubagentRow.Columns {
-        var columns = SubagentRow.Columns.infoPane
+/// A parent or child session: clicking it selects that tab.
+private struct InfoPaneSessionRow: View {
+    @Environment(\.infoPaneRowWash) private var wash
+
+    let session: InfoPaneFacts.SessionFacts
+    let caption: String
+    let accessibilityID: String
+    let onSelect: () -> Void
+
+    var body: some View {
+        StatusRow(
+            title: session.title,
+            caption: Text(caption),
+            columns: .infoPane(wash: wash),
+            onOpen: onSelect
+        ) {
+            StatusBadge(status: session.status, isUnread: session.isUnread, showsElapsed: false, showsRestingGlyph: true)
+        }
+        .padding(.horizontal, -wash.inset)
+        .help(session.title)
+        .plumeID(accessibilityID, label: session.title, value: session.status.rawValue, invoke: onSelect)
+    }
+}
+
+extension StatusRowColumns {
+    static func infoPane(wash: InfoPaneRowWash) -> StatusRowColumns {
+        var columns = StatusRowColumns.infoPane
         columns.leadingWashInset = wash.inset
         columns.trailingWashInset = wash.inset
         columns.washCornerRadius = wash.cornerRadius

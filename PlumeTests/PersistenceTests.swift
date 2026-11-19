@@ -29,9 +29,9 @@ struct PersistenceTests {
             let context = ModelContext(try container(at: url))
             let group = TaskStore.createGroup(in: context, name: "Backlog", existing: [])
             let task = TaskStore.createTask(in: context, title: "Ship it", group: group, siblings: [])
-            TaskStore.addTab(to: task, kind: .terminal, in: context)
-            task.workspaceKind = .worktree
-            task.branchName = "plume/ship-it-a1b2"
+            let tab = TaskStore.addTab(to: task, kind: .terminal, in: context)
+            tab.workspaceKind = .worktree
+            tab.branchName = "plume/ship-it-a1b2"
             taskID = task.id
             tabID = try #require(task.selectedTabID)
             try context.save()
@@ -45,8 +45,9 @@ struct PersistenceTests {
         #expect(restored.group?.name == "Backlog")
         #expect(restored.tabs.count == 2)
         #expect(restored.selectedTabID == tabID)
-        #expect(restored.workspaceKind == .worktree)
-        #expect(restored.branchName == "plume/ship-it-a1b2")
+        let restoredTab = try #require(restored.tabs.first { $0.id == tabID })
+        #expect(restoredTab.workspaceKind == .worktree)
+        #expect(restoredTab.branchName == "plume/ship-it-a1b2")
     }
 
     @Test func aSplitSurvivesReopeningTheStore() throws {

@@ -18,7 +18,7 @@ struct AgentFirstMessageView: View {
     }
 
     private var directoryExists: Bool {
-        guard let path = task.workingDirectoryPath else { return false }
+        guard let path = TabDirectoryStore.shared.directory(for: tab) else { return false }
         return FileManager.default.fileExists(atPath: path)
     }
 
@@ -35,7 +35,7 @@ struct AgentFirstMessageView: View {
 
             VStack(spacing: 6) {
                 HStack(spacing: 14) {
-                    WorkspacePickerView(task: task)
+                    WorkspacePickerView(tab: tab)
                     Spacer()
                     Group {
                         Button("Resume…") { resumeSheetShown = true }
@@ -70,10 +70,10 @@ struct AgentFirstMessageView: View {
             inputFocused = true
         }
         .sheet(isPresented: $resumeSheetShown) {
-            if let path = task.workingDirectoryPath {
+            if let path = TabDirectoryStore.shared.directory(for: tab) {
                 ResumeSessionSheet(
                     workingDirectory: path,
-                    repoPath: task.repoPath,
+                    repoPath: tab.repoPath,
                     provider: tab.provider,
                     onSelect: resume
                 )

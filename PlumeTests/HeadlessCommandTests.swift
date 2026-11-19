@@ -153,6 +153,15 @@ struct HeadlessCommandModelTests {
         #expect(!arguments.contains("--model"))
     }
 
+    @Test func passesALaunchEffortOnlyWhenGiven() {
+        let plain = HeadlessCommand.arguments(resumeSessionID: nil, permissionMode: nil, settingsPath: nil)
+        #expect(!plain.contains("--effort"))
+
+        let chosen = HeadlessCommand.arguments(resumeSessionID: nil, permissionMode: nil, settingsPath: nil, effort: .xhigh)
+        let index = chosen.firstIndex(of: "--effort")
+        #expect(index.map { chosen[$0 + 1] } == "xhigh")
+    }
+
     /// A bare `--resume` restores the model the conversation already used, so
     /// replaying an unchosen snapshot could only override a model changed
     /// elsewhere. See "Model on resume" in docs/headless-protocol.md.

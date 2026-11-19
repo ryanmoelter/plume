@@ -9,6 +9,11 @@ struct PlumeApp: App {
 
     init() {
         LoginShellCommand.dropInheritedInstanceKeys()
+        do {
+            try TabWorkspaceMigration.run(in: modelContainer.mainContext)
+        } catch {
+            Log.app.error("Could not move workspaces onto tabs: \(error, privacy: .public)")
+        }
         #if DEBUG
         do {
             try SeededProviderRecovery.recover(in: modelContainer.mainContext)
@@ -16,6 +21,7 @@ struct PlumeApp: App {
             Log.app.error("Could not repair seeded providers: \(error, privacy: .public)")
         }
         #endif
+        ChildSessionIndex.shared.rebuild(in: modelContainer.mainContext)
         BundledFonts.registerIfNeeded()
 
         // Xcode Previews launch this app as their host, and libghostty

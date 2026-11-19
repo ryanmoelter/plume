@@ -17,6 +17,7 @@ nonisolated enum StatusSymbol: CaseIterable {
     case done
     case error
     case awaitingReply
+    case notStarted
     /// A session someone can drive from elsewhere.
     case remoteControl
     /// The agents working under a conversation.
@@ -36,6 +37,7 @@ nonisolated enum StatusSymbol: CaseIterable {
         case .done: "checkmark.circle"
         case .error: "exclamationmark.triangle"
         case .awaitingReply: "arrow.uturn.backward"
+        case .notStarted: "circle"
         case .remoteControl: "antenna.radiowaves.left.and.right"
         case .subagents: "gearshape.2"
         case .backgroundTasks: "clock.arrow.circlepath"
@@ -46,11 +48,12 @@ nonisolated enum StatusSymbol: CaseIterable {
     ///
     /// Not every symbol has one — `arrow.uturn.backward`, the antenna and the
     /// clock arrow are strokes with nothing to fill — and naming a symbol that
-    /// does not exist draws nothing at all, so those stand as themselves.
+    /// does not exist draws nothing at all, so those stand as themselves. A
+    /// filled `circle` would read as the unread dot, so it stays a stroke.
     /// `StatusSymbolTests` is what keeps this list honest.
     var filled: String {
         switch self {
-        case .awaitingReply, .remoteControl, .backgroundTasks: name
+        case .awaitingReply, .notStarted, .remoteControl, .backgroundTasks: name
         default: "\(name).fill"
         }
     }

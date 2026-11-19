@@ -151,8 +151,8 @@ struct RecentFolderDefaultTests {
             let task = TaskStore.createTask(
                 in: try makeContext(), siblings: [], defaultsToRecentFolder: true
             )
-            #expect(task.workingDirectoryPath == folder)
-            #expect(task.workspaceKind == .directory)
+            #expect(task.orderedTabs[0].workingDirectoryPath == folder)
+            #expect(task.orderedTabs[0].workspaceKind == .directory)
         }
     }
 
@@ -164,8 +164,8 @@ struct RecentFolderDefaultTests {
 
         try withRecentFolder(folder) {
             let task = TaskStore.createTask(in: try makeContext(), siblings: [])
-            #expect(task.workspaceKind == .unset)
-            #expect(task.workingDirectoryPath == nil)
+            #expect(task.orderedTabs[0].workspaceKind == .unset)
+            #expect(task.orderedTabs[0].workingDirectoryPath == nil)
         }
     }
 
@@ -174,7 +174,7 @@ struct RecentFolderDefaultTests {
             let task = TaskStore.createTask(
                 in: try makeContext(), siblings: [], defaultsToRecentFolder: true
             )
-            #expect(task.workspaceKind == .unset)
+            #expect(task.orderedTabs[0].workspaceKind == .unset)
         }
     }
 }

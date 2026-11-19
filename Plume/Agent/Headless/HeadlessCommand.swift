@@ -17,7 +17,9 @@ enum HeadlessCommand {
 
     /// Where a forking resume cuts the conversation, and the id the fork is
     /// given. `cutAfterMessageUUID` is the last entry to keep — to redo a
-    /// message, pass that message's own parent.
+    /// message, pass that message's own parent. Nil keeps the whole
+    /// conversation, which works even while the resumed session is mid tool
+    /// call.
     ///
     /// `--resume-session-at` is undocumented and absent from `claude --help`,
     /// so a CLI upgrade can withdraw it without warning. Forking is the
@@ -25,7 +27,7 @@ enum HeadlessCommand {
     /// control plane does the same cut in place, and is documented.
     struct Fork: Equatable {
         let newSessionID: String
-        let cutAfterMessageUUID: String
+        let cutAfterMessageUUID: String?
     }
 
     /// `isModelExplicitlyChosen` distinguishes a model the user picked from
@@ -36,7 +38,9 @@ enum HeadlessCommand {
         settingsPath: String?,
         model: AgentModel? = nil,
         isModelExplicitlyChosen: Bool = true,
+        effort: AgentEffort? = nil,
         fork: Fork? = nil,
+        sessionID: String? = nil,
         addDirectories: [String] = [],
         systemPromptRulePath: String? = nil
     ) -> [String] {
@@ -78,6 +82,10 @@ enum HeadlessCommand {
             arguments.append(model.token)
         }
 
+        if let effort {
+            arguments.append("--effort")
+            arguments.append(effort.token)
+        }
         if let settingsPath {
             arguments.append("--settings")
             arguments.append(settingsPath)
@@ -94,9 +102,16 @@ enum HeadlessCommand {
                 arguments.append("--fork-session")
                 arguments.append("--session-id")
                 arguments.append(fork.newSessionID)
-                arguments.append("--resume-session-at")
-                arguments.append(fork.cutAfterMessageUUID)
+                if let cut = fork.cutAfterMessageUUID {
+                    arguments.append("--resume-session-at")
+                    arguments.append(cut)
+                }
             }
+        } else if let sessionID, !sessionID.isEmpty {
+            // A fresh session named up front, so its tab can record the id
+            // before the CLI reports it.
+            arguments.append("--session-id")
+            arguments.append(sessionID)
         }
         return arguments
     }

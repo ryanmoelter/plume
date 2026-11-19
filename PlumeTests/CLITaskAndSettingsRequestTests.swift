@@ -82,17 +82,21 @@ struct CLITaskAndSettingsRequestTests {
         var revealed: [UUID] = []
         let handler = makeHandler(tasks: [caller]) { revealed.append($0) }
 
-        let response = await handler.handle(.newTask(.init(worktreePath: worktree, tabID: callerTab.id, select: true)))
+        let response = await handler.handle(.newTask(.init(
+            worktreePath: worktree, tabID: callerTab.id, select: true, createdWorktree: true, createdBranch: true
+        )))
 
         #expect(response.error == nil)
         let taskID = try #require(response.taskID)
         let task = try #require(try allTasks().first { $0.id == taskID })
         #expect(task.group?.id == group.id)
         #expect(task.orderIndex == caller.orderIndex + 1)
-        #expect(task.workspaceKind == .worktree)
-        #expect(task.workingDirectoryPath == worktree)
-        #expect(task.repoPath.map(resolved) == resolved(repository))
-        #expect(task.branchName == "ryanm/feature")
+        #expect(task.orderedTabs[0].workspaceKind == .worktree)
+        #expect(task.orderedTabs[0].workingDirectoryPath == worktree)
+        #expect(task.orderedTabs[0].repoPath.map(resolved) == resolved(repository))
+        #expect(task.orderedTabs[0].branchName == "ryanm/feature")
+        #expect(task.ownedWorktrees.map(\.path) == [OwnedWorktree.standardized(worktree)])
+        #expect(task.ownedWorktrees.map(\.branch) == ["ryanm/feature"])
         #expect(task.title == "feature")
         #expect(task.tabs.count == 1)
         #expect(revealed == [taskID])
@@ -113,18 +117,123 @@ struct CLITaskAndSettingsRequestTests {
         #expect(!revealed)
     }
 
-    /// Deleting a worktree task offers to remove the worktree, which must
-    /// never happen to the main checkout.
+    // MARK: - tab.new
+
+    @Test func aTabWtCreatedTakesTheWorktreeAsItsWorkspaceAndItsTaskOwnsIt() async throws {
+        defer { try? FileManager.default.removeItem(atPath: scratch) }
+        let (repository, worktree) = try await makeRepositoryWithWorktree()
+        let task = TaskStore.createTask(in: context, siblings: [])
+        task.tabs[0].workspace = .directory(repository, repoPath: repository, branchName: "main")
+        let handler = makeHandler(tasks: [task])
+
+        let response = await handler.handle(.newTab(.init(
+            taskID: task.id, directory: worktree, select: false, createdWorktree: true, createdBranch: true
+        )))
+
+        let tab = try #require(task.tabs.first { $0.id == response.tabID })
+        #expect(tab.workspaceKind == .worktree)
+        #expect(tab.workingDirectoryPath == worktree)
+        #expect(tab.repoPath.map(resolved) == resolved(repository))
+        #expect(tab.branchName == "ryanm/feature")
+        #expect(task.ownedWorktrees.map(\.path) == [OwnedWorktree.standardized(worktree)])
+        #expect(task.ownedWorktrees.map(\.branch) == ["ryanm/feature"])
+    }
+
+    @Test func aTabOpenedWithoutTheFlagsOwnsNothing() async throws {
+        defer { try? FileManager.default.removeItem(atPath: scratch) }
+        let (_, worktree) = try await makeRepositoryWithWorktree()
+        let task = TaskStore.createTask(in: context, siblings: [])
+        let handler = makeHandler(tasks: [task])
+
+        let response = await handler.handle(.newTab(.init(taskID: task.id, directory: worktree, select: false)))
+
+        let tab = try #require(task.tabs.first { $0.id == response.tabID })
+        #expect(tab.workspaceKind == .worktree)
+        #expect(tab.branchName == "ryanm/feature")
+        #expect(task.ownedWorktrees.isEmpty)
+    }
+
+    /// Ownership is of a whole worktree, so only its root can be claimed.
+    @Test func aTabInASubfolderOwnsNothing() async throws {
+        defer { try? FileManager.default.removeItem(atPath: scratch) }
+        let (_, worktree) = try await makeRepositoryWithWorktree()
+        let subfolder = "\(worktree)/src"
+        try FileManager.default.createDirectory(atPath: subfolder, withIntermediateDirectories: true)
+        let task = TaskStore.createTask(in: context, siblings: [])
+        let handler = makeHandler(tasks: [task])
+
+        let response = await handler.handle(.newTab(.init(
+            taskID: task.id, directory: subfolder, select: false, createdWorktree: true, createdBranch: true
+        )))
+
+        let tab = try #require(task.tabs.first { $0.id == response.tabID })
+        #expect(tab.workingDirectoryPath == subfolder)
+        #expect(tab.workspaceKind == .worktree)
+        #expect(task.ownedWorktrees.isEmpty)
+    }
+
+    @Test func aTabOutsideGitIsAPlainDirectory() async throws {
+        defer { try? FileManager.default.removeItem(atPath: scratch) }
+        try FileManager.default.createDirectory(atPath: scratch, withIntermediateDirectories: true)
+        let task = TaskStore.createTask(in: context, siblings: [])
+        task.tabs[0].workspace = TabWorkspace(kind: .worktree, directory: "/wt", repoPath: "/repo", branchName: "b")
+        let handler = makeHandler(tasks: [task])
+
+        let response = await handler.handle(.newTab(.init(taskID: task.id, directory: scratch, select: false)))
+
+        let tab = try #require(task.tabs.first { $0.id == response.tabID })
+        #expect(tab.workspace == .directory(scratch))
+    }
+
+    @Test func aWorktreeWtOnlyOpenedIsNotOwned() async throws {
+        defer { try? FileManager.default.removeItem(atPath: scratch) }
+        let (_, worktree) = try await makeRepositoryWithWorktree()
+        let handler = makeHandler(tasks: [])
+
+        let response = await handler.handle(.newTask(.init(worktreePath: worktree, select: false, createdWorktree: false)))
+
+        let task = try #require(try allTasks().first { $0.id == response.taskID })
+        #expect(task.ownedWorktrees.isEmpty)
+    }
+
+    @Test func aWorktreeOnAnExistingBranchIsOwnedWithoutItsBranch() async throws {
+        defer { try? FileManager.default.removeItem(atPath: scratch) }
+        let (_, worktree) = try await makeRepositoryWithWorktree()
+        let handler = makeHandler(tasks: [])
+
+        let response = await handler.handle(.newTask(.init(
+            worktreePath: worktree, select: false, createdWorktree: true, createdBranch: false
+        )))
+
+        let task = try #require(try allTasks().first { $0.id == response.taskID })
+        #expect(task.ownedWorktrees.map(\.path) == [OwnedWorktree.standardized(worktree)])
+        #expect(task.ownedWorktrees.map(\.branch) == [nil])
+    }
+
+    @Test func anOlderClientsRequestDecodesAndOwnsNothing() throws {
+        let json = #"{"command":"task.new","params":{"worktreePath":"/wt/x","select":false}}"#
+        let request = try JSONDecoder().decode(CLIRequest.self, from: Data(json.utf8))
+        guard case .newTask(let params) = request else {
+            Issue.record("decoded \(request)")
+            return
+        }
+        #expect(params.createdWorktree == nil)
+        #expect(params.createdBranch == nil)
+    }
+
+    /// Even a `wt` that claims to have created it can't make a task own the
+    /// main checkout.
     @Test func theMainCheckoutOpensAsADirectoryTask() async throws {
         defer { try? FileManager.default.removeItem(atPath: scratch) }
         let (repository, _) = try await makeRepositoryWithWorktree()
         let handler = makeHandler(tasks: [])
 
-        let response = await handler.handle(.newTask(.init(worktreePath: repository, select: false)))
+        let response = await handler.handle(.newTask(.init(worktreePath: repository, select: false, createdWorktree: true)))
 
         let task = try #require(try allTasks().first { $0.id == response.taskID })
-        #expect(task.workspaceKind == .directory)
-        #expect(task.branchName == "main")
+        #expect(task.orderedTabs[0].workspaceKind == .directory)
+        #expect(task.orderedTabs[0].branchName == "main")
+        #expect(task.ownedWorktrees.isEmpty)
     }
 
     /// In the `.bare` layout the project folder is no repository, so the task
@@ -153,8 +262,8 @@ struct CLITaskAndSettingsRequestTests {
         let response = await handler.handle(.newTask(.init(worktreePath: worktree, select: false)))
 
         let task = try #require(try allTasks().first { $0.id == response.taskID })
-        #expect(task.workspaceKind == .worktree)
-        let repository = try #require(task.repoPath)
+        #expect(task.orderedTabs[0].workspaceKind == .worktree)
+        let repository = try #require(task.orderedTabs[0].repoPath)
         #expect(resolved(repository) == resolved("\(project)/.bare"))
 
         let listing = await GitService.shared.worktreeListing(in: repository)
@@ -190,6 +299,46 @@ struct CLITaskAndSettingsRequestTests {
         #expect(retry.taskID == taskID)
         #expect(try allTasks().count == 1)
         #expect(revealed == [taskID])
+    }
+
+    @Test func aTaskWithAnAgentTabInTheWorktreeIsReturned() async throws {
+        defer { try? FileManager.default.removeItem(atPath: scratch) }
+        let (repository, worktree) = try await makeRepositoryWithWorktree()
+        let existing = TaskStore.createTask(in: context, siblings: [])
+        existing.tabs[0].workspace = .directory(repository)
+        TaskStore.addTab(to: existing, kind: .agent, in: context).workspace = .directory(worktree)
+        let handler = makeHandler(tasks: [existing])
+
+        let response = await handler.handle(.newTask(.init(worktreePath: worktree, select: false)))
+
+        #expect(response.error == nil)
+        #expect(response.taskID == existing.id)
+        #expect(try allTasks().count == 1)
+    }
+
+    @Test func theOwnerWinsOverAnAgentTabSavedThere() {
+        let visitor = TaskStore.createTask(in: context, siblings: [])
+        visitor.tabs[0].workspace = .directory("/wt/feature")
+        let owner = TaskStore.createTask(in: context, siblings: [visitor])
+        owner.recordOwnedWorktree(OwnedWorktree(path: "/wt/feature", repoPath: "/repo", branch: "f"))
+
+        #expect(CLICommandHandler.taskAlreadyOn("/wt/feature", among: [visitor, owner]) === owner)
+    }
+
+    /// A terminal's saved folder follows `cd`, so it says nothing about which
+    /// task the worktree belongs to.
+    @Test func aTerminalTabSavedThereDoesNotMatch() {
+        let task = TaskStore.createTask(in: context, siblings: [], firstTab: .terminal)
+        task.tabs[0].workspace = .directory("/wt/feature")
+
+        #expect(CLICommandHandler.taskAlreadyOn("/wt/feature", among: [task]) == nil)
+    }
+
+    @Test func anAgentTabInASubfolderDoesNotMatch() {
+        let task = TaskStore.createTask(in: context, siblings: [])
+        task.tabs[0].workspace = .directory("/wt/feature/src")
+
+        #expect(CLICommandHandler.taskAlreadyOn("/wt/feature", among: [task]) == nil)
     }
 
     @Test func aPathThatIsNotAWorktreeRootIsRefused() async throws {

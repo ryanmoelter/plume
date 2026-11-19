@@ -38,7 +38,7 @@ Plume/
   Models/     SwiftData models, TaskStore (CRUD/ordering), TitleStore, enums
   Ghostty/    GhosttyRuntime, GhosttyConfigLoader, GhosttyThemeResolver, TerminalSession, TerminalTabView, ThemeChrome
   Sessions/   SurfaceManager, LoginShellCommand
-  Agent/      AgentProvider, ClaudeCodeProvider, AgentLauncher, hook plumbing, SessionJSONLReader, Skills/ (BundledSkills, AgentPromptRule)
+  Agent/      AgentProvider, ClaudeCodeProvider, AgentLauncher, hook plumbing, SessionJSONLReader, Skills/ (BundledSkills, AgentPromptRule), ChildSessions/ (PlumeMCPServer, ChildSessionCoordinator)
   Status/     StatusEngine, StatusPersistence
   Workspace/  WorkspaceProvisioner, GitRunner, ProjectRoot (the key Settings ▸ Projects shares with `plume wt`)
   Linear/     LinearStore, LinearSyncCache (delta-synced disk cache; docs/linear-sync.md), LinearClient, LinearAccounts
@@ -85,6 +85,7 @@ An agent tab runs one of two CLIs, recorded in `TaskTab.providerID` (`AgentProvi
 - **`/rc` is served by Plume, not the CLI.** `remote-control` is an interactive TUI command with no non-interactive variant, so it never reaches the headless `commands` list. `PlumeSlashCommand` supplies it and `ChatComposer.send()` intercepts it — only on this transport, since a terminal tab's real TUI already has a working `/rc`.
 - **`/btw` is a `side_question` control request, and it writes nothing to the transcript.** It reads main context and answers mid-turn without disturbing the running turn, but leaves no trace on disk and does not chain — so there is nothing to read one back from. `HeadlessSession` holds side questions in memory; never persist them.
 - **Rollback is `rewind_conversation`; fork-to-a-tab is `--fork-session` + `--resume-session-at`.** A rewind cuts in place, deletes nothing on disk, and returns the message's text as `prefillText` — but it cannot move onto an abandoned branch (`target_not_found`), because the file is append-only while the CLI's live chain is not. A fork writes a whole new session file and leaves both conversations live, at the cost of an undocumented flag. Both buttons, and the marker where a conversation forked, are `#if DEBUG` until they are ready to ship. A refusal to rewind arrives as `{"rewound": false, "reason": …}`, not as an error response. Both sit on a turn's last reply but always cut at the *user message after it* (`MessageRedoContext.rollbackTargets`). Never target the reply itself: an assistant row is frequently mid-tool-call, which the CLI refuses with `target_splits_tool_call`, and a rendered reply carries only its first row's uuid.
+- **An agent starts child sessions through Plume's own MCP server, served over `mcp_message` control requests.** `initialize` names it in `sdkMcpServers`, `PlumeMCPServer` answers the JSON-RPC, and `ChildSessionCoordinator` opens the child's tab and carries notes between parent and child. A child is a full headless tab whose `parentTabIDRaw` names its parent; nothing else about it persists. **`docs/child-sessions.md` is the reference**, and the wire shapes are in `docs/headless-protocol.md`.
 - **Headless launches carry `CLAUDE_CODE_ARTIFACT=1` (`HeadlessCommand.environment`).** The CLI withholds its Artifact tools from SDK entrypoints, and `-p` is one, so without it no headless agent can publish an artifact.
 - Status, quota and cost arrive as events, so headless tabs start no hook watch. `total_cost_usd` is per turn and accumulates; stream `utilization` is 0–1 where the retired statusline capture used 0–100.
 
@@ -177,6 +178,7 @@ For performance, measure first. `scripts/profile-chat-scroll.sh <seconds>` recor
 
 - **SwiftData models are the persisted skeleton only.** Live process/terminal state belongs in in-memory `@Observable` objects keyed by model UUID. Never persist anything about a running PTY.
 - **Every SwiftData stored property needs a default value**, so lightweight migration keeps working as the schema grows.
+- **Each tab owns its workspace** (`TaskTab.workspace`: kind, folder, repository, branch); a new tab copies the one the user is on. **A task owns only the worktrees Plume created for it** (`WorkTask.ownedWorktrees`, see `OwnedWorktree`), and archive and delete offer to remove only those. A tab's folder never implies ownership, because it follows `cd`. Resolve a tab's folder through `TabDirectoryStore.directory(for:)`.
 - Enums persist as `...Raw` strings with a computed accessor (`workspaceKindRaw` / `workspaceKind`). Keeps migrations trivial.
 - Ordering is a dense `orderIndex` per section, rewritten on move. All of it lives in `TaskStore` — keep it out of views.
 - Model names avoid colliding with Swift's `Task` and SwiftUI's `Group`: `WorkTask`, `TaskGroup`, `TaskTab`.

@@ -15,9 +15,11 @@ enum AccessibilityID {
     static let newGroupButton = "new-group-button"
     static let sidebarArchiveButton = "sidebar-archive-button"
     static let taskArchiveButton = "task-archive-button"
+    static let taskDeleteButton = "task-delete-button"
     static let taskRemoteControlToggle = "task-remote-control-toggle"
     static let taskDeviceLeaseBadge = "task-device-lease-badge"
     static let taskDescription = "task-description"
+    static let taskAgentGroup = "task-agent-group"
     static let taskEditButton = "task-edit-button"
     static let groupEditButton = "group-edit-button"
     static let groupHeaderEditButton = "group-header-edit-button"
@@ -41,6 +43,9 @@ enum AccessibilityID {
     static let keepAwakeLidNote = "keep-awake-lid-note"
     static let keepAwakeLidToggle = "keep-awake-lid-toggle"
     static let devicesKeepShortcutsToggle = "devices-keep-shortcuts-toggle"
+    static let taskProjectLine = "task-project-line"
+    static let taskBranchLine = "task-branch-line"
+    static let taskPRLine = "task-pr-line"
     static let taskLinearIssueLine = "task-linear-issue-line"
     static let taskPinnedPullRequestLine = "task-pinned-pull-request-line"
     static let taskLinkLinearIssueMenuItem = "task-link-linear-issue-menu-item"
@@ -167,8 +172,45 @@ enum AccessibilityID {
 
     // MARK: Tab strip
 
+    /// One per pane, labelled like `newTabButton`.
+    static let tabStrip = "tab-strip"
     static let tabChip = "tab-chip"
     static let tabChipClose = "tab-chip-close"
+    /// The arrow in front of a child session's title.
+    static let tabChipChildMarker = "tab-chip-child-marker"
+    static let tabChildrenToggle = "tab-children-toggle"
+    /// The chip's context menu, each labelled like its `tabChip`.
+    static let tabMoveToOtherPaneMenuItem = "tab-move-to-other-pane-menu-item"
+    static let tabCloseSplitMenuItem = "tab-close-split-menu-item"
+    static let tabOpenInSplitMenuItem = "tab-open-in-split-menu-item"
+    static let tabSwitchTransportMenuItem = "tab-switch-transport-menu-item"
+    static let tabStartFreshMenuItem = "tab-start-fresh-menu-item"
+    static let tabMoveToNewTaskMenuItem = "tab-move-to-new-task-menu-item"
+    static let tabMoveNextToParentMenuItem = "tab-move-next-to-parent-menu-item"
+    static let taskAgentChildMarker = "task-agent-child-marker"
+    /// A note from another session in the chat, which selects its tab.
+    static let sideSessionEventRow = "side-session-event-row"
+    /// A proposed session's whole card and its buttons; `label` is the
+    /// proposal's task_id.
+    static let proposalCard = "proposal-card"
+    static let proposalStartButton = "proposal-start-button"
+    static let proposalDismissButton = "proposal-dismiss-button"
+    /// A started card's line, which selects the child's tab.
+    static let proposalStartedRow = "proposal-started-row"
+    /// A dismissed or expired card's state, in `value`.
+    static let proposalState = "proposal-state"
+    /// An offered session's whole card and its buttons; `label` is the call's
+    /// tool use id.
+    static let offerCard = "offer-card"
+    static let offerNewSessionButton = "offer-new-session-button"
+    static let offerDoItHereButton = "offer-do-it-here-button"
+    /// An offer card's state, in `value`, as `ChildSessionOfferCardState.word`
+    /// says it. A started card's also names the child and selects its tab.
+    static let offerState = "offer-state"
+    /// "Show more" under a cut brief, with `value` `collapsed` or `expanded`.
+    /// `label` is the proposal's task_id or the offer's tool use id.
+    static let proposalBriefToggle = "proposal-brief-toggle"
+    static let offerBriefToggle = "offer-brief-toggle"
     /// In both the task row's and the tab chip's context menu.
     static let markUnreadButton = "mark-unread-button"
     /// Takes `markUnreadButton`'s place while any of its tabs is unread.
@@ -291,6 +333,18 @@ enum AccessibilityID {
 
     static let workspaceWorktreeMenu = "workspace-worktree-menu"
     static let workspaceSubfolderMenu = "workspace-subfolder-menu"
+    static let workspaceFolderMenu = "workspace-folder-menu"
+    static let workspaceNewWorktreeItem = "workspace-new-worktree-item"
+    static let workspaceWorktreeItem = "workspace-worktree-item"
+    static let workspaceSubfolderItem = "workspace-subfolder-item"
+
+    // MARK: Worktree removal dialog
+
+    static let worktreeRemovalRemoveButton = "worktree-removal-remove-button"
+    static let worktreeRemovalWithBranchButton = "worktree-removal-with-branch-button"
+    static let worktreeRemovalTaskOnlyButton = "worktree-removal-task-only-button"
+    static let worktreeRemovalCancelButton = "worktree-removal-cancel-button"
+    static let worktreeRemovalMessage = "worktree-removal-message"
 
     // MARK: New worktree sheet
 
@@ -365,6 +419,10 @@ enum AccessibilityID {
     static let infoPaneCompletedToggle = "info-pane-completed-toggle"
     static let infoPaneBackgroundTasksToggle = "info-pane-background-tasks-toggle"
     static let infoPaneBackgroundTask = "info-pane-background-task"
+    static let infoPaneSessionsToggle = "info-pane-sessions-toggle"
+    static let infoPaneChildSessionRow = "info-pane-child-session-row"
+    static let infoPaneParentSessionRow = "info-pane-parent-session-row"
+    static let infoPaneParentSessionToggle = "info-pane-parent-session-toggle"
     static let infoPanePlanRow = "info-pane-plan-row"
     static let infoPaneSideChatRow = "info-pane-side-chat-row"
     static let infoPaneRemoteControlMenu = "info-pane-remote-control-menu"

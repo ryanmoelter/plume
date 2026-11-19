@@ -14,20 +14,20 @@ struct StartupWarmPassTests {
         )
     }
 
-    @Test func aTaskWithNoAgentTabsWarmsItsOwnWorkingDirectory() throws {
+    @Test func aTaskWithNoAgentTabsWarmsItsTabsFolder() throws {
         let context = ModelContext(try container())
-        let task = TaskStore.createTask(in: context, siblings: [])
-        task.workingDirectoryPath = "/repo/task"
+        let task = TaskStore.createTask(in: context, siblings: [], firstTab: .terminal)
+        task.tabs[0].workingDirectoryPath = "/repo/task"
 
         let directories = StartupWarmPass.directories(for: [task])
 
         #expect(directories == ["/repo/task"])
     }
 
-    @Test func agentTabDirectoriesWinOverTheTasksOwnFolder() throws {
+    @Test func agentTabDirectoriesWinOverOtherTabsFolders() throws {
         let context = ModelContext(try container())
         let task = TaskStore.createTask(in: context, siblings: [])
-        task.workingDirectoryPath = "/repo/task"
+        TaskStore.addTab(to: task, kind: .terminal, in: context).workingDirectoryPath = "/repo/task"
         TabDirectoryStore.shared.setDirectory("/repo/worktree", forTab: task.orderedTabs[0])
         defer { TabDirectoryStore.shared.reset() }
 
@@ -39,9 +39,9 @@ struct StartupWarmPassTests {
     @Test func directoriesAcrossManyTasksAreUnioned() throws {
         let context = ModelContext(try container())
         let first = TaskStore.createTask(in: context, siblings: [])
-        first.workingDirectoryPath = "/repo/one"
+        first.tabs[0].workingDirectoryPath = "/repo/one"
         let second = TaskStore.createTask(in: context, siblings: [])
-        second.workingDirectoryPath = "/repo/two"
+        second.tabs[0].workingDirectoryPath = "/repo/two"
 
         let directories = StartupWarmPass.directories(for: [first, second])
 

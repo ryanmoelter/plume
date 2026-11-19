@@ -82,6 +82,52 @@ enum ControlDispatcher {
             case .appendTurn(let params): result = .switchLatency(try await backend.appendTurn(params))
             case .resize(let params): result = .resize(try await backend.resize(params))
             case .scrollChat(let params): result = .scrollHitch(try await backend.scrollChat(params))
+            case .moveTab(let params):
+                result = .tab(try ControlTabCommands.move(params, in: try ControlTabCommands.frontmostContext()))
+            case .splitTab(let params):
+                result = .tab(try ControlTabCommands.split(params, in: try ControlTabCommands.frontmostContext()))
+            case .revealInSidebar(let params):
+                result = .sidebarReveal(
+                    try ControlSidebarCommands.reveal(params, in: try ControlTabCommands.frontmostContext())
+                )
+            case .setTabStatus(let params):
+                result = .tabStatus(
+                    try ControlStatusCommands.setStatus(params, in: try ControlTabCommands.frontmostContext())
+                )
+            case .startChildSession(let params):
+                result = .childSession(
+                    try await ControlChildSessionCommands.start(params, in: try ControlTabCommands.frontmostContext())
+                )
+            case .reportChildSession(let params):
+                result = .childSession(
+                    try ControlChildSessionCommands.report(params, in: try ControlTabCommands.frontmostContext())
+                )
+            case .proposeChildSession(let params):
+                result = .childSession(
+                    try ControlChildSessionCommands.propose(params, in: try ControlTabCommands.frontmostContext())
+                )
+            case .listChildSessionProposals(let params):
+                result = .childSessionProposals(
+                    try ControlChildSessionCommands.proposals(params, in: try ControlTabCommands.frontmostContext())
+                )
+            case .startChildSessionProposal(let params):
+                result = .childSession(
+                    try await ControlChildSessionCommands.startProposal(params, in: try ControlTabCommands.frontmostContext())
+                )
+            case .dismissChildSessionProposal(let params):
+                result = .childSession(
+                    try ControlChildSessionCommands.dismissProposal(params, in: try ControlTabCommands.frontmostContext())
+                )
+            case .offerChildSession(let params):
+                result = .childSession(
+                    try ControlChildSessionCommands.offer(params, in: try ControlTabCommands.frontmostContext())
+                )
+            case .listChildSessionOffers(let params):
+                result = .childSessionOffers(
+                    try ControlChildSessionCommands.offers(params, in: try ControlTabCommands.frontmostContext())
+                )
+            case .answerChildSessionOffer(let params):
+                result = .childSession(try ControlChildSessionCommands.answerOffer(params))
             }
             return .success(id: request.id, result)
         } catch {

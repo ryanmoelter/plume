@@ -153,7 +153,11 @@ final class TitleStore {
 
     /// The agent's title for a task, ignoring the name the user gave it.
     func generatedTitle(for task: WorkTask) -> String? {
-        guard let tab = Self.representativeTab(of: task) else { return nil }
+        Self.representativeTab(of: task).flatMap(displayTitle(forTab:))
+    }
+
+    /// The tab's live title, else the snapshot saved from an earlier launch.
+    func displayTitle(forTab tab: TaskTab) -> String? {
         if let live = titles[tab.id], !live.isEmpty { return live }
         if let stored = tab.title, !stored.isEmpty { return stored }
         return nil

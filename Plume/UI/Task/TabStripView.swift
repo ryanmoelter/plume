@@ -18,18 +18,26 @@ struct TabStripView: View {
     /// Each chip's frame in the strip's coordinate space, which is where a
     /// drop reports its location.
     @State private var chipFrames: [UUID: CGRect] = [:]
+    /// Each children toggle's frame, keyed by its parent tab, so a collapsed
+    /// group's bar reaches under it.
+    @State private var toggleFrames: [UUID: CGRect] = [:]
 
     private static let chipSpacing: CGFloat = 6
+    private static let groupAnimation = Animation.snappy(duration: 0.25)
     private nonisolated static let coordinateSpace = "tabStrip"
 
     private func addTab(_ kind: TabKind) {
         TaskStore.addTab(to: task, kind: kind, pane: pane, in: context)
     }
 
+    private var grouping: TabStripGrouping { TaskStore.grouping(of: tabs) }
+
     var body: some View {
         let paneLabel = paneCount > 1 ? "pane \(pane + 1)" : nil
+        let grouping = grouping
+        let visibleTabs = tabs.filter { !grouping.hidden.contains($0.id) }
         HStack(spacing: Self.chipSpacing) {
-            ForEach(tabs) { tab in
+            ForEach(visibleTabs) { tab in
                 TabChip(
                     task: task,
                     tab: tab,
@@ -53,6 +61,18 @@ struct TabStripView: View {
                 .onGeometryChange(for: CGRect.self) {
                     $0.frame(in: .named(Self.coordinateSpace))
                 } action: { chipFrames[tab.id] = $0 }
+                .transition(.opacity.combined(with: .scale(scale: 0.6, anchor: .leading)))
+                if let group = grouping.group(parentID: tab.id) {
+                    TabChildrenToggle(
+                        title: paneLabel.map { "\(chipTitle(of: tab)) (\($0))" } ?? chipTitle(of: tab),
+                        childCount: group.descendantCount,
+                        isCollapsed: group.isCollapsed,
+                        toggle: { TaskStore.setChildrenCollapsed(!group.isCollapsed, of: tab, in: task) }
+                    )
+                    .onGeometryChange(for: CGRect.self) {
+                        $0.frame(in: .named(Self.coordinateSpace))
+                    } action: { toggleFrames[tab.id] = $0 }
+                }
             }
 
             Menu {
@@ -79,9 +99,16 @@ struct TabStripView: View {
 
             Spacer()
         }
+        // Keyed on `hidden` so only collapsing and expanding animate, not a
+        // reorder.
+        .animation(Self.groupAnimation, value: grouping.hidden)
         .padding(.horizontal, 8)
         .padding(.vertical, 6)
+        .plumeID(AccessibilityID.tabStrip, label: paneLabel)
         .coordinateSpace(.named(Self.coordinateSpace))
+        .background(alignment: .topLeading) {
+            TabStripGroupBars(bars: groupBars(grouping), color: groupBarColor, animation: Self.groupAnimation)
+        }
         // One destination for the whole strip, placing the drop by its
         // location, so there is no gap between chips where a drop misses.
         // The marker is an overlay so it never takes part in the strip's
@@ -99,26 +126,61 @@ struct TabStripView: View {
             taskID: task.id,
             pane: pane,
             chips: { chipExtents },
+            landing: landingGap,
             perform: reorder
         ))
         .themeTint(colorScheme: colorScheme)
     }
 
-    /// The chips' horizontal extents, in strip order.
+    /// The shown chips' horizontal extents, in strip order.
     private var chipExtents: [ClosedRange<CGFloat>] {
-        tabs.compactMap { chipFrames[$0.id].map { $0.minX...$0.maxX } }
+        grouping.visibleIDs.compactMap { chipFrames[$0].map { $0.minX...$0.maxX } }
     }
 
-    /// Moves the dragged tab into `gap`, from this strip or the other
-    /// pane's. Only `orderIndex` and `paneIndex` change — surfaces are keyed
-    /// by tab id and untouched by it.
+    private func chipTitle(of tab: TaskTab) -> String {
+        TitleStore.shared.chipTitle(for: tab, hasConversation: tab.hasConversation)
+    }
+
+    private var groupBarColor: Color {
+        (ThemeChrome.foreground(for: colorScheme) ?? .primary).opacity(0.3)
+    }
+
+    /// One bar per shown group, under its parent through its last shown
+    /// chip, each level of nesting a step lower.
+    private func groupBars(_ grouping: TabStripGrouping) -> [TabStripGroupBars.Bar] {
+        grouping.visibleGroups.compactMap { group in
+            guard let parent = chipFrames[group.parentID],
+                  let last = chipFrames[grouping.lastVisibleID(in: group)] else { return nil }
+            let end = max(last.maxX, toggleFrames[group.parentID]?.maxX ?? last.maxX)
+            return TabStripGroupBars.Bar(
+                id: group.parentID,
+                minX: parent.minX,
+                maxX: end,
+                y: parent.maxY + 2 + CGFloat(group.depth) * 3
+            )
+        }
+    }
+
+    /// The shown gap a drop of `draggedID` at shown gap `gap` lands in, after
+    /// `TabStripMove` keeps it from splitting a run, or nil when it cannot
+    /// land in this strip at all.
+    private func landingGap(_ draggedID: UUID, near gap: Int) -> Int? {
+        guard let tab = task.tabs.first(where: { $0.id == draggedID }) else { return nil }
+        let grouping = grouping
+        return TaskStore.landingIndex(of: tab, toPane: pane, at: grouping.paneIndex(forVisibleGap: gap), in: task)
+            .map(grouping.visibleGap(forPaneIndex:))
+    }
+
+    /// Moves the dragged tab into the gap before shown chip `gap`, from this
+    /// strip or the other pane's. Only `orderIndex` and `paneIndex` change —
+    /// surfaces are keyed by tab id and untouched by it.
     private func reorder(_ draggedID: UUID, into gap: Int) {
         guard let tab = task.tabs.first(where: { $0.id == draggedID }) else { return }
-        TaskStore.moveTab(tab, toPane: pane, at: gap, in: task)
+        TaskStore.moveTab(tab, toPane: pane, at: grouping.paneIndex(forVisibleGap: gap), in: task)
     }
 
-    /// Splits `tab` into a new ungrouped task, as a sibling of every other
-    /// top-level task.
+    /// Splits `tab` and its attached children into a new ungrouped task, as a
+    /// sibling of every other top-level task.
     private func moveToNewTask(_ tab: TaskTab) {
         let siblings = allTasks.filter { $0.group == nil }
         TaskStore.splitTabIntoNewTask(tab, in: context, siblings: siblings)
@@ -162,10 +224,8 @@ private struct TabChip: View {
     @State private var isConfirmingEmulatorShutDown = false
     @State private var isConfirmingEndReservation = false
 
-    /// The live title wins over the snapshot on the tab, which is only there
-    /// to label the chip before anything reconnects.
     private var chipTitle: String {
-        TitleStore.shared.title(forTab: tab.id) ?? (tab.kind == .agent && !hasConversation && tab.title == nil ? "Chat" : tab.displayTitle)
+        TitleStore.shared.chipTitle(for: tab, hasConversation: hasConversation)
     }
 
     private var unseenHelp: String? {
@@ -175,13 +235,23 @@ private struct TabChip: View {
     }
 
     private var hasConversation: Bool {
-        tab.agentSessionID?.isEmpty == false || tab.sessionJSONLPath?.isEmpty == false
-            || AgentSessionManager.shared.existingSession(for: tab.id) != nil
-            || SurfaceManager.shared.existingSession(for: tab.id) != nil
+        tab.hasConversation
+    }
+
+    /// An attached child needs no marker: the strip's underline groups it.
+    private var isDetachedChild: Bool {
+        TaskStore.isDetachedChild(tab)
     }
 
     var body: some View {
         HStack(spacing: 5) {
+            if isDetachedChild {
+                Image(systemName: "arrow.turn.down.right")
+                    .font(.callout)
+                    .foregroundStyle(.secondary)
+                    .help("Started by a session that is elsewhere")
+                    .plumeID(AccessibilityID.tabChipChildMarker, label: chipTitle, value: "detached")
+            }
             switch tab.kind {
             case .agent:
                 if hasConversation {
@@ -237,20 +307,18 @@ private struct TabChip: View {
         .plumeHover { isHovering = $0 }
         .plumeID(
             AccessibilityID.tabChip,
-            label: paneLabel.map { "\(chipTitle) (\($0))" } ?? chipTitle,
+            label: controlLabel,
             value: chipValue,
             invoke: select
         )
         .contextMenu {
             if tab.isEmulatorTab {
                 Button("Shut Down Emulator…") { isConfirmingEmulatorShutDown = true }
-                    .plumeID(AccessibilityID.shutDownEmulatorMenuItem)
                     .disabled(!DeviceSessionManager.shared.canShutDownEmulator(for: tab.id))
                 Divider()
             }
-            if tab.isRemoteDeviceTab || DeviceSessionManager.shared.existingSession(for: tab.id)?.isRemote == true {
+            if offersEndReservation {
                 Button("End Reservation…") { isConfirmingEndReservation = true }
-                    .plumeID(AccessibilityID.endReservationMenuItem)
                     .disabled(!DeviceSessionManager.shared.canEndReservation(for: tab.id))
                 Divider()
             }
@@ -262,6 +330,9 @@ private struct TabChip: View {
             } else {
                 Button("Open in Split") { TaskStore.openInSplit(tab, side: .right, in: task) }
                     .disabled(!TaskStore.canOpenInSplit(tab, in: task))
+            }
+            if offersMoveNextToParent {
+                Button("Move Next to Parent") { TaskStore.moveNextToParent(tab) }
             }
             Divider()
             if tab.kind == .agent {
@@ -277,10 +348,11 @@ private struct TabChip: View {
                 Divider()
             }
             Button("Move to New Task") { moveToNewTask() }
-                .disabled(task.tabs.count < 2)
+                .disabled(!TaskStore.canMoveToNewTask(tab))
             Divider()
-            ReadStateButton(tabIDs: [tab.id], label: paneLabel.map { "\(chipTitle) (\($0))" } ?? chipTitle)
+            ReadStateButton(tabIDs: [tab.id], label: controlLabel)
         }
+        .background { contextMenuItems }
         .confirmationDialog(
             "Shut down the emulator?",
             isPresented: $isConfirmingEmulatorShutDown
@@ -316,7 +388,7 @@ private struct TabChip: View {
         }
         .plumeMenuItem(
             AccessibilityID.refreshConversationMenuItem,
-            label: chipTitle,
+            label: controlLabel,
             isPresent: offersRefresh,
             invoke: requestRefresh
         )
@@ -347,6 +419,70 @@ private struct TabChip: View {
         } message: {
             Text("This ends the running agent and starts it again on the other transport. \(AppIdentity.displayName) will resume the same conversation if it can.")
         }
+    }
+
+    /// Matches the chip's own label, so a driver can tell which tab an item
+    /// belongs to.
+    private var controlLabel: String {
+        paneLabel.map { "\(chipTitle) (\($0))" } ?? chipTitle
+    }
+
+    private var offersMoveNextToParent: Bool {
+        TaskStore.canMoveNextToParent(tab)
+    }
+
+    private var offersEndReservation: Bool {
+        tab.isRemoteDeviceTab || DeviceSessionManager.shared.existingSession(for: tab.id)?.isRemote == true
+    }
+
+    private var contextMenuItems: some View {
+        Color.clear
+            .plumeMenuItem(
+                AccessibilityID.shutDownEmulatorMenuItem,
+                label: controlLabel,
+                isPresent: tab.isEmulatorTab,
+                isEnabled: DeviceSessionManager.shared.canShutDownEmulator(for: tab.id)
+            ) { isConfirmingEmulatorShutDown = true }
+            .plumeMenuItem(
+                AccessibilityID.endReservationMenuItem,
+                label: controlLabel,
+                isPresent: offersEndReservation,
+                isEnabled: DeviceSessionManager.shared.canEndReservation(for: tab.id)
+            ) { isConfirmingEndReservation = true }
+            .plumeMenuItem(
+                AccessibilityID.tabMoveToOtherPaneMenuItem,
+                label: controlLabel,
+                isPresent: paneCount > 1
+            ) { TaskStore.moveTab(tab, toPane: (pane + 1) % paneCount, in: task) }
+            .plumeMenuItem(AccessibilityID.tabCloseSplitMenuItem, label: controlLabel, isPresent: paneCount > 1) {
+                TaskStore.closeSplit(in: task)
+            }
+            .plumeMenuItem(
+                AccessibilityID.tabOpenInSplitMenuItem,
+                label: controlLabel,
+                isPresent: paneCount <= 1,
+                isEnabled: TaskStore.canOpenInSplit(tab, in: task)
+            ) { TaskStore.openInSplit(tab, side: .right, in: task) }
+            .plumeMenuItem(
+                AccessibilityID.tabMoveNextToParentMenuItem,
+                label: controlLabel,
+                isPresent: offersMoveNextToParent
+            ) { TaskStore.moveNextToParent(tab) }
+            .plumeMenuItem(AccessibilityID.tabSwitchTransportMenuItem, label: controlLabel, isPresent: tab.kind == .agent) {
+                isConfirmingTransportSwitch = true
+            }
+            .plumeMenuItem(
+                AccessibilityID.tabStartFreshMenuItem,
+                label: controlLabel,
+                isPresent: tab.kind == .agent && !(tab.agentSessionID ?? "").isEmpty
+            ) { isConfirmingStartFresh = true }
+            .plumeMenuItem(
+                AccessibilityID.tabMoveToNewTaskMenuItem,
+                label: controlLabel,
+                isEnabled: TaskStore.canMoveToNewTask(tab),
+                invoke: moveToNewTask
+            )
+            .plumeReadStateMenuItem(tabIDs: [tab.id], label: controlLabel)
     }
 
     private var offersRefresh: Bool {
@@ -386,11 +522,90 @@ private struct TabChip: View {
     }
 }
 
+/// Shows or hides the chips of the child sessions grouped after a tab.
+private struct TabChildrenToggle: View {
+    /// The parent's chip title, which labels the toggle for the control server.
+    let title: String
+    let childCount: Int
+    let isCollapsed: Bool
+    let toggle: () -> Void
+
+    @Environment(\.colorScheme) private var colorScheme
+    @State private var isHovering = false
+
+    /// The strip's tint is the theme's foreground, so the accent is named here.
+    private var accent: Color { ChatRole.selection(for: colorScheme) }
+
+    private var help: String {
+        let sessions = childCount == 1 ? "session" : "sessions"
+        return isCollapsed ? "Show \(childCount) child \(sessions)" : "Hide \(childCount) child \(sessions)"
+    }
+
+    var body: some View {
+        Button(action: toggle) {
+            HStack(spacing: 2) {
+                Image(systemName: isCollapsed ? "chevron.right" : "chevron.left")
+                    .font(.system(size: 10, weight: .bold))
+                if isCollapsed {
+                    Text("\(childCount)")
+                        .font(.caption.weight(.semibold))
+                        .monospacedDigit()
+                }
+            }
+            .foregroundStyle(accent)
+            .padding(.horizontal, 4)
+            .frame(minWidth: 18, minHeight: 22)
+            .background(accent.opacity(isHovering ? 0.18 : 0), in: .rect(cornerRadius: 5))
+            .contentShape(.rect)
+        }
+        .buttonStyle(.plain)
+        .plumeHover { isHovering = $0 }
+        .help(help)
+        .accessibilityLabel(help)
+        .plumeID(
+            AccessibilityID.tabChildrenToggle,
+            label: title,
+            value: isCollapsed ? "collapsed" : "expanded",
+            invoke: toggle
+        )
+    }
+}
+
+/// The bars under each group of a parent tab and its child sessions.
+private struct TabStripGroupBars: View {
+    struct Bar: Identifiable, Equatable {
+        let id: UUID
+        let minX: CGFloat
+        let maxX: CGFloat
+        let y: CGFloat
+    }
+
+    let bars: [Bar]
+    let color: Color
+    let animation: Animation
+
+    var body: some View {
+        ZStack(alignment: .topLeading) {
+            ForEach(bars) { bar in
+                Capsule()
+                    .fill(color)
+                    .frame(width: max(bar.maxX - bar.minX, 0), height: 2)
+                    .offset(x: bar.minX, y: bar.y)
+            }
+        }
+        // The chips' frames arrive already at their new places, so the bars
+        // animate on their own to keep pace with the chips.
+        .animation(animation, value: bars)
+        .allowsHitTesting(false)
+    }
+}
+
 /// Tracks which gap a dragged tab is over, and hands the drop to the strip.
 private struct TabStripDropDelegate: DropDelegate {
     let taskID: UUID
     let pane: Int
     let chips: () -> [ClosedRange<CGFloat>]
+    let landing: @MainActor (UUID, Int) -> Int?
     let perform: @MainActor (UUID, Int) -> Void
 
     func validateDrop(info: DropInfo) -> Bool {
@@ -403,8 +618,12 @@ private struct TabStripDropDelegate: DropDelegate {
         case .task, .group:
             drag.clearTabStripGap(in: taskID, pane: pane)
             return DropProposal(operation: .forbidden)
-        case .tab:
-            let gap = TabStripInsertion.gap(forX: info.location.x, chips: chips())
+        case .tab(let id):
+            let requested = TabStripInsertion.gap(forX: info.location.x, chips: chips())
+            guard let gap = landing(id, requested) else {
+                drag.clearTabStripGap(in: taskID, pane: pane)
+                return DropProposal(operation: .forbidden)
+            }
             drag.showTabStripGap(TabStripGap(taskID: taskID, pane: pane, gap: gap))
             return DropProposal(operation: .move)
         case nil:
