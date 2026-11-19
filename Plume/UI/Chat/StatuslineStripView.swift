@@ -36,6 +36,9 @@ struct StatuslineStripView: View, ThemedView {
 
     let layout: StatuslineStripLayout
     let provider: AgentProviderKind
+    /// The Fable and credit glyphs, under the sidebar row's rules for when
+    /// they show. The last stage of `StatuslineStage` drops them.
+    let showsQuotaGlyphs: Bool
 
     // Transcript-derived, so available on either transport.
     let contextUsedTokens: Int?
@@ -59,20 +62,30 @@ struct StatuslineStripView: View, ThemedView {
     /// Account-wide, so it comes from the shared store rather than from the
     /// session this strip belongs to: a chat that has not taken a turn in an
     /// hour still shows what the account heard a moment ago.
-    @State private var quota = QuotaStore.shared
+    @State private var quota: QuotaStore
+    @State private var settings: AppSettings
+    @State private var poller: ClaudeUsagePoller
 
     init(
         layout: StatuslineStripLayout = .wide,
         provider: AgentProviderKind = .claudeCode,
+        showsQuotaGlyphs: Bool = true,
         contextUsedTokens: Int? = nil,
         contextMaxTokens: Int? = nil,
         sessionCostUSD: Double? = nil,
         codexWindows: [CodexQuotaWindow] = [],
         headlessSession: HeadlessSession? = nil,
-        compact: CompactAction? = nil
+        compact: CompactAction? = nil,
+        quota: QuotaStore = .shared,
+        settings: AppSettings = .shared,
+        poller: ClaudeUsagePoller = .shared
     ) {
         self.layout = layout
         self.provider = provider
+        self.showsQuotaGlyphs = showsQuotaGlyphs
+        _quota = State(initialValue: quota)
+        _settings = State(initialValue: settings)
+        _poller = State(initialValue: poller)
         self.contextUsedTokens = contextUsedTokens
         self.contextMaxTokens = contextMaxTokens
         self.sessionCostUSD = sessionCostUSD
@@ -107,6 +120,26 @@ struct StatuslineStripView: View, ThemedView {
     }
 
     private var receivedAt: Date? { quota.snapshot?.receivedAt }
+
+    private var extras: SidebarQuotaExtras? {
+        guard provider == .claudeCode else { return nil }
+        return SidebarQuotaExtras(snapshot: quota.snapshot, alwaysShows: settings.alwaysShowsCreditAndFableQuota, now: quota.now)
+    }
+
+    private var extrasPresence: [Bool] { [extras?.showsFable ?? false, extras?.showsCredit ?? false] }
+
+    @ViewBuilder
+    private var quotaGlyphs: some View {
+        if showsQuotaGlyphs, let extras {
+            ClaudeQuotaGlyphs(
+                snapshot: quota.snapshot,
+                extras: extras,
+                now: quota.now,
+                isChecking: poller.status == .checking,
+                ids: .statusline
+            )
+        }
+    }
 
     // MARK: - Layouts
 
@@ -143,6 +176,9 @@ struct StatuslineStripView: View, ThemedView {
                 .plumeID(AccessibilityID.statuslineSevenDayMeter)
                 .transition(.opacity)
             }
+            // Centred on the meters, like the cost.
+            quotaGlyphs
+                .frame(maxHeight: .infinity)
             if let sessionCostUSD {
                 costSegment(sessionCostUSD)
                     .plumeID(AccessibilityID.statuslineCost)
@@ -150,6 +186,7 @@ struct StatuslineStripView: View, ThemedView {
         }
         .fixedSize()
         .animation(QuotaTransition.animation, value: quotaPresence)
+        .animation(QuotaTransition.animation, value: extrasPresence)
     }
 
     /// Bars only, stacked top to bottom instead of side by side, and no cost
@@ -159,7 +196,18 @@ struct StatuslineStripView: View, ThemedView {
     ///
     /// Bars this small are too close together to click apart, so the whole
     /// stack is one control, opening every reading at once.
+    ///
+    /// The glyphs sit beside the stack, each its own control, since they are
+    /// big enough to click apart.
     private var stackedLayout: some View {
+        HStack(alignment: .center, spacing: dimensions.statuslineTrailingGap) {
+            stackedBars
+            quotaGlyphs
+        }
+        .animation(QuotaTransition.animation, value: extrasPresence)
+    }
+
+    private var stackedBars: some View {
         Button {
             showingUsage = true
         } label: {
@@ -246,7 +294,23 @@ struct StatuslineStripView: View, ThemedView {
         let codexSummaries = visibleCodexWindows.map {
             CodexQuotaStrip.summary($0, store: .shared, now: quota.now)
         }
-        return claudeSummaries + codexSummaries
+        return claudeSummaries + fableSummaryWithoutGlyph + codexSummaries
+    }
+
+    /// The Fable reading joins the stack's popover once its glyph is dropped,
+    /// so collapsing never hides it outright.
+    private var fableSummaryWithoutGlyph: [QuotaWindowSummary] {
+        guard !showsQuotaGlyphs, extras?.showsFable == true, let snapshot = quota.snapshot, let fable = snapshot.rateLimit.fable
+        else { return [] }
+        return [QuotaDescription.summary(
+            provider: "Claude",
+            timeframe: "Fable",
+            utilization: fable.utilization,
+            resetsAt: fable.resetsAt,
+            windowLength: QuotaWindowLength.sevenDay,
+            receivedAt: snapshot.fableHeardAt,
+            now: quota.now
+        )]
     }
 
     // MARK: - Segments
@@ -329,6 +393,34 @@ struct StatuslineStripView: View, ThemedView {
 enum StatuslineStripLayout {
     case wide
     case stacked
+}
+
+/// How the statusline row gives way as it narrows, widest first. The branch
+/// name truncates first, then the meters stack, and only then do the Fable
+/// and credit glyphs go.
+enum StatuslineStage: CaseIterable {
+    case wide
+    case wideWithTruncatedBranch
+    case stacked
+    case stackedWithoutGlyphs
+
+    var branchWidth: BranchWidth { self == .wide ? .natural : .flexible }
+    var meters: StatuslineStripLayout { self == .wide || self == .wideWithTruncatedBranch ? .wide : .stacked }
+    var showsQuotaGlyphs: Bool { self != .stackedWithoutGlyphs }
+}
+
+/// One `ViewThatFits` over every `StatuslineStage`, in order.
+struct StatuslineStages<Content: View>: View {
+    @ViewBuilder let content: (StatuslineStage) -> Content
+
+    var body: some View {
+        ViewThatFits(in: .horizontal) {
+            content(.wide)
+            content(.wideWithTruncatedBranch)
+            content(.stacked)
+            content(.stackedWithoutGlyphs)
+        }
+    }
 }
 
 /// Bar lengths: the context window and the seven-day quota read most

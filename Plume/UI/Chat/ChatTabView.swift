@@ -827,22 +827,22 @@ struct ChatTabView: View, ThemedView {
     ///
     /// One `ViewThatFits` governs the whole row, because the branch name and
     /// the meters are the two things that give way and they have to give way
-    /// in a fixed order. Three candidates, widest first:
+    /// in a fixed order. `StatuslineStage` lists the candidates, widest first:
     ///
     /// 1. Everything at its natural size, with the slack between the branch
     ///    name and the meters.
     /// 2. The branch name takes the leftover and truncates, down to
     ///    `statuslineBranchMinWidth`; the meters stay side by side.
-    /// 3. The meters drop to bars alone, stacked.
+    /// 3. The meters drop to bars alone, stacked, with the Fable and credit
+    ///    glyphs still beside them.
+    /// 4. The glyphs go too.
     ///
     /// Nothing above this may be `.fixedSize()` horizontally: an unbounded
     /// width proposal makes the first candidate fit forever. Vertically it
     /// must be, or the row stretches to whatever height the chat leaves it.
     private func statuslineFooter(transcript: Transcript) -> some View {
-        ViewThatFits(in: .horizontal) {
-            statuslineRow(transcript: transcript, branchWidth: .natural, meters: .wide)
-            statuslineRow(transcript: transcript, branchWidth: .flexible, meters: .wide)
-            statuslineRow(transcript: transcript, branchWidth: .flexible, meters: .stacked)
+        StatuslineStages { stage in
+            statuslineRow(transcript: transcript, stage: stage)
         }
         .fixedSize(horizontal: false, vertical: true)
         // The one leading edge the composer's text and controls also sit on.
@@ -854,11 +854,11 @@ struct ChatTabView: View, ThemedView {
     /// meters on the trailing one.
     private func statuslineRow(
         transcript: Transcript,
-        branchWidth: BranchWidth,
-        meters: StatuslineStripLayout
+        stage: StatuslineStage
     ) -> some View {
-        HStack(alignment: .top, spacing: dimensions.panelContentInset) {
-            workspaceGroup(branchWidth: branchWidth)
+        let meters = stage.meters
+        return HStack(alignment: .top, spacing: dimensions.panelContentInset) {
+            workspaceGroup(branchWidth: stage.branchWidth)
             // In every candidate, not just the widest: without it a row
             // narrower than the panel centers, holding the folder off the
             // leading edge and the meters off the trailing one. Its
@@ -868,6 +868,7 @@ struct ChatTabView: View, ThemedView {
                 StatuslineStripView(
                     layout: meters,
                     provider: tab.provider,
+                    showsQuotaGlyphs: stage.showsQuotaGlyphs,
                     // Both arrive on a turn result, so a resumed conversation has
                     // neither until it takes a turn: the transcript's last usage
                     // and the tab's stored window cover that gap.

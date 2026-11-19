@@ -331,6 +331,10 @@ enum AccessibilityID {
     static let statuslineUsageButton = "statusline-usage-button"
     static let statuslineCompactButton = "statusline-compact-button"
     static let statuslineUsagePopover = "statusline-usage-popover"
+    static let statuslineFable = "statusline-fable"
+    static let statuslineFablePopover = "statusline-fable-popover"
+    static let statuslineCredit = "statusline-credit"
+    static let statuslineCreditPopover = "statusline-credit-popover"
     static let statuslineCost = "statusline-cost"
     static let statuslineBranch = "statusline-branch"
 

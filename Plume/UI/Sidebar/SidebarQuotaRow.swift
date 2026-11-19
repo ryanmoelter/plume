@@ -52,7 +52,7 @@ struct SidebarQuotaRow: View, ThemedView {
                 if let windows {
                     meters(windows, isStale: windowsAreStale)
                 }
-                extraReadings(snapshot, extras: extras, isChecking: isChecking)
+                ClaudeQuotaGlyphs(snapshot: snapshot, extras: extras, now: quota.now, isChecking: isChecking, ids: .sidebar)
                 if windows == nil && !extras.showsAny {
                     noReading
                 }
@@ -166,85 +166,6 @@ struct SidebarQuotaRow: View, ThemedView {
                 )
                 .transition(.opacity)
             }
-        }
-    }
-
-    @ViewBuilder
-    private func extraReadings(_ snapshot: QuotaSnapshot?, extras: SidebarQuotaExtras, isChecking: Bool) -> some View {
-        if extras.showsFable {
-            fableReading(snapshot, isChecking: isChecking)
-                .transition(.opacity)
-        }
-        if extras.showsCredit {
-            creditReading(snapshot, isChecking: isChecking)
-                .transition(.opacity)
-        }
-    }
-
-    private func fableReading(_ snapshot: QuotaSnapshot?, isChecking: Bool) -> some View {
-        let fable = snapshot?.rateLimit.fable
-        let isStale = snapshot.map { QuotaFreshness.isStale(receivedAt: $0.fableHeardAt, now: quota.now) } ?? false
-        let summary = fable.map {
-            QuotaDescription.summary(
-                provider: "Claude",
-                timeframe: "Fable",
-                utilization: $0.utilization,
-                resetsAt: $0.resetsAt,
-                windowLength: QuotaWindowLength.sevenDay,
-                receivedAt: snapshot?.fableHeardAt,
-                now: quota.now
-            )
-        }
-        let percent = (fable?.utilization ?? 0) * 100
-        return SidebarQuotaGlyph(
-            symbol: "f.circle",
-            fraction: StatuslineMeterMath.fraction(percent: percent),
-            fill: glyphFill(percent: percent),
-            isStale: isStale,
-            isPulsing: isChecking,
-            help: summary?.text ?? "Fable weekly quota: no reading yet",
-            accessibilityLabel: "Fable weekly quota",
-            id: AccessibilityID.sidebarQuotaFable,
-            value: fable.map { SidebarQuotaSummary.percent($0.utilization) } ?? "none",
-            popoverID: AccessibilityID.sidebarQuotaFablePopover,
-            popoverValue: summary?.lines.joined(separator: "; ") ?? "none"
-        ) {
-            if let summary {
-                QuotaDetailsPopover(summaries: [summary])
-            } else {
-                Text("Fable weekly quota: no reading yet").usagePopoverStyle(typography: typography)
-            }
-        }
-    }
-
-    private func creditReading(_ snapshot: QuotaSnapshot?, isChecking: Bool) -> some View {
-        let credit = snapshot?.credit
-        let used = credit?.usedCents.map { UsageCreditFormat.amount(minorUnits: $0, currency: credit?.currency) }
-        let isStale = credit != nil && QuotaFreshness.isCreditStale(receivedAt: snapshot?.creditReceivedAt, now: quota.now)
-        let fraction = UsageCreditFormat.fraction(credit)
-        return SidebarQuotaGlyph(
-            symbol: "dollarsign.circle",
-            fraction: fraction ?? 0,
-            fill: glyphFill(percent: (fraction ?? 0) * 100),
-            isStale: isStale,
-            isPulsing: isChecking,
-            help: UsageCreditFormat.tooltip(credit),
-            accessibilityLabel: "Usage credits",
-            id: AccessibilityID.sidebarQuotaCredit,
-            value: used.map { isStale ? "\($0) stale" : $0 } ?? "none",
-            popoverID: AccessibilityID.sidebarQuotaCreditPopover,
-            popoverValue: UsageCreditFormat.detailLines(credit).joined(separator: "; ")
-        ) {
-            UsageCreditPopover(credit: credit, fraction: fraction)
-        }
-    }
-
-    /// Full foreground rather than the meters' secondary, so the drawn arc
-    /// stands clear of the track at a glance.
-    private func glyphFill(percent: Double) -> Color {
-        switch StatuslineAttention.attention(percent: percent) {
-        case .neutral: colors.foreground
-        case let attention: StatuslineColors.meter(for: attention, colors: colors)
         }
     }
 
