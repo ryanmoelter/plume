@@ -68,7 +68,6 @@ struct SidebarQuotaRow: View, ThemedView {
                         .opacity(colors.emphasis[.secondary])
                         .help(reason)
                         .accessibilityLabel(reason)
-                        .quotaTextCentre(typography.caption)
                         .transition(.opacity)
                 }
             }
@@ -92,7 +91,6 @@ struct SidebarQuotaRow: View, ThemedView {
             .contextMenu {
                 Button("Don't Show This", action: dismissUsageOffer)
             }
-            .quotaTextCentre(typography.caption)
             .transition(.opacity)
             .plumeID(AccessibilityID.sidebarQuotaUsageOffer, invoke: acceptUsageOffer)
             .plumeMenuItem(AccessibilityID.sidebarQuotaUsageOfferDismiss, invoke: dismissUsageOffer)
@@ -109,7 +107,6 @@ struct SidebarQuotaRow: View, ThemedView {
     private var noReading: some View {
         placeholder
             .accessibilityLabel("No quota reading yet")
-            .quotaTextCentre(typography.caption)
             .transition(.opacity)
     }
 
@@ -144,7 +141,6 @@ struct SidebarQuotaRow: View, ThemedView {
                     windowLength: QuotaWindowLength.fiveHour,
                     readingAlignment: .leading
                 )
-                .quotaTextCentre(typography.caption)
                 .transition(.opacity)
             }
             if let sevenDay = snapshot.rateLimit.sevenDay {
@@ -159,7 +155,6 @@ struct SidebarQuotaRow: View, ThemedView {
                     windowLength: QuotaWindowLength.sevenDay,
                     readingAlignment: .leading
                 )
-                .quotaTextCentre(typography.caption)
                 .transition(.opacity)
             }
         }
@@ -320,7 +315,6 @@ struct SidebarQuotaGlyph<Detail: View>: View, ThemedView {
             .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
-        .quotaTextCentre(typography.body)
         .help(help)
         .accessibilityLabel(accessibilityLabel)
         .accessibilityValue(help)
@@ -399,7 +393,8 @@ struct SidebarQuotaFlow: Layout {
         var indices: [Int] = []
         var width: CGFloat = 0
         /// Above and below the line's `quotaFirstLine` guide, which every
-        /// item on it shares.
+        /// item on it shares. Items default it to their centre, so a line
+        /// centres each glyph on the meter block beside it, label and bar.
         var above: CGFloat = 0
         var below: CGFloat = 0
         var height: CGFloat { above + below }
@@ -455,8 +450,8 @@ struct SidebarQuotaFlow: Layout {
         }
     }
 
-    /// Lines up the provider icon beside the row with the first line's text,
-    /// not the middle of a wrapped row.
+    /// Lines up the provider icon beside the row with the first line's
+    /// centre, not the middle of a wrapped row.
     func explicitAlignment(of guide: VerticalAlignment, in bounds: CGRect, proposal: ProposedViewSize, subviews: Subviews, cache: inout ()) -> CGFloat? {
         guard guide == .quotaFirstLine, let first = lines(for: subviews, maxWidth: bounds.width).lines.first else { return nil }
         return first.above
@@ -469,17 +464,6 @@ nonisolated extension VerticalAlignment {
     }
 
     static let quotaFirstLine = VerticalAlignment(QuotaFirstLine.self)
-}
-
-extension View {
-    /// Puts the row's shared guide on this view's text centre — the middle
-    /// of the cap height above the first baseline, where an SF Symbol of the
-    /// same style centres itself — so readings of different sizes, and a
-    /// meter whose bar hangs below its text, line up on the text.
-    func quotaTextCentre(_ style: Typography.Style) -> some View {
-        let halfCap = NSFont.systemFont(ofSize: style.size).capHeight / 2
-        return alignmentGuide(.quotaFirstLine) { $0[.firstTextBaseline] - halfCap }
-    }
 }
 
 enum UsageCreditFormat {

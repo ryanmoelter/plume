@@ -86,35 +86,38 @@ struct SidebarQuotaRowLayoutTests {
     }
 }
 
-/// Readings of different sizes share one line by their text centre: a
-/// body-size symbol's middle sits on a caption label's cap-height midline.
+/// Readings of different sizes share one line by their centres: a
+/// body-size glyph sits on the middle of the meter block beside it, label
+/// and bar together.
 @MainActor
 struct SidebarQuotaFlowAlignmentTests {
     private final class Frames {
-        var text: CGRect = .zero
+        var meter: CGRect = .zero
         var glyph: CGRect = .zero
     }
 
-    @Test func aBodyGlyphCentresOnACaptionLabel() {
+    @Test func aBodyGlyphCentresOnTheMeterBlock() {
         let typography = Typography(bodySize: CGFloat(AppSettings.defaultChatFontSize))
         let frames = Frames()
         let flow = SidebarQuotaFlow(horizontalSpacing: 8, verticalSpacing: 4) {
-            Text("5h 0%")
-                .font(.system(size: typography.caption.size))
-                .quotaTextCentre(typography.caption)
-                .onGeometryChange(for: CGRect.self) { $0.frame(in: .global) } action: { frames.text = $0 }
+            StatuslineMeterSegment(
+                label: "5h",
+                utilization: 0,
+                resetsAt: nil,
+                barWidth: StatuslineMeterWidth.sidebarShortQuota,
+                readingAlignment: .leading
+            )
+            .font(typography.caption.font)
+            .onGeometryChange(for: CGRect.self) { $0.frame(in: .global) } action: { frames.meter = $0 }
             Image(systemName: "f.circle")
-                .font(.system(size: typography.body.size, weight: .semibold))
-                .quotaTextCentre(typography.body)
+                .font(typography.body.semibold)
                 .onGeometryChange(for: CGRect.self) { $0.frame(in: .global) } action: { frames.glyph = $0 }
         }
         let host = NSHostingView(rootView: flow.fixedSize())
         host.frame = CGRect(x: 0, y: 0, width: 300, height: 100)
         host.layoutSubtreeIfNeeded()
 
-        let caption = NSFont.systemFont(ofSize: typography.caption.size)
-        let textCentre = frames.text.minY + caption.ascender - caption.capHeight / 2
-        #expect(frames.glyph.height > 0)
-        #expect(abs(frames.glyph.midY - textCentre) <= 1, "glyph centre \(frames.glyph.midY), text centre \(textCentre)")
+        #expect(frames.meter.height > frames.glyph.height, "the meter block must be the taller, or this measures nothing")
+        #expect(abs(frames.glyph.midY - frames.meter.midY) <= 1, "glyph centre \(frames.glyph.midY), meter centre \(frames.meter.midY)")
     }
 }
