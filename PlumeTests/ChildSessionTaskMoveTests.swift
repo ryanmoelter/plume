@@ -115,6 +115,81 @@ struct ChildSessionTaskMoveTests {
         #expect(family.task.panes.map { $0.map(\.id) } == [[family.other.id], [family.secondChild.id]])
     }
 
+    // MARK: - Relations across tasks
+
+    @Test func relationsFollowAChildThroughMovesAndAPaneChange() throws {
+        let family = try makeFamily()
+        let destination = TaskStore.createTask(in: context, siblings: [family.task])
+
+        TaskStore.moveTab(family.secondChild, toPane: 0, at: 5, in: family.task)
+        TaskStore.openInSplit(family.secondChild, side: .right, in: family.task)
+        TaskStore.moveTab(family.child, to: destination)
+
+        #expect(TaskStore.openParent(of: family.secondChild)?.id == family.parent.id)
+        #expect(TaskStore.openParent(of: family.grandchild)?.id == family.child.id)
+        #expect(TaskStore.openChildren(of: family.parent).map(\.id) == [family.secondChild, family.child].map(\.id))
+        #expect(TaskStore.openChildren(of: family.child).map(\.id) == [family.grandchild.id])
+
+        TaskStore.moveTab(family.parent, to: destination)
+
+        #expect(TaskStore.openParent(of: family.secondChild)?.id == family.parent.id)
+        #expect(TaskStore.openChildren(of: family.parent).map(\.id) == [family.child, family.secondChild].map(\.id))
+    }
+
+    @Test func closingATabDropsItFromItsRelations() throws {
+        let family = try makeFamily()
+        let destination = TaskStore.createTask(in: context, siblings: [family.task])
+        TaskStore.moveTab(family.child, to: destination)
+
+        TaskStore.closeTab(family.secondChild, in: context)
+        #expect(TaskStore.openChildren(of: family.parent).map(\.id) == [family.child.id])
+
+        TaskStore.closeTab(family.parent, in: context)
+        #expect(TaskStore.openParent(of: family.child) == nil)
+        #expect(TaskStore.openChildren(of: family.child).map(\.id) == [family.grandchild.id])
+    }
+
+    @Test func anArchivedTaskHidesItsTabsFromTheirRelationsUntilUnarchived() throws {
+        let family = try makeFamily()
+        let destination = TaskStore.createTask(in: context, siblings: [family.task])
+        TaskStore.moveTab(family.child, to: destination)
+
+        TaskStore.archive(destination)
+        #expect(TaskStore.openChildren(of: family.parent).map(\.id) == [family.secondChild.id])
+
+        TaskStore.unarchive(destination)
+        #expect(TaskStore.openChildren(of: family.parent).map(\.id) == [family.secondChild, family.child].map(\.id))
+
+        TaskStore.archive(family.task)
+        #expect(TaskStore.openParent(of: family.child) == nil)
+        #expect(TaskStore.openChildren(of: family.child).map(\.id) == [family.grandchild.id])
+    }
+
+    @Test func deletingATaskDropsItsTabsFromTheirRelations() throws {
+        let family = try makeFamily()
+        let destination = TaskStore.createTask(in: context, siblings: [family.task])
+        TaskStore.moveTab(family.child, to: destination)
+
+        TaskStore.delete(destination, in: context)
+        try context.save()
+
+        #expect(TaskStore.openChildren(of: family.parent).map(\.id) == [family.secondChild.id])
+    }
+
+    @Test func aRebuiltIndexFindsEveryStoredRelation() throws {
+        let family = try makeFamily()
+        try context.save()
+        let index = ChildSessionIndex()
+
+        index.rebuild(in: context)
+
+        #expect(Set(index.children(of: family.parent.id).map(\.id)) == [family.child.id, family.secondChild.id])
+        #expect(index.children(of: family.child.id).map(\.id) == [family.grandchild.id])
+        #expect(index.parent(family.parent.id)?.id == family.parent.id)
+        #expect(index.parent(family.child.id)?.id == family.child.id)
+        #expect(index.parent(family.other.id) == nil)
+    }
+
     // MARK: - Detached marker
 
     @Test func aChildIsDetachedOnlyOutsideItsParentsRun() throws {

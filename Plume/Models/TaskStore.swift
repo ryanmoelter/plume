@@ -142,6 +142,7 @@ enum TaskStore {
         )
         tab.transport = .headless
         tab.parentTabID = parent.id
+        ChildSessionIndex.shared.record(child: tab, parent: parent)
         var pane = task.tabs(inPane: tab.paneIndex).filter { $0.id != tab.id }
         let index = childInsertionIndex(parentID: parent.id, in: pane.map { ($0.id, $0.parentTabID) })
         pane.insert(tab, at: min(index, pane.count))
@@ -573,6 +574,9 @@ enum TaskStore {
             directories: .shared
         )
         forgetTabs(of: task)
+        for tab in task.tabs {
+            ChildSessionIndex.shared.forget(tab)
+        }
         // The row that took these watches is going away with the task, and a
         // deleted row is not guaranteed to run its own teardown. Another
         // task's row still reads a folder it shares.
@@ -709,6 +713,7 @@ enum TaskStore {
     static func closeTab(_ tab: TaskTab, in context: ModelContext) {
         ChildSessionCoordinator.shared.childClosing(tab)
         forgetTab(tab)
+        ChildSessionIndex.shared.forget(tab)
         guard let task = tab.task else {
             context.delete(tab)
             return
@@ -917,22 +922,23 @@ enum TaskStore {
         if let task = tab.task, !task.isArchived, let parent = task.liveTabs.first(where: { $0.id == parentID }) {
             return parent
         }
-        return openTab(parentID, in: tab.modelContext)
+        return ChildSessionIndex.shared.parent(parentID).flatMap { isOpen($0) ? $0 : nil }
     }
 
     /// The open tabs `parent` started, in any task: its own task's first, in
     /// pane order, then other tasks' in task order.
     static func openChildren(of parent: TaskTab) -> [TaskTab] {
-        guard let context = parent.modelContext else { return [] }
-        let raw = parent.id.uuidString
-        let tabs = (try? context.fetch(FetchDescriptor<TaskTab>(predicate: #Predicate { $0.parentTabIDRaw == raw }))) ?? []
-        return tabs
-            .filter { $0.id != parent.id && $0.isLive && $0.task?.isArchived == false }
+        ChildSessionIndex.shared.children(of: parent.id)
+            .filter { isOpen($0) && $0.id != parent.id && $0.parentTabID == parent.id }
             .sorted { left, right in
                 let leftKey = (left.task?.id == parent.task?.id ? 0 : 1, left.task?.orderIndex ?? 0, left.paneIndex, left.orderIndex)
                 let rightKey = (right.task?.id == parent.task?.id ? 0 : 1, right.task?.orderIndex ?? 0, right.paneIndex, right.orderIndex)
                 return leftKey < rightKey
             }
+    }
+
+    private static func isOpen(_ tab: TaskTab) -> Bool {
+        tab.isLive && tab.task?.isArchived == false
     }
 
     /// Whether `tab` sits in its parent's run, in the same task and pane.
