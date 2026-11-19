@@ -1,5 +1,24 @@
 import SwiftUI
 
+/// One section of the stacked popover, below the context window.
+enum UsagePopoverSection: Equatable {
+    case quota(QuotaWindowSummary)
+    case credit
+
+    /// The credit is spent on the Claude account, so it closes Claude's
+    /// sections, ahead of Codex's.
+    static func ordered(
+        claude: [QuotaWindowSummary],
+        fable: QuotaWindowSummary?,
+        showsCredit: Bool,
+        codex: [QuotaWindowSummary]
+    ) -> [UsagePopoverSection] {
+        (claude + [fable].compactMap { $0 }).map(Self.quota)
+            + (showsCredit ? [.credit] : [])
+            + codex.map(Self.quota)
+    }
+}
+
 /// The stacked statusline's click-through: the context window and every
 /// quota window together, each in the same shape as a single quota's popover.
 struct StatuslineUsagePopover: View, ThemedView {
@@ -7,13 +26,9 @@ struct StatuslineUsagePopover: View, ThemedView {
 
     let contextUsedTokens: Int?
     let contextMaxTokens: Int?
-    let quotaSummaries: [QuotaWindowSummary]
-    /// Shown once the stacked row has dropped the credit glyph.
-    var showsCredit = false
+    let sections: [UsagePopoverSection]
     var credit: UsageCredit?
-    /// How many leading summaries are Claude's, so the credit section sits
-    /// right after them. Nil places it after every summary.
-    var claudeSummaryCount: Int?
+    var isCreditStale = false
     /// Asked for a fresh breakdown each time the popover opens.
     let headlessSession: HeadlessSession?
     var compact: CompactAction?
@@ -28,14 +43,18 @@ struct StatuslineUsagePopover: View, ThemedView {
                     compact: compact
                 )
             }
-            ForEach(Array(quotaSummaries.enumerated()), id: \.offset) { index, summary in
-                let followsCredit = showsCredit && index == creditIndex
-                if followsCredit { creditSection(isFirst: index == 0 && !hasContext) }
-                if index > 0 || hasContext || followsCredit { Divider() }
-                QuotaSummarySection(summary: summary)
-            }
-            if showsCredit, creditIndex == quotaSummaries.count {
-                creditSection(isFirst: quotaSummaries.isEmpty && !hasContext)
+            ForEach(Array(sections.enumerated()), id: \.offset) { index, section in
+                if index > 0 || hasContext { Divider() }
+                switch section {
+                case .quota(let summary):
+                    QuotaSummarySection(summary: summary)
+                case .credit:
+                    UsageCreditSection(credit: credit, isStale: isCreditStale)
+                        .plumeID(
+                            AccessibilityID.statuslineUsageCredit,
+                            value: UsageCreditFormat.controlValue(credit, isStale: isCreditStale)
+                        )
+                }
             }
         }
         .usagePopoverStyle(typography: typography)
@@ -44,18 +63,6 @@ struct StatuslineUsagePopover: View, ThemedView {
     }
 
     private var hasContext: Bool { contextUsedTokens != nil || contextMaxTokens != nil }
-
-    private var creditIndex: Int { min(claudeSummaryCount ?? quotaSummaries.count, quotaSummaries.count) }
-
-    @ViewBuilder
-    private func creditSection(isFirst: Bool) -> some View {
-        if !isFirst { Divider() }
-        UsageCreditSection(credit: credit)
-            .plumeID(
-                AccessibilityID.statuslineUsageCredit,
-                value: UsageCreditFormat.detailLines(credit).joined(separator: "; ")
-            )
-    }
 }
 
 /// The context bar's click-through in the wide layout: the context section

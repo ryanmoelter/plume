@@ -260,10 +260,9 @@ struct StatuslineStripView: View, ThemedView {
             StatuslineUsagePopover(
                 contextUsedTokens: contextUsedTokens,
                 contextMaxTokens: contextMaxTokens,
-                quotaSummaries: quotaSummaries,
-                showsCredit: Self.showsCreditInPopover(showsQuotaGlyphs: showsQuotaGlyphs, extras: extras),
+                sections: usagePopoverSections,
                 credit: quota.snapshot?.credit,
-                claudeSummaryCount: claudeSummaryCount,
+                isCreditStale: QuotaFreshness.isCreditStale(quota.snapshot, now: quota.now),
                 headlessSession: headlessSession,
                 compact: compact
             )
@@ -275,11 +274,7 @@ struct StatuslineStripView: View, ThemedView {
 
     private var visibleCodexWindows: [CodexQuotaWindow] { codexWindows.filter { $0.usedPercent > 0 } }
 
-    private var claudeSummaryCount: Int {
-        [rateLimit?.fiveHour, rateLimit?.sevenDay].compactMap { $0 }.count + fableSummaryWithoutGlyph.count
-    }
-
-    private var quotaSummaries: [QuotaWindowSummary] {
+    private var usagePopoverSections: [UsagePopoverSection] {
         let claude: [(String, RateLimitInfo.Window?, TimeInterval)] = [
             ("5h", rateLimit?.fiveHour, QuotaWindowLength.fiveHour),
             ("7d", rateLimit?.sevenDay, QuotaWindowLength.sevenDay)
@@ -300,7 +295,12 @@ struct StatuslineStripView: View, ThemedView {
         let codexSummaries = visibleCodexWindows.map {
             CodexQuotaStrip.summary($0, store: .shared, now: quota.now)
         }
-        return claudeSummaries + fableSummaryWithoutGlyph + codexSummaries
+        return UsagePopoverSection.ordered(
+            claude: claudeSummaries,
+            fable: fableSummaryWithoutGlyph,
+            showsCredit: Self.showsCreditInPopover(showsQuotaGlyphs: showsQuotaGlyphs, extras: extras),
+            codex: codexSummaries
+        )
     }
 
     /// The credit reading joins the stack's popover once the glyphs are
@@ -311,10 +311,10 @@ struct StatuslineStripView: View, ThemedView {
 
     /// The Fable reading joins the stack's popover once its glyph is dropped,
     /// so collapsing never hides it outright.
-    private var fableSummaryWithoutGlyph: [QuotaWindowSummary] {
+    private var fableSummaryWithoutGlyph: QuotaWindowSummary? {
         guard !showsQuotaGlyphs, extras?.showsFable == true, let snapshot = quota.snapshot, let fable = snapshot.rateLimit.fable
-        else { return [] }
-        return [QuotaDescription.summary(
+        else { return nil }
+        return QuotaDescription.summary(
             provider: "Claude",
             timeframe: "Fable",
             utilization: fable.utilization,
@@ -322,7 +322,7 @@ struct StatuslineStripView: View, ThemedView {
             windowLength: QuotaWindowLength.sevenDay,
             receivedAt: snapshot.fableHeardAt,
             now: quota.now
-        )]
+        )
     }
 
     // MARK: - Segments

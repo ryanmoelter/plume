@@ -82,7 +82,7 @@ struct ClaudeQuotaGlyphs: View, ThemedView {
     private var creditReading: some View {
         let credit = snapshot?.credit
         let used = credit?.usedCents.map { UsageCreditFormat.amount(minorUnits: $0, currency: credit?.currency) }
-        let isStale = credit != nil && QuotaFreshness.isCreditStale(receivedAt: snapshot?.creditReceivedAt, now: now)
+        let isStale = QuotaFreshness.isCreditStale(snapshot, now: now)
         let fraction = UsageCreditFormat.fraction(credit)
         return SidebarQuotaGlyph(
             symbol: "dollarsign.circle",
@@ -95,9 +95,9 @@ struct ClaudeQuotaGlyphs: View, ThemedView {
             id: ids.credit,
             value: used.map { isStale ? "\($0) stale" : $0 } ?? "none",
             popoverID: ids.creditPopover,
-            popoverValue: UsageCreditFormat.detailLines(credit).joined(separator: "; ")
+            popoverValue: UsageCreditFormat.controlValue(credit, isStale: isStale)
         ) {
-            UsageCreditPopover(credit: credit)
+            UsageCreditPopover(credit: credit, isStale: isStale)
         }
     }
 

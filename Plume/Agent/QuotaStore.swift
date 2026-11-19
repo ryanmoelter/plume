@@ -367,6 +367,11 @@ enum QuotaFreshness {
         return now.timeIntervalSince(receivedAt) > creditStaleAfter
     }
 
+    /// No credit reading is never stale: there is nothing to dim.
+    static func isCreditStale(_ snapshot: QuotaSnapshot?, now: Date) -> Bool {
+        snapshot?.credit != nil && isCreditStale(receivedAt: snapshot?.creditReceivedAt, now: now)
+    }
+
     /// A live reading whose reset time has passed is not zeroed: the session
     /// is running, so the next message will report the refill, and until then
     /// the reading stands and the countdown bottoms out at `0m`. Only a

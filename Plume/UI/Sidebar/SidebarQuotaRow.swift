@@ -259,9 +259,10 @@ struct UsageCreditPopover: View, ThemedView {
     @Environment(\.theme) var theme
 
     let credit: UsageCredit?
+    var isStale = false
 
     var body: some View {
-        UsageCreditSection(credit: credit)
+        UsageCreditSection(credit: credit, isStale: isStale)
             .usagePopoverStyle(typography: typography)
     }
 }
@@ -271,6 +272,8 @@ struct UsageCreditSection: View, ThemedView {
     @Environment(\.theme) var theme
 
     let credit: UsageCredit?
+    /// Dimmed like the credit glyph once `get_usage` has missed two polls.
+    var isStale = false
 
     var body: some View {
         let fraction = UsageCreditFormat.fraction(credit)
@@ -282,12 +285,14 @@ struct UsageCreditSection: View, ThemedView {
                     fraction: fraction,
                     color: StatuslineColors.meter(for: attention, colors: colors),
                     attention: attention,
+                    isStale: isStale,
                     height: PacingMark.barHeight * 2
                 )
                 .frame(maxWidth: .infinity)
                 .padding(.vertical, 4)
             }
             ForEach(UsageCreditFormat.detailLines(credit), id: \.self) { Text($0) }
+                .opacity(isStale ? colors.emphasis[.secondary] : 1)
         }
     }
 }
@@ -433,6 +438,12 @@ enum UsageCreditFormat {
             lines.append("Resets \(resetsAt.formatted(Date.FormatStyle(locale: locale).month(.abbreviated).day()))")
         }
         return lines
+    }
+
+    /// A popover's `plumeID` value: its detail lines, then `stale` when the
+    /// reading is.
+    static func controlValue(_ credit: UsageCredit?, isStale: Bool) -> String {
+        (detailLines(credit) + (isStale ? ["stale"] : [])).joined(separator: "; ")
     }
 
     static func tooltip(_ credit: UsageCredit?, locale: Locale = .current) -> String {

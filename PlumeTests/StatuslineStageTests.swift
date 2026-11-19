@@ -117,8 +117,7 @@ struct StatuslineStageTests {
             StatuslineUsagePopover(
                 contextUsedTokens: 50_000,
                 contextMaxTokens: 200_000,
-                quotaSummaries: [],
-                showsCredit: showsCredit,
+                sections: showsCredit ? [.credit] : [],
                 credit: UsageCredit(usedCents: 1_000, limitCents: 5_000),
                 headlessSession: nil
             )
@@ -127,6 +126,47 @@ struct StatuslineStageTests {
             NSHostingController(rootView: view.frame(width: 260)).sizeThatFits(in: CGSize(width: 260, height: 10_000)).height
         }
         #expect(height(popover(true)) > height(popover(false)) + 40, "used, limit and left are three lines plus a meter")
+    }
+
+    @Test func theStackedPopoverOrdersClaudeThenFableThenCreditThenCodex() {
+        let now = Date()
+        let summary = { (provider: String, timeframe: String) in
+            QuotaDescription.summary(
+                provider: provider, timeframe: timeframe, utilization: 0.5,
+                resetsAt: nil, windowLength: nil, receivedAt: nil, now: now
+            )
+        }
+        let fiveHour = summary("Claude", "5h")
+        let sevenDay = summary("Claude", "7d")
+        let fable = summary("Claude", "Fable")
+        let codex = summary("Codex", "5h")
+
+        #expect(
+            UsagePopoverSection.ordered(claude: [fiveHour, sevenDay], fable: fable, showsCredit: true, codex: [codex])
+                == [.quota(fiveHour), .quota(sevenDay), .quota(fable), .credit, .quota(codex)]
+        )
+        #expect(
+            UsagePopoverSection.ordered(claude: [fiveHour], fable: nil, showsCredit: false, codex: [codex])
+                == [.quota(fiveHour), .quota(codex)]
+        )
+        #expect(
+            UsagePopoverSection.ordered(claude: [], fable: nil, showsCredit: true, codex: [codex])
+                == [.credit, .quota(codex)]
+        )
+    }
+
+    @Test func aStaleCreditReadingIsMarkedStale() {
+        let now = Date()
+        var snapshot = QuotaSnapshot.empty(at: now)
+        #expect(!QuotaFreshness.isCreditStale(snapshot, now: now), "no reading has nothing to mark")
+        snapshot.credit = UsageCredit(usedCents: 1_000, limitCents: 5_000)
+        snapshot.creditReceivedAt = now
+        #expect(!QuotaFreshness.isCreditStale(snapshot, now: now))
+        #expect(QuotaFreshness.isCreditStale(snapshot, now: now.addingTimeInterval(QuotaFreshness.creditStaleAfter + 1)))
+
+        let credit = UsageCredit(usedCents: 1_000, limitCents: 5_000)
+        #expect(UsageCreditFormat.controlValue(credit, isStale: true).hasSuffix("; stale"))
+        #expect(!UsageCreditFormat.controlValue(credit, isStale: false).contains("stale"))
     }
 
     @Test func aCodexStripHasNoGlyphsToDrop() throws {
