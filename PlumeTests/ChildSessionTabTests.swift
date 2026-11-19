@@ -211,7 +211,7 @@ struct ChildSessionTabTests {
             "name": .string("kid"), "use_worktree": .bool(true)
         ]).get()
 
-        let result = await ChildSessionCoordinator.shared.startSession(request, from: parent)
+        let result = await ChildSessionCoordinator.shared.startSession(request, from: parent, approvedByUser: false)
 
         guard case .failure(let error) = result else {
             Issue.record("expected the start to fail")

@@ -137,6 +137,23 @@ struct HeadlessChildSessionTests {
         #expect(line["response"]?["response"]?["behavior"]?.stringValue == "allow")
     }
 
+    @Test func allowingAStartFromThePromptApprovesThatCallOnce() throws {
+        let (session, _) = makeSession()
+        try receive(session, #"{"type":"system","subtype":"init","session_id":"s1","permissionMode":"manual"}"#)
+        try receive(session, #"{"type":"control_request","request_id":"a1","request":{"subtype":"can_use_tool","tool_name":"mcp__plume__start_session","input":{"title":"t","prompt":"p","initiation":"user_asked","permission_mode":"bypassPermissions"},"tool_use_id":"toolu_a1","mcp_server":{"name":"plume","source":"sdk"}}}"#)
+        try receive(session, #"{"type":"control_request","request_id":"a2","request":{"subtype":"can_use_tool","tool_name":"mcp__plume__start_session","input":{"title":"t","prompt":"p","initiation":"user_asked"},"tool_use_id":"toolu_a2","mcp_server":{"name":"plume","source":"sdk"}}}"#)
+        let allowed = try #require(session.pendingPermissions.first { $0.id == "a1" })
+        let denied = try #require(session.pendingPermissions.first { $0.id == "a2" })
+
+        session.resolve(allowed, with: .allow(updatedInput: allowed.input))
+        session.resolve(denied, with: .deny(message: "no"))
+
+        #expect(!session.takeUserApproval(ofStart: nil))
+        #expect(!session.takeUserApproval(ofStart: "toolu_a2"))
+        #expect(session.takeUserApproval(ofStart: "toolu_a1"))
+        #expect(!session.takeUserApproval(ofStart: "toolu_a1"))
+    }
+
     @Test func otherToolsStillAsk() throws {
         let (session, recorder) = makeSession()
         try receive(session, #"{"type":"control_request","request_id":"p2","request":{"subtype":"can_use_tool","tool_name":"Bash","input":{"command":"ls"}}}"#)

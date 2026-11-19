@@ -305,6 +305,9 @@ final class HeadlessSession: AgentSession {
     /// Plume's own MCP tools, served over the control plane. Set before
     /// `start`, because the `initialize` request names the server.
     @ObservationIgnored var mcpServer: PlumeMCPServer?
+    /// Tool use ids of `start_session` calls the user allowed from the
+    /// permission prompt, until the coordinator takes them.
+    @ObservationIgnored private var userApprovedStarts: Set<String> = []
     /// Told at the end of every turn, once the session has moved on to
     /// whatever comes next.
     @ObservationIgnored var onTurnFinished: ((AgentTurnOutcome) -> Void)?
@@ -1151,6 +1154,10 @@ final class HeadlessSession: AgentSession {
 
     func resolve(_ permission: PendingPermission, with decision: PermissionDecision) {
         pendingPermissions.removeAll { $0.id == permission.id }
+        if case .allow = decision, permission.toolName == PlumeMCPTool.startSession.qualifiedName,
+           let toolUseID = permission.toolUseID {
+            userApprovedStarts.insert(toolUseID)
+        }
         send(StreamJSONEncoder.permissionResponse(requestID: permission.id, decision: decision))
         reportPendingPermissions()
     }
@@ -1176,6 +1183,13 @@ final class HeadlessSession: AgentSession {
     /// (`docs/headless-protocol.md`), so leaving plan mode takes the separate
     /// `set_permission_mode` request the TUI's Shift+Tab sends on this same
     /// action. Without it the session stays in `plan` and never starts work.
+    /// Whether the user allowed this `start_session` call from the
+    /// permission prompt. Each approval answers once.
+    func takeUserApproval(ofStart toolUseID: String?) -> Bool {
+        guard let toolUseID else { return false }
+        return userApprovedStarts.remove(toolUseID) != nil
+    }
+
     func approvePlan(_ permission: PendingPermission) {
         resolve(permission, with: .allow(updatedInput: permission.input))
         setPermissionMode(.auto)

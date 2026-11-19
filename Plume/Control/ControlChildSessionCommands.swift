@@ -143,7 +143,8 @@ enum ControlChildSessionCommands {
         case .failure(let error): throw ControlError.badParams(error.message)
         }
         let before = Set(parent.task?.liveTabs.map(\.id) ?? [])
-        switch await ChildSessionCoordinator.shared.startSession(request, from: parent) {
+        // A driver stands in for the agent, not the user, so nothing here approves bypass.
+        switch await ChildSessionCoordinator.shared.startSession(request, from: parent, approvedByUser: false) {
         case .success(let message):
             let child = parent.task?.liveTabs.first { !before.contains($0.id) && $0.parentTabID == parent.id }
             return ChildSessionResult(parentTabID: parent.id, childTabID: child?.id, message: message)

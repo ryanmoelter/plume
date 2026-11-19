@@ -32,10 +32,11 @@ final class ChildSessionCoordinator {
                 return .child(parentID: tab.parentTabIDRaw)
             },
             callTool: { [weak self, weak tab, weak session] call in
+                let approvedByUser = call.tool == .startSession && session?.takeUserApproval(ofStart: call.toolUseID) == true
                 guard let self, let tab, tab.isLive else {
                     return .failure("This session's tab is closed.")
                 }
-                return await self.handle(call, from: tab, forkCut: session?.latestForkCut)
+                return await self.handle(call, from: tab, forkCut: session?.latestForkCut, approvedByUser: approvedByUser)
             }
         )
         session.onTurnFinished = { [weak self, weak tab] outcome in
@@ -108,14 +109,16 @@ final class ChildSessionCoordinator {
 
     // MARK: - Tools
 
+    /// `approvedByUser` is true when the user allowed this call from the
+    /// permission prompt.
     private func handle(
-        _ call: PlumeMCPServer.ToolCall, from tab: TaskTab, forkCut: String?
+        _ call: PlumeMCPServer.ToolCall, from tab: TaskTab, forkCut: String?, approvedByUser: Bool
     ) async -> PlumeMCPServer.ToolResult {
         let result: Result<String, ChildSessionError>
         switch call.tool {
         case .startSession:
             switch StartSessionCall.parse(call.arguments) {
-            case .success(.start(let request)): result = await startSession(request, from: tab)
+            case .success(.start(let request)): result = await startSession(request, from: tab, approvedByUser: approvedByUser)
             case .success(.propose(let request)):
                 result = propose(request, from: tab, forkCut: forkCut).map { ChildSessionFormats.proposed(title: $0.title, taskID: $0.id) }
             case .success(.offer(let request)):
@@ -145,8 +148,10 @@ final class ChildSessionCoordinator {
     }
 
     /// Opens the child's tab and launches it with its brief.
-    func startSession(_ request: StartSessionRequest, from parent: TaskTab) async -> Result<String, ChildSessionError> {
-        switch await launchChild(request, from: parent) {
+    func startSession(
+        _ request: StartSessionRequest, from parent: TaskTab, approvedByUser: Bool
+    ) async -> Result<String, ChildSessionError> {
+        switch await launchChild(request, from: parent, approvedByUser: approvedByUser) {
         case .success(let child): .success(startedText(for: child, request: request, parent: parent))
         case .failure(let error): .failure(error)
         }
@@ -159,16 +164,27 @@ final class ChildSessionCoordinator {
             name: childNames[child.id] ?? WorkspaceProvisioner.slugify(request.title),
             notesFolder: AppPaths.sideSessionNotesDirectory(parentTabID: parent.id).path
         )
-        return request.ignoresWorktreeRequest ? started + " " + ChildSessionFormats.forkWorktreeIgnored : started
+        var notes = [started]
+        if request.ignoresWorktreeRequest { notes.append(ChildSessionFormats.forkWorktreeIgnored) }
+        if request.permissionMode == .bypassPermissions, child.permissionMode != .bypassPermissions,
+           AppSettings.shared.showsBypassPermissions {
+            notes.append(ChildSessionFormats.bypassNotApproved)
+        }
+        return notes.joined(separator: " ")
     }
 
     /// `proposalID` names the proposal this launch starts. It is recorded as
     /// started in the same step that opens the child's tab, so no later
     /// failure or crash can let it start twice. A fork cuts the parent's
     /// conversation at `forkCut`, or relaunches without it if the CLI
-    /// refuses it.
+    /// refuses it. `approvedByUser` says the user approved this start, which
+    /// bypass needs when the parent lacks it (`ChildSessionPermissions`).
     private func launchChild(
-        _ request: StartSessionRequest, from parent: TaskTab, proposalID: String? = nil, forkCut: String? = nil
+        _ request: StartSessionRequest,
+        from parent: TaskTab,
+        approvedByUser: Bool = false,
+        proposalID: String? = nil,
+        forkCut: String? = nil
     ) async -> Result<TaskTab, ChildSessionError> {
         guard !parent.isChildSession else { return .failure(.failed("This session cannot start sessions of its own.")) }
         guard parent.task != nil, let context = parent.modelContext else {
@@ -179,7 +195,8 @@ final class ChildSessionCoordinator {
         switch ChildSessionPermissions.mode(
             requested: request.permissionMode,
             parent: live.permissionMode,
-            showsBypassPermissions: AppSettings.shared.showsBypassPermissions
+            showsBypassPermissions: AppSettings.shared.showsBypassPermissions,
+            approvedByUser: approvedByUser
         ) {
         case .success(let resolved): mode = resolved
         case .failure(let error): return .failure(error)

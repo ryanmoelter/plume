@@ -19,6 +19,7 @@ nonisolated enum ChildSessionFormats {
     }
 
     static let forkWorktreeIgnored = "use_worktree was ignored: a forked session shares this session's folder."
+    static let bypassNotApproved = "It runs in auto mode, not bypassPermissions: the user did not approve bypass for it."
 
     static func started(title: String, sessionID: String, name: String, notesFolder: String) -> String {
         "Started session \"\(title)\" (session_id: \(sessionID), name: \(name)). It runs on its own; you get a note here when its turn ends. The sessions you start share a notes folder for hand-over notes and large findings: \(notesFolder). Don't repeat the introduction: at most one line on how you'll report back, then end your turn — do not wait for it."

@@ -67,7 +67,12 @@ final class PlumeMCPServer {
     }
 
     func decision(toolName: String, input: [String: JSONValue], permissionMode: PermissionMode?) -> PermissionDecision? {
-        Self.decision(toolName: toolName, input: input, permissionMode: permissionMode)
+        Self.decision(
+            toolName: toolName,
+            input: input,
+            permissionMode: permissionMode,
+            showsBypassPermissions: AppSettings.shared.showsBypassPermissions
+        )
     }
 
     /// How to answer `can_use_tool`, or nil to ask the user. Only Plume's own
@@ -76,11 +81,13 @@ final class PlumeMCPServer {
     /// mode allows it.
     /// In manual mode, or a mode Plume does not recognize (`nil`), a call
     /// that starts a session now asks like any other action; everything else
-    /// acts only inside Plume and is allowed.
+    /// acts only inside Plume and is allowed. In any mode, a start that would
+    /// give the child bypass its parent lacks asks too.
     nonisolated static func decision(
         toolName: String,
         input: [String: JSONValue],
-        permissionMode: PermissionMode?
+        permissionMode: PermissionMode?,
+        showsBypassPermissions: Bool
     ) -> PermissionDecision? {
         guard isPlumeTool(toolName) else { return nil }
         if toolName == PlumeMCPTool.startSession.qualifiedName {
@@ -89,6 +96,11 @@ final class PlumeMCPServer {
                 return .deny(message: ChildSessionError.parentInPlanMode.message)
             }
             if permissionMode == .manual || permissionMode == nil, startsNow {
+                return nil
+            }
+            if startsNow, ChildSessionPermissions.needsApproval(
+                requested: ChildSessionPermissions.requested(in: input), parent: permissionMode, showsBypassPermissions: showsBypassPermissions
+            ) {
                 return nil
             }
         }

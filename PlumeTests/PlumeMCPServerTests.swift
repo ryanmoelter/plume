@@ -156,44 +156,80 @@ struct PlumeMCPServerTests {
         #expect(!PlumeMCPServer.isPlumeTool("mcp__other__start_session"))
         #expect(!PlumeMCPServer.isPlumeTool("Bash"))
         for mode in [PermissionMode.auto, .bypassPermissions] {
-            #expect(PlumeMCPServer.decision(toolName: "Bash", input: [:], permissionMode: mode) == nil)
-            #expect(PlumeMCPServer.decision(toolName: "mcp__other__start_session", input: [:], permissionMode: mode) == nil)
+            #expect(PlumeMCPServer.decision(toolName: "Bash", input: [:], permissionMode: mode, showsBypassPermissions: true) == nil)
+            #expect(PlumeMCPServer.decision(toolName: "mcp__other__start_session", input: [:], permissionMode: mode, showsBypassPermissions: true) == nil)
         }
     }
 
     @Test func aStartWithoutARecognizedInitiationAsksInManualMode() {
         for input: [String: JSONValue] in [[:], ["initiation": .string("whenever")], ["title": .string("Fix")]] {
-            #expect(PlumeMCPServer.decision(toolName: "mcp__plume__start_session", input: input, permissionMode: .manual) == nil)
+            #expect(PlumeMCPServer.decision(toolName: "mcp__plume__start_session", input: input, permissionMode: .manual, showsBypassPermissions: true) == nil)
         }
     }
 
     @Test(arguments: [PermissionMode.manual, nil])
     func aStartAsksInManualMode(mode: PermissionMode?) {
         let input: [String: JSONValue] = ["title": .string("Fix"), "prompt": .string("Go"), "initiation": .string("user_asked")]
-        #expect(PlumeMCPServer.decision(toolName: "mcp__plume__start_session", input: input, permissionMode: mode) == nil)
+        #expect(PlumeMCPServer.decision(toolName: "mcp__plume__start_session", input: input, permissionMode: mode, showsBypassPermissions: true) == nil)
     }
 
     @Test(arguments: [PermissionMode.auto, .acceptEdits, .bypassPermissions])
     func aStartIsAllowedInMorePermissiveModes(mode: PermissionMode) {
         let input: [String: JSONValue] = ["initiation": .string("user_asked")]
-        #expect(PlumeMCPServer.decision(toolName: "mcp__plume__start_session", input: input, permissionMode: mode)
+        #expect(PlumeMCPServer.decision(toolName: "mcp__plume__start_session", input: input, permissionMode: mode, showsBypassPermissions: true)
             == .allow(updatedInput: input))
     }
 
     @Test func aCallThatStartsNothingIsAllowedInManualMode() {
         for initiation in ["own_initiative", "offer"] {
             let input: [String: JSONValue] = ["initiation": .string(initiation)]
-            #expect(PlumeMCPServer.decision(toolName: "mcp__plume__start_session", input: input, permissionMode: .manual)
+            #expect(PlumeMCPServer.decision(toolName: "mcp__plume__start_session", input: input, permissionMode: .manual, showsBypassPermissions: true)
                 == .allow(updatedInput: input))
         }
         let message: [String: JSONValue] = ["to": .string("parent"), "message": .string("hi")]
-        #expect(PlumeMCPServer.decision(toolName: "mcp__plume__send_message", input: message, permissionMode: .manual)
+        #expect(PlumeMCPServer.decision(toolName: "mcp__plume__send_message", input: message, permissionMode: .manual, showsBypassPermissions: true)
             == .allow(updatedInput: message))
+    }
+
+    private static func startDecision(
+        _ input: [String: JSONValue], parent: PermissionMode, bypass: Bool = true
+    ) -> PermissionDecision? {
+        PlumeMCPServer.decision(
+            toolName: PlumeMCPTool.startSession.qualifiedName, input: input, permissionMode: parent,
+            showsBypassPermissions: bypass
+        )
+    }
+
+    private static let bypassStart: [String: JSONValue] = [
+        "title": .string("Fix"), "prompt": .string("Go"), "initiation": .string("user_asked"),
+        "permission_mode": .string("bypassPermissions")
+    ]
+
+    @Test(arguments: [PermissionMode.auto, .acceptEdits])
+    func aStartAskingForBypassTheParentLacksAsks(parent: PermissionMode) {
+        #expect(Self.startDecision(Self.bypassStart, parent: parent) == nil)
+    }
+
+    @Test func aBypassParentStartsABypassChildWithoutAsking() {
+        #expect(Self.startDecision(Self.bypassStart, parent: .bypassPermissions) == .allow(updatedInput: Self.bypassStart))
+        let inherits: [String: JSONValue] = ["initiation": .string("user_asked")]
+        #expect(Self.startDecision(inherits, parent: .bypassPermissions) == .allow(updatedInput: inherits))
+    }
+
+    @Test func aStartAskingForNoModeOrALesserOneIsAllowed() {
+        let inherits: [String: JSONValue] = ["initiation": .string("user_asked")]
+        #expect(Self.startDecision(inherits, parent: .auto) == .allow(updatedInput: inherits))
+        let raises: [String: JSONValue] = ["initiation": .string("user_asked"), "permission_mode": .string("auto")]
+        #expect(Self.startDecision(raises, parent: .acceptEdits) == .allow(updatedInput: raises))
+    }
+
+    @Test func withoutTheBypassSettingABypassStartIsAllowed() {
+        #expect(Self.startDecision(Self.bypassStart, parent: .auto, bypass: false) == .allow(updatedInput: Self.bypassStart))
     }
 
     @Test func startingAProposalAsksInManualMode() {
         let input: [String: JSONValue] = ["proposal_id": .string("task_0000abcd")]
-        #expect(PlumeMCPServer.decision(toolName: "mcp__plume__start_session", input: input, permissionMode: .manual) == nil)
+        #expect(PlumeMCPServer.decision(toolName: "mcp__plume__start_session", input: input, permissionMode: .manual, showsBypassPermissions: true) == nil)
     }
 
     /// The CLI cancels a pending call this way when the user interrupts.
@@ -225,7 +261,7 @@ struct PlumeMCPServerTests {
 
     @Test func planModeRefusesAStart() {
         let input: [String: JSONValue] = ["initiation": .string("user_asked")]
-        #expect(PlumeMCPServer.decision(toolName: "mcp__plume__start_session", input: input, permissionMode: .plan)
+        #expect(PlumeMCPServer.decision(toolName: "mcp__plume__start_session", input: input, permissionMode: .plan, showsBypassPermissions: true)
             == .deny(message: ChildSessionError.parentInPlanMode.message))
     }
 
