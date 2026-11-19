@@ -84,16 +84,23 @@ struct SidebarQuotaRow: View, ThemedView {
     }
 
     private var usageOffer: some View {
-        Button("Show credit", action: acceptUsageOffer)
-            .buttonStyle(.plain)
-            .foregroundStyle(colors.foreground.opacity(colors.emphasis[.secondary]))
-            .help("Show usage credit and the Fable quota here. Plume reads Claude Code's login from your Keychain to fetch them, so macOS asks once. Right-click to hide this.")
-            .contextMenu {
-                Button("Don't Show This", action: dismissUsageOffer)
+        HStack(spacing: 4) {
+            Button("Show usage credit", action: acceptUsageOffer)
+                .buttonStyle(.bordered)
+                .controlSize(.small)
+                .help("Show usage credit and the Fable quota here. Plume reads Claude Code's login from your Keychain to fetch them, so macOS asks once.")
+                .plumeID(AccessibilityID.sidebarQuotaUsageOffer, invoke: acceptUsageOffer)
+            Button(action: dismissUsageOffer) {
+                Image(systemName: "xmark")
+                    .accessibilityLabel("Hide this")
             }
-            .transition(.opacity)
-            .plumeID(AccessibilityID.sidebarQuotaUsageOffer, invoke: acceptUsageOffer)
-            .plumeMenuItem(AccessibilityID.sidebarQuotaUsageOfferDismiss, invoke: dismissUsageOffer)
+            .buttonStyle(.borderless)
+            .controlSize(.small)
+            .foregroundStyle(colors.foreground.opacity(colors.emphasis[.subtle]))
+            .help("Hide this")
+            .plumeID(AccessibilityID.sidebarQuotaUsageOfferDismiss, invoke: dismissUsageOffer)
+        }
+        .transition(.opacity)
     }
 
     private func acceptUsageOffer() {

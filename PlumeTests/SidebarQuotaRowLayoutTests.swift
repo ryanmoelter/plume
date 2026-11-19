@@ -5,8 +5,8 @@ import Testing
 
 /// At the sidebar's default 240 pt width, the body-size Fable and credit
 /// glyphs fit beside full 5h and 7d meters, alone or together. The "Show
-/// credit" offer has no room there and wraps onto a second line rather than
-/// disappearing.
+/// usage credit" offer and its dismiss button have no room there, and wrap
+/// together onto a second line that holds them unclipped.
 @MainActor
 struct SidebarQuotaRowLayoutTests {
     private let defaultSidebarWidth: CGFloat = 240
@@ -83,6 +83,12 @@ struct SidebarQuotaRowLayoutTests {
         #expect(unbounded.width > defaultSidebarWidth, "the offer must not fit beside the meters, or this measures nothing")
         #expect(wrapped.width <= defaultSidebarWidth)
         #expect(wrapped.height > oneLine.height, "the offer moves onto a second line")
+
+        // Line 2 starts where the meters do: past the row's padding, its
+        // inset and the provider icon with its spacing.
+        let offer = unbounded.width - size(metersOnly, width: nil).width - 8
+        let lineStart = 2 * 12 + 2 * SidebarFooterMetrics.inset + 16 + 8
+        #expect(lineStart + offer <= defaultSidebarWidth, "the offer needs \(offer) pt from \(lineStart) pt")
     }
 }
 
