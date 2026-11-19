@@ -225,7 +225,7 @@ enum ControlChildSessionCommands {
     /// `child-session.offers` once the offer is answered.
     static func offer(_ params: ChildSessionProposeParams, in context: ModelContext) throws -> ChildSessionResult {
         let parent = try tab(params.parent, in: context)
-        let request = try request(params, initiation: .offer)
+        let request = ChildSessionCoordinator.shared.cardRequest(try request(params, initiation: .offer), from: parent).request
         let toolUseID = params.toolUseID ?? ChildSessionCoordinator.mintOfferID()
         let coordinator = ChildSessionCoordinator.shared
         if let refusal = coordinator.raiseOffer(request, from: parent, toolUseID: toolUseID) {

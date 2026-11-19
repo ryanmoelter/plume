@@ -426,6 +426,22 @@ struct ChildSessionProposalCoordinatorTests {
         #expect(stored.forkCut == "result-1")
     }
 
+    @Test(arguments: [(PermissionMode.auto, PermissionMode.auto), (.bypassPermissions, .bypassPermissions)])
+    func aProposalCarriesBypassOnlyFromABypassParent(parent mode: PermissionMode, recorded: PermissionMode) async throws {
+        let (_, parent, session) = try makeParent()
+        parent.permissionMode = mode
+        defer { ChildSessionCoordinator.shared.tabForgotten(parent.id) }
+
+        let reply = try await call(
+            session, "start_session", Self.proposal.merging(["permission_mode": .string("bypassPermissions")]) { $1 }
+        )
+
+        #expect(!reply.isError)
+        #expect(reply.text.hasSuffix(ChildSessionFormats.bypassDroppedFromCard) == (recorded != .bypassPermissions))
+        let stored = try #require(ChildSessionProposalStore(json: parent.childProposalsJSON).proposals.first)
+        #expect(stored.permissionMode == recorded.token)
+    }
+
     @Test func dismissTaskWithdrawsAPendingProposal() async throws {
         let (_, parent, session) = try makeParent()
         defer { ChildSessionCoordinator.shared.tabForgotten(parent.id) }

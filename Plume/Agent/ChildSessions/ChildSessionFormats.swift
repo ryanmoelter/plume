@@ -19,6 +19,7 @@ nonisolated enum ChildSessionFormats {
     }
 
     static let forkWorktreeIgnored = "use_worktree was ignored: a forked session shares this session's folder."
+    static let bypassDroppedFromCard = "Its permission_mode is auto, not bypassPermissions: a card does not show the mode, so only a session in bypass can propose or offer bypass."
     static let bypassNotApproved = "It runs in auto mode, not bypassPermissions: the user did not approve bypass for it."
 
     static func started(title: String, sessionID: String, name: String, notesFolder: String) -> String {

@@ -125,7 +125,12 @@ final class ChildSessionCoordinator {
             switch StartSessionCall.parse(call.arguments) {
             case .success(.start(let request)): result = await startSession(request, from: tab, approvedByUser: approvedByUser)
             case .success(.propose(let request)):
-                result = propose(request, from: tab, forkCut: forkCut).map { ChildSessionFormats.proposed(title: $0.title, taskID: $0.id) }
+                result = propose(request, from: tab, forkCut: forkCut).map { proposal in
+                    let proposed = ChildSessionFormats.proposed(title: proposal.title, taskID: proposal.id)
+                    let dropped = request.permissionMode == .bypassPermissions
+                        && proposal.permissionMode != PermissionMode.bypassPermissions.token
+                    return dropped ? proposed + " " + ChildSessionFormats.bypassDroppedFromCard : proposed
+                }
             case .success(.offer(let request)):
                 if let toolUseID = call.toolUseID {
                     result = await offer(request, from: tab, toolUseID: toolUseID)
@@ -346,8 +351,24 @@ final class ChildSessionCoordinator {
     func offer(
         _ request: StartSessionRequest, from parent: TaskTab, toolUseID: String
     ) async -> Result<String, ChildSessionError> {
+        let (request, dropped) = cardRequest(request, from: parent)
         if let refusal = raiseOffer(request, from: parent, toolUseID: toolUseID) { return .failure(refusal) }
-        return await awaitOffer(request, from: parent, toolUseID: toolUseID)
+        let answered = await awaitOffer(request, from: parent, toolUseID: toolUseID)
+        return dropped ? answered.map { $0 + " " + ChildSessionFormats.bypassDroppedFromCard } : answered
+    }
+
+    /// A card shows no permission mode, so a click on it must never start a
+    /// bypass session the user could not see. Only a parent already in
+    /// bypass may record one; any other gets auto in its place.
+    func cardRequest(
+        _ request: StartSessionRequest, from parent: TaskTab
+    ) -> (request: StartSessionRequest, droppedBypass: Bool) {
+        guard request.permissionMode == .bypassPermissions,
+              LiveSettings(of: parent).permissionMode != .bypassPermissions
+        else { return (request, false) }
+        var lowered = request
+        lowered.permissionMode = .auto
+        return (lowered, true)
     }
 
     /// Puts the card up, or says why it can't go up.
@@ -433,6 +454,7 @@ final class ChildSessionCoordinator {
         guard ChildSessionProposalStore(json: parent.childProposalsJSON).isWritable else {
             return .failure(.failed("This session's stored proposals could not be read, so no new one can be recorded."))
         }
+        let request = cardRequest(request, from: parent).request
         return .success(withProposals(of: parent, now: now) { store in
             var id = ChildSessionProposalStore.makeID()
             while store.proposal(id: id) != nil { id = ChildSessionProposalStore.makeID() }

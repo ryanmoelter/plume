@@ -282,6 +282,22 @@ struct ChildSessionOfferTests {
 
     private var board: ChildSessionOfferBoard { .shared }
 
+    @Test(arguments: [(PermissionMode.acceptEdits, PermissionMode.auto), (.bypassPermissions, .bypassPermissions)])
+    func anOfferCarriesBypassOnlyFromABypassParent(parent mode: PermissionMode, recorded: PermissionMode) async throws {
+        let offer = try makeOffer()
+        offer.parent.permissionMode = mode
+        defer { ChildSessionCoordinator.shared.tabForgotten(offer.parent.id) }
+        var request = request()
+        request.permissionMode = .bypassPermissions
+        let waiting = Task { await ChildSessionCoordinator.shared.offer(request, from: offer.parent, toolUseID: offer.id) }
+        await settle { board.offer(offer.id) != nil }
+
+        #expect(board.offer(offer.id)?.request.permissionMode == recorded)
+        board.answer(offer.id, .doItHere)
+        let text = try await waiting.value.get()
+        #expect(text.hasSuffix(ChildSessionFormats.bypassDroppedFromCard) == (recorded != .bypassPermissions))
+    }
+
     @Test func cancellingTheCallWithdrawsTheOffer() async throws {
         let offer = try raiseOffer()
         defer { ChildSessionCoordinator.shared.tabForgotten(offer.parent.id) }
