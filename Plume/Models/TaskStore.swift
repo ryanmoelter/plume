@@ -902,7 +902,10 @@ enum TaskStore {
         guard tab.task != nil else { return nil }
         let newTask = WorkTask(title: tab.displayTitle, orderIndex: nextIndex(after: siblings), group: group)
         context.insert(newTask)
-        moveTab(tab, to: newTask)
+        guard moveTab(tab, to: newTask) else {
+            context.delete(newTask)
+            return nil
+        }
         return newTask
     }
 
