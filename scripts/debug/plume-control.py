@@ -8,7 +8,7 @@
 Commands: list, describe, invoke, setValue, readText, clickSpan, click,
 pointerDrag, hover, clear, drag, screenshot, recordStart, recordStop,
 hierarchy, key, menu, windowSize, selection, selectText, tasks, selectTask,
-appendTurn, resize, scrollChat.
+appendTurn, resize, scrollChat, injectUsage, scrollTo.
 Values parse as JSON when they can, so `target='{"id":"composer-field"}'`
 and `x=10` work; anything else is a string. Prints the response; exit 1
 when the app reports an error.

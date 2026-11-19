@@ -1,5 +1,24 @@
 import SwiftUI
 
+/// One section of the stacked popover, below the context window.
+enum UsagePopoverSection: Equatable {
+    case quota(QuotaWindowSummary)
+    case credit
+
+    /// The credit is spent on the Claude account, so it closes Claude's
+    /// sections, ahead of Codex's.
+    static func ordered(
+        claude: [QuotaWindowSummary],
+        fable: QuotaWindowSummary?,
+        showsCredit: Bool,
+        codex: [QuotaWindowSummary]
+    ) -> [UsagePopoverSection] {
+        (claude + [fable].compactMap { $0 }).map(Self.quota)
+            + (showsCredit ? [.credit] : [])
+            + codex.map(Self.quota)
+    }
+}
+
 /// The stacked statusline's click-through: the context window and every
 /// quota window together, each in the same shape as a single quota's popover.
 struct StatuslineUsagePopover: View, ThemedView {
@@ -7,7 +26,9 @@ struct StatuslineUsagePopover: View, ThemedView {
 
     let contextUsedTokens: Int?
     let contextMaxTokens: Int?
-    let quotaSummaries: [QuotaWindowSummary]
+    let sections: [UsagePopoverSection]
+    var credit: UsageCredit?
+    var isCreditStale = false
     /// Asked for a fresh breakdown each time the popover opens.
     let headlessSession: HeadlessSession?
     var compact: CompactAction?
@@ -22,9 +43,18 @@ struct StatuslineUsagePopover: View, ThemedView {
                     compact: compact
                 )
             }
-            ForEach(Array(quotaSummaries.enumerated()), id: \.offset) { index, summary in
+            ForEach(Array(sections.enumerated()), id: \.offset) { index, section in
                 if index > 0 || hasContext { Divider() }
-                QuotaSummarySection(summary: summary)
+                switch section {
+                case .quota(let summary):
+                    QuotaSummarySection(summary: summary)
+                case .credit:
+                    UsageCreditSection(credit: credit, isStale: isCreditStale)
+                        .plumeID(
+                            AccessibilityID.statuslineUsageCredit,
+                            value: UsageCreditFormat.controlValue(credit, isStale: isCreditStale)
+                        )
+                }
             }
         }
         .usagePopoverStyle(typography: typography)

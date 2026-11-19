@@ -30,12 +30,14 @@ struct ControlDispatcherTests {
             #"{"id":"17","command":"selectTask","task":"Task 1","from":"Task 2","repeat":3}"#,
             #"{"id":"18","command":"appendTurn","repeat":4,"reply":false}"#,
             #"{"id":"19","command":"resize","width":600,"height":400,"live":true,"steps":4}"#,
+            #"{"id":"20","command":"scrollTo","edge":"bottom"}"#,
+            #"{"id":"21","command":"injectUsage","fable":0.5}"#,
         ]
         for line in lines {
             let response = await ControlDispatcher.handle(line: line, backend: backend)
             #expect(response.ok, "\(line) → \(response.error ?? "")")
         }
-        #expect(backend.calls == ["list", "describe", "invoke", "setValue", "readText", "clickSpan", "click", "screenshot", "hierarchy", "hover", "clear", "selection", "selectText", "recordStart", "recordStop", "tasks", "selectTask", "appendTurn", "resize"])
+        #expect(backend.calls == ["list", "describe", "invoke", "setValue", "readText", "clickSpan", "click", "screenshot", "hierarchy", "hover", "clear", "selection", "selectText", "recordStart", "recordStop", "tasks", "selectTask", "appendTurn", "resize", "scrollTo", "injectUsage"])
         #expect(backend.lastValue == "v")
         #expect(backend.lastSelectTask == SelectTaskParams(task: "Task 1", from: "Task 2", repeatCount: 3))
         #expect(backend.lastAppendTurn == AppendTurnParams(repeatCount: 4, reply: false))
@@ -208,6 +210,15 @@ final class FakeControlBackend: ControlBackend {
         return ScrollHitchReport(
             clock: "timer", startOffset: 0, endOffset: 0, distance: 0, timedOut: false, samples: [], worst: 0
         )
+    }
+
+    func injectUsage(_ params: InjectUsageParams) async throws -> InjectUsageResult {
+        try record("injectUsage")
+        return InjectUsageResult(isUsingOverage: false, hasWindows: false, readsUsage: false, alwaysShow: false, shows: [])
+    }
+
+    func scrollTo(_ params: ScrollToParams) throws {
+        try record("scrollTo")
     }
 }
 

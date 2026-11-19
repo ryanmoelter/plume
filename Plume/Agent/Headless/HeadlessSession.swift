@@ -275,6 +275,9 @@ final class HeadlessSession: AgentSession {
     let supportsPlanApproval = true
 
     private var process: AgentProcess?
+    /// Bumped whenever `process` changes hands, so an exit reported by a
+    /// process this session already let go of changes nothing.
+    private var processGeneration = 0
     private var pendingControlRequests: [String: PendingControlRequest] = [:]
     private var permissionModeRequests = PermissionModeRequests()
     private var nextRequestNumber = 0
@@ -330,6 +333,7 @@ final class HeadlessSession: AgentSession {
 
     @ObservationIgnored private let statusEngine: StatusEngine
     @ObservationIgnored private let quotaStore: QuotaStore
+    @ObservationIgnored private let usagePoller: ClaudeUsagePoller
     @ObservationIgnored private let backgroundTasks: BackgroundTaskTracker
 
     /// `initialEffort` seeds the displayed value from the tab's last-known
@@ -342,6 +346,7 @@ final class HeadlessSession: AgentSession {
         initialEffort: AgentEffort? = nil,
         statusEngine: StatusEngine = .shared,
         quotaStore: QuotaStore = .shared,
+        usagePoller: ClaudeUsagePoller = .shared,
         backgroundTasks: BackgroundTaskTracker = .shared
     ) {
         self.tabID = tabID
@@ -349,6 +354,7 @@ final class HeadlessSession: AgentSession {
         self.effort = initialEffort
         self.statusEngine = statusEngine
         self.quotaStore = quotaStore
+        self.usagePoller = usagePoller
         self.backgroundTasks = backgroundTasks
     }
 
@@ -410,6 +416,8 @@ final class HeadlessSession: AgentSession {
             addDirectories: addDirectories,
             systemPromptRulePath: AgentPromptRule.formattingPath
         )
+        processGeneration += 1
+        let generation = processGeneration
         let handler = AgentProcess(
             label: "claude",
             onLine: { [weak self] line in
@@ -417,7 +425,10 @@ final class HeadlessSession: AgentSession {
                 Task { @MainActor in self?.handle(message) }
             },
             onExit: { [weak self] status, errorLine in
-                Task { @MainActor in self?.handleExit(status: status, errorLine: errorLine) }
+                Task { @MainActor in
+                    guard let self, self.processGeneration == generation else { return }
+                    self.handleExit(status: status, errorLine: errorLine)
+                }
             }
         )
         do {
@@ -479,6 +490,7 @@ final class HeadlessSession: AgentSession {
         mcpServer?.cancelAllCalls()
         let closing = process
         process = nil
+        processGeneration += 1
         if markingExited { hasExited = true }
         // Forgotten rather than emptied, so a tab switched to the terminal
         // transport reads its tasks from the transcript again.
@@ -1642,6 +1654,7 @@ final class HeadlessSession: AgentSession {
     static let unexplainedTurnFailure = "The turn failed."
 
     private func endTurn(_ result: TurnResult) {
+        usagePoller.turnEnded()
         if let cost = result.totalCostUSD { sessionCostUSD = max(cost, sessionCostUSD ?? 0) }
         if let window = result.contextWindow { contextWindow = window }
         if let used = result.contextUsedTokens { contextUsedTokens = used }

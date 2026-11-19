@@ -502,6 +502,41 @@ Feeds the context breakdown in the statusline's usage popover. Probed against 2.
 - `HeadlessSession.requestContextUsage()` sends the request each time the popover opens, never on a timer. The last reply stays cached in `contextBreakdown` meanwhile.
 - An error reply, or a reply with no readable category, clears `contextBreakdown`, and the popover shows no breakdown.
 
+## Account usage — `get_usage`
+
+Feeds the credit and Fable readings in the sidebar's quota row and the statusline. **The request is marked experimental**, so `ClaudeUsageRequest` decodes every field as optional. A reply Plume doesn't recognise is a failed poll: the last readings stay, and the next poll backs off. A reply saying usage is unavailable hides the credit and Fable readings with no failure shown. Verified against 2.1.328.
+
+Plume never sends it to a chat's own process. `ClaudeUsageClient` launches a short-lived `claude -p --input-format stream-json --output-format stream-json --verbose`, through the login shell like every headless launch, writes two lines and ends the process when the reply arrives, when it exits, or after 30 seconds:
+
+```json
+{"type":"control_request","request_id":"initialize","request":{"subtype":"initialize"}}
+{"type":"control_request","request_id":"usage","request":{"subtype":"get_usage","skip_behaviors":true}}
+```
+
+The CLI answers before any user message, so the request costs no inference. The reply, abridged:
+
+```json
+{"type":"control_response","response":{"subtype":"success","request_id":"usage","response":{
+  "subscription_type":"team","rate_limits_available":true,"behaviors":null,"session":{…},
+  "rate_limits":{
+    "five_hour":{"utilization":37,"resets_at":"2026-11-18T23:30:00Z",…},
+    "seven_day":{"utilization":64,"resets_at":"2026-11-22T03:00:00Z",…},
+    "extra_usage":{"is_enabled":true,"monthly_limit":20000,"used_credits":4321,"currency":"USD","decimal_places":2,…},
+    "limits":[{"kind":"weekly_scoped","percent":45,"resets_at":"…","scope":{"model":{"display_name":"Fable"}},…}, …],
+    "spend":{"used":{"amount_minor":4321,"currency":"USD","exponent":2},"limit":{"amount_minor":20000,…},"enabled":true,"balance":null,…},
+    "model_scoped":[{"display_name":"Fable","utilization":45,"resets_at":"…"}],
+    …}}}}
+```
+
+- `utilization` and `percent` are 0–100. Amounts are minor units of `currency`.
+- `ClaudeUsageParser` reads `rate_limits`: the Fable window from the `weekly_scoped` row of `limits[]` whose model is Fable, else from `model_scoped[]`, and the credit from `spend`, else `extra_usage`. `rate_limits` carries many more keys, most of them null; the parser ignores them. `QuotaStore` keeps taking the 5h and 7d windows from the stream.
+- **A login that reports no usage gets `"rate_limits_available": false` and `"rate_limits": null`.** An API key, Bedrock, Vertex, or a login without the profile scope all do. Plume treats that as nothing to show, not as a failure, and asks again only hourly. Only that explicit `false` means unavailable; a reply missing `rate_limits` for any other reason is a failed poll.
+- A refusal arrives as an error-shaped response (below).
+- The run takes `--no-session-persistence`, `--strict-mcp-config` and `--settings '{"disableAllHooks":true}'`, and runs in `usage/` under Plume's Application Support folder. Without a user message the CLI writes no transcript even without the first flag (checked against `~/.claude/projects`), but the user's `SessionStart` hooks do fire, and MCP servers would start, so the run turns both off.
+- `LoginShellCommand.childEnvironment(removing:)` drops `CLAUDECODE` and `CLAUDE_CODE_CHILD_SESSION`, so a Plume launched from inside Claude Code doesn't pass that session's markers on.
+
+`ClaudeUsagePoller` polls every 20 minutes, with a doubling backoff after a failure, capped at an hour, and hourly for a login that reports no usage. While a 5h or 7d window is full, or the account is using overage, the end of any Claude turn polls too, at most every 2 minutes, since credits are being spent then. The Settings ▸ Agents toggle turns it off.
+
 ## Session titles — `generate_session_title`
 
 Verified first-hand against 2.1.276 and 2.1.280.
@@ -611,7 +646,7 @@ Nothing times out a control request on either side, so a reply that is never dec
 
 Observed in order, from a real run:
 
-1. **`rate_limit_event`** — arrives **before** `system/init`, so quota can land before its session is known. `rate_limit_info` carries `unifiedWindows.five_hour` / `.seven_day`, each `{utilization, resetsAt}`, plus `overageStatus`, `overageResetsAt`, `isUsingOverage`. **`utilization` is 0–1**, where the statusline payload's `used_percentage` was 0–100.
+1. **`rate_limit_event`** — arrives **before** `system/init`, so quota can land before its session is known. `rate_limit_info` carries `unifiedWindows.five_hour` / `.seven_day`, each `{utilization, resetsAt}`, plus `overageStatus`, `overageResetsAt`, `isUsingOverage`. On a Fable turn only, `unifiedWindows` also carries `seven_day_overage_included`, the same shape: it is the Fable weekly window. It names no model, so nothing in the event says it is Fable's; that was verified against `/usage` on CLI 2.1.328, where it read 0.20 beside "Current week (Fable): 21%" with the same reset as `seven_day`. A turn on another model omits it, which never means the Fable window emptied. **`utilization` is 0–1**, where the statusline payload's `used_percentage` was 0–100.
 2. **`system` / `init`** — `session_id`, `cwd`, `model`, `permissionMode`, `tools`, `slash_commands`, `agents`, `skills`, `mcp_servers` (each `{name, status}`), `memory_paths`, `plugins`, `output_style`, `claude_code_version`, `apiKeySource`.
    `tools` is a flat list of names with no deferred marker. `HeadlessSession.toolNames` keeps the latest one in memory and logs it when it changes. In a Debug build the info pane's Tools section shows it, and the control server's `list` with `plumeID: "info-pane-tools-toggle"` returns the names, comma-joined, as `value`.
 3. **`system` / `status`** — coarse activity (`"requesting"`).

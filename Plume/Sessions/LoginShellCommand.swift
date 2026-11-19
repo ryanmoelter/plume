@@ -85,9 +85,11 @@ nonisolated enum LoginShellCommand {
     /// directory is appended.
     static func childEnvironment(
         overrides: [String: String],
+        removing removedKeys: [String] = [],
         helpersDirectory: URL? = CommandLineHelper.bundledDirectory
     ) -> [String: String] {
         var environment = ProcessInfo.processInfo.environment.merging(overrides) { $1 }
+        for key in removedKeys { environment[key] = nil }
         if overrides["PATH"] == nil, let path = environment["PATH"] {
             environment["PATH"] = CommandLineHelper.appending(helpersDirectory, toPath: CommandLineHelper.droppingAppDirectories(fromPath: path))
         }

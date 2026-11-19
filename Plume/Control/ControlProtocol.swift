@@ -59,6 +59,8 @@ nonisolated struct ControlServerRequest: Decodable {
         case "child-session.offer": command = .offerChildSession(try ChildSessionProposeParams(from: decoder))
         case "child-session.offers": command = .listChildSessionOffers(try ChildSessionProposalsParams(from: decoder))
         case "child-session.offer.answer": command = .answerChildSessionOffer(try ChildSessionOfferAnswerParams(from: decoder))
+        case "injectUsage": command = .injectUsage(try InjectUsageParams(from: decoder))
+        case "scrollTo": command = .scrollTo(try ScrollToParams(from: decoder))
         default:
             throw DecodingError.dataCorruptedError(
                 forKey: .command, in: container, debugDescription: "unknown command \"\(name)\""
@@ -106,6 +108,25 @@ nonisolated enum ControlCommand {
     case offerChildSession(ChildSessionProposeParams)
     case listChildSessionOffers(ChildSessionProposalsParams)
     case answerChildSessionOffer(ChildSessionOfferAnswerParams)
+    case injectUsage(InjectUsageParams)
+    case scrollTo(ScrollToParams)
+}
+
+/// Scrolls the scroll view under `target` until the control is visible, or
+/// the largest one in the window to an `edge` (`top` or `bottom`) — for rows
+/// a lazy container hasn't mounted, which have no registered control yet.
+nonisolated struct ScrollToParams: Decodable, Equatable {
+    var target: ControlTarget?
+    var edge: String?
+    var windowNumber: Int?
+
+    func validate() throws {
+        switch (target, edge) {
+        case (nil, nil): throw ControlError.badParams("scrollTo needs a target or an edge")
+        case (.some, .some): throw ControlError.badParams("scrollTo takes target or edge, not both")
+        default: break
+        }
+    }
 }
 
 /// Sets the window's content size, in points. With `live`, the size steps
@@ -337,6 +358,45 @@ nonisolated enum TaskQuery {
         case 0: throw ControlError.notFound("task \"\(query)\"")
         default: throw ControlError.badParams("\(partial.count) tasks match \"\(query)\"; pass an id")
         }
+    }
+}
+
+/// A Fable window and a credit reading for the sidebar's quota row, as if the
+/// `get_usage` had reported them. Amounts are dollars; an omitted reading
+/// is cleared. The readings never reach disk, but `alwaysShow` sets the real,
+/// persisted setting.
+nonisolated struct InjectUsageParams: Decodable, Equatable {
+    /// 0–1, like the stream's `utilization`.
+    var fable: Double?
+    var fableResetsInHours: Double?
+    var creditUsed: Double?
+    var creditLimit: Double?
+    var creditBalance: Double?
+    var isUsingOverage: Bool?
+    /// Sets the persisted "Always show credit and Fable quota" setting.
+    var alwaysShow: Bool?
+    /// Drops the 5h and 7d windows, as for a row only `get_usage` has
+    /// reported to. Injected like the readings, so never persisted.
+    var clearWindows: Bool?
+
+    /// Without any, an `injectUsage` ends the injection instead.
+    var hasReadings: Bool {
+        fable != nil || creditUsed != nil || creditLimit != nil || creditBalance != nil
+            || isUsingOverage != nil || clearWindows == true
+    }
+
+    func validate() throws {
+        if let fable, !(0...1).contains(fable) {
+            throw ControlError.badParams("fable is a 0–1 utilization")
+        }
+        if fableResetsInHours != nil, fable == nil {
+            throw ControlError.badParams("fableResetsInHours needs fable")
+        }
+    }
+
+    /// Dollars to cents, or nil for an amount no `Int` holds.
+    static func cents(_ dollars: Double?) -> Int? {
+        dollars.flatMap { Int(exactly: ($0 * 100).rounded()) }
     }
 }
 
@@ -875,6 +935,21 @@ nonisolated struct HierarchyResult: Codable, Equatable {
     var root: HierarchyNode?
 }
 
+/// The quota state an `injectUsage` left behind, read back from the store
+/// rather than the registry. Amounts are dollars. `shows` names what the
+/// sidebar row draws besides its meters: `fable`, `credit`.
+nonisolated struct InjectUsageResult: Codable, Equatable {
+    var fable: Double?
+    var creditUsed: Double?
+    var creditLimit: Double?
+    var creditBalance: Double?
+    var isUsingOverage: Bool
+    var hasWindows: Bool
+    var readsUsage: Bool
+    var alwaysShow: Bool
+    var shows: [String]
+}
+
 nonisolated enum ControlResult: Encodable {
     case controls([ControlDescription])
     case description(ControlDescription)
@@ -902,6 +977,7 @@ nonisolated enum ControlResult: Encodable {
     case childSession(ChildSessionResult)
     case childSessionProposals(ChildSessionProposalsResult)
     case childSessionOffers(ChildSessionOffersResult)
+    case injectUsage(InjectUsageResult)
 
     func encode(to encoder: Encoder) throws {
         switch self {
@@ -931,6 +1007,7 @@ nonisolated enum ControlResult: Encodable {
         case .childSession(let v): try v.encode(to: encoder)
         case .childSessionProposals(let v): try v.encode(to: encoder)
         case .childSessionOffers(let v): try v.encode(to: encoder)
+        case .injectUsage(let v): try v.encode(to: encoder)
         }
     }
 }

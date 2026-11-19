@@ -46,6 +46,10 @@ final class AppSettings {
         static let sidebarShowsTaskColorBar = "sidebarShowsTaskColorBar"
         static let sidebarColorsTaskNames = "sidebarColorsTaskNames"
         static let sidebarBoldTaskNames = "sidebarBoldTaskNames"
+        static let alwaysShowsCreditAndFableQuota = "alwaysShowsCreditAndFableQuota"
+        static let readsClaudeUsage = "checksClaudeUsage"
+        /// Earlier builds of the usage reader wrote these; nothing reads them.
+        static let retiredClaudeUsageKeys = ["readsClaudeUsage", "claudeUsageKeychainCancels", "dismissedClaudeUsageOffer"]
         static let sidebarColorsTaskIcons = "sidebarColorsTaskIcons"
         static let sidebarSuggestsFilledIcons = "sidebarSuggestsFilledIcons"
         static let sidebarTwoToneIcons = "sidebarTwoToneIcons"
@@ -215,6 +219,11 @@ final class AppSettings {
             : defaults.bool(forKey: Key.sidebarShowsTaskColorBar)
         self.sidebarColorsTaskNames = defaults.bool(forKey: Key.sidebarColorsTaskNames)
         self.sidebarBoldTaskNames = defaults.bool(forKey: Key.sidebarBoldTaskNames)
+        self.alwaysShowsCreditAndFableQuota = defaults.bool(forKey: Key.alwaysShowsCreditAndFableQuota)
+        for key in Key.retiredClaudeUsageKeys { defaults.removeObject(forKey: key) }
+        self.readsClaudeUsage = defaults.object(forKey: Key.readsClaudeUsage) == nil
+            ? true
+            : defaults.bool(forKey: Key.readsClaudeUsage)
         self.sidebarColorsTaskIcons = defaults.object(forKey: Key.sidebarColorsTaskIcons) == nil
             ? true
             : defaults.bool(forKey: Key.sidebarColorsTaskIcons)
@@ -658,6 +667,22 @@ final class AppSettings {
     var sidebarBoldTaskNames: Bool {
         didSet {
             defaults.set(sidebarBoldTaskNames, forKey: Key.sidebarBoldTaskNames)
+        }
+    }
+
+    /// Shows the sidebar's credit and Fable readings even while they have
+    /// nothing to report.
+    var alwaysShowsCreditAndFableQuota: Bool {
+        didSet {
+            defaults.set(alwaysShowsCreditAndFableQuota, forKey: Key.alwaysShowsCreditAndFableQuota)
+        }
+    }
+
+    /// Whether `ClaudeUsagePoller` asks Claude Code for the credit spend and
+    /// the Fable window.
+    var readsClaudeUsage: Bool {
+        didSet {
+            defaults.set(readsClaudeUsage, forKey: Key.readsClaudeUsage)
         }
     }
 

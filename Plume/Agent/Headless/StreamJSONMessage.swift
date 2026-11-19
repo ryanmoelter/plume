@@ -42,6 +42,9 @@ nonisolated struct RateLimitInfo: Equatable, Codable {
     let fiveHour: Window?
     let sevenDay: Window?
     let isUsingOverage: Bool
+    /// The Fable weekly window, which the stream reports only on a Fable
+    /// turn as `seven_day_overage_included`.
+    var fable: Window?
 }
 
 nonisolated struct SessionInit: Equatable {

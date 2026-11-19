@@ -45,6 +45,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
         UpdateController.shared.start()
 
+        ClaudeUsagePoller.shared.start()
+
         CommandLineHelper.repointLegacyLinks()
 
         OrphanedAgentReaper.shared.start()

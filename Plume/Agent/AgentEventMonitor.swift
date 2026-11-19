@@ -58,6 +58,7 @@ final class AgentEventMonitor {
 
         for event in events {
             statusEngine.apply(event, taskID: taskID, tabID: tabID)
+            if event.kind == .stop && !isReplay { ClaudeUsagePoller.shared.turnEnded() }
             if event.endsClearedSession {
                 // A launch replays a tab's whole unread backlog in one drain,
                 // which can include a `/clear` from long before this process
