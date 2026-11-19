@@ -652,37 +652,12 @@ final class InProcessControlBackend: ControlBackend {
         try selectionResult(of: try chatListController())
     }
 
-    func injectUsage(_ params: InjectUsageParams) throws {
-        try params.validate()
-        if params.resetUsageOffer == true {
-            AppSettings.shared.dismissedClaudeUsageOffer = false
-            ClaudeUsagePoller.shared.setEnabled(false)
-            if !params.injectsReadings { return }
-        }
-        let cents = InjectUsageParams.cents
-        let fable = params.fable.map { utilization in
-            RateLimitInfo.Window(
-                utilization: utilization,
-                resetsAt: params.fableResetsInHours.map { Date().addingTimeInterval($0 * 3600) }
-            )
-        }
-        let hasCredit = params.creditUsed != nil || params.creditLimit != nil || params.creditBalance != nil
-        let credit = hasCredit
-            ? UsageCredit(
-                usedCents: cents(params.creditUsed),
-                limitCents: cents(params.creditLimit),
-                balanceCents: cents(params.creditBalance),
-                isEnabled: true,
-                currency: "USD"
-            )
-            : nil
-        ClaudeUsagePoller.shared.isSuspended = true
-        QuotaStore.shared.inject(
-            fable: fable, credit: credit, isUsingOverage: params.isUsingOverage, clearsWindows: params.clearWindows == true
+    func injectUsage(_ params: InjectUsageParams) async throws -> InjectUsageResult {
+        let result = try UsageInjection.apply(
+            params, store: .shared, settings: .shared, poller: .shared
         )
-        if let alwaysShow = params.alwaysShow {
-            AppSettings.shared.alwaysShowsCreditAndFableQuota = alwaysShow
-        }
+        await UsageInjection.settle(NSApp.windows)
+        return result
     }
 
     // MARK: Scrolling

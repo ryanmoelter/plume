@@ -929,6 +929,21 @@ nonisolated struct HierarchyResult: Codable, Equatable {
     var root: HierarchyNode?
 }
 
+/// The quota state an `injectUsage` left behind, read back from the store
+/// rather than the registry. Amounts are dollars. `shows` names what the
+/// sidebar row draws besides its meters: `fable`, `credit`, `offer`.
+nonisolated struct InjectUsageResult: Codable, Equatable {
+    var fable: Double?
+    var creditUsed: Double?
+    var creditLimit: Double?
+    var creditBalance: Double?
+    var isUsingOverage: Bool
+    var hasWindows: Bool
+    var readsUsage: Bool
+    var alwaysShow: Bool
+    var shows: [String]
+}
+
 nonisolated enum ControlResult: Encodable {
     case controls([ControlDescription])
     case description(ControlDescription)
@@ -956,6 +971,7 @@ nonisolated enum ControlResult: Encodable {
     case childSession(ChildSessionResult)
     case childSessionProposals(ChildSessionProposalsResult)
     case childSessionOffers(ChildSessionOffersResult)
+    case injectUsage(InjectUsageResult)
 
     func encode(to encoder: Encoder) throws {
         switch self {
@@ -985,6 +1001,7 @@ nonisolated enum ControlResult: Encodable {
         case .childSession(let v): try v.encode(to: encoder)
         case .childSessionProposals(let v): try v.encode(to: encoder)
         case .childSessionOffers(let v): try v.encode(to: encoder)
+        case .injectUsage(let v): try v.encode(to: encoder)
         }
     }
 }
