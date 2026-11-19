@@ -27,7 +27,7 @@ struct HomeView: View {
                 hasRefreshed = true
                 await composer.refresh(
                     HomeComposerInputs(tasks: tasks, groups: groups),
-                    recentTaskID: LastOpenTask.lastTask(),
+                    recentTaskID: LastOpenTask.shared.lastTask,
                     picksDefaults: picksDefaults
                 )
             }

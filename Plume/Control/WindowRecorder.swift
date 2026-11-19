@@ -29,8 +29,6 @@ final class WindowRecorder {
         let source: () -> RecordingFrameRequest?
         let maxSeconds: Double
         let timer: DispatchSourceTimer
-        /// A driven instance is never frontmost, and App Nap would otherwise
-        /// stretch the timer to a few frames a second.
         let activity: NSObjectProtocol
         var inFlight = 0
         var dropped = 0
@@ -40,7 +38,7 @@ final class WindowRecorder {
             self.source = source
             self.maxSeconds = maxSeconds
             self.timer = timer
-            activity = ProcessInfo.processInfo.beginActivity(options: [.userInitiated, .latencyCritical], reason: "control server recording")
+            activity = ControlActivity.begin(reason: "control server recording")
         }
     }
 

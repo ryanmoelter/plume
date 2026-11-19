@@ -103,117 +103,73 @@ nonisolated enum TranscriptParser {
     }
 
     static func parse(entries: some Sequence<TranscriptEntry>, includeSidechain: Bool = false) -> Transcript {
-        var transcript = Transcript()
+        var state = State(includeSidechain: includeSidechain)
+        for entry in entries { state.consume(entry) }
+        return state.finished()
+    }
+
+    /// A parse fed one line at a time, so a transcript that only grew needs
+    /// only its new lines decoded. `finished()` reads the transcript so far
+    /// without ending the parse.
+    nonisolated struct State: Sendable {
+        let includeSidechain: Bool
+        private var transcript = Transcript()
 
         // A pending, still-open run of assistant lines, folded into one
         // message once a non-assistant line breaks the run.
-        var pendingAssistantBlocks: [ChatBlock] = []
-        var pendingAssistantID: String?
-        var pendingAssistantTimestamp: Date?
+        private var pendingAssistantBlocks: [ChatBlock] = []
+        private var pendingAssistantID: String?
+        private var pendingAssistantTimestamp: Date?
 
-        var pendingToolCalls: [String: ToolCallLocation] = [:]
-        var assistantIDs: Set<String> = []
+        private var pendingToolCalls: [String: ToolCallLocation] = [:]
+        private var assistantIDs: Set<String> = []
 
         // The tree: every row keyed by uuid, deduped (first occurrence
         // wins), plus which rows became which rendered message. Built
         // alongside the render pass rather than in a second pass over the
         // file — resolving forks afterward only walks this in-memory data.
-        var seenUUIDs = Set<String>()
-        var childrenByParent: [String: [BranchChild]] = [:]
+        private var seenUUIDs = Set<String>()
+        private var childrenByParent: [String: [BranchChild]] = [:]
         // Every child, attachments included. Fork detection has to skip
         // attachments, but collecting a branch cannot: attachments chain, so
         // a branch that runs through one loses every row below it otherwise.
-        var allChildrenByParent: [String: [String]] = [:]
-        var messageIndexByUUID: [String: Int] = [:]
-        var parentByUUID: [String: String] = [:]
+        private var allChildrenByParent: [String: [String]] = [:]
+        private var messageIndexByUUID: [String: Int] = [:]
+        private var parentByUUID: [String: String] = [:]
         // Where a compaction restarted the chain with a null `parentUuid`.
         // Only the live walk follows these: without them nothing before the
         // latest compaction reads as live.
-        var logicalParentByUUID: [String: String] = [:]
+        private var logicalParentByUUID: [String: String] = [:]
         // The file's last message row — Claude Code only ever appends to the
         // branch it is currently on, so this row is the tip of the surviving
         // path. Bookkeeping rows such as `progress` can hang off the chain as
         // side leaves, and one of those as the tip would read the real
         // continuation as abandoned.
-        var tipUUID: String?
+        private var tipUUID: String?
         // Every row merged into the pending reply. The reply is keyed by its
         // API id, so without these no row uuid on a branch leads to it.
-        var pendingAssistantRowUUIDs: [String] = []
+        private var pendingAssistantRowUUIDs: [String] = []
         // Every row read since the pending reply opened. An assistant row
         // whose parent is not among them is a sibling on another branch, so
         // it starts a reply of its own.
-        var rowUUIDsInPendingRun = Set<String>()
-
-        func flushPendingAssistant() {
-            guard !pendingAssistantBlocks.isEmpty else { return }
-            let messageIndex = transcript.messages.count
-            transcript.messages.append(ChatMessage(
-                id: pendingAssistantID ?? UUID().uuidString,
-                role: .assistant,
-                blocks: pendingAssistantBlocks,
-                timestamp: pendingAssistantTimestamp
-            ))
-            if let id = pendingAssistantID { messageIndexByUUID[id] = messageIndex }
-            for uuid in pendingAssistantRowUUIDs { messageIndexByUUID[uuid] = messageIndex }
-            for (id, location) in pendingToolCalls {
-                if case .pendingAssistant(let blockIndex) = location {
-                    pendingToolCalls[id] = .flushedMessage(messageIndex: messageIndex, blockIndex: blockIndex)
-                }
-            }
-            pendingAssistantBlocks = []
-            pendingAssistantRowUUIDs = []
-            rowUUIDsInPendingRun = []
-            pendingAssistantID = nil
-            pendingAssistantTimestamp = nil
-        }
-
-        func applyResult(toolUseId: String, content: String?, images: [ChatImage], isError: Bool) {
-            guard let location = pendingToolCalls.removeValue(forKey: toolUseId) else { return }
-            switch location {
-            case .pendingAssistant(let blockIndex):
-                guard pendingAssistantBlocks.indices.contains(blockIndex),
-                      case .toolCall(var call) = pendingAssistantBlocks[blockIndex]
-                else { return }
-                call.result = content
-                call.resultImages = images
-                call.didFail = isError
-                pendingAssistantBlocks[blockIndex] = .toolCall(call)
-            case .flushedMessage(let messageIndex, let blockIndex):
-                guard transcript.messages.indices.contains(messageIndex),
-                      transcript.messages[messageIndex].blocks.indices.contains(blockIndex),
-                      case .toolCall(var call) = transcript.messages[messageIndex].blocks[blockIndex]
-                else { return }
-                call.result = content
-                call.resultImages = images
-                call.didFail = isError
-                transcript.messages[messageIndex].blocks[blockIndex] = .toolCall(call)
-            }
-        }
-
-        func appendNotice(_ notice: ChatNotice, id: String?, timestamp: Date?) {
-            flushPendingAssistant()
-            let messageIndex = transcript.messages.count
-            transcript.messages.append(ChatMessage(
-                id: id ?? UUID().uuidString,
-                role: .notice,
-                blocks: [.notice(notice)],
-                timestamp: timestamp
-            ))
-            if let id { messageIndexByUUID[id] = messageIndex }
-        }
+        private var rowUUIDsInPendingRun = Set<String>()
 
         // A `<local-command-stdout>` line names no command, so the row takes
         // its title from the `<command-name>` line that preceded it.
-        var lastSlashCommand: String?
-        var handbackID: String?
+        private var lastSlashCommand: String?
+        private var handbackID: String?
 
-        for entry in entries {
-            if entry.isSidechain, !includeSidechain { continue }
+        init(includeSidechain: Bool = false) {
+            self.includeSidechain = includeSidechain
+        }
+
+        mutating func consume(_ entry: TranscriptEntry) {
+            if entry.isSidechain, !includeSidechain { return }
 
             // One real transcript carries 1,339 byte-identical duplicate
             // lines; without this a duplicated parent reads as forking.
             if let uuid = entry.uuid {
-                guard seenUUIDs.insert(uuid).inserted else { continue }
+                guard seenUUIDs.insert(uuid).inserted else { return }
                 if entry.type == "user" || entry.type == "assistant" { tipUUID = uuid }
                 if let parentUuid = entry.parentUuid {
                     parentByUUID[uuid] = parentUuid
@@ -268,7 +224,7 @@ nonisolated enum TranscriptParser {
 
             if let notice = ChatNotice.decoding(entry) {
                 appendNotice(notice, id: entry.uuid, timestamp: entry.timestamp)
-                continue
+                return
             }
 
             if let prompt = entry.attachment?.userPrompt {
@@ -280,7 +236,7 @@ nonisolated enum TranscriptParser {
                     default: nil
                     }
                 }
-                guard !blocks.isEmpty else { continue }
+                guard !blocks.isEmpty else { return }
                 flushPendingAssistant()
                 if let uuid = entry.uuid { messageIndexByUUID[uuid] = transcript.messages.count }
                 transcript.messages.append(ChatMessage(
@@ -289,10 +245,10 @@ nonisolated enum TranscriptParser {
                     blocks: blocks,
                     timestamp: entry.timestamp
                 ))
-                continue
+                return
             }
 
-            guard let message = entry.message, let role = message.role else { continue }
+            guard let message = entry.message, let role = message.role else { return }
             let contentBlocks = message.content?.blocks ?? []
 
             if entry.type == "assistant", entry.isApiErrorMessage {
@@ -305,7 +261,7 @@ nonisolated enum TranscriptParser {
                     id: entry.uuid,
                     timestamp: entry.timestamp
                 )
-                continue
+                return
             }
 
             switch (entry.type, role) {
@@ -409,10 +365,11 @@ nonisolated enum TranscriptParser {
                     case .commandCaveat: break
                     default: lastSlashCommand = nil
                     }
-                    let split = kind == .systemNote && !entry.isMeta
+                    let split = (kind == .systemNote || kind.isSideSessionEvent) && !entry.isMeta
                         ? InjectedContent.splittingLeadingSystemReminders(text)
                         : (reminders: [], rest: "")
-                    if split.rest.isEmpty {
+                    let hasEvents = split.reminders.contains { $0.hasPrefix("<\(SideSessionEvent.tag)") }
+                    if split.rest.isEmpty && !hasEvents {
                         otherBlocks.insert(
                             kind.isUserProse ? .markdown(kind.bodyText(text)) : .injected(kind, text: text),
                             at: 0
@@ -422,16 +379,16 @@ nonisolated enum TranscriptParser {
                         let restBlock: ChatBlock = restKind.isUserProse
                             ? .markdown(restKind.bodyText(split.rest))
                             : .injected(restKind, text: split.rest)
-                        otherBlocks.insert(
-                            contentsOf: split.reminders.map { ChatBlock.injected(.systemNote, text: $0) } + [restBlock],
-                            at: 0
-                        )
+                        let leading = hasEvents
+                            ? InjectedContent.classifyingLeading(split.reminders).map { ChatBlock.injected($0.kind, text: $0.text) }
+                            : split.reminders.map { ChatBlock.injected(.systemNote, text: $0) }
+                        otherBlocks.insert(contentsOf: leading + (split.rest.isEmpty ? [] : [restBlock]), at: 0)
                     }
                 }
 
                 // A user message made up only of tool_results carries no
                 // message of its own — the results attach to the tool calls.
-                guard !otherBlocks.isEmpty else { continue }
+                guard !otherBlocks.isEmpty else { return }
                 let messageIndex = transcript.messages.count
                 transcript.messages.append(ChatMessage(
                     id: entry.uuid ?? UUID().uuidString,
@@ -442,23 +399,87 @@ nonisolated enum TranscriptParser {
                 if let uuid = entry.uuid { messageIndexByUUID[uuid] = messageIndex }
 
             default:
-                continue
+                return
             }
         }
 
-        flushPendingAssistant()
-        transcript.parentByMessageID = parentByUUID
-        resolveForks(
-            in: &transcript,
-            childrenByParent: childrenByParent,
-            allChildrenByParent: allChildrenByParent,
-            messageIndexByUUID: messageIndexByUUID,
-            parentByUUID: parentByUUID,
-            logicalParentByUUID: logicalParentByUUID,
-            tipUUID: tipUUID
-        )
-        nameSubagentMessages(in: &transcript.messages)
-        return transcript
+        /// Costs a pass over every row read so far: the fork walk and the
+        /// subagent naming both cover the whole conversation.
+        func finished() -> Transcript {
+            var state = self
+            state.flushPendingAssistant()
+            var transcript = state.transcript
+            transcript.parentByMessageID = state.parentByUUID
+            TranscriptParser.resolveForks(
+                in: &transcript,
+                childrenByParent: state.childrenByParent,
+                allChildrenByParent: state.allChildrenByParent,
+                messageIndexByUUID: state.messageIndexByUUID,
+                parentByUUID: state.parentByUUID,
+                logicalParentByUUID: state.logicalParentByUUID,
+                tipUUID: state.tipUUID
+            )
+            TranscriptParser.nameSubagentMessages(in: &transcript.messages)
+            return transcript
+        }
+
+        private mutating func flushPendingAssistant() {
+            guard !pendingAssistantBlocks.isEmpty else { return }
+            let messageIndex = transcript.messages.count
+            transcript.messages.append(ChatMessage(
+                id: pendingAssistantID ?? UUID().uuidString,
+                role: .assistant,
+                blocks: pendingAssistantBlocks,
+                timestamp: pendingAssistantTimestamp
+            ))
+            if let id = pendingAssistantID { messageIndexByUUID[id] = messageIndex }
+            for uuid in pendingAssistantRowUUIDs { messageIndexByUUID[uuid] = messageIndex }
+            for (id, location) in pendingToolCalls {
+                if case .pendingAssistant(let blockIndex) = location {
+                    pendingToolCalls[id] = .flushedMessage(messageIndex: messageIndex, blockIndex: blockIndex)
+                }
+            }
+            pendingAssistantBlocks = []
+            pendingAssistantRowUUIDs = []
+            rowUUIDsInPendingRun = []
+            pendingAssistantID = nil
+            pendingAssistantTimestamp = nil
+        }
+
+        private mutating func applyResult(toolUseId: String, content: String?, images: [ChatImage], isError: Bool) {
+            guard let location = pendingToolCalls.removeValue(forKey: toolUseId) else { return }
+            switch location {
+            case .pendingAssistant(let blockIndex):
+                guard pendingAssistantBlocks.indices.contains(blockIndex),
+                      case .toolCall(var call) = pendingAssistantBlocks[blockIndex]
+                else { return }
+                call.result = content
+                call.resultImages = images
+                call.didFail = isError
+                pendingAssistantBlocks[blockIndex] = .toolCall(call)
+            case .flushedMessage(let messageIndex, let blockIndex):
+                guard transcript.messages.indices.contains(messageIndex),
+                      transcript.messages[messageIndex].blocks.indices.contains(blockIndex),
+                      case .toolCall(var call) = transcript.messages[messageIndex].blocks[blockIndex]
+                else { return }
+                call.result = content
+                call.resultImages = images
+                call.didFail = isError
+                transcript.messages[messageIndex].blocks[blockIndex] = .toolCall(call)
+            }
+        }
+
+        private mutating func appendNotice(_ notice: ChatNotice, id: String?, timestamp: Date?) {
+            flushPendingAssistant()
+            let messageIndex = transcript.messages.count
+            transcript.messages.append(ChatMessage(
+                id: id ?? UUID().uuidString,
+                role: .notice,
+                blocks: [.notice(notice)],
+                timestamp: timestamp
+            ))
+            if let id { messageIndexByUUID[id] = messageIndex }
+        }
     }
 
     /// Names each subagent's message by the call that spawned it, which is

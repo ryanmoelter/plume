@@ -18,6 +18,7 @@ final class CLICommandHandler {
         var context: ModelContext
         /// Shows the task in this window, for `tab new --select`.
         var reveal: (UUID) -> Void
+        var selectedTaskID: () -> UUID? = { nil }
         var openSettings: () -> Void = {}
     }
 
@@ -108,7 +109,7 @@ final class CLICommandHandler {
             }
             return .success
         case .newTab(let params):
-            return newTab(params)
+            return await newTab(params)
         case .newTask(let params):
             return await newTask(params)
         case .openSettings(let params):
@@ -129,7 +130,7 @@ final class CLICommandHandler {
     }
 
     /// The task the tab is in now, which a moved tab changes.
-    private func currentTask(ofTab tabID: UUID) -> (task: WorkTask, context: ModelContext)? {
+    func currentTask(ofTab tabID: UUID) -> (task: WorkTask, context: ModelContext)? {
         let windows = frontmostFirst
         guard let taskID = windows.lazy.compactMap({ $0.taskIDForTab(tabID) }).first else { return nil }
         return windows.lazy.compactMap { window in window.task(taskID).map { (task: $0, context: window.context) } }.first
@@ -336,8 +337,7 @@ final class CLICommandHandler {
         let liveTasks = ((try? context.fetch(FetchDescriptor<WorkTask>())) ?? []).filter { !$0.isArchived }
         // A client that timed out and retried would otherwise get a second
         // task for the same worktree.
-        let resolved = Self.resolvedPath(path)
-        if let existing = liveTasks.first(where: { $0.workingDirectoryPath.map(Self.resolvedPath) == resolved }) {
+        if let existing = Self.taskAlreadyOn(path, among: liveTasks) {
             if params.select { windows.first?.reveal(existing.id) }
             var response = CLIResponse.success
             response.taskID = existing.id
@@ -348,16 +348,26 @@ final class CLICommandHandler {
         let task = TaskStore.createTask(
             in: context, title: (path as NSString).lastPathComponent, group: group, siblings: siblings
         )
-        task.workingDirectoryPath = path
-        task.repoPath = ProjectRoot.repositoryDirectory(forRoot: checkout.facts.projectRoot)
-        task.branchName = checkout.branch
-        // Deleting a worktree task offers to remove the worktree, which the
-        // main checkout must never be.
-        task.workspaceKind = checkout.facts.isWorktree ? .worktree : .directory
+        task.tabs.first?.workspace = Self.workspace(at: path, checkout: checkout)
+        Self.recordCreatedWorktree(
+            at: path, checkout: checkout, in: task, worktree: params.createdWorktree, branch: params.createdBranch
+        )
         if params.select { windows.first?.reveal(task.id) }
         var response = CLIResponse.success
         response.taskID = task.id
         return response
+    }
+
+    /// The task that owns the worktree at `path`, else one with an agent tab
+    /// saved exactly there. A terminal's folder never counts: it follows `cd`.
+    static func taskAlreadyOn(_ path: String, among tasks: [WorkTask]) -> WorkTask? {
+        let standardized = OwnedWorktree.standardized(path)
+        let owner = tasks.first { task in task.ownedWorktrees.contains { $0.path == standardized } }
+        return owner ?? tasks.first { task in
+            task.liveTabs.contains { tab in
+                tab.kind == .agent && tab.workingDirectoryPath.map(OwnedWorktree.standardized) == standardized
+            }
+        }
     }
 
     /// Deletes a task through `TaskStore`, which closes its terminals. A no-op when no open
@@ -443,7 +453,18 @@ final class CLICommandHandler {
         return response
     }
 
-    private func newTab(_ params: CLIRequest.NewTab) -> CLIResponse {
+    private func newTab(_ params: CLIRequest.NewTab) async -> CLIResponse {
+        if let directory = params.directory {
+            guard directory.hasPrefix("/") else {
+                return .failure("directory must be an absolute path: \(directory)")
+            }
+            var isDirectory: ObjCBool = false
+            guard FileManager.default.fileExists(atPath: directory, isDirectory: &isDirectory), isDirectory.boolValue else {
+                return .failure("no such directory: \(directory)")
+            }
+        }
+        var checkout: Checkout?
+        if let directory = params.directory { checkout = await inspectCheckout(directory) }
         let windows = frontmostFirst
         let taskID: UUID
         if let requested = params.taskID {
@@ -459,22 +480,47 @@ final class CLICommandHandler {
         guard let (task, context) = windows.lazy.compactMap({ window in window.task(taskID).map { ($0, window.context) } }).first else {
             return .failure("no Plume task \(taskID.uuidString)")
         }
-        if let directory = params.directory {
-            guard directory.hasPrefix("/") else {
-                return .failure("directory must be an absolute path: \(directory)")
-            }
-            var isDirectory: ObjCBool = false
-            guard FileManager.default.fileExists(atPath: directory, isDirectory: &isDirectory), isDirectory.boolValue else {
-                return .failure("no such directory: \(directory)")
-            }
-        }
         let tab = Self.addTerminalTab(
             to: task, directory: params.directory, select: params.select, in: context, directories: directories
         )
+        if let directory = params.directory {
+            tab.workspace = Self.workspace(at: directory, checkout: checkout)
+            if let checkout, Self.resolvedPath(checkout.facts.checkoutRoot) == Self.resolvedPath(directory) {
+                Self.recordCreatedWorktree(
+                    at: directory, checkout: checkout, in: task,
+                    worktree: params.createdWorktree, branch: params.createdBranch
+                )
+            }
+        }
         if params.select { windows.first?.reveal(taskID) }
         var response = CLIResponse.success
         response.tabID = tab.id
         return response
+    }
+
+    /// `directory` as git sees it; a folder outside git is a plain directory.
+    static func workspace(at directory: String, checkout: Checkout?) -> TabWorkspace {
+        guard let checkout else { return .directory(directory) }
+        return TabWorkspace(
+            kind: checkout.facts.isWorktree ? .worktree : .directory,
+            directory: directory,
+            repoPath: ProjectRoot.repositoryDirectory(forRoot: checkout.facts.projectRoot),
+            branchName: checkout.branch
+        )
+    }
+
+    /// `wt` made the worktree at `path`, the root of `checkout`, for a tab of
+    /// `task`, so the task owns it. An older `wt` sends neither flag, and the
+    /// main checkout is never owned.
+    static func recordCreatedWorktree(
+        at path: String, checkout: Checkout, in task: WorkTask, worktree: Bool?, branch: Bool?
+    ) {
+        guard checkout.facts.isWorktree, worktree == true else { return }
+        task.recordOwnedWorktree(OwnedWorktree(
+            path: path,
+            repoPath: ProjectRoot.repositoryDirectory(forRoot: checkout.facts.projectRoot),
+            branch: branch == true ? checkout.branch : nil
+        ))
     }
 
     /// Unless asked to select it, the new tab opens behind whatever the user

@@ -13,6 +13,9 @@ struct ComposerHostedTypingTests {
     @Observable
     fileprivate final class Draft {
         var markdown = ""
+        var width: CGFloat = 400
+        var referenceResolver: ComposerReferenceResolver?
+        var referencePalette: ReferenceChipPalette?
     }
 
     private struct Host: View {
@@ -20,7 +23,7 @@ struct ComposerHostedTypingTests {
         @State private var isFocused = true
 
         var body: some View {
-            MarkdownComposerTextView(
+            var composer = MarkdownComposerTextView(
                 text: Binding(get: { draft.markdown }, set: { draft.markdown = $0 }),
                 placeholder: "",
                 fontSize: 13,
@@ -28,7 +31,9 @@ struct ComposerHostedTypingTests {
                 sendKey: .commandReturn,
                 onSend: {}
             )
-            .frame(width: 400, height: 200)
+            composer.referenceResolver = draft.referenceResolver
+            composer.referencePalette = draft.referencePalette
+            return composer.frame(width: draft.width, height: 200)
         }
     }
 
@@ -223,6 +228,46 @@ struct ComposerHostedTypingTests {
         #expect(clip.bounds.origin.y == scrolledTo)
     }
 
+    @Test func typingAfterAResizeKeepsItsPlaceAndDecorations() async throws {
+        let harness = try await Self.makeHarness()
+        defer { harness.close() }
+        let block = "# Heading\nA paragraph long enough to wrap once the composer is narrower than it was.\n- item\n> quote\n```\ncode\n```\n"
+        harness.draft.markdown = String(repeating: block, count: 40)
+        try await Task.sleep(for: .milliseconds(50))
+        let view = harness.view
+        let wideWidth = view.frame.width
+        await withCheckedContinuation { continuation in
+            view.didLayOutAllText = {
+                guard view.frame.width != wideWidth else { return }
+                view.didLayOutAllText = nil
+                continuation.resume()
+            }
+            harness.draft.width = 260
+        }
+        #expect(view.frame.width < wideWidth)
+        #expect(!view.needsFullLayout)
+        let ns = view.string as NSString
+        let caret = NSMaxRange(ns.range(of: "- item", options: .backwards))
+        view.setSelectedRange(NSRange(location: caret, length: 0))
+        view.scrollRangeToVisible(view.selectedRange())
+        let clip = try #require(view.enclosingScrollView?.contentView)
+        let scrolledTo = clip.bounds.origin.y
+        #expect(scrolledTo > 0)
+
+        try await harness.type("x")
+
+        #expect(clip.bounds.origin.y == scrolledTo)
+        let metrics = ComposerMarkdownMetrics(fontSize: 13)
+        func decorations() -> ComposerDecorations.Decorations {
+            ComposerDecorations.rects(in: view, metrics: metrics, visibleRect: view.visibleRect, structure: .init(text: view.string))
+        }
+        let shown = decorations()
+        #expect(!shown.bullets.isEmpty)
+        let layoutManager = try #require(view.textLayoutManager)
+        layoutManager.ensureLayout(for: layoutManager.documentRange)
+        #expect(decorations() == shown)
+    }
+
     @Test(arguments: ["para", "- item"])
     func aNewEmptyLastLineScrollsIntoView(lastLine: String) async throws {
         let harness = try await Self.makeHarness()
@@ -265,3 +310,154 @@ struct ComposerHostedTypingTests {
         #expect(harness.view.string == "")
     }
 }
+
+private struct KeystrokeSample {
+    var key: Duration
+    var restyle: Duration
+    var layout: Duration
+    var decorations: Duration
+    var draw: Duration
+    var height: Duration
+    var scroll: Duration
+}
+
+#if DEBUG
+/// Times one keystroke in a long draft, split into the restyle, the layout,
+/// the decoration rects a redraw needs, and the height measurement SwiftUI
+/// asks for, then the redraw after a scroll. Each length runs once plain and
+/// once with a resolved reference chip in every block. Opt-in: pass
+/// `TEST_RUNNER_PLUME_COMPOSER_BENCH=<results file>` to `xcodebuild test`.
+extension ComposerHostedTypingTests {
+    private nonisolated static let benchmarkOutput = ProcessInfo.processInfo.environment["PLUME_COMPOSER_BENCH"]
+
+    @Test(.enabled(if: benchmarkOutput != nil))
+    func keystrokeCostOnLongText() async throws {
+        var report: [String] = []
+        for lineCount in [300, 3000] {
+            for withChips in [false, true] {
+                report.append(try await Self.measureKeystrokes(lineCount: lineCount, withChips: withChips))
+            }
+            report.append(try await Self.measureKeystrokes(lineCount: lineCount, withChips: false, nearTop: true))
+            if let output = Self.benchmarkOutput {
+                try report.joined(separator: "\n").write(toFile: output, atomically: true, encoding: .utf8)
+            }
+        }
+    }
+
+    /// Types at the end of line 2 when `nearTop`, which lays out almost the
+    /// whole text after each key, or in the middle line otherwise.
+    private static func measureKeystrokes(lineCount: Int, withChips: Bool, nearTop: Bool = false) async throws -> String {
+        let harness = try await makeHarness()
+        defer { harness.close() }
+        if withChips {
+            let resolver = MentionResolver(dependencies: .init(
+                linearIssue: { _ in nil },
+                lookUpLinear: { _ in },
+                pullRequest: { _, _ in nil },
+                fileIsDirectory: { _ in nil },
+                homeDirectory: "/home"
+            ))
+            let tabID = UUID()
+            resolver.remember(
+                ResolvedMention(target: "https://linear.app/p/issue/PLUME-1", title: "Add chips", state: .linear(.started, progress: .half, colorHex: "#f2c94c")),
+                for: .linear(identifier: "PLUME-1"),
+                tabID: tabID
+            )
+            harness.draft.referenceResolver = ComposerReferenceResolver(tabID: tabID, directory: nil, resolver: resolver)
+            harness.draft.referencePalette = ReferenceChipPalette(
+                colors: Palette(colorScheme: .dark, definitions: nil),
+                colorScheme: .dark,
+                linearStrategy: .themePalette
+            )
+        }
+        let text = benchmarkText(lineCount: lineCount, withChips: withChips)
+        harness.draft.markdown = text
+        try await Task.sleep(for: .milliseconds(100))
+        let view = harness.view
+        let coordinator = try #require(view.composerCoordinator)
+        let host = try #require(view.enclosingScrollView?.superview as? ScrollableComposerTextView)
+        let ns = text as NSString
+        let caret = nearTop
+            ? NSMaxRange(ns.range(of: "## Section"))
+            : NSMaxRange(ns.range(of: "Plain line after code.", range: NSRange(location: ns.length / 2, length: ns.length / 2)))
+        view.setSelectedRange(NSRange(location: caret, length: 0))
+        view.scrollRangeToVisible(view.selectedRange())
+
+        let undoManager = try #require(view.undoManager)
+        let clock = ContinuousClock()
+        var samples: [KeystrokeSample] = []
+        for round in 0..<13 {
+            let event = try #require(NSEvent.keyEvent(
+                with: .keyDown, location: .zero, modifierFlags: [],
+                timestamp: ProcessInfo.processInfo.systemUptime, windowNumber: harness.window.windowNumber,
+                context: nil, characters: "x", charactersIgnoringModifiers: "x",
+                isARepeat: false, keyCode: 7
+            ))
+            undoManager.beginUndoGrouping()
+            var start = clock.now
+            view.keyDown(with: event)
+            let key = clock.now - start
+            undoManager.endUndoGrouping()
+            start = clock.now
+            view.display()
+            let draw = clock.now - start
+            start = clock.now
+            _ = host.contentHeight(forWidth: 400)
+            let height = clock.now - start
+            let clip = try #require(view.enclosingScrollView?.contentView)
+            clip.scroll(to: NSPoint(x: 0, y: clip.bounds.minY + (round.isMultiple(of: 2) ? 30 : -30)))
+            start = clock.now
+            view.display()
+            let scroll = clock.now - start
+            if round >= 3 {
+                samples.append(KeystrokeSample(
+                    key: key,
+                    restyle: coordinator.lastKeystrokeCost.restyle,
+                    layout: coordinator.lastKeystrokeCost.layout,
+                    decorations: view.lastDecorationCost,
+                    draw: draw,
+                    height: height,
+                    scroll: scroll
+                ))
+            }
+            try await Task.sleep(for: .milliseconds(20))
+        }
+        #expect(harness.draft.markdown.count == text.count + 13)
+        #expect(view.referenceChips.isEmpty != withChips)
+
+        func median(_ value: (KeystrokeSample) -> Duration) -> String {
+            let middle = samples.map(value).sorted()[samples.count / 2]
+            return String(format: "%.1f ms", Double(middle.components.seconds) * 1000 + Double(middle.components.attoseconds) / 1e15)
+        }
+        return "lines=\(lineCount)\(withChips ? " chips" : "")\(nearTop ? " near-top" : "") key=\(median { $0.key }) restyle=\(median { $0.restyle }) layout=\(median { $0.layout }) "
+            + "decorations=\(median { $0.decorations }) draw=\(median { $0.draw }) height=\(median { $0.height }) scroll=\(median { $0.scroll })"
+    }
+
+    private static func benchmarkText(lineCount: Int, withChips: Bool) -> String {
+        let block = [
+            withChips ? "Tracked in @PLUME-1 for now." : "Tracked in PLUME-1 for now.",
+            "## Section",
+            "Some paragraph text with **bold**, _italic_, `code` and a [link](https://example.com).",
+            "- bullet one",
+            "- bullet two with `inline`",
+            "  - nested bullet",
+            "1. first",
+            "2. second",
+            "- [ ] open task",
+            "- [x] done task",
+            "> quoted line",
+            "> another quoted line with **bold**",
+            "",
+            "```swift",
+            "let x = 1",
+            "let y = x + 2",
+            "```",
+            "",
+            "Plain line after code.",
+            "---",
+            "",
+        ]
+        return (0..<lineCount).map { block[$0 % block.count] }.joined(separator: "\n")
+    }
+}
+#endif

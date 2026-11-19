@@ -44,9 +44,10 @@ nonisolated enum PermissionMode: String, CaseIterable, Identifiable {
     }
 
     /// Maps a transcript-reported `permissionMode` back to an option, or nil
-    /// for a mode this UI does not offer.
+    /// for a mode this UI does not offer. The CLI reports its manual mode as
+    /// `default` even when launched with `manual`.
     static func recognizing(_ reported: String) -> PermissionMode? {
-        PermissionMode(rawValue: reported)
+        reported == "default" ? .manual : PermissionMode(rawValue: reported)
     }
 }
 

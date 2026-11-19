@@ -10,7 +10,9 @@ import Foundation
 nonisolated enum StreamJSONMessage {
     case rateLimit(RateLimitInfo)
     case initialized(SessionInit)
-    case status(String)
+    /// `permissionMode` is set when the mode changed, including when the
+    /// model entered plan mode itself.
+    case status(String, permissionMode: String?)
     case bridgeState(BridgeState)
     /// A control request is under way — currently only observed for
     /// `side_question`, which otherwise gives no sign it is running until its
@@ -40,6 +42,9 @@ nonisolated struct RateLimitInfo: Equatable, Codable {
     let fiveHour: Window?
     let sevenDay: Window?
     let isUsingOverage: Bool
+    /// The Fable weekly window, which the stream reports only on a Fable
+    /// turn as `seven_day_overage_included`.
+    var fable: Window?
 }
 
 nonisolated struct SessionInit: Equatable {
@@ -108,6 +113,10 @@ nonisolated struct MessageEnvelope {
     /// Set when the message belongs to a subagent rather than the main thread.
     let parentToolUseID: String?
     let sessionID: String?
+    /// The row's uuid in the transcript.
+    var uuid: String? = nil
+    /// On an assistant row, the uuid of the user message its turn answers.
+    var userMessageUUID: String? = nil
 }
 
 /// A token-level delta from `--include-partial-messages`.
@@ -178,6 +187,10 @@ nonisolated struct ControlRequest {
     /// `AskUserQuestion` and `ExitPlanMode`. No allowlist can route past one.
     let requiresUserInteraction: Bool
     var permissionSuggestions: [PermissionSuggestion] = []
+    /// The SDK MCP server an `mcp_message` is for.
+    var serverName: String?
+    /// An `mcp_message`'s JSON-RPC message.
+    var message: JSONValue?
 }
 
 nonisolated struct ControlResponse {

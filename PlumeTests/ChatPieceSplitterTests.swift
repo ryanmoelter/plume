@@ -717,6 +717,36 @@ struct ChatPieceSplitterTests {
         #expect(cache.parseCount == 3)
     }
 
+    /// A transcript can repeat a message id. The repeat drawing the same
+    /// markdown must keep that source cached for the next build.
+    @Test func theCacheKeepsASourceARepeatedMessageIDShares() {
+        let cache = ChatPieceCache()
+        func build(_ messages: [ChatMessage]) {
+            _ = cache.pieces(for: messages, status: .awaitingReply, hiddenToolUseIDs: [], dimensions: dimensions)
+        }
+        build([message("a", .assistant, [.markdown("Same.")]), message("a", .assistant, [.markdown("Same.")])])
+        #expect(cache.parseCount == 1)
+        build([message("b", .assistant, [.markdown("Same.")])])
+        #expect(cache.parseCount == 1)
+    }
+
+    @Test func theCachesOutlineFollowsItsLastBuild() {
+        let cache = ChatPieceCache()
+        func build(_ messages: [ChatMessage]) -> [ChatPiece] {
+            cache.pieces(for: messages, status: .awaitingReply, hiddenToolUseIDs: [], dimensions: dimensions)
+        }
+        let first = build([message("u", .user, [.markdown("Question?")]), message("a", .assistant, [.markdown("One.")])])
+        #expect(cache.outline == ChatOutlineBuilder.outline(from: first))
+
+        let second = build([
+            message("u", .user, [.markdown("Question?")]),
+            message("a", .assistant, [.markdown("One.")]),
+            message("v", .user, [.markdown("Another?")])
+        ])
+        #expect(cache.outline == ChatOutlineBuilder.outline(from: second))
+        #expect(cache.outline != ChatOutlineBuilder.outline(from: first))
+    }
+
     @Test func aTabKeepsItsCacheUntilForgotten() {
         let tab = UUID()
         let cache = ChatPieceCache.forTab(tab)

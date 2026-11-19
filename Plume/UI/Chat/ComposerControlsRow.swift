@@ -82,7 +82,24 @@ enum ComposerControlLabels {
     @MainActor
     static func model(_ state: ComposerSettings) -> String {
         guard let model = state.model else { return "Model" }
-        return state.isModelDefaulted ? "Default (\(model.label))" : model.label
+        let name = state.planModel.map { "\($0.label) → \(model.label)" } ?? model.label
+        return state.isModelDefaulted ? "Default (\(name))" : name
+    }
+
+    /// The model label as drawn: a plan-mode swap leads each name with its
+    /// mode's icon, sized to the text. `model(_:)` stays the plain-text form.
+    @MainActor
+    static func modelText(_ state: ComposerSettings) -> Text {
+        guard let model = state.model, let plans = state.planModel else { return Text(model(state)) }
+        let swap = Text("\(Image(systemName: PermissionMode.plan.symbol)) \(plans.label) → \(Image(systemName: PermissionMode.auto.symbol)) \(model.label)")
+        guard state.isModelDefaulted else { return swap }
+        return Text("Default (") + swap + Text(")")
+    }
+
+    @MainActor
+    static func modelHelp(_ state: ComposerSettings) -> String {
+        guard let runs = state.model, let plans = state.planModel else { return "Model: \(model(state))" }
+        return "Plans with \(plans.label), then runs \(runs.label)"
     }
 }
 
@@ -243,7 +260,7 @@ private struct ModelControl: View, ThemedView {
     var body: some View {
         ModelSegmentLabel(
             provider: state.provider,
-            text: label,
+            text: ComposerControlLabels.modelText(state),
             showsText: form.showsLabels,
             foreground: colors.foreground,
             height: dimensions.composerControlHeight
@@ -254,10 +271,14 @@ private struct ModelControl: View, ThemedView {
                 isAskingForCustomID = true
             }
         }
-        .help(state.modeAndModelHelp("Model: \(label)"))
+        .help(state.modeAndModelHelp(ComposerControlLabels.modelHelp(state)))
         .accessibilityLabel("Model")
         .accessibilityValue(label)
-        .plumeID(AccessibilityID.composerModelControl)
+        // The NSMenu that `invoke` opens can't be driven, so a driver picks a model by name.
+        .plumeID(AccessibilityID.composerModelControl, value: label, setValue: { name in
+            guard let model = AgentModel.recognizing(name, provider: state.provider) else { return }
+            _ = state.setModel(model, provider: state.provider)
+        })
         .popover(isPresented: $isAskingForCustomID) {
             CustomModelIDField(id: $customID) {
                 state.setModel(AgentModel(unrecognizedID: $0), provider: customProvider)
@@ -273,7 +294,7 @@ private struct ModelControl: View, ThemedView {
 private struct ModelSegmentLabel: View, ThemedView {
     @Environment(\.theme) var theme
     let provider: AgentProviderKind
-    let text: String
+    let text: Text
     let showsText: Bool
     let foreground: Color
     let height: CGFloat
@@ -281,7 +302,7 @@ private struct ModelSegmentLabel: View, ThemedView {
     var body: some View {
         HStack(spacing: 6) {
             AgentProviderIcon(provider: provider, size: 12)
-            if showsText { Text(text) }
+            if showsText { text }
             Image(systemName: "chevron.down")
                 .font(.system(size: 9, weight: .semibold))
                 .accessibilityHidden(true)

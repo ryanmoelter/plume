@@ -10,6 +10,14 @@ struct StatusBadge: View {
     var isUnread = false
     /// Off when the caller places the elapsed time itself.
     var showsElapsed = true
+    /// Centers the glyph in a column this wide, so badges of different sizes
+    /// stacked in one column share a center.
+    var glyphWidth: CGFloat?
+    /// Shrinks the unread dot with the font, for a badge drawn smaller than the task's.
+    var scalesDotWithFont = false
+    /// Draws a glyph for the resting states too, for a row that names one
+    /// session and would otherwise lead with a blank.
+    var showsRestingGlyph = false
     @Environment(\.colorScheme) private var colorScheme
 
     var body: some View {
@@ -19,10 +27,10 @@ struct StatusBadge: View {
                     ElapsedLabel(since: workStartedAt)
                         .font(.caption)
                         .emphasis(.secondary)
-                    glyph
+                    columnGlyph
                 }
             } else {
-                glyph
+                columnGlyph
             }
         }
         .animation(.default, value: status)
@@ -30,17 +38,26 @@ struct StatusBadge: View {
     }
 
     /// Whether the badge draws nothing, so a caller can put a placeholder there.
-    static func isBlank(status: TaskStatus, isUnread: Bool) -> Bool {
+    static func isBlank(status: TaskStatus, isUnread: Bool, showsRestingGlyph: Bool = false) -> Bool {
         switch status {
-        case .notStarted, .awaitingReply: return !isUnread
+        case .notStarted, .awaitingReply: return !isUnread && !showsRestingGlyph
         default: return false
+        }
+    }
+
+    @ViewBuilder
+    private var columnGlyph: some View {
+        if let glyphWidth {
+            glyph.frame(width: glyphWidth)
+        } else {
+            glyph
         }
     }
 
     @ViewBuilder
     private var glyph: some View {
         if isUnread {
-            UnreadDot()
+            UnreadDot(scalesWithFont: scalesDotWithFont)
                 .help("Finished a turn you haven't read")
                 .transition(.opacity)
         } else {
@@ -54,9 +71,19 @@ struct StatusBadge: View {
     private var symbol: some View {
         switch status {
         // A finished turn the user has read is the resting state, so it
-        // draws nothing; an unread one draws the dot instead.
-        case .notStarted, .awaitingReply:
-            EmptyView()
+        // draws nothing unless asked; an unread one draws the dot instead.
+        case .notStarted:
+            if showsRestingGlyph {
+                Image(systemName: StatusSymbol.notStarted.filled)
+                    .emphasis(.secondary)
+                    .transition(.symbolEffect)
+            }
+        case .awaitingReply:
+            if showsRestingGlyph {
+                Image(systemName: StatusSymbol.awaitingReply.filled)
+                    .emphasis(.secondary)
+                    .transition(.symbolEffect)
+            }
         case .working:
             WorkingEllipsis(color: ChatRole.activity(for: colorScheme))
         case .waitingOnSubagents:
@@ -97,13 +124,30 @@ struct StatusBadge: View {
 
 /// Marks a finished turn the user hasn't read.
 struct UnreadDot: View {
+    /// Sizes the dot from a symbol, so it shrinks with the font and image scale
+    /// as the status symbols do. The fraction makes the dot 8 pt at the task
+    /// row's default font.
+    var scalesWithFont = false
     @Environment(\.colorScheme) private var colorScheme
 
     var body: some View {
-        Circle()
-            .fill(ChatRole.attention(for: colorScheme))
-            .frame(width: 8, height: 8)
+        if scalesWithFont {
+            Image(systemName: "circle.fill")
+                .hidden()
+                .overlay {
+                    GeometryReader { proxy in
+                        Circle()
+                            .fill(color)
+                            .frame(width: proxy.size.width * 0.53, height: proxy.size.height * 0.53)
+                            .position(x: proxy.size.width / 2, y: proxy.size.height / 2)
+                    }
+                }
+        } else {
+            Circle().fill(color).frame(width: 8, height: 8)
+        }
     }
+
+    private var color: Color { ChatRole.attention(for: colorScheme) }
 }
 
 /// How long the current stretch of work has been going, counting up.

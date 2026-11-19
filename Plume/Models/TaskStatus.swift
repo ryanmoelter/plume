@@ -42,6 +42,24 @@ nonisolated enum TaskStatus: String, CaseIterable, Sendable {
     case interruptedByRestart
     case error
 
+    /// For a reader rather than for code: accessibility text and control values.
+    var label: String {
+        switch self {
+        case .notStarted: "Not started"
+        case .working: "Working"
+        case .waitingOnSubagents: "Waiting on subagents"
+        case .awaitingReply: "Awaiting reply"
+        case .done: "Done"
+        case .planApproval: "Plan ready for review"
+        case .questionAsked: "Asked a question"
+        case .permissionNeeded: "Wants permission"
+        case .needsTerminalInput: "Waiting for terminal input"
+        case .interrupted: "Interrupted"
+        case .interruptedByRestart: "Interrupted by restart"
+        case .error: "Stopped with an error"
+        }
+    }
+
     /// Higher wins when aggregating tab statuses into a task status. Every
     /// state that wants the user outranks `working`, because a tab stalled on
     /// a question is more worth surfacing than one still busy. Among those,

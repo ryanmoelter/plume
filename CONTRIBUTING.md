@@ -18,13 +18,7 @@ xcodebuild -scheme Plume -destination 'platform=macOS' test -only-testing:PlumeT
 
 A Debug build keeps its data in `~/Library/Application Support/Plume.debug/` (`Plume.debug-<worktree>/` when built from a worktree), so it runs beside an installed Plume without sharing a store.
 
-Some tests depend on the machine that runs them, so a fresh clone fails them for environmental reasons:
-
-- `SessionJSONLReaderTests.encodingResolvesADirectoryClaudeCodeHasUsed` fails until Claude Code has run in your checkout once.
-- `SurfaceCommandTests` opens real windows and terminals, so it fails from a shell with no GUI session.
-- `RealTranscriptCorpusTests` parses every Claude Code transcript on the machine, so its run time and coverage vary with your history.
-
-If any other test fails on a clean `main`, that is a real failure.
+Some tests fail on a fresh clone for environmental reasons. `docs/testing.md` lists them.
 
 ## Signing
 

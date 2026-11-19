@@ -159,7 +159,7 @@ struct TaskRowDirectoryGroupingTests {
     @Test func twoTabsInOneFolderCollapseToOneGroup() {
         let directories = TaskRowDetails.distinctDirectories(
             agentTabDirectories: ["/Users/me/Plume", "/Users/me/Plume"],
-            taskDirectory: "/Users/me/Plume"
+            fallbackDirectory: "/Users/me/Plume"
         )
         #expect(directories == ["/Users/me/Plume"])
     }
@@ -167,21 +167,49 @@ struct TaskRowDirectoryGroupingTests {
     @Test func twoFoldersGiveTwoGroupsInTabOrder() {
         let directories = TaskRowDetails.distinctDirectories(
             agentTabDirectories: ["/Users/me/Plume", "/Users/me/Other", "/Users/me/Plume"],
-            taskDirectory: "/Users/me/Plume"
+            fallbackDirectory: "/Users/me/Plume"
         )
         #expect(directories == ["/Users/me/Plume", "/Users/me/Other"])
     }
 
-    @Test func aTaskWithNoReportingAgentTabFallsBackToItsOwnFolder() {
+    @Test func aTaskWithNoReportingAgentTabFallsBackToAnotherTabsFolder() {
         let directories = TaskRowDetails.distinctDirectories(
             agentTabDirectories: [nil, nil],
-            taskDirectory: "/Users/me/Plume"
+            fallbackDirectory: "/Users/me/Plume"
         )
         #expect(directories == ["/Users/me/Plume"])
     }
 
     @Test func aTaskWithNoFolderAtAllHasNoGroups() {
-        #expect(TaskRowDetails.distinctDirectories(agentTabDirectories: [], taskDirectory: nil).isEmpty)
+        #expect(TaskRowDetails.distinctDirectories(agentTabDirectories: [], fallbackDirectory: nil).isEmpty)
+    }
+
+    /// The row must watch the folder a folderless agent's header borrows.
+    /// A terminal's folder follows `cd`, so beside an agent that has a folder,
+    /// a folderless one borrows only what an agent tab saved.
+    @Test func aFolderlessAgentAmongOthersTakesASavedAgentFolder() {
+        let directories = TaskRowDetails.agentTabDirectories(
+            ["/Users/me/Other", nil, ""],
+            savedAgentDirectory: "/Users/me/Saved",
+            taskDirectory: "/Users/me/Terminal"
+        )
+        #expect(directories == ["/Users/me/Other", "/Users/me/Saved", "/Users/me/Saved"])
+        #expect(TaskRowDetails.agentTabDirectories(
+            ["/Users/me/Other", nil],
+            savedAgentDirectory: nil,
+            taskDirectory: "/Users/me/Terminal"
+        ) == ["/Users/me/Other", nil])
+    }
+
+    @Test func agentsWithNoFolderAllTakeTheTaskFolder() {
+        let directories = TaskRowDetails.agentTabDirectories(
+            [nil, ""],
+            savedAgentDirectory: nil,
+            taskDirectory: "/Users/me/Plume"
+        )
+        #expect(directories == ["/Users/me/Plume", "/Users/me/Plume"])
+        #expect(TaskRowDetails.distinctDirectories(agentTabDirectories: directories, fallbackDirectory: "/Users/me/Plume")
+            == ["/Users/me/Plume"])
     }
 }
 
@@ -190,7 +218,6 @@ struct TaskRowAgentTabFilterTests {
     /// A terminal's cwd follows `cd`, so it must not contribute a group.
     @Test func terminalTabsAreExcluded() throws {
         let task = WorkTask(title: "T", orderIndex: 0)
-        task.workingDirectoryPath = "/Users/me/Plume"
         let agent = TaskTab(kind: .agent, orderIndex: 0, task: task)
         let terminal = TaskTab(kind: .terminal, orderIndex: 1, task: task)
         task.tabs = [agent, terminal]
@@ -203,7 +230,7 @@ struct TaskRowAgentTabFilterTests {
             agentTabDirectories: task.orderedTabs
                 .filter { $0.kind == .agent }
                 .map { store.directory(for: $0) },
-            taskDirectory: task.workingDirectoryPath
+            fallbackDirectory: nil
         )
         #expect(directories == ["/Users/me/Plume"])
     }
@@ -396,5 +423,323 @@ struct TaskRowPinnedPullRequestLinesTests {
             == "Pull request 4, Fix it")
         #expect(TaskRowDetails.accessibilityText(.pinnedPullRequest(ref(4), detail: nil)) == "Pull request 4")
         #expect(TaskRowDetails.accessibilityText(.pinnedPullRequestOverflow(2)) == "2 more pull requests")
+    }
+}
+
+/// A task with one agent keeps the plain directory lines. A task with several
+/// shows each attribute every agent shares once at the task level, and each
+/// attribute that differs under every agent's header.
+@MainActor
+struct TaskRowAgentLinesTests {
+    private let open = PullRequestFetchState.pullRequest(PullRequest(number: 42, state: .open, isDraft: false))
+
+    private func agent(
+        _ title: String,
+        _ directory: String?,
+        branch: String? = nil,
+        pullRequest: PullRequestFetchState? = nil,
+        status: TaskStatus = .awaitingReply
+    ) -> TaskRowDetails.AgentGroup {
+        TaskRowDetails.AgentGroup(
+            header: TaskRowDetails.AgentHeader(tabID: UUID(), title: title, status: status),
+            workspace: TaskRowDetails.DirectoryGroup(directory: directory, branch: branch, pullRequest: pullRequest)
+        )
+    }
+
+    private func headers(_ lines: [TaskRowDetails.Line]) -> [String] {
+        lines.compactMap { if case .agentHeader(let header) = $0 { header.title } else { nil } }
+    }
+
+    @Test func oneAgentKeepsThePlainDirectoryLines() {
+        let lines = TaskRowDetails.lines(groups: [TaskRowDetails.DirectoryGroup(
+            directory: "/Users/me/Plume",
+            branch: "ryanm/fix-login",
+            pullRequest: open,
+            checkout: CheckoutFacts(projectRoot: "/Users/me/Plume", checkoutRoot: "/Users/me/Plume")
+        )])
+        #expect(lines == [
+            .project("Plume"),
+            .branch("ryanm/fix-login", isWorktree: false, accompaniedBy: nil),
+            .pullRequest(directory: "/Users/me/Plume", state: open),
+        ])
+    }
+
+    @Test func agentsSharingEverythingShowItOnceAtTheTaskLevel() {
+        let first = agent("One", "/Users/me/Plume", branch: "main", pullRequest: open)
+        let second = agent("Two", "/Users/me/Plume", branch: "main", pullRequest: open)
+        let lines = TaskRowDetails.lines(agents: [first, second])
+        #expect(lines == [
+            .project("Plume"),
+            .branch("main", accompaniedBy: nil),
+            .pullRequest(directory: "/Users/me/Plume", state: open),
+            .agentHeader(first.header),
+            .agentHeader(second.header),
+        ])
+    }
+
+    @Test func agentsDifferingEverywhereShowEverythingUnderEachHeader() {
+        let first = agent("One", "/Users/me/Plume", branch: "main", pullRequest: open)
+        let second = agent("Two", "/Users/me/Other", branch: "dev")
+        #expect(TaskRowDetails.lines(agents: [first, second]) == [
+            .agentHeader(first.header), .project("Plume"), .branch("main", accompaniedBy: nil),
+            .pullRequest(directory: "/Users/me/Plume", state: open),
+            .agentHeader(second.header), .project("Other"), .branch("dev", accompaniedBy: nil),
+        ])
+    }
+
+    /// Two worktrees of one project: the project shows once, each branch and
+    /// pull request under its own agent.
+    @Test func aSharedProjectWithDifferingBranchesSplitsByAttribute() {
+        let project = "/Users/me/Plume"
+        func worktree(_ title: String, _ name: String, pullRequest: PullRequestFetchState?) -> TaskRowDetails.AgentGroup {
+            var group = agent(title, "/wt/\(name)", branch: "ryanm/\(name)", pullRequest: pullRequest)
+            group.workspace.checkout = CheckoutFacts(projectRoot: project, checkoutRoot: "/wt/\(name)")
+            return group
+        }
+        let first = worktree("One", "a", pullRequest: nil)
+        let second = worktree("Two", "b", pullRequest: open)
+        #expect(TaskRowDetails.lines(agents: [first, second]) == [
+            .project("Plume"),
+            .agentHeader(first.header), .branch("ryanm/a", isWorktree: true, accompaniedBy: nil),
+            .agentHeader(second.header), .branch("ryanm/b", isWorktree: true, accompaniedBy: nil),
+            .pullRequest(directory: "/wt/b", state: open),
+        ])
+    }
+
+    @Test func aPullRequestOnlyOneAgentHasShowsUnderThatAgent() {
+        let first = agent("One", "/Users/me/Plume", branch: "main")
+        let second = agent("Two", "/Users/me/Plume", branch: "main", pullRequest: open)
+        #expect(TaskRowDetails.lines(agents: [first, second]) == [
+            .project("Plume"), .branch("main", accompaniedBy: nil),
+            .agentHeader(first.header),
+            .agentHeader(second.header), .pullRequest(directory: "/Users/me/Plume", state: open),
+        ])
+    }
+
+    @Test func twoClonesOnOneBranchShareOnlyTheProject() {
+        let first = agent("One", "/Users/me/Plume", branch: "main", pullRequest: open)
+        let second = agent("Two", "/Users/me/elsewhere/Plume", branch: "main", pullRequest: open)
+        #expect(TaskRowDetails.lines(agents: [first, second]) == [
+            .project("Plume"),
+            .agentHeader(first.header), .branch("main", accompaniedBy: nil),
+            .pullRequest(directory: "/Users/me/Plume", state: open),
+            .agentHeader(second.header), .branch("main", accompaniedBy: nil),
+            .pullRequest(directory: "/Users/me/elsewhere/Plume", state: open),
+        ])
+    }
+
+    @Test func twoReposOnOneBranchNameShareNothing() {
+        let first = agent("One", "/Users/me/A", branch: "main")
+        let second = agent("Two", "/Users/me/B", branch: "main")
+        #expect(TaskRowDetails.lines(agents: [first, second]) == [
+            .agentHeader(first.header), .project("A"), .branch("main", accompaniedBy: nil),
+            .agentHeader(second.header), .project("B"), .branch("main", accompaniedBy: nil),
+        ])
+    }
+
+    @Test func anAgentWithNoFolderSplitsEveryAttributeTheOthersHave() {
+        let lone = agent("Lone", nil)
+        let two = agent("Two", "/Users/me/Plume", branch: "main")
+        #expect(TaskRowDetails.lines(agents: [lone, two]) == [
+            .agentHeader(lone.header),
+            .agentHeader(two.header), .project("Plume"), .branch("main", accompaniedBy: nil),
+        ])
+        #expect(TaskRowDetails.lines(agents: [lone]) == [.agentHeader(lone.header)])
+    }
+
+    @Test func taskLinesSitBetweenTheSharedLinesAndTheFirstHeader() {
+        let first = agent("One", "/Users/me/Plume", branch: "main")
+        let second = agent("Two", "/Users/me/Plume", branch: "dev")
+        #expect(TaskRowDetails.lines(agents: [first, second], taskLines: [.linearOverflow(2)]) == [
+            .project("Plume"), .linearOverflow(2),
+            .agentHeader(first.header), .branch("main", accompaniedBy: nil),
+            .agentHeader(second.header), .branch("dev", accompaniedBy: nil),
+        ])
+    }
+
+    @Test func repeatedTitlesAreNumberedOnEveryCopy() {
+        #expect(TaskRowDetails.distinctLabels(["Chat", "Fix", "Chat", "Chat"]) == ["Chat #1", "Fix", "Chat #2", "Chat #3"])
+    }
+
+    /// An agent with no folder never gets a pull request, so waiting on it
+    /// would hide pinned lines forever.
+    @Test func pinnedLinesIgnoreGroupsWithoutADirectory() {
+        let reference = PullRequestReference(owner: "a", repo: "b", number: 7)
+        let lines = TaskRowDetails.pinnedPullRequestLines(
+            [reference],
+            groups: [
+                TaskRowDetails.DirectoryGroup(directory: "/a", pullRequest: .noPR),
+                TaskRowDetails.DirectoryGroup(directory: nil),
+                TaskRowDetails.DirectoryGroup(directory: ""),
+            ],
+            details: { _ in nil }
+        )
+        #expect(lines == [.pinnedPullRequest(reference, detail: nil)])
+    }
+
+    @Test func theHeaderReachesTheAccessibilityLabel() {
+        let header = TaskRowDetails.AgentHeader(tabID: UUID(), title: "Fix login", status: .working, isUnread: true)
+        #expect(header.statusText == "Working, unread")
+        #expect(TaskRowDetails.accessibilityText(.agentHeader(header)) == "Fix login, Working, unread")
+    }
+
+    @Test func directoryLinesNameTheAgentTheySitUnder() {
+        let first = agent("One", "/Users/me/Plume", branch: "main", pullRequest: open)
+        let second = agent("Two", "/Users/me/Plume", branch: "dev")
+        let lines = TaskRowDetails.lines(agents: [first, second])
+        let owners = TaskRowDetails.owningAgentLabels(lines)
+        #expect(zip(lines, owners).map { line, owner in
+            TaskRowDetails.controlLabel(line).map { "\($0) @ \(owner ?? "-")" } ?? "header"
+        } == [
+            "Plume @ -",
+            "header",
+            "main @ One",
+            "\(PullRequestChipContent.accessibilityText(for: open) ?? "") @ One",
+            "header",
+            "dev @ Two",
+        ])
+    }
+
+    @Test func aOneAgentRowNamesNoAgent() {
+        let lines: [TaskRowDetails.Line] = [.text("note"), .project("Plume"), .branch("main")]
+        #expect(TaskRowDetails.owningAgentLabels(lines) == [nil, nil, nil])
+        #expect(TaskRowDetails.controlValue(.project("Plume"), owner: nil) == nil)
+    }
+
+    @Test func eachAgentsLinesFormOneGroup() {
+        let lines = TaskRowDetails.lines(
+            agents: [
+                agent("One", "/Users/me/Plume", branch: "main"),
+                agent("Two", "/Users/me/Plume", branch: "dev"),
+            ],
+            taskLines: [.linearOverflow(2)]
+        )
+        #expect(TaskRowDetails.agentGroupNesting(lines) == [[], [], [2], [2], [4], [4]])
+    }
+
+    @Test func aChildsGroupSitsInsideItsParents() {
+        func header(_ title: String, depth: Int) -> TaskRowDetails.Line {
+            .agentHeader(TaskRowDetails.AgentHeader(tabID: UUID(), title: title, status: .working, depth: depth))
+        }
+        let lines: [TaskRowDetails.Line] = [
+            header("Parent", depth: 0),
+            .project("Plume"),
+            header("Child", depth: 1),
+            .branch("fix"),
+            header("Other child", depth: 1),
+            header("Sibling", depth: 0),
+            .branch("dev"),
+        ]
+        #expect(TaskRowDetails.agentGroupNesting(lines) == [[0], [0], [0, 2], [0, 2], [0, 4], [5], [5]])
+    }
+
+    @Test func aClickSelectsTheInnermostGroupsTab() {
+        let parent = UUID(), child = UUID(), sibling = UUID()
+        func header(_ id: UUID, depth: Int) -> TaskRowDetails.Line {
+            .agentHeader(TaskRowDetails.AgentHeader(tabID: id, title: "Chat", status: .working, depth: depth))
+        }
+        let lines: [TaskRowDetails.Line] = [
+            .project("Plume"),
+            header(parent, depth: 0),
+            .branch("main"),
+            header(child, depth: 1),
+            .branch("fix"),
+            header(sibling, depth: 0),
+        ]
+        let nesting = TaskRowDetails.agentGroupNesting(lines)
+        #expect(TaskRowDetails.agentTabTargets(lines, nesting: nesting)
+            == [nil, parent, parent, child, child, sibling])
+    }
+
+    @Test func theFocusedGroupIsTheOneHeadedByTheFocusedTab() {
+        let one = UUID(), two = UUID()
+        let lines: [TaskRowDetails.Line] = [
+            .agentHeader(TaskRowDetails.AgentHeader(tabID: one, title: "One", status: .working)),
+            .branch("main"),
+            .agentHeader(TaskRowDetails.AgentHeader(tabID: two, title: "Two", status: .working)),
+        ]
+        #expect(TaskRowDetails.focusedAgentGroup(lines, focusedTabID: two) == 2)
+        #expect(TaskRowDetails.focusedAgentGroup(lines, focusedTabID: UUID()) == nil)
+        #expect(TaskRowDetails.focusedAgentGroup(lines, focusedTabID: nil) == nil)
+    }
+
+    @Test func theDeeperHoveredGroupWins() {
+        let nesting: [[Int]] = [[], [1], [1], [1, 3], [1, 3], [5]]
+        #expect(TaskRowDetails.hoveredAgentGroup(hoveredLines: [], nesting: nesting) == nil)
+        #expect(TaskRowDetails.hoveredAgentGroup(hoveredLines: [0], nesting: nesting) == nil)
+        #expect(TaskRowDetails.hoveredAgentGroup(hoveredLines: [2], nesting: nesting) == 1)
+        #expect(TaskRowDetails.hoveredAgentGroup(hoveredLines: [2, 3], nesting: nesting) == 3)
+        #expect(TaskRowDetails.hoveredAgentGroup(hoveredLines: [4, 5], nesting: nesting) == 3)
+        #expect(TaskRowDetails.hoveredAgentGroup(hoveredLines: [9], nesting: nesting) == nil)
+    }
+
+    @Test func movingBetweenTwoLinesOfAGroupKeepsItHovered() {
+        let nesting: [[Int]] = [[], [1], [1], [1], [4]]
+        #expect(TaskRowDetails.hoveredAgentGroup(hoveredLines: [1, 2], nesting: nesting) == 1)
+        #expect(TaskRowDetails.hoveredAgentGroup(hoveredLines: [2, 3], nesting: nesting) == 1)
+        #expect(TaskRowDetails.hoveredAgentGroup(hoveredLines: [3, 4], nesting: nesting) == 4)
+    }
+
+    @Test func aHeadersValueAddsFocusHoverAndPress() {
+        let header = TaskRowDetails.AgentHeader(tabID: UUID(), title: "Chat", status: .working, isUnread: true)
+        #expect(header.controlValue(isFocused: false, isHovered: false) == header.statusText)
+        #expect(header.controlValue(isFocused: true, isHovered: true) == "\(header.statusText); focused; hovered")
+        #expect(header.controlValue(isFocused: false, isHovered: true, isPressed: true)
+            == "\(header.statusText); hovered; pressed")
+    }
+
+    @Test func aBarShowsPressThenHoverThenFocus() {
+        func look(_ group: Int, focused: Int? = nil, hovered: Int? = nil, pressed: Int? = nil) -> AgentGroupBar.Look {
+            AgentGroupBar.look(ofGroup: group, focused: focused, hovered: hovered, pressed: pressed)
+        }
+        #expect(look(1) == .normal)
+        #expect(look(1, focused: 1) == .focused)
+        #expect(look(1, focused: 1, hovered: 1) == .hovered)
+        #expect(look(1, focused: 1, hovered: 1, pressed: 1) == .pressed)
+        #expect(look(1, focused: 1, hovered: 3, pressed: 3) == .focused)
+        #expect(look(3, focused: 1, hovered: 3) == .hovered)
+    }
+
+    @Test func aHoveredBarIsWidestAndAPressShrinksIt() {
+        let line: CGFloat = 1
+        let normal = AgentGroupBar.width(of: .normal, lineWidth: line)
+        let focused = AgentGroupBar.width(of: .focused, lineWidth: line)
+        let hovered = AgentGroupBar.width(of: .hovered, lineWidth: line)
+        let pressed = AgentGroupBar.width(of: .pressed, lineWidth: line)
+        #expect(normal == line)
+        #expect(normal < focused)
+        #expect(focused < hovered)
+        #expect(pressed < hovered)
+        #expect(pressed > normal)
+    }
+
+    /// A widened bar keeps its center at `lineWidth / 2` from the line's
+    /// leading edge, so it must still clear the text `indent` away.
+    @Test func theWidestBarStaysInsideTheGutter() {
+        let line: CGFloat = 1
+        let hovered = AgentGroupBar.width(of: .hovered, lineWidth: line)
+        #expect(line / 2 + hovered / 2 < AgentGroupBar.indent)
+        #expect(hovered / 2 - line / 2 <= AgentGroupBar.drawingOutset)
+    }
+
+    @Test func anAgentTitleDimsOnlyWhileInactiveAndUnhovered() {
+        #expect(TaskRowView.agentTitleEmphasis(status: .working, isEmphasized: false) == .primary)
+        #expect(TaskRowView.agentTitleEmphasis(status: .awaitingReply, isEmphasized: false) == .primary)
+        #expect(TaskRowView.agentTitleEmphasis(status: .notStarted, isEmphasized: false) == .secondary)
+        #expect(TaskRowView.agentTitleEmphasis(status: .notStarted, isEmphasized: true) == .primary)
+    }
+
+    @Test func aOneAgentRowHasNoGroups() {
+        let lines: [TaskRowDetails.Line] = [.project("Plume"), .branch("main"), .linearOverflow(1)]
+        #expect(TaskRowDetails.agentGroupNesting(lines) == [[], [], []])
+    }
+
+    @Test func aLinesValueTellsTwoLinesWithTheSameTextApart() {
+        #expect(TaskRowDetails.controlValue(.project("Plume"), owner: "Chat #2") == "agent: Chat #2")
+        #expect(TaskRowDetails.controlValue(.branch("main", isWorktree: true, accompaniedBy: open), owner: "One")
+            == "agent: One; worktree; \(PullRequestChipContent.accessibilityText(for: open) ?? "")")
+        #expect(TaskRowDetails.controlValue(.pullRequest(directory: "/Users/me/Plume", state: open), owner: nil)
+            == "directory: /Users/me/Plume")
+        #expect(TaskRowDetails.controlLabel(.linearOverflow(2)) == nil)
     }
 }

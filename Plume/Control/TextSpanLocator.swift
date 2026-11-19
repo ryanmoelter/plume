@@ -10,6 +10,9 @@ enum TextSpanLocator {
         let rectInWindow: CGRect
         let window: NSWindow?
         let text: String
+        /// Whether the span's center is inside the visible area of its view,
+        /// so a click there lands on it.
+        let isVisible: Bool
     }
 
     /// A text on screen: an AppKit view, or one `Text` of a chat piece that
@@ -48,6 +51,35 @@ enum TextSpanLocator {
             }
         }
 
+        /// Scrolls a text view so `range` is on screen. A chat piece is left
+        /// where it is.
+        ///
+        /// TextKit 2 places lines it has not laid out at estimated heights,
+        /// and corrects them once the viewport lays out after the scroll, so
+        /// everything above the span is laid out first; otherwise the rect
+        /// is a line or more from where the span ends up.
+        func reveal(_ range: NSRange) {
+            guard case .view(let textView as NSTextView) = self else { return }
+            if let layout = textView.textLayoutManager, let content = layout.textContentManager {
+                let start = content.documentRange.location
+                if let end = content.location(start, offsetBy: NSMaxRange(range)), let upToSpan = NSTextRange(location: start, end: end) {
+                    layout.ensureLayout(for: upToSpan)
+                }
+            }
+            textView.scrollRangeToVisible(range)
+            textView.enclosingScrollView?.layoutSubtreeIfNeeded()
+        }
+
+        /// The part of the item a click can reach, in AppKit window
+        /// coordinates.
+        var visibleRectInWindow: CGRect {
+            switch self {
+            case .view(let view): view.convert(view.visibleRect, to: nil)
+            case .chat(let frame, let controller):
+                frame.windowRect.intersection(controller.documentView.convert(controller.documentView.visibleRect, to: nil))
+            }
+        }
+
         func rect(of range: NSRange) -> CGRect? {
             switch self {
             case .view(let view): TextSpanLocator.rect(of: range, in: view)
@@ -59,13 +91,14 @@ enum TextSpanLocator {
         }
     }
 
-    static func locate(_ needle: String, occurrence: Int, in candidates: [NSView]) -> Hit? {
-        locate(needle, occurrence: occurrence, in: candidates.map(Item.view))
+    static func locate(_ needle: String, occurrence: Int, in candidates: [NSView], revealing: Bool = false) -> Hit? {
+        locate(needle, occurrence: occurrence, in: candidates.map(Item.view), revealing: revealing)
     }
 
     /// Searches `candidates` in order for the `occurrence`-th match of
-    /// `needle`, counting across items.
-    static func locate(_ needle: String, occurrence: Int, in candidates: [Item]) -> Hit? {
+    /// `needle`, counting across items. `revealing` scrolls a text view to
+    /// the match first, so the rect is where the text now is on screen.
+    static func locate(_ needle: String, occurrence: Int, in candidates: [Item], revealing: Bool = false) -> Hit? {
         guard !needle.isEmpty else { return nil }
         var remaining = occurrence
         for item in candidates {
@@ -73,8 +106,11 @@ enum TextSpanLocator {
             var searchStart = text.startIndex
             while let found = text.range(of: needle, range: searchStart..<text.endIndex) {
                 if remaining == 0 {
-                    guard let rect = item.rect(of: NSRange(found, in: text)) else { return nil }
-                    return Hit(rectInWindow: rect, window: item.window, text: text)
+                    let range = NSRange(found, in: text)
+                    if revealing { item.reveal(range) }
+                    guard let rect = item.rect(of: range) else { return nil }
+                    let center = CGPoint(x: rect.midX, y: rect.midY)
+                    return Hit(rectInWindow: rect, window: item.window, text: text, isVisible: item.visibleRectInWindow.contains(center))
                 }
                 remaining -= 1
                 searchStart = found.upperBound

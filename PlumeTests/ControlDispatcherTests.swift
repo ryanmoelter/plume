@@ -26,13 +26,21 @@ struct ControlDispatcherTests {
             #"{"id":"13","command":"selectText","matching":"m"}"#,
             #"{"id":"14","command":"recordStart","fps":10}"#,
             #"{"id":"15","command":"recordStop"}"#,
+            #"{"id":"16","command":"tasks"}"#,
+            #"{"id":"17","command":"selectTask","task":"Task 1","from":"Task 2","repeat":3}"#,
+            #"{"id":"18","command":"appendTurn","repeat":4,"reply":false}"#,
+            #"{"id":"19","command":"resize","width":600,"height":400,"live":true,"steps":4}"#,
+            #"{"id":"20","command":"scrollTo","edge":"bottom"}"#,
+            #"{"id":"21","command":"injectUsage","fable":0.5}"#,
         ]
         for line in lines {
             let response = await ControlDispatcher.handle(line: line, backend: backend)
             #expect(response.ok, "\(line) → \(response.error ?? "")")
         }
-        #expect(backend.calls == ["list", "describe", "invoke", "setValue", "readText", "clickSpan", "click", "screenshot", "hierarchy", "hover", "clear", "selection", "selectText", "recordStart", "recordStop"])
+        #expect(backend.calls == ["list", "describe", "invoke", "setValue", "readText", "clickSpan", "click", "screenshot", "hierarchy", "hover", "clear", "selection", "selectText", "recordStart", "recordStop", "tasks", "selectTask", "appendTurn", "resize", "scrollTo", "injectUsage"])
         #expect(backend.lastValue == "v")
+        #expect(backend.lastSelectTask == SelectTaskParams(task: "Task 1", from: "Task 2", repeatCount: 3))
+        #expect(backend.lastAppendTurn == AppendTurnParams(repeatCount: 4, reply: false))
     }
 
     @Test func backendErrorsBecomeErrorResponsesOnTheSameID() async {
@@ -66,6 +74,9 @@ final class FakeControlBackend: ControlBackend {
     var lastValue: String?
     var failure: Error?
     var listResult: [ControlDescription] = []
+    var lastSelectTask: SelectTaskParams?
+    var lastAppendTurn: AppendTurnParams?
+    var lastResize: ResizeParams?
 
     private func record(_ name: String) throws {
         calls.append(name)
@@ -156,6 +167,11 @@ final class FakeControlBackend: ControlBackend {
         return MenuResult(items: [])
     }
 
+    func windowSize(_ params: WindowSizeParams) throws -> WindowSizeResult {
+        try record("windowSize")
+        return WindowSizeResult(windowNumber: 0, width: params.width ?? 0, height: params.height ?? 0)
+    }
+
     func selection() throws -> SelectionResult {
         try record("selection")
         return SelectionResult(markdown: "", plainText: "", anchor: nil, focus: nil)
@@ -164,5 +180,118 @@ final class FakeControlBackend: ControlBackend {
     func selectText(_ params: SelectTextParams) throws -> SelectionResult {
         try record("selectText")
         return SelectionResult(markdown: "", plainText: "", anchor: nil, focus: nil)
+    }
+
+    func tasks() throws -> TaskListResult {
+        try record("tasks")
+        return TaskListResult(tasks: [])
+    }
+
+    func selectTask(_ params: SelectTaskParams) async throws -> SwitchLatencyReport {
+        try record("selectTask")
+        lastSelectTask = params
+        return SwitchLatencyReport(samples: [])
+    }
+
+    func appendTurn(_ params: AppendTurnParams) async throws -> SwitchLatencyReport {
+        try record("appendTurn")
+        lastAppendTurn = params
+        return SwitchLatencyReport(samples: [])
+    }
+
+    func resize(_ params: ResizeParams) async throws -> ResizeResult {
+        try record("resize")
+        lastResize = params
+        return ResizeResult(windowNumber: 0, width: params.width, height: params.height, sizes: [], live: params.live)
+    }
+
+    func scrollChat(_ params: ScrollChatParams) async throws -> ScrollHitchReport {
+        try record("scrollChat")
+        return ScrollHitchReport(
+            clock: "timer", startOffset: 0, endOffset: 0, distance: 0, timedOut: false, samples: [], worst: 0
+        )
+    }
+
+    func injectUsage(_ params: InjectUsageParams) async throws -> InjectUsageResult {
+        try record("injectUsage")
+        return InjectUsageResult(isUsingOverage: false, hasWindows: false, readsUsage: false, alwaysShow: false, shows: [])
+    }
+
+    func scrollTo(_ params: ScrollToParams) throws {
+        try record("scrollTo")
+    }
+}
+
+/// What `appendTurn` refuses to write to, below the dispatcher, where no live
+/// window or process is needed.
+struct AppendTurnRefusalTests {
+    private func transcript(_ contents: String) throws -> String {
+        let path = FileManager.default.temporaryDirectory
+            .appendingPathComponent("append-turn-\(UUID().uuidString).jsonl").path
+        try Data(contents.utf8).write(to: URL(fileURLWithPath: path))
+        return path
+    }
+
+    private func contents(_ path: String) throws -> String {
+        try String(contentsOfFile: path, encoding: .utf8)
+    }
+
+    @Test func appendsWholeRowsAfterAFinishedLine() throws {
+        let path = try transcript("{\"type\":\"user\"}\n")
+        defer { try? FileManager.default.removeItem(atPath: path) }
+        try SyntheticTurn(parentUUID: nil, index: 0, withReply: true).append(toFileAt: path)
+        let lines = try contents(path).split(separator: "\n", omittingEmptySubsequences: false)
+        #expect(lines.count == 4)
+        #expect(lines.last == "")
+    }
+
+    @Test func refusesAFileEndingMidLine() throws {
+        let original = "{\"type\":\"user\"}\n{\"type\":\"assis"
+        let path = try transcript(original)
+        defer { try? FileManager.default.removeItem(atPath: path) }
+        #expect(throws: ControlError.self) {
+            try SyntheticTurn(parentUUID: nil, index: 0, withReply: false).append(toFileAt: path)
+        }
+        #expect(try contents(path) == original)
+    }
+
+    @Test func refusesAnUnwritableFile() throws {
+        let path = try transcript("{\"type\":\"user\"}\n")
+        defer { try? FileManager.default.removeItem(atPath: path) }
+        try FileManager.default.setAttributes([.posixPermissions: 0o444], ofItemAtPath: path)
+        #expect(throws: ControlError.self) {
+            try SyntheticTurn(parentUUID: nil, index: 0, withReply: false).append(toFileAt: path)
+        }
+    }
+
+    @Test func refusesALiveTranscriptThatIsNoFixture() {
+        let seeds = AppendTurnTarget.seedPaths(in: ["PLUME_SEED_TRANSCRIPT_PATH": "/tmp/a.jsonl,,/tmp/b.jsonl"])
+        #expect(seeds == ["/tmp/a.jsonl", "/tmp/b.jsonl"])
+        #expect(AppendTurnTarget.refusal(path: "/tmp/b.jsonl", seedPaths: seeds, hasLiveProcess: true) == nil)
+        #expect(AppendTurnTarget.refusal(path: "/tmp/c.jsonl", seedPaths: seeds, hasLiveProcess: false) == nil)
+        #expect(AppendTurnTarget.refusal(path: "/tmp/c.jsonl", seedPaths: seeds, hasLiveProcess: true) != nil)
+        #expect(AppendTurnTarget.refusal(path: "/tmp/c.jsonl", seedPaths: [], hasLiveProcess: true) != nil)
+    }
+
+    @Test func refusesAnyPathInsideTheProjectsDirectory() throws {
+        let root = FileManager.default.temporaryDirectory.appendingPathComponent("append-turn-\(UUID().uuidString)")
+        defer { try? FileManager.default.removeItem(at: root) }
+        let projects = root.appendingPathComponent("projects")
+        let session = projects.appendingPathComponent("-Users-me-dev/session.jsonl").path
+        try FileManager.default.createDirectory(at: projects.appendingPathComponent("-Users-me-dev"), withIntermediateDirectories: true)
+        let link = root.appendingPathComponent("link")
+        try FileManager.default.createSymbolicLink(at: link, withDestinationURL: projects)
+        let viaLink = link.appendingPathComponent("-Users-me-dev/session.jsonl").path
+        let viaDotDot = root.appendingPathComponent("scratch/../projects/-Users-me-dev/session.jsonl").path
+        let sibling = root.appendingPathComponent("projects-copy/session.jsonl").path
+
+        for path in [session, viaLink, viaDotDot] {
+            #expect(AppendTurnTarget.refusal(
+                path: path, seedPaths: [path], hasLiveProcess: false, projectsDirectory: projects
+            ) != nil)
+        }
+        #expect(AppendTurnTarget.refusal(
+            path: sibling, seedPaths: [], hasLiveProcess: false, projectsDirectory: projects
+        ) == nil)
     }
 }

@@ -85,7 +85,7 @@ The default is a separate value again: a *fresh* run with no `--model` reported 
 | `sonnet` | `claude-sonnet-5` | 1,000,000 |
 | `sonnet[1m]` | `claude-sonnet-5[1m]` | 1,000,000 |
 | `fable` | `claude-fable-5-1` | 1,000,000 |
-| `haiku` | `claude-haiku-4-5-20251001` | 200,000 |
+| `haiku` | `claude-haiku-5-5` (2.1.325; `claude-haiku-4-5-20251001` at 2.1.280) | 1,000,000 (200,000 at 2.1.280) |
 | `claude-haiku-4-5-20251001` | `claude-haiku-4-5-20251001` | 200,000 |
 | `haiku[1m]` | `claude-haiku-4-5-20251001[1m]` | 400 "long context beta is not yet available for this subscription" |
 | `not-a-real-model` | `not-a-real-model` | |
@@ -95,6 +95,22 @@ Three things follow.
 - **The `[1m]` suffix is redundant for Opus and Sonnet, and unusable for Haiku on this subscription.** `init` echoes the ID it was handed, suffix included, but for Opus/Sonnet the window is the same either way, and for Haiku the `[1m]` form 400s outright. So "More" offers every preset bare — `claude-opus-5-5`, `claude-opus-5`, `claude-sonnet-5` and `claude-haiku-4-5-20251001` — with no `[1m]` sibling, and `recognizing(_:)` strips a `[1m]` suffix before matching so a suffixed ID from an older release, or a stored `haiku[1m]` from before this subscription's beta status was known, lands on the same bare entry. `nominalContextWindow` reads 200K for Haiku and 1M for every other preset.
 - **The top-level picker sends `alias[1m]` for Opus and Sonnet** — `opus[1m]`/`sonnet[1m]` — and plain `fable`/`haiku`, and shows the bare family name until a session reports the resolved model. The CLI resolves the alias to its current model, so Plume never has to track a version for the default path.
 - **`init` echoes whatever ID it was handed**, including one the backend does not know, and it never lists the models on offer — `capabilities` names protocol features (`interrupt_receipt_v1` and friends). So there is no live model list to read, and `AgentModel.more` is maintained by hand. An ID with no preset round-trips as itself so the composer displays what the session actually runs on.
+
+### Plan mode swaps some aliases
+
+**In plan mode the CLI runs `haiku` on Sonnet and `opusplan` on Opus, but `init` still reports the alias's normal model.** The CLI bundle (2.1.325) holds the rule: `F$` matches exactly `opusplan` or `haiku`, `H_e` maps them to `opus` and `sonnet`, and `gat` swaps that model in only while `permissionMode` is `plan`. Measured by reading `init`'s `model` and each `assistant` row's `message.model`:
+
+| `--model` | `--permission-mode` | `init` reports | replies come from |
+| --- | --- | --- | --- |
+| `haiku` | `plan` | `claude-haiku-5-5` | `claude-sonnet-5-5` |
+| `haiku` | `default` | `claude-haiku-5-5` | `claude-haiku-5-5` |
+| `claude-haiku-5-5` | `plan` | `claude-haiku-5-5` | `claude-haiku-5-5` |
+| `opusplan` | `plan` | `claude-sonnet-5-5` | `claude-opus-5-5` |
+| `opusplan` | `default` | `claude-sonnet-5-5` | `claude-sonnet-5-5` |
+
+Only the bare alias swaps; a full ID plans on itself. `result.modelUsage` names the plan model too, but it also counts subagents, so it can't say which model the main thread used.
+
+**What Plume does with this.** The composer's model chip reads "Sonnet → Haiku 5.5" in plan mode, with the help text "Plans with Sonnet, then runs Haiku 5.5", and the plain model outside plan mode or when the two match. `PlanModeModel` owns the rule. `HeadlessSession` records the `message.model` of each main-thread reply while in plan mode, keyed to the run model at the time, and that observation overrides the prediction from the alias that `--model` or `set_model` last carried (`requestedModelID`). A different run model makes the observation stale.
 
 ## Sending a turn
 
@@ -199,6 +215,16 @@ Verified: the model received `Your questions have been answered: "Tabs or spaces
 ### Approving an `ExitPlanMode`
 
 Same shape. `input` carries `plan` (markdown) and `planFilePath`. `allow` approves the plan and leaves plan mode; `deny` with a `message` rejects it and hands the model the reason.
+
+### Plan mode the model enters itself — `EnterPlanMode`
+
+Probed against 2.1.321, launched with `--permission-mode default`. `EnterPlanMode` needs no permission: no `can_use_tool` arrives for it. Between the `tool_use` and its result the CLI writes a `status` line that carries the new mode:
+
+```json
+{"type":"system","subtype":"status","status":null,"permissionMode":"plan","uuid":"…","session_id":"…"}
+```
+
+`HeadlessSession` reads `permissionMode` off any `status` line and treats it as confirmed, the same as `init`. Without that, the picker and anything reading the session's live mode would keep showing the mode it launched in.
 
 ### A message mid-turn
 
@@ -400,7 +426,13 @@ claude -p --resume <old-id> --fork-session --session-id <new-id> --resume-sessio
 
 - `--fork-session` writes a **new `.jsonl` under a new session id**, copying history verbatim with uuids preserved. The original file is untouched.
 - `--session-id` lets the host choose the fork's id up front, so a tab can record it before the process exists.
-- `--resume-session-at` resumes only up to a given entry. Cut at the **parent** of the message being redone, not the message itself — cutting at the message keeps it, and the fork opens on two consecutive user turns.
+- `--resume-session-at` resumes only up to a given entry. Leaving it out forks the whole conversation, and that works while the source is mid tool call: a child session forks its parent from inside the parent's `start_session` call this way.
+- `--resume-session-at` cuts at the entry it names. Cut at the **parent** of the message being redone, not the message itself — cutting at the message keeps it, and the fork opens on two consecutive user turns.
+- **A cut must name a row on the live branch.** A uuid on an abandoned branch, a uuid the file lacks and a made-up one all exit 1 with `No message found with message.uuid of: <uuid>` on stderr, and write no file. The CLI walks only the branch the file's tip hangs from.
+- **A cut inside a tool call is accepted, but breaks the fork.** Cutting at an assistant `tool_use` row starts the fork, which then reads that call's result as "Tool result missing due to internal error". There is no `target_splits_tool_call` refusal here; that is a rewind reason only. Cut at a user row with no call open after it: a prompt, or the `tool_result` that answered the last open call.
+- **Every row on the stream carries its transcript `uuid`.** A main-thread `user` row with a `tool_result` has the same `uuid` as in the file. The prompt a host sends with a `uuid` is written under that `uuid`, and the turn's first `assistant` row names it as `user_message_uuid`; a fork cut at it is accepted. A prompt sent without a `uuid` gets one the stream never reports, and `user_message_uuid` is absent, so Plume sends a `uuid` with every turn it starts. That is enough to know a cut point live, without reading the file.
+
+Probed against 2.1.321 with `claude -p --model claude-haiku-5-5 --resume <id> --fork-session --session-id <new> --resume-session-at <uuid>`, on a session that ran `echo hi` through Bash and then replied. Cutting at the prompt row gave a fork that saw only the request. Cutting at the `tool_result` row gave a fork that knew `echo hi` printed `hi` and had not yet replied.
 
 **`--resume-session-at` is undocumented**: the CLI parses it but `claude --help` does not list it, so an upgrade can withdraw it without warning. That is why forking is the secondary path and `rewind_conversation` is the default. Companion hidden flags: `--resume-drops-turn`, `--rewind-files`, `--reply-on-resume`.
 
@@ -411,6 +443,37 @@ claude -p --resume <old-id> --fork-session --session-id <new-id> --resume-sessio
 **A forked session writes nothing until its first turn produces content.** Plume forks with an empty prompt, so the process sits idle and no `.jsonl` exists until the user sends something. A missing transcript straight after a fork is the expected state, not a failed launch — and a tab that waits for one before enabling its composer can never get one.
 
 **Resuming a session whose process is still running does not disturb the original.** Both processes stay alive and independent; measured across a fork with a per-second process watch.
+
+## The host's own MCP server — `mcp_message`
+
+Measured against 2.1.321. The host can serve MCP tools itself, over the control plane, with no process or socket of its own. Plume serves child sessions this way; `docs/child-sessions.md` covers the tools.
+
+Name the server in `initialize`:
+
+```json
+{"type":"control_request","request_id":"plume-1","request":{"subtype":"initialize","hooks":{},"sdkMcpServers":["plume"]}}
+```
+
+The CLI then speaks JSON-RPC to it, one message per control request:
+
+```json
+{"type":"control_request","request_id":"…","request":{"subtype":"mcp_message","server_name":"plume","message":{"method":"tools/list","jsonrpc":"2.0","id":1}}}
+```
+
+- **The sequence is `initialize`, `notifications/initialized`, `tools/list`, then a `tools/call` per use.** The first three arrive about 0.3 s after the host's own `initialize`, before the CLI has replied to it. Answer them whatever state the handshake is in.
+- **Reply with the JSON-RPC message under `mcp_response`:**
+
+  ```json
+  {"type":"control_response","response":{"subtype":"success","request_id":"…","response":{"mcp_response":{"jsonrpc":"2.0","id":1,"result":{…}}}}}
+  ```
+
+  A notification has no id and takes no JSON-RPC reply, but the control request still needs an answer: send `"response":{}`.
+- **In `tools/call`, `params.name` is the bare tool name** (`start_session`), and `params._meta["claudecode/toolUseId"]` carries the call's `tool_use` id. A tool's failure is a `result` with `isError: true`, not a JSON-RPC `error`, so the model reads the message.
+- **The model knows the tool as `mcp__<server>__<tool>`**, and so does `can_use_tool`, which also carries `"mcp_server":{"name":"plume","source":"sdk"}`. Without a rule allowing it, every call asks like any other tool. Plume allows its own tools in the `can_use_tool` handler, except a `start_session` that starts a session in manual mode, or that would start one in bypass from a parent not in bypass, which it lets ask.
+- **Plan mode does not stop an MCP call.** Probed against 2.1.321 in `--permission-mode plan`: `can_use_tool` still arrived for `mcp__plume__start_session`, and an `allow` ran it. Plume denies a `start_session` that starts a session or offers one there instead, with a message telling the model to exit plan mode (`PlumeMCPServer.decision`). A proposal (`own_initiative` without `proposal_id`) starts nothing without the user's click, so it is allowed.
+- **The server's `instructions` reach the model**, but the tools themselves are deferred and load through ToolSearch, so the instructions must name each tool in full for the model to find it.
+- **A `tools/call` may wait as long as the host likes.** Probed against 2.1.323 with a call left unanswered: the CLI sent no timeout and no cancel in 65 minutes of waiting. It emits a `tool_progress` event every 30 s while the call is pending. Plume's offer card relies on this to wait for the user.
+- **An interrupt cancels the pending call with a JSON-RPC notification.** The CLI sends `mcp_message` with `{"method":"notifications/cancelled","params":{"requestId":<the tools/call id>,"reason":"AbortError: remote-cancel"}}`, answers the interrupt with `{"still_queued":[]}`, and writes its own `tool_result` ("The user doesn't want to proceed with this tool use. …") followed by `[Request interrupted by user for tool use]`. A late answer to the cancelled `mcp_message` is ignored without error. `PlumeMCPServer` cancels the matching call's task.
 
 ## Context usage — `get_context_usage`
 
@@ -438,6 +501,41 @@ Feeds the context breakdown in the statusline's usage popover. Probed against 2.
 - The popover lists every category except `free` and `deferred`. Free space restates the meter's remainder, and deferred tools are not loaded into context.
 - `HeadlessSession.requestContextUsage()` sends the request each time the popover opens, never on a timer. The last reply stays cached in `contextBreakdown` meanwhile.
 - An error reply, or a reply with no readable category, clears `contextBreakdown`, and the popover shows no breakdown.
+
+## Account usage — `get_usage`
+
+Feeds the credit and Fable readings in the sidebar's quota row and the statusline. **The request is marked experimental**, so `ClaudeUsageRequest` decodes every field as optional. A reply Plume doesn't recognise is a failed poll: the last readings stay, and the next poll backs off. A reply saying usage is unavailable hides the credit and Fable readings with no failure shown. Verified against 2.1.328.
+
+Plume never sends it to a chat's own process. `ClaudeUsageClient` launches a short-lived `claude -p --input-format stream-json --output-format stream-json --verbose`, through the login shell like every headless launch, writes two lines and ends the process when the reply arrives, when it exits, or after 30 seconds:
+
+```json
+{"type":"control_request","request_id":"initialize","request":{"subtype":"initialize"}}
+{"type":"control_request","request_id":"usage","request":{"subtype":"get_usage","skip_behaviors":true}}
+```
+
+The CLI answers before any user message, so the request costs no inference. The reply, abridged:
+
+```json
+{"type":"control_response","response":{"subtype":"success","request_id":"usage","response":{
+  "subscription_type":"team","rate_limits_available":true,"behaviors":null,"session":{…},
+  "rate_limits":{
+    "five_hour":{"utilization":37,"resets_at":"2026-11-18T23:30:00Z",…},
+    "seven_day":{"utilization":64,"resets_at":"2026-11-22T03:00:00Z",…},
+    "extra_usage":{"is_enabled":true,"monthly_limit":20000,"used_credits":4321,"currency":"USD","decimal_places":2,…},
+    "limits":[{"kind":"weekly_scoped","percent":45,"resets_at":"…","scope":{"model":{"display_name":"Fable"}},…}, …],
+    "spend":{"used":{"amount_minor":4321,"currency":"USD","exponent":2},"limit":{"amount_minor":20000,…},"enabled":true,"balance":null,…},
+    "model_scoped":[{"display_name":"Fable","utilization":45,"resets_at":"…"}],
+    …}}}}
+```
+
+- `utilization` and `percent` are 0–100. Amounts are minor units of `currency`.
+- `ClaudeUsageParser` reads `rate_limits`: the Fable window from the `weekly_scoped` row of `limits[]` whose model is Fable, else from `model_scoped[]`, and the credit from `spend`, else `extra_usage`. `rate_limits` carries many more keys, most of them null; the parser ignores them. `QuotaStore` keeps taking the 5h and 7d windows from the stream.
+- **A login that reports no usage gets `"rate_limits_available": false` and `"rate_limits": null`.** An API key, Bedrock, Vertex, or a login without the profile scope all do. Plume treats that as nothing to show, not as a failure, and asks again only hourly. Only that explicit `false` means unavailable; a reply missing `rate_limits` for any other reason is a failed poll.
+- A refusal arrives as an error-shaped response (below).
+- The run takes `--no-session-persistence`, `--strict-mcp-config` and `--settings '{"disableAllHooks":true}'`, and runs in `usage/` under Plume's Application Support folder. Without a user message the CLI writes no transcript even without the first flag (checked against `~/.claude/projects`), but the user's `SessionStart` hooks do fire, and MCP servers would start, so the run turns both off.
+- `LoginShellCommand.childEnvironment(removing:)` drops `CLAUDECODE` and `CLAUDE_CODE_CHILD_SESSION`, so a Plume launched from inside Claude Code doesn't pass that session's markers on.
+
+`ClaudeUsagePoller` polls every 20 minutes, with a doubling backoff after a failure, capped at an hour, and hourly for a login that reports no usage. While a 5h or 7d window is full, or the account is using overage, the end of any Claude turn polls too, at most every 2 minutes, since credits are being spent then. The Settings ▸ Agents toggle turns it off.
 
 ## Session titles — `generate_session_title`
 
@@ -548,8 +646,9 @@ Nothing times out a control request on either side, so a reply that is never dec
 
 Observed in order, from a real run:
 
-1. **`rate_limit_event`** — arrives **before** `system/init`, so quota can land before its session is known. `rate_limit_info` carries `unifiedWindows.five_hour` / `.seven_day`, each `{utilization, resetsAt}`, plus `overageStatus`, `overageResetsAt`, `isUsingOverage`. **`utilization` is 0–1**, where the statusline payload's `used_percentage` was 0–100.
+1. **`rate_limit_event`** — arrives **before** `system/init`, so quota can land before its session is known. `rate_limit_info` carries `unifiedWindows.five_hour` / `.seven_day`, each `{utilization, resetsAt}`, plus `overageStatus`, `overageResetsAt`, `isUsingOverage`. On a Fable turn only, `unifiedWindows` also carries `seven_day_overage_included`, the same shape: it is the Fable weekly window. It names no model, so nothing in the event says it is Fable's; that was verified against `/usage` on CLI 2.1.328, where it read 0.20 beside "Current week (Fable): 21%" with the same reset as `seven_day`. A turn on another model omits it, which never means the Fable window emptied. **`utilization` is 0–1**, where the statusline payload's `used_percentage` was 0–100.
 2. **`system` / `init`** — `session_id`, `cwd`, `model`, `permissionMode`, `tools`, `slash_commands`, `agents`, `skills`, `mcp_servers` (each `{name, status}`), `memory_paths`, `plugins`, `output_style`, `claude_code_version`, `apiKeySource`.
+   `tools` is a flat list of names with no deferred marker. `HeadlessSession.toolNames` keeps the latest one in memory and logs it when it changes. In a Debug build the info pane's Tools section shows it, and the control server's `list` with `plumeID: "info-pane-tools-toggle"` returns the names, comma-joined, as `value`.
 3. **`system` / `status`** — coarse activity (`"requesting"`).
 4. **`stream_event`** — raw Anthropic streaming events under `.event` (`message_start`, `content_block_start`, `content_block_delta`, `content_block_stop`, `message_delta`, `message_stop`). Only with `--include-partial-messages`. This is the live token feed.
 5. **`assistant`** / **`user`** — complete message envelopes, content blocks identical to the transcript's. `parent_tool_use_id` attributes a message to a subagent. Tool results arrive as `user` messages carrying `tool_result` blocks.

@@ -144,6 +144,16 @@ struct ReferenceChipStoreTests {
         #expect(store.revision(for: ownerB) == 1)
     }
 
+    @Test func aMountedOwnerWithNoLinksIsNotBumpedByAnotherOwnersTitle() async {
+        let store = makeStore(files: ["/repo/Notes.md": false])
+        #expect(store.revision(for: ownerB) == 0)
+        store.want([], owner: ownerB)
+        store.want([.file(path: "/repo/Notes.md")], owner: ownerA)
+        await store.settled()
+        #expect(store.revision(for: ownerA) == 1)
+        #expect(store.revision(for: ownerB) == 0)
+    }
+
     @Test func releasingKeepsTheRevision() async {
         let store = makeStore(files: ["/repo/Notes.md": false])
         store.want([.file(path: "/repo/Notes.md")], owner: ownerA)
@@ -208,5 +218,54 @@ struct ReferenceChipStoreTests {
         store.want([.file(path: "/repo/Notes.md")], owner: ownerB)
         await store.settled()
         #expect(counter.withLock { $0 } == 1)
+    }
+
+    /// A list unmounted while its lookup is in flight shows the title when it
+    /// mounts again, though the remount asks for no new lookup.
+    @Test func aTitleLandingWhileReleasedReachesTheRemountedList() async {
+        let lookup = Gate()
+        let lookups = Mutex(0)
+        let store = ReferenceChipStore(dependencies: .init(
+            linearIssue: { _ in nil },
+            wantLinear: { _, _ in },
+            pullRequests: { _ in [:] },
+            fileKinds: { paths in
+                lookups.withLock { $0 += 1 }
+                await lookup.wait()
+                return Dictionary(uniqueKeysWithValues: paths.map { ($0, false) })
+            },
+            sleep: { _ in },
+            now: { Date(timeIntervalSince1970: 0) }
+        ))
+        let messages = [ChatMessage(id: "u0", role: .user, blocks: [.markdown("See [notes](Notes.md).")], timestamp: nil, isLive: false)]
+        let cache = ChatPieceCache()
+        func build(_ cache: ChatPieceCache) -> [ChatPiece] {
+            cache.pieces(
+                for: messages,
+                status: .awaitingReply,
+                hiddenToolUseIDs: [],
+                dimensions: Dimensions(bodySize: 13),
+                referenceRevision: store.revision(for: ownerA),
+                linkBase: URL(fileURLWithPath: "/repo"),
+                referenceTitle: { store.title(for: $0) }
+            )
+        }
+        func mount() -> [ChatPiece] {
+            let pieces = build(cache)
+            store.want(cache.referenceTargets, owner: ownerA)
+            return pieces
+        }
+
+        let untitled = mount()
+        store.release(owner: ownerA)
+        lookup.open()
+        await store.settled()
+        #expect(store.title(for: .file(path: "/repo/Notes.md")) == "Notes.md")
+
+        let remounted = mount()
+        await store.settled()
+        #expect(lookups.withLock { $0 } == 1)
+        #expect(remounted != untitled)
+        #expect(remounted == build(ChatPieceCache()))
     }
 }

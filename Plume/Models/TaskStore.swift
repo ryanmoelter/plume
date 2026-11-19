@@ -16,10 +16,11 @@ enum TaskStore {
     /// Off by default: it reads `UserDefaults` and shells out to `git`, which
     /// callers that just want a bare task shouldn't pay for.
     ///
-    /// `inheritingFrom` seeds it instead from another task's workspace —
-    /// ⌘N's selected-task case — and wins over `defaultsToRecentFolder` when
-    /// both are given. A worktree task is inherited as a plain directory:
-    /// the new task gets the same folder, not a worktree of its own.
+    /// `inheritingFrom` seeds it instead from the workspace of another task's
+    /// `TabDirectoryStore.workspaceSource(in:)` — ⌘N's selected-task case —
+    /// and wins over `defaultsToRecentFolder` when both are given. A worktree
+    /// is inherited as a plain directory: the new task gets the same folder,
+    /// not a worktree of its own.
     @discardableResult
     static func createTask(
         in context: ModelContext,
@@ -31,20 +32,19 @@ enum TaskStore {
         firstTab kind: TabKind = .agent
     ) -> WorkTask {
         let task = WorkTask(title: title, orderIndex: nextIndex(after: siblings), group: group)
-        if let source = inheritingFrom, let folder = source.workingDirectoryPath {
-            task.workingDirectoryPath = folder
-            task.repoPath = source.repoPath
-            task.branchName = source.branchName
-            task.workspaceKind = .directory
-        } else if defaultsToRecentFolder, let folder = RecentFolders.mostRecent() {
-            task.workingDirectoryPath = folder
-            task.workspaceKind = .directory
-            // Filled in once `git` answers: creating a task must not wait on
-            // a subprocess, and nothing reads `repoPath` before then.
-            Task { task.repoPath = await GitService.shared.repositoryRoot(containing: folder) }
-        }
         let tab = TaskTab(kind: kind, orderIndex: 0, task: task)
         if kind == .agent { applyDefaultLaunchSettings(to: tab) }
+        let directories = TabDirectoryStore.shared
+        if let source = inheritingFrom.flatMap({ directories.workspaceSource(in: $0) }),
+           case let inherited = directories.currentWorkspace(of: source),
+           let folder = inherited.directory {
+            tab.workspace = .directory(folder, repoPath: inherited.repoPath, branchName: inherited.branchName)
+        } else if defaultsToRecentFolder, let folder = RecentFolders.mostRecent() {
+            tab.workspace = .directory(folder)
+            // Filled in once `git` answers: creating a task must not wait on
+            // a subprocess, and nothing reads `repoPath` before then.
+            Task { tab.repoPath = await GitService.shared.repositoryRoot(containing: folder) }
+        }
         context.insert(task)
         context.insert(tab)
         task.tabs = [tab]
@@ -79,9 +79,9 @@ enum TaskStore {
         siblings: [WorkTask]
     ) -> (task: WorkTask, tab: TaskTab) {
         let task = createTask(in: context, title: title, siblings: siblings, firstTab: .terminal)
-        task.workingDirectoryPath = directory
-        task.workspaceKind = .directory
-        return (task, task.tabs[0])
+        let tab = task.tabs[0]
+        tab.workspace = .directory(directory)
+        return (task, tab)
     }
 
     @discardableResult
@@ -95,18 +95,28 @@ enum TaskStore {
         return group
     }
 
-    /// Lands in `pane`, or the focused pane when nil, at the end of its strip.
+    /// Lands in `pane`, or the focused pane when nil, at the end of its strip,
+    /// in the workspace of the tab the user is on.
     @discardableResult
     static func addTab(
         to task: WorkTask,
         kind: TabKind,
         provider: AgentProviderKind? = nil,
         pane: Int? = nil,
+        selecting: Bool = true,
         in context: ModelContext
     ) -> TaskTab {
         let paneIndex = min(max(pane ?? task.focusedPane, 0), task.paneCount - 1)
         let tab = TaskTab(kind: kind, orderIndex: nextIndex(after: task.tabs(inPane: paneIndex)), task: task)
         tab.paneIndex = paneIndex
+        let directories = TabDirectoryStore.shared
+        if let source = directories.workspaceSource(in: task, excluding: tab.id) {
+            tab.workspace = directories.currentWorkspace(of: source)
+        } else if let newest = task.ownedWorktrees.last {
+            tab.workspace = TabWorkspace(
+                kind: .worktree, directory: newest.path, repoPath: newest.repoPath, branchName: newest.branch
+            )
+        }
         if kind == .agent {
             let provider = provider ?? AppSettings.shared.defaultProvider
             tab.provider = provider
@@ -119,8 +129,62 @@ enum TaskStore {
         }
         context.insert(tab)
         task.tabs.append(tab)
-        selectTab(tab, in: task)
+        if selecting { selectTab(tab, in: task) }
         return tab
+    }
+
+    /// A headless Claude tab for a session `parent`'s agent started, placed
+    /// at the end of the parent's run in its pane, so it starts attached, and
+    /// left unselected, so the user stays where they are.
+    static func addChildTab(to task: WorkTask, parent: TaskTab, in context: ModelContext) -> TaskTab {
+        let tab = addTab(
+            to: task, kind: .agent, provider: .claudeCode, pane: parent.paneIndex, selecting: false, in: context
+        )
+        tab.transport = .headless
+        tab.parentTabID = parent.id
+        ChildSessionIndex.shared.record(child: tab, parent: parent)
+        var pane = task.tabs(inPane: tab.paneIndex).filter { $0.id != tab.id }
+        let index = childInsertionIndex(parentID: parent.id, in: pane.map { ($0.id, $0.parentTabID) })
+        pane.insert(tab, at: min(index, pane.count))
+        reindex(pane)
+        return tab
+    }
+
+    /// Just past the parent's run, or at the end when the parent is not
+    /// among `tabs`.
+    static func childInsertionIndex(parentID: UUID, in tabs: [(id: UUID, parentID: UUID?)]) -> Int {
+        let entries = tabs.map { TabStripGrouping.Entry(id: $0.id, parentID: $0.parentID) }
+        return TabStripGrouping(entries).endOfRun(of: parentID) ?? tabs.count
+    }
+
+    /// `tabs` with each child moved right after its parent, and how deep it
+    /// nests. A tab whose parent is not among `tabs` stays top-level.
+    static func nestedByParent<T>(
+        _ tabs: [T],
+        id: (T) -> UUID,
+        parentID: (T) -> UUID?
+    ) -> [(item: T, depth: Int)] {
+        let ids = Set(tabs.map(id))
+        var childrenByParent: [UUID: [T]] = [:]
+        var roots: [T] = []
+        for tab in tabs {
+            if let parent = parentID(tab), parent != id(tab), ids.contains(parent) {
+                childrenByParent[parent, default: []].append(tab)
+            } else {
+                roots.append(tab)
+            }
+        }
+        var result: [(item: T, depth: Int)] = []
+        var visited: Set<UUID> = []
+        func visit(_ tab: T, depth: Int) {
+            guard visited.insert(id(tab)).inserted else { return }
+            result.append((tab, depth))
+            for child in childrenByParent[id(tab)] ?? [] { visit(child, depth: depth + 1) }
+        }
+        for root in roots { visit(root, depth: 0) }
+        // A parent cycle has no root to reach it from.
+        for tab in tabs where !visited.contains(id(tab)) { visit(tab, depth: 0) }
+        return result
     }
 
     // MARK: - Selection
@@ -129,6 +193,7 @@ enum TaskStore {
     /// pane's selected tab cannot drift out of step with it. Selecting a tab
     /// focuses its pane.
     static func selectTab(_ tab: TaskTab, in task: WorkTask) {
+        revealInStrip(tab, in: task)
         task.selectedTabID = tab.id
         if tab.kind == .agent {
             task.lastFocusedAgentTabID = tab.id
@@ -139,19 +204,72 @@ enum TaskStore {
         }
     }
 
-    /// ⌘1–9: counts within the focused pane's strip.
+    /// ⌘1–9: counts the chips the focused pane's strip shows.
     static func selectTab(atIndex index: Int, in task: WorkTask) {
-        let tabs = task.tabs(inPane: task.focusedPane)
+        let tabs = visibleTabs(inPane: task.focusedPane, of: task)
         guard tabs.indices.contains(index) else { return }
         selectTab(tabs[index], in: task)
     }
 
     /// Next and Previous Tab, wrapping within the focused pane's strip.
     static func cycleTab(by offset: Int, in task: WorkTask) {
-        let tabs = task.tabs(inPane: task.focusedPane)
+        let tabs = visibleTabs(inPane: task.focusedPane, of: task)
         guard let current = tabs.firstIndex(where: { $0.id == task.selectedTabID }) else { return }
         let next = ((current + offset) % tabs.count + tabs.count) % tabs.count
         selectTab(tabs[next], in: task)
+    }
+
+    // MARK: - Child session groups
+
+    static func grouping(of tabs: [TaskTab]) -> TabStripGrouping {
+        TabStripGrouping(stripEntries(tabs))
+    }
+
+    private static func stripEntries(_ tabs: [TaskTab]) -> [TabStripGrouping.Entry] {
+        tabs.map { TabStripGrouping.Entry(id: $0.id, parentID: $0.parentTabID, childrenCollapsed: $0.childrenCollapsed) }
+    }
+
+    /// `tab` and the children attached to it, in strip order.
+    private static func subtree(of tab: TaskTab, in tabs: [TaskTab]) -> [TaskTab] {
+        guard let block = grouping(of: tabs).block(of: tab.id) else { return [tab] }
+        return Array(tabs[block])
+    }
+
+    static func visibleTabs(inPane pane: Int, of task: WorkTask) -> [TaskTab] {
+        let tabs = task.tabs(inPane: pane)
+        let hidden = grouping(of: tabs).hidden
+        return tabs.filter { !hidden.contains($0.id) }
+    }
+
+    /// Collapsing never leaves a pane showing a tab whose chip it hides: the
+    /// pane shows the parent instead.
+    static func setChildrenCollapsed(_ collapsed: Bool, of tab: TaskTab, in task: WorkTask) {
+        guard tab.childrenCollapsed != collapsed else { return }
+        tab.childrenCollapsed = collapsed
+        guard collapsed else { return }
+        let panes = task.panes
+        let pane = tab.paneIndex
+        let shownIDs = task.paneTabIDs(in: panes)
+        guard panes.indices.contains(pane), shownIDs.indices.contains(pane) else { return }
+        let shown = shownIDs[pane]
+        guard grouping(of: panes[pane]).shownAfterCollapsing(tab.id, shown: shown) != nil else { return }
+        if shown == task.selectedTabID {
+            selectTab(tab, in: task)
+        } else {
+            var remembered = shownIDs.map(Optional.some)
+            remembered[pane] = tab.id
+            task.paneSelectedTabIDs = remembered
+        }
+    }
+
+    /// Expands every collapsed group hiding `tab`'s chip.
+    private static func revealInStrip(_ tab: TaskTab, in task: WorkTask) {
+        guard tab.isChildSession else { return }
+        let tabs = task.tabs(inPane: tab.paneIndex)
+        let parents = Set(grouping(of: tabs).collapsedParentsHiding(tab.id))
+        for parent in tabs where parents.contains(parent.id) {
+            parent.childrenCollapsed = false
+        }
     }
 
     // MARK: - Split
@@ -162,14 +280,21 @@ enum TaskStore {
     }
 
     /// Whether `tab` can move out into a new pane: only while unsplit, and
-    /// never the last tab, which would leave its strip empty.
+    /// never with every tab of the strip, which would leave it empty.
     static func canOpenInSplit(_ tab: TaskTab, in task: WorkTask) -> Bool {
-        !task.isSplit && task.tabs.count > 1 && task.tabs.contains { $0.id == tab.id }
+        guard !task.isSplit, task.tabs.contains(where: { $0.id == tab.id }) else { return false }
+        let strip = task.tabs(inPane: tab.paneIndex)
+        return subtree(of: tab, in: strip).count < strip.count
     }
 
-    /// Moves `tab` out of its strip into a new pane on `side`, and focuses it.
-    /// Already split, `tab` moves onto the end of the pane on `side` instead,
-    /// unless it is already there, where it only takes focus.
+    /// Whether `openInSplit(_:side:in:)` would do anything.
+    static func canOpenInSplit(_ tab: TaskTab, side: SplitSide, in task: WorkTask) -> Bool {
+        task.isSplit || canOpenInSplit(tab, in: task)
+    }
+
+    /// Moves `tab` and its attached children out of its strip into a new pane on `side`,
+    /// and focuses it. Already split, `tab` moves onto the end of the pane on
+    /// `side` instead, unless it is already there, where it only takes focus.
     static func openInSplit(_ tab: TaskTab, side: SplitSide, in task: WorkTask) {
         if task.isSplit {
             let pane = side == .left ? 0 : task.paneCount - 1
@@ -182,8 +307,9 @@ enum TaskStore {
         }
         guard canOpenInSplit(tab, in: task) else { return }
         var panes = paneStates(of: task)
-        remove(tab, from: &panes)
-        let pane = PaneState(tabs: [tab], shown: tab.id)
+        guard let source = panes.firstIndex(where: { $0.tabs.contains { $0.id == tab.id } }) else { return }
+        let moved = take(subtree(of: tab, in: panes[source].tabs).map(\.id), from: &panes[source])
+        let pane = PaneState(tabs: moved, shown: tab.id)
         if side == .left { panes.insert(pane, at: 0) } else { panes.append(pane) }
         commit(panes, to: task, focusing: tab.id)
         selectTab(tab, in: task)
@@ -239,22 +365,23 @@ enum TaskStore {
         return tab
     }
 
-    /// Moves `tab` into `pane`'s strip at the gap `position` (counted in the
-    /// strip as drawn, `tab` included), or onto its end. A tab arriving from
-    /// another pane takes focus, and a pane left empty closes; a reorder
-    /// within one strip leaves focus alone.
+    /// Moves `tab` and its attached children into `pane`'s strip at the gap `position`
+    /// (counted in the strip as drawn, `tab` included), or onto its end,
+    /// wherever `TabStripMove` lets it land. A tab arriving from another pane
+    /// takes focus, and a pane left empty closes; a reorder within one strip
+    /// leaves focus alone.
     static func moveTab(_ tab: TaskTab, toPane pane: Int, at position: Int? = nil, in task: WorkTask) {
         var panes = paneStates(of: task)
-        guard panes.indices.contains(pane) else { return }
+        guard panes.indices.contains(pane),
+              let source = panes.firstIndex(where: { $0.tabs.contains { $0.id == tab.id } }),
+              let move = plannedMove(
+                of: tab, from: panes[source].tabs, to: source == pane ? nil : panes[pane].tabs, at: position
+              )
+        else { return }
         let shownBefore = panes[pane].shown
-        guard let source = remove(tab, from: &panes) else { return }
-        let isReorder = source.pane == pane
-        var destination = panes[pane].tabs
-        var insertion = min(position ?? destination.count, destination.count)
-        if isReorder, let position, position > source.index { insertion = min(position - 1, destination.count) }
-        destination.insert(tab, at: insertion)
-        panes[pane].tabs = destination
-        if isReorder {
+        let moved = take(move.ids, from: &panes[source])
+        panes[pane].tabs.insert(contentsOf: moved, at: min(move.gap, panes[pane].tabs.count))
+        if source == pane {
             panes[pane].shown = shownBefore
             commit(panes, to: task, focusing: task.selectedTabID)
             return
@@ -262,6 +389,31 @@ enum TaskStore {
         panes[pane].shown = tab.id
         commit(panes, to: task, focusing: tab.id)
         selectTab(tab, in: task)
+    }
+
+    /// Where dropping `tab` at `position` would put it in `pane`'s strip,
+    /// counted as `position` is, or nil when it cannot move there.
+    static func landingIndex(of tab: TaskTab, toPane pane: Int, at position: Int?, in task: WorkTask) -> Int? {
+        let panes = task.panes
+        guard panes.indices.contains(pane),
+              let source = panes.firstIndex(where: { $0.contains { $0.id == tab.id } }),
+              let move = plannedMove(of: tab, from: panes[source], to: source == pane ? nil : panes[pane], at: position)
+        else { return nil }
+        guard source == pane, let first = panes[pane].firstIndex(where: { $0.id == tab.id }) else { return move.gap }
+        return move.gap <= first ? move.gap : move.gap + move.ids.count
+    }
+
+    /// A reorder when `destination` is nil.
+    private static func plannedMove(
+        of tab: TaskTab,
+        from source: [TaskTab],
+        to destination: [TaskTab]?,
+        at position: Int?
+    ) -> TabStripMove? {
+        guard let destination else {
+            return TabStripMove.reorder(tab.id, in: stripEntries(source), toward: position)
+        }
+        return TabStripMove.transfer(tab.id, from: stripEntries(source), to: stripEntries(destination), toward: position)
     }
 
     /// Every pane's tabs join the leftmost strip, in pane order. The focused
@@ -305,18 +457,16 @@ enum TaskStore {
         }
     }
 
-    /// Takes `tab` out of its pane, which falls back to showing its first
-    /// tab if it was showing `tab`. An emptied pane stays in `panes` until
-    /// `commit`, so pane numbers hold in between.
+    /// Takes `ids` out of `pane`, in strip order. The pane falls back to
+    /// showing its first tab if it was showing one of them. An emptied pane
+    /// stays in its list until `commit`, so pane numbers hold in between.
     @discardableResult
-    private static func remove(_ tab: TaskTab, from panes: inout [PaneState]) -> (pane: Int, index: Int)? {
-        for pane in panes.indices {
-            guard let index = panes[pane].tabs.firstIndex(where: { $0.id == tab.id }) else { continue }
-            panes[pane].tabs.remove(at: index)
-            if panes[pane].shown == tab.id { panes[pane].shown = panes[pane].tabs.first?.id }
-            return (pane, index)
-        }
-        return nil
+    private static func take(_ ids: [UUID], from pane: inout PaneState) -> [TaskTab] {
+        let taken = Set(ids)
+        let moved = pane.tabs.filter { taken.contains($0.id) }
+        pane.tabs.removeAll { taken.contains($0.id) }
+        if let shown = pane.shown, taken.contains(shown) { pane.shown = pane.tabs.first?.id }
+        return moved
     }
 
     /// Writes `panes` back: drops empty ones, numbers the rest densely, and
@@ -335,21 +485,23 @@ enum TaskStore {
         if task.selectedTabID != focus { task.selectedTabID = focus }
     }
 
-    /// Takes `tab` out of `task`'s panes, as closing it or moving it to
-    /// another task does. Returns the tab to focus in its place: the next one
-    /// its pane shows, or, when its pane closes, the one the pane now in its
-    /// place shows. Nil when no tab is left.
+    /// Takes `tabs` out of `task`'s panes, as closing a tab or moving tabs to
+    /// another task does. Returns the tab to focus in their place: the next
+    /// one the focused pane shows, or, when that pane closes, the one the pane
+    /// now in its place shows. Nil when no tab is left.
     @discardableResult
-    private static func detach(_ tab: TaskTab, from task: WorkTask) -> UUID? {
+    private static func detach(_ tabs: [TaskTab], from task: WorkTask) -> UUID? {
         var panes = paneStates(of: task)
-        guard let source = remove(tab, from: &panes) else { return task.selectedTabID }
+        let ids = tabs.map(\.id)
+        let focusPane = panes.firstIndex { $0.tabs.contains { $0.id == task.selectedTabID } }
+        for pane in panes.indices { take(ids, from: &panes[pane]) }
         var focus = task.selectedTabID
-        if focus == tab.id {
-            if !panes[source.pane].tabs.isEmpty {
-                focus = panes[source.pane].shown
+        if let current = focus, ids.contains(current) {
+            if let focusPane, !panes[focusPane].tabs.isEmpty {
+                focus = panes[focusPane].shown
             } else {
                 let kept = panes.filter { !$0.tabs.isEmpty }
-                focus = kept.isEmpty ? nil : kept[min(source.pane, kept.count - 1)].shown
+                focus = kept.isEmpty ? nil : kept[min(focusPane ?? 0, kept.count - 1)].shown
             }
         }
         commit(panes, to: task, focusing: focus)
@@ -364,9 +516,7 @@ enum TaskStore {
     static func archive(_ task: WorkTask) {
         task.isArchived = true
         task.archivedAt = Date()
-        for tab in task.tabs {
-            forgetTab(tab)
-        }
+        forgetTabs(of: task)
     }
 
     /// The processes are gone, so the tabs come back dormant and re-launch on
@@ -418,14 +568,19 @@ enum TaskStore {
     /// The cascade delete removes the tabs, but their terminals are held
     /// outside SwiftData and have to be closed explicitly.
     static func delete(_ task: WorkTask, in context: ModelContext) {
+        let unshared = foldersOnlyUsed(
+            by: task,
+            among: (try? context.fetch(FetchDescriptor<WorkTask>())) ?? [],
+            directories: .shared
+        )
+        forgetTabs(of: task)
         for tab in task.tabs {
-            forgetTab(tab)
+            ChildSessionIndex.shared.forget(tab)
         }
-        // The row that took this watch is going away with the task, and a
-        // deleted row is not guaranteed to run its own teardown. Tasks in the
-        // same directory still need the watch and the branch it publishes.
-        if let directory = task.workingDirectoryPath,
-           !isDirectoryShared(directory, excluding: task, in: context) {
+        // The row that took these watches is going away with the task, and a
+        // deleted row is not guaranteed to run its own teardown. Another
+        // task's row still reads a folder it shares.
+        for directory in unshared {
             GitStateStore.shared.forget(directory: directory)
             PullRequestStore.shared.forget(directory: directory)
         }
@@ -435,54 +590,72 @@ enum TaskStore {
         context.delete(task)
     }
 
-    static func isDirectoryShared(_ directory: String, excluding task: WorkTask, in context: ModelContext) -> Bool {
-        let taskID = task.id
-        let descriptor = FetchDescriptor<WorkTask>(predicate: #Predicate {
-            $0.workingDirectoryPath == directory && $0.id != taskID && !$0.isArchived
-        })
-        return ((try? context.fetchCount(descriptor)) ?? 0) > 0
+    static func foldersOnlyUsed(
+        by task: WorkTask,
+        among tasks: [WorkTask],
+        directories: TabDirectoryStore
+    ) -> Set<String> {
+        let othersInUse = tasks
+            .filter { $0.id != task.id && !$0.isArchived }
+            .flatMap(\.liveTabs)
+            .compactMap(directories.directory(for:))
+        return Set(task.liveTabs.compactMap(directories.directory(for:))).subtracting(othersInUse)
     }
 
     // MARK: - Worktree removal (shared by delete and archive)
 
-    /// Removing the worktree is best-effort: if git refuses, the task stays
-    /// so the user can resolve it rather than losing track of the directory.
-    /// Its tabs are closed by then either way — they have to go before git
-    /// touches the directory, and there is no reopening them if it declines.
+    /// Removing the worktrees is best-effort: if git refuses one, the task
+    /// stays so the user can resolve it rather than losing track of the
+    /// directory. Its tabs are closed by then either way — they have to go
+    /// before git touches the directories, and there is no reopening them if
+    /// it declines.
     ///
-    /// `finish` runs after a successful (or skipped) worktree removal, and is
-    /// where the caller actually deletes or archives the task.
-    static func removeWorktreeThenFinish(
-        for task: WorkTask,
-        removeWorktree: Bool,
+    /// `finish` runs after every worktree is removed (or when there are none),
+    /// and is where the caller actually deletes or archives the task. Each
+    /// worktree removed leaves `ownedWorktrees`, so an archived task never
+    /// offers it again.
+    static func removeWorktreesThenFinish(
+        _ worktrees: [WorktreeRemovalTarget],
+        of task: WorkTask,
         deleteBranch: Bool,
         in context: ModelContext,
         onError: @escaping (String) -> Void,
         finish: @escaping () -> Void
     ) {
-        guard removeWorktree,
-              let repository = task.repoPath,
-              let path = task.workingDirectoryPath
-        else {
+        guard !worktrees.isEmpty else {
             finish()
             return
         }
-        for tab in task.tabs {
-            forgetTab(tab)
-        }
+        forgetTabs(of: task)
         Task {
-            do {
-                try await GitService.shared.removeWorktree(
-                    repository: repository,
-                    path: path,
-                    branch: task.branchName,
-                    deleteBranch: deleteBranch
-                )
-            } catch {
-                onError(error.localizedDescription)
-                return
+            for worktree in worktrees {
+                do {
+                    try await GitService.shared.removeWorktree(
+                        repository: worktree.repository,
+                        path: worktree.path,
+                        branch: worktree.branch,
+                        deleteBranch: deleteBranch
+                    )
+                } catch {
+                    onError(error.localizedDescription)
+                    return
+                }
+                let removed = OwnedWorktree(path: worktree.path, repoPath: worktree.repository, branch: nil)
+                task.ownedWorktrees.removeAll { removed.contains($0.path) }
             }
             finish()
+        }
+    }
+
+    /// Forgets every tab of a task that closes as a whole. A child whose
+    /// parent is in another task closes as `closeTab` closes it; a parent
+    /// closing with it drops its notes anyway.
+    private static func forgetTabs(of task: WorkTask) {
+        for tab in task.tabs {
+            if let parent = openParent(of: tab), parent.task?.id != task.id {
+                ChildSessionCoordinator.shared.childClosing(tab)
+            }
+            forgetTab(tab)
         }
     }
 
@@ -501,6 +674,7 @@ enum TaskStore {
         AgentSessionManager.shared.closeSession(for: tabID)
         DeviceSessionManager.shared.closeSession(for: tabID)
         DeviceLeaseCoordinator.shared.tabForgotten(tabID)
+        ChildSessionCoordinator.shared.tabForgotten(tabID)
         TitleStore.shared.forget(tabID: tabID)
         TabDirectoryStore.shared.forget(tabID: tabID)
         FolderRowsCache.shared.forget(tabID: tabID)
@@ -515,6 +689,7 @@ enum TaskStore {
         PendingFirstMessageStore.shared.forget(tabID: tabID)
         TranscriptStore.shared.stopWatching(tabID: tabID)
         ChatPieceCache.forget(tabID: tabID)
+        ChatPanelHeights.forget(tabID: tabID)
         HomePreviewCache.shared.forget(tabID: tabID)
         MentionResolver.shared.forgetTab(tabID)
         ReferenceChipStore.shared.forget(owner: tabID)
@@ -536,7 +711,9 @@ enum TaskStore {
     }
 
     static func closeTab(_ tab: TaskTab, in context: ModelContext) {
+        ChildSessionCoordinator.shared.childClosing(tab)
         forgetTab(tab)
+        ChildSessionIndex.shared.forget(tab)
         guard let task = tab.task else {
             context.delete(tab)
             return
@@ -546,7 +723,7 @@ enum TaskStore {
             task.lastFocusedAgentTabID = remaining.first { $0.kind == .agent }?.id
         }
         let wasFocused = task.selectedTabID == tab.id
-        let focus = detach(tab, from: task)
+        let focus = detach([tab], from: task)
         if wasFocused, let next = remaining.first(where: { $0.id == focus }), next.kind == .agent {
             task.lastFocusedAgentTabID = next.id
         }
@@ -658,52 +835,147 @@ enum TaskStore {
 
     // MARK: - Cross-task tab moves
 
-    /// Reassigns `tab.task` and appends it to the end of `destination`'s
-    /// leftmost strip, reindexing both tasks. Only the SwiftData relationship
-    /// and ordering change — the tab's `id` is untouched, so `SurfaceManager` and
-    /// `AgentSessionManager` (both keyed by tab id) keep serving the same
-    /// running process across the move. Selects the tab in its new task by
-    /// default so the drop reads as "the tab landed here."
+    /// Whether Move to New Task would leave `tab`'s task with a tab of its own.
+    static func canMoveToNewTask(_ tab: TaskTab) -> Bool {
+        guard let task = tab.task else { return false }
+        return subtree(of: tab, in: task.tabs(inPane: tab.paneIndex)).count < task.liveTabs.count
+    }
+
+    /// Moves `tab` and its attached children into `destination`'s `pane`
+    /// strip at gap `position`, or onto its end, and returns whether it did.
+    /// Only the SwiftData relationship and ordering change — each tab's `id`
+    /// is untouched, so `SurfaceManager` and `AgentSessionManager` (both keyed
+    /// by tab id) keep serving the same running process across the move.
     ///
-    /// The tab keeps whatever `workingDirectoryPath` it already reported: a
-    /// running process cannot be redirected to `destination`'s folder, so a
-    /// moved tab stays in its original directory rather than silently
-    /// pointing at the wrong one.
-    static func moveTab(_ tab: TaskTab, to destination: WorkTask, selectAfterMove: Bool = true) {
-        guard let source = tab.task, source.id != destination.id else { return }
+    /// A moved tab keeps whatever `workingDirectoryPath` it already reported: a
+    /// running process cannot be redirected to `destination`'s folder.
+    @discardableResult
+    static func moveTab(
+        _ tab: TaskTab,
+        to destination: WorkTask,
+        pane: Int = 0,
+        at position: Int? = nil,
+        selectAfterMove: Bool = true
+    ) -> Bool {
+        guard let source = tab.task, source.id != destination.id else { return false }
+        let strip = source.tabs(inPane: tab.paneIndex)
+        let paneIndex = min(max(pane, 0), destination.paneCount - 1)
+        let target = destination.tabs(inPane: paneIndex)
+        guard let move = TabStripMove.transfer(
+            tab.id, from: stripEntries(strip), to: stripEntries(target), toward: position
+        ) else { return false }
+        let movingIDs = Set(move.ids)
+        let moving = strip.filter { movingIDs.contains($0.id) }
 
-        let remainingInSource = source.orderedTabs.filter { $0.id != tab.id }
-        if source.lastFocusedAgentTabID == tab.id {
-            source.lastFocusedAgentTabID = remainingInSource.first { $0.kind == .agent }?.id
+        if let lastAgent = source.lastFocusedAgentTabID, movingIDs.contains(lastAgent) {
+            source.lastFocusedAgentTabID = source.orderedTabs.first { $0.kind == .agent && !movingIDs.contains($0.id) }?.id
         }
-        detach(tab, from: source)
+        detach(moving, from: source)
 
-        tab.task = destination
-        CodexTerminalMonitor.shared.reparent(tabID: tab.id, taskID: destination.id)
-        CommandModeRuns.shared.reparent(tabID: tab.id, taskID: destination.id)
-        AgentSessionManager.shared.reparent(tabID: tab.id, taskID: destination.id)
-        StatusEngine.shared.reparent(tabID: tab.id, taskID: destination.id)
-        tab.paneIndex = 0
-        tab.orderIndex = nextIndex(after: destination.tabs.filter { $0.id != tab.id && $0.paneIndex == 0 })
+        for moved in moving {
+            moved.task = destination
+            CodexTerminalMonitor.shared.reparent(tabID: moved.id, taskID: destination.id)
+            CommandModeRuns.shared.reparent(tabID: moved.id, taskID: destination.id)
+            AgentSessionManager.shared.reparent(tabID: moved.id, taskID: destination.id)
+            StatusEngine.shared.reparent(tabID: moved.id, taskID: destination.id)
+            moved.paneIndex = paneIndex
+        }
+        var ordered = target
+        ordered.insert(contentsOf: moving, at: min(move.gap, ordered.count))
+        reindex(ordered)
         if selectAfterMove {
             selectTab(tab, in: destination)
         }
+        return true
     }
 
-    /// Splits `tab` out of its current task into a new, otherwise-empty task
-    /// of its own. Shares `moveTab`'s guarantee that the surface keyed by the
-    /// tab's id is never touched.
+    /// Moves `tab` and its attached children into a new task of their own.
+    /// Shares `moveTab`'s guarantee that the surfaces keyed by the tabs' ids
+    /// are never touched.
     @discardableResult
     static func splitTabIntoNewTask(
         _ tab: TaskTab,
         in context: ModelContext,
         group: TaskGroup? = nil,
         siblings: [WorkTask]
-    ) -> WorkTask {
+    ) -> WorkTask? {
+        guard tab.task != nil else { return nil }
         let newTask = WorkTask(title: tab.displayTitle, orderIndex: nextIndex(after: siblings), group: group)
         context.insert(newTask)
-        moveTab(tab, to: newTask)
+        guard moveTab(tab, to: newTask) else {
+            context.delete(newTask)
+            return nil
+        }
         return newTask
+    }
+
+    // MARK: - Child sessions across tasks
+
+    /// The tab with `id` while it is open: not closed, and in a task that is
+    /// not archived. Searches every task in `context`.
+    static func openTab(_ id: UUID, in context: ModelContext?) -> TaskTab? {
+        guard let context else { return nil }
+        let tabs = (try? context.fetch(FetchDescriptor<TaskTab>(predicate: #Predicate { $0.id == id }))) ?? []
+        return tabs.first { $0.isLive && $0.task?.isArchived == false }
+    }
+
+    /// The open tab that started `tab`, in any task.
+    static func openParent(of tab: TaskTab) -> TaskTab? {
+        guard let parentID = tab.parentTabID, parentID != tab.id else { return nil }
+        if let task = tab.task, !task.isArchived, let parent = task.liveTabs.first(where: { $0.id == parentID }) {
+            return parent
+        }
+        return ChildSessionIndex.shared.parent(parentID).flatMap { isOpen($0) ? $0 : nil }
+    }
+
+    /// The open tabs `parent` started, in any task: its own task's first, in
+    /// pane order, then other tasks' in task order.
+    static func openChildren(of parent: TaskTab) -> [TaskTab] {
+        ChildSessionIndex.shared.children(of: parent.id)
+            .filter { isOpen($0) && $0.id != parent.id && $0.parentTabID == parent.id }
+            .sorted { left, right in
+                let leftKey = (left.task?.id == parent.task?.id ? 0 : 1, left.task?.orderIndex ?? 0, left.paneIndex, left.orderIndex)
+                let rightKey = (right.task?.id == parent.task?.id ? 0 : 1, right.task?.orderIndex ?? 0, right.paneIndex, right.orderIndex)
+                return leftKey < rightKey
+            }
+    }
+
+    private static func isOpen(_ tab: TaskTab) -> Bool {
+        tab.isLive && tab.task?.isArchived == false
+    }
+
+    /// Whether `tab` sits in its parent's run, in the same task and pane.
+    static func isAttachedToParent(_ tab: TaskTab) -> Bool {
+        guard let parentID = tab.parentTabID, let task = tab.task,
+              let parent = task.liveTabs.first(where: { $0.id == parentID }),
+              parent.paneIndex == tab.paneIndex
+        else { return false }
+        return grouping(of: task.tabs(inPane: tab.paneIndex)).isAttached(tab.id, to: parentID)
+    }
+
+    /// A child whose parent is open but which sits outside the parent's run:
+    /// in another task or pane, or past an unrelated tab.
+    static func isDetachedChild(_ tab: TaskTab) -> Bool {
+        openParent(of: tab) != nil && !isAttachedToParent(tab)
+    }
+
+    static func canMoveNextToParent(_ tab: TaskTab) -> Bool {
+        isDetachedChild(tab)
+    }
+
+    /// Moves a detached child, with the children attached to it, to the end
+    /// of its parent's run, in the parent's task and pane. Selection follows
+    /// the move it makes: a reorder leaves it alone, a pane or task change
+    /// selects the child.
+    static func moveNextToParent(_ tab: TaskTab) {
+        guard let parent = openParent(of: tab), let destination = parent.task, !isAttachedToParent(tab) else { return }
+        let strip = destination.tabs(inPane: parent.paneIndex)
+        guard let end = grouping(of: strip).endOfRun(of: parent.id) else { return }
+        if tab.task?.id == destination.id {
+            moveTab(tab, toPane: parent.paneIndex, at: end, in: destination)
+        } else {
+            moveTab(tab, to: destination, pane: parent.paneIndex, at: end)
+        }
     }
 
     // MARK: - Ordering helpers

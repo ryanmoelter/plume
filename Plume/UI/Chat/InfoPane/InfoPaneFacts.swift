@@ -101,7 +101,24 @@ struct InfoPaneFacts: Equatable {
         var isEmpty: Bool { main.isEmpty && mentioned.isEmpty }
     }
 
+    /// An open tab directly related to this one: its parent, or a child its
+    /// agent started.
+    struct SessionFacts: Equatable, Identifiable {
+        let id: UUID
+        let title: String
+        let status: TaskStatus
+        var isUnread = false
+        /// Set only when it differs from this tab's branch.
+        var branch: String?
+
+        var caption: String {
+            [status.label, branch].compactMap(\.self).joined(separator: " · ")
+        }
+    }
+
     var tabID: UUID
+    var parentSession: SessionFacts?
+    var childSessions: [SessionFacts] = []
     var liveSubagents: [SubagentTranscript] = []
     var completedSubagents: [SubagentTranscript] = []
     var backgroundTasks: [BackgroundTaskTracker.Entry] = []
@@ -130,6 +147,8 @@ struct InfoPaneFacts: Equatable {
 
     var sections: [InfoPaneSection] {
         var sections: [InfoPaneSection] = []
+        if parentSession != nil { sections.append(.parentSession) }
+        if !childSessions.isEmpty { sections.append(.childSessions) }
         if !liveSubagents.isEmpty || !completedSubagents.isEmpty { sections.append(.subagents) }
         if !backgroundTasks.isEmpty { sections.append(.backgroundTasks) }
         if pullRequest?.hasPullRequest == true || !linkedPullRequests.isEmpty || canPinPullRequests {
@@ -151,11 +170,12 @@ struct InfoPaneFacts: Equatable {
         sections.filter { section in
             switch section {
             case .subagents: !liveSubagents.isEmpty
+            case .childSessions: true
             case .branch: branch?.isWorktree == true
             case .linearIssues: (linear?.workingCount ?? 0) > 0
             case .remoteControl: remoteControl == .on
             case .pullRequests: pullRequest?.hasPullRequest == true
-            case .folder, .sideChat: false
+            case .folder, .sideChat, .parentSession: false
             case .backgroundTasks, .plan, .artifacts: true
             }
         }
@@ -206,6 +226,24 @@ extension InfoPaneFacts {
         default:
             return PullRequestFacts(state: state, checkRollup: nil, forge: forge)
         }
+    }
+}
+
+extension InfoPaneFacts {
+    /// The tab's own parent and the tabs whose parent it is, in `tabs`' order.
+    /// Grandchildren are left out: each tab's pane shows only its own
+    /// relations.
+    static func directRelations<T>(
+        of tabID: UUID,
+        in tabs: [T],
+        id: (T) -> UUID,
+        parentID: (T) -> UUID?
+    ) -> (parent: T?, children: [T]) {
+        let parent = tabs.first { id($0) == tabID }
+            .flatMap(parentID)
+            .flatMap { parentTabID in tabs.first { id($0) == parentTabID } }
+        let children = tabs.filter { id($0) != tabID && parentID($0) == tabID }
+        return (parent, children)
     }
 }
 
@@ -331,6 +369,8 @@ enum LinearIssueOrder {
 }
 
 enum InfoPaneSection: Equatable {
+    case parentSession
+    case childSessions
     case linearIssues
     case subagents
     case backgroundTasks
@@ -373,10 +413,10 @@ enum InfoPaneLayout {
     }
 
     /// The room a pinned pane takes from the chat's trailing edge: the pane,
-    /// and the gap and minimap rail beyond it. The chat's own edge padding
-    /// is the gap on the pane's other side.
-    static func reservedWidth(paneWidth: CGFloat, railFootprint: CGFloat, gap: CGFloat) -> CGFloat {
-        paneWidth + gap + railFootprint
+    /// and the gap beyond it. The chat's own edge padding is the gap on the
+    /// pane's other side.
+    static func reservedWidth(paneWidth: CGFloat, gap: CGFloat) -> CGFloat {
+        paneWidth + gap
     }
 
     /// Whether a pinned pane sits beside the chat. It opens once the chat
@@ -403,7 +443,6 @@ enum InfoPaneLayout {
     /// beside a pinned pane, and never less than the chat's hard minimum.
     static func side(
         width: CGFloat,
-        railFootprint: CGFloat,
         gap: CGFloat,
         chatColumnWidth: CGFloat,
         comfortableChatWidth: CGFloat,
@@ -413,7 +452,7 @@ enum InfoPaneLayout {
         collapsedHeight: CGFloat
     ) -> SideGeometry {
         let paneWidth = clampedPaneWidth(paneWidth)
-        let reserved = reservedWidth(paneWidth: paneWidth, railFootprint: railFootprint, gap: gap)
+        let reserved = reservedWidth(paneWidth: paneWidth, gap: gap)
         // Before the first measurement, so a pane left pinned opens pinned
         // rather than animating out of the collapsed form.
         let isMeasured = width > 0
@@ -427,26 +466,17 @@ enum InfoPaneLayout {
             isPinned: true
         ))
         let maxPaneWidth = isMeasured
-            ? min(maximumPaneWidth, max(minimumPaneWidth, width - gap - railFootprint - comfortableChatWidth))
+            ? min(maximumPaneWidth, max(minimumPaneWidth, width - gap - comfortableChatWidth))
             : maximumPaneWidth
         return SideGeometry(
             fitsBeside: fits,
             isPinned: isPinned,
             paneWidth: paneWidth,
             maxPaneWidth: maxPaneWidth,
-            trailingInset: railFootprint + gap,
+            trailingInset: gap,
             chatTrailingReserve: isPinned ? reserved : 0,
             chatTopInset: collapsedHeight + gap
         )
-    }
-
-    /// How far down the minimap ignores the pointer: the collapsed pane's
-    /// row, or the pinned pane up to a third of the chat, so a tall pane
-    /// never walls off the whole minimap.
-    static func minimapExclusionHeight(
-        geometry: SideGeometry, openHeight: CGFloat, gap: CGFloat, chatHeight: CGFloat
-    ) -> CGFloat {
-        geometry.isPinned ? min(gap + openHeight, chatHeight / 3) : geometry.chatTopInset
     }
 
     struct SideGeometry: Equatable {
@@ -459,7 +489,7 @@ enum InfoPaneLayout {
         /// The widest a drag may make the pane without pushing the chat
         /// below its comfortable minimum.
         var maxPaneWidth: CGFloat
-        /// From the chat's trailing edge to the pane's, clear of the minimap.
+        /// From the chat's trailing edge to the pane's.
         var trailingInset: CGFloat
         /// Taken off the chat's trailing edge, so its columns center in what
         /// is left.

@@ -103,7 +103,7 @@ nonisolated enum GitConfigSettingsImport {
     // MARK: Reading git
 
     /// Blocks on `git`, so call it off the main actor. `repositoryPaths` are
-    /// tasks' `repoPath`s or project roots; each maps to its Projects key
+    /// tabs' `repoPath`s or project roots; each maps to its Projects key
     /// through `ProjectRoot`.
     static func read(repositoryPaths: [String]) -> ProjectsConfiguration {
         // `/` is no repository, so this is the system and global config only.
@@ -137,7 +137,7 @@ nonisolated extension GitConfigSettingsImport {
             settings.migrateLegacyIgnoredPendingChecks()
             return
         }
-        let taskPaths = ((try? modelContext.fetch(FetchDescriptor<WorkTask>())) ?? []).compactMap(\.repoPath)
+        let taskPaths = ((try? modelContext.fetch(FetchDescriptor<WorkTask>())) ?? []).flatMap(\.tabRepositories)
         let paths = Array(Set(taskPaths).union(settings.projectsConfiguration.repositories.keys))
         Task {
             let imported = await Task.detached { read(repositoryPaths: paths) }.value

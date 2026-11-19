@@ -42,8 +42,9 @@ struct ChatTabView: View, ThemedView {
     /// The measured height of the floating bottom chrome — the queued-message
     /// chips plus the panel beneath them — so the list can inset its content
     /// past it. Nothing in that subtree is sized from it, so measuring
-    /// cannot feed back into the measurement.
-    @State private var panelHeight: CGFloat = 0
+    /// cannot feed back into the measurement. Nil until this mount measures
+    /// it; `floatingPanelHeight` falls back to the tab's last measurement.
+    @State private var panelHeight: CGFloat?
     @State private var chatHeight: CGFloat = 0
     /// Set to pull a queued message back into the composer for editing, from
     /// the chip's own edit button. `ChatComposer` owns the actual draft/state
@@ -61,7 +62,6 @@ struct ChatTabView: View, ThemedView {
     /// already in place rather than animating there.
     @State private var conversationWidth = Self.lastConversationWidth
     @State private var collapsedInfoPaneHeight = Self.lastCollapsedInfoPaneHeight
-    @State private var openInfoPaneHeight: CGFloat = 0
     /// What `InfoPaneLayout.showsBeside` last answered. Seeded across mounts,
     /// so switching tasks inside the dead band keeps the pane as it was.
     @State private var showsInfoPaneBeside = Self.lastShowsInfoPaneBeside
@@ -160,7 +160,7 @@ struct ChatTabView: View, ThemedView {
     /// transcript at all — so unlike the plan path, this is not on the
     /// streaming render path and can check the filesystem directly.
     private var canResume: Bool {
-        guard let directory = task.workingDirectoryPath else { return false }
+        guard let directory = TabDirectoryStore.shared.directory(for: tab) else { return false }
         return FileManager.default.fileExists(atPath: directory)
     }
 
@@ -182,6 +182,28 @@ struct ChatTabView: View, ThemedView {
                 }
             },
             open: { openSubagentID = $0.id }
+        )
+    }
+
+    /// A forked child's transcript carries copies of its parent's cards, but
+    /// a proposal belongs to the chat it was made in, so they read as made in
+    /// another session.
+    private var proposalBoard: ChatProposalBoard {
+        let owner = tab
+        return ChatProposalBoard(
+            tabID: owner.id,
+            store: { [weak owner] in
+                guard let owner, owner.isLive else { return ChildSessionProposalStore() }
+                return ChildSessionProposalStoreCache.shared.store(for: owner)
+            },
+            start: { [weak owner] id in
+                guard let owner, owner.isLive else { return }
+                Task { _ = await ChildSessionCoordinator.shared.startProposal(id, from: owner, byUser: true) }
+            },
+            dismiss: { [weak owner] id in
+                guard let owner, owner.isLive else { return }
+                _ = ChildSessionCoordinator.shared.dismissProposal(id, reason: nil, from: owner, byUser: true)
+            }
         )
     }
 
@@ -271,7 +293,7 @@ struct ChatTabView: View, ThemedView {
         )
         let gitState = GitStateStore.shared.state(for: gitDirectory)
         let checkout = CheckoutFactsStore.shared.facts(for: gitDirectory)
-        let branch = GitState.displayedBranch(state: gitState, taskBranchName: task.branchName).map {
+        let branch = GitState.displayedBranch(state: gitState, storedBranchName: tab.branchName).map {
             InfoPaneFacts.Branch(
                 name: $0,
                 isWorktree: checkout?.isWorktree ?? false,
@@ -289,8 +311,12 @@ struct ChatTabView: View, ThemedView {
                 PullRequestStore.shared.checkRollup(for: gitDirectory, of: $0)
             }
             : nil
+        let family = [tab] + [TaskStore.openParent(of: tab)].compactMap(\.self) + TaskStore.openChildren(of: tab)
+        let relations = InfoPaneFacts.directRelations(of: tab.id, in: family, id: \.id, parentID: \.parentTabID)
         return InfoPaneFacts(
             tabID: tab.id,
+            parentSession: relations.parent.map { sessionFacts(for: $0, ownBranch: branch?.name) },
+            childSessions: relations.children.map { sessionFacts(for: $0, ownBranch: branch?.name) },
             liveSubagents: split.live,
             completedSubagents: split.completed,
             backgroundTasks: BackgroundTaskTracker.shared.inFlight(tabID: tab.id),
@@ -321,6 +347,34 @@ struct ChatTabView: View, ThemedView {
             artifacts: ConversationArtifact.artifacts(in: conversationMessages),
             remoteControl: headlessSession.flatMap(RemoteControlStatus.init(session:))
         )
+    }
+
+    private func sessionFacts(for related: TaskTab, ownBranch: String?) -> InfoPaneFacts.SessionFacts {
+        let status = TaskRowView.status(of: related)
+        let directory = TabDirectoryStore.shared.directory(for: related)
+        let branch = GitState.displayedBranch(
+            state: directory.flatMap { GitStateStore.shared.state(for: $0) },
+            storedBranchName: related.branchName
+        )
+        return InfoPaneFacts.SessionFacts(
+            id: related.id,
+            title: TitleStore.shared.chipTitle(for: related, hasConversation: related.hasConversation),
+            status: status,
+            isUnread: UnreadStore.showsUnread(
+                taskStatus: status,
+                hasUnreadTab: UnreadStore.shared.isUnread(tabID: related.id)
+            ),
+            branch: branch == ownBranch ? nil : branch
+        )
+    }
+
+    /// A related session may sit in another task, which then opens.
+    private func selectTab(id: UUID) {
+        if let target = task.liveTabs.first(where: { $0.id == id }) {
+            TaskStore.selectTab(target, in: task)
+        } else {
+            ChildSessionCoordinator.shared.select(sessionID: id.uuidString)
+        }
     }
 
     private var planTitle: String {
@@ -355,6 +409,24 @@ struct ChatTabView: View, ThemedView {
     private var headlessSession: (any AgentSession)? {
         guard tab.transport == .headless else { return nil }
         return AgentSessionManager.shared.existingSession(for: tab.id)
+    }
+
+    private var compactAction: CompactAction? {
+        guard tab.provider == .claudeCode, let session = claudeSession else { return nil }
+        let hasConversation = !(tab.agentSessionID ?? "").isEmpty
+        return CompactAction(
+            availability: CompactAction.availability(
+                isWorking: session.isWorking,
+                isRestarting: session.isRestarting,
+                hasConversation: hasConversation
+            ),
+            run: { [tab, task] in
+                let live = session.hasExited
+                    ? AgentLauncher.relaunchHeadless(task: tab.task ?? task, tab: tab)
+                    : session
+                (live as? HeadlessSession)?.submit(text: CompactAction.command)
+            }
+        )
     }
 
     /// Side questions, redo and fork are Claude Code control requests.
@@ -542,10 +614,10 @@ struct ChatTabView: View, ThemedView {
         }
         .animation(.snappy(duration: 0.22), value: isSideChatShown)
         .sheet(isPresented: $resumeSheetShown) {
-            if let path = task.workingDirectoryPath {
+            if let path = TabDirectoryStore.shared.directory(for: tab) {
                 ResumeSessionSheet(
                     workingDirectory: path,
-                    repoPath: task.repoPath,
+                    repoPath: tab.repoPath,
                     provider: tab.provider,
                     onSelect: resume
                 )
@@ -607,7 +679,10 @@ struct ChatTabView: View, ThemedView {
             }
             composerPanel(transcript: transcript)
         }
-        .onGeometryChange(for: CGFloat.self) { $0.size.height } action: { panelHeight = $0 }
+        .onGeometryChange(for: CGFloat.self) { $0.size.height } action: { height in
+            panelHeight = height
+            ChatPanelHeights.record(height, forTab: tab.id)
+        }
         // A queued run is retired by the session taking its text off the
         // queue, which the session does without knowing runs exist. Watched
         // from here rather than the chip list, which retiring the last run
@@ -629,7 +704,7 @@ struct ChatTabView: View, ThemedView {
                     text: message.plainText,
                     imageCount: message.count { if case .image = $0 { true } else { false } },
                     onSendNow: { sendNowRequested = true },
-                    onEdit: { editQueuedMessageIndex = index },
+                    onEdit: session.canEditQueuedMessage(at: index) ? { editQueuedMessageIndex = index } : nil,
                     onRemove: { session.removeQueuedMessage(at: index) }
                 )
             }
@@ -654,11 +729,11 @@ struct ChatTabView: View, ThemedView {
                     text: message.blocks.plainText,
                     imageCount: message.blocks.count { if case .image = $0 { true } else { false } },
                     state: chipState(message.state),
-                    onEdit: {
+                    onEdit: message.isEditable ? {
                         session.withdrawDeliveringMessage(id: message.id) { blocks in
                             if let blocks { withdrawnMessageToEdit = blocks }
                         }
-                    },
+                    } : nil,
                     onRemove: { session.withdrawDeliveringMessage(id: message.id) }
                 )
                 .plumeID(AccessibilityID.deliveringMessage, label: "\(index)", value: message.blocks.plainText)
@@ -752,22 +827,22 @@ struct ChatTabView: View, ThemedView {
     ///
     /// One `ViewThatFits` governs the whole row, because the branch name and
     /// the meters are the two things that give way and they have to give way
-    /// in a fixed order. Three candidates, widest first:
+    /// in a fixed order. `StatuslineStage` lists the candidates, widest first:
     ///
     /// 1. Everything at its natural size, with the slack between the branch
     ///    name and the meters.
     /// 2. The branch name takes the leftover and truncates, down to
     ///    `statuslineBranchMinWidth`; the meters stay side by side.
-    /// 3. The meters drop to bars alone, stacked.
+    /// 3. The meters drop to bars alone, stacked, with the Fable and credit
+    ///    glyphs still beside them.
+    /// 4. The glyphs go too.
     ///
     /// Nothing above this may be `.fixedSize()` horizontally: an unbounded
     /// width proposal makes the first candidate fit forever. Vertically it
     /// must be, or the row stretches to whatever height the chat leaves it.
     private func statuslineFooter(transcript: Transcript) -> some View {
-        ViewThatFits(in: .horizontal) {
-            statuslineRow(transcript: transcript, branchWidth: .natural, meters: .wide)
-            statuslineRow(transcript: transcript, branchWidth: .flexible, meters: .wide)
-            statuslineRow(transcript: transcript, branchWidth: .flexible, meters: .stacked)
+        StatuslineStages { stage in
+            statuslineRow(transcript: transcript, stage: stage)
         }
         .fixedSize(horizontal: false, vertical: true)
         // The one leading edge the composer's text and controls also sit on.
@@ -779,11 +854,11 @@ struct ChatTabView: View, ThemedView {
     /// meters on the trailing one.
     private func statuslineRow(
         transcript: Transcript,
-        branchWidth: BranchWidth,
-        meters: StatuslineStripLayout
+        stage: StatuslineStage
     ) -> some View {
-        HStack(alignment: .top, spacing: dimensions.panelContentInset) {
-            workspaceGroup(branchWidth: branchWidth)
+        let meters = stage.meters
+        return HStack(alignment: .top, spacing: dimensions.panelContentInset) {
+            workspaceGroup(branchWidth: stage.branchWidth)
             // In every candidate, not just the widest: without it a row
             // narrower than the panel centers, holding the folder off the
             // leading edge and the meters off the trailing one. Its
@@ -793,6 +868,7 @@ struct ChatTabView: View, ThemedView {
                 StatuslineStripView(
                     layout: meters,
                     provider: tab.provider,
+                    showsQuotaGlyphs: stage.showsQuotaGlyphs,
                     // Both arrive on a turn result, so a resumed conversation has
                     // neither until it takes a turn: the transcript's last usage
                     // and the tab's stored window cover that gap.
@@ -806,7 +882,8 @@ struct ChatTabView: View, ThemedView {
                         ?? tab.model?.nominalContextWindow,
                     sessionCostUSD: displayedSessionCost,
                     codexWindows: tab.provider == .codex ? CodexQuotaStore.shared.windows : [],
-                    headlessSession: headlessSession as? HeadlessSession
+                    headlessSession: headlessSession as? HeadlessSession,
+                    compact: compactAction
                 )
                 if meters == .wide, tab.provider == .codex,
                    CodexQuotaStore.shared.windows.contains(where: { $0.usedPercent > 0 }) {
@@ -828,7 +905,7 @@ struct ChatTabView: View, ThemedView {
     /// empty state (`workspaceChoice`).
     private func workspaceGroup(branchWidth: BranchWidth) -> some View {
         WorkspacePickerView(
-            task: task,
+            tab: tab,
             isEditable: false,
             branchWidth: branchWidth,
             state: GitStateStore.shared.state(for: gitDirectory),
@@ -855,7 +932,7 @@ struct ChatTabView: View, ThemedView {
                 .contentShape(.rect)
                 .onTapGesture { dismiss() }
                 .plumeID(AccessibilityID.planBackgroundDismiss, invoke: dismiss)
-                .padding(.bottom, panelHeight)
+                .padding(.bottom, floatingPanelHeight)
             panel()
         }
         .transition(.opacity)
@@ -1101,6 +1178,12 @@ struct ChatTabView: View, ThemedView {
         planTint.map { Glass.regular.tint($0) } ?? .regular
     }
 
+    /// Seeded from the tab's last mount so a remounted chat's first frame
+    /// insets its rows past the panel before the panel has measured.
+    private var floatingPanelHeight: CGFloat {
+        panelHeight ?? ChatPanelHeights.height(forTab: tab.id)
+    }
+
     /// The conversation itself. Reached with only an optimistic message too,
     /// so the session facts below it fall back to an empty transcript — there
     /// is nothing on disk to read them from yet.
@@ -1111,21 +1194,19 @@ struct ChatTabView: View, ThemedView {
             messages: messages,
             status: status,
             bottomPadding: dimensions.listBottomPadding,
-            floatingPanelHeight: panelHeight,
+            floatingPanelHeight: floatingPanelHeight,
             tabID: tab.id,
             redoContext: redoContext(transcript: transcript),
             onOpenPlan: hasPlan ? { openPlan() } : nil,
             topInset: geometry.chatTopInset,
-            minimapExclusionHeight: InfoPaneLayout.minimapExclusionHeight(
-                geometry: geometry, openHeight: openInfoPaneHeight, gap: dimensions.panelInset,
-                chatHeight: chatHeight
-            ),
             trailingReserve: geometry.chatTrailingReserve,
             sidePane: sideInfoPane(geometry: geometry, linearLinks: linearLinks),
+            panelGlass: planGlass,
             commands: listCommands
         )
         .onGeometryChange(for: CGFloat.self) { $0.size.height } action: { chatHeight = $0 }
         .environment(\.chatSubagentOpener, subagentOpener)
+        .environment(\.chatProposalBoard, proposalBoard)
         .overlay(alignment: .bottom) {
             let reserve = geometry.chatTrailingReserve
             // Moves with the chat's own horizontal shift.
@@ -1158,7 +1239,6 @@ struct ChatTabView: View, ThemedView {
     private var sideInfoPaneGeometry: InfoPaneLayout.SideGeometry {
         InfoPaneLayout.side(
             width: conversationWidth,
-            railFootprint: ChatMinimap.railFootprint(forViewport: conversationWidth, dimensions: dimensions),
             gap: dimensions.panelInset,
             chatColumnWidth: dimensions.contentWidth + chatEdgePadding,
             comfortableChatWidth: max(
@@ -1183,12 +1263,11 @@ struct ChatTabView: View, ThemedView {
             facts: infoPaneFacts(linearLinks: linearLinks),
             glass: planGlass,
             geometry: geometry,
-            bottomInset: panelHeight,
+            bottomInset: floatingPanelHeight,
             onCollapsedHeight: { height in
                 collapsedInfoPaneHeight = height
                 Self.lastCollapsedInfoPaneHeight = height
             },
-            onOpenHeight: { openInfoPaneHeight = $0 },
             onPin: pinInfoPane,
             onOpenSubagent: { openSubagentID = $0.id },
             onOpenPlan: openPlan,
@@ -1196,7 +1275,8 @@ struct ChatTabView: View, ThemedView {
             remoteControlSession: headlessSession,
             linearActions: linearActions,
             pullRequestActions: pullRequestActions,
-            folderActions: folderActions
+            folderActions: folderActions,
+            onSelectTab: selectTab(id:)
         )
     }
 
@@ -1239,7 +1319,7 @@ struct ChatTabView: View, ThemedView {
     /// conversation drops it until the replacement arrives.
     private var forkSessionID: String? {
         guard let sessionID = tab.agentSessionID, !sessionID.isEmpty,
-              task.workingDirectoryPath != nil
+              TabDirectoryStore.shared.directory(for: tab) != nil
         else { return nil }
         return sessionID
     }
@@ -1263,13 +1343,14 @@ struct ChatTabView: View, ThemedView {
         else { return }
         let newSessionID = UUID().uuidString.lowercased()
         let newTab = TaskStore.addTab(to: task, kind: .agent, pane: tab.paneIndex, in: modelContext)
+        newTab.workspace = TabDirectoryStore.shared.currentWorkspace(of: tab)
         newTab.transport = .headless
         newTab.agentSessionID = newSessionID
         // Derived here, because `persistHeadlessSessionID` only derives it for
         // an id it has not already seen — and the fork's id is recorded above,
         // before the CLI reports it. Without the path the tab watches nothing,
         // so its transcript is never read and the composer stays disabled.
-        if let workingDirectory = task.workingDirectoryPath {
+        if let workingDirectory = TabDirectoryStore.shared.directory(for: newTab) {
             newTab.sessionJSONLPath = SessionJSONLReader.resolvedTranscriptPath(
                 workingDirectory: workingDirectory,
                 sessionID: newSessionID
@@ -1372,7 +1453,7 @@ struct ChatTabView: View, ThemedView {
     /// that reason — see `emptyState`.
     private var workspaceChoice: some View {
         WorkspacePickerView(
-            task: task,
+            tab: tab,
             isEditable: true,
             branchWidth: .natural,
             prominence: .inline,
@@ -1615,7 +1696,8 @@ private struct QueuedMessageChip: View, ThemedView {
     var imageCount = 0
     var state = State.queued
     var onSendNow: () -> Void = {}
-    var onEdit: () -> Void = {}
+    /// Nil for a message Plume wrote, which only the user's own text can replace.
+    var onEdit: (() -> Void)?
     var onRemove: () -> Void = {}
 
     var body: some View {
@@ -1687,13 +1769,15 @@ private struct QueuedMessageChip: View, ThemedView {
 
     private func editAndRemove(removeHelp: String) -> some View {
         HStack(spacing: 4) {
-            Button(action: onEdit) {
-                Image(systemName: "pencil.circle.fill")
-                    .emphasis(.secondary)
+            if let onEdit {
+                Button(action: onEdit) {
+                    Image(systemName: "pencil.circle.fill")
+                        .emphasis(.secondary)
+                }
+                .buttonStyle(.plain)
+                .help("Edit")
+                .plumeID(AccessibilityID.queuedMessageEditButton, label: text, invoke: onEdit)
             }
-            .buttonStyle(.plain)
-            .help("Edit")
-            .plumeID(AccessibilityID.queuedMessageEditButton, label: text, invoke: onEdit)
             Button(action: onRemove) {
                 Image(systemName: "xmark.circle.fill")
                     .emphasis(.secondary)

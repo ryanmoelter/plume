@@ -73,10 +73,10 @@ struct ImporterTests {
         )
 
         let task = try #require(created.first)
-        #expect(task.workspaceKind == .worktree)
-        #expect(task.workingDirectoryPath == "/Users/example/Code/widget/.worktrees/fix")
-        #expect(task.repoPath == "/Users/example/Code/widget")
-        #expect(task.branchName == "fix-crash")
+        #expect(task.orderedTabs[0].workspaceKind == .worktree)
+        #expect(task.orderedTabs[0].workingDirectoryPath == "/Users/example/Code/widget/.worktrees/fix")
+        #expect(task.orderedTabs[0].repoPath == "/Users/example/Code/widget")
+        #expect(task.orderedTabs[0].branchName == "fix-crash")
     }
 
     @Test func orderIndexStaysDenseAcrossABatch() throws {

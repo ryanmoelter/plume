@@ -201,7 +201,7 @@ final class LinearStore: LinearActivitySink {
     /// `body`: it writes only unobserved caches.
     func links(for task: WorkTask, branches: [String]) -> [LinkedLinearIssue] {
         let scope = LinearAccountScope.allowedOrgIDs(
-            repository: task.repoPath,
+            repositories: task.tabRepositories,
             configuration: AppSettings.shared.projectsConfiguration
         )
         return scoped(unscopedLinks(for: task, branches: branches), to: scope)

@@ -27,6 +27,16 @@ struct PullRequestRowContentTests {
 
     private let passing = [CheckContext(name: "build", status: "SUCCESS")]
 
+    @Test func aConflictLeadsTheRowAndTheInfoPaneGlyph() {
+        var conflicted = pull(isDraft: true, checks: passing)
+        conflicted.hasMergeConflict = true
+        #expect(PullRequestRowContent.leading(conflicted).label == "merge conflict")
+        #expect(PullRequestRowContent.leadingWithoutChecks(conflicted).label == "merge conflict")
+        var merged = pull(state: .merged)
+        merged.hasMergeConflict = true
+        #expect(PullRequestRowContent.leading(merged).label == "merged")
+    }
+
     @Test func aDraftLeadsWithItsDraftMarkThenChecksAndReview() {
         let draft = pull(isDraft: true, review: .approved, checks: passing)
         #expect(PullRequestRowContent.leading(draft).label == "draft")
@@ -172,5 +182,39 @@ struct InfoPanePullRequestItemTests {
     @Test func aBranchWithoutAPullRequestTakesNoRow() {
         let branch = InfoPaneFacts.PullRequestFacts(state: .noPR, checkRollup: nil)
         #expect(InfoPanePullRequestItem.items(branch: branch, linked: []).isEmpty)
+    }
+
+    @Test func mentionedPullRequestsGroupApartFromPinnedOnes() {
+        let items = InfoPanePullRequestItem.items(
+            branch: nil,
+            linked: [.init(reference: mentioned, role: .mentioned), .init(reference: pinned, role: .pinned)]
+        )
+        let groups = InfoPanePullRequestGroups(items)
+        #expect(groups.main.map(\.number) == [2])
+        #expect(groups.mentioned.map(\.number) == [3])
+        #expect(groups.isGrouped)
+    }
+
+    @Test func mentionedPullRequestsAloneStillFormTheirSubsection() {
+        let other = PullRequestReference(owner: "o", repo: "r", number: 4)
+        let items = InfoPanePullRequestItem.items(
+            branch: nil,
+            linked: [.init(reference: mentioned, role: .mentioned), .init(reference: other, role: .mentioned)]
+        )
+        let groups = InfoPanePullRequestGroups(items)
+        #expect(groups.main.isEmpty)
+        #expect(groups.mentioned.map(\.number) == [3, 4])
+        #expect(groups.isGrouped)
+    }
+
+    @Test func aLoneMentionedPullRequestIsGrouped() {
+        let items = InfoPanePullRequestItem.items(branch: nil, linked: [.init(reference: mentioned, role: .mentioned)])
+        #expect(InfoPanePullRequestGroups(items).isGrouped)
+    }
+
+    @Test func aLonePinnedPullRequestKeepsItsOwnRow() {
+        let items = InfoPanePullRequestItem.items(branch: nil, linked: [.init(reference: pinned, role: .pinned)])
+        #expect(!InfoPanePullRequestGroups(items).isGrouped)
+        #expect(!InfoPanePullRequestGroups([]).isGrouped)
     }
 }

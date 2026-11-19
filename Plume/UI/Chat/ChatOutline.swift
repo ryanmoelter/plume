@@ -1,12 +1,9 @@
 import Foundation
 
-/// The conversation reduced to what a minimap draws: the things the user
-/// said or was asked, legible, with everything the agent produced between
-/// them collapsed into de-emphasized mass.
-///
-/// The reader anchors on their own input — there is far less of it than agent
-/// output — so those entries keep their text and a whole run of replies
-/// between two of them becomes one weighted area.
+/// The conversation reduced to what the minimap needs: the things the user
+/// said or was asked, carrying their opening line, with each run of agent
+/// output between them collapsed into one weighted entry. `MinimapLayout`
+/// turns it into the minimap's rows.
 struct ChatOutline: Equatable {
     var entries: [Entry] = []
 
@@ -87,35 +84,6 @@ struct ChatOutline: Equatable {
     }
 
     var isEmpty: Bool { entries.isEmpty }
-
-    /// Where the given pieces sit in the map, as a 0...1 fraction of its
-    /// height, or nil when none of them are in it.
-    ///
-    /// Read from the map's own weight space rather than from the chat's
-    /// scroll offset. The chat's items are wildly uneven, so its offset moves
-    /// in jumps that would make the map twitch; the map's own space is
-    /// smooth, because that is exactly what compressing the weights bought.
-    /// Several visible pieces average, so the mark tracks the middle of what
-    /// is on screen rather than snapping between its edges.
-    func position(of pieceIDs: Set<String>) -> CGFloat? {
-        guard !pieceIDs.isEmpty, !entries.isEmpty else { return nil }
-        let total = totalWeight
-        var offset: CGFloat = 0
-        var centers: [CGFloat] = []
-        for entry in entries {
-            if !entry.pieceIDs.isDisjoint(with: pieceIDs) {
-                centers.append((offset + entry.weight / 2) / total)
-            }
-            offset += entry.weight
-        }
-        guard !centers.isEmpty else { return nil }
-        return centers.reduce(0, +) / CGFloat(centers.count)
-    }
-
-    /// Guarded against zero so a caller can always divide by it.
-    var totalWeight: CGFloat {
-        max(1, entries.reduce(0) { $0 + $1.weight })
-    }
 }
 
 /// Builds the outline from the same pieces the list renders.
@@ -175,11 +143,17 @@ enum ChatOutlineBuilder {
     }
 
     static func outline(from pieces: [ChatPiece]) -> ChatOutline {
+        outline(from: pieces, weighing: weight(of:))
+    }
+
+    /// `weighing` must return what `weight(of:)` would, which lets a caller
+    /// that keeps pieces across builds reuse each one's.
+    static func outline(from pieces: [ChatPiece], weighing: (ChatPiece) -> CGFloat) -> ChatOutline {
         var entries: [ChatOutline.Entry] = []
 
         for piece in pieces {
             guard piece.messageID != ChatPieceSplitter.workingID else { continue }
-            let weight = self.weight(of: piece)
+            let weight = weighing(piece)
 
             if let kind = userInputKind(of: piece) {
                 // A prompt long enough to split across pieces is still one
@@ -291,7 +265,7 @@ enum ChatOutlineBuilder {
         }
     }
 
-    private static func weight(of piece: ChatPiece) -> CGFloat {
+    static func weight(of piece: ChatPiece) -> CGFloat {
         switch piece.content {
         case .markdown(let block, _):
             proseWeight(of: text(of: block), block: block)

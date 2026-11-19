@@ -88,6 +88,13 @@ final class ChatListController: NSObject {
             documentView.needsLayout = true
         }
     }
+    var proposalBoard: ChatProposalBoard? {
+        didSet {
+            guard oldValue?.tabID != proposalBoard?.tabID else { return }
+            refreshRoots(Set(hosts.keys))
+            documentView.needsLayout = true
+        }
+    }
     var onVisiblePieceIDs: (Set<String>) -> Void = { _ in }
     var onDetachedChange: (Bool) -> Void = { _ in }
     var revealModel: ChatRevealModel?
@@ -272,6 +279,14 @@ final class ChatListController: NSObject {
     // MARK: - Inputs
 
     func update(_ new: ChatListInputs) {
+        #if DEBUG
+        SwitchLatencyProbe.time("listUpdate") { updateNow(new) }
+        #else
+        updateNow(new)
+        #endif
+    }
+
+    private func updateNow(_ new: ChatListInputs) {
         let old = inputs
         if new.tabID != old.tabID {
             if let tabID = old.tabID { readingPositions[tabID] = readingPosition }
@@ -562,6 +577,14 @@ final class ChatListController: NSObject {
     // MARK: - Scroll events
 
     @objc private func clipBoundsChanged() {
+        #if DEBUG
+        SwitchLatencyProbe.time("clipBoundsChanged") { clipBoundsChangedNow() }
+        #else
+        clipBoundsChangedNow()
+        #endif
+    }
+
+    private func clipBoundsChangedNow() {
         guard !isOwnScroll, !isLayingOut else { return }
         let clip = scrollView.contentView
         // A size change is geometry, not intent; the pass it schedules
@@ -634,6 +657,14 @@ final class ChatListController: NSObject {
     }
 
     private func tick(at now: TimeInterval) {
+        #if DEBUG
+        SwitchLatencyProbe.time("animatorTick") { tickNow(at: now) }
+        #else
+        tickNow(at: now)
+        #endif
+    }
+
+    private func tickNow(at now: TimeInterval) {
         for (key, ease) in animator.eases {
             let value = ease.value(at: now)
             if key == Self.insetEaseKey {
@@ -678,6 +709,17 @@ final class ChatListController: NSObject {
     }
 
     var realizedIDs: Set<String> { Set(hosts.keys) }
+    func displayHeight(of id: String) -> CGFloat { model.displayHeight(of: id) }
+    func containerHeight(of id: String) -> CGFloat? { hosts[id]?.state.containerHeight }
+    func heightEase(of id: String) -> ChatListAnimator.Ease? { animator.eases[id] }
+
+    /// Feeds a measurement in as if the row reported it.
+    func reportMeasurement(_ height: CGFloat, for id: String) {
+        guard let host = hosts[id] else { return }
+        report(id: id, height: height, width: model.measurementWidth, generation: host.generation)
+    }
+    /// Every row built since the list was created, freed or not.
+    private(set) var realizations = 0
 
     /// A working indicator that leaves while showing fades and collapses
     /// rather than vanishing, which would jump everything below it. So do
@@ -740,6 +782,14 @@ final class ChatListController: NSObject {
     /// One pass: measurements in, the window realized, one offset policy
     /// resolved, the document committed, the offset set, hosts placed.
     func layoutPass() {
+        #if DEBUG
+        SwitchLatencyProbe.time("layoutPass") { layoutPassNow() }
+        #else
+        layoutPassNow()
+        #endif
+    }
+
+    private func layoutPassNow() {
         guard !isLayingOut else { return }
         isLayingOut = true
         defer { isLayingOut = false }
@@ -762,7 +812,11 @@ final class ChatListController: NSObject {
 
         let actual = clip.bounds.origin.y
         if width > 0, viewport > 0 {
-            realizeWindow(around: easedOffset ?? actual)
+            // With no rows yet the scroll view's offset means nothing, so a
+            // fresh list starts where its policy is headed, not at the top.
+            let hasRows = hasRealizedRows
+            let start = hasRows ? actual : min(max(0, resolvedOffset()), model.maxOffset)
+            realizeWindow(around: easedOffset ?? start)
         }
 
         var offset = commitOffset(in: clip, viewport: viewport)
@@ -786,14 +840,34 @@ final class ChatListController: NSObject {
             setDetached(ChatScrollAnchor.isDetached(distanceFromBottom: distance, wasDetached: isDetached))
         }
 
+        #if DEBUG
+        SwitchLatencyProbe.time("placeHosts") { placeHosts(width: width) }
+        #else
+        placeHosts(width: width)
+        #endif
+        publishVisibleIDs(offset: offset)
+        logPass(offset: offset, viewport: viewport)
+        #if DEBUG
+        if hasRealizedRows {
+            SwitchLatencyProbe.noteRowsPlaced(tabID: inputs.tabID) { messageID in
+                hosts.keys.contains { id in
+                    if case .piece(let piece) = items[id] { return piece.messageID == messageID }
+                    return false
+                }
+            }
+        }
+        #endif
+    }
+
+    private func placeHosts(width: CGFloat) {
         for (id, host) in hosts {
             guard let frame = model.frame(of: id) else { continue }
             let overhang = ChatListItemState.overhang
             host.view.frame = NSRect(x: 0, y: frame.minY - overhang, width: width, height: frame.height + 2 * overhang)
         }
-        publishVisibleIDs(offset: offset)
-        logPass(offset: offset, viewport: viewport)
     }
+
+    private var hasRealizedRows: Bool { hosts.keys.contains { $0 != Self.dockID } }
 
     /// Sizes the document and writes the offset the policy resolves, when
     /// that answer changed. Returns the offset the viewport is left at.
@@ -856,8 +930,12 @@ final class ChatListController: NSObject {
 
     private func animateHeight(of id: String, from: CGFloat, to: CGFloat) {
         guard from != to else { return }
-        if inputs.animate, model.viewportHeight > 0, documentView.window != nil {
+        let eases = animator.eases[id] != nil || ChatListMotion.easesHeightChange(from: from, to: to)
+        if eases, inputs.animate, model.viewportHeight > 0, documentView.window != nil {
             let live: Bool = if case let .piece(piece)? = items[id] { piece.isLive } else { false }
+            #if DEBUG
+            SwitchLatencyProbe.note("heightEase")
+            #endif
             animator.ease(id, from: from, to: to, duration: live ? 0.12 : 0.2)
         } else {
             model.setDisplayHeight(to, for: id)
@@ -877,6 +955,14 @@ final class ChatListController: NSObject {
     /// Realizes inside the window and frees only well outside it, so an item
     /// at the edge of a scroll is not built and torn down on every frame.
     private func realizeWindow(around offset: CGFloat) {
+        #if DEBUG
+        SwitchLatencyProbe.time("realizeWindow") { realizeWindowNow(around: offset) }
+        #else
+        realizeWindowNow(around: offset)
+        #endif
+    }
+
+    private func realizeWindowNow(around offset: CGFloat) {
         let range = model.realizedRange(offset: offset)
         lastRealizedRange = range
         let kept = Set(model.realizedRange(offset: offset, overscan: model.overscan * 3).map { model.id(at: $0) })
@@ -891,6 +977,7 @@ final class ChatListController: NSObject {
     }
 
     private func realize(id: String, item: Item) {
+        realizations += 1
         let state = ChatListItemState()
         let generation = model.realize(id)
         let view = dequeueHost()
@@ -900,7 +987,11 @@ final class ChatListController: NSObject {
         hosts[id] = host
         let hadMeasurement = model.hasMeasurement(id)
         let before = model.displayHeight(of: id)
+        #if DEBUG
+        let measured = SwitchLatencyProbe.time("realizeMeasure") { naturalHeight(of: view) }
+        #else
         let measured = naturalHeight(of: view)
+        #endif
         model.setTargetHeight(measured, for: id, width: model.measurementWidth, generation: generation)
         if !hadMeasurement { notePinMeasurement(id) }
 
@@ -915,7 +1006,7 @@ final class ChatListController: NSObject {
         } else if hadMeasurement, before != measured {
             // Realized again after its state was lost, at a different size.
             animateHeight(of: id, from: before, to: measured)
-            state.containerHeight = inputs.animate ? before : nil
+            state.containerHeight = inputs.animate ? model.displayHeight(of: id) : nil
         } else {
             state.containerHeight = inputs.animate ? measured : nil
         }
@@ -941,6 +1032,14 @@ final class ChatListController: NSObject {
     /// Returns a host to the pool. An evicted item keeps its host while it
     /// holds the keyboard focus; a deleted one (`force`) gives it up.
     private func free(_ id: String, force: Bool = false) {
+        #if DEBUG
+        SwitchLatencyProbe.time("freeHost") { freeNow(id, force: force) }
+        #else
+        freeNow(id, force: force)
+        #endif
+    }
+
+    private func freeNow(_ id: String, force: Bool) {
         guard let host = hosts[id] else { return }
         if let window = host.view.window, let responder = window.firstResponder as? NSView,
            responder.isDescendant(of: host.view) {
@@ -992,6 +1091,14 @@ final class ChatListController: NSObject {
     }
 
     private func makeRoot(for item: Item, id: String, state: ChatListItemState, generation: Int) -> AnyView {
+        #if DEBUG
+        return SwitchLatencyProbe.time("makeRoot") { makeRootNow(for: item, id: id, state: state, generation: generation) }
+        #else
+        return makeRootNow(for: item, id: id, state: state, generation: generation)
+        #endif
+    }
+
+    private func makeRootNow(for item: Item, id: String, state: ChatListItemState, generation: Int) -> AnyView {
         let width = model.measurementWidth
         let onMeasure: (CGFloat) -> Void = { [weak self] height in
             self?.report(id: id, height: height, width: width, generation: generation)
@@ -1004,6 +1111,7 @@ final class ChatListController: NSObject {
             linkDirectory: inputs.linkDirectory,
             redoContext: redoContext,
             subagentOpener: subagentOpener,
+            proposalBoard: proposalBoard,
             selectionSpan: selection.isSelectable(id)
                 ? ChatSelectionSpan(store: selection, pieceID: id, piece: selection.box(for: id))
                 : nil
@@ -1042,7 +1150,21 @@ final class ChatListController: NSObject {
         }
     }
 
+    #if DEBUG
+    /// Keeps the minimap's re-renders out of a scroll measurement.
+    private static let skipsVisiblePublish = ProcessInfo.processInfo.environment["PLUME_NO_VISIBLE_PUBLISH"] == "1"
+    #endif
+
     private func publishVisibleIDs(offset: CGFloat) {
+        #if DEBUG
+        guard !Self.skipsVisiblePublish else { return }
+        SwitchLatencyProbe.time("publishVisible") { publishVisibleIDsNow(offset: offset) }
+        #else
+        publishVisibleIDsNow(offset: offset)
+        #endif
+    }
+
+    private func publishVisibleIDsNow(offset: CGFloat) {
         let visible = Set(model.visibleIDs(offset: offset).filter { items[$0].map(isPiece) ?? false })
         guard visible != publishedVisibleIDs else { return }
         publishedVisibleIDs = visible
@@ -1423,6 +1545,7 @@ struct ChatListItemEnvironment {
     /// has no live session to rewind.
     var redoContext: MessageRedoContext?
     var subagentOpener: ChatSubagentOpener?
+    var proposalBoard: ChatProposalBoard?
     /// Set only on a piece whose text joins the transcript's selection.
     var selectionSpan: ChatSelectionSpan?
 }
@@ -1443,6 +1566,7 @@ struct ChatListItemRoot<Content: View>: View {
             .environment(\.workStartedAt, environment.workStartedAt)
             .environment(\.messageRedoContext, environment.redoContext)
             .environment(\.chatSubagentOpener, environment.subagentOpener)
+            .environment(\.chatProposalBoard, environment.proposalBoard)
             .environment(\.chatSelectionSpan, environment.selectionSpan)
             .chatLinkHandling(directory: environment.linkDirectory)
             .plumeTheme(bodySize: environment.chatFontSize)

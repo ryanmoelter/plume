@@ -9,6 +9,11 @@ struct PlumeApp: App {
 
     init() {
         LoginShellCommand.dropInheritedInstanceKeys()
+        do {
+            try TabWorkspaceMigration.run(in: modelContainer.mainContext)
+        } catch {
+            Log.app.error("Could not move workspaces onto tabs: \(error, privacy: .public)")
+        }
         #if DEBUG
         do {
             try SeededProviderRecovery.recover(in: modelContainer.mainContext)
@@ -16,6 +21,7 @@ struct PlumeApp: App {
             Log.app.error("Could not repair seeded providers: \(error, privacy: .public)")
         }
         #endif
+        ChildSessionIndex.shared.rebuild(in: modelContainer.mainContext)
         BundledFonts.registerIfNeeded()
 
         // Xcode Previews launch this app as their host, and libghostty
@@ -31,6 +37,8 @@ struct PlumeApp: App {
         // A test host must never reach the real Keychain or Linear, nor take
         // the CLI socket from a debug app launched while tests run.
         if NSClassFromString("XCTestCase") == nil {
+            // Before the main window reads its saved frame.
+            StaleDefaultsCleanup.runOnce()
             LinearStore.shared.start()
             // Before any view exists: a tab's environment names this socket
             // when it is built, and keeps that environment for life.
@@ -89,7 +97,10 @@ struct PlumeApp: App {
     }
 
     var body: some Scene {
-        WindowGroup {
+        // Without an id, SwiftUI names the window's saved frames after its
+        // content's type, which spells a private modifier by its address, so
+        // every build writes a new pair of keys to user defaults.
+        WindowGroup(id: "main") {
             MainWindow()
                 .plumeAccentTint()
         }

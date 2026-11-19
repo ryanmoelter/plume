@@ -278,11 +278,12 @@ extension HomeComposerInputs {
             HomeDestinationCatalog.GroupOption(id: $0.id, name: $0.name, tintRaw: $0.tintRaw, iconName: $0.iconName)
         }
         self.tasks = tasks.map { task in
-            TaskInput(
+            let workspace = TabDirectoryStore.savedWorkspaceSource(in: task)?.workspace
+            return TaskInput(
                 id: task.id,
                 groupID: task.group?.id,
-                path: task.repoPath ?? task.workingDirectoryPath,
-                workspaceKindRaw: task.workspaceKindRaw,
+                path: workspace?.repoPath ?? workspace?.directory,
+                workspaceKindRaw: (workspace?.kind ?? .unset).rawValue,
                 createdAt: task.createdAt
             )
         }

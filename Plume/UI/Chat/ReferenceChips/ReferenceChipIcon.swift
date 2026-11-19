@@ -44,7 +44,7 @@ nonisolated struct ReferenceChipIcon: Hashable, Sendable {
         case .success: .success
         case .danger: .danger
         case .merged: .merged
-        case .attention, .neutral: .neutral
+        case .attention, .conflict, .neutral: .neutral
         }
         return ReferenceChipIcon(symbol: symbol, tint: tint)
     }

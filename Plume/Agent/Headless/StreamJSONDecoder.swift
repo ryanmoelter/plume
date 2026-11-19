@@ -19,7 +19,7 @@ nonisolated enum StreamJSONDecoder {
         case "system":
             switch root["subtype"]?.stringValue {
             case "init": return .initialized(sessionInit(from: root))
-            case "status": return .status(root["status"]?.stringValue ?? "")
+            case "status": return .status(root["status"]?.stringValue ?? "", permissionMode: root["permissionMode"]?.stringValue)
             case "bridge_state": return .bridgeState(bridgeState(from: root))
             case "control_request_progress":
                 guard let id = root["request_id"]?.stringValue else { return .unknown(type: "system") }
@@ -62,7 +62,8 @@ nonisolated enum StreamJSONDecoder {
         return RateLimitInfo(
             fiveHour: window(from: windows["five_hour"]?.objectValue),
             sevenDay: window(from: windows["seven_day"]?.objectValue),
-            isUsingOverage: info["isUsingOverage"]?.boolValue ?? false
+            isUsingOverage: info["isUsingOverage"]?.boolValue ?? false,
+            fable: window(from: windows["seven_day_overage_included"]?.objectValue)
         )
     }
 
@@ -123,7 +124,9 @@ nonisolated enum StreamJSONDecoder {
         MessageEnvelope(
             raw: root["message"]?.objectValue ?? [:],
             parentToolUseID: root["parent_tool_use_id"]?.stringValue,
-            sessionID: root["session_id"]?.stringValue
+            sessionID: root["session_id"]?.stringValue,
+            uuid: root["uuid"]?.stringValue,
+            userMessageUUID: root["user_message_uuid"]?.stringValue
         )
     }
 
@@ -180,7 +183,9 @@ nonisolated enum StreamJSONDecoder {
             permissionSuggestions: PermissionSuggestion.decoding(
                 body["permission_suggestions"],
                 suppressingRules: body["suppress_always_allow_rule"]?.boolValue ?? false
-            )
+            ),
+            serverName: body["server_name"]?.stringValue,
+            message: body["message"]
         )
     }
 }

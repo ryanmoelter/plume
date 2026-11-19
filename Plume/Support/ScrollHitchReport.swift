@@ -1,0 +1,113 @@
+#if DEBUG
+import Foundation
+
+/// One frame tick of a `scrollChat` run. Everything but `offset` describes the
+/// interval that ends at this tick, so a long interval's cause is in its own
+/// `workMs`, `realizations` and `spans`.
+nonisolated struct ScrollFrameSample: Codable, Equatable {
+    var index: Int
+    /// The clip's offset after this tick moved it.
+    var offset: Double
+    /// Since the previous tick's callback began; nil for the first tick.
+    var intervalMs: Double?
+    /// The frame period of the clock that ended the interval.
+    var periodMs: Double
+    /// The main-thread turn the previous tick began, up to the end of its
+    /// Core Animation commit; nil when no turn ended in between.
+    var workMs: Double?
+    var realizations: Int
+    var spans: [SwitchLatencySpan]
+}
+
+nonisolated struct FrameTimeSummary: Codable, Equatable {
+    var count: Int
+    var median: Double
+    var p90: Double
+    var p99: Double
+    var max: Double
+
+    init?(_ samples: [Double]) {
+        guard !samples.isEmpty else { return nil }
+        let sorted = samples.sorted()
+        count = sorted.count
+        median = sorted.median
+        p90 = sorted.nearestRank(0.9)
+        p99 = sorted.nearestRank(0.99)
+        max = sorted[count - 1]
+    }
+}
+
+nonisolated struct ScrollHitchReport: Codable, Equatable {
+    var clock: String
+    /// The median of the intervals' periods; each interval is judged
+    /// against its own.
+    var periodMs: Double
+    /// Frame intervals measured: every tick but the first.
+    var frames: Int
+    var durationMs: Double
+    var startOffset: Double
+    var endOffset: Double
+    /// The points the driver scrolled, signed, negative upward. It differs
+    /// from `endOffset - startOffset` by however far the list moved the
+    /// offset to keep the reader's place as rows above re-measured.
+    var distance: Double
+    /// The run hit `maxSeconds` before settling at its destination.
+    var timedOut: Bool
+    var realizations: Int
+    var intervalMs: FrameTimeSummary?
+    var workMs: FrameTimeSummary?
+    var overTwoPeriods: Int
+    var overFourPeriods: Int
+    var over50: Int
+    var over100: Int
+    /// Over every interval longer than 1.5 periods, the time past one period.
+    var hitchMs: Double
+    var hitchMsPerSecond: Double
+    var spans: [SwitchLatencySpan]
+    var worstFrames: [ScrollFrameSample]
+
+    init(
+        clock: String, startOffset: Double, endOffset: Double, distance: Double,
+        timedOut: Bool, samples: [ScrollFrameSample], worst: Int
+    ) {
+        self.clock = clock
+        self.startOffset = startOffset
+        self.endOffset = endOffset
+        self.distance = distance
+        self.timedOut = timedOut
+        let measured = samples.filter { $0.intervalMs != nil }
+        let intervals = measured.compactMap(\.intervalMs)
+        frames = intervals.count
+        durationMs = intervals.reduce(0, +)
+        realizations = measured.reduce(0) { $0 + $1.realizations }
+        intervalMs = FrameTimeSummary(intervals)
+        workMs = FrameTimeSummary(measured.compactMap(\.workMs))
+        let judged = measured.compactMap { sample in sample.intervalMs.map { (interval: $0, period: sample.periodMs) } }
+        periodMs = FrameTimeSummary(judged.map(\.period))?.median ?? 0
+        overTwoPeriods = judged.count { $0.interval > 2 * $0.period }
+        overFourPeriods = judged.count { $0.interval > 4 * $0.period }
+        over50 = intervals.filter { $0 > 50 }.count
+        over100 = intervals.filter { $0 > 100 }.count
+        hitchMs = judged.filter { $0.interval > 1.5 * $0.period }.reduce(0) { $0 + $1.interval - $1.period }
+        hitchMsPerSecond = durationMs > 0 ? hitchMs / (durationMs / 1000) : 0
+        var totals: [String: SwitchLatencySpan] = [:]
+        for span in measured.flatMap(\.spans) {
+            totals[span.name, default: SwitchLatencySpan(name: span.name)].count += span.count
+            totals[span.name]?.ms += span.ms
+        }
+        spans = totals.values.sorted { $0.ms != $1.ms ? $0.ms > $1.ms : $0.name < $1.name }
+        worstFrames = Array(
+            measured.sorted { ($0.intervalMs ?? 0) > ($1.intervalMs ?? 0) }.prefix(Swift.max(worst, 0))
+        )
+    }
+
+    var logLine: String {
+        let round = { (value: Double?) in value.map { String(Int($0.rounded())) } ?? "-" }
+        return [
+            "clock=\(clock)", "frames=\(frames)", "median=\(round(intervalMs?.median))",
+            "p99=\(round(intervalMs?.p99))", "max=\(round(intervalMs?.max))",
+            "overTwoPeriods=\(overTwoPeriods)", "overFourPeriods=\(overFourPeriods)", "hitchMsPerSecond=\(round(hitchMsPerSecond))",
+        ].joined(separator: " ")
+    }
+}
+#endif

@@ -74,6 +74,24 @@ struct HeadlessSessionStatuslineStateTests {
         #expect(session.permissionMode == .bypassPermissions)
     }
 
+    @Test func initializedReadingDefaultAdoptsManual() {
+        let session = makeSession()
+        session.setPermissionMode(.plan)
+
+        session.handle(.initialized(sessionInit(permissionMode: "default")))
+
+        #expect(session.permissionMode == .manual)
+    }
+
+    @Test func initializedKeepsTheLastModeWhenTheStreamReportsAnUnknownOne() {
+        let session = makeSession()
+        session.setPermissionMode(.plan)
+
+        session.handle(.initialized(sessionInit(permissionMode: "dontAsk")))
+
+        #expect(session.permissionMode == .plan)
+    }
+
     /// The CLI runs on whatever ID it was handed, so a model this build has
     /// no preset for still has to replace the guess — displaying it by ID
     /// beats displaying a familiar wrong name.

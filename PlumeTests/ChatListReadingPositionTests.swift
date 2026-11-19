@@ -60,18 +60,19 @@ struct ChatListReadingPositionTests {
         #expect(offset(of: controller) == bottom(of: controller))
     }
 
-    @Test func aScrolledUpReaderReturnsToTheSameRows() throws {
+    @Test func aScrolledUpReaderReturnsToTheSameRows() async throws {
         let positions = ChatReadingPositions()
         let pieces = underestimatedPieces(count: 80)
-        let left: CGFloat
+        var left: Set<String> = []
         let position: ChatReadingPosition
         do {
             let (controller, window) = makeList(positions: positions)
             controller.update(ChatListInputs(pieces: pieces, tabID: tabID))
             layOut(controller)
             readerScroll(controller, to: 2000)
+            controller.onVisiblePieceIDs = { left = $0 }
             layOut(controller)
-            left = offset(of: controller)
+            await drainMainQueue()
             position = controller.readingPosition
             close(controller, window)
         }
@@ -83,14 +84,18 @@ struct ChatListReadingPositionTests {
 
         let (controller, window) = makeList(positions: positions)
         defer { close(controller, window) }
+        var seen: Set<String> = []
+        controller.onVisiblePieceIDs = { seen = $0 }
         // A remounted chat builds its pieces after its list exists.
         controller.update(ChatListInputs(tabID: tabID))
         layOut(controller)
         controller.update(ChatListInputs(pieces: pieces, tabID: tabID))
         layOut(controller)
+        await drainMainQueue()
 
         #expect(controller.readingPosition == position)
-        #expect(abs(offset(of: controller) - left) < 1)
+        #expect(!left.isEmpty)
+        #expect(seen == left)
     }
 
     /// The composer's height reaches the list a render after it mounts, and
@@ -114,27 +119,33 @@ struct ChatListReadingPositionTests {
     @Test func theComposerRoomArrivingAfterMountLeavesARestoredReaderInPlace() throws {
         let positions = ChatReadingPositions()
         let pieces = underestimatedPieces(count: 80)
-        let left: CGFloat
+        let left: ChatReadingPosition
         do {
             let (controller, window) = makeList(positions: positions)
             controller.update(ChatListInputs(pieces: pieces, tabID: tabID, trailingInset: 220))
             layOut(controller)
             readerScroll(controller, to: 2000)
             layOut(controller)
-            left = offset(of: controller)
+            left = controller.readingPosition
             close(controller, window)
+        }
+        guard case .anchor = left else {
+            Issue.record("Scrolled up, the reader should be anchored, not \(left)")
+            return
         }
 
         let (controller, window) = makeList(positions: positions)
         defer { close(controller, window) }
         controller.update(ChatListInputs(pieces: pieces, tabID: tabID))
         layOut(controller)
+        let restored = offset(of: controller)
         controller.update(ChatListInputs(pieces: pieces, tabID: tabID, trailingInset: 220))
         layOut(controller)
         controller.finishAnimations()
         layOut(controller)
 
-        #expect(abs(offset(of: controller) - left) < 1)
+        #expect(controller.readingPosition == left)
+        #expect(abs(offset(of: controller) - restored) < 1)
     }
 
     @Test func switchingTabsOnOneListKeepsEachTabsPosition() throws {
@@ -241,6 +252,13 @@ struct ChatListReadingPositionTests {
         for _ in 0..<2 {
             controller.documentView.needsLayout = true
             controller.documentView.layoutSubtreeIfNeeded()
+        }
+    }
+
+    /// The list reports its visible rows a main-queue turn after placing them.
+    private func drainMainQueue() async {
+        await withCheckedContinuation { continuation in
+            DispatchQueue.main.async { continuation.resume() }
         }
     }
 }

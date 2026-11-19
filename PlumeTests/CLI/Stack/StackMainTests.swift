@@ -11,8 +11,8 @@ nonisolated final class SettingsRecordingApp: PlumeAppClient {
         self.opens = opens
     }
 
-    func openTab(directory: String, caller: PlumeCaller) -> Bool { false }
-    func openTask(worktreePath: String, caller: PlumeCaller) -> Bool { false }
+    func openTab(directory: String, caller: PlumeCaller, created: WorktreeCreation) -> Bool { false }
+    func openTask(worktreePath: String, caller: PlumeCaller, created: WorktreeCreation) -> Bool { false }
 
     func openSettings(section: String?) -> Bool {
         sections.append(section)

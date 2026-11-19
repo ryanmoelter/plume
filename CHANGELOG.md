@@ -1,5 +1,44 @@
 # Changelog
 
+## 0.20.0-beta.2 (42)
+
+### New
+
+- Let agents start child sessions in new tabs
+  - Accept or dismiss sessions an agent proposes, from a card in the chat
+  - Group a parent tab with its child sessions in the tab bar, and show them in the info pane
+- Show each agent in a task in the sidebar
+  - Jump directly to a tab from the sidebar
+- Revamp the conversation minimap
+  - Now on the left side, to avoid conflicting with the info pane
+  - More focus on prompts
+  - Cleaner presentation
+  - Differentiate prompts from questions/plans
+  - Improve scrolling behavior on large conversations
+- Show Fable quota and usage credits
+- Performance
+  - Improve scrolling performance in long chats
+  - Improve typing performance in the composer
+  - Switch to a task with a long conversation much faster
+  - Show a sent message much faster
+- Show a red warning triangle on a PR chip when the PR has a merge conflict
+- Compact a conversation from the context meter's popover
+- Give each tab its own folder, branch and worktree
+- Misc fixes
+  - Show when plan mode runs a different model in the model chip, like when Haiku plans with Sonnet
+  - Double-click the sidebar's edge to restore its default width, and cap how wide it gets
+  - Group mentioned PRs in the info pane, and open their menu on click
+  - Show Manual in the permission picker when Claude Code reports its default mode
+  - Clear out stale window-size settings that piled up with each update
+
+### Recently
+
+- Show files an agent sends: images inline, other files as cards
+- Show link chips for more links, including bare GitHub PR, Linear and artifact links
+- Clean up the info pane, sorting pull requests and Linear issues by status
+- Include agent skills for Plume's CLI tools
+- Get Beta updates through Settings > Updates > Update source
+
 ## 0.20.0-beta.1 (41)
 
 ### New

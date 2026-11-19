@@ -95,6 +95,13 @@ nonisolated enum ReviewDecision: Sendable, Hashable {
     }
 }
 
+/// Only a conflict counts. GitHub computes `mergeable` lazily and answers
+/// `UNKNOWN` at first, and `BLOCKED` or `BEHIND` say nothing about a
+/// conflict, so all of those, and a missing value, read as none.
+nonisolated func isMergeConflict(mergeable: String?, mergeStateStatus: String?) -> Bool {
+    mergeable == "CONFLICTING" || mergeStateStatus == "DIRTY"
+}
+
 /// A pull request's place in a GitHub native stack.
 nonisolated struct GitHubStackMembership: Sendable, Equatable {
     let number: Int
@@ -117,6 +124,8 @@ nonisolated struct PullRequest: Sendable, Equatable {
     /// waiting rather than nobody asked.
     let hasReviewers: Bool
     let checkContexts: [CheckContext]
+    /// The head conflicts with its base. Always false off GitHub.
+    let hasMergeConflict: Bool
     /// Nil off GitHub, outside a stack, or when the query didn't ask.
     let githubStack: GitHubStackMembership?
 
@@ -131,6 +140,7 @@ nonisolated struct PullRequest: Sendable, Equatable {
         reviewDecision: ReviewDecision = .none,
         hasReviewers: Bool = false,
         checkContexts: [CheckContext] = [],
+        hasMergeConflict: Bool = false,
         githubStack: GitHubStackMembership? = nil
     ) {
         self.number = number
@@ -143,6 +153,7 @@ nonisolated struct PullRequest: Sendable, Equatable {
         self.reviewDecision = reviewDecision
         self.hasReviewers = hasReviewers
         self.checkContexts = checkContexts
+        self.hasMergeConflict = hasMergeConflict
         self.githubStack = githubStack
     }
 }

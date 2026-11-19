@@ -37,18 +37,15 @@ final class StartupWarmPass {
     }
 
     /// The distinct directories worth warming: each task's own agent-tab
-    /// directories, falling back to its working directory — the same rule
+    /// directories, falling back to a folder its tabs saved — the same rule
     /// `TaskRowView.directories` uses, so the warm pass never fetches a
     /// directory no row would ask for.
     static func directories(for tasks: [WorkTask]) -> Set<String> {
         var directories: Set<String> = []
         for task in tasks {
-            let agentTabDirectories = task.orderedTabs
-                .filter { $0.kind == .agent }
-                .map { TabDirectoryStore.shared.directory(for: $0) }
             let resolved = TaskRowDetails.distinctDirectories(
-                agentTabDirectories: agentTabDirectories,
-                taskDirectory: task.workingDirectoryPath
+                agentTabDirectories: task.agentTabDirectories(of: task.orderedTabs),
+                fallbackDirectory: task.storedTabDirectory
             )
             directories.formUnion(resolved)
         }

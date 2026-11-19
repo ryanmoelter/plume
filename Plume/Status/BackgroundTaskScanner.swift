@@ -139,16 +139,25 @@ nonisolated enum BackgroundTaskScanner {
     }
 
     static func inFlight(parentData: Data, now: Date = Date()) -> [BackgroundTaskTracker.Entry] {
-        var launchByToolUseID: [String: Launch] = [:]
-        var entries: [String: BackgroundTaskTracker.Entry] = [:]
-        var stopsAtFirstEvent: Set<String> = []
-        let decoder = JSONDecoder()
+        var state = State()
+        for entry in TranscriptParser.decodedEntries(in: parentData) {
+            state.consume(entry, now: now)
+        }
+        return state.inFlight
+    }
 
-        for line in parentData.split(separator: UInt8(ascii: "\n")) {
-            guard !line.isEmpty,
-                  let entry = try? decoder.decode(TranscriptEntry.self, from: Data(line))
-            else { continue }
+    /// The scan fed one line at a time, so a transcript that only grew needs
+    /// only its new lines read.
+    nonisolated struct State: Sendable {
+        private var launchByToolUseID: [String: Launch] = [:]
+        private var entries: [String: BackgroundTaskTracker.Entry] = [:]
+        private var stopsAtFirstEvent: Set<String> = []
 
+        init() {}
+
+        /// `now` dates a launch whose line carries no timestamp, so it is
+        /// the time the line was first read.
+        mutating func consume(_ entry: TranscriptEntry, now: Date = Date()) {
             for block in entry.message?.content?.blocks ?? [] {
                 switch block {
                 case .toolUse(let id, let name, let input):
@@ -201,7 +210,9 @@ nonisolated enum BackgroundTaskScanner {
             }
         }
 
-        return entries.values.sorted { $0.startedAt < $1.startedAt }
+        var inFlight: [BackgroundTaskTracker.Entry] {
+            entries.values.sorted { $0.startedAt < $1.startedAt }
+        }
     }
 
     /// A Monitor and a backgrounded Bash both take a `description`; a

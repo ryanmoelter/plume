@@ -3,7 +3,8 @@ import Testing
 @testable import Plume
 
 /// Which pieces grow into place when the chat list rebuilds: the ones that
-/// were not there before, and none at all on a first build.
+/// were not there before, and none at all on a first build; and which
+/// height changes ease, which is any of a point or more.
 @MainActor
 struct ChatListMotionTests {
     private func arrivals(previous: [String], current: [String]) -> Set<String> {
@@ -28,5 +29,16 @@ struct ChatListMotionTests {
 
     @Test func theFirstBuildGrowsNothing() {
         #expect(arrivals(previous: [], current: ["a", "b", "c"]).isEmpty)
+    }
+
+    @Test func aChangeOfAPointOrMoreEases() {
+        #expect(ChatListMotion.easesHeightChange(from: 100, to: 101))
+        #expect(ChatListMotion.easesHeightChange(from: 100, to: 40))
+    }
+
+    @Test func aChangeUnderAPointSnaps() {
+        #expect(!ChatListMotion.easesHeightChange(from: 100, to: 100.4))
+        #expect(!ChatListMotion.easesHeightChange(from: 100, to: 99.01))
+        #expect(!ChatListMotion.easesHeightChange(from: 100, to: 100))
     }
 }

@@ -71,11 +71,10 @@ enum SmokeHarness {
             }
         }
 
-        // PLUME_SEED_CWD gives the first task a working directory, so agent
-        // tabs can launch without a folder picker.
+        // PLUME_SEED_CWD gives the first task's tabs a working directory, so
+        // agent tabs can launch without a folder picker.
         if let cwd = environment["PLUME_SEED_CWD"], let first = tasks.first {
-            first.workingDirectoryPath = cwd
-            first.workspaceKind = .directory
+            for tab in first.tabs { tab.workspace = .directory(cwd) }
         }
 
         // PLUME_SEED_AGENT_SESSION_ID stores a session ID on the first task's
@@ -90,12 +89,15 @@ enum SmokeHarness {
         // PLUME_SEED_TRANSCRIPT_PATH points agent tabs at existing
         // transcripts, so full chats render with no `claude` process. A
         // comma-separated list gives each task its own, in order, the last
-        // one repeating. The watch starts here because the launch-time
-        // restore ran before the tabs were seeded.
+        // one repeating. An empty entry leaves its task's chat empty. The
+        // watch starts here because the launch-time restore ran before the
+        // tabs were seeded.
         if let paths = environment["PLUME_SEED_TRANSCRIPT_PATH"] {
-            let expanded = paths.split(separator: ",").map { NSString(string: String($0)).expandingTildeInPath }
+            let expanded = paths.split(separator: ",", omittingEmptySubsequences: false)
+                .map { NSString(string: String($0)).expandingTildeInPath }
             for (index, task) in tasks.enumerated() {
                 let path = expanded[min(index, expanded.count - 1)]
+                guard !path.isEmpty else { continue }
                 task.title = "Task \(index + 1): \((path as NSString).lastPathComponent)"
                 for agentTab in task.orderedTabs where agentTab.kind == .agent {
                     agentTab.transport = .headless
@@ -236,6 +238,12 @@ enum SmokeHarness {
             }
 
             let task = tasks[index % tasks.count]
+            let tab = task.orderedTabs.first { $0.id == task.selectedTabID } ?? task.orderedTabs.first
+            SwitchLatencyProbe.begin(
+                task.title,
+                tabID: tab?.id,
+                expectsRows: tab.map { $0.kind == .agent && ($0.sessionJSONLPath != nil || $0.agentSessionID != nil) } ?? false
+            )
             selection.wrappedValue = task.id
             Log.app.info("Smoke harness selected task \(index % tasks.count + 1) of \(tasks.count)")
         }

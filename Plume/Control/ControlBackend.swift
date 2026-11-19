@@ -23,8 +23,16 @@ protocol ControlBackend {
     func drag(_ params: DragParams) async throws -> DragResult
     func key(_ params: KeyParams) async throws -> KeyResult
     func menu() throws -> MenuResult
+    func windowSize(_ params: WindowSizeParams) throws -> WindowSizeResult
     func selection() throws -> SelectionResult
     func selectText(_ params: SelectTextParams) throws -> SelectionResult
+    func tasks() throws -> TaskListResult
+    func selectTask(_ params: SelectTaskParams) async throws -> SwitchLatencyReport
+    func appendTurn(_ params: AppendTurnParams) async throws -> SwitchLatencyReport
+    func resize(_ params: ResizeParams) async throws -> ResizeResult
+    func scrollChat(_ params: ScrollChatParams) async throws -> ScrollHitchReport
+    func injectUsage(_ params: InjectUsageParams) async throws -> InjectUsageResult
+    func scrollTo(_ params: ScrollToParams) throws
 }
 
 /// The one switch over `ControlCommand`, so a transport only moves bytes.
@@ -68,8 +76,65 @@ enum ControlDispatcher {
             case .drag(let params): result = .drag(try await backend.drag(params))
             case .key(let params): result = .key(try await backend.key(params))
             case .menu: result = .menu(try backend.menu())
+            case .windowSize(let params): result = .windowSize(try backend.windowSize(params))
             case .selection: result = .selection(try backend.selection())
             case .selectText(let params): result = .selection(try backend.selectText(params))
+            case .tasks: result = .tasks(try backend.tasks())
+            case .selectTask(let params): result = .switchLatency(try await backend.selectTask(params))
+            case .appendTurn(let params): result = .switchLatency(try await backend.appendTurn(params))
+            case .resize(let params): result = .resize(try await backend.resize(params))
+            case .scrollChat(let params): result = .scrollHitch(try await backend.scrollChat(params))
+            case .moveTab(let params):
+                result = .tab(try ControlTabCommands.move(params, in: try ControlTabCommands.frontmostContext()))
+            case .splitTab(let params):
+                result = .tab(try ControlTabCommands.split(params, in: try ControlTabCommands.frontmostContext()))
+            case .revealInSidebar(let params):
+                result = .sidebarReveal(
+                    try ControlSidebarCommands.reveal(params, in: try ControlTabCommands.frontmostContext())
+                )
+            case .setTabStatus(let params):
+                result = .tabStatus(
+                    try ControlStatusCommands.setStatus(params, in: try ControlTabCommands.frontmostContext())
+                )
+            case .startChildSession(let params):
+                result = .childSession(
+                    try await ControlChildSessionCommands.start(params, in: try ControlTabCommands.frontmostContext())
+                )
+            case .reportChildSession(let params):
+                result = .childSession(
+                    try ControlChildSessionCommands.report(params, in: try ControlTabCommands.frontmostContext())
+                )
+            case .proposeChildSession(let params):
+                result = .childSession(
+                    try ControlChildSessionCommands.propose(params, in: try ControlTabCommands.frontmostContext())
+                )
+            case .listChildSessionProposals(let params):
+                result = .childSessionProposals(
+                    try ControlChildSessionCommands.proposals(params, in: try ControlTabCommands.frontmostContext())
+                )
+            case .startChildSessionProposal(let params):
+                result = .childSession(
+                    try await ControlChildSessionCommands.startProposal(params, in: try ControlTabCommands.frontmostContext())
+                )
+            case .dismissChildSessionProposal(let params):
+                result = .childSession(
+                    try ControlChildSessionCommands.dismissProposal(params, in: try ControlTabCommands.frontmostContext())
+                )
+            case .offerChildSession(let params):
+                result = .childSession(
+                    try ControlChildSessionCommands.offer(params, in: try ControlTabCommands.frontmostContext())
+                )
+            case .listChildSessionOffers(let params):
+                result = .childSessionOffers(
+                    try ControlChildSessionCommands.offers(params, in: try ControlTabCommands.frontmostContext())
+                )
+            case .answerChildSessionOffer(let params):
+                result = .childSession(try ControlChildSessionCommands.answerOffer(params))
+            case .injectUsage(let params):
+                result = .injectUsage(try await backend.injectUsage(params))
+            case .scrollTo(let params):
+                try backend.scrollTo(params)
+                result = .empty
             }
             return .success(id: request.id, result)
         } catch {

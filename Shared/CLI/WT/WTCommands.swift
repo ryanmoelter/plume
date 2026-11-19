@@ -190,7 +190,7 @@ nonisolated extension WT {
             ctx.console.print("\(programName): created \(path) (checked out \(branch))")
         }
         ctx.git.enableUntrackedCache(path)
-        if tabs.openTab { ctx.tabs.open(path, asTask: tabs.asTask) }
+        if tabs.openTab { ctx.tabs.open(path, asTask: tabs.asTask, created: WorktreeCreation(worktree: true, branch: create)) }
     }
 
     /// `open|o <name> [--task]`.
@@ -307,7 +307,8 @@ nonisolated extension WT {
         }
         ctx.console.print("\(programName): moved to \(newPath)")
         ctx.git.enableUntrackedCache(newPath)
-        if tabs.openTab { ctx.tabs.open(newPath, asTask: tabs.asTask) }
+        // Off the base branch, the user's own branch moves; on it, a new one is made.
+        if tabs.openTab { ctx.tabs.open(newPath, asTask: tabs.asTask, created: WorktreeCreation(worktree: true, branch: onBase)) }
         if let unfinished { throw CLIFailure(unfinished) }
     }
 

@@ -13,7 +13,6 @@ struct ClaudeResumeDirectoryTests {
 
     private func makeTab() -> TaskTab {
         let task = WorkTask(title: "T", orderIndex: 0)
-        task.workingDirectoryPath = checkout
         let tab = TaskTab(kind: .agent, orderIndex: 0, task: task)
         task.tabs = [tab]
         tab.workingDirectoryPath = worktree

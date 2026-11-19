@@ -38,8 +38,29 @@ nonisolated struct ControlServerRequest: Decodable {
         case "drag": command = .drag(try DragParams(from: decoder))
         case "key": command = .key(try KeyParams(from: decoder))
         case "menu": command = .menu
+        case "windowSize": command = .windowSize(try WindowSizeParams(from: decoder))
         case "selection": command = .selection
         case "selectText": command = .selectText(try SelectTextParams(from: decoder))
+        case "tasks": command = .tasks
+        case "selectTask": command = .selectTask(try SelectTaskParams(from: decoder))
+        case "appendTurn": command = .appendTurn(try AppendTurnParams(from: decoder))
+        case "resize": command = .resize(try ResizeParams(from: decoder))
+        case "scrollChat": command = .scrollChat(try ScrollChatParams(from: decoder))
+        case "tab.move": command = .moveTab(try TabMoveParams(from: decoder))
+        case "tab.split": command = .splitTab(try TabMoveParams(from: decoder))
+        case "sidebar.reveal": command = .revealInSidebar(try SidebarRevealParams(from: decoder))
+        case "tab.status": command = .setTabStatus(try TabStatusParams(from: decoder))
+        case "child-session.start": command = .startChildSession(try ChildSessionStartParams(from: decoder))
+        case "child-session.report": command = .reportChildSession(try ChildSessionReportParams(from: decoder))
+        case "child-session.propose": command = .proposeChildSession(try ChildSessionProposeParams(from: decoder))
+        case "child-session.proposals": command = .listChildSessionProposals(try ChildSessionProposalsParams(from: decoder))
+        case "child-session.proposal.start": command = .startChildSessionProposal(try ChildSessionProposalParams(from: decoder))
+        case "child-session.proposal.dismiss": command = .dismissChildSessionProposal(try ChildSessionProposalParams(from: decoder))
+        case "child-session.offer": command = .offerChildSession(try ChildSessionProposeParams(from: decoder))
+        case "child-session.offers": command = .listChildSessionOffers(try ChildSessionProposalsParams(from: decoder))
+        case "child-session.offer.answer": command = .answerChildSessionOffer(try ChildSessionOfferAnswerParams(from: decoder))
+        case "injectUsage": command = .injectUsage(try InjectUsageParams(from: decoder))
+        case "scrollTo": command = .scrollTo(try ScrollToParams(from: decoder))
         default:
             throw DecodingError.dataCorruptedError(
                 forKey: .command, in: container, debugDescription: "unknown command \"\(name)\""
@@ -66,8 +87,317 @@ nonisolated enum ControlCommand {
     case drag(DragParams)
     case key(KeyParams)
     case menu
+    case windowSize(WindowSizeParams)
     case selection
     case selectText(SelectTextParams)
+    case tasks
+    case selectTask(SelectTaskParams)
+    case appendTurn(AppendTurnParams)
+    case resize(ResizeParams)
+    case scrollChat(ScrollChatParams)
+    case moveTab(TabMoveParams)
+    case splitTab(TabMoveParams)
+    case revealInSidebar(SidebarRevealParams)
+    case setTabStatus(TabStatusParams)
+    case startChildSession(ChildSessionStartParams)
+    case reportChildSession(ChildSessionReportParams)
+    case proposeChildSession(ChildSessionProposeParams)
+    case listChildSessionProposals(ChildSessionProposalsParams)
+    case startChildSessionProposal(ChildSessionProposalParams)
+    case dismissChildSessionProposal(ChildSessionProposalParams)
+    case offerChildSession(ChildSessionProposeParams)
+    case listChildSessionOffers(ChildSessionProposalsParams)
+    case answerChildSessionOffer(ChildSessionOfferAnswerParams)
+    case injectUsage(InjectUsageParams)
+    case scrollTo(ScrollToParams)
+}
+
+/// Scrolls the scroll view under `target` until the control is visible, or
+/// the largest one in the window to an `edge` (`top` or `bottom`) — for rows
+/// a lazy container hasn't mounted, which have no registered control yet.
+nonisolated struct ScrollToParams: Decodable, Equatable {
+    var target: ControlTarget?
+    var edge: String?
+    var windowNumber: Int?
+
+    func validate() throws {
+        switch (target, edge) {
+        case (nil, nil): throw ControlError.badParams("scrollTo needs a target or an edge")
+        case (.some, .some): throw ControlError.badParams("scrollTo takes target or edge, not both")
+        default: break
+        }
+    }
+}
+
+/// Sets the window's content size, in points. With `live`, the size steps
+/// from the current one to the requested one inside a live resize, the way
+/// dragging the window's edge does: `viewWillStartLiveResize`, `steps`
+/// sizes, then `viewDidEndLiveResize`.
+nonisolated struct ResizeParams: Decodable, Equatable {
+    static let stepLimit = 120
+
+    var width: Double
+    var height: Double
+    var windowNumber: Int?
+    var live: Bool = false
+    var steps: Int = 8
+    /// Seconds between live steps, so each one gets a run-loop pass.
+    var stepDelay: Double = 0.016
+
+    private enum CodingKeys: String, CodingKey { case width, height, windowNumber, live, steps, stepDelay }
+
+    init(width: Double, height: Double, windowNumber: Int? = nil, live: Bool = false, steps: Int = 8, stepDelay: Double = 0.016) {
+        self.width = width
+        self.height = height
+        self.windowNumber = windowNumber
+        self.live = live
+        self.steps = min(max(steps, 1), Self.stepLimit)
+        self.stepDelay = min(max(stepDelay, 0), 1)
+    }
+
+    init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        self.init(
+            width: try c.decode(Double.self, forKey: .width),
+            height: try c.decode(Double.self, forKey: .height),
+            windowNumber: try c.decodeIfPresent(Int.self, forKey: .windowNumber),
+            live: try c.decodeIfPresent(Bool.self, forKey: .live) ?? false,
+            steps: try c.decodeIfPresent(Int.self, forKey: .steps) ?? 8,
+            stepDelay: try c.decodeIfPresent(Double.self, forKey: .stepDelay) ?? 0.016
+        )
+    }
+}
+
+nonisolated struct ResizeResult: Codable, Equatable {
+    var windowNumber: Int
+    /// The content size the window ended at, which AppKit clamps to the
+    /// window's minimum and maximum.
+    var width: Double
+    var height: Double
+    /// Every content size set along the way; one entry unless `live`.
+    var sizes: [Size]
+    var live: Bool
+}
+
+/// Selects `task` and measures the switch with `SwitchLatencyProbe`,
+/// `repeat` times. With `from`, each round first selects `from`, unmeasured,
+/// so every measured switch starts from the same task. Tasks match by id,
+/// then by exact title, then by a unique title substring, ignoring case.
+nonisolated struct SelectTaskParams: Decodable, Equatable {
+    static let repeatLimit = 200
+
+    var task: String
+    var from: String?
+    var repeatCount: Int = 1
+    /// Seconds a switch may take to place rows before it counts as timed out.
+    var timeout: Double = 5
+    /// Seconds to wait after each switch, so work it deferred doesn't land
+    /// in the next one's measurement.
+    var settle: Double = 0.3
+
+    private enum CodingKeys: String, CodingKey {
+        case task, from, timeout, settle
+        case repeatCount = "repeat"
+    }
+
+    init(task: String, from: String? = nil, repeatCount: Int = 1, timeout: Double = 5, settle: Double = 0.3) {
+        self.task = task
+        self.from = from
+        self.repeatCount = min(max(repeatCount, 1), Self.repeatLimit)
+        self.timeout = max(timeout, 0.1)
+        self.settle = max(settle, 0)
+    }
+
+    init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        self.init(
+            task: try c.decode(String.self, forKey: .task),
+            from: try c.decodeIfPresent(String.self, forKey: .from),
+            repeatCount: try c.decodeIfPresent(Int.self, forKey: .repeatCount) ?? 1,
+            timeout: try c.decodeIfPresent(Double.self, forKey: .timeout) ?? 5,
+            settle: try c.decodeIfPresent(Double.self, forKey: .settle) ?? 0.3
+        )
+    }
+}
+
+/// Appends a synthetic prompt and reply to the selected task's transcript,
+/// `repeat` times, and measures each until the prompt's row is on screen.
+nonisolated struct AppendTurnParams: Decodable, Equatable {
+    static let repeatLimit = 200
+
+    var repeatCount: Int = 1
+    /// Seconds an append may take to show its row before it counts as timed out.
+    var timeout: Double = 15
+    /// Seconds to wait after each append, so its trailing work stays out of
+    /// the next one's measurement.
+    var settle: Double = 1
+    /// Whether a reply is written with each prompt, in the same write.
+    var reply = true
+
+    private enum CodingKeys: String, CodingKey {
+        case timeout, settle, reply
+        case repeatCount = "repeat"
+    }
+
+    init(repeatCount: Int = 1, timeout: Double = 15, settle: Double = 1, reply: Bool = true) {
+        self.repeatCount = min(max(repeatCount, 1), Self.repeatLimit)
+        self.timeout = max(timeout, 0.1)
+        self.settle = max(settle, 0)
+        self.reply = reply
+    }
+
+    init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        self.init(
+            repeatCount: try c.decodeIfPresent(Int.self, forKey: .repeatCount) ?? 1,
+            timeout: try c.decodeIfPresent(Double.self, forKey: .timeout) ?? 15,
+            settle: try c.decodeIfPresent(Double.self, forKey: .settle) ?? 1,
+            reply: try c.decodeIfPresent(Bool.self, forKey: .reply) ?? true
+        )
+    }
+}
+
+/// Scrolls the focused chat list at `speed` points per second, to `to` (`"top"`
+/// or `"bottom"`) or `by` signed points, and times every frame on the way.
+/// `to` and `by` are kept raw so a request naming both reaches the backend and
+/// fails as bad params rather than as a malformed request.
+nonisolated struct ScrollChatParams: Decodable, Equatable {
+    nonisolated enum Destination: Equatable {
+        case top
+        case bottom
+        case by(Double)
+    }
+
+    nonisolated enum ClockChoice: Equatable {
+        case auto
+        case timer
+    }
+
+    var to: String?
+    var by: Double?
+    var speed: Double = 4000
+    /// Seconds to keep measuring once the destination is reached.
+    var settle: Double = 0.3
+    var maxSeconds: Double = 30
+    /// How many of the longest frame intervals to itemize.
+    var worst: Int = 5
+    /// `"auto"` or `"timer"`, kept raw like `to` so a bad value fails as bad params.
+    var clock: String = "auto"
+
+    private enum CodingKeys: String, CodingKey { case to, by, speed, settle, maxSeconds, worst, clock }
+
+    init(
+        to: String? = nil, by: Double? = nil, speed: Double = 4000, settle: Double = 0.3, maxSeconds: Double = 30,
+        worst: Int = 5, clock: String = "auto"
+    ) {
+        self.clock = clock
+        self.to = to
+        self.by = by
+        self.speed = max(speed, 1)
+        self.settle = max(settle, 0)
+        self.maxSeconds = min(max(maxSeconds, 0.1), 300)
+        self.worst = min(max(worst, 0), 100)
+    }
+
+    init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        self.init(
+            to: try c.decodeIfPresent(String.self, forKey: .to),
+            by: try c.decodeIfPresent(Double.self, forKey: .by),
+            speed: try c.decodeIfPresent(Double.self, forKey: .speed) ?? 4000,
+            settle: try c.decodeIfPresent(Double.self, forKey: .settle) ?? 0.3,
+            maxSeconds: try c.decodeIfPresent(Double.self, forKey: .maxSeconds) ?? 30,
+            worst: try c.decodeIfPresent(Int.self, forKey: .worst) ?? 5,
+            clock: try c.decodeIfPresent(String.self, forKey: .clock) ?? "auto"
+        )
+    }
+
+    func clockChoice() throws -> ClockChoice {
+        switch clock {
+        case "auto": return .auto
+        case "timer": return .timer
+        default: throw ControlError.badParams("clock must be \"auto\" or \"timer\", not \"\(clock)\"")
+        }
+    }
+
+    func destination() throws -> Destination {
+        switch (to, by) {
+        case (nil, nil), ("top"?, nil): return .top
+        case ("bottom"?, nil): return .bottom
+        case (nil, let points?): return .by(points)
+        case (_?, _?): throw ControlError.badParams("scrollChat takes to or by, not both")
+        case (let other?, nil): throw ControlError.badParams("to must be \"top\" or \"bottom\", not \"\(other)\"")
+        }
+    }
+}
+
+nonisolated struct TaskDescription: Codable, Equatable {
+    var id: String
+    var title: String
+    var isSelected: Bool
+    /// The focused tab's kind, nil for a task with no tabs.
+    var tabKind: String?
+    /// Whether the focused tab has a transcript, so a switch to it waits for
+    /// chat rows rather than ending with its first turn.
+    var expectsRows: Bool
+}
+
+nonisolated struct TaskListResult: Codable, Equatable {
+    var tasks: [TaskDescription]
+}
+
+/// Resolves a `selectTask` query against the window's tasks.
+nonisolated enum TaskQuery {
+    static func match(_ query: String, in tasks: [(id: UUID, title: String)]) throws -> UUID {
+        if let id = UUID(uuidString: query), tasks.contains(where: { $0.id == id }) { return id }
+        let exact = tasks.filter { $0.title.caseInsensitiveCompare(query) == .orderedSame }
+        if exact.count == 1 { return exact[0].id }
+        let partial = tasks.filter { $0.title.localizedCaseInsensitiveContains(query) }
+        switch partial.count {
+        case 1: return partial[0].id
+        case 0: throw ControlError.notFound("task \"\(query)\"")
+        default: throw ControlError.badParams("\(partial.count) tasks match \"\(query)\"; pass an id")
+        }
+    }
+}
+
+/// A Fable window and a credit reading for the sidebar's quota row, as if the
+/// `get_usage` had reported them. Amounts are dollars; an omitted reading
+/// is cleared. The readings never reach disk, but `alwaysShow` sets the real,
+/// persisted setting.
+nonisolated struct InjectUsageParams: Decodable, Equatable {
+    /// 0–1, like the stream's `utilization`.
+    var fable: Double?
+    var fableResetsInHours: Double?
+    var creditUsed: Double?
+    var creditLimit: Double?
+    var creditBalance: Double?
+    var isUsingOverage: Bool?
+    /// Sets the persisted "Always show credit and Fable quota" setting.
+    var alwaysShow: Bool?
+    /// Drops the 5h and 7d windows, as for a row only `get_usage` has
+    /// reported to. Injected like the readings, so never persisted.
+    var clearWindows: Bool?
+
+    /// Without any, an `injectUsage` ends the injection instead.
+    var hasReadings: Bool {
+        fable != nil || creditUsed != nil || creditLimit != nil || creditBalance != nil
+            || isUsingOverage != nil || clearWindows == true
+    }
+
+    func validate() throws {
+        if let fable, !(0...1).contains(fable) {
+            throw ControlError.badParams("fable is a 0–1 utilization")
+        }
+        if fableResetsInHours != nil, fable == nil {
+            throw ControlError.badParams("fableResetsInHours needs fable")
+        }
+    }
+
+    /// Dollars to cents, or nil for an amount no `Int` holds.
+    static func cents(_ dollars: Double?) -> Int? {
+        dollars.flatMap { Int(exactly: ($0 * 100).rounded()) }
+    }
 }
 
 /// `matching` selects one span. `from` and `to` select from the start of
@@ -110,8 +440,9 @@ nonisolated struct SelectionResult: Codable, Equatable {
     var focus: SelectionPoint?
 }
 
-/// A chord to press, written the way the settings editor writes it: a single
-/// character plus modifier names (`command`, `shift`, `option`, `control`).
+/// A chord to press: a single character or a key name from
+/// `SyntheticKey.named`, plus modifier names (`command`, `shift`, `option`,
+/// `control`). An uppercase letter implies Shift.
 nonisolated struct KeyParams: Decodable {
     var key: String
     var modifiers: [String] = []
@@ -411,6 +742,16 @@ nonisolated enum ControlTarget: Codable, Equatable, CustomStringConvertible {
     }
 }
 
+nonisolated struct Size: Codable, Equatable {
+    var width: Double
+    var height: Double
+
+    init(_ size: CGSize) {
+        width = size.width
+        height = size.height
+    }
+}
+
 nonisolated struct Rect: Codable, Equatable {
     var x: Double
     var y: Double
@@ -447,11 +788,58 @@ nonisolated struct TextRow: Codable, Equatable {
 nonisolated struct TextResult: Codable, Equatable {
     var text: String
     var rows: [TextRow]?
+    /// The composer's selected range, in UTF-16 offsets into `text`.
+    var selection: TextRange?
+    /// The composer's checkboxes in its visible area, where a `click`
+    /// toggles them.
+    var checkboxes: [CheckboxDescription]?
+
+    init(text: String, rows: [TextRow]?, selection: TextRange? = nil, checkboxes: [CheckboxDescription]? = nil) {
+        self.text = text
+        self.rows = rows
+        self.selection = selection
+        self.checkboxes = checkboxes
+    }
+}
+
+nonisolated struct CheckboxDescription: Codable, Equatable {
+    /// Zero-based, counting every line of the composer's text.
+    var line: Int
+    var isChecked: Bool
+    var rect: Rect
+}
+
+nonisolated struct TextRange: Codable, Equatable {
+    var location: Int
+    var length: Int
+}
+
+/// Sets the window's content size when `width` and `height` are given, and
+/// reports it either way.
+nonisolated struct WindowSizeParams: Decodable {
+    var width: Double?
+    var height: Double?
+    var windowNumber: Int?
+}
+
+nonisolated struct WindowSizeResult: Codable, Equatable {
+    var windowNumber: Int
+    var width: Double
+    var height: Double
 }
 
 nonisolated struct ClickResult: Codable, Equatable {
     var rect: Rect
     var windowNumber: Int
+    /// The class of the view the mouse-down hit-tested to, which is the view
+    /// AppKit sends it to.
+    var view: String?
+
+    init(rect: Rect, windowNumber: Int, view: String? = nil) {
+        self.rect = rect
+        self.windowNumber = windowNumber
+        self.view = view
+    }
 }
 
 nonisolated struct HoverResult: Codable, Equatable {
@@ -504,6 +892,9 @@ nonisolated struct KeyResult: Codable, Equatable {
     /// revalidates as it dispatches, so this can read false for an item that
     /// still fires.
     var handledByEnabled: Bool?
+    /// The class of the window's first responder after the press, which is
+    /// where an unclaimed key went.
+    var firstResponder: String?
 }
 
 /// One menu item, as AppKit holds it — the authority on what chord a command
@@ -544,6 +935,21 @@ nonisolated struct HierarchyResult: Codable, Equatable {
     var root: HierarchyNode?
 }
 
+/// The quota state an `injectUsage` left behind, read back from the store
+/// rather than the registry. Amounts are dollars. `shows` names what the
+/// sidebar row draws besides its meters: `fable`, `credit`.
+nonisolated struct InjectUsageResult: Codable, Equatable {
+    var fable: Double?
+    var creditUsed: Double?
+    var creditLimit: Double?
+    var creditBalance: Double?
+    var isUsingOverage: Bool
+    var hasWindows: Bool
+    var readsUsage: Bool
+    var alwaysShow: Bool
+    var shows: [String]
+}
+
 nonisolated enum ControlResult: Encodable {
     case controls([ControlDescription])
     case description(ControlDescription)
@@ -559,7 +965,19 @@ nonisolated enum ControlResult: Encodable {
     case drag(DragResult)
     case key(KeyResult)
     case menu(MenuResult)
+    case windowSize(WindowSizeResult)
     case selection(SelectionResult)
+    case tasks(TaskListResult)
+    case switchLatency(SwitchLatencyReport)
+    case resize(ResizeResult)
+    case scrollHitch(ScrollHitchReport)
+    case tab(TabTaskResult)
+    case sidebarReveal(SidebarRevealResult)
+    case tabStatus(TabStatusResult)
+    case childSession(ChildSessionResult)
+    case childSessionProposals(ChildSessionProposalsResult)
+    case childSessionOffers(ChildSessionOffersResult)
+    case injectUsage(InjectUsageResult)
 
     func encode(to encoder: Encoder) throws {
         switch self {
@@ -577,7 +995,19 @@ nonisolated enum ControlResult: Encodable {
         case .drag(let v): try v.encode(to: encoder)
         case .key(let v): try v.encode(to: encoder)
         case .menu(let v): try v.encode(to: encoder)
+        case .windowSize(let v): try v.encode(to: encoder)
         case .selection(let v): try v.encode(to: encoder)
+        case .tasks(let v): try v.encode(to: encoder)
+        case .switchLatency(let v): try v.encode(to: encoder)
+        case .resize(let v): try v.encode(to: encoder)
+        case .scrollHitch(let v): try v.encode(to: encoder)
+        case .tab(let v): try v.encode(to: encoder)
+        case .sidebarReveal(let v): try v.encode(to: encoder)
+        case .tabStatus(let v): try v.encode(to: encoder)
+        case .childSession(let v): try v.encode(to: encoder)
+        case .childSessionProposals(let v): try v.encode(to: encoder)
+        case .childSessionOffers(let v): try v.encode(to: encoder)
+        case .injectUsage(let v): try v.encode(to: encoder)
         }
     }
 }

@@ -15,9 +15,11 @@ enum AccessibilityID {
     static let newGroupButton = "new-group-button"
     static let sidebarArchiveButton = "sidebar-archive-button"
     static let taskArchiveButton = "task-archive-button"
+    static let taskDeleteButton = "task-delete-button"
     static let taskRemoteControlToggle = "task-remote-control-toggle"
     static let taskDeviceLeaseBadge = "task-device-lease-badge"
     static let taskDescription = "task-description"
+    static let taskAgentGroup = "task-agent-group"
     static let taskEditButton = "task-edit-button"
     static let groupEditButton = "group-edit-button"
     static let groupHeaderEditButton = "group-header-edit-button"
@@ -34,6 +36,10 @@ enum AccessibilityID {
     static let sidebarSettingsButton = "sidebar-settings-button"
     static let sidebarKeepAwakeButton = "sidebar-keep-awake-button"
     static let sidebarQuotaRow = "sidebar-quota-row"
+    static let sidebarQuotaFable = "sidebar-quota-fable"
+    static let sidebarQuotaCredit = "sidebar-quota-credit"
+    static let sidebarQuotaFablePopover = "sidebar-quota-fable-popover"
+    static let sidebarQuotaCreditPopover = "sidebar-quota-credit-popover"
     static let sidebarBuildLabel = "sidebar-build-label"
     static let keepAwakePanel = "keep-awake-panel"
     static let keepAwakeModePicker = "keep-awake-mode-picker"
@@ -41,6 +47,9 @@ enum AccessibilityID {
     static let keepAwakeLidNote = "keep-awake-lid-note"
     static let keepAwakeLidToggle = "keep-awake-lid-toggle"
     static let devicesKeepShortcutsToggle = "devices-keep-shortcuts-toggle"
+    static let taskProjectLine = "task-project-line"
+    static let taskBranchLine = "task-branch-line"
+    static let taskPRLine = "task-pr-line"
     static let taskLinearIssueLine = "task-linear-issue-line"
     static let taskPinnedPullRequestLine = "task-pinned-pull-request-line"
     static let taskLinkLinearIssueMenuItem = "task-link-linear-issue-menu-item"
@@ -100,6 +109,8 @@ enum AccessibilityID {
     static let settingsSidebarShowsTaskColorBarToggle = "settings-sidebar-shows-task-color-bar-toggle"
     static let settingsSidebarColorsTaskNamesToggle = "settings-sidebar-colors-task-names-toggle"
     static let settingsSidebarBoldTaskNamesToggle = "settings-sidebar-bold-task-names-toggle"
+    static let settingsAlwaysShowsCreditAndFableQuotaToggle = "settings-always-shows-credit-and-fable-quota-toggle"
+    static let settingsReadsClaudeUsageToggle = "settings-reads-claude-usage-toggle"
     static let settingsSidebarColorsTaskIconsToggle = "settings-sidebar-colors-task-icons-toggle"
     static let settingsSidebarTwoToneIconsToggle = "settings-sidebar-two-tone-icons-toggle"
     static let settingsSidebarPreview = "settings-sidebar-preview"
@@ -143,6 +154,7 @@ enum AccessibilityID {
     static let importCancelButton = "import-cancel-button"
     static let importConfirmButton = "import-confirm-button"
     static let settingsSeedFixturesButton = "settings-seed-fixtures-button"
+    static let settingsRemoveFixturesButton = "settings-remove-fixtures-button"
     static let settingsAboutNotabilityLink = "settings-about-notability-link"
     static let settingsAboutHeypennyLink = "settings-about-heypenny-link"
     static let composerSendKeyPicker = "composer-send-key-picker"
@@ -166,8 +178,45 @@ enum AccessibilityID {
 
     // MARK: Tab strip
 
+    /// One per pane, labelled like `newTabButton`.
+    static let tabStrip = "tab-strip"
     static let tabChip = "tab-chip"
     static let tabChipClose = "tab-chip-close"
+    /// The arrow in front of a child session's title.
+    static let tabChipChildMarker = "tab-chip-child-marker"
+    static let tabChildrenToggle = "tab-children-toggle"
+    /// The chip's context menu, each labelled like its `tabChip`.
+    static let tabMoveToOtherPaneMenuItem = "tab-move-to-other-pane-menu-item"
+    static let tabCloseSplitMenuItem = "tab-close-split-menu-item"
+    static let tabOpenInSplitMenuItem = "tab-open-in-split-menu-item"
+    static let tabSwitchTransportMenuItem = "tab-switch-transport-menu-item"
+    static let tabStartFreshMenuItem = "tab-start-fresh-menu-item"
+    static let tabMoveToNewTaskMenuItem = "tab-move-to-new-task-menu-item"
+    static let tabMoveNextToParentMenuItem = "tab-move-next-to-parent-menu-item"
+    static let taskAgentChildMarker = "task-agent-child-marker"
+    /// A note from another session in the chat, which selects its tab.
+    static let sideSessionEventRow = "side-session-event-row"
+    /// A proposed session's whole card and its buttons; `label` is the
+    /// proposal's task_id.
+    static let proposalCard = "proposal-card"
+    static let proposalStartButton = "proposal-start-button"
+    static let proposalDismissButton = "proposal-dismiss-button"
+    /// A started card's line, which selects the child's tab.
+    static let proposalStartedRow = "proposal-started-row"
+    /// A dismissed or expired card's state, in `value`.
+    static let proposalState = "proposal-state"
+    /// An offered session's whole card and its buttons; `label` is the call's
+    /// tool use id.
+    static let offerCard = "offer-card"
+    static let offerNewSessionButton = "offer-new-session-button"
+    static let offerDoItHereButton = "offer-do-it-here-button"
+    /// An offer card's state, in `value`, as `ChildSessionOfferCardState.word`
+    /// says it. A started card's also names the child and selects its tab.
+    static let offerState = "offer-state"
+    /// "Show more" under a cut brief, with `value` `collapsed` or `expanded`.
+    /// `label` is the proposal's task_id or the offer's tool use id.
+    static let proposalBriefToggle = "proposal-brief-toggle"
+    static let offerBriefToggle = "offer-brief-toggle"
     /// In both the task row's and the tab chip's context menu.
     static let markUnreadButton = "mark-unread-button"
     /// Takes `markUnreadButton`'s place while any of its tabs is unread.
@@ -176,6 +225,9 @@ enum AccessibilityID {
     /// One per on-screen tab; `value` is "focused" on the focused one.
     static let tabPane = "tab-pane"
     static let splitDivider = "split-divider"
+    /// Splits the selected task to the right, or closes its split. The menu
+    /// item reads disabled in a scratch instance, so drivers invoke this.
+    static let splitToggle = "split-toggle"
     static let newChatTabMenuItem = "new-chat-tab-menu-item"
     static let newTerminalTabMenuItem = "new-terminal-tab-menu-item"
     static let newAndroidDeviceTabMenuItem = "new-android-device-tab-menu-item"
@@ -275,7 +327,13 @@ enum AccessibilityID {
     static let statuslineSevenDayMeter = "statusline-seven-day-meter"
     static let statuslineContextMeter = "statusline-context-meter"
     static let statuslineUsageButton = "statusline-usage-button"
+    static let statuslineCompactButton = "statusline-compact-button"
     static let statuslineUsagePopover = "statusline-usage-popover"
+    static let statuslineFable = "statusline-fable"
+    static let statuslineFablePopover = "statusline-fable-popover"
+    static let statuslineCredit = "statusline-credit"
+    static let statuslineCreditPopover = "statusline-credit-popover"
+    static let statuslineUsageCredit = "statusline-usage-credit"
     static let statuslineCost = "statusline-cost"
     static let statuslineBranch = "statusline-branch"
 
@@ -286,6 +344,18 @@ enum AccessibilityID {
 
     static let workspaceWorktreeMenu = "workspace-worktree-menu"
     static let workspaceSubfolderMenu = "workspace-subfolder-menu"
+    static let workspaceFolderMenu = "workspace-folder-menu"
+    static let workspaceNewWorktreeItem = "workspace-new-worktree-item"
+    static let workspaceWorktreeItem = "workspace-worktree-item"
+    static let workspaceSubfolderItem = "workspace-subfolder-item"
+
+    // MARK: Worktree removal dialog
+
+    static let worktreeRemovalRemoveButton = "worktree-removal-remove-button"
+    static let worktreeRemovalWithBranchButton = "worktree-removal-with-branch-button"
+    static let worktreeRemovalTaskOnlyButton = "worktree-removal-task-only-button"
+    static let worktreeRemovalCancelButton = "worktree-removal-cancel-button"
+    static let worktreeRemovalMessage = "worktree-removal-message"
 
     // MARK: New worktree sheet
 
@@ -345,6 +415,10 @@ enum AccessibilityID {
     static let subagentClearOverride = "subagent-clear-override"
     static let subagentTranscriptClose = "subagent-transcript-close"
 
+    // MARK: Sidebar
+
+    static let sidebarResizeHandle = "sidebar-resize-handle"
+
     // MARK: Info pane
 
     static let infoPane = "info-pane"
@@ -356,6 +430,10 @@ enum AccessibilityID {
     static let infoPaneCompletedToggle = "info-pane-completed-toggle"
     static let infoPaneBackgroundTasksToggle = "info-pane-background-tasks-toggle"
     static let infoPaneBackgroundTask = "info-pane-background-task"
+    static let infoPaneSessionsToggle = "info-pane-sessions-toggle"
+    static let infoPaneChildSessionRow = "info-pane-child-session-row"
+    static let infoPaneParentSessionRow = "info-pane-parent-session-row"
+    static let infoPaneParentSessionToggle = "info-pane-parent-session-toggle"
     static let infoPanePlanRow = "info-pane-plan-row"
     static let infoPaneSideChatRow = "info-pane-side-chat-row"
     static let infoPaneRemoteControlMenu = "info-pane-remote-control-menu"
@@ -392,6 +470,8 @@ enum AccessibilityID {
     static let infoPaneArtifactRow = "info-pane-artifact-row"
     static let infoPaneFoldersToggle = "info-pane-folders-toggle"
     static let infoPaneFoldersAddMenu = "info-pane-folders-add-menu"
+    static let infoPaneToolsToggle = "info-pane-tools-toggle"
+    static let infoPaneToolRow = "info-pane-tool-row"
     static let infoPaneFolderRow = "info-pane-folder-row"
     static let infoPaneFolderRevealButton = "info-pane-folder-reveal-button"
     static let infoPaneFolderCopyButton = "info-pane-folder-copy-button"
@@ -420,7 +500,10 @@ enum AccessibilityID {
     // MARK: Minimap
 
     static let chatMinimap = "chat-minimap"
-    static let chatMinimapEntry = "chat-minimap-entry"
+    static let settingsMinimapTuningReset = "settings-minimap-tuning-reset"
+    static let settingsMinimapTuningToggle = "settings-minimap-tuning-toggle"
+    /// Followed by a tuning slider's key, as in `settings-minimap-tuning-snap`.
+    static let settingsMinimapTuningSliderPrefix = "settings-minimap-tuning-"
 
     // MARK: Queued messages
 

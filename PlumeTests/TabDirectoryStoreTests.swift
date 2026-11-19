@@ -4,8 +4,7 @@ import SwiftData
 @testable import Plume
 
 /// The fallback chain a tab's directory resolves through: what the tab last
-/// reported, else what it reported before a relaunch, else the task's own
-/// folder.
+/// reported, else the folder it saved. A task's own folder is never one.
 @MainActor
 struct TabDirectoryStoreTests {
     private func makeContext() throws -> ModelContext {
@@ -16,18 +15,28 @@ struct TabDirectoryStoreTests {
         return ModelContext(container)
     }
 
-    @Test func aTabWithNothingReportedFallsBackToTheTaskFolder() throws {
+    @Test func aTabWithNothingReportedUsesItsSavedFolder() throws {
         let context = try makeContext()
         let task = TaskStore.createTask(in: context, siblings: [])
-        task.workingDirectoryPath = "/repo"
+        task.tabs[0].workingDirectoryPath = "/repo"
 
         #expect(TabDirectoryStore().directory(for: task.tabs[0]) == "/repo")
     }
 
-    @Test func aReportedDirectoryWinsOverTheTaskFolder() throws {
+    /// Only `TabWorkspaceMigration` reads the task's folder.
+    @Test func theTasksOwnFolderIsNeverAFallback() throws {
         let context = try makeContext()
         let task = TaskStore.createTask(in: context, siblings: [])
-        task.workingDirectoryPath = "/repo"
+        task.workingDirectoryPath = "/legacy"
+
+        #expect(TabDirectoryStore().directory(for: task.tabs[0]) == nil)
+        #expect(TabDirectoryStore().startingDirectory(for: task) == nil)
+    }
+
+    @Test func aReportedDirectoryWinsOverTheSavedFolder() throws {
+        let context = try makeContext()
+        let task = TaskStore.createTask(in: context, siblings: [])
+        task.tabs[0].workingDirectoryPath = "/repo"
         let store = TabDirectoryStore()
         store.setDirectory("/repo/../worktrees/feature", forTab: task.tabs[0].id)
 
@@ -64,30 +73,46 @@ struct TabDirectoryStoreTests {
     @Test func aNewTabStartsInTheAgentsWorktree() throws {
         let context = try makeContext()
         let task = TaskStore.createTask(in: context, siblings: [])
-        task.workingDirectoryPath = "/repo"
+        task.tabs[0].workingDirectoryPath = "/repo"
         let agentTab = task.tabs[0]
         task.lastFocusedAgentTabID = agentTab.id
         let store = TabDirectoryStore()
         store.setDirectory("/worktrees/feature", forTab: agentTab.id)
 
-        _ = TaskStore.addTab(to: task, kind: .terminal, in: context)
-
         #expect(store.startingDirectory(for: task) == "/worktrees/feature")
     }
 
-    @Test func aTaskWhoseTabsReportedNothingStartsInItsOwnFolder() throws {
+    @Test func aTaskWhoseTabsReportedNothingStartsInASavedFolder() throws {
         let context = try makeContext()
         let task = TaskStore.createTask(in: context, siblings: [])
-        task.workingDirectoryPath = "/repo"
+        task.tabs[0].workingDirectoryPath = "/repo"
 
         #expect(TabDirectoryStore().startingDirectory(for: task) == "/repo")
     }
 
-    /// Sitting in a terminal tab must not make a new tab forget the worktree.
-    @Test func theLastFocusedAgentTabWinsOverASelectedTerminal() throws {
+    /// Sitting in a device tab, which has no folder, must not make a new tab
+    /// forget the worktree.
+    @Test func theLastFocusedAgentTabAnswersForASelectedTabWithNoFolder() throws {
         let context = try makeContext()
         let task = TaskStore.createTask(in: context, siblings: [])
-        task.workingDirectoryPath = "/repo"
+        let agentTab = task.tabs[0]
+        let terminalTab = TaskStore.addTab(to: task, kind: .terminal, in: context)
+        let deviceTab = TaskStore.addTab(to: task, kind: .device, in: context)
+        task.lastFocusedAgentTabID = agentTab.id
+        task.selectedTabID = deviceTab.id
+
+        let store = TabDirectoryStore()
+        store.setDirectory("/somewhere/else", forTab: terminalTab.id)
+        store.setDirectory("/worktrees/feature", forTab: agentTab.id)
+
+        #expect(store.workspaceSource(in: task) === agentTab)
+        #expect(store.startingDirectory(for: task) == "/worktrees/feature")
+    }
+
+    /// A new tab and a tab with no folder of its own pick the same source.
+    @Test func theSelectedTabWinsOverTheLastFocusedAgent() throws {
+        let context = try makeContext()
+        let task = TaskStore.createTask(in: context, siblings: [])
         let agentTab = task.tabs[0]
         let terminalTab = TaskStore.addTab(to: task, kind: .terminal, in: context)
         task.lastFocusedAgentTabID = agentTab.id
@@ -97,14 +122,40 @@ struct TabDirectoryStoreTests {
         store.setDirectory("/worktrees/feature", forTab: agentTab.id)
         store.setDirectory("/somewhere/else", forTab: terminalTab.id)
 
-        #expect(store.startingDirectory(for: task) == "/worktrees/feature")
+        #expect(store.workspaceSource(in: task) === terminalTab)
+        #expect(store.startingDirectory(for: task) == "/somewhere/else")
+    }
+
+    // MARK: - Current workspace
+
+    @Test func aTabStillInItsSavedFolderPassesOnItsWholeWorkspace() throws {
+        let context = try makeContext()
+        let tab = TaskStore.createTask(in: context, siblings: []).tabs[0]
+        let saved = TabWorkspace(kind: .worktree, directory: "/repo/.wt/a", repoPath: "/repo", branchName: "a")
+        tab.workspace = saved
+        let store = TabDirectoryStore()
+
+        #expect(store.currentWorkspace(of: tab) == saved)
+        store.setDirectory("/repo/.wt/a", forTab: tab.id)
+        #expect(store.currentWorkspace(of: tab) == saved)
+    }
+
+    /// The repository and branch describe the saved folder, not wherever the
+    /// tab's process has gone since.
+    @Test func aTabThatLeftItsSavedFolderPassesOnOnlyTheFolder() throws {
+        let context = try makeContext()
+        let tab = TaskStore.createTask(in: context, siblings: []).tabs[0]
+        tab.workspace = TabWorkspace(kind: .worktree, directory: "/repo/.wt/a", repoPath: "/repo", branchName: "a")
+        let store = TabDirectoryStore()
+        store.setDirectory("/other-repo", forTab: tab.id)
+
+        #expect(store.currentWorkspace(of: tab) == .directory("/other-repo"))
     }
 
     /// With no agent tab to speak for the task, the selected tab does.
     @Test func theSelectedTabAnswersWhenNoAgentTabHasReported() throws {
         let context = try makeContext()
         let task = TaskStore.createTask(in: context, siblings: [])
-        task.workingDirectoryPath = "/repo"
         let terminalTab = TaskStore.addTab(to: task, kind: .terminal, in: context)
         task.selectedTabID = terminalTab.id
 
@@ -130,7 +181,6 @@ struct TabDirectoryStoreTests {
     @Test func aPersistedDirectorySurvivesAnEmptyStore() throws {
         let context = try makeContext()
         let task = TaskStore.createTask(in: context, siblings: [])
-        task.workingDirectoryPath = "/repo"
         let tab = task.tabs[0]
         tab.workingDirectoryPath = "/worktrees/feature"
 
@@ -154,7 +204,6 @@ struct TabDirectoryStoreTests {
     @Test func aNewTabStartsInThePersistedWorktreeAfterARelaunch() throws {
         let context = try makeContext()
         let task = TaskStore.createTask(in: context, siblings: [])
-        task.workingDirectoryPath = "/repo"
         let agentTab = task.tabs[0]
         task.lastFocusedAgentTabID = agentTab.id
         agentTab.workingDirectoryPath = "/worktrees/feature"
@@ -180,7 +229,6 @@ struct TabDirectoryStoreTests {
     @Test func aTabGivenADirectoryStartsThere() throws {
         let context = try makeContext()
         let task = TaskStore.createTask(in: context, siblings: [])
-        task.workingDirectoryPath = "/repo"
         let store = TabDirectoryStore()
         let tab = TaskStore.addTab(to: task, kind: .terminal, in: context)
         store.setDirectory("/elsewhere", forTab: tab)
@@ -193,7 +241,7 @@ struct TabDirectoryStoreTests {
     @Test func aTabWithNoDirectoryStartsWhereANewTabWould() throws {
         let context = try makeContext()
         let task = TaskStore.createTask(in: context, siblings: [])
-        task.workingDirectoryPath = "/repo"
+        TaskStore.addTab(to: task, kind: .terminal, in: context).workingDirectoryPath = "/repo"
 
         #expect(TabDirectoryStore().startingDirectory(for: task.tabs[0], in: task) == "/repo")
     }
@@ -203,7 +251,6 @@ struct TabDirectoryStoreTests {
     @Test func aSavedFolderWinsOverTheTaskAfterARelaunch() throws {
         let context = try makeContext()
         let task = TaskStore.createTask(in: context, siblings: [])
-        task.workingDirectoryPath = "/repo"
         let first = task.tabs[0]
         first.workingDirectoryPath = "/worktrees/feature"
         let tab = TaskStore.addTab(to: task, kind: .terminal, in: context)
@@ -217,7 +264,7 @@ struct TabDirectoryStoreTests {
     @Test func aDeletedSavedFolderFallsBackToWhereANewTabWouldStart() throws {
         let context = try makeContext()
         let task = TaskStore.createTask(in: context, siblings: [])
-        task.workingDirectoryPath = "/repo"
+        task.tabs[0].workingDirectoryPath = "/repo"
         let tab = TaskStore.addTab(to: task, kind: .terminal, in: context)
         tab.workingDirectoryPath = "/nonexistent-\(UUID().uuidString)"
 

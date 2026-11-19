@@ -19,7 +19,6 @@ struct InfoSidePane: View, ThemedView {
     /// composer.
     let bottomInset: CGFloat
     let onCollapsedHeight: (CGFloat) -> Void
-    var onOpenHeight: (CGFloat) -> Void = { _ in }
     let onPin: () -> Void
     let onOpenSubagent: (SubagentTranscript) -> Void
     let onOpenPlan: () -> Void
@@ -28,6 +27,7 @@ struct InfoSidePane: View, ThemedView {
     let linearActions: InfoPaneLinearActions
     var pullRequestActions: InfoPanePullRequestActions = .none
     let folderActions: InfoPaneFolderActions
+    var onSelectTab: (UUID) -> Void = { _ in }
 
     @State private var settings = AppSettings.shared
     @State private var isHovering = false
@@ -82,7 +82,6 @@ struct InfoSidePane: View, ThemedView {
         .animation(.snappy(duration: 0.22), value: isOpen)
         // Hover never reports an exit for a view that changes under the
         // pointer, so a pin or a resize clears it by hand.
-        .onChange(of: min(expandedHeight, maxExpandedHeight), initial: true) { _, height in onOpenHeight(height) }
         .onChange(of: settings.infoPaneState) { closeTransient() }
         .onChange(of: geometry.fitsBeside) { closeTransient() }
         .onChange(of: holdsHoverOpen) { updateHoverOpen() }
@@ -157,6 +156,10 @@ struct InfoSidePane: View, ThemedView {
             linearActions: linearActions,
             pullRequestActions: pullRequestActions,
             folderActions: folderActions,
+            onSelectTab: { id in
+                closeTransient()
+                onSelectTab(id)
+            },
             showsCompleted: $showsCompletedSubagents,
             showsMentionedLinearIssues: $showsMentionedLinearIssues,
             showsMentionedPullRequests: $showsMentionedPullRequests

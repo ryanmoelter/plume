@@ -3,6 +3,13 @@ import SwiftUI
 struct AgentsSettingsPane: View {
     @State private var settings = AppSettings.shared
 
+    private var readsClaudeUsage: Binding<Bool> {
+        Binding(
+            get: { settings.readsClaudeUsage },
+            set: { ClaudeUsagePoller.shared.setEnabled($0) }
+        )
+    }
+
     private var displayedProviders: Set<AgentProviderKind>? {
         AgentCLIAvailability.shared.providers.map { AgentCLIInstallation.displayedProviders($0) }
     }
@@ -65,6 +72,18 @@ struct AgentsSettingsPane: View {
                             settings.queuedMessageDelivery = delivery
                         }
                     )
+                    Toggle("Always show credit and Fable quota", isOn: $settings.alwaysShowsCreditAndFableQuota)
+                        .plumeID(
+                            AccessibilityID.settingsAlwaysShowsCreditAndFableQuotaToggle,
+                            value: settings.alwaysShowsCreditAndFableQuota ? "on" : "off",
+                            invoke: { settings.alwaysShowsCreditAndFableQuota.toggle() }
+                        )
+                    Toggle("Check credit and Fable usage with Claude Code", isOn: readsClaudeUsage)
+                        .plumeID(
+                            AccessibilityID.settingsReadsClaudeUsageToggle,
+                            value: settings.readsClaudeUsage ? "on" : "off",
+                            invoke: { readsClaudeUsage.wrappedValue.toggle() }
+                        )
                 }
             }
 

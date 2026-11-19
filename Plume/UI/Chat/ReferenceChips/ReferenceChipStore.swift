@@ -7,8 +7,14 @@ import Observation
 /// The store looks them up (Linear through `LinearStore`, pull requests
 /// through `PullRequestLinkSource`, files on disk) and bumps the owner's
 /// `revision(for:)` when a wanted target's title arrives or changes, which is
-/// the list's cue to rebuild its pieces. An icon change alone re-renders only
-/// the text drawing it, since `icon(for:)` reads a per-target box.
+/// the list's cue to rebuild its pieces. Any title change also bumps every
+/// owner with no list mounted, since a list that let go of its wants
+/// mid-lookup still shows the target once it mounts again, and its next
+/// lookup isn't due yet. An owner is mounted from a `want` until `release` or
+/// `forget`, whether or not it wants anything, so a mounted list with no
+/// links never rebuilds for another list's title.
+/// An icon change alone re-renders only the text drawing it, since
+/// `icon(for:)` reads a per-target box.
 @MainActor @Observable
 final class ReferenceChipStore {
     static let shared = ReferenceChipStore()
@@ -61,6 +67,7 @@ final class ReferenceChipStore {
     @ObservationIgnored private var wants: [UUID: Set<ReferenceTarget>] = [:]
     /// The mount that last set each owner's wants.
     @ObservationIgnored private var mounts: [UUID: UUID] = [:]
+    @ObservationIgnored private var mountedOwners: Set<UUID> = []
     @ObservationIgnored private var linearOwners: [UUID: UUID] = [:]
     /// When each target looked up is next worth asking about.
     @ObservationIgnored private var nextLookups: [ReferenceTarget: Date] = [:]
@@ -103,11 +110,16 @@ final class ReferenceChipStore {
 
     // MARK: - Wants
 
-    /// Replaces the targets `owner` shows. An empty set releases them.
-    /// `mount` names the view instance asking, so a view that has gone away
-    /// can't release what its replacement wants.
+    /// Replaces the targets `owner` shows, and marks it mounted until
+    /// `release`. `mount` names the view instance asking, so a view that has
+    /// gone away can't release what its replacement wants.
     func want(_ targets: Set<ReferenceTarget>, owner: UUID, mount: UUID? = nil) {
         if let mount { mounts[owner] = mount }
+        mountedOwners.insert(owner)
+        replaceWants(targets, owner: owner)
+    }
+
+    private func replaceWants(_ targets: Set<ReferenceTarget>, owner: UUID) {
         let previous = wants[owner] ?? []
         if targets.isEmpty { wants[owner] = nil } else { wants[owner] = targets }
 
@@ -150,7 +162,8 @@ final class ReferenceChipStore {
     func release(owner: UUID, mount: UUID? = nil) {
         if let mount, let current = mounts[owner], current != mount { return }
         mounts[owner] = nil
-        want([], owner: owner)
+        mountedOwners.remove(owner)
+        replaceWants([], owner: owner)
     }
 
     func forget(owner: UUID) {
@@ -282,6 +295,9 @@ final class ReferenceChipStore {
             // in between read no title, and needs this bump to read it.
             for (owner, targets) in wants where !targets.isDisjoint(with: changed) {
                 revisionBox(for: owner).value += 1
+            }
+            for (owner, box) in revisions where !mountedOwners.contains(owner) {
+                box.value += 1
             }
             flushTask = nil
         }

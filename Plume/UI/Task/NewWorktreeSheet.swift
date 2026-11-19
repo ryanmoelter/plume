@@ -1,12 +1,12 @@
 import AppKit
 import SwiftUI
 
-/// Names a branch and creates its worktree for the task.
+/// Names a branch and creates its worktree for the tab.
 ///
 /// The repository is not asked for here: it is already chosen on the screen
-/// behind this sheet, and `task.repoPath` is what that choice writes.
+/// behind this sheet, and `tab.repoPath` is what that choice writes.
 struct NewWorktreeSheet: View {
-    @Bindable var task: WorkTask
+    @Bindable var tab: TaskTab
     @Environment(\.dismiss) private var dismiss
 
     @State private var branchName = ""
@@ -16,7 +16,7 @@ struct NewWorktreeSheet: View {
     @State private var errorMessage: String?
     @State private var isCreating = false
 
-    private var repositoryPath: String { task.repoPath ?? "" }
+    private var repositoryPath: String { tab.repoPath ?? "" }
 
     private var canCreate: Bool {
         !repositoryPath.isEmpty && !branchName.isEmpty && !isCreating
@@ -52,11 +52,15 @@ struct NewWorktreeSheet: View {
                 Text("Branch").font(.callout).foregroundStyle(.secondary)
                 TextField("Branch name", text: $branchName)
                     .textFieldStyle(.roundedBorder)
-                    .plumeID(AccessibilityID.worktreeBranchField)
+                    .plumeID(AccessibilityID.worktreeBranchField, value: branchName, setValue: { branchName = $0 })
                     .background(InitialFocus())
                 if branchHasPrefix {
                     Toggle("Drop the branch prefix from the folder name", isOn: $stripsBranchPrefix)
-                        .plumeID(AccessibilityID.worktreeStripPrefixToggle)
+                        .plumeID(
+                            AccessibilityID.worktreeStripPrefixToggle,
+                            value: stripsBranchPrefix ? "on" : "off",
+                            invoke: { stripsBranchPrefix.toggle() }
+                        )
                 }
             }
 
@@ -74,11 +78,11 @@ struct NewWorktreeSheet: View {
                 Spacer()
                 Button("Cancel") { dismiss() }
                     .keyboardShortcut(.cancelAction)
-                    .plumeID(AccessibilityID.worktreeCancelButton)
+                    .plumeID(AccessibilityID.worktreeCancelButton, invoke: { dismiss() })
                 Button("Create", action: create)
                     .keyboardShortcut(.defaultAction)
+                    .plumeID(AccessibilityID.worktreeCreateButton, value: errorMessage, invoke: create)
                     .disabled(!canCreate)
-                    .plumeID(AccessibilityID.worktreeCreateButton)
             }
         }
         .padding(20)
@@ -92,12 +96,12 @@ struct NewWorktreeSheet: View {
         )
         .task {
             let prefix = await GitService.shared.configuredBranchPrefix(
-                in: task.repoPath,
+                in: tab.repoPath,
                 configuration: AppSettings.shared.projectsConfiguration
             ) ?? WorkspaceProvisioner.defaultBranchPrefix
             // The user may have started typing while git answered.
             guard branchName.isEmpty else { return }
-            branchName = WorkspaceProvisioner.suggestedBranchName(for: task.title, prefix: prefix)
+            branchName = WorkspaceProvisioner.suggestedBranchName(for: tab.task?.title ?? "", prefix: prefix)
         }
     }
 
@@ -122,7 +126,7 @@ struct NewWorktreeSheet: View {
                 HStack {
                     TextField("Worktree path", text: $locationOverride)
                         .textFieldStyle(.roundedBorder)
-                        .plumeID(AccessibilityID.worktreeLocationField)
+                        .plumeID(AccessibilityID.worktreeLocationField, value: locationOverride, setValue: { locationOverride = $0 })
                     Button("Choose…", action: chooseLocation)
                         .plumeID(AccessibilityID.worktreeChooseLocationButton)
                 }
@@ -177,10 +181,11 @@ struct NewWorktreeSheet: View {
                     strippingPrefix: strippingPrefix,
                     explicitPath: override
                 )
-                task.workingDirectoryPath = path
-                task.repoPath = repository
-                task.branchName = branch
-                task.workspaceKind = .worktree
+                TabDirectoryStore.shared.setDirectory(path, forTab: tab)
+                tab.repoPath = repository
+                tab.branchName = branch
+                tab.workspaceKind = .worktree
+                tab.task?.recordOwnedWorktree(OwnedWorktree(path: path, repoPath: repository, branch: branch))
                 RecentFolders.remember(repository)
                 dismiss()
             } catch {

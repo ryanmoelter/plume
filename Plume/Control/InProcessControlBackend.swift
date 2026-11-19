@@ -30,7 +30,7 @@ final class InProcessControlBackend: ControlBackend {
     private func describe(_ match: (index: Int, entry: ControlEntry)) -> ControlDescription {
         let entry = match.entry
         return ControlDescription(
-            id: entry.id, index: match.index, label: entry.label, value: entry.value, isEnabled: entry.isEnabled,
+            id: entry.id, index: match.index, label: entry.label, value: entry.currentValue, isEnabled: entry.isEnabled,
             frame: Rect(entry.frame), windowNumber: entry.window?.windowNumber,
             hasInvoke: entry.invoke != nil, hasSetValue: entry.setValue != nil
         )
@@ -71,7 +71,13 @@ final class InProcessControlBackend: ControlBackend {
     func readText(_ target: ControlTarget) throws -> TextResult {
         switch target {
         case .composer:
-            return TextResult(text: try composerTextView().string, rows: nil)
+            let composer = try composerTextView()
+            let selected = composer.selectedRange()
+            return TextResult(
+                text: composer.string, rows: nil,
+                selection: TextRange(location: selected.location, length: selected.length),
+                checkboxes: try checkboxes(in: composer)
+            )
         case .chatList:
             let rows = try textItems(in: try chatListDocumentView()).map(\.text).filter { !$0.isEmpty }
             return TextResult(text: rows.joined(separator: "\n"), rows: rows.enumerated().map { TextRow(index: $0.offset, text: $0.element) })
@@ -81,10 +87,21 @@ final class InProcessControlBackend: ControlBackend {
             return TextResult(text: rows.joined(separator: "\n"), rows: rows.enumerated().map { TextRow(index: $0.offset, text: $0.element) })
         case .control:
             let entry = try registry.resolve(target)
-            if let value = entry.value { return TextResult(text: value, rows: nil) }
+            if let value = entry.currentValue { return TextResult(text: value, rows: nil) }
             let rows = try textItems(within: entry).map(\.text).filter { !$0.isEmpty }
             if rows.isEmpty, let label = entry.label { return TextResult(text: label, rows: nil) }
             return TextResult(text: rows.joined(separator: "\n"), rows: nil)
+        }
+    }
+
+    private func checkboxes(in composer: ComposerNSTextView) throws -> [CheckboxDescription] {
+        let window = try window(for: nil)
+        let height = contentHeight(of: window)
+        let text = composer.string as NSString
+        return composer.visibleCheckboxes.map { box in
+            let prefix = text.substring(to: box.box.location)
+            let rect = WindowGeometry.topLeftRect(fromAppKit: composer.convert(box.rect, to: nil), contentHeight: height)
+            return CheckboxDescription(line: prefix.reduce(0) { $1 == "\n" ? $0 + 1 : $0 }, isChecked: box.isChecked, rect: Rect(rect))
         }
     }
 
@@ -92,20 +109,29 @@ final class InProcessControlBackend: ControlBackend {
 
     func clickSpan(_ params: ClickSpanParams) async throws -> ClickResult {
         let candidates = try textCandidates(for: params.target)
-        guard let hit = TextSpanLocator.locate(params.matching, occurrence: params.occurrence, in: candidates) else {
+        guard let hit = TextSpanLocator.locate(params.matching, occurrence: params.occurrence, in: candidates, revealing: true) else {
             throw ControlError.spanNotFound(params.matching)
         }
         guard let window = hit.window else { throw ControlError.noWindow }
-        await SyntheticClick.perform(at: CGPoint(x: hit.rectInWindow.midX, y: hit.rectInWindow.midY), in: window)
         let rect = WindowGeometry.topLeftRect(fromAppKit: hit.rectInWindow, contentHeight: contentHeight(of: window))
-        return ClickResult(rect: Rect(rect), windowNumber: window.windowNumber)
+        guard hit.isVisible else {
+            throw ControlError.unsupported("\"\(params.matching)\" is at \(Rect(rect)), outside its view's visible area")
+        }
+        let point = CGPoint(x: hit.rectInWindow.midX, y: hit.rectInWindow.midY)
+        let view = SyntheticClick.hitView(at: point, in: window)
+        await SyntheticClick.perform(at: point, in: window)
+        return ClickResult(rect: Rect(rect), windowNumber: window.windowNumber, view: view.map { String(describing: type(of: $0)) })
     }
 
     func click(_ params: ClickParams) async throws -> ClickResult {
         let window = try window(for: params.windowNumber)
         let point = WindowGeometry.appKitPoint(fromTopLeft: CGPoint(x: params.x, y: params.y), contentHeight: contentHeight(of: window))
+        let view = SyntheticClick.hitView(at: point, in: window)
         await SyntheticClick.perform(at: point, in: window, clickCount: params.clickCount)
-        return ClickResult(rect: Rect(CGRect(x: params.x, y: params.y, width: 0, height: 0)), windowNumber: window.windowNumber)
+        return ClickResult(
+            rect: Rect(CGRect(x: params.x, y: params.y, width: 0, height: 0)), windowNumber: window.windowNumber,
+            view: view.map { String(describing: type(of: $0)) }
+        )
     }
 
     func pointerDrag(_ params: PointerDragParams) async throws -> ClickResult {
@@ -113,8 +139,12 @@ final class InProcessControlBackend: ControlBackend {
         let height = contentHeight(of: window)
         let start = WindowGeometry.appKitPoint(fromTopLeft: CGPoint(x: params.fromX, y: params.fromY), contentHeight: height)
         let end = WindowGeometry.appKitPoint(fromTopLeft: CGPoint(x: params.toX, y: params.toY), contentHeight: height)
+        let view = SyntheticClick.hitView(at: start, in: window)
         await SyntheticClick.drag(from: start, to: end, in: window, clickCount: params.clickCount, steps: params.steps)
-        return ClickResult(rect: Rect(CGRect(x: params.toX, y: params.toY, width: 0, height: 0)), windowNumber: window.windowNumber)
+        return ClickResult(
+            rect: Rect(CGRect(x: params.toX, y: params.toY, width: 0, height: 0)), windowNumber: window.windowNumber,
+            view: view.map { String(describing: type(of: $0)) }
+        )
     }
 
     // MARK: Pointer
@@ -236,15 +266,27 @@ final class InProcessControlBackend: ControlBackend {
     func key(_ params: KeyParams) async throws -> KeyResult {
         let shortcut = try Self.shortcut(from: params)
         let window = try window(for: params.windowNumber)
-        guard let code = SyntheticKey.keyCode(for: shortcut.key) else {
-            throw ControlError.badParams("no key on this layout types \"\(shortcut.key)\"")
-        }
         let item = Self.menuItem(matching: shortcut)
-        try await SyntheticKey.perform(shortcut, in: window)
+        let code = try await SyntheticKey.perform(shortcut, in: window)
         return KeyResult(
-            chord: shortcut.displayName, keyCode: Int(code), windowNumber: window.windowNumber,
-            handledBy: item.map(Self.path(of:)), handledByEnabled: item?.isEnabled
+            chord: Self.chordName(shortcut, typed: params.key), keyCode: Int(code), windowNumber: window.windowNumber,
+            handledBy: item.map(Self.path(of:)), handledByEnabled: item?.isEnabled,
+            firstResponder: window.firstResponder.map { String(describing: type(of: $0)) }
         )
+    }
+
+    func windowSize(_ params: WindowSizeParams) throws -> WindowSizeResult {
+        let window = try window(for: params.windowNumber)
+        switch (params.width, params.height) {
+        case let (width?, height?):
+            window.setContentSize(NSSize(width: width, height: height))
+        case (nil, nil):
+            break
+        default:
+            throw ControlError.badParams("windowSize needs both width and height, or neither")
+        }
+        let size = window.contentView?.bounds.size ?? window.contentRect(forFrameRect: window.frame).size
+        return WindowSizeResult(windowNumber: window.windowNumber, width: size.width, height: size.height)
     }
 
     func menu() throws -> MenuResult {
@@ -272,11 +314,13 @@ final class InProcessControlBackend: ControlBackend {
         return MenuResult(items: items)
     }
 
-    private static func shortcut(from params: KeyParams) throws -> MenuShortcut {
+    static func shortcut(from params: KeyParams) throws -> MenuShortcut {
         guard let key = SyntheticKey.character(named: params.key) ?? (params.key.count == 1 ? params.key.first : nil) else {
-            throw ControlError.badParams("key must be a single character or one of pageup, pagedown, delete, got \"\(params.key)\"")
+            let names = SyntheticKey.named.map(\.name).joined(separator: ", ")
+            throw ControlError.badParams("key must be a single character or one of \(names), got \"\(params.key)\"")
         }
         var modifiers: EventModifiers = []
+        if key.isUppercase, key.isLetter { modifiers.insert(.shift) }
         for name in params.modifiers {
             switch name {
             case "command", "cmd": modifiers.insert(.command)
@@ -287,6 +331,13 @@ final class InProcessControlBackend: ControlBackend {
             }
         }
         return MenuShortcut(key, modifiers: modifiers)
+    }
+
+    /// A named key reads by its name, since its character is a private-use
+    /// code point.
+    private static func chordName(_ shortcut: MenuShortcut, typed: String) -> String {
+        guard SyntheticKey.character(named: typed) != nil else { return shortcut.displayName }
+        return String(MenuShortcut("x", modifiers: shortcut.modifiers).displayName.dropLast()) + typed.lowercased()
     }
 
     /// The menu item carrying this chord, matched by key equivalent and
@@ -329,6 +380,41 @@ final class InProcessControlBackend: ControlBackend {
         if mask.contains(.shift) { names.append("shift") }
         if mask.contains(.command) { names.append("command") }
         return names
+    }
+
+    // MARK: Window
+
+    func resize(_ params: ResizeParams) async throws -> ResizeResult {
+        let window = try window(for: params.windowNumber)
+        let target = CGSize(width: params.width, height: params.height)
+        guard target.width > 0, target.height > 0 else { throw ControlError.badParams("width and height must be positive") }
+        var sizes: [Size] = []
+        func setContentSize(_ size: CGSize) {
+            window.setContentSize(size)
+            sizes.append(Size(contentSize(of: window)))
+        }
+        if params.live {
+            try await WindowLiveResize.run(window) {
+                let start = contentSize(of: window)
+                for step in 1...params.steps {
+                    let fraction = CGFloat(step) / CGFloat(params.steps)
+                    setContentSize(CGSize(
+                        width: (start.width + (target.width - start.width) * fraction).rounded(),
+                        height: (start.height + (target.height - start.height) * fraction).rounded()
+                    ))
+                    try? await Task.sleep(for: .seconds(params.stepDelay))
+                }
+            }
+        } else {
+            setContentSize(target)
+        }
+        await Task.yield()
+        let final = contentSize(of: window)
+        return ResizeResult(windowNumber: window.windowNumber, width: final.width, height: final.height, sizes: sizes, live: params.live)
+    }
+
+    private func contentSize(of window: NSWindow) -> CGSize {
+        window.contentView?.bounds.size ?? window.contentRect(forFrameRect: window.frame).size
     }
 
     // MARK: Screenshot
@@ -566,6 +652,81 @@ final class InProcessControlBackend: ControlBackend {
         try selectionResult(of: try chatListController())
     }
 
+    func injectUsage(_ params: InjectUsageParams) async throws -> InjectUsageResult {
+        let result = try UsageInjection.apply(
+            params, store: .shared, settings: .shared, poller: .shared
+        )
+        await UsageInjection.settle(NSApp.windows)
+        return result
+    }
+
+    // MARK: Scrolling
+
+    func scrollTo(_ params: ScrollToParams) throws {
+        try params.validate()
+        let window = try window(for: params.windowNumber, target: params.target)
+        guard let content = window.contentView else { throw ControlError.noWindow }
+        let scrollable = ViewFinder.all(NSScrollView.self, in: content).filter { scrollView in
+            guard !scrollView.isHiddenOrHasHiddenAncestor, let document = scrollView.documentView else { return false }
+            return document.frame.height > scrollView.contentView.bounds.height
+        }
+        let height = contentHeight(of: window)
+        let topLeftFrame = { (view: NSView) in
+            WindowGeometry.topLeftRect(fromAppKit: view.convert(view.bounds, to: nil), contentHeight: height)
+        }
+
+        if let edge = params.edge {
+            guard edge == "top" || edge == "bottom" else { throw ControlError.badParams("edge is top or bottom") }
+            guard let scrollView = scrollable.max(by: { $0.frame.width * $0.frame.height < $1.frame.width * $1.frame.height })
+            else { throw ControlError.notFound("a scrollable view") }
+            scroll(scrollView, toBottom: edge == "bottom")
+            return
+        }
+
+        let entry = try registry.resolve(params.target!)
+        // The innermost scroll view whose column holds the control.
+        let containing = scrollable
+            .filter { let frame = topLeftFrame($0); return frame.minX <= entry.frame.midX && entry.frame.midX <= frame.maxX }
+            .min { $0.frame.width * $0.frame.height < $1.frame.width * $1.frame.height }
+        guard let scrollView = containing else { throw ControlError.notFound("a scroll view around \(params.target!)") }
+        let visible = topLeftFrame(scrollView.contentView)
+        let margin: CGFloat = 12
+        let delta: CGFloat
+        if entry.frame.minY < visible.minY {
+            delta = entry.frame.minY - visible.minY - margin
+        } else if entry.frame.maxY > visible.maxY {
+            delta = min(entry.frame.maxY - visible.maxY + margin, entry.frame.minY - visible.minY - margin)
+        } else {
+            return
+        }
+        scroll(scrollView, by: delta)
+    }
+
+    /// `delta` is in screen direction: positive moves the content up, the
+    /// way scrolling down does.
+    private func scroll(_ scrollView: NSScrollView, by delta: CGFloat) {
+        let clip = scrollView.contentView
+        let flipped = scrollView.documentView?.isFlipped ?? true
+        var origin = clip.bounds.origin
+        origin.y += flipped ? delta : -delta
+        setOrigin(origin, of: scrollView)
+    }
+
+    private func scroll(_ scrollView: NSScrollView, toBottom: Bool) {
+        let flipped = scrollView.documentView?.isFlipped ?? true
+        let maxY = (scrollView.documentView?.frame.height ?? 0) - scrollView.contentView.bounds.height
+        var origin = scrollView.contentView.bounds.origin
+        origin.y = toBottom == flipped ? maxY : 0
+        setOrigin(origin, of: scrollView)
+    }
+
+    private func setOrigin(_ origin: CGPoint, of scrollView: NSScrollView) {
+        let clip = scrollView.contentView
+        let maxY = max((scrollView.documentView?.frame.height ?? 0) - clip.bounds.height, 0)
+        clip.scroll(to: CGPoint(x: origin.x, y: min(max(origin.y, 0), maxY)))
+        scrollView.reflectScrolledClipView(clip)
+    }
+
     func selectText(_ params: SelectTextParams) throws -> SelectionResult {
         let controller = try chatListController()
         let from = params.matching ?? params.from
@@ -577,7 +738,7 @@ final class InProcessControlBackend: ControlBackend {
         return try selectionResult(of: controller)
     }
 
-    private func chatListController() throws -> ChatListController {
+    func chatListController() throws -> ChatListController {
         guard let controller = try chatListDocumentView().controller else { throw ControlError.notFound("chat list") }
         return controller
     }

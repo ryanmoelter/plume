@@ -48,6 +48,21 @@ nonisolated struct MarkdownLine: Equatable {
     }
 
     var contentStart: Int { marker.map(NSMaxRange) ?? NSMaxRange(indent) }
+
+    /// The same line moved `delta` UTF-16 units along the text.
+    func offset(by delta: Int) -> MarkdownLine {
+        guard delta != 0 else { return self }
+        func move(_ range: NSRange) -> NSRange { NSRange(location: range.location + delta, length: range.length) }
+        var line = self
+        line.range = move(range)
+        line.quoteMarkers = quoteMarkers.map(move)
+        line.indent = move(indent)
+        line.marker = marker.map(move)
+        line.checkbox = checkbox.map(move)
+        line.listContainer?.indent = move(listContainer?.indent ?? indent)
+        return line
+    }
+
     var quoteLevel: Int { quoteMarkers.count }
     var prefixStart: Int { range.location }
 
@@ -86,7 +101,13 @@ nonisolated struct MarkdownLine: Equatable {
 /// closes, and an unclosed block runs to the end of the text, the way the
 /// chat's `MarkdownBlock` renders it.
 nonisolated enum MarkdownLineStructure {
+    private static let memo = TextMemo<[MarkdownLine]>()
+
     static func lines(in text: String) -> [MarkdownLine] {
+        memo.value(for: text, compute: parse)
+    }
+
+    private static func parse(_ text: String) -> [MarkdownLine] {
         let ns = text as NSString
         var result: [MarkdownLine] = []
         var openFence: (character: unichar, length: Int, quoteLevel: Int, container: (depth: Int, columns: Int)?)?
@@ -198,7 +219,19 @@ nonisolated enum MarkdownLineStructure {
     /// The line containing `location`, or the last line when `location` is
     /// the end of the text.
     static func line(containing location: Int, in lines: [MarkdownLine]) -> MarkdownLine? {
-        lines.last { $0.range.location <= location }
+        guard let first = lines.first, first.range.location <= location else { return nil }
+        return lines[lineIndex(containing: location, in: lines)]
+    }
+
+    /// The index of the line containing `location`.
+    static func lineIndex(containing location: Int, in lines: [MarkdownLine]) -> Int {
+        var low = 0
+        var high = lines.count - 1
+        while low < high {
+            let middle = (low + high + 1) / 2
+            if lines[middle].range.location <= location { low = middle } else { high = middle - 1 }
+        }
+        return low
     }
 
     /// Whether a whitespace-trimmed line is a thematic break: three or more

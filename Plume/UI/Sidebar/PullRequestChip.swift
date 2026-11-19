@@ -10,6 +10,8 @@ nonisolated struct PullRequestGlyph: Equatable {
         case success
         case danger
         case attention
+        /// Distinct from `attention`, which is pending checks.
+        case conflict
         case merged
         /// Carries no verdict of its own.
         case neutral
@@ -34,7 +36,8 @@ nonisolated struct PullRequestGlyph: Equatable {
 }
 
 nonisolated enum PullRequestChipContent {
-    /// The glyphs a state draws, left to right: number, draft, checks, review.
+    /// The glyphs a state draws, left to right: number, conflict, draft,
+    /// checks, review. A conflict leads so it outranks failing checks.
     ///
     /// Merged and closed show only their own glyph — checks and review on a
     /// finished pull request are history, and a draft marker on one is noise.
@@ -72,6 +75,7 @@ nonisolated enum PullRequestChipContent {
         if let finished = finishedGlyph(pullRequest.state) { return [number, finished] }
 
         var glyphs = [number]
+        if pullRequest.hasMergeConflict { glyphs.append(conflict) }
         if pullRequest.isDraft { glyphs.append(draft) }
         if let checks = checkGlyph(checkRollup(pullRequest)) { glyphs.append(checks) }
         if let review = reviewGlyph(pullRequest.reviewDecision, hasReviewers: pullRequest.hasReviewers) {
@@ -84,6 +88,9 @@ nonisolated enum PullRequestChipContent {
     }
 
     static let draft = PullRequestGlyph(symbol: "circle.dashed", tint: .neutral, label: "draft")
+    static let conflict = PullRequestGlyph(
+        symbol: "exclamationmark.triangle.fill", tint: .conflict, label: "merge conflict"
+    )
     static let open = PullRequestGlyph(symbol: "inset.filled.circle", tint: .neutral, label: "open")
 
     /// Nil for an open pull request.
@@ -210,6 +217,7 @@ struct PullRequestGlyphImage: View {
         case .success: AnyShapeStyle(ChatRole.success(for: colorScheme))
         case .danger: AnyShapeStyle(ChatRole.danger(for: colorScheme))
         case .attention: AnyShapeStyle(ChatRole.warning(for: colorScheme))
+        case .conflict: AnyShapeStyle(ChatRole.conflict(for: colorScheme))
         case .merged: AnyShapeStyle(ChatRole.merged(for: colorScheme))
         case .neutral: AnyShapeStyle((glyph.isDim ? Emphasis.subtle : emphasis).textHierarchy)
         }

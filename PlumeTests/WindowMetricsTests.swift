@@ -5,13 +5,13 @@ import Testing
 @MainActor
 struct WindowMetricsTests {
     @Test func sidebarMaximumWidthLeavesRoomForTheDetailFloor() {
-        let width = WindowMetrics.sidebarMaximumWidth(windowWidth: 1200, paneCount: 1)
-        #expect(width == 1200 - WindowMetrics.paneMinimumWidth)
+        let width = WindowMetrics.sidebarMaximumWidth(windowWidth: 700, paneCount: 1)
+        #expect(width == 700 - WindowMetrics.paneMinimumWidth)
     }
 
     @Test func sidebarMaximumWidthLeavesRoomForEveryPane() {
-        let width = WindowMetrics.sidebarMaximumWidth(windowWidth: 1200, paneCount: 2)
-        #expect(width == 1200 - 2 * WindowMetrics.paneMinimumWidth - SplitLayout.dividerWidth)
+        let width = WindowMetrics.sidebarMaximumWidth(windowWidth: 1000, paneCount: 2)
+        #expect(width == 1000 - 2 * WindowMetrics.paneMinimumWidth - SplitLayout.dividerWidth)
     }
 
     @Test func sidebarMaximumWidthClampsToTheSidebarFloor() {
@@ -57,5 +57,25 @@ struct WindowMetricsTests {
 
     @Test func aHiddenSidebarAddsNothingToTheFloor() {
         #expect(WindowMetrics.minimumWidth(sidebarVisible: false, paneCount: 2, sidebarWidth: 320) == WindowMetrics.detailMinimumWidth(paneCount: 2))
+    }
+
+    @Test func theSidebarNeverExceedsItsCeiling() {
+        #expect(WindowMetrics.sidebarMaximumWidth(windowWidth: 3000, paneCount: 1) == WindowMetrics.sidebarCeilingWidth)
+        #expect(WindowMetrics.sidebarMaximumWidth(windowWidth: 3000, paneCount: 2, sidebarWidth: 900) == WindowMetrics.sidebarCeilingWidth)
+    }
+
+    @Test func aStoredWidthClampsIntoTheSidebarRange() {
+        #expect(WindowMetrics.clampedSidebarWidth(900) == WindowMetrics.sidebarCeilingWidth)
+        #expect(WindowMetrics.clampedSidebarWidth(100) == WindowMetrics.sidebarMinimumWidth)
+        #expect(WindowMetrics.clampedSidebarWidth(300) == 300)
+    }
+
+    @Test func theIdealWidthIsInsideTheRange() {
+        #expect(WindowMetrics.clampedSidebarWidth(WindowMetrics.sidebarIdealWidth) == WindowMetrics.sidebarIdealWidth)
+    }
+
+    @Test func aSplitFloorNeverHoldsMoreThanTheCeiling() {
+        let floor = WindowMetrics.minimumWidth(sidebarVisible: true, paneCount: 2, sidebarWidth: 900)
+        #expect(floor == WindowMetrics.sidebarCeilingWidth + WindowMetrics.detailMinimumWidth(paneCount: 2))
     }
 }

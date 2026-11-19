@@ -46,6 +46,10 @@ final class AppSettings {
         static let sidebarShowsTaskColorBar = "sidebarShowsTaskColorBar"
         static let sidebarColorsTaskNames = "sidebarColorsTaskNames"
         static let sidebarBoldTaskNames = "sidebarBoldTaskNames"
+        static let alwaysShowsCreditAndFableQuota = "alwaysShowsCreditAndFableQuota"
+        static let readsClaudeUsage = "checksClaudeUsage"
+        /// Earlier builds of the usage reader wrote these; nothing reads them.
+        static let retiredClaudeUsageKeys = ["readsClaudeUsage", "claudeUsageKeychainCancels", "dismissedClaudeUsageOffer"]
         static let sidebarColorsTaskIcons = "sidebarColorsTaskIcons"
         static let sidebarSuggestsFilledIcons = "sidebarSuggestsFilledIcons"
         static let sidebarTwoToneIcons = "sidebarTwoToneIcons"
@@ -56,6 +60,8 @@ final class AppSettings {
         static let infoPaneLinearExpanded = "infoPaneLinearExpanded"
         static let infoPaneBackgroundTasksExpanded = "infoPaneBackgroundTasksExpanded"
         static let infoPaneArtifactsExpanded = "infoPaneArtifactsExpanded"
+        static let infoPaneSessionsExpanded = "infoPaneSessionsExpanded"
+        static let infoPaneParentSessionExpanded = "infoPaneParentSessionExpanded"
         static let infoPaneLinkedPullRequestsExpanded = "infoPaneLinkedPullRequestsExpanded"
         static let infoPaneFoldersExpanded = "infoPaneFoldersExpanded"
         /// The retired Settings ▸ Integrations list, read only to migrate it.
@@ -213,6 +219,11 @@ final class AppSettings {
             : defaults.bool(forKey: Key.sidebarShowsTaskColorBar)
         self.sidebarColorsTaskNames = defaults.bool(forKey: Key.sidebarColorsTaskNames)
         self.sidebarBoldTaskNames = defaults.bool(forKey: Key.sidebarBoldTaskNames)
+        self.alwaysShowsCreditAndFableQuota = defaults.bool(forKey: Key.alwaysShowsCreditAndFableQuota)
+        for key in Key.retiredClaudeUsageKeys { defaults.removeObject(forKey: key) }
+        self.readsClaudeUsage = defaults.object(forKey: Key.readsClaudeUsage) == nil
+            ? true
+            : defaults.bool(forKey: Key.readsClaudeUsage)
         self.sidebarColorsTaskIcons = defaults.object(forKey: Key.sidebarColorsTaskIcons) == nil
             ? true
             : defaults.bool(forKey: Key.sidebarColorsTaskIcons)
@@ -236,6 +247,12 @@ final class AppSettings {
         self.infoPaneArtifactsExpanded = defaults.object(forKey: Key.infoPaneArtifactsExpanded) == nil
             ? true
             : defaults.bool(forKey: Key.infoPaneArtifactsExpanded)
+        self.infoPaneSessionsExpanded = defaults.object(forKey: Key.infoPaneSessionsExpanded) == nil
+            ? true
+            : defaults.bool(forKey: Key.infoPaneSessionsExpanded)
+        self.infoPaneParentSessionExpanded = defaults.object(forKey: Key.infoPaneParentSessionExpanded) == nil
+            ? true
+            : defaults.bool(forKey: Key.infoPaneParentSessionExpanded)
         self.infoPaneLinkedPullRequestsExpanded = defaults.object(forKey: Key.infoPaneLinkedPullRequestsExpanded) == nil
             ? true
             : defaults.bool(forKey: Key.infoPaneLinkedPullRequestsExpanded)
@@ -275,7 +292,6 @@ final class AppSettings {
             ? true
             : defaults.bool(forKey: Key.keepsAwakeForRemoteControlOnBattery)
         self.showsKeepAwakeDebugReadout = defaults.bool(forKey: Key.showsKeepAwakeDebugReadout)
-
         self.lidClosedThermalCutoff = defaults.string(forKey: Key.lidClosedThermalCutoffRaw)
             .flatMap(ThermalCutoffLevel.init(rawValue:)) ?? .serious
 
@@ -654,6 +670,22 @@ final class AppSettings {
         }
     }
 
+    /// Shows the sidebar's credit and Fable readings even while they have
+    /// nothing to report.
+    var alwaysShowsCreditAndFableQuota: Bool {
+        didSet {
+            defaults.set(alwaysShowsCreditAndFableQuota, forKey: Key.alwaysShowsCreditAndFableQuota)
+        }
+    }
+
+    /// Whether `ClaudeUsagePoller` asks Claude Code for the credit spend and
+    /// the Fable window.
+    var readsClaudeUsage: Bool {
+        didSet {
+            defaults.set(readsClaudeUsage, forKey: Key.readsClaudeUsage)
+        }
+    }
+
     /// Whether a colored task's icon is drawn in its color.
     var sidebarColorsTaskIcons: Bool {
         didSet {
@@ -724,6 +756,18 @@ final class AppSettings {
     var infoPaneArtifactsExpanded: Bool {
         didSet {
             defaults.set(infoPaneArtifactsExpanded, forKey: Key.infoPaneArtifactsExpanded)
+        }
+    }
+
+    var infoPaneSessionsExpanded: Bool {
+        didSet {
+            defaults.set(infoPaneSessionsExpanded, forKey: Key.infoPaneSessionsExpanded)
+        }
+    }
+
+    var infoPaneParentSessionExpanded: Bool {
+        didSet {
+            defaults.set(infoPaneParentSessionExpanded, forKey: Key.infoPaneParentSessionExpanded)
         }
     }
 

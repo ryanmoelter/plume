@@ -45,6 +45,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
         UpdateController.shared.start()
 
+        ClaudeUsagePoller.shared.start()
+
         CommandLineHelper.repointLegacyLinks()
 
         OrphanedAgentReaper.shared.start()
@@ -146,6 +148,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         Log.app.info("Terminating, closing \(AgentSessionManager.shared.activeSessionCount, privacy: .public) agent session(s)")
         // Before teardown, whose statuses describe the quit rather than the work.
         StatusPersistence.current?.flush()
+        LastOpenTask.shared.flush()
+        SlashCommandMemory.existing?.flush()
         CodexTerminalMonitor.shared.stopAll()
         AgentSessionManager.shared.closeAll()
         DeviceLeaseCoordinator.shared.dropRemoteLeasesForTermination()

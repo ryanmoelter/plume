@@ -33,8 +33,8 @@ struct Dimensions: Equatable {
     let horizontalEdgePadding: CGFloat = 12
 
     /// The same, for a bleed item, so a bleed row reaches closer to the
-    /// window edge than the prose inside it. The collapsed minimap has to
-    /// fit within this band, since it overlays the list rather than taking a
+    /// window edge than the prose inside it. The minimap's rail, at rest, has
+    /// to fit within this band, since it overlays the list rather than taking a
     /// column of its own.
     let horizontalBleedPadding: CGFloat = 12
 

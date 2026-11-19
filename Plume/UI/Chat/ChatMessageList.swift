@@ -30,13 +30,15 @@ struct ChatMessageList<SidePane: View>: View, ThemedView {
     var onOpenPlan: (() -> Void)? = nil
     /// Room above the first message for the collapsed side pane.
     var topInset: CGFloat = 0
-    /// How far down the minimap ignores the pointer, beside the side pane.
-    var minimapExclusionHeight: CGFloat = 0
     /// Room the pinned side pane takes off the list's trailing edge; the
     /// rows lay out in what is left.
     var trailingReserve: CGFloat = 0
-    /// Drawn over the list and under the minimap, so the open map covers it.
+    /// Drawn over the list and under the minimap, so the minimap's preview
+    /// covers it.
     let sidePane: SidePane
+    /// The composer's and the side pane's glass, so the minimap's preview
+    /// reads as the same chrome.
+    var panelGlass: Glass = .regular
 
     /// Whether the user has scrolled away far enough to want a jump back.
     ///
@@ -115,11 +117,17 @@ struct ChatMessageList<SidePane: View>: View, ThemedView {
     /// realized item.
     @State private var visiblePieceIDs: Set<String> = []
 
+    /// The minimap and the info pane mount a turn after the list, so the
+    /// frame that first shows a chat carries only its rows. Each costs tens
+    /// of milliseconds to build in a long chat.
+    @State private var mountsChrome = false
+
     /// The list's handle, and the message ids of the last rebuild so a
     /// prompt the user just sent can be told from a transcript loading.
     let commands: ChatListCommands
     @State private var previousMessageIDs: [String] = []
-    /// The pane's width, which decides how much room the rail gives itself.
+    /// The pane's width, which with `trailingReserve` decides how much room
+    /// the rail gives itself.
     @State private var viewportWidth: CGFloat = 0
     @Environment(\.chatFontSize) private var chatFontSize
     @Environment(\.chatLinkDirectory) private var linkDirectory
@@ -132,9 +140,13 @@ struct ChatMessageList<SidePane: View>: View, ThemedView {
     /// within.
     var body: some View {
         list
-            .overlay(alignment: .topTrailing) { sidePane }
-            .overlay(alignment: .trailing) {
-                if !outline.isEmpty {
+            .overlay(alignment: .topTrailing) {
+                if mountsChrome {
+                    sidePane.transition(.opacity)
+                }
+            }
+            .overlay(alignment: .leading) {
+                if mountsChrome, !outline.isEmpty {
                     ChatMinimap(
                         outline: outline,
                         visiblePieceIDs: visiblePieceIDs,
@@ -144,11 +156,20 @@ struct ChatMessageList<SidePane: View>: View, ThemedView {
                         // The rail cannot measure this itself — its own
                         // geometry is the rail's, not the pane's.
                         viewportWidth: viewportWidth,
-                        revealExclusionHeight: minimapExclusionHeight
+                        columnReserve: trailingReserve,
+                        previewGlass: panelGlass
                     )
+                    .animation(.easeOut(duration: 0.22), value: trailingReserve)
+                    .transition(.opacity)
                 }
             }
             .onGeometryChange(for: CGFloat.self) { $0.size.width } action: { viewportWidth = $0 }
+            .onAppear {
+                AfterCommit.perform {
+                    // An opacity fade isn't motion, so it ignores animateChatMotion.
+                    withAnimation(.easeIn(duration: 0.15)) { mountsChrome = true }
+                }
+            }
     }
 
     private var list: some View {
@@ -182,6 +203,8 @@ struct ChatMessageList<SidePane: View>: View, ThemedView {
         .onChange(of: referenceRevision) { rebuildPieces() }
         .onChange(of: linkDirectory) { rebuildPieces() }
         .onDisappear {
+            pendingStreamRebuild?.cancel()
+            pendingStreamRebuild = nil
             if let tabID { ReferenceChipStore.shared.release(owner: tabID, mount: chipMount) }
         }
         #if DEBUG
@@ -239,6 +262,14 @@ struct ChatMessageList<SidePane: View>: View, ThemedView {
     }
 
     private func rebuildPieces() {
+        #if DEBUG
+        SwitchLatencyProbe.time("rebuildPieces") { rebuildPiecesNow() }
+        #else
+        rebuildPiecesNow()
+        #endif
+    }
+
+    private func rebuildPiecesNow() {
         let merged = ChatStreamHandoff.merge(messages, live: live)
         let cache = tabID.map(ChatPieceCache.forTab) ?? untabbedCache
         let store = ReferenceChipStore.shared
@@ -269,7 +300,7 @@ struct ChatMessageList<SidePane: View>: View, ThemedView {
         if !heldTurnTargets.isEmpty { rebuilt = split(status == .waitingOnSubagents ? status : .working) }
         pieces = rebuilt
         showRevealedPieces()
-        outline = ChatOutlineBuilder.outline(from: rebuilt)
+        outline = cache.outline
         pinSentPrompt()
     }
 
