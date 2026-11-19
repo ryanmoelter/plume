@@ -180,7 +180,7 @@ final class ClaudeUsagePoller {
 
     private func restart() {
         stop()
-        status = .checking
+        if store.snapshot?.credit == nil { status = .checking }
         lastAttempt = nil
         consecutiveFailures = 0
         lastOutcome = .success
@@ -190,6 +190,7 @@ final class ClaudeUsagePoller {
 #if DEBUG
     /// Puts the real readings back and polls straight away.
     func endInjection() {
+        guard isSuspended else { return }
         isSuspended = false
         store.endInjection()
         guard settings.readsClaudeUsage else { return }

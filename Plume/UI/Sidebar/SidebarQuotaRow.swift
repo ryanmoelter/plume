@@ -272,7 +272,6 @@ struct UsageCreditSection: View, ThemedView {
     @Environment(\.theme) var theme
 
     let credit: UsageCredit?
-    /// Dimmed like the credit glyph once `get_usage` has missed two polls.
     var isStale = false
 
     var body: some View {

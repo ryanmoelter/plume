@@ -123,6 +123,7 @@ struct ClaudeUsageTests {
             #"{"type":"control_response","response":{"subtype":"success","request_id":"usage""# + body + "}}"
         }
         #expect(ClaudeUsageRequest.result(forLine: reply(#","response":{"rate_limits_available":false}"#)) == .unavailable)
+        #expect(ClaudeUsageRequest.result(forLine: reply(#","response":{"rate_limits_available":false,"rate_limits":{}}"#)) == .unavailable)
         #expect(ClaudeUsageRequest.result(forLine: reply("")) == .failed, "no inner response")
         #expect(ClaudeUsageRequest.result(forLine: reply(#","response":{"rate_limits_available":true}"#)) == .failed, "no rate_limits")
         #expect(ClaudeUsageRequest.result(forLine: reply(#","response":{"rate_limits":null}"#)) == .failed, "null without saying unavailable")

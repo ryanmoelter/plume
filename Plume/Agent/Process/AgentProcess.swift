@@ -216,6 +216,8 @@ nonisolated final class AgentProcess: @unchecked Sendable {
         }
     }
 
+    private var hasDeliveredExit = false
+
     private static let terminations = DispatchGroup()
 
     /// Blocks until every `terminate()` in flight has seen its child exit or
@@ -248,7 +250,7 @@ nonisolated final class AgentProcess: @unchecked Sendable {
 
     private func consume(_ data: Data) {
         queue.async { [weak self] in
-            guard let self else { return }
+            guard let self, !self.hasDeliveredExit else { return }
             self.buffer.append(data)
             while let newline = self.buffer.firstIndex(of: 0x0A) {
                 let lineData = self.buffer[self.buffer.startIndex..<newline]
@@ -294,6 +296,8 @@ nonisolated final class AgentProcess: @unchecked Sendable {
         pendingExitStatus = nil
         guard isRunning else { return }
         isRunning = false
+        hasDeliveredExit = true
+        outPipe.fileHandleForReading.readabilityHandler = nil
         // A run that never produced a line failed to launch, so its stderr
         // explains why. Once the stream has started, only the CLI's own
         // `Error:` line does; the rest is login-shell chatter.

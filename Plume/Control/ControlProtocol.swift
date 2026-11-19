@@ -374,7 +374,7 @@ nonisolated struct InjectUsageParams: Decodable, Equatable {
     /// Without any, an `injectUsage` ends the injection instead.
     var hasReadings: Bool {
         fable != nil || creditUsed != nil || creditLimit != nil || creditBalance != nil
-            || isUsingOverage != nil || clearWindows != nil
+            || isUsingOverage != nil || clearWindows == true
     }
 
     func validate() throws {

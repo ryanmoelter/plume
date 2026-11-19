@@ -40,4 +40,33 @@ struct AgentProcessOutputTests {
             #expect(linesAtExit.last == "final")
         }
     }
+
+    @Test(.timeLimit(.minutes(1))) func noLineArrivesAfterOnExitWhenAGrandchildHoldsStdout() async throws {
+        let lines = Mutex<[String]>([])
+        let linesAtExit = Mutex<[String]?>(nil)
+        let holder = Mutex<AgentProcess?>(nil)
+        let exited = await withCheckedContinuation { (continuation: CheckedContinuation<Bool, Never>) in
+            let process = AgentProcess(
+                label: "late grandchild test",
+                onLine: { line in lines.withLock { $0.append(line) } },
+                onExit: { _, _ in
+                    linesAtExit.withLock { $0 = lines.withLock { $0 } }
+                    continuation.resume(returning: true)
+                }
+            )
+            holder.withLock { $0 = process }
+            do {
+                try process.start(
+                    arguments: ["/bin/sh", "-c", "echo first; (sleep 2; echo late) & exit 0"],
+                    workingDirectory: nil, environment: [:])
+            } catch {
+                continuation.resume(returning: false)
+            }
+        }
+        #expect(exited)
+        defer { holder.withLock { $0 = nil } }
+        try await Task.sleep(for: .seconds(3))
+        #expect(linesAtExit.withLock { $0 } == ["first"])
+        #expect(lines.withLock { $0 } == ["first"])
+    }
 }

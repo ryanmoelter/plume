@@ -56,6 +56,25 @@ struct UsageInjectionTests {
         #expect(harness.poller.status == .checking)
     }
 
+    @Test func aBareInjectWithoutAnInjectionLeavesThePollAlone() throws {
+        let harness = try Harness()
+        defer { harness.cleanup() }
+        harness.settings.readsClaudeUsage = true
+        _ = try harness.inject(InjectUsageParams())
+        #expect(harness.poller.status == .idle)
+    }
+
+    @Test func endingAnInjectionKeepsAnExistingCreditOffChecking() throws {
+        let harness = try Harness()
+        defer { harness.cleanup() }
+        harness.settings.readsClaudeUsage = true
+        let credit = UsageCredit(usedCents: 100, limitCents: 500, balanceCents: nil, isEnabled: true, currency: "USD")
+        harness.store.record(ClaudeUsageReading(credit: credit), at: Date())
+        _ = try harness.inject(InjectUsageParams(fable: 0.4))
+        _ = try harness.inject(InjectUsageParams())
+        #expect(harness.poller.status != .checking)
+    }
+
     @Test func theRegistryReadsAnInjectionOnceSettled() async throws {
         let harness = try Harness()
         defer { harness.cleanup() }

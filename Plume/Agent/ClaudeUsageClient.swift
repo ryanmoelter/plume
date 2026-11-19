@@ -169,8 +169,8 @@ nonisolated enum ClaudeUsageRequest {
             return .failed
         }
         let body = response["response"]?.objectValue
+        if body?["rate_limits_available"]?.boolValue == false { return .unavailable }
         guard let rateLimits = body?["rate_limits"]?.objectValue else {
-            if body?["rate_limits_available"]?.boolValue == false { return .unavailable }
             Log.agent.info("get_usage answered without rate_limits")
             return .failed
         }
