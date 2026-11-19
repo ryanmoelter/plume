@@ -139,7 +139,10 @@ struct ClaudeUsageTests {
         #expect(request["request_id"]?.stringValue == ClaudeUsageRequest.requestID)
         #expect(request["request"]?.objectValue?["subtype"]?.stringValue == "get_usage")
         #expect(ClaudeUsageRequest.arguments.contains("--no-session-persistence"))
-        #expect(Array(ClaudeUsageRequest.arguments.prefix(5)) == ["env", "-u", "CLAUDECODE", "-u", "CLAUDE_CODE_CHILD_SESSION"])
+        #expect(ClaudeUsageRequest.arguments.first == "claude")
+        #expect(ClaudeUsageRequest.droppedEnvironmentKeys == ["CLAUDECODE", "CLAUDE_CODE_CHILD_SESSION"])
+        let environment = LoginShellCommand.childEnvironment(overrides: [:], removing: ["PATH"])
+        #expect(environment["PATH"] == nil)
     }
 
     @Test func readingUsageIsOnByDefaultWhateverTheOptInStored() async throws {
@@ -184,6 +187,42 @@ struct ClaudeUsageTests {
         }
         await poller.pollIfDue()
         #expect(calls.withLock { $0 } == 0, "the next check waits for the regular interval")
+    }
+
+    @Test func aProbeFinishedBeforeBeginAnswersAtOnce() async {
+        let probe = UsageProbe()
+        probe.finish(.reading(ClaudeUsageReading(fiveHour: window(0.1))))
+        let result = await withCheckedContinuation { probe.begin($0) }
+        #expect(result == .failed)
+    }
+
+    @Test func anUnavailableReplyForgetsEndpointReadings() async throws {
+        let (settings, cleanup) = try scratchSettings()
+        defer { cleanup() }
+        let store = QuotaStore()
+        store.record(ClaudeUsageReading(fable: window(0.3), credit: UsageCredit(usedCents: 1240)), at: start)
+        let poller = ClaudeUsagePoller(store: store, settings: settings, fetch: { _ in .unavailable })
+        await poller.pollIfDue()
+        #expect(store.snapshot?.credit == nil)
+        #expect(store.snapshot?.rateLimit.fable == nil)
+    }
+
+    @Test func aPollStartedByStartSurfacesCheckingThenFailure() async throws {
+        let (settings, cleanup) = try scratchSettings()
+        defer { cleanup() }
+        let gate = FetchGate()
+        let poller = ClaudeUsagePoller(
+            store: QuotaStore(), settings: settings, fetch: { _ in await gate.fetch() }, canPoll: true
+        )
+        poller.start()
+        #expect(poller.status == .checking)
+        await gate.waitForRequest()
+        gate.resume(.failed)
+        for _ in 0..<200 where poller.status == .checking { try await Task.sleep(for: .milliseconds(10)) }
+        poller.stop()
+        guard case .failed = poller.status else {
+            Issue.record("expected a failure, got \(poller.status)"); return
+        }
     }
 
     @Test func aFinishedProbeReleasesItsProcess() async throws {
@@ -546,7 +585,7 @@ struct ClaudeUsageTests {
         guard case .failed(let reason) = poller.status else {
             Issue.record("expected a failure, got \(poller.status)"); return
         }
-        #expect(reason.contains("Sign in"))
+        #expect(reason.contains("doesn't report usage"))
 
         poller.setEnabled(true)
         poll = Task { await poller.pollIfDue() }

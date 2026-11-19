@@ -57,7 +57,12 @@ nonisolated final class AgentProcess: @unchecked Sendable {
         self.onExit = onExit
     }
 
-    func start(arguments: [String], workingDirectory: String?, environment: [String: String]) throws {
+    func start(
+        arguments: [String],
+        workingDirectory: String?,
+        environment: [String: String],
+        removingEnvironment: [String] = []
+    ) throws {
         // The agent reaches PATH only through the user's shell profile, which a
         // GUI-launched app does not inherit, so the command runs inside a
         // login shell exactly as terminal tabs do.
@@ -73,7 +78,7 @@ nonisolated final class AgentProcess: @unchecked Sendable {
         if let workingDirectory {
             process.currentDirectoryURL = URL(fileURLWithPath: workingDirectory)
         }
-        process.environment = LoginShellCommand.childEnvironment(overrides: environment)
+        process.environment = LoginShellCommand.childEnvironment(overrides: environment, removing: removingEnvironment)
 
         process.standardInput = inPipe
         process.standardOutput = outPipe

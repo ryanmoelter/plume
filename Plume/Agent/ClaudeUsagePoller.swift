@@ -102,6 +102,7 @@ final class ClaudeUsagePoller {
     private let fetch: @Sendable (Date) async -> ClaudeUsageFetchResult
     private let settings: AppSettings
     private let isClaudeAvailable: @Sendable () async -> Bool
+    private let canPoll: Bool
     private var loop: Task<Void, Never>?
     /// Bumped by `stop`, so a reply to a request sent before it is dropped.
     private var generation = 0
@@ -121,9 +122,11 @@ final class ClaudeUsagePoller {
         store: QuotaStore = .shared,
         settings: AppSettings = .shared,
         fetch: (@Sendable (Date) async -> ClaudeUsageFetchResult)? = nil,
-        isClaudeAvailable: (@Sendable () async -> Bool)? = nil
+        isClaudeAvailable: (@Sendable () async -> Bool)? = nil,
+        canPoll: Bool = ClaudeUsagePoller.shouldPoll()
     ) {
         self.store = store
+        self.canPoll = canPoll
         self.settings = settings
         if let isClaudeAvailable {
             self.isClaudeAvailable = isClaudeAvailable
@@ -137,7 +140,8 @@ final class ClaudeUsagePoller {
     }
 
     func start() {
-        guard loop == nil, settings.readsClaudeUsage, Self.shouldPoll() else { return }
+        guard loop == nil, settings.readsClaudeUsage, canPoll else { return }
+        if status == .idle, store.snapshot?.credit == nil { status = .checking }
         loop = Task { [weak self] in
             while !Task.isCancelled {
                 await self?.pollIfDue()
@@ -257,7 +261,8 @@ final class ClaudeUsagePoller {
         case .unavailable:
             consecutiveFailures = 0
             lastOutcome = .skipped
-            surface("Claude Code's login can't report usage. Sign in again with claude and Plume will try again.")
+            store.forgetEndpointReadings()
+            surface("Claude Code's login doesn't report usage.")
         }
     }
 

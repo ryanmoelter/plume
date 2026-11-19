@@ -263,6 +263,7 @@ struct StatuslineStripView: View, ThemedView {
                 quotaSummaries: quotaSummaries,
                 showsCredit: Self.showsCreditInPopover(showsQuotaGlyphs: showsQuotaGlyphs, extras: extras),
                 credit: quota.snapshot?.credit,
+                claudeSummaryCount: claudeSummaryCount,
                 headlessSession: headlessSession,
                 compact: compact
             )
@@ -273,6 +274,10 @@ struct StatuslineStripView: View, ThemedView {
     }
 
     private var visibleCodexWindows: [CodexQuotaWindow] { codexWindows.filter { $0.usedPercent > 0 } }
+
+    private var claudeSummaryCount: Int {
+        [rateLimit?.fiveHour, rateLimit?.sevenDay].compactMap { $0 }.count + fableSummaryWithoutGlyph.count
+    }
 
     private var quotaSummaries: [QuotaWindowSummary] {
         let claude: [(String, RateLimitInfo.Window?, TimeInterval)] = [

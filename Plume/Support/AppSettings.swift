@@ -47,8 +47,9 @@ final class AppSettings {
         static let sidebarColorsTaskNames = "sidebarColorsTaskNames"
         static let sidebarBoldTaskNames = "sidebarBoldTaskNames"
         static let alwaysShowsCreditAndFableQuota = "alwaysShowsCreditAndFableQuota"
-        /// Differs from the property name so a stored `false` under the old key never applies.
         static let readsClaudeUsage = "checksClaudeUsage"
+        /// Earlier builds of the usage reader wrote these; nothing reads them.
+        static let retiredClaudeUsageKeys = ["readsClaudeUsage", "claudeUsageKeychainCancels", "dismissedClaudeUsageOffer"]
         static let sidebarColorsTaskIcons = "sidebarColorsTaskIcons"
         static let sidebarSuggestsFilledIcons = "sidebarSuggestsFilledIcons"
         static let sidebarTwoToneIcons = "sidebarTwoToneIcons"
@@ -219,6 +220,7 @@ final class AppSettings {
         self.sidebarColorsTaskNames = defaults.bool(forKey: Key.sidebarColorsTaskNames)
         self.sidebarBoldTaskNames = defaults.bool(forKey: Key.sidebarBoldTaskNames)
         self.alwaysShowsCreditAndFableQuota = defaults.bool(forKey: Key.alwaysShowsCreditAndFableQuota)
+        for key in Key.retiredClaudeUsageKeys { defaults.removeObject(forKey: key) }
         self.readsClaudeUsage = defaults.object(forKey: Key.readsClaudeUsage) == nil
             ? true
             : defaults.bool(forKey: Key.readsClaudeUsage)

@@ -131,13 +131,15 @@ nonisolated enum ClaudeUsageFetchResult: Equatable, Sendable {
 nonisolated enum ClaudeUsageRequest {
     static let requestID = "usage"
 
-    /// `env -u` keeps a Plume launched from inside Claude Code from passing
-    /// that session's markers on. The CLI writes no transcript without a user
+    /// Dropped from the child's environment, so a Plume launched from inside
+    /// Claude Code does not pass that session's markers on.
+    static let droppedEnvironmentKeys = ["CLAUDECODE", "CLAUDE_CODE_CHILD_SESSION"]
+
+    /// The CLI writes no transcript without a user
     /// message, but `--no-session-persistence` makes sure, and the user's
     /// hooks and MCP servers have nothing to do in a run that never takes a
     /// turn.
     static let arguments = [
-        "env", "-u", "CLAUDECODE", "-u", "CLAUDE_CODE_CHILD_SESSION",
         "claude", "-p",
         "--input-format", "stream-json",
         "--output-format", "stream-json",
@@ -193,15 +195,16 @@ nonisolated struct ClaudeUsageClient: Sendable {
     func fetch() async -> ClaudeUsageFetchResult {
         try? FileManager.default.createDirectory(at: workingDirectory, withIntermediateDirectories: true)
         let probe = UsageProbe()
-        let timer = Task { [timeout] in
-            try? await Task.sleep(for: timeout)
-            guard !Task.isCancelled else { return }
-            Log.agent.info("get_usage timed out")
-            probe.finish(.failed)
-        }
-        defer { timer.cancel() }
+        var timer: Task<Void, Never>?
+        defer { timer?.cancel() }
         return await withCheckedContinuation { continuation in
             probe.begin(continuation)
+            timer = Task { [timeout] in
+                try? await Task.sleep(for: timeout)
+                guard !Task.isCancelled else { return }
+                Log.agent.info("get_usage timed out")
+                probe.finish(.failed)
+            }
             let process = AgentProcess(
                 label: "claude get_usage",
                 onLine: { line in
@@ -215,7 +218,8 @@ nonisolated struct ClaudeUsageClient: Sendable {
                 try process.start(
                     arguments: ClaudeUsageRequest.arguments,
                     workingDirectory: workingDirectory.path,
-                    environment: LoginShellCommand.plumeEnvironment
+                    environment: LoginShellCommand.plumeEnvironment,
+                    removingEnvironment: ClaudeUsageRequest.droppedEnvironmentKeys
                 )
             } catch {
                 Log.agent.error("get_usage launch failed: \(error.localizedDescription, privacy: .public)")
@@ -274,8 +278,14 @@ nonisolated final class UsageProbe: Sendable {
 
     private let state = Mutex(State())
 
+    /// Answers `.failed` at once when the probe already finished, so a
+    /// continuation never waits on a reply that came first.
     func begin(_ continuation: CheckedContinuation<ClaudeUsageFetchResult, Never>) {
-        state.withLock { $0.continuation = continuation }
+        let isFinished = state.withLock { state in
+            if !state.isFinished { state.continuation = continuation }
+            return state.isFinished
+        }
+        if isFinished { continuation.resume(returning: .failed) }
     }
 
     /// A reply can land before the process is adopted, which then ends it.

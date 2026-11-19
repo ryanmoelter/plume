@@ -8,10 +8,12 @@ struct StatuslineUsagePopover: View, ThemedView {
     let contextUsedTokens: Int?
     let contextMaxTokens: Int?
     let quotaSummaries: [QuotaWindowSummary]
-    /// Shown after the quota windows, once the stacked row has dropped the
-    /// credit glyph.
+    /// Shown once the stacked row has dropped the credit glyph.
     var showsCredit = false
     var credit: UsageCredit?
+    /// How many leading summaries are Claude's, so the credit section sits
+    /// right after them. Nil places it after every summary.
+    var claudeSummaryCount: Int?
     /// Asked for a fresh breakdown each time the popover opens.
     let headlessSession: HeadlessSession?
     var compact: CompactAction?
@@ -27,16 +29,13 @@ struct StatuslineUsagePopover: View, ThemedView {
                 )
             }
             ForEach(Array(quotaSummaries.enumerated()), id: \.offset) { index, summary in
-                if index > 0 || hasContext { Divider() }
+                let followsCredit = showsCredit && index == creditIndex
+                if followsCredit { creditSection(isFirst: index == 0 && !hasContext) }
+                if index > 0 || hasContext || followsCredit { Divider() }
                 QuotaSummarySection(summary: summary)
             }
-            if showsCredit {
-                if !quotaSummaries.isEmpty || hasContext { Divider() }
-                UsageCreditSection(credit: credit)
-                    .plumeID(
-                        AccessibilityID.statuslineUsageCredit,
-                        value: UsageCreditFormat.detailLines(credit).joined(separator: "; ")
-                    )
+            if showsCredit, creditIndex == quotaSummaries.count {
+                creditSection(isFirst: quotaSummaries.isEmpty && !hasContext)
             }
         }
         .usagePopoverStyle(typography: typography)
@@ -45,6 +44,18 @@ struct StatuslineUsagePopover: View, ThemedView {
     }
 
     private var hasContext: Bool { contextUsedTokens != nil || contextMaxTokens != nil }
+
+    private var creditIndex: Int { min(claudeSummaryCount ?? quotaSummaries.count, quotaSummaries.count) }
+
+    @ViewBuilder
+    private func creditSection(isFirst: Bool) -> some View {
+        if !isFirst { Divider() }
+        UsageCreditSection(credit: credit)
+            .plumeID(
+                AccessibilityID.statuslineUsageCredit,
+                value: UsageCreditFormat.detailLines(credit).joined(separator: "; ")
+            )
+    }
 }
 
 /// The context bar's click-through in the wide layout: the context section
