@@ -52,7 +52,10 @@ nonisolated struct ChildSessionWakePolicy: Equatable {
     /// does not wake can still release a batch: it may be the last working
     /// child's turn ending.
     mutating func noteArrived(_ note: Note, wakes: Bool, _ activity: Activity) -> [Note]? {
-        if note.kind == .turnReport { held.removeAll { $0.isTurnReport(from: note.childID) } }
+        if note.kind == .turnReport {
+            held.removeAll { $0.isTurnReport(from: note.childID) }
+            waking.removeAll { $0.isTurnReport(from: note.childID) }
+        }
         if wakes {
             waking.append(note)
         } else {

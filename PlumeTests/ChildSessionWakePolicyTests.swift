@@ -123,6 +123,21 @@ struct ChildSessionWakePolicyTests {
         #expect(policy.noteArrived(note(childA, "wake"), wakes: true, idle) == [note(childA, "wake")])
     }
 
+    @Test func aNewerReportReplacesThatChildsBatchedOne() {
+        var policy = ChildSessionWakePolicy()
+        #expect(policy.noteArrived(note(childA, "old"), wakes: true, parentWorking) == nil)
+        #expect(policy.noteArrived(note(childA, "new"), wakes: true, parentWorking) == nil)
+        #expect(policy.parentTurnFinished(interrupted: false, idle) == [note(childA, "new")])
+    }
+
+    @Test func aHeldReportReplacesThatChildsBatchedOne() {
+        var policy = ChildSessionWakePolicy()
+        _ = policy.noteArrived(note(childB, "b"), wakes: true, parentWorking)
+        _ = policy.noteArrived(note(childA, "old"), wakes: true, parentWorking)
+        _ = policy.noteArrived(note(childA, "interrupted"), wakes: false, parentWorking)
+        #expect(policy.parentTurnFinished(interrupted: false, idle) == [note(childA, "interrupted"), note(childB, "b")])
+    }
+
     @Test func afterAnInterruptNotesWaitForTheUser() {
         var policy = ChildSessionWakePolicy()
         #expect(policy.parentTurnFinished(interrupted: true, idle) == nil)
