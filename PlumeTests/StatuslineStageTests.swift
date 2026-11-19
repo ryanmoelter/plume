@@ -98,6 +98,37 @@ struct StatuslineStageTests {
         #expect(chosenStage(harness, width: bare) == .stackedWithoutGlyphs)
     }
 
+    @Test func creditJoinsTheStackedPopoverOnceItsGlyphIsDropped() {
+        let now = Date()
+        var snapshot = QuotaSnapshot.empty(at: now)
+        snapshot.credit = UsageCredit(usedCents: 1_000, limitCents: 5_000)
+        let extras = SidebarQuotaExtras(snapshot: snapshot, alwaysShows: false, now: now)
+        #expect(StatuslineStripView.showsCreditInPopover(showsQuotaGlyphs: false, extras: extras))
+        #expect(!StatuslineStripView.showsCreditInPopover(showsQuotaGlyphs: true, extras: extras), "the glyph already shows it")
+        #expect(!StatuslineStripView.showsCreditInPopover(showsQuotaGlyphs: false, extras: nil), "a Codex strip has no credit")
+
+        snapshot.credit = UsageCredit(usedCents: 1_000, limitCents: nil)
+        let noLimit = SidebarQuotaExtras(snapshot: snapshot, alwaysShows: true, now: now)
+        #expect(!StatuslineStripView.showsCreditInPopover(showsQuotaGlyphs: false, extras: noLimit))
+    }
+
+    @Test func theStackedPopoverDrawsTheCreditSection() {
+        let popover = { (showsCredit: Bool) in
+            StatuslineUsagePopover(
+                contextUsedTokens: 50_000,
+                contextMaxTokens: 200_000,
+                quotaSummaries: [],
+                showsCredit: showsCredit,
+                credit: UsageCredit(usedCents: 1_000, limitCents: 5_000),
+                headlessSession: nil
+            )
+        }
+        let height = { (view: StatuslineUsagePopover) in
+            NSHostingController(rootView: view.frame(width: 260)).sizeThatFits(in: CGSize(width: 260, height: 10_000)).height
+        }
+        #expect(height(popover(true)) > height(popover(false)) + 40, "used, limit and left are three lines plus a meter")
+    }
+
     @Test func aCodexStripHasNoGlyphsToDrop() throws {
         let harness = try Harness()
         defer { harness.cleanup() }

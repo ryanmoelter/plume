@@ -262,6 +262,8 @@ struct StatuslineStripView: View, ThemedView {
                 contextUsedTokens: contextUsedTokens,
                 contextMaxTokens: contextMaxTokens,
                 quotaSummaries: quotaSummaries,
+                showsCredit: Self.showsCreditInPopover(showsQuotaGlyphs: showsQuotaGlyphs, extras: extras),
+                credit: quota.snapshot?.credit,
                 headlessSession: headlessSession,
                 compact: compact
             )
@@ -295,6 +297,12 @@ struct StatuslineStripView: View, ThemedView {
             CodexQuotaStrip.summary($0, store: .shared, now: quota.now)
         }
         return claudeSummaries + fableSummaryWithoutGlyph + codexSummaries
+    }
+
+    /// The credit reading joins the stack's popover beside Fable's, under
+    /// the same rule.
+    static func showsCreditInPopover(showsQuotaGlyphs: Bool, extras: SidebarQuotaExtras?) -> Bool {
+        !showsQuotaGlyphs && extras?.showsCredit == true
     }
 
     /// The Fable reading joins the stack's popover once its glyph is dropped,

@@ -8,6 +8,10 @@ struct StatuslineUsagePopover: View, ThemedView {
     let contextUsedTokens: Int?
     let contextMaxTokens: Int?
     let quotaSummaries: [QuotaWindowSummary]
+    /// Shown after the quota windows, once the stacked row has dropped the
+    /// credit glyph.
+    var showsCredit = false
+    var credit: UsageCredit?
     /// Asked for a fresh breakdown each time the popover opens.
     let headlessSession: HeadlessSession?
     var compact: CompactAction?
@@ -25,6 +29,14 @@ struct StatuslineUsagePopover: View, ThemedView {
             ForEach(Array(quotaSummaries.enumerated()), id: \.offset) { index, summary in
                 if index > 0 || hasContext { Divider() }
                 QuotaSummarySection(summary: summary)
+            }
+            if showsCredit {
+                if !quotaSummaries.isEmpty || hasContext { Divider() }
+                UsageCreditSection(credit: credit)
+                    .plumeID(
+                        AccessibilityID.statuslineUsageCredit,
+                        value: UsageCreditFormat.detailLines(credit).joined(separator: "; ")
+                    )
             }
         }
         .usagePopoverStyle(typography: typography)

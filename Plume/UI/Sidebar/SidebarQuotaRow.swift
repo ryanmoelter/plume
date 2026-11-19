@@ -259,9 +259,21 @@ struct UsageCreditPopover: View, ThemedView {
     @Environment(\.theme) var theme
 
     let credit: UsageCredit?
-    let fraction: Double?
 
     var body: some View {
+        UsageCreditSection(credit: credit)
+            .usagePopoverStyle(typography: typography)
+    }
+}
+
+/// The credit reading's section of a usage popover.
+struct UsageCreditSection: View, ThemedView {
+    @Environment(\.theme) var theme
+
+    let credit: UsageCredit?
+
+    var body: some View {
+        let fraction = UsageCreditFormat.fraction(credit)
         VStack(alignment: .leading, spacing: 2) {
             Text("Usage credits").font(.headline)
             if let fraction {
@@ -277,7 +289,6 @@ struct UsageCreditPopover: View, ThemedView {
             }
             ForEach(UsageCreditFormat.detailLines(credit), id: \.self) { Text($0) }
         }
-        .usagePopoverStyle(typography: typography)
     }
 }
 

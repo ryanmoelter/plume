@@ -97,7 +97,7 @@ struct ClaudeQuotaGlyphs: View, ThemedView {
             popoverID: ids.creditPopover,
             popoverValue: UsageCreditFormat.detailLines(credit).joined(separator: "; ")
         ) {
-            UsageCreditPopover(credit: credit, fraction: fraction)
+            UsageCreditPopover(credit: credit)
         }
     }
 
