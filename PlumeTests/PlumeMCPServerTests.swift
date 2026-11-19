@@ -192,11 +192,11 @@ struct PlumeMCPServerTests {
     }
 
     private static func startDecision(
-        _ input: [String: JSONValue], parent: PermissionMode, bypass: Bool = true
+        _ input: [String: JSONValue], parent: PermissionMode, proposed: PermissionMode? = nil, bypass: Bool = true
     ) -> PermissionDecision? {
         PlumeMCPServer.decision(
             toolName: PlumeMCPTool.startSession.qualifiedName, input: input, permissionMode: parent,
-            showsBypassPermissions: bypass
+            proposedMode: proposed, showsBypassPermissions: bypass
         )
     }
 
@@ -225,6 +225,36 @@ struct PlumeMCPServerTests {
 
     @Test func withoutTheBypassSettingABypassStartIsAllowed() {
         #expect(Self.startDecision(Self.bypassStart, parent: .auto, bypass: false) == .allow(updatedInput: Self.bypassStart))
+    }
+
+    @Test func startingABypassProposalTheParentLacksAsks() {
+        let byID: [String: JSONValue] = ["proposal_id": .string("task_0000abcd")]
+        #expect(Self.startDecision(byID, parent: .auto, proposed: .bypassPermissions) == nil)
+        #expect(Self.startDecision(byID, parent: .auto, proposed: .acceptEdits) == .allow(updatedInput: byID))
+        #expect(Self.startDecision(byID, parent: .bypassPermissions, proposed: .bypassPermissions) == .allow(updatedInput: byID))
+    }
+
+    @Test func aBypassProposalOrOfferIsAllowedSinceItStartsNothing() {
+        for initiation in ["own_initiative", "offer"] {
+            var input = Self.bypassStart
+            input["initiation"] = .string(initiation)
+            #expect(Self.startDecision(input, parent: .auto) == .allow(updatedInput: input))
+        }
+    }
+
+    @Test func theServerReadsAProposalsModeFromItsStore() {
+        var asked: [String] = []
+        let server = PlumeMCPServer(
+            role: { .parent },
+            proposalPermissionMode: { id in
+                asked.append(id)
+                return .bypassPermissions
+            },
+            callTool: { _ in .success("ok") }
+        )
+        let byID: [String: JSONValue] = ["proposal_id": .string(" task_0000abcd ")]
+        _ = server.decision(toolName: PlumeMCPTool.startSession.qualifiedName, input: byID, permissionMode: .auto)
+        #expect(asked == ["task_0000abcd"])
     }
 
     @Test func startingAProposalAsksInManualMode() {

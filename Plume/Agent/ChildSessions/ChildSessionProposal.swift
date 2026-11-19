@@ -361,6 +361,12 @@ nonisolated enum StartSessionCall: Equatable {
         arguments["proposal_id"].map { !isBlank($0) } ?? false
     }
 
+    /// The proposal a call starts, if it names one.
+    static func proposalID(_ arguments: [String: JSONValue]) -> String? {
+        guard hasProposalID(arguments) else { return nil }
+        return arguments["proposal_id"]?.stringValue?.trimmingCharacters(in: .whitespacesAndNewlines)
+    }
+
     /// A `null` or blank value counts as not sent.
     private static func isBlank(_ value: JSONValue) -> Bool {
         switch value {

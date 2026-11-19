@@ -46,12 +46,19 @@ final class PlumeMCPServer {
 
     private let role: () -> Role
     private let callTool: (ToolCall) async -> ToolResult
+    /// The `permission_mode` a pending proposal was made with, by its id.
+    private let proposalPermissionMode: (String) -> PermissionMode?
     /// Running `tools/call`s by JSON-RPC id, which the CLI's
     /// `notifications/cancelled` names when an interrupt stops one.
     private var inFlight: [String: Task<ToolResult, Never>] = [:]
 
-    init(role: @escaping () -> Role, callTool: @escaping (ToolCall) async -> ToolResult) {
+    init(
+        role: @escaping () -> Role,
+        proposalPermissionMode: @escaping (String) -> PermissionMode? = { _ in nil },
+        callTool: @escaping (ToolCall) async -> ToolResult
+    ) {
         self.role = role
+        self.proposalPermissionMode = proposalPermissionMode
         self.callTool = callTool
     }
 
@@ -71,6 +78,7 @@ final class PlumeMCPServer {
             toolName: toolName,
             input: input,
             permissionMode: permissionMode,
+            proposedMode: StartSessionCall.proposalID(input).flatMap(proposalPermissionMode),
             showsBypassPermissions: AppSettings.shared.showsBypassPermissions
         )
     }
@@ -82,11 +90,13 @@ final class PlumeMCPServer {
     /// In manual mode, or a mode Plume does not recognize (`nil`), a call
     /// that starts a session now asks like any other action; everything else
     /// acts only inside Plume and is allowed. In any mode, a start that would
-    /// give the child bypass its parent lacks asks too.
+    /// give the child bypass its parent lacks asks too. `proposedMode` is the
+    /// mode a start by `proposal_id` launches with, from the stored proposal.
     nonisolated static func decision(
         toolName: String,
         input: [String: JSONValue],
         permissionMode: PermissionMode?,
+        proposedMode: PermissionMode? = nil,
         showsBypassPermissions: Bool
     ) -> PermissionDecision? {
         guard isPlumeTool(toolName) else { return nil }
@@ -98,8 +108,11 @@ final class PlumeMCPServer {
             if permissionMode == .manual || permissionMode == nil, startsNow {
                 return nil
             }
+            let requested = StartSessionCall.proposalID(input) == nil
+                ? ChildSessionPermissions.requested(in: input)
+                : proposedMode
             if startsNow, ChildSessionPermissions.needsApproval(
-                requested: ChildSessionPermissions.requested(in: input), parent: permissionMode, showsBypassPermissions: showsBypassPermissions
+                requested: requested, parent: permissionMode, showsBypassPermissions: showsBypassPermissions
             ) {
                 return nil
             }

@@ -31,6 +31,11 @@ final class ChildSessionCoordinator {
                 guard let tab, tab.isChildSession else { return .parent }
                 return .child(parentID: tab.parentTabIDRaw)
             },
+            proposalPermissionMode: { [weak tab] id in
+                guard let tab else { return nil }
+                let proposal = ChildSessionProposalStore(json: tab.childProposalsJSON).proposal(id: id)
+                return proposal?.permissionMode.flatMap(PermissionMode.recognizing)
+            },
             callTool: { [weak self, weak tab, weak session] call in
                 let approvedByUser = call.tool == .startSession && session?.takeUserApproval(ofStart: call.toolUseID) == true
                 guard let self, let tab, tab.isLive else {
@@ -128,7 +133,9 @@ final class ChildSessionCoordinator {
                     result = .failure(.failed("The call carried no tool use id, so its offer card has nothing to attach to. Start or propose the session instead."))
                 }
             case .success(.startProposal(let id, let wakeWhenDone, let settings)):
-                result = await startProposal(id, from: tab, wakeWhenDone: wakeWhenDone, settings: settings, byUser: false)
+                result = await startProposal(
+                    id, from: tab, wakeWhenDone: wakeWhenDone, settings: settings, byUser: false, approvedByUser: approvedByUser
+                )
             case .failure(let error): result = .failure(error)
             }
         case .sendMessage:
@@ -182,7 +189,7 @@ final class ChildSessionCoordinator {
     private func launchChild(
         _ request: StartSessionRequest,
         from parent: TaskTab,
-        approvedByUser: Bool = false,
+        approvedByUser: Bool,
         proposalID: String? = nil,
         forkCut: String? = nil
     ) async -> Result<TaskTab, ChildSessionError> {
@@ -395,7 +402,7 @@ final class ChildSessionCoordinator {
                 let launched = if let launch {
                     await launch(request, parent)
                 } else {
-                    await launchChild(request, from: parent)
+                    await launchChild(request, from: parent, approvedByUser: true)
                 }
                 switch launched {
                 case .success(let child):
@@ -439,13 +446,16 @@ final class ChildSessionCoordinator {
     /// with, refusing repeated `settings` that differ from them. A start the
     /// user made from the card also tells the parent, as a note that wakes it
     /// unless the proposal asked not to be woken, and a refusal shows on the
-    /// card.
+    /// card. `byUser` is a start from the card, whose click approves it;
+    /// `approvedByUser` is a start by `proposal_id` the user allowed from the
+    /// permission prompt.
     func startProposal(
         _ id: String,
         from parent: TaskTab,
         wakeWhenDone: Bool? = nil,
         settings: [String: JSONValue] = [:],
         byUser: Bool,
+        approvedByUser: Bool = false,
         now: Date = .now
     ) async -> Result<String, ChildSessionError> {
         let activity = ChildSessionProposalActivity.shared
@@ -472,7 +482,9 @@ final class ChildSessionCoordinator {
         }
         activity.begin(id, in: parent.id)
         let child: TaskTab
-        switch await launchChild(request, from: parent, proposalID: id, forkCut: proposal.forkCut) {
+        switch await launchChild(
+            request, from: parent, approvedByUser: byUser || approvedByUser, proposalID: id, forkCut: proposal.forkCut
+        ) {
         case .success(let launched):
             activity.end(id, in: parent.id, failure: nil)
             child = launched
