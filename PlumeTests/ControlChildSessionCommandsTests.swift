@@ -184,6 +184,81 @@ struct ControlChildSessionCommandsTests {
         #expect(preamble.contains("Run the tests"))
     }
 
+    /// Opens a child of `parent` with a running session holding the
+    /// parent's unread message.
+    private func childHoldingParentsMessage(of parent: TaskTab, in task: WorkTask) throws -> TaskTab {
+        let child = TaskStore.addChildTab(to: task, parent: parent, in: context)
+        let childSession = try #require(AgentSessionManager.shared.session(for: child.id, taskID: task.id) as? HeadlessSession)
+        childSession.debugLineSink = { _ in }
+        childSession.queuedMessageDelivery = { .endOfTurn }
+        childSession.submit(text: "busy")
+        childSession.submitFromHost(blocks: [.text("framed")], display: [.text("Run the tests")], origin: .fromParent(text: "Run the tests"))
+        return child
+    }
+
+    @Test(arguments: [false, true])
+    func closingAChildsTaskTellsAParentInAnotherTask(deletes: Bool) throws {
+        let task = TaskStore.createTask(in: context, title: "Task", siblings: [])
+        let parent = try #require(task.tabs.first)
+        let parentSession = HeadlessSession(tabID: parent.id, taskID: task.id)
+        ChildSessionCoordinator.shared.attach(to: parentSession, task: task, tab: parent)
+        defer { ChildSessionCoordinator.shared.tabForgotten(parent.id) }
+        let child = try childHoldingParentsMessage(of: parent, in: task)
+        let elsewhere = TaskStore.createTask(in: context, title: "Elsewhere", siblings: [task])
+        #expect(TaskStore.moveTab(child, to: elsewhere))
+
+        if deletes {
+            TaskStore.delete(elsewhere, in: context)
+        } else {
+            TaskStore.archive(elsewhere)
+        }
+
+        let preamble = try #require(parentSession.userMessagePreamble?()?.wire.plainText)
+        #expect(preamble.contains("closed the session"))
+        #expect(preamble.contains("Run the tests"))
+    }
+
+    @Test(arguments: [false, true])
+    func closingATaskWithParentAndChildDropsTheParentsNotes(deletes: Bool) throws {
+        let task = TaskStore.createTask(in: context, title: "Task", siblings: [])
+        let parent = try #require(task.tabs.first)
+        let parentSession = HeadlessSession(tabID: parent.id, taskID: task.id)
+        ChildSessionCoordinator.shared.attach(to: parentSession, task: task, tab: parent)
+        defer { ChildSessionCoordinator.shared.tabForgotten(parent.id) }
+        _ = try childHoldingParentsMessage(of: parent, in: task)
+
+        if deletes {
+            TaskStore.delete(task, in: context)
+        } else {
+            TaskStore.archive(task)
+        }
+
+        #expect(parentSession.userMessagePreamble?() == nil)
+    }
+
+    @Test func archivingAWorkingChildsTaskReleasesTheParentsBatch() throws {
+        let task = TaskStore.createTask(in: context, title: "Task", siblings: [])
+        let parent = try #require(task.tabs.first)
+        let reporter = TaskStore.addChildTab(to: task, parent: parent, in: context)
+        let session = try #require(AgentSessionManager.shared.session(for: parent.id, taskID: task.id) as? HeadlessSession)
+        defer {
+            _ = AgentSessionManager.shared.detachSession(for: parent.id)
+            ChildSessionCoordinator.shared.tabForgotten(parent.id)
+        }
+        let lines = Lines()
+        session.debugLineSink = { lines.all.append($0) }
+        ChildSessionCoordinator.shared.attach(to: session, task: task, tab: parent)
+        let worker = try childHoldingParentsMessage(of: parent, in: task)
+        let elsewhere = TaskStore.createTask(in: context, title: "Elsewhere", siblings: [task])
+        #expect(TaskStore.moveTab(worker, to: elsewhere))
+        _ = try ControlChildSessionCommands.report(.init(child: reporter.id.uuidString, text: "All green"), in: context)
+        #expect(!lines.all.contains { $0.contains("All green") })
+
+        TaskStore.archive(elsewhere)
+
+        #expect(lines.all.last?.contains("All green") == true)
+    }
+
     @Test func notesRidingAWithdrawnMessageStillWakeTheParent() throws {
         let task = TaskStore.createTask(in: context, title: "Task", siblings: [])
         let parent = try #require(task.tabs.first)

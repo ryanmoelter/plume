@@ -515,9 +515,7 @@ enum TaskStore {
     static func archive(_ task: WorkTask) {
         task.isArchived = true
         task.archivedAt = Date()
-        for tab in task.tabs {
-            forgetTab(tab)
-        }
+        forgetTabs(of: task)
     }
 
     /// The processes are gone, so the tabs come back dormant and re-launch on
@@ -574,9 +572,7 @@ enum TaskStore {
             among: (try? context.fetch(FetchDescriptor<WorkTask>())) ?? [],
             directories: .shared
         )
-        for tab in task.tabs {
-            forgetTab(tab)
-        }
+        forgetTabs(of: task)
         // The row that took these watches is going away with the task, and a
         // deleted row is not guaranteed to run its own teardown. Another
         // task's row still reads a folder it shares.
@@ -626,9 +622,7 @@ enum TaskStore {
             finish()
             return
         }
-        for tab in task.tabs {
-            forgetTab(tab)
-        }
+        forgetTabs(of: task)
         Task {
             for worktree in worktrees {
                 do {
@@ -646,6 +640,18 @@ enum TaskStore {
                 task.ownedWorktrees.removeAll { removed.contains($0.path) }
             }
             finish()
+        }
+    }
+
+    /// Forgets every tab of a task that closes as a whole. A child whose
+    /// parent is in another task closes as `closeTab` closes it; a parent
+    /// closing with it drops its notes anyway.
+    private static func forgetTabs(of task: WorkTask) {
+        for tab in task.tabs {
+            if let parent = openParent(of: tab), parent.task?.id != task.id {
+                ChildSessionCoordinator.shared.childClosing(tab)
+            }
+            forgetTab(tab)
         }
     }
 
