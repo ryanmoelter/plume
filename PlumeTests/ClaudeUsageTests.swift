@@ -118,6 +118,11 @@ struct ClaudeUsageTests {
         #expect(ClaudeUsageRequest.result(forLine: line) == .unavailable)
     }
 
+    @Test func aReplyWithNoRecognisedFieldFails() {
+        let line = #"{"type":"control_response","response":{"subtype":"success","request_id":"usage","response":{"rate_limits":{"something_new":[{"x":1}]}}}}"#
+        #expect(ClaudeUsageRequest.result(forLine: line) == .failed)
+    }
+
     @Test func anErrorReplyFails() {
         let line = #"{"type":"control_response","response":{"subtype":"error","request_id":"usage","error":"Unknown request subtype"}}"#
         #expect(ClaudeUsageRequest.result(forLine: line) == .failed)
@@ -156,6 +161,61 @@ struct ClaudeUsageTests {
         #expect(!AppSettings(defaults: defaults, domainName: suite).readsClaudeUsage)
         await poller.pollIfDue()
         #expect(calls.withLock { $0 } == 1)
+    }
+
+    @Test func withoutClaudeCodeNothingIsFetched() async throws {
+        let (settings, cleanup) = try scratchSettings()
+        defer { cleanup() }
+        let calls = Mutex(0)
+        let poller = ClaudeUsagePoller(
+            store: QuotaStore(),
+            settings: settings,
+            fetch: { _ in
+                calls.withLock { $0 += 1 }
+                return .unavailable
+            },
+            isClaudeAvailable: { false }
+        )
+        poller.setEnabled(true)
+        await poller.pollIfDue()
+        #expect(calls.withLock { $0 } == 0)
+        guard case .failed = poller.status else {
+            Issue.record("expected a failure, got \(poller.status)"); return
+        }
+        await poller.pollIfDue()
+        #expect(calls.withLock { $0 } == 0, "the next check waits for the regular interval")
+    }
+
+    @Test func aFinishedProbeReleasesItsProcess() async throws {
+        weak var weakProbe: UsageProbe?
+        weak var weakProcess: AgentProcess?
+        let result = await withCheckedContinuation { (outer: CheckedContinuation<ClaudeUsageFetchResult, Never>) in
+            let probe = UsageProbe()
+            weakProbe = probe
+            probe.begin(outer)
+            let process = AgentProcess(
+                label: "usage probe test",
+                onLine: { line in
+                    if let result = ClaudeUsageRequest.result(forLine: line) { probe.finish(result) }
+                },
+                onExit: { status, errorLine in probe.finish(.failed, exit: (status, errorLine)) }
+            )
+            weakProcess = process
+            do {
+                try process.start(arguments: ["cat"], workingDirectory: nil, environment: [:])
+            } catch {
+                probe.finish(.failed)
+                return
+            }
+            probe.adopt(process)
+            process.send(line: #"{"type":"control_response","response":{"subtype":"success","request_id":"usage","response":{"rate_limits":{"five_hour":{"utilization":10}}}}}"#)
+        }
+        #expect(result == .reading(ClaudeUsageReading(fiveHour: window(0.1))))
+        for _ in 0..<200 where weakProbe != nil || weakProcess != nil {
+            try await Task.sleep(for: .milliseconds(50))
+        }
+        #expect(weakProbe == nil)
+        #expect(weakProcess == nil)
     }
 
     @Test func aTurnEndPollsOnlyWhileOverALimit() async throws {
@@ -638,6 +698,15 @@ struct ClaudeUsageTests {
         #expect(isDue(120, 0))
         #expect(!isDue(120, 2), "a failing fetch keeps its backoff")
         #expect(isDue(40 * 60, 2))
+    }
+
+    @Test func anAccountWithoutUsageDataIsNotPolledAtTurnEnd() {
+        #expect(!ClaudeUsagePollSchedule.isDueAtTurnEnd(
+            now: start.addingTimeInterval(3600), isOverLimit: true, lastAttempt: start, consecutiveFailures: 0, lastOutcome: .skipped
+        ))
+        #expect(ClaudeUsagePollSchedule.isDueAtTurnEnd(
+            now: start.addingTimeInterval(3600), isOverLimit: true, lastAttempt: start, consecutiveFailures: 0, lastOutcome: .success
+        ))
     }
 
     @Test func aTurnEndUnderTheLimitsAddsNoPoll() {

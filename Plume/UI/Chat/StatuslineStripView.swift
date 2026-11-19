@@ -176,7 +176,6 @@ struct StatuslineStripView: View, ThemedView {
                 .plumeID(AccessibilityID.statuslineSevenDayMeter)
                 .transition(.opacity)
             }
-            // Centred on the meters, like the cost.
             quotaGlyphs
                 .frame(maxHeight: .infinity)
             if let sessionCostUSD {
@@ -299,8 +298,8 @@ struct StatuslineStripView: View, ThemedView {
         return claudeSummaries + fableSummaryWithoutGlyph + codexSummaries
     }
 
-    /// The credit reading joins the stack's popover beside Fable's, under
-    /// the same rule.
+    /// The credit reading joins the stack's popover once the glyphs are
+    /// dropped, so collapsing never hides it outright.
     static func showsCreditInPopover(showsQuotaGlyphs: Bool, extras: SidebarQuotaExtras?) -> Bool {
         !showsQuotaGlyphs && extras?.showsCredit == true
     }

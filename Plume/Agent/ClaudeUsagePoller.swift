@@ -40,14 +40,16 @@ nonisolated enum ClaudeUsagePollSchedule {
     }
 
     /// Whether a turn that just ended earns a poll. A failing fetch keeps its
-    /// backoff rather than retrying every turn.
+    /// backoff rather than retrying every turn, and an account that cannot
+    /// report usage waits for the regular poll.
     static func isDueAtTurnEnd(
         now: Date,
         isOverLimit: Bool,
         lastAttempt: Date?,
-        consecutiveFailures: Int
+        consecutiveFailures: Int,
+        lastOutcome: ClaudeUsagePollOutcome = .success
     ) -> Bool {
-        guard isOverLimit else { return false }
+        guard isOverLimit, lastOutcome != .skipped else { return false }
         guard let lastAttempt else { return true }
         let wait = consecutiveFailures > 0 ? backoff(failures: consecutiveFailures) : turnEndThrottle
         return now.timeIntervalSince(lastAttempt) >= wait
@@ -99,6 +101,7 @@ final class ClaudeUsagePoller {
     private let store: QuotaStore
     private let fetch: @Sendable (Date) async -> ClaudeUsageFetchResult
     private let settings: AppSettings
+    private let isClaudeAvailable: @Sendable () async -> Bool
     private var loop: Task<Void, Never>?
     /// Bumped by `stop`, so a reply to a request sent before it is dropped.
     private var generation = 0
@@ -117,10 +120,18 @@ final class ClaudeUsagePoller {
     init(
         store: QuotaStore = .shared,
         settings: AppSettings = .shared,
-        fetch: (@Sendable (Date) async -> ClaudeUsageFetchResult)? = nil
+        fetch: (@Sendable (Date) async -> ClaudeUsageFetchResult)? = nil,
+        isClaudeAvailable: (@Sendable () async -> Bool)? = nil
     ) {
         self.store = store
         self.settings = settings
+        if let isClaudeAvailable {
+            self.isClaudeAvailable = isClaudeAvailable
+        } else if fetch == nil {
+            self.isClaudeAvailable = { await Self.claudeIsInstalled() }
+        } else {
+            self.isClaudeAvailable = { true }
+        }
         let client = ClaudeUsageClient(workingDirectory: AppPaths.applicationSupport.appending(path: "usage"))
         self.fetch = fetch ?? { _ in await client.fetch() }
     }
@@ -176,10 +187,19 @@ final class ClaudeUsagePoller {
             now: now,
             isOverLimit: ClaudeUsagePollSchedule.isOverLimit(store.snapshot, now: now),
             lastAttempt: lastAttempt,
-            consecutiveFailures: consecutiveFailures
+            consecutiveFailures: consecutiveFailures,
+            lastOutcome: lastOutcome
         )
         guard isDue else { return }
         await poll(at: now)
+    }
+
+    /// Looks again when the cached answer says no, so installing Claude Code
+    /// starts polling without a relaunch.
+    private static func claudeIsInstalled() async -> Bool {
+        let availability = AgentCLIAvailability.shared
+        if await availability.load().contains(.claudeCode) { return true }
+        return await availability.refresh().contains(.claudeCode)
     }
 
     /// Never under a test run, which would otherwise read the developer's
@@ -207,6 +227,13 @@ final class ClaudeUsagePoller {
         lastAttempt = sentAt
         isFetching = true
         let sentGeneration = generation
+        guard await isClaudeAvailable() else {
+            isFetching = false
+            guard sentGeneration == generation else { return }
+            lastOutcome = .skipped
+            surface("Plume can't find Claude Code, so it can't read usage.")
+            return
+        }
         let result = await fetch(sentAt)
         isFetching = false
 #if DEBUG

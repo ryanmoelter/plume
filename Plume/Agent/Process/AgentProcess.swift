@@ -178,10 +178,10 @@ nonisolated final class AgentProcess: @unchecked Sendable {
             isRunning = false
             return true
         }
-        guard wasRunning else { return }
         outPipe.fileHandleForReading.readabilityHandler = nil
         errPipe.fileHandleForReading.readabilityHandler = nil
         try? inPipe.fileHandleForWriting.close()
+        guard wasRunning else { return }
 
         guard process.isRunning else { return }
         let pid = process.processIdentifier

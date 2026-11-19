@@ -297,8 +297,8 @@ struct UsageCreditSection: View, ThemedView {
 /// dropping some.
 struct SidebarQuotaFlow: Layout {
     var horizontalSpacing: CGFloat
-    /// Room above every line after the first. Wide enough that a bordered
-    /// button or a body-size glyph on a wrapped line clears the meters.
+    /// Room above every line after the first, so a body-size glyph on a
+    /// wrapped line clears the meters.
     var verticalSpacing: CGFloat = SidebarQuotaFlow.wrappedLineSpacing
 
     static let wrappedLineSpacing: CGFloat = 8

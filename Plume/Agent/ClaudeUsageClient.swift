@@ -31,7 +31,7 @@ nonisolated struct ClaudeUsageReading: Equatable, Sendable {
 
 /// Parses the `rate_limits` object of a `get_usage` reply. The request is
 /// experimental, so every field is optional and an unknown shape yields an
-/// empty reading rather than an error.
+/// empty reading, which `ClaudeUsageRequest` treats as a failed poll.
 ///
 /// The shape follows Claude Code 2.1.328: windows (`five_hour`,
 /// `seven_day`) carry `utilization` 0–100 and an ISO `resets_at`; `limits[]`
@@ -170,7 +170,12 @@ nonisolated enum ClaudeUsageRequest {
               let rateLimits = body?["rate_limits"]?.objectValue
         else { return .unavailable }
         ClaudeUsageClient.logShapeOnce(.object(rateLimits))
-        return .reading(ClaudeUsageParser.parse(root: rateLimits))
+        let reading = ClaudeUsageParser.parse(root: rateLimits)
+        guard reading != ClaudeUsageReading() else {
+            Log.agent.info("get_usage answered with no recognised field")
+            return .failed
+        }
+        return .reading(reading)
     }
 }
 
@@ -257,8 +262,10 @@ nonisolated struct ClaudeUsageClient: Sendable {
 }
 
 /// One fetch's reply slot and process. Whichever of the reply, an exit or
-/// the timeout comes first answers; the process is ended either way.
-private nonisolated final class UsageProbe: Sendable {
+/// the timeout comes first answers; the process is ended either way. The
+/// process's callbacks hold the probe, so the probe lets go of the process
+/// once it is ended.
+nonisolated final class UsageProbe: Sendable {
     private struct State {
         var continuation: CheckedContinuation<ClaudeUsageFetchResult, Never>?
         var process: AgentProcess?
@@ -274,7 +281,7 @@ private nonisolated final class UsageProbe: Sendable {
     /// A reply can land before the process is adopted, which then ends it.
     func adopt(_ process: AgentProcess) {
         let isFinished = state.withLock { state in
-            state.process = process
+            if !state.isFinished { state.process = process }
             return state.isFinished
         }
         if isFinished { Self.end(process) }
@@ -284,7 +291,10 @@ private nonisolated final class UsageProbe: Sendable {
         let (continuation, process) = state.withLock { state in
             guard !state.isFinished else { return (nil as CheckedContinuation<ClaudeUsageFetchResult, Never>?, nil as AgentProcess?) }
             state.isFinished = true
-            defer { state.continuation = nil }
+            defer {
+                state.continuation = nil
+                state.process = nil
+            }
             return (state.continuation, state.process)
         }
         guard let continuation else { return }

@@ -47,7 +47,7 @@ final class AppSettings {
         static let sidebarColorsTaskNames = "sidebarColorsTaskNames"
         static let sidebarBoldTaskNames = "sidebarBoldTaskNames"
         static let alwaysShowsCreditAndFableQuota = "alwaysShowsCreditAndFableQuota"
-        /// Not `readsClaudeUsage`, which an opt-in build stored as `false`.
+        /// Differs from the property name so a stored `false` under the old key never applies.
         static let readsClaudeUsage = "checksClaudeUsage"
         static let sidebarColorsTaskIcons = "sidebarColorsTaskIcons"
         static let sidebarSuggestsFilledIcons = "sidebarSuggestsFilledIcons"
