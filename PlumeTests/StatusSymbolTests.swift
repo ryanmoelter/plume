@@ -32,6 +32,7 @@ struct StatusSymbolTests {
     /// draw nothing at all.
     @Test func aSymbolWithNoFillVariantStandsAsItself() {
         #expect(StatusSymbol.awaitingReply.filled == StatusSymbol.awaitingReply.name)
+        #expect(StatusSymbol.notStarted.filled == StatusSymbol.notStarted.name)
         #expect(StatusSymbol.remoteControl.filled == StatusSymbol.remoteControl.name)
         #expect(StatusSymbol.backgroundTasks.filled == StatusSymbol.backgroundTasks.name)
     }

@@ -289,9 +289,11 @@ struct ChatTabView: View, ThemedView {
                 PullRequestStore.shared.checkRollup(for: gitDirectory, of: $0)
             }
             : nil
+        let relations = InfoPaneFacts.directRelations(of: tab.id, in: task.orderedLiveTabs, id: \.id, parentID: \.parentTabID)
         return InfoPaneFacts(
             tabID: tab.id,
-            childSessions: childSessionFacts(parentBranch: branch?.name),
+            parentSession: relations.parent.map { sessionFacts(for: $0, ownBranch: branch?.name) },
+            childSessions: relations.children.map { sessionFacts(for: $0, ownBranch: branch?.name) },
             liveSubagents: split.live,
             completedSubagents: split.completed,
             backgroundTasks: BackgroundTaskTracker.shared.inFlight(tabID: tab.id),
@@ -324,27 +326,23 @@ struct ChatTabView: View, ThemedView {
         )
     }
 
-    private func childSessionFacts(parentBranch: String?) -> [InfoPaneFacts.ChildSessionFacts] {
-        InfoPaneFacts.descendants(of: tab.id, in: task.orderedLiveTabs, id: \.id, parentID: \.parentTabID)
-            .map { child, depth in
-                let status = TaskRowView.status(of: child)
-                let directory = TabDirectoryStore.shared.directory(for: child)
-                let branch = GitState.displayedBranch(
-                    state: directory.flatMap { GitStateStore.shared.state(for: $0) },
-                    storedBranchName: child.branchName
-                )
-                return InfoPaneFacts.ChildSessionFacts(
-                    id: child.id,
-                    title: TitleStore.shared.chipTitle(for: child, hasConversation: child.hasConversation),
-                    status: status,
-                    isUnread: UnreadStore.showsUnread(
-                        taskStatus: status,
-                        hasUnreadTab: UnreadStore.shared.isUnread(tabID: child.id)
-                    ),
-                    depth: depth,
-                    branch: branch == parentBranch ? nil : branch
-                )
-            }
+    private func sessionFacts(for related: TaskTab, ownBranch: String?) -> InfoPaneFacts.SessionFacts {
+        let status = TaskRowView.status(of: related)
+        let directory = TabDirectoryStore.shared.directory(for: related)
+        let branch = GitState.displayedBranch(
+            state: directory.flatMap { GitStateStore.shared.state(for: $0) },
+            storedBranchName: related.branchName
+        )
+        return InfoPaneFacts.SessionFacts(
+            id: related.id,
+            title: TitleStore.shared.chipTitle(for: related, hasConversation: related.hasConversation),
+            status: status,
+            isUnread: UnreadStore.showsUnread(
+                taskStatus: status,
+                hasUnreadTab: UnreadStore.shared.isUnread(tabID: related.id)
+            ),
+            branch: branch == ownBranch ? nil : branch
+        )
     }
 
     private func selectTab(id: UUID) {

@@ -350,8 +350,9 @@ struct TabStripGroupingTests {
         #expect(!TaskStore.canOpenInSplit(parent, in: task))
     }
 
-    @Test func theInfoPaneListsEveryDescendantNested() {
-        struct Row { let id: UUID; let parent: UUID? }
+    private struct Row { let id: UUID; let parent: UUID? }
+
+    @Test func theInfoPaneListsOnlyDirectRelations() {
         let root = UUID(), child = UUID(), grandchild = UUID(), second = UUID(), stranger = UUID()
         let rows = [
             Row(id: root, parent: nil),
@@ -361,9 +362,26 @@ struct TabStripGroupingTests {
             Row(id: second, parent: root)
         ]
 
-        let descendants = InfoPaneFacts.descendants(of: root, in: rows, id: \.id, parentID: \.parent)
+        let forRoot = InfoPaneFacts.directRelations(of: root, in: rows, id: \.id, parentID: \.parent)
+        #expect(forRoot.parent == nil)
+        #expect(forRoot.children.map(\.id) == [child, second])
 
-        #expect(descendants.map(\.item.id) == [child, grandchild, second])
-        #expect(descendants.map(\.depth) == [0, 1, 0])
+        let forChild = InfoPaneFacts.directRelations(of: child, in: rows, id: \.id, parentID: \.parent)
+        #expect(forChild.parent?.id == root)
+        #expect(forChild.children.map(\.id) == [grandchild])
+
+        let forGrandchild = InfoPaneFacts.directRelations(of: grandchild, in: rows, id: \.id, parentID: \.parent)
+        #expect(forGrandchild.parent?.id == child)
+        #expect(forGrandchild.children.isEmpty)
+    }
+
+    @Test func aParentThatIsNoLongerOpenIsLeftOut() {
+        let child = UUID()
+        let rows = [Row(id: child, parent: UUID())]
+
+        let relations = InfoPaneFacts.directRelations(of: child, in: rows, id: \.id, parentID: \.parent)
+
+        #expect(relations.parent == nil)
+        #expect(relations.children.isEmpty)
     }
 }

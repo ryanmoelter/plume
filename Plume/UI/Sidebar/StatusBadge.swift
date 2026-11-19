@@ -15,6 +15,9 @@ struct StatusBadge: View {
     var glyphWidth: CGFloat?
     /// Shrinks the unread dot with the font, for a badge drawn smaller than the task's.
     var scalesDotWithFont = false
+    /// Draws a glyph for the resting states too, for a row that names one
+    /// session and would otherwise lead with a blank.
+    var showsRestingGlyph = false
     @Environment(\.colorScheme) private var colorScheme
 
     var body: some View {
@@ -35,9 +38,9 @@ struct StatusBadge: View {
     }
 
     /// Whether the badge draws nothing, so a caller can put a placeholder there.
-    static func isBlank(status: TaskStatus, isUnread: Bool) -> Bool {
+    static func isBlank(status: TaskStatus, isUnread: Bool, showsRestingGlyph: Bool = false) -> Bool {
         switch status {
-        case .notStarted, .awaitingReply: return !isUnread
+        case .notStarted, .awaitingReply: return !isUnread && !showsRestingGlyph
         default: return false
         }
     }
@@ -68,9 +71,19 @@ struct StatusBadge: View {
     private var symbol: some View {
         switch status {
         // A finished turn the user has read is the resting state, so it
-        // draws nothing; an unread one draws the dot instead.
-        case .notStarted, .awaitingReply:
-            EmptyView()
+        // draws nothing unless asked; an unread one draws the dot instead.
+        case .notStarted:
+            if showsRestingGlyph {
+                Image(systemName: StatusSymbol.notStarted.filled)
+                    .emphasis(.secondary)
+                    .transition(.symbolEffect)
+            }
+        case .awaitingReply:
+            if showsRestingGlyph {
+                Image(systemName: StatusSymbol.awaitingReply.filled)
+                    .emphasis(.secondary)
+                    .transition(.symbolEffect)
+            }
         case .working:
             WorkingEllipsis(color: ChatRole.activity(for: colorScheme))
         case .waitingOnSubagents:

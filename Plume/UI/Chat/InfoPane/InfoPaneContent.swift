@@ -69,6 +69,14 @@ struct InfoPaneContent: View, ThemedView {
     @ViewBuilder
     private func section(_ section: InfoPaneSection) -> some View {
         switch section {
+        case .parentSession:
+            if let parent = facts.parentSession {
+                InfoPaneSessionRow(
+                    session: parent,
+                    caption: parent.parentCaption,
+                    accessibilityID: AccessibilityID.infoPaneParentSessionRow
+                ) { onSelectTab(parent.id) }
+            }
         case .childSessions: childSessions
         case .subagents: subagents
         case .backgroundTasks: backgroundTasks
@@ -118,7 +126,11 @@ struct InfoPaneContent: View, ThemedView {
         } rows: {
             if isExpanded {
                 ForEach(facts.childSessions) { child in
-                    InfoPaneChildSessionRow(child: child) { onSelectTab(child.id) }
+                    InfoPaneSessionRow(
+                        session: child,
+                        caption: child.caption,
+                        accessibilityID: AccessibilityID.infoPaneChildSessionRow
+                    ) { onSelectTab(child.id) }
                 }
             }
         }
@@ -465,7 +477,7 @@ struct InfoPaneCollapsedIcons: View, ThemedView {
             Image(systemName: StatusSymbol.remoteControl.name)
                 .foregroundStyle(colors.attention)
                 .help("Remote Control is on")
-        case .folder, .sideChat:
+        case .folder, .sideChat, .parentSession:
             EmptyView()
         }
     }
@@ -480,6 +492,7 @@ private struct StatusGlyphs: View, ThemedView {
         let id: String
         let status: TaskStatus
         var isUnread = false
+        var showsRestingGlyph = false
         let title: String
 
         init(_ subagent: SubagentTranscript) {
@@ -488,11 +501,12 @@ private struct StatusGlyphs: View, ThemedView {
             title = subagent.title
         }
 
-        init(_ child: InfoPaneFacts.ChildSessionFacts) {
-            id = child.id.uuidString
-            status = child.status
-            isUnread = child.isUnread
-            title = child.title
+        init(_ session: InfoPaneFacts.SessionFacts) {
+            id = session.id.uuidString
+            status = session.status
+            isUnread = session.isUnread
+            showsRestingGlyph = true
+            title = session.title
         }
     }
 
@@ -503,7 +517,7 @@ private struct StatusGlyphs: View, ThemedView {
     var body: some View {
         HStack(spacing: 4) {
             ForEach(glyphs.prefix(Self.limit)) { glyph in
-                StatusBadge(status: glyph.status, isUnread: glyph.isUnread)
+                StatusBadge(status: glyph.status, isUnread: glyph.isUnread, showsRestingGlyph: glyph.showsRestingGlyph)
                     .imageScale(.small)
                     .help(glyph.title)
             }
@@ -563,32 +577,33 @@ private struct InfoPaneSubagentRow: View {
     }
 }
 
-private struct InfoPaneChildSessionRow: View {
+/// A parent or child session: clicking it selects that tab.
+private struct InfoPaneSessionRow: View {
     @Environment(\.infoPaneRowWash) private var wash
 
-    let child: InfoPaneFacts.ChildSessionFacts
+    let session: InfoPaneFacts.SessionFacts
+    let caption: String
+    let accessibilityID: String
     let onSelect: () -> Void
 
     var body: some View {
         StatusRow(
-            title: child.title,
-            caption: Text(child.caption),
-            columns: .infoPane(wash: wash, depth: child.depth),
+            title: session.title,
+            caption: Text(caption),
+            columns: .infoPane(wash: wash),
             onOpen: onSelect
         ) {
-            StatusBadge(status: child.status, isUnread: child.isUnread, showsElapsed: false)
+            StatusBadge(status: session.status, isUnread: session.isUnread, showsElapsed: false, showsRestingGlyph: true)
         }
         .padding(.horizontal, -wash.inset)
-        .help(child.title)
-        .plumeID(AccessibilityID.infoPaneChildSessionRow, label: child.title, value: child.status.rawValue, invoke: onSelect)
+        .help(session.title)
+        .plumeID(accessibilityID, label: session.title, value: session.status.rawValue, invoke: onSelect)
     }
 }
 
 extension StatusRowColumns {
-    /// Each level of `depth` indents one icon column further.
-    static func infoPane(wash: InfoPaneRowWash, depth: Int = 0) -> StatusRowColumns {
+    static func infoPane(wash: InfoPaneRowWash) -> StatusRowColumns {
         var columns = StatusRowColumns.infoPane
-        columns.leadingIndent = CGFloat(depth) * (InfoPaneLayout.iconColumnWidth + InfoPaneLayout.columnSpacing)
         columns.leadingWashInset = wash.inset
         columns.trailingWashInset = wash.inset
         columns.washCornerRadius = wash.cornerRadius

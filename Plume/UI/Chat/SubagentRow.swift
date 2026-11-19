@@ -84,7 +84,6 @@ struct SubagentRow: View, ThemedView {
 /// Where a `StatusRow`'s badge and text start, so a host with its own icon
 /// column can line the row up with it.
 struct StatusRowColumns {
-    var leadingIndent: CGFloat = 0
     var badgeWidth: CGFloat = 12
     var spacing: CGFloat = 8
     var leadingWashInset: CGFloat = StatusRowColumns.washInset
@@ -135,7 +134,6 @@ struct StatusRow<Badge: View>: View, ThemedView {
                     .font(typography.caption.font)
                     .foregroundStyle(colors.selection)
             }
-            .padding(.leading, columns.leadingIndent)
             .padding(.leading, columns.leadingWashInset)
             .padding(.trailing, columns.trailingWashInset)
             .padding(.vertical, 5)
