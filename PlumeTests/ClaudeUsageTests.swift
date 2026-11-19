@@ -384,6 +384,18 @@ struct ClaudeUsageTests {
         #expect(!SidebarQuotaExtras(snapshot: snapshot, alwaysShows: false, now: start.addingTimeInterval(maxAge + 1)).showsCredit)
     }
 
+    @Test func creditGlyphFillsTowardTheLimitAndOtherwiseShowsWholeUnits() {
+        let locale = Locale(identifier: "en_US")
+        #expect(UsageCreditFormat.fraction(UsageCredit(usedCents: 1240, limitCents: 5000)) == 0.248)
+        #expect(UsageCreditFormat.fraction(UsageCredit(usedCents: 9000, limitCents: 5000)) == 1)
+        #expect(UsageCreditFormat.fraction(UsageCredit(usedCents: 1240)) == nil)
+        #expect(UsageCreditFormat.fraction(UsageCredit(usedCents: 1240, limitCents: 0)) == nil)
+        #expect(UsageCreditFormat.wholeAmount(minorUnits: 1299, currency: "USD", locale: locale) == "$12")
+        #expect(UsageCreditFormat.detailLines(UsageCredit(usedCents: 1240, limitCents: 5000), locale: locale)
+            == ["$12.40 used this month", "Monthly limit: $50.00", "$37.60 left"])
+        #expect(UsageCreditFormat.detailLines(nil) == ["No reading yet"])
+    }
+
     @Test func placeholdersAreNotAReading() {
         #expect(!QuotaSnapshot.empty(at: start).hasReading)
         var credit = QuotaSnapshot.empty(at: start)

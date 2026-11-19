@@ -38,6 +38,8 @@ enum AccessibilityID {
     static let sidebarQuotaRow = "sidebar-quota-row"
     static let sidebarQuotaFable = "sidebar-quota-fable"
     static let sidebarQuotaCredit = "sidebar-quota-credit"
+    static let sidebarQuotaFablePopover = "sidebar-quota-fable-popover"
+    static let sidebarQuotaCreditPopover = "sidebar-quota-credit-popover"
     static let sidebarBuildLabel = "sidebar-build-label"
     static let keepAwakePanel = "keep-awake-panel"
     static let keepAwakeModePicker = "keep-awake-mode-picker"

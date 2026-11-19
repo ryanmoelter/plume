@@ -158,54 +158,58 @@ struct SidebarQuotaRow: View, ThemedView {
     private func fableReading(_ snapshot: QuotaSnapshot?) -> some View {
         let fable = snapshot?.rateLimit.fable
         let isStale = snapshot.map { QuotaFreshness.isStale(receivedAt: $0.fableHeardAt, now: quota.now) } ?? false
-        return HStack(spacing: 3) {
-            Image(systemName: "f.circle")
-                .foregroundStyle(colors.foreground.opacity(colors.emphasis[.secondary]))
-                .accessibilityHidden(true)
-            if let snapshot, let fable {
-                StatuslineMeterSegment(
-                    label: "Fable",
-                    utilization: fable.utilization,
-                    resetsAt: fable.resetsAt,
-                    now: quota.now,
-                    isStale: isStale,
-                    receivedAt: snapshot.fableHeardAt,
-                    barWidth: StatuslineMeterWidth.sidebarFableQuota,
-                    windowLength: QuotaWindowLength.sevenDay,
-                    readingAlignment: .leading
-                )
+        let summary = fable.map {
+            QuotaDescription.summary(
+                provider: "Claude",
+                timeframe: "Fable",
+                utilization: $0.utilization,
+                resetsAt: $0.resetsAt,
+                windowLength: QuotaWindowLength.sevenDay,
+                receivedAt: snapshot?.fableHeardAt,
+                now: quota.now
+            )
+        }
+        let percent = (fable?.utilization ?? 0) * 100
+        return SidebarQuotaGlyph(
+            symbol: "f.circle",
+            fraction: StatuslineMeterMath.fraction(percent: percent),
+            fill: StatuslineColors.meter(for: StatuslineAttention.attention(percent: percent), colors: colors),
+            isStale: isStale,
+            help: summary?.text ?? "Fable weekly quota: no reading yet",
+            accessibilityLabel: "Fable weekly quota",
+            id: AccessibilityID.sidebarQuotaFable,
+            value: fable.map { SidebarQuotaSummary.percent($0.utilization) } ?? "none",
+            popoverID: AccessibilityID.sidebarQuotaFablePopover,
+            popoverValue: summary?.lines.joined(separator: "; ") ?? "none"
+        ) {
+            if let summary {
+                QuotaDetailsPopover(summaries: [summary])
             } else {
-                placeholder.help("Fable weekly quota: no reading yet")
+                Text("Fable weekly quota: no reading yet").usagePopoverStyle(typography: typography)
             }
         }
-        .plumeID(
-            AccessibilityID.sidebarQuotaFable,
-            value: fable.map { SidebarQuotaSummary.percent($0.utilization) } ?? "none"
-        )
     }
 
     private func creditReading(_ snapshot: QuotaSnapshot?) -> some View {
         let credit = snapshot?.credit
         let used = credit?.usedCents.map { UsageCreditFormat.amount(minorUnits: $0, currency: credit?.currency) }
         let isStale = credit != nil && QuotaFreshness.isCreditStale(receivedAt: snapshot?.creditReceivedAt, now: quota.now)
-        return HStack(spacing: 3) {
-            Image(systemName: "dollarsign.circle")
-                .foregroundStyle(colors.foreground.opacity(colors.emphasis[.secondary]))
-                .accessibilityHidden(true)
-            if let used {
-                Text(used)
-                    .foregroundStyle(colors.foreground.opacity(colors.emphasis[.secondary]))
-                    .monospacedDigit()
-            } else {
-                placeholder
-            }
+        let fraction = UsageCreditFormat.fraction(credit)
+        return SidebarQuotaGlyph(
+            symbol: "dollarsign.circle",
+            fraction: fraction ?? 0,
+            fill: StatuslineColors.meter(for: StatuslineAttention.attention(percent: (fraction ?? 0) * 100), colors: colors),
+            isStale: isStale,
+            amount: fraction == nil ? credit?.usedCents.map { UsageCreditFormat.wholeAmount(minorUnits: $0, currency: credit?.currency) } : nil,
+            help: UsageCreditFormat.tooltip(credit),
+            accessibilityLabel: "Usage credits",
+            id: AccessibilityID.sidebarQuotaCredit,
+            value: used.map { isStale ? "\($0) stale" : $0 } ?? "none",
+            popoverID: AccessibilityID.sidebarQuotaCreditPopover,
+            popoverValue: UsageCreditFormat.detailLines(credit).joined(separator: "; ")
+        ) {
+            UsageCreditPopover(credit: credit, fraction: fraction)
         }
-        .opacity(isStale ? colors.emphasis[.secondary] : 1)
-        .help(UsageCreditFormat.tooltip(credit))
-        .accessibilityElement(children: .ignore)
-        .accessibilityLabel("Usage credits")
-        .accessibilityValue(UsageCreditFormat.tooltip(credit))
-        .plumeID(AccessibilityID.sidebarQuotaCredit, value: used.map { isStale ? "\($0) stale" : $0 } ?? "none")
     }
 
     private var placeholder: some View {
@@ -242,6 +246,89 @@ enum SidebarQuotaSummary {
     static func percent(_ utilization: Double) -> String {
         guard let whole = Int(exactly: (min(max(utilization, 0), 9.99) * 100).rounded()) else { return "—" }
         return "\(whole)%"
+    }
+}
+
+/// A reading drawn as its circle symbol, the circle filling with
+/// `fraction` through the symbol's variable draw, over a faint full circle as
+/// its track. Clicking it opens the detail popover.
+struct SidebarQuotaGlyph<Detail: View>: View, ThemedView {
+    @Environment(\.theme) var theme
+    @State private var showingDetails = false
+
+    let symbol: String
+    let fraction: Double
+    let fill: Color
+    let isStale: Bool
+    var amount: String?
+    let help: String
+    let accessibilityLabel: String
+    let id: String
+    let value: String
+    let popoverID: String
+    let popoverValue: String
+    @ViewBuilder let detail: () -> Detail
+
+    var body: some View {
+        Button(action: showDetails) {
+            HStack(spacing: 3) {
+                ZStack {
+                    Image(systemName: symbol)
+                        .foregroundStyle(colors.foreground.opacity(colors.emphasis[.divider]))
+                    Image(systemName: symbol, variableValue: fraction)
+                        .symbolVariableValueMode(.draw)
+                        .foregroundStyle(fill)
+                }
+                if let amount {
+                    Text(amount)
+                        .foregroundStyle(colors.foreground.opacity(colors.emphasis[.secondary]))
+                        .monospacedDigit()
+                }
+            }
+            .opacity(isStale ? colors.emphasis[.secondary] : 1)
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .help(help)
+        .accessibilityLabel(accessibilityLabel)
+        .accessibilityValue(help)
+        .popover(isPresented: $showingDetails) {
+            detail()
+                .environment(\.theme, theme)
+                .plumeID(popoverID, value: popoverValue)
+        }
+        .plumeID(id, value: value, invoke: showDetails)
+    }
+
+    private func showDetails() {
+        showingDetails = true
+    }
+}
+
+/// The credit reading's click-through: spend against the monthly limit.
+struct UsageCreditPopover: View, ThemedView {
+    @Environment(\.theme) var theme
+
+    let credit: UsageCredit?
+    let fraction: Double?
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 2) {
+            Text("Usage credits").font(.headline)
+            if let fraction {
+                let attention = StatuslineAttention.attention(percent: fraction * 100)
+                MeterView(
+                    fraction: fraction,
+                    color: StatuslineColors.meter(for: attention, colors: colors),
+                    attention: attention,
+                    height: PacingMark.barHeight * 2
+                )
+                .frame(maxWidth: .infinity)
+                .padding(.vertical, 4)
+            }
+            ForEach(UsageCreditFormat.detailLines(credit), id: \.self) { Text($0) }
+        }
+        .usagePopoverStyle(typography: typography)
     }
 }
 
@@ -352,6 +439,36 @@ enum UsageCreditFormat {
         let formatter = formatter(currency: currency, locale: locale)
         let value = Decimal(minorUnits) / pow(Decimal(10), formatter.maximumFractionDigits)
         return formatter.string(from: value as NSDecimalNumber) ?? "\(minorUnits)"
+    }
+
+    /// Spend against the monthly limit, or nil with no limit to fill toward.
+    static func fraction(_ credit: UsageCredit?) -> Double? {
+        guard let used = credit?.usedCents, let limit = credit?.limitCents, limit > 0 else { return nil }
+        return min(max(Double(used) / Double(limit), 0), 1)
+    }
+
+    /// "$12" for $12.40: a glyph's companion, where cents only crowd it.
+    static func wholeAmount(minorUnits: Int, currency: String?, locale: Locale = .current) -> String {
+        let formatter = formatter(currency: currency, locale: locale).copy() as! NumberFormatter
+        let value = Decimal(minorUnits) / pow(Decimal(10), formatter.maximumFractionDigits)
+        formatter.minimumFractionDigits = 0
+        formatter.maximumFractionDigits = 0
+        formatter.roundingMode = .down
+        return formatter.string(from: value as NSDecimalNumber) ?? "\(minorUnits)"
+    }
+
+    static func detailLines(_ credit: UsageCredit?, locale: Locale = .current) -> [String] {
+        guard let credit, let used = credit.usedCents else { return ["No reading yet"] }
+        let format = { (units: Int) in amount(minorUnits: units, currency: credit.currency, locale: locale) }
+        var lines = ["\(format(used)) used this month"]
+        lines.append(credit.limitCents.map { "Monthly limit: \(format($0))" } ?? "No monthly limit")
+        if let remaining = credit.remainingCents {
+            lines.append("\(format(remaining)) left")
+        }
+        if let resetsAt = credit.resetsAt {
+            lines.append("Resets \(resetsAt.formatted(Date.FormatStyle(locale: locale).month(.abbreviated).day()))")
+        }
+        return lines
     }
 
     static func tooltip(_ credit: UsageCredit?, locale: Locale = .current) -> String {
