@@ -3,13 +3,6 @@ import SwiftUI
 struct VisualsSettingsPane: View {
     @State private var settings = AppSettings.shared
 
-    private var readsClaudeUsage: Binding<Bool> {
-        Binding(
-            get: { settings.readsClaudeUsage },
-            set: { ClaudeUsagePoller.shared.setEnabled($0) }
-        )
-    }
-
     var body: some View {
         Form {
             ThemeSettingsSection()
@@ -51,18 +44,6 @@ struct VisualsSettingsPane: View {
                         AccessibilityID.settingsSidebarBoldTaskNamesToggle,
                         value: settings.sidebarBoldTaskNames ? "on" : "off",
                         invoke: { settings.sidebarBoldTaskNames.toggle() }
-                    )
-                Toggle("Always show credit and Fable quota", isOn: $settings.alwaysShowsCreditAndFableQuota)
-                    .plumeID(
-                        AccessibilityID.settingsAlwaysShowsCreditAndFableQuotaToggle,
-                        value: settings.alwaysShowsCreditAndFableQuota ? "on" : "off",
-                        invoke: { settings.alwaysShowsCreditAndFableQuota.toggle() }
-                    )
-                Toggle("Read credit and Fable usage with Claude Code's login", isOn: readsClaudeUsage)
-                    .plumeID(
-                        AccessibilityID.settingsReadsClaudeUsageToggle,
-                        value: settings.readsClaudeUsage ? "on" : "off",
-                        invoke: { readsClaudeUsage.wrappedValue.toggle() }
                     )
             } header: {
                 Text("Sidebar")
