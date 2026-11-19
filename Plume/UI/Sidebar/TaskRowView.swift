@@ -104,6 +104,7 @@ struct TaskRowView: View {
             ),
             depth: depth,
             isRemotelyControlled: Self.isRemoteControlled(tabIDs: [tab.id]),
+            isDetachedChild: TaskStore.isDetachedChild(tab),
             heldDevices: held.isEmpty ? nil : DeviceLeaseStore.summary(held)
         )
     }
@@ -489,6 +490,13 @@ struct TaskRowView: View {
     ) -> some View {
         let titleEmphasis = Self.agentTitleEmphasis(status: header.status, isEmphasized: isEmphasized)
         return HStack(spacing: 4) {
+            if header.isDetachedChild {
+                Image(systemName: "arrow.turn.down.right")
+                    .font(.caption)
+                    .emphasis(.secondary)
+                    .help("Started by a session that is elsewhere")
+                    .plumeID(AccessibilityID.taskAgentChildMarker, label: header.label, value: "detached")
+            }
             Text(header.title)
                 .font(.caption)
                 .emphasis(titleEmphasis)

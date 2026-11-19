@@ -55,6 +55,23 @@ struct ControlTabCommandsTests {
         #expect(tab.task?.id == result.taskID)
     }
 
+    @Test func aChildSessionMovesAndSplitsWithoutItsParent() throws {
+        let source = TaskStore.createTask(in: context, title: "Source", siblings: [])
+        let parent = try #require(source.tabs.first)
+        let child = TaskStore.addChildTab(to: source, parent: parent, in: context)
+        let second = TaskStore.addChildTab(to: source, parent: parent, in: context)
+        let destination = TaskStore.createTask(in: context, title: "Destination", siblings: [source])
+        try save()
+
+        _ = try ControlTabCommands.move(.init(tabID: child.id, toTask: "destination"), in: context)
+        let split = try ControlTabCommands.split(.init(tabID: second.id), in: context)
+
+        #expect(child.task?.id == destination.id)
+        #expect(second.task?.id == split.taskID)
+        #expect(parent.task?.id == source.id)
+        #expect(child.parentTabID == parent.id)
+    }
+
     @Test func theWireNamesBothCommands() throws {
         let move = try JSONDecoder().decode(
             ControlServerRequest.self,

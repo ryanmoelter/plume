@@ -241,7 +241,6 @@ enum SidebarDropRules {
 struct SidebarDropDelegate: DropDelegate {
     let target: SidebarDropTarget
     let height: CGFloat
-    let accepts: @MainActor (SidebarDragItem) -> Bool
     let perform: @MainActor (SidebarDragItem, SidebarDropPlacement) -> Void
 
     func validateDrop(info: DropInfo) -> Bool {
@@ -253,7 +252,7 @@ struct SidebarDropDelegate: DropDelegate {
     func dropUpdated(info: DropInfo) -> DropProposal? {
         let drag = InAppDrag.shared
         guard let item = drag.item else { return DropProposal(operation: .move) }
-        guard accepts(item), let placement = SidebarDropRules.placement(
+        guard let placement = SidebarDropRules.placement(
             of: item, over: target, y: info.location.y, height: height
         ) else {
             drag.clearSidebarIndicator(on: target)
@@ -269,8 +268,8 @@ struct SidebarDropDelegate: DropDelegate {
 
     func performDrop(info: DropInfo) -> Bool {
         let y = info.location.y
-        SidebarDragItem.receive(from: info) { [target, height, accepts, perform] item in
-            guard accepts(item), let placement = SidebarDropRules.placement(of: item, over: target, y: y, height: height) else {
+        SidebarDragItem.receive(from: info) { [target, height, perform] item in
+            guard let placement = SidebarDropRules.placement(of: item, over: target, y: y, height: height) else {
                 return
             }
             perform(item, placement)
@@ -286,7 +285,6 @@ extension View {
         _ item: SidebarDragItem,
         target: SidebarDropTarget,
         heights: Binding<[UUID: CGFloat]>,
-        accepts: @escaping @MainActor (SidebarDragItem) -> Bool = { _ in true },
         perform: @escaping @MainActor (SidebarDragItem, SidebarDropPlacement) -> Void
     ) -> some View {
         let id = target.id
@@ -297,7 +295,6 @@ extension View {
             .onDrop(of: [.utf8PlainText], delegate: SidebarDropDelegate(
                 target: target,
                 height: heights.wrappedValue[id] ?? 0,
-                accepts: accepts,
                 perform: perform
             ))
     }

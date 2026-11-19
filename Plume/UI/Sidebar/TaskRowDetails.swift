@@ -66,6 +66,8 @@ enum TaskRowDetails {
         /// How far the agent nests under the one that started it.
         var depth: Int
         var isRemotelyControlled: Bool
+        /// A child session outside its parent's run in the strip.
+        var isDetachedChild: Bool
         /// The devices the tab holds, as `DeviceLeaseStore.summary` words them.
         var heldDevices: String?
 
@@ -77,6 +79,7 @@ enum TaskRowDetails {
             isUnread: Bool = false,
             depth: Int = 0,
             isRemotelyControlled: Bool = false,
+            isDetachedChild: Bool = false,
             heldDevices: String? = nil
         ) {
             self.tabID = tabID
@@ -86,6 +89,7 @@ enum TaskRowDetails {
             self.isUnread = isUnread
             self.depth = depth
             self.isRemotelyControlled = isRemotelyControlled
+            self.isDetachedChild = isDetachedChild
             self.heldDevices = heldDevices
         }
 
@@ -97,6 +101,7 @@ enum TaskRowDetails {
         /// group holds the task's focused tab, is hovered and is pressed.
         func controlValue(isFocused: Bool, isHovered: Bool, isPressed: Bool = false) -> String {
             ([statusText]
+                + (isDetachedChild ? ["detached child"] : [])
                 + (isFocused ? ["focused"] : [])
                 + (isHovered ? ["hovered"] : [])
                 + (isPressed ? ["pressed"] : []))

@@ -1,12 +1,10 @@
 import Foundation
 
-/// How one pane's strip groups each tab with the child sessions that follow
-/// it. A group is a tab and the unbroken run of its descendants right after
-/// it. Moves keep a group whole (`TabStripMove`), but a child can still sit
-/// apart from its parent — moved back from another task, say, or saved by an
-/// older build — and then it is not grouped. Ancestry counts only within the
-/// pane: a child in another pane is not grouped, and neither is anything
-/// below it.
+/// How one pane's strip groups each tab with the child sessions attached to
+/// it. Attachment is positional, never stored: a tab's run is the tab and the
+/// unbroken sequence right after it of tabs whose own parent is already in
+/// the run. A child anywhere else — after an unrelated tab, in another pane
+/// or another task — is detached, and so is everything below it.
 nonisolated struct TabStripGrouping: Equatable {
     struct Entry: Equatable {
         let id: UUID
@@ -16,7 +14,7 @@ nonisolated struct TabStripGrouping: Equatable {
 
     struct Group: Equatable {
         let parentID: UUID
-        /// Indices into the pane's tabs: the parent, then its descendants.
+        /// Indices into the pane's tabs: the parent, then its attached descendants.
         let range: ClosedRange<Int>
         /// How many groups enclose this one.
         let depth: Int
@@ -31,32 +29,17 @@ nonisolated struct TabStripGrouping: Equatable {
     let groups: [Group]
     /// Tabs whose chips a collapsed group hides.
     let hidden: Set<UUID>
-    /// Each tab's parent, when the parent is in this pane.
-    let parentInPane: [UUID: UUID]
 
     init(_ entries: [Entry]) {
         ids = entries.map(\.id)
-        let indexByID = Dictionary(entries.enumerated().map { ($0.element.id, $0.offset) }, uniquingKeysWith: { first, _ in first })
-        let parentInPane: [UUID: UUID] = entries.reduce(into: [:]) { result, entry in
-            if let parent = entry.parentID, parent != entry.id, indexByID[parent] != nil {
-                result[entry.id] = parent
-            }
-        }
-        func descends(_ id: UUID, from ancestor: UUID) -> Bool {
-            var visited: Set<UUID> = [id]
-            var current = parentInPane[id]
-            while let next = current {
-                if next == ancestor { return true }
-                guard visited.insert(next).inserted else { return false }
-                current = parentInPane[next]
-            }
-            return false
-        }
-
         var ranges: [(parentID: UUID, range: ClosedRange<Int>, isCollapsed: Bool)] = []
         for (index, entry) in entries.enumerated() {
+            var run: Set<UUID> = [entry.id]
             var end = index
-            while end + 1 < entries.count, descends(entries[end + 1].id, from: entry.id) { end += 1 }
+            while end + 1 < entries.count, let parent = entries[end + 1].parentID, run.contains(parent),
+                  run.insert(entries[end + 1].id).inserted {
+                end += 1
+            }
             if end > index { ranges.append((entry.id, index...end, entry.childrenCollapsed)) }
         }
         groups = ranges.map { group in
@@ -68,7 +51,6 @@ nonisolated struct TabStripGrouping: Equatable {
             hidden.formUnion(ids[group.range].dropFirst())
         }
         self.hidden = hidden
-        self.parentInPane = parentInPane
     }
 
     var visibleIDs: [UUID] { ids.filter { !hidden.contains($0) } }
@@ -116,25 +98,29 @@ nonisolated struct TabStripGrouping: Equatable {
         return group(parentID: id)?.range ?? index...index
     }
 
-    /// The gaps a tab whose parent is `parentID` may land in without leaving
-    /// its parent's group or splitting another: between its siblings, or
-    /// between top-level groups when its parent is not in this pane.
-    func landingGaps(forChildOf parentID: UUID?) -> [Int] {
-        let parentIndex = parentID.flatMap { ids.firstIndex(of: $0) }
-        let span: ClosedRange<Int>
-        var enclosing: Set<UUID> = []
-        if let parentID, let parentIndex {
-            span = (parentIndex + 1)...((group(parentID: parentID)?.range.upperBound ?? parentIndex) + 1)
-            var current: UUID? = parentID
-            while let next = current, enclosing.insert(next).inserted { current = parentInPane[next] }
-        } else {
-            span = 0...ids.count
+    /// Whether `id` sits in the run of its parent `parentID`.
+    func isAttached(_ id: UUID, to parentID: UUID) -> Bool {
+        guard let index = ids.firstIndex(of: id), let range = group(parentID: parentID)?.range else { return false }
+        return range.lowerBound < index && range.contains(index)
+    }
+
+    /// The gap just past `parentID`'s run, where a newly attached child goes.
+    func endOfRun(of parentID: UUID) -> Int? {
+        guard let index = ids.firstIndex(of: parentID) else { return nil }
+        return (group(parentID: parentID)?.range.upperBound ?? index) + 1
+    }
+
+    /// The gap nearest `requested` where a tab whose parent is `parentID`
+    /// lands without splitting a run: inside a run it joins, it stays; inside
+    /// one it would break, it goes to just past that run.
+    func landingGap(forChildOf parentID: UUID?, near requested: Int) -> Int {
+        let gap = min(max(requested, 0), ids.count)
+        let refusing = groups.filter { group in
+            group.range.lowerBound < gap && gap <= group.range.upperBound
+                && !(parentID.map { ids[group.range.lowerBound..<gap].contains($0) } ?? false)
         }
-        return span.filter { gap in
-            groups.allSatisfy { group in
-                !(group.range.lowerBound < gap && gap <= group.range.upperBound) || enclosing.contains(group.parentID)
-            }
-        }
+        guard let outermost = refusing.min(by: { $0.range.lowerBound < $1.range.lowerBound }) else { return gap }
+        return outermost.range.upperBound + 1
     }
 
     /// What a pane showing `shown` should show once `parentID` collapses:
@@ -148,17 +134,17 @@ nonisolated struct TabStripGrouping: Equatable {
     }
 }
 
-/// A tab moving within its strip or into another pane's, carrying its group.
-/// A child stays among its siblings, a drop that would leave them clamps to
-/// the nearest gap among them, and a group never lands inside another.
+/// A tab moving within its strip or into another pane's, carrying the
+/// children attached to it. It lands where it is dropped, except that it
+/// never splits a run it would not join (`TabStripGrouping.landingGap`).
 nonisolated struct TabStripMove: Equatable {
-    /// The moved tab and its descendants, in strip order.
+    /// The moved tab and its attached descendants, in strip order.
     let ids: [UUID]
     /// The gap they land in, counted in the destination strip without them.
     let gap: Int
 
     /// Moves `id` toward `requested`, a gap counted with `id` still in place,
-    /// or to the end of its siblings when nil.
+    /// or to the strip's end when nil.
     static func reorder(_ id: UUID, in pane: [TabStripGrouping.Entry], toward requested: Int?) -> TabStripMove? {
         let grouping = TabStripGrouping(pane)
         guard let block = grouping.block(of: id) else { return nil }
@@ -172,8 +158,7 @@ nonisolated struct TabStripMove: Equatable {
     }
 
     /// Moves `id` from `source` into `destination`, toward gap `requested`
-    /// there, or to the end when nil. Nil for a child whose parent shares
-    /// its pane: it moves only with its parent.
+    /// there, or to the end when nil.
     static func transfer(
         _ id: UUID,
         from source: [TabStripGrouping.Entry],
@@ -181,7 +166,7 @@ nonisolated struct TabStripMove: Equatable {
         toward requested: Int?
     ) -> TabStripMove? {
         let grouping = TabStripGrouping(source)
-        guard grouping.parentInPane[id] == nil, let block = grouping.block(of: id) else { return nil }
+        guard let block = grouping.block(of: id) else { return nil }
         return landing(grouping.ids[block], parentID: source[block.lowerBound].parentID, in: destination, near: requested)
     }
 
@@ -190,10 +175,8 @@ nonisolated struct TabStripMove: Equatable {
         parentID: UUID?,
         in rest: [TabStripGrouping.Entry],
         near requested: Int?
-    ) -> TabStripMove? {
-        let gaps = TabStripGrouping(rest).landingGaps(forChildOf: parentID)
-        let target = requested ?? rest.count
-        guard let gap = gaps.min(by: { (abs($0 - target), $0) < (abs($1 - target), $1) }) else { return nil }
+    ) -> TabStripMove {
+        let gap = TabStripGrouping(rest).landingGap(forChildOf: parentID, near: requested ?? rest.count)
         return TabStripMove(ids: Array(ids), gap: gap)
     }
 }

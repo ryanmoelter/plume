@@ -162,7 +162,7 @@ struct TabStripView: View {
     }
 
     /// The shown gap a drop of `draggedID` at shown gap `gap` lands in, after
-    /// `TabStripMove` keeps it among its siblings, or nil when it cannot
+    /// `TabStripMove` keeps it from splitting a run, or nil when it cannot
     /// land in this strip at all.
     private func landingGap(_ draggedID: UUID, near gap: Int) -> Int? {
         guard let tab = task.tabs.first(where: { $0.id == draggedID }) else { return nil }
@@ -179,7 +179,7 @@ struct TabStripView: View {
         TaskStore.moveTab(tab, toPane: pane, at: grouping.paneIndex(forVisibleGap: gap), in: task)
     }
 
-    /// Splits `tab` and its descendants into a new ungrouped task, as a
+    /// Splits `tab` and its attached children into a new ungrouped task, as a
     /// sibling of every other top-level task.
     private func moveToNewTask(_ tab: TaskTab) {
         let siblings = allTasks.filter { $0.group == nil }
@@ -238,20 +238,19 @@ private struct TabChip: View {
         tab.hasConversation
     }
 
-    /// A session another tab's agent started, while that tab is open.
-    private var isChildSession: Bool {
-        guard let parentID = tab.parentTabID else { return false }
-        return task.liveTabs.contains { $0.id == parentID }
+    /// An attached child needs no marker: the strip's underline groups it.
+    private var isDetachedChild: Bool {
+        TaskStore.isDetachedChild(tab)
     }
 
     var body: some View {
         HStack(spacing: 5) {
-            if isChildSession {
+            if isDetachedChild {
                 Image(systemName: "arrow.turn.down.right")
                     .font(.callout)
                     .foregroundStyle(.secondary)
-                    .help("Started by another session in this task")
-                    .plumeID(AccessibilityID.tabChipChildMarker, label: chipTitle)
+                    .help("Started by a session that is elsewhere")
+                    .plumeID(AccessibilityID.tabChipChildMarker, label: chipTitle, value: "detached")
             }
             switch tab.kind {
             case .agent:
@@ -327,11 +326,13 @@ private struct TabChip: View {
                 Button("Move to Other Pane") {
                     TaskStore.moveTab(tab, toPane: (pane + 1) % paneCount, in: task)
                 }
-                .disabled(!TaskStore.canLeavePane(tab, in: task))
                 Button("Close Split") { TaskStore.closeSplit(in: task) }
             } else {
                 Button("Open in Split") { TaskStore.openInSplit(tab, side: .right, in: task) }
                     .disabled(!TaskStore.canOpenInSplit(tab, in: task))
+            }
+            if offersMoveNextToParent {
+                Button("Move Next to Parent") { TaskStore.moveNextToParent(tab) }
             }
             Divider()
             if tab.kind == .agent {
@@ -426,6 +427,10 @@ private struct TabChip: View {
         paneLabel.map { "\(chipTitle) (\($0))" } ?? chipTitle
     }
 
+    private var offersMoveNextToParent: Bool {
+        TaskStore.canMoveNextToParent(tab)
+    }
+
     private var offersEndReservation: Bool {
         tab.isRemoteDeviceTab || DeviceSessionManager.shared.existingSession(for: tab.id)?.isRemote == true
     }
@@ -447,8 +452,7 @@ private struct TabChip: View {
             .plumeMenuItem(
                 AccessibilityID.tabMoveToOtherPaneMenuItem,
                 label: controlLabel,
-                isPresent: paneCount > 1,
-                isEnabled: TaskStore.canLeavePane(tab, in: task)
+                isPresent: paneCount > 1
             ) { TaskStore.moveTab(tab, toPane: (pane + 1) % paneCount, in: task) }
             .plumeMenuItem(AccessibilityID.tabCloseSplitMenuItem, label: controlLabel, isPresent: paneCount > 1) {
                 TaskStore.closeSplit(in: task)
@@ -459,6 +463,11 @@ private struct TabChip: View {
                 isPresent: paneCount <= 1,
                 isEnabled: TaskStore.canOpenInSplit(tab, in: task)
             ) { TaskStore.openInSplit(tab, side: .right, in: task) }
+            .plumeMenuItem(
+                AccessibilityID.tabMoveNextToParentMenuItem,
+                label: controlLabel,
+                isPresent: offersMoveNextToParent
+            ) { TaskStore.moveNextToParent(tab) }
             .plumeMenuItem(AccessibilityID.tabSwitchTransportMenuItem, label: controlLabel, isPresent: tab.kind == .agent) {
                 isConfirmingTransportSwitch = true
             }

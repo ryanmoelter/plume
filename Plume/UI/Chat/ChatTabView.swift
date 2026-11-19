@@ -289,7 +289,8 @@ struct ChatTabView: View, ThemedView {
                 PullRequestStore.shared.checkRollup(for: gitDirectory, of: $0)
             }
             : nil
-        let relations = InfoPaneFacts.directRelations(of: tab.id, in: task.orderedLiveTabs, id: \.id, parentID: \.parentTabID)
+        let family = [tab] + [TaskStore.openParent(of: tab)].compactMap(\.self) + TaskStore.openChildren(of: tab)
+        let relations = InfoPaneFacts.directRelations(of: tab.id, in: family, id: \.id, parentID: \.parentTabID)
         return InfoPaneFacts(
             tabID: tab.id,
             parentSession: relations.parent.map { sessionFacts(for: $0, ownBranch: branch?.name) },
@@ -345,9 +346,13 @@ struct ChatTabView: View, ThemedView {
         )
     }
 
+    /// A related session may sit in another task, which then opens.
     private func selectTab(id: UUID) {
-        guard let target = task.liveTabs.first(where: { $0.id == id }) else { return }
-        TaskStore.selectTab(target, in: task)
+        if let target = task.liveTabs.first(where: { $0.id == id }) {
+            TaskStore.selectTab(target, in: task)
+        } else {
+            ChildSessionCoordinator.shared.select(sessionID: id.uuidString)
+        }
     }
 
     private var planTitle: String {

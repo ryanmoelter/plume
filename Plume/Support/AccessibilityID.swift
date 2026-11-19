@@ -186,6 +186,8 @@ enum AccessibilityID {
     static let tabSwitchTransportMenuItem = "tab-switch-transport-menu-item"
     static let tabStartFreshMenuItem = "tab-start-fresh-menu-item"
     static let tabMoveToNewTaskMenuItem = "tab-move-to-new-task-menu-item"
+    static let tabMoveNextToParentMenuItem = "tab-move-next-to-parent-menu-item"
+    static let taskAgentChildMarker = "task-agent-child-marker"
     /// A note from another session in the chat, which selects its tab.
     static let sideSessionEventRow = "side-session-event-row"
     /// In both the task row's and the tab chip's context menu.

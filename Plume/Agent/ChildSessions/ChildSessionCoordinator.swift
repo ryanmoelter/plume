@@ -80,8 +80,8 @@ final class ChildSessionCoordinator {
         recheckWake(of: parent)
     }
 
-    /// Selects the tab of the session a chat row names. False when no open
-    /// window holds it.
+    /// Selects the tab of the session a chat row names, opening its task,
+    /// which may not be the row's. False when no open window holds it.
     @discardableResult
     func select(sessionID: String) -> Bool {
         guard let id = UUID(uuidString: sessionID),
@@ -89,6 +89,7 @@ final class ChildSessionCoordinator {
               let tab = task.liveTabs.first(where: { $0.id == id })
         else { return false }
         TaskStore.selectTab(tab, in: task)
+        Notifier.shared.pendingRoute = Notifier.Route(taskID: task.id, tabID: tab.id)
         return true
     }
 
@@ -98,9 +99,8 @@ final class ChildSessionCoordinator {
     /// gets their notes folder. A running parent learns the folder from the
     /// `start_session` result instead of restarting.
     static func launchDirectories(for tab: TaskTab) -> [String] {
-        let id = tab.id
-        guard tab.task?.liveTabs.contains(where: { $0.parentTabID == id }) == true else { return [] }
-        return [AppPaths.sideSessionNotesDirectory(parentTabID: id).path]
+        guard !TaskStore.openChildren(of: tab).isEmpty else { return [] }
+        return [AppPaths.sideSessionNotesDirectory(parentTabID: tab.id).path]
     }
 
     // MARK: - Tools
@@ -126,7 +126,7 @@ final class ChildSessionCoordinator {
     func startSession(_ request: StartSessionRequest, from parent: TaskTab) async -> Result<String, ChildSessionError> {
         guard request.initiation == .userAsked else { return .failure(.proposalsUnsupported) }
         guard !parent.isChildSession else { return .failure(.failed("This session cannot start sessions of its own.")) }
-        guard let task = parent.task, let context = parent.modelContext else {
+        guard parent.task != nil, let context = parent.modelContext else {
             return .failure(.failed("This session's task is gone."))
         }
         let live = LiveSettings(of: parent)
@@ -144,15 +144,16 @@ final class ChildSessionCoordinator {
             return .failure(.failed("This conversation has no session id yet, so it cannot be forked."))
         }
 
-        let parentIsOpen = { parent.isLive && parent.task === task }
+        let parentIsOpen = { parent.isLive && parent.task?.isArchived == false }
         guard parentIsOpen() else { return .failure(.parentClosed) }
         let worktree: ChildSessionWorkspace.Worktree?
         switch await ChildSessionWorkspace.worktree(for: request, parent: parent) {
         case .success(let made): worktree = made
         case .failure(let error): return .failure(error)
         }
-        // Cutting the worktree took a while, and the parent may have closed meanwhile.
-        guard parentIsOpen() else {
+        // Cutting the worktree took a while: the parent may have closed, or
+        // moved to another task, where the child then opens.
+        guard parentIsOpen(), let task = parent.task else {
             if let worktree { await ChildSessionWorkspace.remove(worktree) }
             return .failure(.parentClosed)
         }
@@ -250,7 +251,7 @@ final class ChildSessionCoordinator {
         guard let message = arguments["message"]?.stringValue?.trimmingCharacters(in: .whitespacesAndNewlines),
               !message.isEmpty
         else { return .failure(.invalid("message is required")) }
-        guard let task = sender.task else { return .failure(.failed("This session's task is gone.")) }
+        guard sender.task != nil else { return .failure(.failed("This session's task is gone.")) }
 
         let parent = parent(of: sender)
         if sender.isChildSession, parent == nil, to == "parent" || to.caseInsensitiveCompare(sender.parentTabIDRaw) == .orderedSame {
@@ -259,7 +260,7 @@ final class ChildSessionCoordinator {
         let target: TaskTab
         if to == "parent", let parent {
             target = parent
-        } else if let id = UUID(uuidString: to), let tab = task.liveTabs.first(where: { $0.id == id }) {
+        } else if let id = UUID(uuidString: to), let tab = TaskStore.openTab(id, in: sender.modelContext) {
             target = tab
         } else {
             return .failure(.unknownSession(to))
@@ -282,7 +283,9 @@ final class ChildSessionCoordinator {
         guard target.parentTabID == sender.id else { return .failure(.notRelated(to)) }
         let note = ChildSessionFormats.messageFromParentNote(parent: participant(sender), text: message)
         let queued = isWorking(target)
-        guard submitFromHost(note, display: message, origin: .fromParent(text: message), to: target, in: task) else {
+        guard let targetTask = target.task,
+              submitFromHost(note, display: message, origin: .fromParent(text: message), to: target, in: targetTask)
+        else {
             return .failure(.failed("Session \(to) could not be reached."))
         }
         return .success(ChildSessionFormats.delivered(to: TitleStore.shared.chipTitle(for: target), queued ? .queued : .sent))
@@ -350,10 +353,8 @@ final class ChildSessionCoordinator {
 
     /// The running sessions of `parent`'s open children that are mid-turn.
     private func workingChildren(of parent: TaskTab) -> [HeadlessSession] {
-        let parentID = parent.id
-        return (parent.task?.liveTabs ?? []).compactMap { tab in
-            guard tab.parentTabID == parentID,
-                  let session = AgentSessionManager.shared.existingSession(for: tab.id) as? HeadlessSession,
+        TaskStore.openChildren(of: parent).compactMap { tab in
+            guard let session = AgentSessionManager.shared.existingSession(for: tab.id) as? HeadlessSession,
                   !session.hasExited, session.isWorking
             else { return nil }
             return session
@@ -437,10 +438,9 @@ final class ChildSessionCoordinator {
         (AgentSessionManager.shared.existingSession(for: tab.id) as? HeadlessSession)?.isWorking ?? false
     }
 
-    /// The live tab that started `tab`, in the same task.
+    /// The open tab that started `tab`, in any task.
     func parent(of tab: TaskTab) -> TaskTab? {
-        guard let parentID = tab.parentTabID, parentID != tab.id else { return nil }
-        return tab.task?.liveTabs.first { $0.id == parentID }
+        TaskStore.openParent(of: tab)
     }
 
     /// What the parent's session runs on now, or what its tab records when

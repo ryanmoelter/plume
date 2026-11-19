@@ -197,8 +197,7 @@ struct SidebarView: View {
                 .sidebarDragAndDrop(
                     .task(task.id),
                     target: .task(task.id),
-                    heights: $dropTargetHeights,
-                    accepts: acceptsDrop
+                    heights: $dropTargetHeights
                 ) { handleDrop($0, $1, onto: task) }
         }
     }
@@ -229,15 +228,7 @@ struct SidebarView: View {
         }
     }
 
-    /// Refuses a child session dragged without its parent.
-    private func acceptsDrop(_ item: SidebarDragItem) -> Bool {
-        guard case .tab(let id) = item, let tab = tasks.flatMap(\.liveTabs).first(where: { $0.id == id }) else {
-            return true
-        }
-        return TaskStore.canLeaveTask(tab)
-    }
-
-    /// Moves a tab and its descendants into `task`. Only the SwiftData
+    /// Moves a tab and its attached children into `task`. Only the SwiftData
     /// relationship and ordering change — never the surface registry keyed by
     /// the tab's id.
     private func dropTab(_ tabID: UUID, onto task: WorkTask) {
