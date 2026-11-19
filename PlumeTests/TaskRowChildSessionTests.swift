@@ -185,6 +185,17 @@ struct TaskRowChildLinesTests {
         #expect(folded.layout.toggleTitle == nil)
     }
 
+    @Test func anExpandedRowOffersShowFewerOnlyWhenCollapsingWouldHideSomething() {
+        let focused = UUID()
+        let lines: [TaskRowDetails.Line] = (1...4).map {
+            .agentHeader(TaskRowDetails.AgentHeader(tabID: UUID(), title: "\($0)", status: .working))
+        } + [.agentHeader(TaskRowDetails.AgentHeader(tabID: focused, title: "5", status: .working))]
+        let keepsAll = AgentRowCap.fold(lines, isExpanded: true, focusedTabID: focused)
+        #expect(keepsAll.layout.toggleTitle == nil)
+        let hidesOne = AgentRowCap.fold(lines, isExpanded: true, focusedTabID: nil)
+        #expect(hidesOne.layout == AgentRowCap.Layout(visibleCount: 5, toggleTitle: "Show fewer", toggleSymbol: "chevron.up"))
+    }
+
     @Test func theRowsIconsRideOnlyAProjectLineAboveEveryHeader() {
         let header = TaskRowDetails.Line.agentHeader(TaskRowDetails.AgentHeader(tabID: UUID(), title: "Child", status: .working))
         #expect(TaskRowDetails.rowProjectLineIndex([.linearOverflow(1), .project("Plume"), header]) == 1)

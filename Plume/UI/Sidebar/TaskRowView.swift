@@ -207,7 +207,7 @@ struct TaskRowView: View {
         let working = workingLinearIssues
         let pinned = pinnedPullRequests
         let allLines = detailLines(nestedAgentTabs: nestedAgentTabs, working: working, pinned: pinned)
-        let folded = AgentRowCap.fold(allLines, isExpanded: showsAllAgents, focusedTabID: task.selectedTabID)
+        let folded = AgentRowCap.fold(allLines, isExpanded: showsAllAgents, focusedTabID: focusedAgentTabID)
         let cap = folded.layout
         let rawLines = folded.lines
         let lines = Array(rawLines.enumerated())
@@ -216,6 +216,9 @@ struct TaskRowView: View {
         let icons = rowOwnsIcons
             ? projectLineIcons(in: rawLines, agentTabIDs: agentTabIDs, headerTabIDs: headerTabIDs) : nil
         let titleIcons = icons?.lineIndex == nil ? icons : nil
+        // The row's own agent has no header to carry its detached marker.
+        let detachedRowTab = hasSeveralAgents
+            ? nestedAgentTabs.first { $0.item.id == rowAgentTabID && TaskStore.isDetachedChild($0.item) }?.item : nil
         let owners = TaskRowDetails.owningAgentLabels(rawLines)
         let nesting = TaskRowDetails.agentGroupNesting(rawLines)
         let hovered = hasSeveralAgents ? TaskRowDetails.hoveredAgentGroup(hoveredLines: hoveredLines, nesting: nesting) : nil
@@ -234,7 +237,8 @@ struct TaskRowView: View {
                         heldDevices: rowOwnsIcons
                             ? titleIcons.flatMap { $0.heldDevices.isEmpty ? nil : DeviceLeaseStore.summary($0.heldDevices) }
                             : taskLevelHeldDevices(),
-                        isRemoteControlled: titleIcons?.isRemoteControlled ?? false
+                        isRemoteControlled: titleIcons?.isRemoteControlled ?? false,
+                        detachedLabel: detachedRowTab.map { TitleStore.shared.chipTitle(for: $0) }
                     )
                     descriptionLine
                     ForEach(Array(lines.prefix(badgeLineCount)), id: \.offset) { index, line in
@@ -305,6 +309,10 @@ struct TaskRowView: View {
         .onChange(of: TaskRowDetails.headerCount(allLines) > AgentRowCap.limit) { _, isOverCap in
             if !isOverCap { showsAllAgents = false }
         }
+        // Hovered lines are indices, which a re-fold points at other lines.
+        .onChange(of: folded.hiddenTabIDs) { _, _ in
+            hoveredLines = []
+        }
         .onDisappear {
             watch([])
             pressMonitor.stop()
@@ -332,7 +340,13 @@ struct TaskRowView: View {
         watched.apply(change)
     }
 
-    private func title(heldDevices: String?, isRemoteControlled: Bool) -> some View {
+    /// A selected terminal keeps the last focused agent's group unfolded.
+    private var focusedAgentTabID: UUID? {
+        let selected = task.liveTabs.first { $0.id == task.selectedTabID }
+        return selected?.kind == .agent ? selected?.id : task.lastFocusedAgentTabID
+    }
+
+    private func title(heldDevices: String?, isRemoteControlled: Bool, detachedLabel: String?) -> some View {
         SidebarIconTitle(
             icon: icon,
             iconMinWidth: SidebarMetrics.taskIconMinWidth,
@@ -340,6 +354,9 @@ struct TaskRowView: View {
         ) {
             HStack(spacing: 4) {
                 titleText
+                if let detachedLabel {
+                    detachedMarker(label: detachedLabel)
+                }
                 if isRemoteControlled {
                     remoteControlIcon
                 }
@@ -348,6 +365,14 @@ struct TaskRowView: View {
                 }
             }
         }
+    }
+
+    private func detachedMarker(label: String) -> some View {
+        Image(systemName: "arrow.turn.down.right")
+            .font(.caption)
+            .emphasis(.secondary)
+            .help("Started by a session that is elsewhere")
+            .plumeID(AccessibilityID.taskAgentChildMarker, label: label, value: "detached")
     }
 
     private var remoteControlIcon: some View {
@@ -560,11 +585,7 @@ struct TaskRowView: View {
         let titleEmphasis = Self.agentTitleEmphasis(status: header.status, isEmphasized: isEmphasized)
         return HStack(spacing: 4) {
             if header.isDetachedChild {
-                Image(systemName: "arrow.turn.down.right")
-                    .font(.caption)
-                    .emphasis(.secondary)
-                    .help("Started by a session that is elsewhere")
-                    .plumeID(AccessibilityID.taskAgentChildMarker, label: header.label, value: "detached")
+                detachedMarker(label: header.label)
             } else if header.parentLabel != nil {
                 Image(systemName: "arrow.turn.down.right")
                     .font(.caption)

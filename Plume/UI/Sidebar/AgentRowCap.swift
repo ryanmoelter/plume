@@ -7,7 +7,7 @@ enum AgentRowCap {
 
     struct Layout: Equatable {
         let visibleCount: Int
-        /// Nil when everything fits, so no toggle shows.
+        /// Nil when folding would hide nothing, so no toggle shows.
         let toggleTitle: String?
         let toggleSymbol: String?
     }
@@ -31,10 +31,20 @@ enum AgentRowCap {
     /// agent's header, and the toggle counts only what it does hide.
     static func fold(_ lines: [TaskRowDetails.Line], isExpanded: Bool, focusedTabID: UUID?) -> Folded {
         let total = TaskRowDetails.headerCount(lines)
-        let unfolded = layout(total: total, isExpanded: isExpanded)
-        guard total > limit, !isExpanded else { return Folded(lines: lines, layout: unfolded, hiddenTabIDs: []) }
+        guard total > limit else {
+            return Folded(lines: lines, layout: layout(total: total, isExpanded: isExpanded), hiddenTabIDs: [])
+        }
         let folded = TaskRowDetails.lines(lines, keepingHeaders: limit, alsoKeeping: focusedTabID)
         let hidden = folded.hiddenTabIDs.count
+        if isExpanded {
+            let toggles = hidden > 0
+            let layout = Layout(
+                visibleCount: total,
+                toggleTitle: toggles ? "Show fewer" : nil,
+                toggleSymbol: toggles ? "chevron.up" : nil
+            )
+            return Folded(lines: lines, layout: layout, hiddenTabIDs: [])
+        }
         let layout = Layout(
             visibleCount: total - hidden,
             toggleTitle: hidden > 0 ? "Show \(hidden) more" : nil,
