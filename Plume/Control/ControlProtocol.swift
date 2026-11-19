@@ -59,6 +59,7 @@ nonisolated struct ControlServerRequest: Decodable {
         case "child-session.offer": command = .offerChildSession(try ChildSessionProposeParams(from: decoder))
         case "child-session.offers": command = .listChildSessionOffers(try ChildSessionProposalsParams(from: decoder))
         case "child-session.offer.answer": command = .answerChildSessionOffer(try ChildSessionOfferAnswerParams(from: decoder))
+        case "injectUsage": command = .injectUsage(try InjectUsageParams(from: decoder))
         default:
             throw DecodingError.dataCorruptedError(
                 forKey: .command, in: container, debugDescription: "unknown command \"\(name)\""
@@ -106,6 +107,7 @@ nonisolated enum ControlCommand {
     case offerChildSession(ChildSessionProposeParams)
     case listChildSessionOffers(ChildSessionProposalsParams)
     case answerChildSessionOffer(ChildSessionOfferAnswerParams)
+    case injectUsage(InjectUsageParams)
 }
 
 /// Sets the window's content size, in points. With `live`, the size steps
@@ -338,6 +340,21 @@ nonisolated enum TaskQuery {
         default: throw ControlError.badParams("\(partial.count) tasks match \"\(query)\"; pass an id")
         }
     }
+}
+
+/// A Fable window and a credit reading for the sidebar's quota row, as if the
+/// usage endpoint had reported them. Amounts are dollars; an omitted reading
+/// is cleared.
+nonisolated struct InjectUsageParams: Decodable, Equatable {
+    /// 0–1, like the stream's `utilization`.
+    var fable: Double?
+    var fableResetsInHours: Double?
+    var creditUsed: Double?
+    var creditLimit: Double?
+    var creditBalance: Double?
+    var isUsingOverage: Bool?
+    /// Sets the "Always show credit and Fable quota" setting.
+    var alwaysShow: Bool?
 }
 
 /// `matching` selects one span. `from` and `to` select from the start of

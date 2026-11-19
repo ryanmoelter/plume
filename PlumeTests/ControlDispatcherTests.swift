@@ -209,6 +209,10 @@ final class FakeControlBackend: ControlBackend {
             clock: "timer", startOffset: 0, endOffset: 0, distance: 0, timedOut: false, samples: [], worst: 0
         )
     }
+
+    func injectUsage(_ params: InjectUsageParams) throws {
+        try record("injectUsage")
+    }
 }
 
 /// What `appendTurn` refuses to write to, below the dispatcher, where no live

@@ -652,6 +652,34 @@ final class InProcessControlBackend: ControlBackend {
         try selectionResult(of: try chatListController())
     }
 
+    func injectUsage(_ params: InjectUsageParams) throws {
+        if let fable = params.fable, fable < 0 {
+            throw ControlError.badParams("fable is a 0–1 utilization")
+        }
+        let cents = { (dollars: Double?) in dollars.map { Int(($0 * 100).rounded()) } }
+        let fable = params.fable.map { utilization in
+            RateLimitInfo.Window(
+                utilization: utilization,
+                resetsAt: params.fableResetsInHours.map { Date().addingTimeInterval($0 * 3600) }
+            )
+        }
+        let hasCredit = params.creditUsed != nil || params.creditLimit != nil || params.creditBalance != nil
+        let credit = hasCredit
+            ? UsageCredit(
+                usedCents: cents(params.creditUsed),
+                limitCents: cents(params.creditLimit),
+                balanceCents: cents(params.creditBalance),
+                isEnabled: true,
+                currency: "USD"
+            )
+            : nil
+        ClaudeUsagePoller.shared.isSuspended = true
+        QuotaStore.shared.inject(fable: fable, credit: credit, isUsingOverage: params.isUsingOverage)
+        if let alwaysShow = params.alwaysShow {
+            AppSettings.shared.alwaysShowsCreditAndFableQuota = alwaysShow
+        }
+    }
+
     func selectText(_ params: SelectTextParams) throws -> SelectionResult {
         let controller = try chatListController()
         let from = params.matching ?? params.from
