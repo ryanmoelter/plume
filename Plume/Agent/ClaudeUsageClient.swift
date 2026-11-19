@@ -135,7 +135,9 @@ nonisolated enum ClaudeCredentials {
         let modifiedAt: Date?
     }
 
-    static func serviceName(environment: [String: String] = ProcessInfo.processInfo.environment) -> String {
+    /// The item a config directory set in Plume's own environment names, or
+    /// nil with none set.
+    static func configuredServiceName(environment: [String: String] = ProcessInfo.processInfo.environment) -> String? {
         let configDir: String?
         if let secure = environment["CLAUDE_SECURESTORAGE_CONFIG_DIR"] {
             configDir = secure.isEmpty ? nil : secure
@@ -144,7 +146,9 @@ nonisolated enum ClaudeCredentials {
         } else {
             configDir = nil
         }
-        guard let configDir else { return servicePrefix }
+        guard let configDir else {
+            return environment["CLAUDE_SECURESTORAGE_CONFIG_DIR"] != nil ? servicePrefix : nil
+        }
         let digest = SHA256.hash(data: Data(configDir.precomposedStringWithCanonicalMapping.utf8))
         let hex = digest.map { String(format: "%02x", $0) }.joined()
         return "\(servicePrefix)-\(hex.prefix(8))"
@@ -157,13 +161,14 @@ nonisolated enum ClaudeCredentials {
             : "claude-code-user"
     }
 
-    /// The item this process's own config would use, else the default
-    /// config's, else the most recently written one. Reading an item's
+    /// The item Plume's own environment names, else the most recently
+    /// written one. The CLI rewrites its item on every token refresh, so the
+    /// newest tracks the login in use; a `CLAUDE_CONFIG_DIR` set only in a
+    /// shell never reaches an app opened from Finder. Reading an item's
     /// contents is what prompts, so only the chosen one is read.
-    static func choose(from items: [Item], preferredService: String, account: String) -> Item? {
+    static func choose(from items: [Item], configuredService: String?, account: String) -> Item? {
         let mine = items.filter { $0.account == account && $0.service.hasPrefix(servicePrefix) }
-        if let exact = mine.first(where: { $0.service == preferredService }) { return exact }
-        if let plain = mine.first(where: { $0.service == servicePrefix }) { return plain }
+        if let configuredService, let exact = mine.first(where: { $0.service == configuredService }) { return exact }
         return mine.max { ($0.modifiedAt ?? .distantPast) < ($1.modifiedAt ?? .distantPast) }
     }
 
@@ -189,7 +194,7 @@ nonisolated enum ClaudeCredentials {
     }
 
     static func read() -> Read {
-        guard let item = choose(from: items(), preferredService: serviceName(), account: accountName()) else { return .missing }
+        guard let item = choose(from: items(), configuredService: configuredServiceName(), account: accountName()) else { return .missing }
         let query: [String: Any] = [
             kSecClass as String: kSecClassGenericPassword,
             kSecAttrService as String: item.service,

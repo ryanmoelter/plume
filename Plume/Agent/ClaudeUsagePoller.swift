@@ -64,9 +64,12 @@ final class ClaudeUsagePoller {
     static let debugOptInKey = "PlumeClaudeUsagePollInDebug"
 
     private let store: QuotaStore
-    private let client: ClaudeUsageClient
+    private let fetch: @Sendable (Date) async -> ClaudeUsageFetchResult
     private let settings: AppSettings
     private var loop: Task<Void, Never>?
+    /// Bumped by `stop`, so a reply to a request sent before it is dropped.
+    private var generation = 0
+    private var isFetching = false
     private var lastAttempt: Date?
     private var lastOutcome: ClaudeUsagePollOutcome = .success
     private var consecutiveFailures = 0
@@ -75,10 +78,14 @@ final class ClaudeUsagePoller {
     var isSuspended = false
 #endif
 
-    init(store: QuotaStore = .shared, client: ClaudeUsageClient = ClaudeUsageClient(), settings: AppSettings = .shared) {
+    init(
+        store: QuotaStore = .shared,
+        settings: AppSettings = .shared,
+        fetch: @escaping @Sendable (Date) async -> ClaudeUsageFetchResult = { await ClaudeUsageClient().fetch(now: $0) }
+    ) {
         self.store = store
-        self.client = client
         self.settings = settings
+        self.fetch = fetch
     }
 
     func start() {
@@ -94,6 +101,7 @@ final class ClaudeUsagePoller {
     func stop() {
         loop?.cancel()
         loop = nil
+        generation += 1
     }
 
     /// The Settings toggle: turning it on clears a declined Keychain prompt
@@ -101,7 +109,10 @@ final class ClaudeUsagePoller {
     func setEnabled(_ enabled: Bool) {
         settings.readsClaudeUsage = enabled
         stop()
-        guard enabled else { return }
+        guard enabled else {
+            store.forgetEndpointReadings()
+            return
+        }
         lastAttempt = nil
         consecutiveFailures = 0
         lastOutcome = .success
@@ -132,16 +143,22 @@ final class ClaudeUsagePoller {
         guard !isSuspended else { return }
 #endif
         let sentAt = Date()
-        guard isDue(now: sentAt) else { return }
+        // A request still in flight from before a toggle holds the slot, so
+        // turning polling off and on never runs two at once.
+        guard settings.readsClaudeUsage, !isFetching, isDue(now: sentAt) else { return }
         lastAttempt = sentAt
-        let result: ClaudeUsageFetchResult = await client.fetch(now: sentAt)
+        isFetching = true
+        let sentGeneration = generation
+        let result = await fetch(sentAt)
+        isFetching = false
 #if DEBUG
         guard !isSuspended else { return }
 #endif
+        guard sentGeneration == generation, settings.readsClaudeUsage else { return }
         apply(result, sentAt: sentAt)
     }
 
-    func apply(_ result: ClaudeUsageFetchResult, sentAt: Date) {
+    private func apply(_ result: ClaudeUsageFetchResult, sentAt: Date) {
         switch result {
         case .reading(let reading):
             consecutiveFailures = 0
@@ -160,6 +177,7 @@ final class ClaudeUsagePoller {
             Log.agent.info("Claude usage polling turned off: Keychain access to the CLI's login was declined")
             settings.readsClaudeUsage = false
             stop()
+            store.forgetEndpointReadings()
         }
     }
 }

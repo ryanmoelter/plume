@@ -1,5 +1,6 @@
 import Foundation
 import Security
+import Synchronization
 import Testing
 @testable import Plume
 
@@ -282,11 +283,7 @@ struct ClaudeUsageTests {
         defer { defaults.removePersistentDomain(forName: suite) }
         let settings = AppSettings(defaults: defaults, domainName: suite)
         #expect(settings.readsClaudeUsage)
-        let poller = ClaudeUsagePoller(
-            store: QuotaStore(),
-            client: ClaudeUsageClient(readCredentials: { .denied }),
-            settings: settings
-        )
+        let poller = ClaudeUsagePoller(store: QuotaStore(), settings: settings, fetch: { _ in .credentialsDenied })
 
         await poller.pollIfDue()
         #expect(!settings.readsClaudeUsage)
@@ -297,15 +294,15 @@ struct ClaudeUsageTests {
     }
 
     @Test func keychainServiceFollowsTheConfigDirectory() {
-        #expect(ClaudeCredentials.serviceName(environment: [:]) == "Claude Code-credentials")
-        #expect(ClaudeCredentials.serviceName(environment: ["CLAUDE_CONFIG_DIR": ""]) == "Claude Code-credentials")
+        #expect(ClaudeCredentials.configuredServiceName(environment: [:]) == nil)
+        #expect(ClaudeCredentials.configuredServiceName(environment: ["CLAUDE_CONFIG_DIR": ""]) == nil)
         // sha256("/Users/me/.claude-work") begins 1e91dd84.
         let work = "Claude Code-credentials-1e91dd84"
-        #expect(ClaudeCredentials.serviceName(environment: ["CLAUDE_CONFIG_DIR": "/Users/me/.claude-work"]) == work)
-        #expect(ClaudeCredentials.serviceName(environment: [
+        #expect(ClaudeCredentials.configuredServiceName(environment: ["CLAUDE_CONFIG_DIR": "/Users/me/.claude-work"]) == work)
+        #expect(ClaudeCredentials.configuredServiceName(environment: [
             "CLAUDE_CONFIG_DIR": "/elsewhere", "CLAUDE_SECURESTORAGE_CONFIG_DIR": "/Users/me/.claude-work",
         ]) == work)
-        #expect(ClaudeCredentials.serviceName(environment: [
+        #expect(ClaudeCredentials.configuredServiceName(environment: [
             "CLAUDE_CONFIG_DIR": "/elsewhere", "CLAUDE_SECURESTORAGE_CONFIG_DIR": "",
         ]) == "Claude Code-credentials")
         #expect(ClaudeCredentials.accountName(environment: ["USER": "ryan"]) == "ryan")
@@ -321,10 +318,14 @@ struct ClaudeUsageTests {
         let staging = Item(service: "Claude Code-local-oauth-credentials", account: "ryan", modifiedAt: start.addingTimeInterval(240))
         let all = [stranger, staging, other, plain, work]
 
-        #expect(ClaudeCredentials.choose(from: all, preferredService: work.service, account: "ryan") == work)
-        #expect(ClaudeCredentials.choose(from: all, preferredService: "Claude Code-credentials-ffffffff", account: "ryan") == plain)
-        #expect(ClaudeCredentials.choose(from: [work, other, staging], preferredService: plain.service, account: "ryan") == other)
-        #expect(ClaudeCredentials.choose(from: [stranger, staging], preferredService: plain.service, account: "ryan") == nil)
+        #expect(ClaudeCredentials.choose(from: all, configuredService: work.service, account: "ryan") == work)
+        #expect(ClaudeCredentials.choose(from: all, configuredService: plain.service, account: "ryan") == plain)
+        // Nothing configured, or a configured item that doesn't exist: the
+        // newest write wins, plain item or not.
+        #expect(ClaudeCredentials.choose(from: all, configuredService: nil, account: "ryan") == other)
+        #expect(ClaudeCredentials.choose(from: all, configuredService: "Claude Code-credentials-ffffffff", account: "ryan") == other)
+        #expect(ClaudeCredentials.choose(from: [plain, work], configuredService: nil, account: "ryan") == work)
+        #expect(ClaudeCredentials.choose(from: [stranger, staging], configuredService: nil, account: "ryan") == nil)
     }
 
     @Test func aHugeAmountParsesAsUnknown() throws {
@@ -412,6 +413,91 @@ struct ClaudeUsageTests {
     }
 #endif
 
+    @Test func aReplyFromBeforePollingWasTurnedOffIsDropped() async throws {
+        let (settings, cleanup) = try scratchSettings()
+        defer { cleanup() }
+        let store = QuotaStore()
+        let gate = FetchGate()
+        let poller = ClaudeUsagePoller(store: store, settings: settings, fetch: { _ in await gate.fetch() })
+
+        let poll = Task { await poller.pollIfDue() }
+        await gate.waitForRequest()
+        poller.setEnabled(false)
+        gate.resume(.reading(ClaudeUsageReading(fable: window(0.3), credit: UsageCredit(usedCents: 1240))))
+        await poll.value
+
+        #expect(store.snapshot == nil)
+    }
+
+    @Test func aStaleDenialCannotTurnPollingBackOff() async throws {
+        let (settings, cleanup) = try scratchSettings()
+        defer { cleanup() }
+        let gate = FetchGate()
+        let poller = ClaudeUsagePoller(store: QuotaStore(), settings: settings, fetch: { _ in await gate.fetch() })
+
+        let poll = Task { await poller.pollIfDue() }
+        await gate.waitForRequest()
+        poller.setEnabled(false)
+        poller.setEnabled(true)
+        await poller.pollIfDue()
+        #expect(gate.requests == 1)
+
+        gate.resume(.credentialsDenied)
+        await poll.value
+        #expect(settings.readsClaudeUsage)
+    }
+
+    @Test func turningPollingOffForgetsOnlyTheEndpointsReadings() throws {
+        let suite = "ClaudeUsageTests-\(UUID().uuidString)"
+        let defaults = try #require(UserDefaults(suiteName: suite))
+        defer { defaults.removePersistentDomain(forName: suite) }
+        let store = QuotaStore(defaults: defaults)
+        store.record(ClaudeUsageReading(fable: window(0.3), credit: UsageCredit(usedCents: 1240)), at: start)
+        store.forgetEndpointReadings()
+        #expect(store.snapshot?.rateLimit.fable == nil)
+        #expect(store.snapshot?.credit == nil)
+
+        store.record(streamInfo(fable: 0.4), at: start.addingTimeInterval(60))
+        store.record(ClaudeUsageReading(fable: nil, credit: UsageCredit(usedCents: 1240)), at: start)
+        store.forgetEndpointReadings()
+        #expect(store.snapshot?.rateLimit.fable?.utilization == 0.4)
+        #expect(store.snapshot?.credit == nil)
+
+        let saved = try #require(defaults.data(forKey: QuotaStore.defaultsKey))
+        let persisted = try JSONDecoder().decode(QuotaSnapshot.self, from: saved)
+        #expect(persisted.credit == nil)
+        #expect(persisted.rateLimit.fable?.utilization == 0.4)
+    }
+
+    @Test func aReplyWithoutCreditOrFableClearsThem() {
+        let store = QuotaStore()
+        store.record(ClaudeUsageReading(fable: window(0.3), credit: UsageCredit(usedCents: 1240)), at: start)
+
+        store.record(ClaudeUsageReading(fable: window(0.3), credit: UsageCredit(usedCents: 1240, isEnabled: false)), at: start.addingTimeInterval(60))
+        #expect(store.snapshot?.credit == nil)
+        #expect(store.snapshot?.creditReceivedAt == nil)
+
+        store.record(ClaudeUsageReading(credit: UsageCredit(usedCents: 1240)), at: start.addingTimeInterval(120))
+        #expect(store.snapshot?.rateLimit.fable == nil)
+        #expect(store.snapshot?.credit?.usedCents == 1240)
+
+        store.record(ClaudeUsageReading(), at: start.addingTimeInterval(180))
+        #expect(store.snapshot?.credit == nil)
+    }
+
+    @Test func aReplyWithoutFableKeepsANewerStreamReading() {
+        let store = QuotaStore()
+        store.record(streamInfo(fable: 0.4), at: start.addingTimeInterval(10))
+        store.record(ClaudeUsageReading(), at: start)
+        #expect(store.snapshot?.rateLimit.fable?.utilization == 0.4)
+    }
+
+    private func scratchSettings() throws -> (AppSettings, () -> Void) {
+        let suite = "ClaudeUsageTests-\(UUID().uuidString)"
+        let defaults = try #require(UserDefaults(suiteName: suite))
+        return (AppSettings(defaults: defaults, domainName: suite), { defaults.removePersistentDomain(forName: suite) })
+    }
+
     // MARK: Sidebar
 
     @Test func extrasShowOnlyOnceTheyApply() {
@@ -429,7 +515,7 @@ struct ClaudeUsageTests {
         credit.credit = UsageCredit(usedCents: 0, limitCents: 5000)
         #expect(!SidebarQuotaExtras(snapshot: credit, alwaysShows: false, now: start).showsCredit)
         credit.credit = UsageCredit(usedCents: 1240, limitCents: nil)
-        #expect(!SidebarQuotaExtras(snapshot: credit, alwaysShows: false, now: start).showsCredit)
+        #expect(SidebarQuotaExtras(snapshot: credit, alwaysShows: false, now: start).showsCredit)
         credit.credit = UsageCredit(usedCents: 1240, limitCents: 5000)
         #expect(SidebarQuotaExtras(snapshot: credit, alwaysShows: false, now: start).showsCredit)
 
@@ -507,5 +593,30 @@ struct ClaudeUsageTests {
         #expect(ClaudeUsagePollSchedule.delay(after: .failed, consecutiveFailures: 2, isOverLimit: false) == 40 * 60)
         #expect(ClaudeUsagePollSchedule.delay(after: .failed, consecutiveFailures: 3, isOverLimit: false) == 60 * 60)
         #expect(ClaudeUsagePollSchedule.delay(after: .failed, consecutiveFailures: 50, isOverLimit: false) == 60 * 60)
+    }
+}
+
+/// A usage fetch the test answers by hand, so a reply can land after the
+/// poller's state has moved on.
+private nonisolated final class FetchGate: Sendable {
+    private let state = Mutex<(requests: Int, pending: [CheckedContinuation<ClaudeUsageFetchResult, Never>])>((0, []))
+
+    var requests: Int { state.withLock { $0.requests } }
+
+    func fetch() async -> ClaudeUsageFetchResult {
+        await withCheckedContinuation { continuation in
+            state.withLock {
+                $0.requests += 1
+                $0.pending.append(continuation)
+            }
+        }
+    }
+
+    func waitForRequest() async {
+        while state.withLock({ $0.pending.isEmpty }) { await Task.yield() }
+    }
+
+    func resume(_ result: ClaudeUsageFetchResult) {
+        state.withLock { $0.pending.removeFirst() }.resume(returning: result)
     }
 }

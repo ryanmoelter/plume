@@ -54,9 +54,11 @@ final class QuotaStore {
         next.creditReceivedAt = previous?.creditReceivedAt
         if let fable = rateLimit.fable {
             next = next.with(fable: fable, receivedAt: date)
+            next.fableSource = .stream
         } else if let previous {
             // Only a Fable turn reports the Fable window.
             next = next.with(fable: previous.rateLimit.fable, receivedAt: previous.fableReceivedAt)
+            next.fableSource = previous.fableSource
         }
 #if DEBUG
         if hasWindows { injection?.overridesOverage = false }
@@ -69,15 +71,31 @@ final class QuotaStore {
     /// does: the credit spend, and the Fable window between Fable turns.
     /// `date` is when the request was sent, so a stream reading that arrives
     /// while it is in flight is newer than the reply.
+    ///
+    /// A reply without a Fable row or with no enabled credit clears that
+    /// reading: the endpoint answers for the whole account, so absence is an
+    /// answer.
     func record(_ usage: ClaudeUsageReading, at date: Date = Date()) {
-        guard usage.fable != nil || usage.credit != nil else { return }
+        let credit = usage.credit?.isEnabled == false ? nil : usage.credit
+        guard snapshot != nil || usage.fable != nil || credit != nil else { return }
         var next = snapshot ?? .empty(at: date)
-        if let fable = usage.fable, next.fableHeardAt <= date {
-            next = next.with(fable: fable, receivedAt: date)
+        if next.fableHeardAt <= date {
+            next = next.with(fable: usage.fable, receivedAt: date)
+            next.fableSource = usage.fable == nil ? nil : .endpoint
         }
-        if let credit = usage.credit {
-            next.credit = credit
-            next.creditReceivedAt = date
+        next.credit = credit
+        next.creditReceivedAt = credit == nil ? nil : date
+        persist(next)
+    }
+
+    /// Drops what only the usage endpoint reports, for when reading it is
+    /// turned off. A Fable window the stream reported stays.
+    func forgetEndpointReadings() {
+        guard var next = snapshot else { return }
+        next.credit = nil
+        next.creditReceivedAt = nil
+        if next.fableSource == .endpoint {
+            next = next.with(fable: nil, receivedAt: nil)
         }
         persist(next)
     }
@@ -126,6 +144,7 @@ final class QuotaStore {
             ),
             receivedAt: snapshot.receivedAt
         ).with(fable: baseline?.rateLimit.fable, receivedAt: baseline?.fableReceivedAt)
+        real.fableSource = baseline?.fableSource
         real.credit = baseline?.credit
         real.creditReceivedAt = baseline?.creditReceivedAt
         return real
@@ -210,6 +229,13 @@ enum QuotaPersistence {
     }
 }
 
+/// Where the Fable window came from. Only the endpoint's needs Claude Code's
+/// login, so only it goes when reading with that login is turned off.
+enum FableSource: String, Codable {
+    case stream
+    case endpoint
+}
+
 struct QuotaSnapshot: Equatable, Codable {
     let rateLimit: RateLimitInfo
     /// When the 5h and 7d windows were heard.
@@ -217,6 +243,7 @@ struct QuotaSnapshot: Equatable, Codable {
     /// When `rateLimit.fable` was heard, which can be later than
     /// `receivedAt`: the usage endpoint reports it between turns.
     var fableReceivedAt: Date?
+    var fableSource: FableSource?
     var credit: UsageCredit?
     var creditReceivedAt: Date?
 
@@ -252,6 +279,7 @@ struct QuotaSnapshot: Equatable, Codable {
             ),
             receivedAt: receivedAt,
             fableReceivedAt: fable == nil ? nil : fableDate,
+            fableSource: fable == nil ? nil : fableSource,
             credit: credit,
             creditReceivedAt: creditReceivedAt
         )
@@ -286,6 +314,7 @@ struct QuotaSnapshot: Equatable, Codable {
             ),
             receivedAt: receivedAt,
             fableReceivedAt: fableReceivedAt,
+            fableSource: fableSource,
             credit: creditPeriodEnded ? nil : credit,
             creditReceivedAt: creditPeriodEnded ? nil : creditReceivedAt
         )

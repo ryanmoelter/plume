@@ -344,7 +344,8 @@ nonisolated enum TaskQuery {
 
 /// A Fable window and a credit reading for the sidebar's quota row, as if the
 /// usage endpoint had reported them. Amounts are dollars; an omitted reading
-/// is cleared.
+/// is cleared. The readings never reach disk, but `alwaysShow` sets the real,
+/// persisted setting.
 nonisolated struct InjectUsageParams: Decodable, Equatable {
     /// 0–1, like the stream's `utilization`.
     var fable: Double?
@@ -353,7 +354,7 @@ nonisolated struct InjectUsageParams: Decodable, Equatable {
     var creditLimit: Double?
     var creditBalance: Double?
     var isUsingOverage: Bool?
-    /// Sets the "Always show credit and Fable quota" setting.
+    /// Sets the persisted "Always show credit and Fable quota" setting.
     var alwaysShow: Bool?
 
     func validate() throws {

@@ -229,7 +229,7 @@ struct SidebarQuotaExtras: Equatable {
         let isSpendingOverage = snapshot.rateLimit.isUsingOverage
             && now.timeIntervalSince(snapshot.receivedAt) <= ClaudeUsagePollSchedule.overLimitReadingMaxAge
         if isSpendingOverage { return true }
-        return credit.limitCents != nil && (credit.usedCents ?? 0) > 0
+        return (credit.usedCents ?? 0) > 0
     }
 }
 
