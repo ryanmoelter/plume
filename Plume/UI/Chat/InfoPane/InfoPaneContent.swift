@@ -69,14 +69,7 @@ struct InfoPaneContent: View, ThemedView {
     @ViewBuilder
     private func section(_ section: InfoPaneSection) -> some View {
         switch section {
-        case .parentSession:
-            if let parent = facts.parentSession {
-                InfoPaneSessionRow(
-                    session: parent,
-                    caption: parent.parentCaption,
-                    accessibilityID: AccessibilityID.infoPaneParentSessionRow
-                ) { onSelectTab(parent.id) }
-            }
+        case .parentSession: parentSession
         case .childSessions: childSessions
         case .subagents: subagents
         case .backgroundTasks: backgroundTasks
@@ -102,6 +95,38 @@ struct InfoPaneContent: View, ThemedView {
             )
         case .linearIssues:
             LinearIssuesSection(linear: facts.linear, actions: linearActions, showsMentioned: $showsMentionedLinearIssues)
+        }
+    }
+
+    // MARK: Parent session
+
+    @ViewBuilder
+    private var parentSession: some View {
+        if let parent = facts.parentSession {
+            let isExpanded = settings.infoPaneParentSessionExpanded
+            InfoPaneBracketedSection(isExpanded: isExpanded) {
+                InfoPaneSectionHeader(
+                    title: "Parent Session",
+                    icon: .symbol("arrow.turn.left.up"),
+                    isExpanded: isExpanded,
+                    accessibilityID: AccessibilityID.infoPaneParentSessionToggle
+                ) {
+                    withAnimation(InfoPaneLayout.sectionAnimation) { settings.infoPaneParentSessionExpanded.toggle() }
+                } accessory: {
+                    if !isExpanded {
+                        StatusGlyphs(glyphs: [StatusGlyphs.Glyph(parent)])
+                            .layoutPriority(1)
+                    }
+                }
+            } rows: {
+                if isExpanded {
+                    InfoPaneSessionRow(
+                        session: parent,
+                        caption: parent.caption,
+                        accessibilityID: AccessibilityID.infoPaneParentSessionRow
+                    ) { onSelectTab(parent.id) }
+                }
+            }
         }
     }
 

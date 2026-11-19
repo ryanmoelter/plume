@@ -399,6 +399,7 @@ enum AccessibilityID {
     static let infoPaneSessionsToggle = "info-pane-sessions-toggle"
     static let infoPaneChildSessionRow = "info-pane-child-session-row"
     static let infoPaneParentSessionRow = "info-pane-parent-session-row"
+    static let infoPaneParentSessionToggle = "info-pane-parent-session-toggle"
     static let infoPanePlanRow = "info-pane-plan-row"
     static let infoPaneSideChatRow = "info-pane-side-chat-row"
     static let infoPaneRemoteControlMenu = "info-pane-remote-control-menu"

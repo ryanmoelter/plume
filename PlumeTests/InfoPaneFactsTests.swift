@@ -17,7 +17,6 @@ struct InfoPaneFactsTests {
 
         #expect(working.caption == "Working")
         #expect(elsewhere.caption == "Working · fix-login")
-        #expect(elsewhere.parentCaption == "Parent session · Working · fix-login")
     }
 
     @Test func theParentSessionLeadsTheChildSessionsAndStaysOutOfTheCollapsedRow() {

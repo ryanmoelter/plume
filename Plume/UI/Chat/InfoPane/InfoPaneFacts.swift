@@ -114,8 +114,6 @@ struct InfoPaneFacts: Equatable {
         var caption: String {
             [status.label, branch].compactMap(\.self).joined(separator: " · ")
         }
-
-        var parentCaption: String { "Parent session · \(caption)" }
     }
 
     var tabID: UUID
