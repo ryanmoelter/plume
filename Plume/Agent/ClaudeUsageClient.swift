@@ -1,3 +1,4 @@
+import CryptoKit
 import Foundation
 import OSLog
 import Security
@@ -96,7 +97,7 @@ nonisolated enum ClaudeUsageParser {
     }
 
     private static func cents(_ value: JSONValue?) -> Int? {
-        value?.doubleValue.map { Int($0.rounded()) }
+        value?.doubleValue.flatMap { Int(exactly: $0.rounded()) }
     }
 
     private static func date(_ value: JSONValue?) -> Date? {
@@ -113,8 +114,14 @@ nonisolated enum ClaudeUsageParser {
 /// Claude Code's OAuth login, read from its Keychain item. Read-only: the
 /// refresh token is single-use, so refreshing here would race the CLI and
 /// log it out.
+///
+/// The CLI names the item `Claude Code-credentials`, plus `-` and the first 8
+/// hex digits of the SHA-256 of its config directory when
+/// `CLAUDE_CONFIG_DIR` (or `CLAUDE_SECURESTORAGE_CONFIG_DIR`) is set, under
+/// the account `$USER`. Each config directory a user has signed in from
+/// leaves its own item.
 nonisolated enum ClaudeCredentials {
-    static let service = "Claude Code-credentials"
+    static let servicePrefix = "Claude Code-credentials"
 
     enum Read: Equatable {
         case token(String, expiresAt: Date?)
@@ -122,21 +129,71 @@ nonisolated enum ClaudeCredentials {
         case denied
     }
 
-    /// Asks for attributes only, which never prompts.
-    static func exist() -> Bool {
+    struct Item: Equatable {
+        let service: String
+        let account: String
+        let modifiedAt: Date?
+    }
+
+    static func serviceName(environment: [String: String] = ProcessInfo.processInfo.environment) -> String {
+        let configDir: String?
+        if let secure = environment["CLAUDE_SECURESTORAGE_CONFIG_DIR"] {
+            configDir = secure.isEmpty ? nil : secure
+        } else if let dir = environment["CLAUDE_CONFIG_DIR"], !dir.isEmpty {
+            configDir = dir
+        } else {
+            configDir = nil
+        }
+        guard let configDir else { return servicePrefix }
+        let digest = SHA256.hash(data: Data(configDir.precomposedStringWithCanonicalMapping.utf8))
+        let hex = digest.map { String(format: "%02x", $0) }.joined()
+        return "\(servicePrefix)-\(hex.prefix(8))"
+    }
+
+    static func accountName(environment: [String: String] = ProcessInfo.processInfo.environment) -> String {
+        let name = environment["USER"].flatMap { $0.isEmpty ? nil : $0 } ?? NSUserName()
+        return name.allSatisfy { $0.isASCII && ($0.isLetter || $0.isNumber || "._-".contains($0)) } && !name.isEmpty
+            ? name
+            : "claude-code-user"
+    }
+
+    /// The item this process's own config would use, else the default
+    /// config's, else the most recently written one. Reading an item's
+    /// contents is what prompts, so only the chosen one is read.
+    static func choose(from items: [Item], preferredService: String, account: String) -> Item? {
+        let mine = items.filter { $0.account == account && $0.service.hasPrefix(servicePrefix) }
+        if let exact = mine.first(where: { $0.service == preferredService }) { return exact }
+        if let plain = mine.first(where: { $0.service == servicePrefix }) { return plain }
+        return mine.max { ($0.modifiedAt ?? .distantPast) < ($1.modifiedAt ?? .distantPast) }
+    }
+
+    /// Attributes only, which never prompts.
+    static func items() -> [Item] {
         let query: [String: Any] = [
             kSecClass as String: kSecClassGenericPassword,
-            kSecAttrService as String: service,
-            kSecMatchLimit as String: kSecMatchLimitOne,
+            kSecMatchLimit as String: kSecMatchLimitAll,
             kSecReturnAttributes as String: true,
         ]
-        return SecItemCopyMatching(query as CFDictionary, nil) == errSecSuccess
+        var result: CFTypeRef?
+        guard SecItemCopyMatching(query as CFDictionary, &result) == errSecSuccess,
+              let rows = result as? [[String: Any]]
+        else { return [] }
+        return rows.compactMap { row in
+            guard let service = row[kSecAttrService as String] as? String, service.hasPrefix(servicePrefix) else { return nil }
+            return Item(
+                service: service,
+                account: row[kSecAttrAccount as String] as? String ?? "",
+                modifiedAt: row[kSecAttrModificationDate as String] as? Date
+            )
+        }
     }
 
     static func read() -> Read {
+        guard let item = choose(from: items(), preferredService: serviceName(), account: accountName()) else { return .missing }
         let query: [String: Any] = [
             kSecClass as String: kSecClassGenericPassword,
-            kSecAttrService as String: service,
+            kSecAttrService as String: item.service,
+            kSecAttrAccount as String: item.account,
             kSecMatchLimit as String: kSecMatchLimitOne,
             kSecReturnData as String: true,
         ]
@@ -186,9 +243,7 @@ nonisolated struct ClaudeUsageClient: Sendable {
     static let endpoint = URL(string: "https://api.anthropic.com/api/oauth/usage")!
 
     var session: URLSession = .shared
-    var readCredentials: @Sendable () -> ClaudeCredentials.Read = {
-        ClaudeCredentials.exist() ? ClaudeCredentials.read() : .missing
-    }
+    var readCredentials: @Sendable () -> ClaudeCredentials.Read = { ClaudeCredentials.read() }
 
     private static let loggedShape = Mutex(false)
 
@@ -236,15 +291,38 @@ nonisolated struct ClaudeUsageClient: Sendable {
         return formatter.date(from: header).map { max($0.timeIntervalSince(now), 0) }
     }
 
-    /// The endpoint is undocumented; one body per launch in the debug log is
-    /// what lets the parser be corrected when the shape moves.
+    /// The endpoint is undocumented; its shape once per launch in the debug
+    /// log is what lets the parser be corrected when it moves. Values stay
+    /// out: they are the account's spend.
     private func logShapeOnce(_ data: Data) {
         let first = Self.loggedShape.withLock { logged in
             defer { logged = true }
             return !logged
         }
         guard first else { return }
-        let body = String(data: data, encoding: .utf8) ?? "<\(data.count) bytes>"
-        Log.agent.debug("Claude usage endpoint answered: \(body, privacy: .public)")
+        guard let root = try? JSONDecoder().decode(JSONValue.self, from: data) else { return }
+        let shape = Self.shape(of: root)
+        Log.agent.debug("Claude usage endpoint answered: \(shape, privacy: .public)")
+    }
+
+    /// Keys and value types, with an array shown as the union of its
+    /// elements' shapes.
+    static func shape(of value: JSONValue) -> String {
+        switch value {
+        case .string: return "string"
+        case .number: return "number"
+        case .bool: return "bool"
+        case .null: return "null"
+        case .object(let object):
+            let fields = object.keys.sorted().map { "\($0):\(shape(of: object[$0]!))" }
+            return "{\(fields.joined(separator: ","))}"
+        case .array(let elements):
+            var seen: [String] = []
+            for element in elements {
+                let item = shape(of: element)
+                if !seen.contains(item) { seen.append(item) }
+            }
+            return "[\(seen.joined(separator: "|"))]"
+        }
     }
 }

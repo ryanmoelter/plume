@@ -65,6 +65,7 @@ final class ClaudeUsagePoller {
 
     private let store: QuotaStore
     private let client: ClaudeUsageClient
+    private let settings: AppSettings
     private var loop: Task<Void, Never>?
     private var lastAttempt: Date?
     private var lastOutcome: ClaudeUsagePollOutcome = .success
@@ -74,13 +75,14 @@ final class ClaudeUsagePoller {
     var isSuspended = false
 #endif
 
-    init(store: QuotaStore = .shared, client: ClaudeUsageClient = ClaudeUsageClient()) {
+    init(store: QuotaStore = .shared, client: ClaudeUsageClient = ClaudeUsageClient(), settings: AppSettings = .shared) {
         self.store = store
         self.client = client
+        self.settings = settings
     }
 
     func start() {
-        guard loop == nil, Self.shouldPoll() else { return }
+        guard loop == nil, settings.readsClaudeUsage, Self.shouldPoll() else { return }
         loop = Task { [weak self] in
             while !Task.isCancelled {
                 await self?.pollIfDue()
@@ -92,6 +94,18 @@ final class ClaudeUsagePoller {
     func stop() {
         loop?.cancel()
         loop = nil
+    }
+
+    /// The Settings toggle: turning it on clears a declined Keychain prompt
+    /// and polls straight away.
+    func setEnabled(_ enabled: Bool) {
+        settings.readsClaudeUsage = enabled
+        stop()
+        guard enabled else { return }
+        lastAttempt = nil
+        consecutiveFailures = 0
+        lastOutcome = .success
+        start()
     }
 
     private static func shouldPoll() -> Bool {
@@ -113,7 +127,7 @@ final class ClaudeUsagePoller {
         return now.timeIntervalSince(lastAttempt) >= delay
     }
 
-    private func pollIfDue() async {
+    func pollIfDue() async {
 #if DEBUG
         guard !isSuspended else { return }
 #endif
@@ -127,7 +141,7 @@ final class ClaudeUsagePoller {
         apply(result, sentAt: sentAt)
     }
 
-    private func apply(_ result: ClaudeUsageFetchResult, sentAt: Date) {
+    func apply(_ result: ClaudeUsageFetchResult, sentAt: Date) {
         switch result {
         case .reading(let reading):
             consecutiveFailures = 0
@@ -143,7 +157,8 @@ final class ClaudeUsagePoller {
             consecutiveFailures = 0
             lastOutcome = .skipped
         case .credentialsDenied:
-            Log.agent.info("Claude usage polling stopped: Keychain access to the CLI's login was declined")
+            Log.agent.info("Claude usage polling turned off: Keychain access to the CLI's login was declined")
+            settings.readsClaudeUsage = false
             stop()
         }
     }

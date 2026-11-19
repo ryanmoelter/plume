@@ -653,10 +653,8 @@ final class InProcessControlBackend: ControlBackend {
     }
 
     func injectUsage(_ params: InjectUsageParams) throws {
-        if let fable = params.fable, fable < 0 {
-            throw ControlError.badParams("fable is a 0–1 utilization")
-        }
-        let cents = { (dollars: Double?) in dollars.map { Int(($0 * 100).rounded()) } }
+        try params.validate()
+        let cents = InjectUsageParams.cents
         let fable = params.fable.map { utilization in
             RateLimitInfo.Window(
                 utilization: utilization,

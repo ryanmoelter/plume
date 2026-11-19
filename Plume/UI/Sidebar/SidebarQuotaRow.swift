@@ -32,30 +32,37 @@ struct SidebarQuotaRow: View, ThemedView {
         let rowIsStale = snapshot.map {
             QuotaFreshness.isStale(receivedAt: $0.lastHeardAt, now: quota.now)
         } ?? false
-        let extras = SidebarQuotaExtras(snapshot: snapshot, alwaysShows: settings.alwaysShowsCreditAndFableQuota)
+        let extras = SidebarQuotaExtras(snapshot: snapshot, alwaysShows: settings.alwaysShowsCreditAndFableQuota, now: quota.now)
         let windows = snapshot.flatMap { Self.hasWindows($0) ? $0 : nil }
 
         HStack(spacing: 8) {
             AgentProviderIcon(provider: .claudeCode, size: 16)
                 // A row with nothing to say reads as quiet as one gone stale.
-                .opacity(rowIsStale || (windows == nil && !extras.showsAny) ? colors.emphasis[.secondary] : 1)
-            if windows != nil || extras.showsAny {
+                .opacity(rowIsStale || !(snapshot?.hasReading ?? false) ? colors.emphasis[.secondary] : 1)
+            if let windows {
                 // The extras go first when the row runs out of room.
                 ViewThatFits(in: .horizontal) {
                     HStack(spacing: 8) {
-                        if let windows {
-                            meters(windows, isStale: windowsAreStale)
-                        }
-                        extraReadings(snapshot, extras: extras)
+                        meters(windows, isStale: windowsAreStale)
+                        extraReadings(snapshot, extras: extras, compact: false)
                     }
-                    if let windows {
-                        HStack(spacing: 8) {
-                            meters(windows, isStale: windowsAreStale)
-                        }
-                    } else {
-                        noReading
+                    HStack(spacing: 8) {
+                        meters(windows, isStale: windowsAreStale)
                     }
                 }
+            } else if extras.showsAny {
+                ViewThatFits(in: .horizontal) {
+                    HStack(spacing: 8) {
+                        extraReadings(snapshot, extras: extras, compact: false)
+                    }
+                    HStack(spacing: 6) {
+                        extraReadings(snapshot, extras: extras, compact: true)
+                    }
+                    placeholder
+                        .help(SidebarQuotaSummary.text(snapshot, extras: extras))
+                        .accessibilityLabel(SidebarQuotaSummary.text(snapshot, extras: extras))
+                }
+                .transition(.opacity)
             } else {
                 noReading
             }
@@ -126,30 +133,37 @@ struct SidebarQuotaRow: View, ThemedView {
     }
 
     @ViewBuilder
-    private func extraReadings(_ snapshot: QuotaSnapshot?, extras: SidebarQuotaExtras) -> some View {
+    private func extraReadings(_ snapshot: QuotaSnapshot?, extras: SidebarQuotaExtras, compact: Bool) -> some View {
         if extras.showsFable {
-            fableReading(snapshot)
+            fableReading(snapshot, compact: compact)
                 .transition(.opacity)
         }
         if extras.showsCredit {
-            creditReading(snapshot)
+            creditReading(snapshot, compact: compact)
                 .transition(.opacity)
         }
     }
 
-    private func fableReading(_ snapshot: QuotaSnapshot?) -> some View {
+    private func fableReading(_ snapshot: QuotaSnapshot?, compact: Bool) -> some View {
         let fable = snapshot?.rateLimit.fable
+        let isStale = snapshot.map { QuotaFreshness.isStale(receivedAt: $0.fableHeardAt, now: quota.now) } ?? false
         return HStack(spacing: 3) {
             Image(systemName: "f.circle")
                 .foregroundStyle(colors.foreground.opacity(colors.emphasis[.secondary]))
                 .accessibilityHidden(true)
-            if let snapshot, let fable {
+            if compact, let fable {
+                Text(SidebarQuotaSummary.percent(fable.utilization))
+                    .foregroundStyle(colors.foreground.opacity(colors.emphasis[.secondary]))
+                    .monospacedDigit()
+                    .opacity(isStale ? colors.emphasis[.secondary] : 1)
+                    .help("Fable weekly quota")
+            } else if let snapshot, let fable {
                 StatuslineMeterSegment(
                     label: "Fable",
                     utilization: fable.utilization,
                     resetsAt: fable.resetsAt,
                     now: quota.now,
-                    isStale: QuotaFreshness.isStale(receivedAt: snapshot.fableHeardAt, now: quota.now),
+                    isStale: isStale,
                     receivedAt: snapshot.fableHeardAt,
                     barWidth: StatuslineMeterWidth.sidebarFableQuota,
                     windowLength: QuotaWindowLength.sevenDay,
@@ -161,18 +175,20 @@ struct SidebarQuotaRow: View, ThemedView {
         }
         .plumeID(
             AccessibilityID.sidebarQuotaFable,
-            value: fable.map { "\(Int(($0.utilization * 100).rounded()))%" } ?? "none"
+            value: fable.map { SidebarQuotaSummary.percent($0.utilization) } ?? "none"
         )
     }
 
-    private func creditReading(_ snapshot: QuotaSnapshot?) -> some View {
+    private func creditReading(_ snapshot: QuotaSnapshot?, compact: Bool) -> some View {
         let credit = snapshot?.credit
         let used = credit?.usedCents.map { UsageCreditFormat.amount(minorUnits: $0, currency: credit?.currency) }
         let isStale = credit != nil && QuotaFreshness.isCreditStale(receivedAt: snapshot?.creditReceivedAt, now: quota.now)
         return HStack(spacing: 3) {
-            Image(systemName: "dollarsign.circle")
-                .foregroundStyle(colors.foreground.opacity(colors.emphasis[.secondary]))
-                .accessibilityHidden(true)
+            if !compact || used == nil {
+                Image(systemName: "dollarsign.circle")
+                    .foregroundStyle(colors.foreground.opacity(colors.emphasis[.secondary]))
+                    .accessibilityHidden(true)
+            }
             if let used {
                 Text(used)
                     .foregroundStyle(colors.foreground.opacity(colors.emphasis[.secondary]))
@@ -203,15 +219,38 @@ struct SidebarQuotaExtras: Equatable {
 
     var showsAny: Bool { showsFable || showsCredit }
 
-    init(snapshot: QuotaSnapshot?, alwaysShows: Bool) {
+    init(snapshot: QuotaSnapshot?, alwaysShows: Bool, now: Date) {
         showsFable = alwaysShows || (snapshot?.rateLimit.fable?.utilization ?? 0) > 0
-        showsCredit = alwaysShows || Self.creditIsRelevant(snapshot)
+        showsCredit = alwaysShows || Self.creditIsRelevant(snapshot, now: now)
     }
 
-    private static func creditIsRelevant(_ snapshot: QuotaSnapshot?) -> Bool {
+    private static func creditIsRelevant(_ snapshot: QuotaSnapshot?, now: Date) -> Bool {
         guard let snapshot, let credit = snapshot.credit else { return false }
-        if snapshot.rateLimit.isUsingOverage { return true }
+        let isSpendingOverage = snapshot.rateLimit.isUsingOverage
+            && now.timeIntervalSince(snapshot.receivedAt) <= ClaudeUsagePollSchedule.overLimitReadingMaxAge
+        if isSpendingOverage { return true }
         return credit.limitCents != nil && (credit.usedCents ?? 0) > 0
+    }
+}
+
+/// What the row would say when it has no room to say it.
+enum SidebarQuotaSummary {
+    static func text(_ snapshot: QuotaSnapshot?, extras: SidebarQuotaExtras, locale: Locale = .current) -> String {
+        var parts: [String] = []
+        if extras.showsFable, let fable = snapshot?.rateLimit.fable {
+            parts.append("Fable weekly quota \(percent(fable.utilization))")
+        }
+        if extras.showsCredit, let credit = snapshot?.credit, let used = credit.usedCents {
+            parts.append("Usage credits \(UsageCreditFormat.amount(minorUnits: used, currency: credit.currency, locale: locale)) used")
+        }
+        return parts.isEmpty ? "No quota reading yet" : parts.joined(separator: ", ")
+    }
+
+    /// Clamped, since the value comes off the wire and `Int.init` traps on
+    /// anything out of range.
+    static func percent(_ utilization: Double) -> String {
+        guard let whole = Int(exactly: (min(max(utilization, 0), 9.99) * 100).rounded()) else { return "—" }
+        return "\(whole)%"
     }
 }
 

@@ -47,6 +47,7 @@ final class AppSettings {
         static let sidebarColorsTaskNames = "sidebarColorsTaskNames"
         static let sidebarBoldTaskNames = "sidebarBoldTaskNames"
         static let alwaysShowsCreditAndFableQuota = "alwaysShowsCreditAndFableQuota"
+        static let readsClaudeUsage = "readsClaudeUsage"
         static let sidebarColorsTaskIcons = "sidebarColorsTaskIcons"
         static let sidebarSuggestsFilledIcons = "sidebarSuggestsFilledIcons"
         static let sidebarTwoToneIcons = "sidebarTwoToneIcons"
@@ -217,6 +218,9 @@ final class AppSettings {
         self.sidebarColorsTaskNames = defaults.bool(forKey: Key.sidebarColorsTaskNames)
         self.sidebarBoldTaskNames = defaults.bool(forKey: Key.sidebarBoldTaskNames)
         self.alwaysShowsCreditAndFableQuota = defaults.bool(forKey: Key.alwaysShowsCreditAndFableQuota)
+        self.readsClaudeUsage = defaults.object(forKey: Key.readsClaudeUsage) == nil
+            ? true
+            : defaults.bool(forKey: Key.readsClaudeUsage)
         self.sidebarColorsTaskIcons = defaults.object(forKey: Key.sidebarColorsTaskIcons) == nil
             ? true
             : defaults.bool(forKey: Key.sidebarColorsTaskIcons)
@@ -668,6 +672,15 @@ final class AppSettings {
     var alwaysShowsCreditAndFableQuota: Bool {
         didSet {
             defaults.set(alwaysShowsCreditAndFableQuota, forKey: Key.alwaysShowsCreditAndFableQuota)
+        }
+    }
+
+    /// Whether `ClaudeUsagePoller` reads the credit spend and the Fable window
+    /// with Claude Code's login. Declining the Keychain prompt turns it off,
+    /// so the prompt doesn't return every launch.
+    var readsClaudeUsage: Bool {
+        didSet {
+            defaults.set(readsClaudeUsage, forKey: Key.readsClaudeUsage)
         }
     }
 

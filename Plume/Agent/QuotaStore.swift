@@ -224,6 +224,11 @@ struct QuotaSnapshot: Equatable, Codable {
         QuotaSnapshot(rateLimit: RateLimitInfo(fiveHour: nil, sevenDay: nil, isUsingOverage: false), receivedAt: date)
     }
 
+    /// Whether it holds anything heard, as opposed to placeholders.
+    var hasReading: Bool {
+        rateLimit.fiveHour != nil || rateLimit.sevenDay != nil || rateLimit.fable != nil || credit?.usedCents != nil
+    }
+
     var fableHeardAt: Date {
         rateLimit.fable == nil ? .distantPast : fableReceivedAt ?? receivedAt
     }
@@ -266,11 +271,17 @@ struct QuotaSnapshot: Equatable, Codable {
         // A reading from a billing period that has ended says nothing about
         // the new one.
         let creditPeriodEnded = credit?.resetsAt.map { $0 <= now } ?? false
+        let fiveHour = restore(rateLimit.fiveHour, length: QuotaWindowLength.fiveHour, heardAt: receivedAt)
+        let sevenDay = restore(rateLimit.sevenDay, length: QuotaWindowLength.sevenDay, heardAt: receivedAt)
+        // Overage is spent only while a window is full, so it ends with the
+        // refill.
+        let windowsRefilled = (fiveHour != rateLimit.fiveHour || sevenDay != rateLimit.sevenDay)
+            && [fiveHour, sevenDay].allSatisfy { ($0?.utilization ?? 0) < 1 }
         return QuotaSnapshot(
             rateLimit: RateLimitInfo(
-                fiveHour: restore(rateLimit.fiveHour, length: QuotaWindowLength.fiveHour, heardAt: receivedAt),
-                sevenDay: restore(rateLimit.sevenDay, length: QuotaWindowLength.sevenDay, heardAt: receivedAt),
-                isUsingOverage: rateLimit.isUsingOverage,
+                fiveHour: fiveHour,
+                sevenDay: sevenDay,
+                isUsingOverage: rateLimit.isUsingOverage && !windowsRefilled,
                 fable: restore(rateLimit.fable, length: QuotaWindowLength.sevenDay, heardAt: fableReceivedAt ?? receivedAt)
             ),
             receivedAt: receivedAt,

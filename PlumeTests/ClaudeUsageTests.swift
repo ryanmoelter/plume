@@ -276,34 +276,170 @@ struct ClaudeUsageTests {
         #expect(await client.fetch() == .credentialsDenied)
     }
 
+    @Test func declinedKeychainAccessTurnsTheSettingOff() async throws {
+        let suite = "ClaudeUsageTests-\(UUID().uuidString)"
+        let defaults = try #require(UserDefaults(suiteName: suite))
+        defer { defaults.removePersistentDomain(forName: suite) }
+        let settings = AppSettings(defaults: defaults, domainName: suite)
+        #expect(settings.readsClaudeUsage)
+        let poller = ClaudeUsagePoller(
+            store: QuotaStore(),
+            client: ClaudeUsageClient(readCredentials: { .denied }),
+            settings: settings
+        )
+
+        await poller.pollIfDue()
+        #expect(!settings.readsClaudeUsage)
+        #expect(!AppSettings(defaults: defaults, domainName: suite).readsClaudeUsage)
+
+        poller.setEnabled(true)
+        #expect(settings.readsClaudeUsage)
+    }
+
+    @Test func keychainServiceFollowsTheConfigDirectory() {
+        #expect(ClaudeCredentials.serviceName(environment: [:]) == "Claude Code-credentials")
+        #expect(ClaudeCredentials.serviceName(environment: ["CLAUDE_CONFIG_DIR": ""]) == "Claude Code-credentials")
+        // sha256("/Users/me/.claude-work") begins 1e91dd84.
+        let work = "Claude Code-credentials-1e91dd84"
+        #expect(ClaudeCredentials.serviceName(environment: ["CLAUDE_CONFIG_DIR": "/Users/me/.claude-work"]) == work)
+        #expect(ClaudeCredentials.serviceName(environment: [
+            "CLAUDE_CONFIG_DIR": "/elsewhere", "CLAUDE_SECURESTORAGE_CONFIG_DIR": "/Users/me/.claude-work",
+        ]) == work)
+        #expect(ClaudeCredentials.serviceName(environment: [
+            "CLAUDE_CONFIG_DIR": "/elsewhere", "CLAUDE_SECURESTORAGE_CONFIG_DIR": "",
+        ]) == "Claude Code-credentials")
+        #expect(ClaudeCredentials.accountName(environment: ["USER": "ryan"]) == "ryan")
+        #expect(ClaudeCredentials.accountName(environment: ["USER": "r y"]) == "claude-code-user")
+    }
+
+    @Test func picksTheKeychainItemThisConfigUses() {
+        typealias Item = ClaudeCredentials.Item
+        let plain = Item(service: "Claude Code-credentials", account: "ryan", modifiedAt: start)
+        let work = Item(service: "Claude Code-credentials-1e91dd84", account: "ryan", modifiedAt: start.addingTimeInterval(60))
+        let other = Item(service: "Claude Code-credentials-0badf00d", account: "ryan", modifiedAt: start.addingTimeInterval(120))
+        let stranger = Item(service: "Claude Code-credentials", account: "someone", modifiedAt: start.addingTimeInterval(180))
+        let staging = Item(service: "Claude Code-local-oauth-credentials", account: "ryan", modifiedAt: start.addingTimeInterval(240))
+        let all = [stranger, staging, other, plain, work]
+
+        #expect(ClaudeCredentials.choose(from: all, preferredService: work.service, account: "ryan") == work)
+        #expect(ClaudeCredentials.choose(from: all, preferredService: "Claude Code-credentials-ffffffff", account: "ryan") == plain)
+        #expect(ClaudeCredentials.choose(from: [work, other, staging], preferredService: plain.service, account: "ryan") == other)
+        #expect(ClaudeCredentials.choose(from: [stranger, staging], preferredService: plain.service, account: "ryan") == nil)
+    }
+
+    @Test func aHugeAmountParsesAsUnknown() throws {
+        let body = #"{"extra_usage":{"is_enabled":true,"monthly_limit":1e20,"used_credits":1240},"five_hour":{"utilization":1e20}}"#
+        let reading = try #require(ClaudeUsageParser.parse(Data(body.utf8)))
+        #expect(reading.credit?.limitCents == nil)
+        #expect(reading.credit?.usedCents == 1240)
+        #expect(SidebarQuotaSummary.percent(reading.fiveHour!.utilization) == "999%")
+        #expect(SidebarQuotaSummary.percent(.nan) == "—")
+        #expect(SidebarQuotaSummary.percent(0.214) == "21%")
+    }
+
+    @Test func theLoggedShapeCarriesNoValues() throws {
+        let body = #"{"seven_day":{"utilization":21.0,"resets_at":"2026-11-20T00:00:00Z"},"extra_usage":{"used_credits":1240,"currency":"USD","disabled_reason":null},"limits":[{"kind":"spend","is_active":true},{"kind":"weekly_scoped","is_active":false}]}"#
+        let root = try JSONDecoder().decode(JSONValue.self, from: Data(body.utf8))
+        let shape = ClaudeUsageClient.shape(of: root)
+
+        #expect(shape == "{extra_usage:{currency:string,disabled_reason:null,used_credits:number},limits:[{is_active:bool,kind:string}],seven_day:{resets_at:string,utilization:number}}")
+        for value in ["1240", "USD", "spend", "21", "2026"] {
+            #expect(!shape.contains(value))
+        }
+    }
+
+    @Test func overageEndsWhenTheFullWindowRefills() {
+        let full = RateLimitInfo.Window(utilization: 1, resetsAt: start.addingTimeInterval(600))
+        var snapshot = QuotaSnapshot(
+            rateLimit: RateLimitInfo(fiveHour: full, sevenDay: window(0.5), isUsingOverage: true),
+            receivedAt: start
+        )
+        snapshot.credit = UsageCredit(usedCents: 0)
+
+        #expect(snapshot.restored(now: start.addingTimeInterval(300)).rateLimit.isUsingOverage)
+        let refilled = snapshot.restored(now: start.addingTimeInterval(600))
+        #expect(!refilled.rateLimit.isUsingOverage)
+        #expect(!SidebarQuotaExtras(snapshot: refilled, alwaysShows: false, now: start.addingTimeInterval(600)).showsCredit)
+
+        let stillFull = QuotaSnapshot(
+            rateLimit: RateLimitInfo(fiveHour: full, sevenDay: window(1), isUsingOverage: true),
+            receivedAt: start
+        )
+        #expect(stillFull.restored(now: start.addingTimeInterval(600)).rateLimit.isUsingOverage)
+    }
+
+    @Test func overageStopsShowingCreditOnceTheReadingIsOld() {
+        var snapshot = QuotaSnapshot(
+            rateLimit: RateLimitInfo(fiveHour: window(1), sevenDay: nil, isUsingOverage: true),
+            receivedAt: start
+        )
+        snapshot.credit = UsageCredit(usedCents: 0)
+        let maxAge = ClaudeUsagePollSchedule.overLimitReadingMaxAge
+
+        #expect(SidebarQuotaExtras(snapshot: snapshot, alwaysShows: false, now: start.addingTimeInterval(maxAge)).showsCredit)
+        #expect(!SidebarQuotaExtras(snapshot: snapshot, alwaysShows: false, now: start.addingTimeInterval(maxAge + 1)).showsCredit)
+    }
+
+    @Test func placeholdersAreNotAReading() {
+        #expect(!QuotaSnapshot.empty(at: start).hasReading)
+        var credit = QuotaSnapshot.empty(at: start)
+        credit.credit = UsageCredit(isEnabled: true)
+        #expect(!credit.hasReading)
+        credit.credit = UsageCredit(usedCents: 0)
+        #expect(credit.hasReading)
+        #expect(QuotaSnapshot.empty(at: start).with(fable: window(0), receivedAt: start).hasReading)
+    }
+
+    @Test func theNarrowRowSummarizesWhatItHides() {
+        let locale = Locale(identifier: "en_US")
+        let forced = SidebarQuotaExtras(snapshot: nil, alwaysShows: true, now: start)
+        #expect(SidebarQuotaSummary.text(nil, extras: forced, locale: locale) == "No quota reading yet")
+
+        var snapshot = QuotaSnapshot.empty(at: start).with(fable: window(0.21), receivedAt: start)
+        snapshot.credit = UsageCredit(usedCents: 1240, limitCents: 5000)
+        let extras = SidebarQuotaExtras(snapshot: snapshot, alwaysShows: false, now: start)
+        #expect(SidebarQuotaSummary.text(snapshot, extras: extras, locale: locale) == "Fable weekly quota 21%, Usage credits $12.40 used")
+    }
+
+#if DEBUG
+    @Test func injectUsageRejectsOutOfRangeParams() throws {
+        #expect(throws: ControlError.self) { try InjectUsageParams(fable: 1.5).validate() }
+        #expect(throws: ControlError.self) { try InjectUsageParams(fable: -0.1).validate() }
+        #expect(throws: ControlError.self) { try InjectUsageParams(fableResetsInHours: 3).validate() }
+        try InjectUsageParams(fable: 1, fableResetsInHours: 3).validate()
+        #expect(InjectUsageParams.cents(1e20) == nil)
+        #expect(InjectUsageParams.cents(12.4) == 1240)
+    }
+#endif
+
     // MARK: Sidebar
 
     @Test func extrasShowOnlyOnceTheyApply() {
         let none = QuotaSnapshot.empty(at: start)
-        #expect(!SidebarQuotaExtras(snapshot: none, alwaysShows: false).showsAny)
-        let forced = SidebarQuotaExtras(snapshot: nil, alwaysShows: true)
+        #expect(!SidebarQuotaExtras(snapshot: none, alwaysShows: false, now: start).showsAny)
+        let forced = SidebarQuotaExtras(snapshot: nil, alwaysShows: true, now: start)
         #expect(forced.showsFable && forced.showsCredit)
 
         let idleFable = none.with(fable: window(0), receivedAt: start)
-        #expect(!SidebarQuotaExtras(snapshot: idleFable, alwaysShows: false).showsFable)
+        #expect(!SidebarQuotaExtras(snapshot: idleFable, alwaysShows: false, now: start).showsFable)
         let usedFable = none.with(fable: window(0.01), receivedAt: start)
-        #expect(SidebarQuotaExtras(snapshot: usedFable, alwaysShows: false).showsFable)
+        #expect(SidebarQuotaExtras(snapshot: usedFable, alwaysShows: false, now: start).showsFable)
 
         var credit = none
         credit.credit = UsageCredit(usedCents: 0, limitCents: 5000)
-        #expect(!SidebarQuotaExtras(snapshot: credit, alwaysShows: false).showsCredit)
+        #expect(!SidebarQuotaExtras(snapshot: credit, alwaysShows: false, now: start).showsCredit)
         credit.credit = UsageCredit(usedCents: 1240, limitCents: nil)
-        #expect(!SidebarQuotaExtras(snapshot: credit, alwaysShows: false).showsCredit)
+        #expect(!SidebarQuotaExtras(snapshot: credit, alwaysShows: false, now: start).showsCredit)
         credit.credit = UsageCredit(usedCents: 1240, limitCents: 5000)
-        #expect(SidebarQuotaExtras(snapshot: credit, alwaysShows: false).showsCredit)
+        #expect(SidebarQuotaExtras(snapshot: credit, alwaysShows: false, now: start).showsCredit)
 
         var overage = QuotaSnapshot(
             rateLimit: RateLimitInfo(fiveHour: window(1), sevenDay: nil, isUsingOverage: true),
             receivedAt: start
         )
-        #expect(!SidebarQuotaExtras(snapshot: overage, alwaysShows: false).showsCredit)
+        #expect(!SidebarQuotaExtras(snapshot: overage, alwaysShows: false, now: start).showsCredit)
         overage.credit = UsageCredit(usedCents: 0, limitCents: nil)
-        #expect(SidebarQuotaExtras(snapshot: overage, alwaysShows: false).showsCredit)
+        #expect(SidebarQuotaExtras(snapshot: overage, alwaysShows: false, now: start).showsCredit)
     }
 
     @Test func creditFormatsAsCurrency() {

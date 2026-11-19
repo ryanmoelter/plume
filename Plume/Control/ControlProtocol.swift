@@ -355,6 +355,20 @@ nonisolated struct InjectUsageParams: Decodable, Equatable {
     var isUsingOverage: Bool?
     /// Sets the "Always show credit and Fable quota" setting.
     var alwaysShow: Bool?
+
+    func validate() throws {
+        if let fable, !(0...1).contains(fable) {
+            throw ControlError.badParams("fable is a 0–1 utilization")
+        }
+        if fableResetsInHours != nil, fable == nil {
+            throw ControlError.badParams("fableResetsInHours needs fable")
+        }
+    }
+
+    /// Dollars to cents, or nil for an amount no `Int` holds.
+    static func cents(_ dollars: Double?) -> Int? {
+        dollars.flatMap { Int(exactly: ($0 * 100).rounded()) }
+    }
 }
 
 /// `matching` selects one span. `from` and `to` select from the start of
