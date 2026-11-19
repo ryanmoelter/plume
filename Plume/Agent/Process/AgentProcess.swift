@@ -36,6 +36,9 @@ nonisolated final class AgentProcess: @unchecked Sendable {
     /// returned.
     private var hasProcessExited = false
     private var didLaunch = false
+    private var hasOutputEnded = false
+    /// Held until stdout reaches end of file, so `onExit` follows every line.
+    private var pendingExitStatus: Int32?
     private var exitWaiters: [CheckedContinuation<Void, Never>] = []
 
     /// Names the CLI in log lines.
@@ -84,14 +87,23 @@ nonisolated final class AgentProcess: @unchecked Sendable {
         process.standardOutput = outPipe
         process.standardError = errPipe
 
+        // A handle at end of file stays readable, so a handler left in place
+        // there is called again and again.
         outPipe.fileHandleForReading.readabilityHandler = { [weak self] handle in
             let data = handle.availableData
-            guard !data.isEmpty else { return }
+            guard !data.isEmpty else {
+                handle.readabilityHandler = nil
+                self?.outputEnded()
+                return
+            }
             self?.consume(data)
         }
         errPipe.fileHandleForReading.readabilityHandler = { [weak self] handle in
             let data = handle.availableData
-            guard !data.isEmpty else { return }
+            guard !data.isEmpty else {
+                handle.readabilityHandler = nil
+                return
+            }
             let text = String(decoding: data, as: UTF8.self)
                 .trimmingCharacters(in: .whitespacesAndNewlines)
             guard !text.isEmpty, let self else { return }
@@ -153,7 +165,7 @@ nonisolated final class AgentProcess: @unchecked Sendable {
     @discardableResult
     func send(line: String) -> Bool {
         queue.sync {
-            guard isRunning, let data = (line + "\n").data(using: .utf8) else { return false }
+            guard isRunning, !hasProcessExited, let data = (line + "\n").data(using: .utf8) else { return false }
             do {
                 try inPipe.fileHandleForWriting.write(contentsOf: data)
                 return true
@@ -183,6 +195,8 @@ nonisolated final class AgentProcess: @unchecked Sendable {
             isRunning = false
             return true
         }
+        // Whoever ends the process wants no more of its output. One that
+        // exited on its own has already drained it before `onExit`.
         outPipe.fileHandleForReading.readabilityHandler = nil
         errPipe.fileHandleForReading.readabilityHandler = nil
         try? inPipe.fileHandleForWriting.close()
@@ -248,15 +262,42 @@ nonisolated final class AgentProcess: @unchecked Sendable {
         }
     }
 
+    /// How long an exit waits for stdout to close. A grandchild that keeps
+    /// the pipe open would otherwise hold `onExit` back for its whole life.
+    private static let outputDrainGrace: TimeInterval = 1
+
+    /// The child can exit before the last of its output is read, so the exit
+    /// waits for stdout to end and every line reaches `onLine` first.
     private func finish(status: Int32) {
         queue.async { [weak self] in
-            guard let self, self.isRunning else { return }
-            self.isRunning = false
-            // A run that never produced a line failed to launch, so its
-            // stderr explains why. Once the stream has started, only the
-            // CLI's own `Error:` line does; the rest is login-shell chatter.
-            self.onExit(status, self.lastReportedError ?? (self.didReceiveLine ? nil : self.lastErrorLine))
+            guard let self else { return }
+            self.pendingExitStatus = status
+            if self.hasOutputEnded {
+                self.deliverExit()
+            } else {
+                self.queue.asyncAfter(deadline: .now() + Self.outputDrainGrace) { self.deliverExit() }
+            }
         }
+    }
+
+    /// Enqueued after the handler's last `consume`, so it runs after it.
+    private func outputEnded() {
+        queue.async { [weak self] in
+            guard let self else { return }
+            self.hasOutputEnded = true
+            self.deliverExit()
+        }
+    }
+
+    private func deliverExit() {
+        guard let status = pendingExitStatus else { return }
+        pendingExitStatus = nil
+        guard isRunning else { return }
+        isRunning = false
+        // A run that never produced a line failed to launch, so its stderr
+        // explains why. Once the stream has started, only the CLI's own
+        // `Error:` line does; the rest is login-shell chatter.
+        onExit(status, lastReportedError ?? (didReceiveLine ? nil : lastErrorLine))
     }
 
     nonisolated static func reportedError(in stderr: String) -> String? {
