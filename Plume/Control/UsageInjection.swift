@@ -19,14 +19,7 @@ enum UsageInjection {
         var transaction = Transaction()
         transaction.disablesAnimations = true
         withTransaction(transaction) {
-            if params.resetUsageOffer == true {
-                settings.dismissedClaudeUsageOffer = false
-                poller.setEnabled(false)
-            }
-            // A bare inject clears both readings; a reset alone injects nothing.
-            if params.resetUsageOffer != true || params.injectsReadings {
-                inject(params, store: store, poller: poller, now: now)
-            }
+            inject(params, store: store, poller: poller, now: now)
             if let alwaysShow = params.alwaysShow {
                 settings.alwaysShowsCreditAndFableQuota = alwaysShow
             }
@@ -80,7 +73,6 @@ extension InjectUsageResult {
         var shows: [String] = []
         if extras.showsFable { shows.append("fable") }
         if extras.showsCredit { shows.append("credit") }
-        if !settings.readsClaudeUsage && !settings.dismissedClaudeUsageOffer { shows.append("offer") }
         self.init(
             fable: snapshot?.rateLimit.fable?.utilization,
             creditUsed: dollars(snapshot?.credit?.usedCents),

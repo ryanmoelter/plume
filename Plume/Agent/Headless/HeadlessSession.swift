@@ -330,6 +330,7 @@ final class HeadlessSession: AgentSession {
 
     @ObservationIgnored private let statusEngine: StatusEngine
     @ObservationIgnored private let quotaStore: QuotaStore
+    @ObservationIgnored private let usagePoller: ClaudeUsagePoller
     @ObservationIgnored private let backgroundTasks: BackgroundTaskTracker
 
     /// `initialEffort` seeds the displayed value from the tab's last-known
@@ -342,6 +343,7 @@ final class HeadlessSession: AgentSession {
         initialEffort: AgentEffort? = nil,
         statusEngine: StatusEngine = .shared,
         quotaStore: QuotaStore = .shared,
+        usagePoller: ClaudeUsagePoller = .shared,
         backgroundTasks: BackgroundTaskTracker = .shared
     ) {
         self.tabID = tabID
@@ -349,6 +351,7 @@ final class HeadlessSession: AgentSession {
         self.effort = initialEffort
         self.statusEngine = statusEngine
         self.quotaStore = quotaStore
+        self.usagePoller = usagePoller
         self.backgroundTasks = backgroundTasks
     }
 
@@ -1642,6 +1645,7 @@ final class HeadlessSession: AgentSession {
     static let unexplainedTurnFailure = "The turn failed."
 
     private func endTurn(_ result: TurnResult) {
+        usagePoller.turnEnded()
         if let cost = result.totalCostUSD { sessionCostUSD = max(cost, sessionCostUSD ?? 0) }
         if let window = result.contextWindow { contextWindow = window }
         if let used = result.contextUsedTokens { contextUsedTokens = used }

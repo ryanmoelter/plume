@@ -47,9 +47,8 @@ final class AppSettings {
         static let sidebarColorsTaskNames = "sidebarColorsTaskNames"
         static let sidebarBoldTaskNames = "sidebarBoldTaskNames"
         static let alwaysShowsCreditAndFableQuota = "alwaysShowsCreditAndFableQuota"
-        static let readsClaudeUsage = "readsClaudeUsage"
-        static let claudeUsageKeychainCancels = "claudeUsageKeychainCancels"
-        static let dismissedClaudeUsageOffer = "dismissedClaudeUsageOffer"
+        /// Not `readsClaudeUsage`, which an opt-in build stored as `false`.
+        static let readsClaudeUsage = "checksClaudeUsage"
         static let sidebarColorsTaskIcons = "sidebarColorsTaskIcons"
         static let sidebarSuggestsFilledIcons = "sidebarSuggestsFilledIcons"
         static let sidebarTwoToneIcons = "sidebarTwoToneIcons"
@@ -220,9 +219,9 @@ final class AppSettings {
         self.sidebarColorsTaskNames = defaults.bool(forKey: Key.sidebarColorsTaskNames)
         self.sidebarBoldTaskNames = defaults.bool(forKey: Key.sidebarBoldTaskNames)
         self.alwaysShowsCreditAndFableQuota = defaults.bool(forKey: Key.alwaysShowsCreditAndFableQuota)
-        self.readsClaudeUsage = defaults.bool(forKey: Key.readsClaudeUsage)
-        self.claudeUsageKeychainCancels = defaults.integer(forKey: Key.claudeUsageKeychainCancels)
-        self.dismissedClaudeUsageOffer = defaults.bool(forKey: Key.dismissedClaudeUsageOffer)
+        self.readsClaudeUsage = defaults.object(forKey: Key.readsClaudeUsage) == nil
+            ? true
+            : defaults.bool(forKey: Key.readsClaudeUsage)
         self.sidebarColorsTaskIcons = defaults.object(forKey: Key.sidebarColorsTaskIcons) == nil
             ? true
             : defaults.bool(forKey: Key.sidebarColorsTaskIcons)
@@ -677,27 +676,11 @@ final class AppSettings {
         }
     }
 
-    /// Whether `ClaudeUsagePoller` reads the credit spend and the Fable window
-    /// with Claude Code's login. Off until the user opts in, since reading
-    /// that login is a Keychain prompt; a denial turns it back off.
+    /// Whether `ClaudeUsagePoller` asks Claude Code for the credit spend and
+    /// the Fable window.
     var readsClaudeUsage: Bool {
         didSet {
             defaults.set(readsClaudeUsage, forKey: Key.readsClaudeUsage)
-        }
-    }
-
-    /// Keychain prompts dismissed since the last successful read. A second
-    /// one turns `readsClaudeUsage` off.
-    var claudeUsageKeychainCancels: Int {
-        didSet {
-            defaults.set(claudeUsageKeychainCancels, forKey: Key.claudeUsageKeychainCancels)
-        }
-    }
-
-    /// The quota row's offer to read credit and Fable usage was dismissed.
-    var dismissedClaudeUsageOffer: Bool {
-        didSet {
-            defaults.set(dismissedClaudeUsageOffer, forKey: Key.dismissedClaudeUsageOffer)
         }
     }
 

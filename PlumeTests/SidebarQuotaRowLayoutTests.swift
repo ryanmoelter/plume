@@ -4,14 +4,12 @@ import Testing
 @testable import Plume
 
 /// At the sidebar's default 240 pt width, the body-size Fable and credit
-/// glyphs fit beside full 5h and 7d meters, alone or together. The "Show
-/// usage credit" offer and its dismiss button have no room there, and wrap
-/// together onto a second line that holds them unclipped.
+/// glyphs fit beside full 5h and 7d meters, alone or together.
 @MainActor
 struct SidebarQuotaRowLayoutTests {
     private let defaultSidebarWidth: CGFloat = 240
 
-    enum Extra: Sendable { case none, offer, fable, credit, fableAndCredit }
+    enum Extra: Sendable { case none, fable, credit, fableAndCredit }
 
     /// A nil width measures the ideal: everything on one line. A width pins
     /// the row to it, the way the sidebar does.
@@ -28,7 +26,6 @@ struct SidebarQuotaRowLayoutTests {
         let suite = "SidebarQuotaRowLayoutTests-\(UUID().uuidString)"
         let defaults = try #require(UserDefaults(suiteName: suite))
         let settings = AppSettings(defaults: defaults, domainName: suite)
-        settings.dismissedClaudeUsageOffer = extra != .offer
         let now = Date()
         let quota = QuotaStore(now: now)
         // The widest readings a meter shows: a day-scale countdown and 100%.
@@ -49,7 +46,7 @@ struct SidebarQuotaRowLayoutTests {
             quota.record(ClaudeUsageReading(credit: credit), at: now)
         case .fableAndCredit:
             quota.record(ClaudeUsageReading(fable: fable, credit: credit), at: now)
-        case .none, .offer:
+        case .none:
             break
         }
         return (SidebarQuotaRow(quota: quota, settings: settings), { defaults.removePersistentDomain(forName: suite) })
@@ -92,29 +89,6 @@ struct SidebarQuotaRowLayoutTests {
         let wrapped = size(withGlyphs, width: narrow)
         #expect(meters.height == size(metersOnly, width: nil).height, "the meters must fit on one line, or this measures nothing")
         #expect(wrapped.height >= meters.height + SidebarQuotaFlow.wrappedLineSpacing + 10, "meters \(meters.height), wrapped \(wrapped.height)")
-    }
-
-    @Test func theOfferWrapsBelowTheMetersAtTheDefaultWidth() throws {
-        let (metersOnly, cleanMeters) = try row(.none)
-        defer { cleanMeters() }
-        let (withOffer, cleanOffer) = try row(.offer)
-        defer { cleanOffer() }
-
-        let oneLine = size(metersOnly, width: defaultSidebarWidth)
-        let unbounded = size(withOffer, width: nil)
-        let wrapped = size(withOffer, width: defaultSidebarWidth)
-
-        #expect(oneLine.width <= defaultSidebarWidth)
-        #expect(unbounded.height == oneLine.height, "unbounded, the offer sits on the first line")
-        #expect(unbounded.width > defaultSidebarWidth, "the offer must not fit beside the meters, or this measures nothing")
-        #expect(wrapped.width <= defaultSidebarWidth)
-        #expect(wrapped.height > oneLine.height, "the offer moves onto a second line")
-
-        // Line 2 starts where the meters do: past the row's padding, its
-        // inset and the provider icon with its spacing.
-        let offer = unbounded.width - size(metersOnly, width: nil).width - 8
-        let lineStart = 2 * 12 + 2 * SidebarFooterMetrics.inset + 16 + 8
-        #expect(lineStart + offer <= defaultSidebarWidth, "the offer needs \(offer) pt from \(lineStart) pt")
     }
 }
 

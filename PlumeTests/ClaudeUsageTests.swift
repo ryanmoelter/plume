@@ -1,11 +1,10 @@
 import Foundation
-import Security
 import Synchronization
 import Testing
 @testable import Plume
 
 /// The Fable window and usage-credit spend (PLUME-240): read from the stream
-/// and the usage endpoint, merged into `QuotaStore` with the newer Fable
+/// and Claude Code's `get_usage` request, merged into `QuotaStore` with the newer Fable
 /// reading winning, and shown in the sidebar only once they apply.
 @MainActor
 struct ClaudeUsageTests {
@@ -45,7 +44,7 @@ struct ClaudeUsageTests {
         #expect(store.snapshot?.receivedAt == start.addingTimeInterval(60))
     }
 
-    // MARK: Endpoint
+    // MARK: get_usage
 
     @Test func parsesTheCurrentEndpointShape() throws {
         let body = #"""
@@ -92,26 +91,86 @@ struct ClaudeUsageTests {
         #expect(ClaudeUsageParser.parse(Data("not json".utf8)) == nil)
     }
 
-    @Test func credentialsReadTheAccessTokenAndItsExpiry() {
-        let json = #"{"claudeAiOauth":{"accessToken":"tok","refreshToken":"r","expiresAt":1795000000000}}"#
-        #expect(ClaudeCredentials.parse(Data(json.utf8)) == .token("tok", expiresAt: start))
-        #expect(ClaudeCredentials.parse(Data(#"{"other":{}}"#.utf8)) == nil)
+    /// The whole reply line as Claude Code 2.1.328 sends it, with invented
+    /// values and most of the unread keys left out.
+    private let usageReply = #"""
+    {"type":"control_response","response":{"subtype":"success","request_id":"usage","response":{"subscription_type":"team","rate_limits_available":true,"behaviors":null,"session":{"total_cost_usd":0,"model_usage":{}},"rate_limits":{"five_hour":{"utilization":37,"resets_at":"2026-11-18T23:30:00Z","limit_dollars":null},"seven_day":{"utilization":64,"resets_at":"2026-11-22T03:00:00Z"},"seven_day_opus":null,"extra_usage":{"is_enabled":true,"monthly_limit":20000,"used_credits":4321,"utilization":21.6,"currency":"USD","decimal_places":2,"disabled_reason":null},"limits":[{"kind":"session","group":"session","percent":37,"resets_at":"2026-11-18T23:30:00Z","scope":null,"is_active":true},{"kind":"weekly_scoped","group":"weekly","percent":45,"resets_at":"2026-11-22T03:00:00Z","scope":{"model":{"id":null,"display_name":"Fable"},"surface":null},"is_active":false}],"spend":{"used":{"amount_minor":4321,"currency":"USD","exponent":2},"limit":{"amount_minor":20000,"currency":"USD","exponent":2},"percent":22,"enabled":true,"balance":null},"model_scoped":[{"display_name":"Fable","utilization":45,"resets_at":"2026-11-22T03:00:00Z"}]}}}}
+    """#
+
+    @Test func readsTheGetUsageReply() throws {
+        guard case .reading(let reading) = ClaudeUsageRequest.result(forLine: usageReply) else {
+            Issue.record("not a reading"); return
+        }
+        #expect(reading.fiveHour?.utilization == 0.37)
+        #expect(reading.sevenDay?.utilization == 0.64)
+        #expect(reading.fable?.utilization == 0.45)
+        #expect(reading.fable?.resetsAt == ISO8601DateFormatter().date(from: "2026-11-22T03:00:00Z"))
+        #expect(reading.credit == UsageCredit(usedCents: 4321, limitCents: 20000, isEnabled: true, currency: "USD"))
     }
 
-    @Test func expiredTokenSkipsTheRequest() async {
-        let client = ClaudeUsageClient(readCredentials: { .token("tok", expiresAt: Date(timeIntervalSince1970: 0)) })
-        #expect(await client.fetch() == .unauthorized)
+    @Test func readsFableFromModelScopedWithoutALimitsRow() throws {
+        let reading = try #require(ClaudeUsageParser.parse(Data(#"{"model_scoped":[{"display_name":"Sonnet","utilization":10},{"display_name":"Fable","utilization":30,"resets_at":null}]}"#.utf8)))
+        #expect(reading.fable?.utilization == 0.3)
     }
 
-    @Test func retryAfterReadsSecondsAndDates() {
-        #expect(ClaudeUsageClient.retryAfter("120", now: start) == 120)
-        #expect(ClaudeUsageClient.retryAfter(nil, now: start) == nil)
-        let date = "Tue, 17 Nov 2026 06:10:00 GMT"
-        let expected = DateComponents(
-            calendar: Calendar(identifier: .gregorian), timeZone: TimeZone(identifier: "GMT"),
-            year: 2026, month: 11, day: 17, hour: 6, minute: 10
-        ).date!
-        #expect(ClaudeUsageClient.retryAfter(date, now: expected.addingTimeInterval(-90)) == 90)
+    @Test func aLoginWithoutTheProfileScopeIsUnavailable() {
+        let line = #"{"type":"control_response","response":{"subtype":"success","request_id":"usage","response":{"subscription_type":null,"rate_limits_available":false,"rate_limits":null,"session":{}}}}"#
+        #expect(ClaudeUsageRequest.result(forLine: line) == .unavailable)
+    }
+
+    @Test func anErrorReplyFails() {
+        let line = #"{"type":"control_response","response":{"subtype":"error","request_id":"usage","error":"Unknown request subtype"}}"#
+        #expect(ClaudeUsageRequest.result(forLine: line) == .failed)
+    }
+
+    @Test func otherLinesAreNotTheReply() {
+        #expect(ClaudeUsageRequest.result(forLine: #"{"type":"control_response","response":{"subtype":"success","request_id":"initialize","response":{}}}"#) == nil)
+        #expect(ClaudeUsageRequest.result(forLine: #"{"type":"system","subtype":"hook_started"}"#) == nil)
+        #expect(ClaudeUsageRequest.result(forLine: "control_response, not JSON") == nil)
+    }
+
+    @Test func theRequestAsksForUsageByItsOwnID() throws {
+        let request = try JSONDecoder().decode([String: JSONValue].self, from: Data(ClaudeUsageRequest.lines[1].utf8))
+        #expect(request["request_id"]?.stringValue == ClaudeUsageRequest.requestID)
+        #expect(request["request"]?.objectValue?["subtype"]?.stringValue == "get_usage")
+        #expect(ClaudeUsageRequest.arguments.contains("--no-session-persistence"))
+        #expect(Array(ClaudeUsageRequest.arguments.prefix(5)) == ["env", "-u", "CLAUDECODE", "-u", "CLAUDE_CODE_CHILD_SESSION"])
+    }
+
+    @Test func readingUsageIsOnByDefaultWhateverTheOptInStored() async throws {
+        let suite = "ClaudeUsageTests-\(UUID().uuidString)"
+        let defaults = try #require(UserDefaults(suiteName: suite))
+        defer { defaults.removePersistentDomain(forName: suite) }
+        defaults.set(false, forKey: "readsClaudeUsage")
+        let settings = AppSettings(defaults: defaults, domainName: suite)
+        #expect(settings.readsClaudeUsage)
+        let calls = Mutex(0)
+        let poller = ClaudeUsagePoller(store: QuotaStore(), settings: settings, fetch: { _ in
+            calls.withLock { $0 += 1 }
+            return .unavailable
+        })
+        await poller.pollIfDue()
+        #expect(calls.withLock { $0 } == 1)
+
+        poller.setEnabled(false)
+        #expect(!AppSettings(defaults: defaults, domainName: suite).readsClaudeUsage)
+        await poller.pollIfDue()
+        #expect(calls.withLock { $0 } == 1)
+    }
+
+    @Test func aTurnEndPollsOnlyWhileOverALimit() async throws {
+        let (settings, cleanup) = try scratchSettings()
+        defer { cleanup() }
+        let store = QuotaStore()
+        let calls = Mutex(0)
+        let poller = ClaudeUsagePoller(store: store, settings: settings, fetch: { _ in
+            calls.withLock { $0 += 1 }
+            return .reading(ClaudeUsageReading())
+        })
+        await poller.pollIfDue()
+        store.record(RateLimitInfo(fiveHour: window(0.5), sevenDay: window(0.5), isUsingOverage: false), at: Date())
+        await poller.pollAtTurnEnd()
+        #expect(calls.withLock { $0 } == 1, "under the limits a turn end adds no poll")
     }
 
     // MARK: Store
@@ -268,69 +327,6 @@ struct ClaudeUsageTests {
         #expect(snapshot.lastHeardAt == start.addingTimeInterval(3600))
     }
 
-    @Test func declinedKeychainAccessStopsThePoll() async {
-        #expect(ClaudeCredentials.read(status: errSecUserCanceled, data: nil) == .cancelled)
-        #expect(ClaudeCredentials.read(status: errSecAuthFailed, data: nil) == .denied)
-        #expect(ClaudeCredentials.read(status: errSecItemNotFound, data: nil) == .missing)
-        #expect(ClaudeCredentials.read(status: errSecInteractionNotAllowed, data: nil) == .missing)
-        let client = ClaudeUsageClient(readCredentials: { .denied })
-        #expect(await client.fetch() == .credentialsDenied)
-        let cancelling = ClaudeUsageClient(readCredentials: { .cancelled })
-        #expect(await cancelling.fetch() == .credentialsCancelled)
-    }
-
-    @Test func declinedKeychainAccessTurnsTheSettingOff() async throws {
-        let suite = "ClaudeUsageTests-\(UUID().uuidString)"
-        let defaults = try #require(UserDefaults(suiteName: suite))
-        defer { defaults.removePersistentDomain(forName: suite) }
-        let settings = AppSettings(defaults: defaults, domainName: suite)
-        #expect(!settings.readsClaudeUsage)
-        settings.readsClaudeUsage = true
-        let poller = ClaudeUsagePoller(store: QuotaStore(), settings: settings, fetch: { _ in .credentialsDenied })
-
-        await poller.pollIfDue()
-        #expect(!settings.readsClaudeUsage)
-        #expect(!AppSettings(defaults: defaults, domainName: suite).readsClaudeUsage)
-
-        poller.setEnabled(true)
-        #expect(settings.readsClaudeUsage)
-    }
-
-    @Test func keychainServiceFollowsTheConfigDirectory() {
-        #expect(ClaudeCredentials.configuredServiceName(environment: [:]) == nil)
-        #expect(ClaudeCredentials.configuredServiceName(environment: ["CLAUDE_CONFIG_DIR": ""]) == nil)
-        // sha256("/Users/me/.claude-work") begins 1e91dd84.
-        let work = "Claude Code-credentials-1e91dd84"
-        #expect(ClaudeCredentials.configuredServiceName(environment: ["CLAUDE_CONFIG_DIR": "/Users/me/.claude-work"]) == work)
-        #expect(ClaudeCredentials.configuredServiceName(environment: [
-            "CLAUDE_CONFIG_DIR": "/elsewhere", "CLAUDE_SECURESTORAGE_CONFIG_DIR": "/Users/me/.claude-work",
-        ]) == work)
-        #expect(ClaudeCredentials.configuredServiceName(environment: [
-            "CLAUDE_CONFIG_DIR": "/elsewhere", "CLAUDE_SECURESTORAGE_CONFIG_DIR": "",
-        ]) == "Claude Code-credentials")
-        #expect(ClaudeCredentials.accountName(environment: ["USER": "ryan"]) == "ryan")
-        #expect(ClaudeCredentials.accountName(environment: ["USER": "r y"]) == "claude-code-user")
-    }
-
-    @Test func picksTheKeychainItemThisConfigUses() {
-        typealias Item = ClaudeCredentials.Item
-        let plain = Item(service: "Claude Code-credentials", account: "ryan", modifiedAt: start)
-        let work = Item(service: "Claude Code-credentials-1e91dd84", account: "ryan", modifiedAt: start.addingTimeInterval(60))
-        let other = Item(service: "Claude Code-credentials-0badf00d", account: "ryan", modifiedAt: start.addingTimeInterval(120))
-        let stranger = Item(service: "Claude Code-credentials", account: "someone", modifiedAt: start.addingTimeInterval(180))
-        let staging = Item(service: "Claude Code-local-oauth-credentials", account: "ryan", modifiedAt: start.addingTimeInterval(240))
-        let all = [stranger, staging, other, plain, work]
-
-        #expect(ClaudeCredentials.choose(from: all, configuredService: work.service, account: "ryan") == work)
-        #expect(ClaudeCredentials.choose(from: all, configuredService: plain.service, account: "ryan") == plain)
-        // Nothing configured, or a configured item that doesn't exist: the
-        // newest write wins, plain item or not.
-        #expect(ClaudeCredentials.choose(from: all, configuredService: nil, account: "ryan") == other)
-        #expect(ClaudeCredentials.choose(from: all, configuredService: "Claude Code-credentials-ffffffff", account: "ryan") == other)
-        #expect(ClaudeCredentials.choose(from: [plain, work], configuredService: nil, account: "ryan") == work)
-        #expect(ClaudeCredentials.choose(from: [stranger, staging], configuredService: nil, account: "ryan") == nil)
-    }
-
     @Test func aHugeAmountParsesAsUnknown() throws {
         let body = #"{"extra_usage":{"is_enabled":true,"monthly_limit":1e20,"used_credits":1240},"five_hour":{"utilization":1e20}}"#
         let reading = try #require(ClaudeUsageParser.parse(Data(body.utf8)))
@@ -425,7 +421,7 @@ struct ClaudeUsageTests {
         #expect(persisted.receivedAt == start)
     }
 
-    @Test func optingInEndsAnInjectionSoTheRealPollReplacesIt() async throws {
+    @Test func turningReadingOnEndsAnInjectionSoTheRealPollReplacesIt() async throws {
         let (settings, cleanup) = try scratchSettings()
         defer { cleanup() }
         settings.readsClaudeUsage = false
@@ -474,7 +470,7 @@ struct ClaudeUsageTests {
     }
 #endif
 
-    @Test func optingInChecksUntilTheFirstReplyAndSurfacesItsFailure() async throws {
+    @Test func turningReadingOnChecksUntilTheFirstReplyAndSurfacesItsFailure() async throws {
         let (settings, cleanup) = try scratchSettings()
         defer { cleanup() }
         let gate = FetchGate()
@@ -485,12 +481,12 @@ struct ClaudeUsageTests {
         #expect(poller.status == .checking)
         var poll = Task { await poller.pollIfDue() }
         await gate.waitForRequest()
-        gate.resume(.unauthorized)
+        gate.resume(.unavailable)
         await poll.value
         guard case .failed(let reason) = poller.status else {
             Issue.record("expected a failure, got \(poller.status)"); return
         }
-        #expect(reason.contains("signed in"))
+        #expect(reason.contains("Sign in"))
 
         poller.setEnabled(true)
         poll = Task { await poller.pollIfDue() }
@@ -518,24 +514,6 @@ struct ClaudeUsageTests {
         await poll.value
 
         #expect(store.snapshot == nil)
-    }
-
-    @Test func aStaleDenialCannotTurnPollingBackOff() async throws {
-        let (settings, cleanup) = try scratchSettings()
-        defer { cleanup() }
-        let gate = FetchGate()
-        let poller = ClaudeUsagePoller(store: QuotaStore(), settings: settings, fetch: { _ in await gate.fetch() })
-
-        let poll = Task { await poller.pollIfDue() }
-        await gate.waitForRequest()
-        poller.setEnabled(false)
-        poller.setEnabled(true)
-        await poller.pollIfDue()
-        #expect(gate.requests == 1)
-
-        gate.resume(.credentialsDenied)
-        await poll.value
-        #expect(settings.readsClaudeUsage)
     }
 
     @Test func turningPollingOffForgetsOnlyTheEndpointsReadings() throws {
@@ -581,67 +559,6 @@ struct ClaudeUsageTests {
         store.record(streamInfo(fable: 0.4), at: start.addingTimeInterval(10))
         store.record(ClaudeUsageReading(), at: start)
         #expect(store.snapshot?.rateLimit.fable?.utilization == 0.4)
-    }
-
-    @Test func aDismissedPromptPausesThisLaunchAndASecondTurnsPollingOff() async throws {
-        let (settings, cleanup) = try scratchSettings()
-        defer { cleanup() }
-        let calls = Mutex(0)
-        func launch() -> ClaudeUsagePoller {
-            ClaudeUsagePoller(store: QuotaStore(), settings: settings, fetch: { _ in
-                calls.withLock { $0 += 1 }
-                return .credentialsCancelled
-            })
-        }
-
-        let first = launch()
-        await first.pollIfDue()
-        #expect(settings.claudeUsageKeychainCancels == 1)
-        #expect(settings.readsClaudeUsage)
-        await first.pollIfDue()
-        #expect(calls.withLock { $0 } == 1)
-
-        await launch().pollIfDue()
-        #expect(settings.claudeUsageKeychainCancels == 2)
-        #expect(!settings.readsClaudeUsage)
-    }
-
-    @Test func aReadOrAnOptInClearsTheDismissedPrompts() async throws {
-        let (settings, cleanup) = try scratchSettings()
-        defer { cleanup() }
-        let results = Mutex<[ClaudeUsageFetchResult]>([.credentialsCancelled, .reading(ClaudeUsageReading())])
-        let poller = ClaudeUsagePoller(store: QuotaStore(), settings: settings, fetch: { _ in
-            results.withLock { $0.removeFirst() }
-        })
-
-        await poller.pollIfDue()
-        #expect(settings.claudeUsageKeychainCancels == 1)
-        poller.setEnabled(true)
-        #expect(settings.claudeUsageKeychainCancels == 0)
-
-        settings.claudeUsageKeychainCancels = 1
-        await poller.pollIfDue()
-        #expect(settings.claudeUsageKeychainCancels == 0)
-        #expect(settings.readsClaudeUsage)
-    }
-
-    @Test func readingUsageIsOffUntilTheUserOptsIn() async throws {
-        let suite = "ClaudeUsageTests-\(UUID().uuidString)"
-        let defaults = try #require(UserDefaults(suiteName: suite))
-        defer { defaults.removePersistentDomain(forName: suite) }
-        let settings = AppSettings(defaults: defaults, domainName: suite)
-        #expect(!settings.readsClaudeUsage)
-        let calls = Mutex(0)
-        let poller = ClaudeUsagePoller(store: QuotaStore(), settings: settings, fetch: { _ in
-            calls.withLock { $0 += 1 }
-            return .unauthorized
-        })
-
-        await poller.pollIfDue()
-        #expect(calls.withLock { $0 } == 0)
-        poller.setEnabled(true)
-        await poller.pollIfDue()
-        #expect(calls.withLock { $0 } == 1)
     }
 
     private func scratchSettings() throws -> (AppSettings, () -> Void) {
@@ -698,13 +615,39 @@ struct ClaudeUsageTests {
     // MARK: Schedule
 
     @Test func pollsEveryTwentyMinutesNormally() {
-        #expect(ClaudeUsagePollSchedule.delay(after: .success, consecutiveFailures: 0, isOverLimit: false) == 20 * 60)
-        #expect(ClaudeUsagePollSchedule.delay(after: .skipped, consecutiveFailures: 0, isOverLimit: false) == 20 * 60)
+        #expect(ClaudeUsagePollSchedule.delay(after: .success, consecutiveFailures: 0) == 20 * 60)
+        #expect(ClaudeUsagePollSchedule.delay(after: .skipped, consecutiveFailures: 0) == 20 * 60)
+        #expect(ClaudeUsagePollSchedule.isDue(now: start, lastAttempt: nil, outcome: .success, consecutiveFailures: 0))
+        #expect(!ClaudeUsagePollSchedule.isDue(now: start.addingTimeInterval(19 * 60), lastAttempt: start, outcome: .success, consecutiveFailures: 0))
+        #expect(ClaudeUsagePollSchedule.isDue(now: start.addingTimeInterval(20 * 60), lastAttempt: start, outcome: .success, consecutiveFailures: 0))
     }
 
-    @Test func pollsEveryFiveMinutesWhileOverALimit() {
-        #expect(ClaudeUsagePollSchedule.delay(after: .success, consecutiveFailures: 0, isOverLimit: true) == 5 * 60)
+    @Test func failuresBackOffToTheCap() {
+        let delays = [1, 2, 3, 50].map { ClaudeUsagePollSchedule.delay(after: .failed, consecutiveFailures: $0) }
+        #expect(delays == [20, 40, 60, 60].map { $0 * 60.0 })
+    }
 
+    @Test func aTurnEndWhileOverALimitPollsAtMostEveryTwoMinutes() {
+        let isDue = { (elapsed: TimeInterval, failures: Int) in
+            ClaudeUsagePollSchedule.isDueAtTurnEnd(
+                now: start.addingTimeInterval(elapsed), isOverLimit: true, lastAttempt: start, consecutiveFailures: failures
+            )
+        }
+        #expect(ClaudeUsagePollSchedule.isDueAtTurnEnd(now: start, isOverLimit: true, lastAttempt: nil, consecutiveFailures: 0))
+        #expect(!isDue(119, 0))
+        #expect(isDue(120, 0))
+        #expect(!isDue(120, 2), "a failing fetch keeps its backoff")
+        #expect(isDue(40 * 60, 2))
+    }
+
+    @Test func aTurnEndUnderTheLimitsAddsNoPoll() {
+        #expect(!ClaudeUsagePollSchedule.isDueAtTurnEnd(now: start, isOverLimit: false, lastAttempt: nil, consecutiveFailures: 0))
+        #expect(!ClaudeUsagePollSchedule.isDueAtTurnEnd(
+            now: start.addingTimeInterval(3600), isOverLimit: false, lastAttempt: start, consecutiveFailures: 0
+        ))
+    }
+
+    @Test func overALimitMeansAFullWindowOrOverage() {
         let over = QuotaSnapshot(rateLimit: RateLimitInfo(fiveHour: window(1), sevenDay: window(0.5), isUsingOverage: false), receivedAt: start)
         let under = QuotaSnapshot(rateLimit: RateLimitInfo(fiveHour: window(0.99), sevenDay: window(0.5), isUsingOverage: false), receivedAt: start)
         let overage = QuotaSnapshot(rateLimit: RateLimitInfo(fiveHour: nil, sevenDay: nil, isUsingOverage: true), receivedAt: start)
@@ -714,7 +657,7 @@ struct ClaudeUsageTests {
         #expect(!ClaudeUsagePollSchedule.isOverLimit(nil, now: start))
     }
 
-    @Test func aWindowPastItsResetNoLongerShortensThePoll() {
+    @Test func aWindowPastItsResetIsNoLongerOverTheLimit() {
         let full = RateLimitInfo.Window(utilization: 1, resetsAt: start.addingTimeInterval(600))
         let snapshot = QuotaSnapshot(rateLimit: RateLimitInfo(fiveHour: full, sevenDay: nil, isUsingOverage: false), receivedAt: start)
 
@@ -722,32 +665,12 @@ struct ClaudeUsageTests {
         #expect(!ClaudeUsagePollSchedule.isOverLimit(snapshot, now: start.addingTimeInterval(600)))
     }
 
-    @Test func anOldReadingNoLongerShortensThePoll() {
+    @Test func anOldReadingIsNoLongerOverTheLimit() {
         let snapshot = QuotaSnapshot(rateLimit: RateLimitInfo(fiveHour: nil, sevenDay: window(1), isUsingOverage: true), receivedAt: start)
         let maxAge = ClaudeUsagePollSchedule.overLimitReadingMaxAge
 
         #expect(ClaudeUsagePollSchedule.isOverLimit(snapshot, now: start.addingTimeInterval(maxAge)))
         #expect(!ClaudeUsagePollSchedule.isOverLimit(snapshot, now: start.addingTimeInterval(maxAge + 1)))
-    }
-
-    @Test func rateLimitWithoutRetryAfterBacksOffExponentially() {
-        let delays = (1...6).map {
-            ClaudeUsagePollSchedule.delay(after: .rateLimited(retryAfter: nil), consecutiveFailures: $0, isOverLimit: true)
-        }
-        #expect(delays == [5, 10, 20, 40, 60, 60].map { $0 * 60.0 })
-    }
-
-    @Test func rateLimitHonorsRetryAfter() {
-        #expect(ClaudeUsagePollSchedule.delay(after: .rateLimited(retryAfter: 30), consecutiveFailures: 1, isOverLimit: true) == 5 * 60)
-        #expect(ClaudeUsagePollSchedule.delay(after: .rateLimited(retryAfter: 900), consecutiveFailures: 1, isOverLimit: true) == 900)
-        #expect(ClaudeUsagePollSchedule.delay(after: .rateLimited(retryAfter: 7200), consecutiveFailures: 1, isOverLimit: false) == 7200)
-    }
-
-    @Test func failuresBackOffToTheCap() {
-        #expect(ClaudeUsagePollSchedule.delay(after: .failed, consecutiveFailures: 1, isOverLimit: false) == 20 * 60)
-        #expect(ClaudeUsagePollSchedule.delay(after: .failed, consecutiveFailures: 2, isOverLimit: false) == 40 * 60)
-        #expect(ClaudeUsagePollSchedule.delay(after: .failed, consecutiveFailures: 3, isOverLimit: false) == 60 * 60)
-        #expect(ClaudeUsagePollSchedule.delay(after: .failed, consecutiveFailures: 50, isOverLimit: false) == 60 * 60)
     }
 }
 

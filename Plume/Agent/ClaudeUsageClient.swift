@@ -1,7 +1,5 @@
-import CryptoKit
 import Foundation
 import OSLog
-import Security
 import Synchronization
 
 /// Usage credit (extra usage) spend for the billing period, in minor units of
@@ -23,7 +21,7 @@ nonisolated struct UsageCredit: Equatable, Codable, Sendable {
     }
 }
 
-/// One answer from the usage endpoint. Windows are 0–1, like the stream's.
+/// One `get_usage` answer. Windows are 0–1, like the stream's.
 nonisolated struct ClaudeUsageReading: Equatable, Sendable {
     var fiveHour: RateLimitInfo.Window?
     var sevenDay: RateLimitInfo.Window?
@@ -31,17 +29,18 @@ nonisolated struct ClaudeUsageReading: Equatable, Sendable {
     var credit: UsageCredit?
 }
 
-/// Parses `GET /api/oauth/usage`. The endpoint is undocumented, so every
-/// field is optional and an unknown shape yields an empty reading rather
-/// than an error.
+/// Parses the `rate_limits` object of a `get_usage` reply. The request is
+/// experimental, so every field is optional and an unknown shape yields an
+/// empty reading rather than an error.
 ///
-/// The shape follows Claude Code 2.1.328's own schema for it: top-level
-/// windows (`five_hour`, `seven_day`) carry `utilization` 0–100 and an ISO
-/// `resets_at`; `limits[]` rows carry `kind`, `percent` 0–100, `resets_at`
-/// and `scope.model.display_name`; spend is `extra_usage` with
-/// `used_credits` and `monthly_limit`. A `spend` object with `used`, `limit`
-/// and `balance` is also read, since some accounts have been reported to
-/// receive that form.
+/// The shape follows Claude Code 2.1.328: windows (`five_hour`,
+/// `seven_day`) carry `utilization` 0–100 and an ISO `resets_at`; `limits[]`
+/// rows carry `kind`, `percent` 0–100, `resets_at` and
+/// `scope.model.display_name`; `model_scoped[]` rows carry `display_name`
+/// and `utilization`. Spend is `spend`, whose `used` and `limit` are
+/// `{amount_minor, currency, exponent}`, and `extra_usage`, with
+/// `used_credits` and `monthly_limit` in minor units. A bare number in
+/// `spend` is read too.
 nonisolated enum ClaudeUsageParser {
     static func parse(_ data: Data) -> ClaudeUsageReading? {
         guard let root = try? JSONDecoder().decode([String: JSONValue].self, from: data) else { return nil }
@@ -67,7 +66,10 @@ nonisolated enum ClaudeUsageParser {
         if let row, let percent = row["percent"]?.doubleValue ?? row["utilization"]?.doubleValue {
             return RateLimitInfo.Window(utilization: percent / 100, resetsAt: date(row["resets_at"]))
         }
-        return percentWindow(root["seven_day_overage_included"]?.objectValue)
+        let scoped = root["model_scoped"]?.arrayValue?.compactMap(\.objectValue).first { row in
+            row["display_name"]?.stringValue?.localizedCaseInsensitiveContains("fable") == true
+        }
+        return percentWindow(scoped) ?? percentWindow(root["seven_day_overage_included"]?.objectValue)
     }
 
     private static func credit(in root: [String: JSONValue]) -> UsageCredit? {
@@ -78,8 +80,10 @@ nonisolated enum ClaudeUsageParser {
             usedCents: cents(spend?["used"]) ?? cents(extra?["used_credits"]),
             limitCents: cents(spend?["limit"]) ?? cents(extra?["monthly_limit"]),
             balanceCents: cents(spend?["balance"]),
-            isEnabled: spend?["is_enabled"]?.boolValue ?? extra?["is_enabled"]?.boolValue,
-            currency: spend?["currency"]?.stringValue ?? extra?["currency"]?.stringValue,
+            isEnabled: spend?["is_enabled"]?.boolValue ?? spend?["enabled"]?.boolValue ?? extra?["is_enabled"]?.boolValue,
+            currency: spend?["currency"]?.stringValue
+                ?? spend?["used"]?.objectValue?["currency"]?.stringValue
+                ?? extra?["currency"]?.stringValue,
             resetsAt: creditReset(in: root)
         )
         return credit == UsageCredit() ? nil : credit
@@ -97,7 +101,8 @@ nonisolated enum ClaudeUsageParser {
     }
 
     private static func cents(_ value: JSONValue?) -> Int? {
-        value?.doubleValue.flatMap { Int(exactly: $0.rounded()) }
+        let amount = value?.objectValue.map { $0["amount_minor"] } ?? value
+        return amount?.doubleValue.flatMap { Int(exactly: $0.rounded()) }
     }
 
     private static func date(_ value: JSONValue?) -> Date? {
@@ -111,212 +116,122 @@ nonisolated enum ClaudeUsageParser {
     }
 }
 
-/// Claude Code's OAuth login, read from its Keychain item. Read-only: the
-/// refresh token is single-use, so refreshing here would race the CLI and
-/// log it out.
-///
-/// The CLI names the item `Claude Code-credentials`, plus `-` and the first 8
-/// hex digits of the SHA-256 of its config directory when
-/// `CLAUDE_CONFIG_DIR` (or `CLAUDE_SECURESTORAGE_CONFIG_DIR`) is set, under
-/// the account `$USER`. Each config directory a user has signed in from
-/// leaves its own item.
-nonisolated enum ClaudeCredentials {
-    static let servicePrefix = "Claude Code-credentials"
-
-    enum Read: Equatable {
-        case token(String, expiresAt: Date?)
-        case missing
-        /// Keychain access refused outright.
-        case denied
-        /// The user dismissed the Keychain prompt.
-        case cancelled
-    }
-
-    struct Item: Equatable {
-        let service: String
-        let account: String
-        let modifiedAt: Date?
-    }
-
-    /// The item a config directory set in Plume's own environment names, or
-    /// nil with none set.
-    static func configuredServiceName(environment: [String: String] = ProcessInfo.processInfo.environment) -> String? {
-        let configDir: String?
-        if let secure = environment["CLAUDE_SECURESTORAGE_CONFIG_DIR"] {
-            configDir = secure.isEmpty ? nil : secure
-        } else if let dir = environment["CLAUDE_CONFIG_DIR"], !dir.isEmpty {
-            configDir = dir
-        } else {
-            configDir = nil
-        }
-        guard let configDir else {
-            return environment["CLAUDE_SECURESTORAGE_CONFIG_DIR"] != nil ? servicePrefix : nil
-        }
-        let digest = SHA256.hash(data: Data(configDir.precomposedStringWithCanonicalMapping.utf8))
-        let hex = digest.map { String(format: "%02x", $0) }.joined()
-        return "\(servicePrefix)-\(hex.prefix(8))"
-    }
-
-    static func accountName(environment: [String: String] = ProcessInfo.processInfo.environment) -> String {
-        let name = environment["USER"].flatMap { $0.isEmpty ? nil : $0 } ?? NSUserName()
-        return name.allSatisfy { $0.isASCII && ($0.isLetter || $0.isNumber || "._-".contains($0)) } && !name.isEmpty
-            ? name
-            : "claude-code-user"
-    }
-
-    /// The item Plume's own environment names, else the most recently
-    /// written one. The CLI rewrites its item on every token refresh, so the
-    /// newest tracks the login in use; a `CLAUDE_CONFIG_DIR` set only in a
-    /// shell never reaches an app opened from Finder. Reading an item's
-    /// contents is what prompts, so only the chosen one is read.
-    static func choose(from items: [Item], configuredService: String?, account: String) -> Item? {
-        let mine = items.filter { $0.account == account && $0.service.hasPrefix(servicePrefix) }
-        if let configuredService, let exact = mine.first(where: { $0.service == configuredService }) { return exact }
-        return mine.max { ($0.modifiedAt ?? .distantPast) < ($1.modifiedAt ?? .distantPast) }
-    }
-
-    /// Attributes only, which never prompts.
-    static func items() -> [Item] {
-        let query: [String: Any] = [
-            kSecClass as String: kSecClassGenericPassword,
-            kSecMatchLimit as String: kSecMatchLimitAll,
-            kSecReturnAttributes as String: true,
-        ]
-        var result: CFTypeRef?
-        guard SecItemCopyMatching(query as CFDictionary, &result) == errSecSuccess,
-              let rows = result as? [[String: Any]]
-        else { return [] }
-        return rows.compactMap { row in
-            guard let service = row[kSecAttrService as String] as? String, service.hasPrefix(servicePrefix) else { return nil }
-            return Item(
-                service: service,
-                account: row[kSecAttrAccount as String] as? String ?? "",
-                modifiedAt: row[kSecAttrModificationDate as String] as? Date
-            )
-        }
-    }
-
-    static func read() -> Read {
-        guard let item = choose(from: items(), configuredService: configuredServiceName(), account: accountName()) else { return .missing }
-        let query: [String: Any] = [
-            kSecClass as String: kSecClassGenericPassword,
-            kSecAttrService as String: item.service,
-            kSecAttrAccount as String: item.account,
-            kSecMatchLimit as String: kSecMatchLimitOne,
-            kSecReturnData as String: true,
-        ]
-        var result: CFTypeRef?
-        let status = SecItemCopyMatching(query as CFDictionary, &result)
-        return read(status: status, data: result as? Data)
-    }
-
-    static func read(status: OSStatus, data: Data?) -> Read {
-        switch status {
-        case errSecSuccess:
-            guard let data, let token = parse(data) else { return .missing }
-            return token
-        case errSecUserCanceled:
-            return .cancelled
-        case errSecAuthFailed:
-            return .denied
-        default:
-            // A locked Keychain among them, which a later poll can get past.
-            return .missing
-        }
-    }
-
-    static func parse(_ data: Data) -> Read? {
-        guard let root = try? JSONDecoder().decode([String: JSONValue].self, from: data),
-              let oauth = root["claudeAiOauth"]?.objectValue,
-              let token = oauth["accessToken"]?.stringValue, !token.isEmpty
-        else { return nil }
-        let expiresAt = oauth["expiresAt"]?.doubleValue.map { value in
-            // Claude Code writes milliseconds; anything this small is seconds.
-            Date(timeIntervalSince1970: value > 100_000_000_000 ? value / 1000 : value)
-        }
-        return .token(token, expiresAt: expiresAt)
-    }
-}
 
 nonisolated enum ClaudeUsageFetchResult: Equatable, Sendable {
     case reading(ClaudeUsageReading)
-    case rateLimited(retryAfter: TimeInterval?)
-    /// No credentials, an expired token, or a 401: wait for the CLI to
-    /// refresh the token, and keep the last reading meanwhile.
-    case unauthorized
-    /// The Keychain refused the read, which means the user declined access.
-    case credentialsDenied
-    /// The user dismissed the Keychain prompt, which may have been a
-    /// misclick, so it counts for less than a denial.
-    case credentialsCancelled
+    /// The CLI answered without rate limits, which it does for a login that
+    /// lacks the profile scope. Not a failure, so it never backs off.
+    case unavailable
     case failed
 }
 
-nonisolated struct ClaudeUsageClient: Sendable {
-    static let endpoint = URL(string: "https://api.anthropic.com/api/oauth/usage")!
+/// The CLI's experimental `get_usage` control request, sent to a `claude -p`
+/// that is given no user message, so it costs no inference.
+/// `docs/headless-protocol.md` has the wire shape.
+nonisolated enum ClaudeUsageRequest {
+    static let requestID = "usage"
 
-    var session: URLSession = .shared
-    var readCredentials: @Sendable () -> ClaudeCredentials.Read = { ClaudeCredentials.read() }
+    /// `env -u` keeps a Plume launched from inside Claude Code from passing
+    /// that session's markers on. The CLI writes no transcript without a user
+    /// message, but `--no-session-persistence` makes sure, and the user's
+    /// hooks and MCP servers have nothing to do in a run that never takes a
+    /// turn.
+    static let arguments = [
+        "env", "-u", "CLAUDECODE", "-u", "CLAUDE_CODE_CHILD_SESSION",
+        "claude", "-p",
+        "--input-format", "stream-json",
+        "--output-format", "stream-json",
+        "--verbose",
+        "--no-session-persistence",
+        "--strict-mcp-config",
+        "--settings", #"{"disableAllHooks":true}"#,
+    ]
+
+    static let lines = [
+        #"{"type":"control_request","request_id":"initialize","request":{"subtype":"initialize"}}"#,
+        #"{"type":"control_request","request_id":"\#(requestID)","request":{"subtype":"get_usage","skip_behaviors":true}}"#,
+    ]
+
+    /// The result a stdout line carries, or nil for any other line.
+    static func result(forLine line: String) -> ClaudeUsageFetchResult? {
+        guard line.contains("control_response"),
+              let root = try? JSONDecoder().decode([String: JSONValue].self, from: Data(line.utf8)),
+              root["type"]?.stringValue == "control_response",
+              let response = root["response"]?.objectValue,
+              response["request_id"]?.stringValue == requestID
+        else { return nil }
+        guard response["subtype"]?.stringValue == "success" else {
+            let error = response["error"]?.stringValue ?? "no message"
+            Log.agent.info("get_usage failed: \(error, privacy: .public)")
+            return .failed
+        }
+        let body = response["response"]?.objectValue
+        guard body?["rate_limits_available"]?.boolValue != false,
+              let rateLimits = body?["rate_limits"]?.objectValue
+        else { return .unavailable }
+        ClaudeUsageClient.logShapeOnce(.object(rateLimits))
+        return .reading(ClaudeUsageParser.parse(root: rateLimits))
+    }
+}
+
+/// Asks a short-lived `claude -p` for the account's usage, so Plume never
+/// handles Claude Code's login itself.
+nonisolated struct ClaudeUsageClient: Sendable {
+    /// Plume's own, so the run neither reads a project's settings nor runs
+    /// in one.
+    var workingDirectory: URL
+    var timeout: Duration = .seconds(30)
 
     private static let loggedShape = Mutex(false)
 
     @concurrent
-    func fetch(now: Date = Date()) async -> ClaudeUsageFetchResult {
-        let token: String
-        switch readCredentials() {
-        case .missing: return .unauthorized
-        case .denied: return .credentialsDenied
-        case .cancelled: return .credentialsCancelled
-        case .token(let value, let expiresAt):
-            if let expiresAt, expiresAt <= now { return .unauthorized }
-            token = value
+    func fetch() async -> ClaudeUsageFetchResult {
+        try? FileManager.default.createDirectory(at: workingDirectory, withIntermediateDirectories: true)
+        let probe = UsageProbe()
+        let timer = Task { [timeout] in
+            try? await Task.sleep(for: timeout)
+            guard !Task.isCancelled else { return }
+            Log.agent.info("get_usage timed out")
+            probe.finish(.failed)
         }
-
-        var request = URLRequest(url: Self.endpoint, timeoutInterval: 15)
-        request.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization")
-        request.setValue("oauth-2025-04-20", forHTTPHeaderField: "anthropic-beta")
-        request.setValue("application/json", forHTTPHeaderField: "Accept")
-
-        guard let (data, response) = try? await session.data(for: request),
-              let http = response as? HTTPURLResponse
-        else { return .failed }
-
-        switch http.statusCode {
-        case 200..<300:
-            logShapeOnce(data)
-            return ClaudeUsageParser.parse(data).map { .reading($0) } ?? .failed
-        case 401, 403:
-            return .unauthorized
-        case 429:
-            return .rateLimited(retryAfter: Self.retryAfter(http.value(forHTTPHeaderField: "Retry-After"), now: now))
-        default:
-            return .failed
+        defer { timer.cancel() }
+        return await withCheckedContinuation { continuation in
+            probe.begin(continuation)
+            let process = AgentProcess(
+                label: "claude get_usage",
+                onLine: { line in
+                    if let result = ClaudeUsageRequest.result(forLine: line) { probe.finish(result) }
+                },
+                onExit: { status, errorLine in
+                    probe.finish(.failed, exit: (status, errorLine))
+                }
+            )
+            do {
+                try process.start(
+                    arguments: ClaudeUsageRequest.arguments,
+                    workingDirectory: workingDirectory.path,
+                    environment: LoginShellCommand.plumeEnvironment
+                )
+            } catch {
+                Log.agent.error("get_usage launch failed: \(error.localizedDescription, privacy: .public)")
+                probe.finish(.failed)
+                return
+            }
+            probe.adopt(process)
+            for line in ClaudeUsageRequest.lines { process.send(line: line) }
         }
     }
 
-    /// Seconds, or an HTTP date.
-    static func retryAfter(_ header: String?, now: Date) -> TimeInterval? {
-        guard let header = header?.trimmingCharacters(in: .whitespaces), !header.isEmpty else { return nil }
-        if let seconds = TimeInterval(header) { return max(seconds, 0) }
-        let formatter = DateFormatter()
-        formatter.locale = Locale(identifier: "en_US_POSIX")
-        formatter.timeZone = TimeZone(identifier: "GMT")
-        formatter.dateFormat = "EEE, dd MMM yyyy HH:mm:ss zzz"
-        return formatter.date(from: header).map { max($0.timeIntervalSince(now), 0) }
-    }
-
-    /// The endpoint is undocumented; its shape once per launch in the debug
+    /// The request is experimental; its shape once per launch in the debug
     /// log is what lets the parser be corrected when it moves. Values stay
     /// out: they are the account's spend.
-    private func logShapeOnce(_ data: Data) {
-        let first = Self.loggedShape.withLock { logged in
+    static func logShapeOnce(_ value: JSONValue) {
+        let first = loggedShape.withLock { logged in
             defer { logged = true }
             return !logged
         }
         guard first else { return }
-        guard let root = try? JSONDecoder().decode(JSONValue.self, from: data) else { return }
-        let shape = Self.shape(of: root)
-        Log.agent.debug("Claude usage endpoint answered: \(shape, privacy: .public)")
+        Log.agent.debug("get_usage answered: \(shape(of: value), privacy: .public)")
     }
 
     /// Keys and value types, with an array shown as the union of its
@@ -338,5 +253,51 @@ nonisolated struct ClaudeUsageClient: Sendable {
             }
             return "[\(seen.joined(separator: "|"))]"
         }
+    }
+}
+
+/// One fetch's reply slot and process. Whichever of the reply, an exit or
+/// the timeout comes first answers; the process is ended either way.
+private nonisolated final class UsageProbe: Sendable {
+    private struct State {
+        var continuation: CheckedContinuation<ClaudeUsageFetchResult, Never>?
+        var process: AgentProcess?
+        var isFinished = false
+    }
+
+    private let state = Mutex(State())
+
+    func begin(_ continuation: CheckedContinuation<ClaudeUsageFetchResult, Never>) {
+        state.withLock { $0.continuation = continuation }
+    }
+
+    /// A reply can land before the process is adopted, which then ends it.
+    func adopt(_ process: AgentProcess) {
+        let isFinished = state.withLock { state in
+            state.process = process
+            return state.isFinished
+        }
+        if isFinished { Self.end(process) }
+    }
+
+    func finish(_ result: ClaudeUsageFetchResult, exit: (Int32, String?)? = nil) {
+        let (continuation, process) = state.withLock { state in
+            guard !state.isFinished else { return (nil as CheckedContinuation<ClaudeUsageFetchResult, Never>?, nil as AgentProcess?) }
+            state.isFinished = true
+            defer { state.continuation = nil }
+            return (state.continuation, state.process)
+        }
+        guard let continuation else { return }
+        if let (status, errorLine) = exit {
+            Log.agent.info("get_usage exited \(status) before replying: \(errorLine ?? "no error", privacy: .public)")
+        }
+        if let process { Self.end(process) }
+        continuation.resume(returning: result)
+    }
+
+    /// Off the process's own queue: its callbacks run there, and `terminate`
+    /// waits on that queue.
+    private static func end(_ process: AgentProcess) {
+        DispatchQueue.global(qos: .utility).async { process.terminate() }
     }
 }

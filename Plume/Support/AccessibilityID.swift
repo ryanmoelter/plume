@@ -111,8 +111,6 @@ enum AccessibilityID {
     static let settingsSidebarBoldTaskNamesToggle = "settings-sidebar-bold-task-names-toggle"
     static let settingsAlwaysShowsCreditAndFableQuotaToggle = "settings-always-shows-credit-and-fable-quota-toggle"
     static let settingsReadsClaudeUsageToggle = "settings-reads-claude-usage-toggle"
-    static let sidebarQuotaUsageOffer = "sidebar-quota-usage-offer"
-    static let sidebarQuotaUsageOfferDismiss = "sidebar-quota-usage-offer-dismiss"
     static let settingsSidebarColorsTaskIconsToggle = "settings-sidebar-colors-task-icons-toggle"
     static let settingsSidebarTwoToneIconsToggle = "settings-sidebar-two-tone-icons-toggle"
     static let settingsSidebarPreview = "settings-sidebar-preview"

@@ -354,7 +354,7 @@ nonisolated enum TaskQuery {
 }
 
 /// A Fable window and a credit reading for the sidebar's quota row, as if the
-/// usage endpoint had reported them. Amounts are dollars; an omitted reading
+/// `get_usage` had reported them. Amounts are dollars; an omitted reading
 /// is cleared. The readings never reach disk, but `alwaysShow` sets the real,
 /// persisted setting.
 nonisolated struct InjectUsageParams: Decodable, Equatable {
@@ -367,17 +367,9 @@ nonisolated struct InjectUsageParams: Decodable, Equatable {
     var isUsingOverage: Bool?
     /// Sets the persisted "Always show credit and Fable quota" setting.
     var alwaysShow: Bool?
-    /// Shows the quota row's offer again: undoes its dismissal and turns
-    /// reading usage off, both persisted. Given alone, nothing is injected.
-    var resetUsageOffer: Bool?
-    /// Drops the 5h and 7d windows, as for a row only the usage endpoint has
+    /// Drops the 5h and 7d windows, as for a row only `get_usage` has
     /// reported to. Injected like the readings, so never persisted.
     var clearWindows: Bool?
-
-    var injectsReadings: Bool {
-        fable != nil || fableResetsInHours != nil || creditUsed != nil || creditLimit != nil
-            || creditBalance != nil || isUsingOverage != nil || alwaysShow != nil || clearWindows != nil
-    }
 
     func validate() throws {
         if let fable, !(0...1).contains(fable) {
@@ -931,7 +923,7 @@ nonisolated struct HierarchyResult: Codable, Equatable {
 
 /// The quota state an `injectUsage` left behind, read back from the store
 /// rather than the registry. Amounts are dollars. `shows` names what the
-/// sidebar row draws besides its meters: `fable`, `credit`, `offer`.
+/// sidebar row draws besides its meters: `fable`, `credit`.
 nonisolated struct InjectUsageResult: Codable, Equatable {
     var fable: Double?
     var creditUsed: Double?

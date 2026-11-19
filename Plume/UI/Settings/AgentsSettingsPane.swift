@@ -78,7 +78,7 @@ struct AgentsSettingsPane: View {
                             value: settings.alwaysShowsCreditAndFableQuota ? "on" : "off",
                             invoke: { settings.alwaysShowsCreditAndFableQuota.toggle() }
                         )
-                    Toggle("Read credit and Fable usage with Claude Code's login", isOn: readsClaudeUsage)
+                    Toggle("Check credit and Fable usage with Claude Code", isOn: readsClaudeUsage)
                         .plumeID(
                             AccessibilityID.settingsReadsClaudeUsageToggle,
                             value: settings.readsClaudeUsage ? "on" : "off",

@@ -70,13 +70,13 @@ final class QuotaStore {
         now = date
     }
 
-    /// A reading from the usage endpoint, which brings what the stream never
+    /// A `get_usage` reading, which brings what the stream never
     /// does: the credit spend, and the Fable window between Fable turns.
     /// `date` is when the request was sent, so a stream reading that arrives
     /// while it is in flight is newer than the reply.
     ///
     /// A reply without a Fable row or with no enabled credit clears that
-    /// reading: the endpoint answers for the whole account, so absence is an
+    /// reading: `get_usage` answers for the whole account, so absence is an
     /// answer.
     func record(_ usage: ClaudeUsageReading, at date: Date = Date()) {
         let credit = usage.credit?.isEnabled == false ? nil : usage.credit
@@ -91,7 +91,7 @@ final class QuotaStore {
         persist(next)
     }
 
-    /// Drops what only the usage endpoint reports, for when reading it is
+    /// Drops what only `get_usage` reports, for when reading it is
     /// turned off. A Fable window the stream reported stays.
     func forgetEndpointReadings() {
         guard var next = snapshot else { return }
@@ -116,7 +116,7 @@ final class QuotaStore {
 
     /// Seeds the Fable window and credit for a driver; nil clears either.
     /// `clearsWindows` drops the 5h and 7d windows, for a row that has only
-    /// heard from the usage endpoint.
+    /// heard from `get_usage`.
     func inject(
         fable: RateLimitInfo.Window?,
         credit: UsageCredit?,
@@ -251,10 +251,11 @@ enum QuotaPersistence {
     }
 }
 
-/// Where the Fable window came from. Only the endpoint's needs Claude Code's
-/// login, so only it goes when reading with that login is turned off.
+/// Where the Fable window came from. Only `get_usage`'s goes when checking
+/// usage is turned off.
 enum FableSource: String, Codable {
     case stream
+    /// `get_usage`; the raw value predates it and is persisted.
     case endpoint
 }
 
@@ -263,7 +264,7 @@ struct QuotaSnapshot: Equatable, Codable {
     /// When the 5h and 7d windows were heard.
     let receivedAt: Date
     /// When `rateLimit.fable` was heard, which can be later than
-    /// `receivedAt`: the usage endpoint reports it between turns.
+    /// `receivedAt`: `get_usage` reports it between turns.
     var fableReceivedAt: Date?
     var fableSource: FableSource?
     var credit: UsageCredit?
@@ -354,7 +355,7 @@ enum QuotaFreshness {
     static let focusRefreshInterval: TimeInterval = 3 * 60
     static let staleAfter: TimeInterval = 30 * 60
 
-    /// Two missed polls of the usage endpoint.
+    /// Two missed `get_usage` polls.
     static let creditStaleAfter: TimeInterval = 2 * ClaudeUsagePollSchedule.interval
 
     static func isStale(receivedAt: Date, now: Date) -> Bool {

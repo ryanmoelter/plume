@@ -19,7 +19,6 @@ struct UsageInjectionTests {
             let suite = "UsageInjectionTests-\(UUID().uuidString)"
             let defaults = try #require(UserDefaults(suiteName: suite))
             settings = AppSettings(defaults: defaults, domainName: suite)
-            settings.dismissedClaudeUsageOffer = true
             poller = ClaudeUsagePoller(store: store, settings: settings, fetch: { _ in .failed })
             cleanup = { defaults.removePersistentDomain(forName: suite) }
         }
@@ -49,28 +48,6 @@ struct UsageInjectionTests {
         #expect(cleared.fable == nil)
         #expect(cleared.creditUsed == nil)
         #expect(cleared.shows == [])
-    }
-
-    @Test func theFirstInjectAfterAResetLands() throws {
-        let harness = try Harness()
-        defer { harness.cleanup() }
-        _ = try harness.inject(InjectUsageParams(fable: 0.2))
-        let reset = try harness.inject(InjectUsageParams(resetUsageOffer: true))
-        #expect(reset.shows == ["fable", "offer"], "a reset alone leaves the injected Fable reading")
-        #expect(!reset.readsUsage)
-
-        let injected = try harness.inject(InjectUsageParams(fable: 0.7, creditUsed: 3, creditLimit: 10))
-        #expect(injected.fable == 0.7)
-        #expect(injected.creditUsed == 3)
-        #expect(injected.shows == ["fable", "credit", "offer"])
-    }
-
-    @Test func aResetWithReadingsShowsTheOfferAndTheGlyphs() throws {
-        let harness = try Harness()
-        defer { harness.cleanup() }
-        let result = try harness.inject(InjectUsageParams(fable: 0.3, creditUsed: 1, creditLimit: 10, resetUsageOffer: true))
-        #expect(result.shows == ["fable", "credit", "offer"])
-        #expect(!harness.settings.dismissedClaudeUsageOffer)
     }
 
     @Test func theRegistryReadsAnInjectionOnceSettled() async throws {

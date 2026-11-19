@@ -41,7 +41,6 @@ struct SidebarQuotaRow: View, ThemedView {
         } ?? false
         let extras = SidebarQuotaExtras(snapshot: snapshot, alwaysShows: settings.alwaysShowsCreditAndFableQuota, now: quota.now)
         let windows = snapshot.flatMap { Self.hasWindows($0) ? $0 : nil }
-        let showsOffer = !settings.readsClaudeUsage && !settings.dismissedClaudeUsageOffer
         let isChecking = poller.status == .checking
 
         HStack(alignment: .quotaFirstLine, spacing: 8) {
@@ -56,8 +55,7 @@ struct SidebarQuotaRow: View, ThemedView {
                 if windows == nil && !extras.showsAny {
                     noReading
                 }
-                if showsOffer { usageOffer }
-                // With no glyph to pulse, the offer's old slot spins instead.
+                // With no glyph to pulse, a spinner shows the check instead.
                 if isChecking && !extras.showsAny {
                     ProgressView()
                         .controlSize(.mini)
@@ -85,34 +83,6 @@ struct SidebarQuotaRow: View, ThemedView {
         .plumeID(AccessibilityID.sidebarQuotaRow, value: poller.status.description)
     }
 
-    private var usageOffer: some View {
-        HStack(spacing: 4) {
-            Button("Show usage credit", action: acceptUsageOffer)
-                .buttonStyle(.bordered)
-                .controlSize(.small)
-                .help("Show usage credit and the Fable quota here. Plume reads Claude Code's login from your Keychain to fetch them, so macOS asks once.")
-                .plumeID(AccessibilityID.sidebarQuotaUsageOffer, invoke: acceptUsageOffer)
-            Button(action: dismissUsageOffer) {
-                Image(systemName: "xmark")
-                    .accessibilityLabel("Hide this")
-            }
-            .buttonStyle(.borderless)
-            .controlSize(.small)
-            .foregroundStyle(colors.foreground.opacity(colors.emphasis[.subtle]))
-            .help("Hide this")
-            .plumeID(AccessibilityID.sidebarQuotaUsageOfferDismiss, invoke: dismissUsageOffer)
-        }
-        .transition(.opacity)
-    }
-
-    private func acceptUsageOffer() {
-        poller.setEnabled(true)
-    }
-
-    private func dismissUsageOffer() {
-        settings.dismissedClaudeUsageOffer = true
-    }
-
     private var noReading: some View {
         placeholder
             .accessibilityLabel("No quota reading yet")
@@ -130,7 +100,6 @@ struct SidebarQuotaRow: View, ThemedView {
             snapshot?.rateLimit.sevenDay != nil,
             extras.showsFable,
             extras.showsCredit,
-            !settings.readsClaudeUsage && !settings.dismissedClaudeUsageOffer,
             poller.status != .idle,
         ]
     }
