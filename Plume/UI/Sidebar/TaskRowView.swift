@@ -18,6 +18,7 @@ struct TaskRowView: View {
     /// Whether the left button is down over the hovered group.
     @State private var isPressingGroup = false
     @State private var pressMonitor = AgentGroupPressMonitor()
+    @State private var showsAllAgents = false
 
     private var appearance: SidebarTaskAppearance {
         SidebarTaskAppearance(task: task, settings: .shared)
@@ -65,14 +66,11 @@ struct TaskRowView: View {
 
     /// Folders come from the rule `directories` uses, so every group's
     /// directory is one the row watches.
-    private func agentGroups(for tabs: [TaskTab]) -> [TaskRowDetails.AgentGroup] {
+    private func agentGroups(for nested: [(item: TaskTab, depth: Int)]) -> [TaskRowDetails.AgentGroup] {
+        let tabs = nested.map(\.item)
         let directories = task.agentTabDirectories(of: tabs)
         let titles = tabs.map { TitleStore.shared.chipTitle(for: $0) }
         let labels = TaskRowDetails.distinctLabels(titles)
-        let depths = Dictionary(
-            uniqueKeysWithValues: TaskStore.nestedByParent(tabs, id: \.id, parentID: \.parentTabID)
-                .map { ($0.item.id, $0.depth) }
-        )
         var groupsByDirectory: [String: TaskRowDetails.DirectoryGroup] = [:]
         return tabs.indices.map { index in
             let tab = tabs[index]
@@ -84,7 +82,7 @@ struct TaskRowView: View {
                 workspace = TaskRowDetails.DirectoryGroup(directory: nil)
             }
             return TaskRowDetails.AgentGroup(
-                header: header(for: tab, title: titles[index], label: labels[index], depth: depths[tab.id] ?? 0),
+                header: header(for: tab, title: titles[index], label: labels[index], depth: nested[index].depth),
                 workspace: workspace
             )
         }
@@ -133,7 +131,7 @@ struct TaskRowView: View {
     }
 
     private func detailLines(
-        agentTabs: [TaskTab],
+        nestedAgentTabs: [(item: TaskTab, depth: Int)],
         working: [LinkedLinearIssue],
         pinned: [PullRequestReference]
     ) -> [TaskRowDetails.Line] {
@@ -145,30 +143,43 @@ struct TaskRowView: View {
             )
                 + TaskRowDetails.linearLines(working, states: { LinearStore.shared.state(for: $0) })
         }
-        if agentTabs.count <= 1 {
+        if nestedAgentTabs.count <= 1 {
             let groups = directories.map(group(for:))
             return TaskRowDetails.lines(groups: groups) + taskLines(groups: groups)
         }
-        let agents = agentGroups(for: agentTabs)
-        return TaskRowDetails.lines(agents: agents, taskLines: taskLines(groups: agents.map(\.workspace)))
+        let agents = agentGroups(for: nestedAgentTabs)
+        let tabIDs = nestedAgentTabs.map(\.item.id)
+        return TaskRowDetails.lines(
+            agents: agents,
+            taskLines: taskLines(groups: agents.map(\.workspace)),
+            activity: Set(tabIDs.filter { TaskActivityRow.hasActivity(tabIDs: [$0]) })
+        )
     }
 
-    /// The remote-control and device icons of a task with one agent tab. Its
-    /// project header repeats per directory, and the icons belong to the task
-    /// rather than to any one of them, so they ride on the first. With several
-    /// agent tabs, each header carries its own tab's icons instead.
+    /// The remote-control and device icons of the agent the task row stands
+    /// for, when it shows no header of its own. Its project header repeats per
+    /// directory, and the icons belong to the task rather than to any one of
+    /// them, so they ride on the first. Every agent with a header carries its
+    /// own tab's icons instead.
     private struct ProjectLineIcons {
         var lineIndex: Int
         var isRemoteControlled: Bool
         var heldDevices: [DeviceLease]
     }
 
-    private func projectLineIcons(in lines: [TaskRowDetails.Line], agentTabIDs: [UUID]) -> ProjectLineIcons? {
+    /// `headerTabIDs` are the tabs whose icons ride on their own headers.
+    private func projectLineIcons(
+        in lines: [TaskRowDetails.Line],
+        agentTabIDs: [UUID],
+        headerTabIDs: Set<UUID>
+    ) -> ProjectLineIcons? {
         guard let index = lines.firstIndex(where: { if case .project = $0 { true } else { false } }) else { return nil }
         return ProjectLineIcons(
             lineIndex: index,
-            isRemoteControlled: Self.isRemoteControlled(tabIDs: agentTabIDs),
-            heldDevices: DeviceLeaseStore.shared.leases(ownedBy: task.orderedLiveTabs.map(\.id))
+            isRemoteControlled: Self.isRemoteControlled(tabIDs: agentTabIDs.filter { !headerTabIDs.contains($0) }),
+            heldDevices: DeviceLeaseStore.shared.leases(
+                ownedBy: task.orderedLiveTabs.map(\.id).filter { !headerTabIDs.contains($0) }
+            )
         )
     }
 
@@ -179,12 +190,6 @@ struct TaskRowView: View {
         return held.isEmpty ? nil : DeviceLeaseStore.summary(held)
     }
 
-    /// A child session sits right after the agent that started it.
-    private var agentTabs: [TaskTab] {
-        TaskStore.nestedByParent(
-            task.orderedLiveTabs.filter { $0.kind == .agent }, id: \.id, parentID: \.parentTabID
-        ).map(\.item)
-    }
 
     /// Whether any of these tabs can be driven from elsewhere. Only the
     /// headless transport carries the bridge; a terminal tab's own TUI serves
@@ -194,15 +199,22 @@ struct TaskRowView: View {
     }
 
     var body: some View {
-        let agentTabs = agentTabs
-        let agentTabIDs = agentTabs.map(\.id)
-        let hasSeveralAgents = agentTabs.count > 1
+        let nestedAgentTabs = TaskStore.nestedAgentTabs(of: task)
+        let agentTabIDs = nestedAgentTabs.map(\.item.id)
+        let hasSeveralAgents = agentTabIDs.count > 1
+        // With one top-level agent, the row stands for it and only its
+        // children take headers.
+        let rowAgentTabID = hasSeveralAgents ? TaskStore.soleTopLevelAgentTab(of: task)?.id : agentTabIDs.first
+        let headerTabIDs = Set(hasSeveralAgents ? agentTabIDs.filter { $0 != rowAgentTabID } : [])
         let working = workingLinearIssues
         let pinned = pinnedPullRequests
-        let rawLines = detailLines(agentTabs: agentTabs, working: working, pinned: pinned)
+        let allLines = detailLines(nestedAgentTabs: nestedAgentTabs, working: working, pinned: pinned)
+        let cap = AgentRowCap.layout(total: TaskRowDetails.headerCount(allLines), isExpanded: showsAllAgents)
+        let rawLines = TaskRowDetails.lines(allLines, keepingHeaders: cap.visibleCount)
         let lines = Array(rawLines.enumerated())
         let badgeLineCount = Self.badgeLineCount(of: rawLines)
-        let icons = hasSeveralAgents ? nil : projectLineIcons(in: rawLines, agentTabIDs: agentTabIDs)
+        let icons = rowAgentTabID == nil
+            ? nil : projectLineIcons(in: rawLines, agentTabIDs: agentTabIDs, headerTabIDs: headerTabIDs)
         let owners = TaskRowDetails.owningAgentLabels(rawLines)
         let nesting = TaskRowDetails.agentGroupNesting(rawLines)
         let hovered = hasSeveralAgents ? TaskRowDetails.hoveredAgentGroup(hoveredLines: hoveredLines, nesting: nesting) : nil
@@ -217,7 +229,7 @@ struct TaskRowView: View {
         VStack(alignment: .leading, spacing: Self.lineSpacing) {
             HStack(alignment: .top, spacing: 6) {
                 VStack(alignment: .leading, spacing: Self.lineSpacing) {
-                    title(heldDevices: hasSeveralAgents ? taskLevelHeldDevices() : nil)
+                    title(heldDevices: hasSeveralAgents && rowAgentTabID == nil ? taskLevelHeldDevices() : nil)
                     descriptionLine
                     ForEach(Array(lines.prefix(badgeLineCount)), id: \.offset) { index, line in
                         groupedDetailLine(line, at: index, owner: owners[index], icons: icons, groups: groups)
@@ -236,14 +248,18 @@ struct TaskRowView: View {
                 groupedDetailLine(line, at: index, owner: owners[index], icons: icons, groups: groups)
             }
 
-            TaskActivityRow(tabIDs: agentTabIDs)
+            if let title = cap.toggleTitle, let symbol = cap.toggleSymbol {
+                agentCapToggle(title: title, symbol: symbol)
+            }
+
+            TaskActivityRow(tabIDs: rowAgentTabID.map { hasSeveralAgents ? [$0] : agentTabIDs } ?? [])
         }
         .agentGroupBars(isEnabled: hasSeveralAgents, style: barStyle(groups))
         .padding(.vertical, 2)
         .contentShape(.rect)
         .accessibilityElement(children: .combine)
-        .accessibilityLabel(accessibilityLabel(lines: rawLines, agentTabIDs: agentTabIDs))
-        .plumeID(AccessibilityID.taskRow, label: TitleStore.shared.displayTitle(for: task), value: isSelected ? "selected" : nil, invoke: onSelect)
+        .accessibilityLabel(accessibilityLabel(lines: allLines, agentTabIDs: agentTabIDs))
+        .plumeID(AccessibilityID.taskRow, label: TitleStore.shared.displayTitle(for: task), value: isSelected ? "selected" : nil, invoke: selectRow)
         // Adding or closing an agent tab changes how many groups the row
         // shows, so its height eases rather than snapping the rows below it.
         .padding(.horizontal, AgentGroupBar.drawingOutset)
@@ -453,7 +469,10 @@ struct TaskRowView: View {
                 .frame(maxWidth: .infinity, alignment: .leading)
                 .padding(.vertical, Self.lineSpacing / 2)
                 .contentShape(.rect)
-                .simultaneousGesture(TapGesture().onEnded { selectAgentTab(tabID) })
+                .simultaneousGesture(TapGesture().onEnded {
+                    TaskRowClick.claim(taskID: task.id)
+                    selectAgentTab(tabID)
+                })
                 .plumeHover { hovering in
                     if hovering {
                         hoveredLines.insert(index)
@@ -465,6 +484,41 @@ struct TaskRowView: View {
         } else {
             member
         }
+    }
+
+    /// What a click on the row itself does, for the control server's `invoke`.
+    private func selectRow() {
+        onSelect?()
+        TaskStore.selectRowClickTab(of: task)
+    }
+
+    /// Folding never changes the selected tab, so the toggle claims its click
+    /// from the row.
+    private func agentCapToggle(title: String, symbol: String) -> some View {
+        HStack(spacing: 4) {
+            Image(systemName: symbol)
+                .imageScale(.small)
+            Text(title)
+        }
+        .font(.caption)
+        .emphasis(.secondary)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .contentShape(.rect)
+        .simultaneousGesture(TapGesture().onEnded {
+            TaskRowClick.claim(taskID: task.id)
+            toggleAgentCap()
+        })
+        .plumeID(
+            AccessibilityID.taskAgentCapToggle,
+            label: TitleStore.shared.displayTitle(for: task),
+            value: showsAllAgents ? "expanded" : "collapsed",
+            invoke: toggleAgentCap
+        )
+    }
+
+    private func toggleAgentCap() {
+        onSelect?()
+        showsAllAgents.toggle()
     }
 
     /// Selecting the task as well lets the control server's `invoke` stand in
@@ -490,7 +544,12 @@ struct TaskRowView: View {
     ) -> some View {
         let titleEmphasis = Self.agentTitleEmphasis(status: header.status, isEmphasized: isEmphasized)
         return HStack(spacing: 4) {
-            if header.isDetachedChild {
+            if header.parentLabel != nil {
+                Image(systemName: "arrow.turn.down.right")
+                    .font(.caption)
+                    .emphasis(.secondary)
+                    .plumeID(AccessibilityID.taskAgentChildMarker, label: header.label, value: "child")
+            } else if header.isDetachedChild {
                 Image(systemName: "arrow.turn.down.right")
                     .font(.caption)
                     .emphasis(.secondary)
@@ -612,6 +671,8 @@ struct TaskRowView: View {
             PinnedPullRequestLine(reference: reference, detail: detail)
         case .pinnedPullRequestOverflow(let count):
             PinnedPullRequestOverflowLine(count: count)
+        case .activity(let tabID):
+            TaskActivityRow(tabIDs: [tabID])
         case .pullRequest(let directory, let state):
             Group {
                 if case .pullRequest(let pullRequest) = state {

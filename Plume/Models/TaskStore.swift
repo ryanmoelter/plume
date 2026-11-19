@@ -187,6 +187,37 @@ enum TaskStore {
         return result
     }
 
+    /// The task's live agent tabs, each child session right after its parent.
+    static func nestedAgentTabs(of task: WorkTask) -> [(item: TaskTab, depth: Int)] {
+        nestedByParent(task.orderedLiveTabs.filter { $0.kind == .agent }, id: \.id, parentID: \.parentTabID)
+    }
+
+    /// The agent tab a task's sidebar row stands for, when it has exactly one
+    /// with no parent in the task. A child whose parent is in another task
+    /// counts as top-level here.
+    static func soleTopLevelAgentTab(of task: WorkTask) -> TaskTab? {
+        let topLevel = nestedAgentTabs(of: task).filter { $0.depth == 0 }
+        return topLevel.count == 1 ? topLevel[0].item : nil
+    }
+
+    /// The tab a click on the task's own sidebar row selects, if it changes
+    /// one. With one top-level chat and its children, the row is that chat,
+    /// so it wins over a child. A selected terminal or device tab stays, as
+    /// it does in any other task.
+    static func rowClickTab(of task: WorkTask) -> TaskTab? {
+        let nested = nestedAgentTabs(of: task)
+        guard nested.count > 1, let parent = soleTopLevelAgentTab(of: task), task.selectedTabID != parent.id else {
+            return nil
+        }
+        let selected = task.liveTabs.first { $0.id == task.selectedTabID }
+        guard selected == nil || selected?.kind == .agent else { return nil }
+        return parent
+    }
+
+    static func selectRowClickTab(of task: WorkTask) {
+        if let tab = rowClickTab(of: task) { selectTab(tab, in: task) }
+    }
+
     // MARK: - Selection
 
     /// The one place selection changes, so `lastFocusedAgentTabID` and each

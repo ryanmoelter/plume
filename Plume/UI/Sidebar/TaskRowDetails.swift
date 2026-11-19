@@ -29,6 +29,8 @@ enum TaskRowDetails {
         case pinnedPullRequest(PullRequestReference, detail: LinkedPullRequestStore.Detail?)
         /// How many pinned pull requests the cap left out.
         case pinnedPullRequestOverflow(Int)
+        /// An agent tab's subagents and background tasks, inside its group.
+        case activity(tabID: UUID)
     }
 
     /// One open directory of a task: where it is, what it is on, and its pull
@@ -70,6 +72,9 @@ enum TaskRowDetails {
         var isDetachedChild: Bool
         /// The devices the tab holds, as `DeviceLeaseStore.summary` words them.
         var heldDevices: String?
+        /// The label of the agent this one nests under, set by
+        /// `lines(agents:taskLines:activity:)`. Nil for a top-level agent.
+        var parentLabel: String?
 
         init(
             tabID: UUID,
@@ -80,7 +85,8 @@ enum TaskRowDetails {
             depth: Int = 0,
             isRemotelyControlled: Bool = false,
             isDetachedChild: Bool = false,
-            heldDevices: String? = nil
+            heldDevices: String? = nil,
+            parentLabel: String? = nil
         ) {
             self.tabID = tabID
             self.title = title
@@ -91,6 +97,7 @@ enum TaskRowDetails {
             self.isRemotelyControlled = isRemotelyControlled
             self.isDetachedChild = isDetachedChild
             self.heldDevices = heldDevices
+            self.parentLabel = parentLabel
         }
 
         var statusText: String {
@@ -101,6 +108,7 @@ enum TaskRowDetails {
         /// group holds the task's focused tab, is hovered and is pressed.
         func controlValue(isFocused: Bool, isHovered: Bool, isPressed: Bool = false) -> String {
             ([statusText]
+                + (parentLabel.map { ["child of \($0)"] } ?? [])
                 + (isDetachedChild ? ["detached child"] : [])
                 + (isFocused ? ["focused"] : [])
                 + (isHovered ? ["hovered"] : [])
@@ -150,36 +158,116 @@ enum TaskRowDetails {
         }
     }
 
-    /// A shared attribute, absence included, shows once at the task level,
-    /// where a one-agent row shows it; the rest show under each agent's
-    /// header. The project is shared when every agent's reads the same. A
-    /// branch or pull request is shared only when every agent is also in the
-    /// same folder: two clones on one branch are still two checkouts, and a
-    /// shared branch above per-agent projects would sit outside its header.
-    /// `taskLines` follow the shared lines, before the first header.
-    static func lines(agents: [AgentGroup], taskLines: [Line] = []) -> [Line] {
+    /// `agents` come in `TaskStore.nestedByParent` order, each header's
+    /// `depth` saying how far it nests.
+    ///
+    /// With one top-level agent and child sessions under it, the task row is
+    /// that agent: its lines show as a one-agent row's do, with no header,
+    /// then `taskLines`, then its children. Otherwise each top-level agent
+    /// takes a header. A shared attribute, absence included, shows once at
+    /// the task level, where a one-agent row shows it; the rest show under
+    /// each agent's header. The project is shared when every top-level
+    /// agent's reads the same. A branch or pull request is shared only when
+    /// every one is also in the same folder: two clones on one branch are
+    /// still two checkouts, and a shared branch above per-agent projects
+    /// would sit outside its header. `taskLines` follow the shared lines,
+    /// before the first header.
+    ///
+    /// A child session shows only the lines that differ from its parent's,
+    /// by `lines(of:differingFrom:)`. A tab in `activity` gets an
+    /// `.activity` line after its header's own lines.
+    static func lines(agents: [AgentGroup], taskLines: [Line] = [], activity: Set<UUID> = []) -> [Line] {
         let perAgent = agents.map { lines(for: $0.workspace) }
+        let parents = parentIndices(depths: agents.map(\.header.depth))
+        let topLevel = agents.indices.filter { parents[$0] == nil }
+        let hidesTopLevelHeader = topLevel.count == 1 && agents.count > 1
+
+        var lines: [Line]
+        var shownByTopLevel: [Int: [Line]] = [:]
+        if hidesTopLevelHeader {
+            lines = perAgent[topLevel[0]] + taskLines
+        } else {
+            let shared = sharedAttributes(topLevel.map { (agents[$0].workspace, perAgent[$0]) })
+            func isShared(_ line: Line) -> Bool {
+                attribute(of: line).map(shared.contains) ?? false
+            }
+            lines = (topLevel.first.map { perAgent[$0] } ?? []).filter(isShared) + taskLines
+            for index in topLevel {
+                shownByTopLevel[index] = perAgent[index].filter { !isShared($0) }
+            }
+        }
+        for index in agents.indices {
+            if hidesTopLevelHeader, parents[index] == nil { continue }
+            var header = agents[index].header
+            let shown: [Line]
+            if let parent = parents[index] {
+                header.parentLabel = agents[parent].header.label
+                shown = Self.lines(of: agents[index].workspace, differingFrom: agents[parent].workspace)
+            } else {
+                shown = shownByTopLevel[index] ?? perAgent[index]
+            }
+            lines.append(.agentHeader(header))
+            lines.append(contentsOf: shown)
+            if activity.contains(header.tabID) { lines.append(.activity(tabID: header.tabID)) }
+        }
+        return lines
+    }
+
+    /// For each depth, the index of the nearest earlier one a level up.
+    private static func parentIndices(depths: [Int]) -> [Int?] {
+        var open: [(index: Int, depth: Int)] = []
+        return depths.indices.map { index in
+            open.removeAll { $0.depth >= depths[index] }
+            let parent = open.last { $0.depth == depths[index] - 1 }?.index
+            open.append((index, depths[index]))
+            return parent
+        }
+    }
+
+    private static func sharedAttributes(_ agents: [(workspace: DirectoryGroup, lines: [Line])]) -> Set<Attribute> {
         func readsTheSameEverywhere(_ attribute: Attribute) -> Bool {
-            let values = perAgent.map { $0.first { self.attribute(of: $0) == attribute } }
+            let values = agents.map { $0.lines.first { self.attribute(of: $0) == attribute } }
             return values.allSatisfy { $0 == values.first }
         }
         let sharesProject = readsTheSameEverywhere(.project)
         let sharesFolder = sharesProject && Set(agents.map(\.workspace.directory)).count <= 1
-        let shared = Set(Attribute.allCases.filter { attribute in
+        return Set(Attribute.allCases.filter { attribute in
             switch attribute {
             case .project: sharesProject
             case .branch, .pullRequest: sharesFolder && readsTheSameEverywhere(attribute)
             }
         })
-        func isShared(_ line: Line) -> Bool {
-            attribute(of: line).map(shared.contains) ?? false
+    }
+
+    /// A child's lines, less the ones its parent already shows: the project
+    /// when it reads the same, and the branch and pull request when they also
+    /// sit in the same folder, by the rule `lines(agents:)` shares them with.
+    static func lines(of child: DirectoryGroup, differingFrom parent: DirectoryGroup) -> [Line] {
+        let parentLines = lines(for: parent)
+        let sameFolder = child.directory == parent.directory
+        return lines(for: child).filter { line in
+            switch attribute(of: line) {
+            case .project: !parentLines.contains(line)
+            case .branch, .pullRequest: !(sameFolder && parentLines.contains(line))
+            case nil: true
+            }
         }
-        var lines = (perAgent.first ?? []).filter(isShared) + taskLines
-        for (agent, agentLines) in zip(agents, perAgent) {
-            lines.append(.agentHeader(agent.header))
-            lines.append(contentsOf: agentLines.filter { !isShared($0) })
+    }
+
+    /// `lines` up to, not including, the header past the first `count`.
+    /// A header's own lines travel with it.
+    static func lines(_ lines: [Line], keepingHeaders count: Int) -> [Line] {
+        var seen = 0
+        for index in lines.indices {
+            guard case .agentHeader = lines[index] else { continue }
+            if seen == count { return Array(lines[..<index]) }
+            seen += 1
         }
         return lines
+    }
+
+    static func headerCount(_ lines: [Line]) -> Int {
+        lines.count { if case .agentHeader = $0 { true } else { false } }
     }
 
     /// Project first: it is the header the branch and pull request under it
@@ -366,7 +454,7 @@ enum TaskRowDetails {
             case .agentHeader(let header):
                 open.removeAll { $0.depth >= header.depth }
                 open.append((index, header.depth))
-            case .project, .branch, .pullRequest:
+            case .project, .branch, .pullRequest, .activity:
                 break
             default:
                 open = []
@@ -455,6 +543,8 @@ enum TaskRowDetails {
                 "Pull request \(reference.number)"
             }
         case .pinnedPullRequestOverflow(let count): "\(count) more pull requests"
+        // The row's label speaks for every tab's activity at once.
+        case .activity: nil
         }
     }
 }
