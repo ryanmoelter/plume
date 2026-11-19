@@ -25,16 +25,20 @@ enum ControlTabCommands {
         guard let toTask = params.toTask else { throw ControlError.badParams("tab.move needs toTask") }
         let destination = try task(toTask, among: tasks)
         guard tab.task?.id != destination.id else { throw ControlError.badParams("the tab is already in that task") }
-        TaskStore.moveTab(tab, to: destination)
+        guard TaskStore.moveTab(tab, to: destination) else { throw childStaysWithParent }
         return TabTaskResult(tabID: tab.id, taskID: destination.id)
     }
 
     static func split(_ params: TabMoveParams, in context: ModelContext) throws -> TabTaskResult {
         let tasks = try liveTasks(in: context)
         let tab = try tab(params, among: tasks)
-        let task = TaskStore.splitTabIntoNewTask(tab, in: context, siblings: tasks.filter { $0.group == nil })
+        guard let task = TaskStore.splitTabIntoNewTask(tab, in: context, siblings: tasks.filter { $0.group == nil }) else {
+            throw childStaysWithParent
+        }
         return TabTaskResult(tabID: tab.id, taskID: task.id)
     }
+
+    private static let childStaysWithParent = ControlError.badParams("a child session moves only with its parent")
 
     /// The frontmost main window's store, which every window shares.
     static func frontmostContext() throws -> ModelContext {

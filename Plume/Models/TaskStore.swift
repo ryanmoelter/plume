@@ -466,22 +466,9 @@ enum TaskStore {
         }
     }
 
-    /// Takes `tab` out of its pane, which falls back to showing its first
-    /// tab if it was showing `tab`. An emptied pane stays in `panes` until
-    /// `commit`, so pane numbers hold in between.
-    @discardableResult
-    private static func remove(_ tab: TaskTab, from panes: inout [PaneState]) -> (pane: Int, index: Int)? {
-        for pane in panes.indices {
-            guard let index = panes[pane].tabs.firstIndex(where: { $0.id == tab.id }) else { continue }
-            panes[pane].tabs.remove(at: index)
-            if panes[pane].shown == tab.id { panes[pane].shown = panes[pane].tabs.first?.id }
-            return (pane, index)
-        }
-        return nil
-    }
-
     /// Takes `ids` out of `pane`, in strip order. The pane falls back to
-    /// showing its first tab if it was showing one of them.
+    /// showing its first tab if it was showing one of them. An emptied pane
+    /// stays in its list until `commit`, so pane numbers hold in between.
     @discardableResult
     private static func take(_ ids: [UUID], from pane: inout PaneState) -> [TaskTab] {
         let taken = Set(ids)
@@ -507,21 +494,23 @@ enum TaskStore {
         if task.selectedTabID != focus { task.selectedTabID = focus }
     }
 
-    /// Takes `tab` out of `task`'s panes, as closing it or moving it to
-    /// another task does. Returns the tab to focus in its place: the next one
-    /// its pane shows, or, when its pane closes, the one the pane now in its
-    /// place shows. Nil when no tab is left.
+    /// Takes `tabs` out of `task`'s panes, as closing a tab or moving tabs to
+    /// another task does. Returns the tab to focus in their place: the next
+    /// one the focused pane shows, or, when that pane closes, the one the pane
+    /// now in its place shows. Nil when no tab is left.
     @discardableResult
-    private static func detach(_ tab: TaskTab, from task: WorkTask) -> UUID? {
+    private static func detach(_ tabs: [TaskTab], from task: WorkTask) -> UUID? {
         var panes = paneStates(of: task)
-        guard let source = remove(tab, from: &panes) else { return task.selectedTabID }
+        let ids = tabs.map(\.id)
+        let focusPane = panes.firstIndex { $0.tabs.contains { $0.id == task.selectedTabID } }
+        for pane in panes.indices { take(ids, from: &panes[pane]) }
         var focus = task.selectedTabID
-        if focus == tab.id {
-            if !panes[source.pane].tabs.isEmpty {
-                focus = panes[source.pane].shown
+        if let current = focus, ids.contains(current) {
+            if let focusPane, !panes[focusPane].tabs.isEmpty {
+                focus = panes[focusPane].shown
             } else {
                 let kept = panes.filter { !$0.tabs.isEmpty }
-                focus = kept.isEmpty ? nil : kept[min(source.pane, kept.count - 1)].shown
+                focus = kept.isEmpty ? nil : kept[min(focusPane ?? 0, kept.count - 1)].shown
             }
         }
         commit(panes, to: task, focusing: focus)
@@ -733,7 +722,7 @@ enum TaskStore {
             task.lastFocusedAgentTabID = remaining.first { $0.kind == .agent }?.id
         }
         let wasFocused = task.selectedTabID == tab.id
-        let focus = detach(tab, from: task)
+        let focus = detach([tab], from: task)
         if wasFocused, let next = remaining.first(where: { $0.id == focus }), next.kind == .agent {
             task.lastFocusedAgentTabID = next.id
         }
@@ -845,48 +834,86 @@ enum TaskStore {
 
     // MARK: - Cross-task tab moves
 
-    /// Reassigns `tab.task` and appends it to the end of `destination`'s
-    /// leftmost strip, reindexing both tasks. Only the SwiftData relationship
-    /// and ordering change — the tab's `id` is untouched, so `SurfaceManager` and
-    /// `AgentSessionManager` (both keyed by tab id) keep serving the same
-    /// running process across the move. Selects the tab in its new task by
-    /// default so the drop reads as "the tab landed here."
-    ///
-    /// The tab keeps whatever `workingDirectoryPath` it already reported: a
-    /// running process cannot be redirected to `destination`'s folder, so a
-    /// moved tab stays in its original directory rather than silently
-    /// pointing at the wrong one.
-    static func moveTab(_ tab: TaskTab, to destination: WorkTask, selectAfterMove: Bool = true) {
-        guard let source = tab.task, source.id != destination.id else { return }
+    /// False for a child whose parent is in its task: it moves to another
+    /// task only with its parent.
+    static func canLeaveTask(_ tab: TaskTab) -> Bool {
+        guard let parentID = tab.parentTabID, parentID != tab.id, let task = tab.task else { return true }
+        return !task.liveTabs.contains { $0.id == parentID }
+    }
 
-        let remainingInSource = source.orderedTabs.filter { $0.id != tab.id }
-        if source.lastFocusedAgentTabID == tab.id {
-            source.lastFocusedAgentTabID = remainingInSource.first { $0.kind == .agent }?.id
+    /// Whether Move to New Task would leave `tab`'s task with a tab of its own.
+    static func canMoveToNewTask(_ tab: TaskTab) -> Bool {
+        guard let task = tab.task, canLeaveTask(tab) else { return false }
+        return taskSubtree(of: tab, in: task).count < task.liveTabs.count
+    }
+
+    /// `tab` and every descendant in `task`, whichever pane each is in, each
+    /// child after its parent and siblings in pane order.
+    static func taskSubtree(of tab: TaskTab, in task: WorkTask) -> [TaskTab] {
+        let tabs = task.orderedLiveTabs
+        var ids: Set<UUID> = [tab.id]
+        var grew = true
+        while grew {
+            grew = false
+            for candidate in tabs where !ids.contains(candidate.id) {
+                if let parent = candidate.parentTabID, ids.contains(parent) {
+                    ids.insert(candidate.id)
+                    grew = true
+                }
+            }
         }
-        detach(tab, from: source)
+        let members = tabs.filter { ids.contains($0.id) && $0.id != tab.id }
+        return [tab] + nestedByParent(members, id: \.id, parentID: \.parentTabID).map(\.item)
+    }
 
-        tab.task = destination
-        CodexTerminalMonitor.shared.reparent(tabID: tab.id, taskID: destination.id)
-        CommandModeRuns.shared.reparent(tabID: tab.id, taskID: destination.id)
-        AgentSessionManager.shared.reparent(tabID: tab.id, taskID: destination.id)
-        StatusEngine.shared.reparent(tabID: tab.id, taskID: destination.id)
-        tab.paneIndex = 0
-        tab.orderIndex = nextIndex(after: destination.tabs.filter { $0.id != tab.id && $0.paneIndex == 0 })
+    /// Moves `tab` and its descendants onto the end of `destination`'s
+    /// leftmost strip, in order and with their parent links, and returns
+    /// whether it did. Refuses a child whose parent is in its task. Only the
+    /// SwiftData relationship and ordering change — each tab's `id` is
+    /// untouched, so `SurfaceManager` and `AgentSessionManager` (both keyed by
+    /// tab id) keep serving the same running process across the move.
+    ///
+    /// A moved tab keeps whatever `workingDirectoryPath` it already reported: a
+    /// running process cannot be redirected to `destination`'s folder.
+    @discardableResult
+    static func moveTab(_ tab: TaskTab, to destination: WorkTask, selectAfterMove: Bool = true) -> Bool {
+        guard let source = tab.task, source.id != destination.id, canLeaveTask(tab) else { return false }
+        let moving = taskSubtree(of: tab, in: source)
+        let movingIDs = Set(moving.map(\.id))
+
+        if let lastAgent = source.lastFocusedAgentTabID, movingIDs.contains(lastAgent) {
+            source.lastFocusedAgentTabID = source.orderedTabs.first { $0.kind == .agent && !movingIDs.contains($0.id) }?.id
+        }
+        detach(moving, from: source)
+
+        var orderIndex = nextIndex(after: destination.tabs.filter { !movingIDs.contains($0.id) && $0.paneIndex == 0 })
+        for moved in moving {
+            moved.task = destination
+            CodexTerminalMonitor.shared.reparent(tabID: moved.id, taskID: destination.id)
+            CommandModeRuns.shared.reparent(tabID: moved.id, taskID: destination.id)
+            AgentSessionManager.shared.reparent(tabID: moved.id, taskID: destination.id)
+            StatusEngine.shared.reparent(tabID: moved.id, taskID: destination.id)
+            moved.paneIndex = 0
+            moved.orderIndex = orderIndex
+            orderIndex += 1
+        }
         if selectAfterMove {
             selectTab(tab, in: destination)
         }
+        return true
     }
 
-    /// Splits `tab` out of its current task into a new, otherwise-empty task
-    /// of its own. Shares `moveTab`'s guarantee that the surface keyed by the
-    /// tab's id is never touched.
+    /// Moves `tab` and its descendants into a new task of their own, or
+    /// returns nil when `moveTab` would refuse. Shares `moveTab`'s guarantee
+    /// that the surfaces keyed by the tabs' ids are never touched.
     @discardableResult
     static func splitTabIntoNewTask(
         _ tab: TaskTab,
         in context: ModelContext,
         group: TaskGroup? = nil,
         siblings: [WorkTask]
-    ) -> WorkTask {
+    ) -> WorkTask? {
+        guard canLeaveTask(tab) else { return nil }
         let newTask = WorkTask(title: tab.displayTitle, orderIndex: nextIndex(after: siblings), group: group)
         context.insert(newTask)
         moveTab(tab, to: newTask)

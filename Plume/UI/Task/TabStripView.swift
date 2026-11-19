@@ -179,8 +179,8 @@ struct TabStripView: View {
         TaskStore.moveTab(tab, toPane: pane, at: grouping.paneIndex(forVisibleGap: gap), in: task)
     }
 
-    /// Splits `tab` into a new ungrouped task, as a sibling of every other
-    /// top-level task.
+    /// Splits `tab` and its descendants into a new ungrouped task, as a
+    /// sibling of every other top-level task.
     private func moveToNewTask(_ tab: TaskTab) {
         let siblings = allTasks.filter { $0.group == nil }
         TaskStore.splitTabIntoNewTask(tab, in: context, siblings: siblings)
@@ -349,7 +349,7 @@ private struct TabChip: View {
                 Divider()
             }
             Button("Move to New Task") { moveToNewTask() }
-                .disabled(task.tabs.count < 2)
+                .disabled(!TaskStore.canMoveToNewTask(tab))
             Divider()
             ReadStateButton(tabIDs: [tab.id], label: paneLabel.map { "\(chipTitle) (\($0))" } ?? chipTitle)
         }

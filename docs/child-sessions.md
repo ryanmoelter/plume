@@ -126,8 +126,9 @@ A session whose process has exited is resumed to take a note through `AgentLaunc
   - A child moves only among its siblings. A drop outside its parent's group, or inside a sibling's group, lands in the nearest gap among its siblings, and the strip's insertion marker shows that gap.
   - A group never lands inside another group; it clamps to the nearest gap between groups.
   - A child cannot leave its parent's pane on its own. Its drop on the other strip or the other pane's content is refused, and Move to Other Pane and Open in Split are disabled for it.
-  - A child can still sit apart from its parent: moved to another task and back, or saved by an older build. It is then ungrouped and top-level in its strip. Its first move puts it back among its siblings when its parent is in that strip, including a move into its parent's pane. Nothing reorders tabs at launch.
-  - Moving a tab to another task (the sidebar, `tab.move`, `tab.split`) moves that tab alone, and its children stay behind as top-level tabs.
+  - Moving a tab to another task (a drop on a sidebar task, Move to New Task, `tab.move`, `tab.split`) takes every descendant in its task, whichever pane each is in, through `TaskStore.moveTab(_:to:)`. They land on the end of the new task's leftmost strip, each child after its parent, with their parent links intact.
+  - A child cannot leave its task while its parent is there (`TaskStore.canLeaveTask`). Its drop on a sidebar task is refused, Move to New Task is disabled for it, and `tab.move` and `tab.split` fail. Move to New Task is also disabled when the group is the whole task.
+  - A child can still sit apart from its parent when an older build saved it that way. It is then ungrouped and top-level in its strip. Its first move puts it back among its siblings when its parent is in that strip, including a move into its parent's pane. Nothing reorders tabs at launch.
 
 ## What persists
 
