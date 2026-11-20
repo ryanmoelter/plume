@@ -36,12 +36,17 @@ jobs:
       - uses: actions/checkout@v4
 
       - name: Select Xcode 27
+        env:
+          PINNED_XCODE: "27.2"
         run: |
           ls -d /Applications/Xcode*.app
-          # The newest release, so a beta the image adds doesn't become the
-          # compiler unannounced; a beta only when no release is installed.
-          XCODE=$(ls -d /Applications/Xcode_27*.app 2>/dev/null | grep -vi beta | sort -V | tail -1 || true)
-          [ -n "$XCODE" ] || XCODE=$(ls -d /Applications/Xcode_27*.app 2>/dev/null | sort -V | tail -1 || true)
+          # Pinned, so a new Xcode on the runner image can't change the
+          # compiler under a PR unannounced. Moving the pin is its own change.
+          XCODE=/Applications/Xcode_${PINNED_XCODE}.app
+          if [ ! -d "$XCODE" ]; then
+            echo "::warning::Xcode $PINNED_XCODE is not on this runner; using the newest release"
+            XCODE=$(ls -d /Applications/Xcode_27*.app 2>/dev/null | grep -vi beta | sort -V | tail -1 || true)
+          fi
           [ -n "$XCODE" ] && sudo xcode-select -s "$XCODE/Contents/Developer"
           xcodebuild -version
           xcodebuild -version | grep -q '^Xcode 27' || { echo "::error::Plume needs Xcode 27"; exit 1; }
