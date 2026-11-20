@@ -3,7 +3,8 @@ import Foundation
 @testable import Plume
 
 /// Encoding rules here are checked against real `~/.claude/projects`
-/// directory names.
+/// directory names: the anonymized sample in `Fixtures/Corpus`, and this
+/// machine's own where Claude Code has run in this checkout.
 struct SessionJSONLReaderTests {
     @Test func slashesBecomeDashes() {
         #expect(SessionJSONLReader.encodedProjectDirectory(for: "/Users/me/dev")
@@ -79,43 +80,76 @@ struct SessionJSONLReaderTests {
         #expect(SessionJSONLReader.lastModified(atPath: "/nope/missing.jsonl") == nil)
     }
 
+    /// A working directory Claude Code has run in, and the projects folder
+    /// holding the transcripts it wrote there.
+    struct RecordedDirectory: Sendable, CustomTestStringConvertible {
+        let cwd: String
+        let projectsDirectory: URL
+        let testDescription: String
+    }
+
+    /// The fixture sample's repository and its worktree under a hidden folder,
+    /// everywhere; and this checkout, where Claude Code has run in it on this
+    /// machine. A worktree, or a machine that has only just cloned the repo, has
+    /// no transcript directory to match yet.
+    static let recordedDirectories: [RecordedDirectory] = {
+        let fixtures = ClaudeCorpus.fixtures.projectsDirectory
+        var recorded = [
+            RecordedDirectory(
+                cwd: "/Users/dev/projects/sample-app",
+                projectsDirectory: fixtures,
+                testDescription: "fixture repository"
+            ),
+            RecordedDirectory(
+                cwd: "/Users/dev/projects/sample-app/.worktrees/feature-two",
+                projectsDirectory: fixtures,
+                testDescription: "fixture worktree"
+            ),
+        ]
+
+        // Derive the repo from this file's own path rather than the cwd,
+        // which for a test host is `/`.
+        let checkout = URL(fileURLWithPath: #filePath)
+            .deletingLastPathComponent()  // PlumeTests
+            .deletingLastPathComponent()  // repo root
+            .path
+        let live = ClaudeCorpus.thisMac.projectsDirectory
+        if !transcriptDirectories(recordingCWD: checkout, in: live).isEmpty {
+            recorded.append(RecordedDirectory(
+                cwd: checkout, projectsDirectory: live, testDescription: "this checkout"
+            ))
+        }
+        return recorded
+    }()
+
     /// Encoding a directory that Claude Code has actually run in must name the
     /// transcript directory holding its sessions. Catches a change to Claude
     /// Code's encoding scheme, which is otherwise invisible until chat
     /// rendering silently reads nothing.
-    ///
-    /// Skips where Claude Code has never run in this checkout — a worktree, or
-    /// a machine that has only just cloned it — since no transcript directory
-    /// exists to match yet.
-    @Test func encodingResolvesADirectoryClaudeCodeHasUsed() throws {
-        // Derive the repo from this file's own path rather than the cwd,
-        // which for a test host is `/`.
-        let repositoryPath = URL(fileURLWithPath: #filePath)
-            .deletingLastPathComponent()  // PlumeTests
-            .deletingLastPathComponent()  // repo root
-            .path
-
+    @Test(arguments: SessionJSONLReaderTests.recordedDirectories)
+    func encodingResolvesADirectoryClaudeCodeHasUsed(_ recorded: RecordedDirectory) throws {
         // Claude Code stamps each transcript with the cwd it ran in. Finding the
-        // repo that way is independent of the encoding under test, so the
+        // directory that way is independent of the encoding under test, so the
         // assertion below still has teeth.
-        let owningDirectories = Self.transcriptDirectories(recordingCWD: repositoryPath)
+        let owningDirectories = Self.transcriptDirectories(
+            recordingCWD: recorded.cwd, in: recorded.projectsDirectory
+        )
         try #require(
             !owningDirectories.isEmpty,
-            "Claude Code has not run in \(repositoryPath)"
+            "no transcript in \(recorded.projectsDirectory.path) records \(recorded.cwd)"
         )
 
-        let encoded = SessionJSONLReader.encodedProjectDirectory(for: repositoryPath)
+        let encoded = SessionJSONLReader.encodedProjectDirectory(for: recorded.cwd)
         #expect(
             owningDirectories.contains(encoded),
-            "encoded \(repositoryPath) as \(encoded), but its transcripts live in \(owningDirectories.sorted())"
+            "encoded \(recorded.cwd) as \(encoded), but its transcripts live in \(owningDirectories.sorted())"
         )
     }
 
     /// Names of the transcript directories holding a session whose recorded
     /// `cwd` is `path`. An agent working in a worktree still records the parent
     /// repository's `cwd`, so more than one directory can own the same path.
-    private static func transcriptDirectories(recordingCWD path: String) -> Set<String> {
-        let root = SessionJSONLReader.projectsDirectory
+    private static func transcriptDirectories(recordingCWD path: String, in root: URL) -> Set<String> {
         let directories = (try? FileManager.default.contentsOfDirectory(atPath: root.path)) ?? []
         var found: Set<String> = []
         for directory in directories {
