@@ -197,6 +197,28 @@ struct FileMentionIndexTests {
         #expect(Date().timeIntervalSince(start) < 5)
     }
 
+    @Test func aGitTimeoutKillsWhatGitStarted() throws {
+        let directory = try makeDirectory()
+        defer { try? FileManager.default.removeItem(atPath: directory) }
+        let pidFile = directory + "/sleep.pid"
+
+        // A shell alias leaves `sleep` a grandchild of the run, the way
+        // an `xcrun` git shim leaves the real git.
+        #expect {
+            try GitRunner.run(
+                ["-c", "alias.hang=!sleep 30 & echo $! > '\(pidFile)'; wait", "hang"],
+                in: directory, timeout: .seconds(1)
+            )
+        } throws: { ($0 as? GitError)?.timedOut == true }
+
+        let written = try String(contentsOfFile: pidFile, encoding: .utf8)
+        let grandchild = try #require(pid_t(written.trimmingCharacters(in: .whitespacesAndNewlines)))
+        defer { kill(grandchild, SIGKILL) }
+        // Orphaned, the grandchild is reaped by launchd once it dies.
+        for _ in 0..<300 where kill(grandchild, 0) == 0 { usleep(10_000) }
+        #expect(kill(grandchild, 0) == -1)
+    }
+
     @Test func aTimedOutGitListingIsRetriedOnTheNextLookup() async {
         let calls = GitCalls(answers: [.timedOut, .paths(["a.swift"])])
         let index = FileMentionIndex(homeDirectory: "/nowhere", listGitPaths: { directory, _ in calls.answer(directory) })

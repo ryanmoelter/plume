@@ -114,7 +114,9 @@ struct SessionJSONLReaderTests {
             .deletingLastPathComponent()  // repo root
             .path
         let live = ClaudeCorpus.thisMac.projectsDirectory
-        if !transcriptDirectories(recordingCWD: checkout, in: live).isEmpty {
+        // Planned before any test runs, so stop at the first match rather
+        // than read every transcript this machine has.
+        if !transcriptDirectories(recordingCWD: checkout, in: live, stoppingAtFirst: true).isEmpty {
             recorded.append(RecordedDirectory(
                 cwd: checkout, projectsDirectory: live, testDescription: "this checkout"
             ))
@@ -149,7 +151,10 @@ struct SessionJSONLReaderTests {
     /// Names of the transcript directories holding a session whose recorded
     /// `cwd` is `path`. An agent working in a worktree still records the parent
     /// repository's `cwd`, so more than one directory can own the same path.
-    private static func transcriptDirectories(recordingCWD path: String, in root: URL) -> Set<String> {
+    /// `stoppingAtFirst` returns as soon as one is found.
+    private static func transcriptDirectories(
+        recordingCWD path: String, in root: URL, stoppingAtFirst: Bool = false
+    ) -> Set<String> {
         let directories = (try? FileManager.default.contentsOfDirectory(atPath: root.path)) ?? []
         var found: Set<String> = []
         for directory in directories {
@@ -176,7 +181,10 @@ struct SessionJSONLReaderTests {
                         with: Data(line.utf8)
                     ) as? [String: Any] else { continue }
                     if let cwd = object["cwd"] as? String {
-                        if cwd == path { found.insert(directory) }
+                        if cwd == path {
+                            found.insert(directory)
+                            if stoppingAtFirst { return found }
+                        }
                         break
                     }
                 }
