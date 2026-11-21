@@ -25,11 +25,11 @@ struct CodexCollaborationControl: View, ThemedView {
         .help("Plan explores and proposes changes. Code implements them. Permissions are controlled separately. Changes apply to the next turn.")
         .accessibilityLabel("Collaboration mode")
         .accessibilityValue(state.collaborationMode.label)
-        .plumeID(AccessibilityID.composerCollaborationModeControl)
+        .plumeID(AccessibilityID.composerCollaborationModeControl, value: state.collaborationMode.label)
     }
 }
 
-private extension CodexCollaborationMode {
+extension CodexCollaborationMode {
     var symbol: String {
         switch self {
         case .default: "chevron.left.forwardslash.chevron.right"

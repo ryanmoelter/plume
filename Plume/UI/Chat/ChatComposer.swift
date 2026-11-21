@@ -638,6 +638,10 @@ struct ChatComposer: View, ThemedView {
 
     private func togglePlanMode() {
         let state = ComposerSettings(session: headlessSession, tab: tab, defaults: .resolved(task: task))
+        if state.provider == .codex {
+            state.setCollaborationMode(state.collaborationMode == .plan ? .default : .plan)
+            return
+        }
         let memory = LastNonPlanModeStore.shared
         if let current = state.permissionPreset { memory.remember(current, forTab: tab.id) }
         guard let next = ComposerShiftTab.togglePlan(
@@ -931,7 +935,7 @@ struct ChatComposer: View, ThemedView {
 }
 
 
-/// A faint icon for the permission mode, behind the text. It hangs from the
+/// A faint icon for the composer mode, behind the text. It hangs from the
 /// text area's top rather than the composer's, so an autocomplete panel
 /// growing above never moves it.
 private struct ComposerModeBackdrop: View {
@@ -944,12 +948,13 @@ private struct ComposerModeBackdrop: View {
     let tint: Color
 
     var body: some View {
-        let preset = ComposerSettings(session: headlessSession, tab: tab, defaults: .resolved(task: task)).permissionPreset
+        let state = ComposerSettings(session: headlessSession, tab: tab, defaults: .resolved(task: task))
+        let symbol = state.provider == .codex ? state.collaborationMode.symbol : state.permissionPreset?.symbol
         // An overlay, so the icon never grows the frame the caller clips to.
         Color.clear.overlay(alignment: .topTrailing) {
-            if let preset {
-                Image(systemName: preset.symbol)
-                    .id(preset.id)
+            if let symbol {
+                Image(systemName: symbol)
+                    .id(symbol)
                     .font(.system(size: 88))
                     .foregroundStyle(tint.opacity(0.07))
                     .padding(.top, textAreaTop)
@@ -957,7 +962,7 @@ private struct ComposerModeBackdrop: View {
                     .transition(.opacity)
             }
         }
-        .animation(.easeInOut(duration: 0.2), value: preset?.id)
+        .animation(.easeInOut(duration: 0.2), value: symbol)
         .allowsHitTesting(false)
         .accessibilityHidden(true)
     }
