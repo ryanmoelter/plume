@@ -76,7 +76,7 @@ nonisolated enum ChildProcess {
         let cancelled = Mutex(false)
         return try await withTaskCancellationHandler {
             try await withCheckedThrowingContinuation { continuation in
-                DispatchQueue.global(qos: .userInitiated).async {
+                BlockingWork.start {
                     continuation.resume(with: Result {
                         let result = try run(
                             executable: executable, arguments: arguments, environment: environment,
@@ -219,7 +219,11 @@ nonisolated enum ChildProcess {
         childEnds.forEach { close($0) }
         closeAfterSpawn = false
         guard spawnStatus == 0 else {
-            throw ChildProcessError(message: "Couldn't run \(executable): \(String(cString: strerror(spawnStatus)))")
+            // A missing working directory fails the spawn too, so name it.
+            let place = workingDirectory.map { " in \($0)" } ?? ""
+            throw ChildProcessError(
+                message: "Couldn't run \(executable)\(place): \(String(cString: strerror(spawnStatus)))"
+            )
         }
 
         if case .text(let text) = input, let inputWriteEnd {

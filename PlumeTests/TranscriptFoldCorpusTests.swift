@@ -3,9 +3,10 @@ import Testing
 
 @testable import Plume
 
-/// Folds every main transcript on this machine in pieces and checks each
-/// piece's result against a parse of the same bytes from scratch, locking
-/// the incremental read against the real corpus rather than fixtures.
+/// Folds every main transcript in a corpus in pieces and checks each piece's
+/// result against a parse of the same bytes from scratch, locking the
+/// incremental read against real transcripts: the anonymized sample in
+/// `Fixtures/Corpus` everywhere, and this machine's `~/.claude` where it has any.
 struct TranscriptFoldCorpusTests {
     /// Each file is read only this far, which keeps the suite to seconds on
     /// a corpus of hundreds of megabytes. The cut usually lands mid-line,
@@ -19,18 +20,19 @@ struct TranscriptFoldCorpusTests {
     ]
     private static let now = Date(timeIntervalSince1970: 1_800_000_000)
 
-    private func mainTranscripts() -> [URL] {
+    private func mainTranscripts(in corpus: ClaudeCorpus) -> [URL] {
         let files = FileManager.default.enumerator(
-            at: SessionJSONLReader.projectsDirectory, includingPropertiesForKeys: nil
+            at: corpus.projectsDirectory, includingPropertiesForKeys: nil
         )?
         .compactMap { $0 as? URL }
         .filter { $0.pathExtension == "jsonl" } ?? []
         return files.filter { $0.deletingLastPathComponent().lastPathComponent != "subagents" }
     }
 
-    @Test func foldingInPiecesMatchesAFreshParseOfEachPrefix() throws {
-        let main = mainTranscripts()
-        try #require(!main.isEmpty, "no transcripts on this machine")
+    @Test(arguments: ClaudeCorpus.withTranscripts)
+    func foldingInPiecesMatchesAFreshParseOfEachPrefix(in corpus: ClaudeCorpus) throws {
+        let main = mainTranscripts(in: corpus)
+        try #require(!main.isEmpty, "no transcripts in \(corpus)")
 
         var mismatches: [String] = []
         var compared = 0

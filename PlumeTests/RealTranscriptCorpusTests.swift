@@ -3,19 +3,17 @@ import Testing
 
 @testable import Plume
 
-/// Parses every transcript on this machine, locking the parser against the
-/// real corpus rather than fixtures. A Claude Code format change shows up
-/// here first, as main transcripts that suddenly yield nothing.
+/// Parses every transcript in a corpus of real ones, locking the parser
+/// against what Claude Code actually writes. Each test runs on the anonymized
+/// fixture sample everywhere, and on this machine's `~/.claude` too where it
+/// has transcripts. A Claude Code format change shows up there first, as main
+/// transcripts that suddenly yield nothing.
 struct RealTranscriptCorpusTests {
     /// A main transcript is one directly under a project directory; the
     /// `subagents/agent-*.jsonl` files beside it hold sidechain lines, which
     /// `TranscriptParser` skips by design.
-    private func transcripts() -> (main: [URL], subagent: [URL]) {
-        let files = FileManager.default.enumerator(
-            at: SessionJSONLReader.projectsDirectory, includingPropertiesForKeys: nil
-        )?
-        .compactMap { $0 as? URL }
-        .filter { $0.pathExtension == "jsonl" } ?? []
+    private func transcripts(in corpus: ClaudeCorpus) -> (main: [URL], subagent: [URL]) {
+        let files = ClaudeCorpus.files(in: corpus.projectsDirectory, withExtension: "jsonl")
 
         return (
             files.filter { $0.deletingLastPathComponent().lastPathComponent != "subagents" },
@@ -23,9 +21,10 @@ struct RealTranscriptCorpusTests {
         )
     }
 
-    @Test func mainTranscriptsYieldMessages() throws {
-        let (main, _) = transcripts()
-        try #require(!main.isEmpty, "no transcripts on this machine")
+    @Test(arguments: ClaudeCorpus.withTranscripts)
+    func mainTranscriptsYieldMessages(in corpus: ClaudeCorpus) throws {
+        let (main, _) = transcripts(in: corpus)
+        try #require(!main.isEmpty, "no transcripts in \(corpus)")
 
         let withMessages = main.count { url in
             guard let data = try? Data(contentsOf: url) else { return false }
@@ -43,9 +42,10 @@ struct RealTranscriptCorpusTests {
     /// Every subagent file is sidechain, which the main parser drops. Reading
     /// one as a main transcript therefore yields nothing — the property that
     /// keeps subagent turns out of the main conversation.
-    @Test func subagentTranscriptsAreSkippedAsSidechains() throws {
-        let (_, subagent) = transcripts()
-        try #require(!subagent.isEmpty, "no subagent transcripts on this machine")
+    @Test(arguments: ClaudeCorpus.withTranscripts)
+    func subagentTranscriptsAreSkippedAsSidechains(in corpus: ClaudeCorpus) throws {
+        let (_, subagent) = transcripts(in: corpus)
+        try #require(!subagent.isEmpty, "no subagent transcripts in \(corpus)")
 
         let leaked = subagent.filter { url in
             guard let data = try? Data(contentsOf: url) else { return false }
@@ -55,14 +55,14 @@ struct RealTranscriptCorpusTests {
         #expect(leaked.isEmpty, "\(leaked.count) subagent transcripts leaked into a main parse")
     }
 
-    /// No real transcript may crash or hang the parser.
     /// No user message in the real corpus may open with an injected wrapper.
     /// This is the regression guard for the classifier: if Claude Code adds a
     /// new wrapper tag, or renames one, the content starts rendering as the
     /// user's own prose again and this fails.
-    @Test func noInjectedContentRendersAsUserProse() throws {
-        let (main, _) = transcripts()
-        try #require(!main.isEmpty, "no transcripts on this machine")
+    @Test(arguments: ClaudeCorpus.withTranscripts)
+    func noInjectedContentRendersAsUserProse(in corpus: ClaudeCorpus) throws {
+        let (main, _) = transcripts(in: corpus)
+        try #require(!main.isEmpty, "no transcripts in \(corpus)")
 
         var leaked: [String] = []
         for url in main {
@@ -85,9 +85,10 @@ struct RealTranscriptCorpusTests {
     /// Almost every real `ExitPlanMode` and `AskUserQuestion` must decode to
     /// a structured payload. A payload-shape change in Claude Code shows up
     /// as these falling back to raw JSON.
-    @Test func interactiveToolCallsDecodeAcrossTheCorpus() throws {
-        let (main, _) = transcripts()
-        try #require(!main.isEmpty, "no transcripts on this machine")
+    @Test(arguments: ClaudeCorpus.withTranscripts)
+    func interactiveToolCallsDecodeAcrossTheCorpus(in corpus: ClaudeCorpus) throws {
+        let (main, _) = transcripts(in: corpus)
+        try #require(!main.isEmpty, "no transcripts in \(corpus)")
 
         var total = 0
         var decoded = 0
@@ -113,8 +114,10 @@ struct RealTranscriptCorpusTests {
         )
     }
 
-    @Test func everyTranscriptParsesWithoutCrashing() throws {
-        let (main, subagent) = transcripts()
+    /// No real transcript may crash or hang the parser.
+    @Test(arguments: ClaudeCorpus.withTranscripts)
+    func everyTranscriptParsesWithoutCrashing(in corpus: ClaudeCorpus) throws {
+        let (main, subagent) = transcripts(in: corpus)
         for url in main + subagent {
             guard let data = try? Data(contentsOf: url) else { continue }
             _ = TranscriptParser.parse(data)
@@ -125,9 +128,10 @@ struct RealTranscriptCorpusTests {
     /// session whose only user line is a command's own output genuinely has
     /// nothing to be called, so the guard is a proportion rather than a
     /// certainty — a format change shows up as the labelled share collapsing.
-    @Test func nearlyEverySessionWithContentHasALabel() throws {
-        let (main, _) = transcripts()
-        try #require(!main.isEmpty, "no transcripts on this machine")
+    @Test(arguments: ClaudeCorpus.withTranscripts)
+    func nearlyEverySessionWithContentHasALabel(in corpus: ClaudeCorpus) throws {
+        let (main, _) = transcripts(in: corpus)
+        try #require(!main.isEmpty, "no transcripts in \(corpus)")
 
         let substantial = main.filter { url in
             guard let data = try? Data(contentsOf: url) else { return false }

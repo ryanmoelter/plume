@@ -1,0 +1,160 @@
+name: Tests
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+concurrency:
+  group: tests-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    name: Build and test
+    # The Xcode 27 image (macOS 27, Apple Silicon); macos-26 only has Xcode 26.
+    runs-on: xcode-27
+    timeout-minutes: 60
+    env:
+      XCODEBUILD_FLAGS: >-
+        -project Plume.xcodeproj
+        -scheme Plume
+        -destination platform=macOS
+        -derivedDataPath .build/DerivedData
+        -clonedSourcePackagesDirPath .build/SourcePackages
+        -skipPackagePluginValidation
+        -skipMacroValidation
+        CODE_SIGN_IDENTITY=-
+        CODE_SIGN_STYLE=Manual
+        DEVELOPMENT_TEAM=
+        ENABLE_HARDENED_RUNTIME=NO
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Select Xcode 27
+        env:
+          PINNED_XCODE: "27.2"
+        run: |
+          ls -d /Applications/Xcode*.app
+          # Pinned, so a new Xcode on the runner image can't change the
+          # compiler under a PR unannounced. Moving the pin is its own change.
+          XCODE=/Applications/Xcode_${PINNED_XCODE}.app
+          if [ ! -d "$XCODE" ]; then
+            echo "::warning::Xcode $PINNED_XCODE is not on this runner; using the newest release"
+            XCODE=$(ls -d /Applications/Xcode_27*.app 2>/dev/null | grep -vi beta | sort -V | tail -1 || true)
+          fi
+          [ -n "$XCODE" ] && sudo xcode-select -s "$XCODE/Contents/Developer"
+          xcodebuild -version
+          xcodebuild -version | grep -q '^Xcode 27' || { echo "::error::Plume needs Xcode 27"; exit 1; }
+
+      - name: Cache Swift packages
+        uses: actions/cache@v4
+        with:
+          path: .build/SourcePackages
+          key: spm-${{ runner.os }}-${{ hashFiles('Plume.xcodeproj/project.xcworkspace/xcshareddata/swiftpm/Package.resolved') }}
+          restore-keys: spm-${{ runner.os }}-
+
+      - name: Build for testing
+        run: xcodebuild build-for-testing $XCODEBUILD_FLAGS
+
+      # One small suite first, so a run that can't start any test fails
+      # in minutes and is told apart from one stuck test.
+      - name: Smoke test
+        env:
+          WATCHDOG_MINUTES: "5"
+          WATCHDOG_LABEL: smoke
+          DIAGNOSTICS_DIR: .build/diagnostics
+        run: |
+          scripts/ci/run-with-watchdog.sh \
+            xcodebuild test-without-building $XCODEBUILD_FLAGS \
+              -only-testing:PlumeTests/HexColorTests \
+              -resultBundlePath .build/Smoke.xcresult
+
+      - name: Run PlumeTests
+        env:
+          WATCHDOG_MINUTES: "10"
+          WATCHDOG_LABEL: full
+          # Swift Testing's default width keeps far more tests in flight than
+          # a 3-core runner can serve, and a test resuming after a wait queues
+          # behind all of them, so timing-bound tests miss their limits. Three
+          # at a time runs the suite in about the same time with none missed.
+          # xcodebuild hands TEST_RUNNER_ variables to the test host with the
+          # prefix removed.
+          TEST_RUNNER_SWT_EXPERIMENTAL_MAXIMUM_PARALLELIZATION_WIDTH: "3"
+          DIAGNOSTICS_DIR: .build/diagnostics
+        run: |
+          scripts/ci/run-with-watchdog.sh \
+            xcodebuild test-without-building $XCODEBUILD_FLAGS \
+              -only-testing:PlumeTests \
+              -resultBundlePath .build/Tests.xcresult
+
+      - name: Summarize failures
+        if: failure()
+        run: |
+          set -o pipefail
+          # The full run's bundle, or the smoke test's when that is where it stopped.
+          bundle=.build/Tests.xcresult
+          [ -d "$bundle" ] || bundle=.build/Smoke.xcresult
+          [ -d "$bundle" ] || exit 0
+          xcrun xcresulttool get test-results tests --path "$bundle" \
+            | python3 -c '
+          import json, sys
+          def messages(node):
+              for k in node.get("children", []):
+                  if "Message" in k.get("nodeType", ""):
+                      yield k.get("name", "")
+                  yield from messages(k)
+          def walk(node, path):
+              name = node.get("name", "")
+              if node.get("nodeType") == "Test Case" and node.get("result") == "Failed":
+                  print("::error::" + " / ".join(path + [name]))
+                  for message in messages(node):
+                      print("    " + message.replace("\n", "\n    "))
+                  return
+              for k in node.get("children", []):
+                  walk(k, path + [name])
+          for n in json.load(sys.stdin).get("testNodes", []):
+              walk(n, [])
+          '
+
+      # A crashed test host shows in the results only as the frame the main
+      # thread was idling in, so print each crash report's faulting thread
+      # where it can be read without downloading the artifact.
+      - name: Print test host crashes
+        if: failure()
+        run: |
+          find ~/Library/Logs/DiagnosticReports -name 'Plume*.ips' -mmin -90 2>/dev/null \
+            | while read -r report; do
+              echo "::group::$(basename "$report")"
+              python3 -c '
+          import json, sys
+          text = open(sys.argv[1]).read()
+          body = json.loads(text[text.index("\n") + 1:])
+          print("exception:", json.dumps(body.get("exception", {})))
+          print("termination:", json.dumps(body.get("termination", {})))
+          for info in body.get("asi", {}).values():
+              print("asi:", info)
+          images = body.get("usedImages", [])
+          thread = body["threads"][body.get("faultingThread", 0)]
+          print("thread:", thread.get("name", ""), thread.get("queue", ""))
+          for frame in thread.get("frames", [])[:40]:
+              image = images[frame["imageIndex"]].get("name", "?") if "imageIndex" in frame else "?"
+              print("  " + image + "  " + str(frame.get("symbol", hex(frame.get("imageOffset", 0)))))
+          ' "$report" || head -c 4000 "$report"
+              echo "::endgroup::"
+            done
+
+      - name: Upload test results
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: test-results
+          path: |
+            .build/Smoke.xcresult
+            .build/Tests.xcresult
+            .build/diagnostics
+          retention-days: 7

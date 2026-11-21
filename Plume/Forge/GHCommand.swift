@@ -2,8 +2,8 @@ import Foundation
 import Synchronization
 
 /// Runs one `gh` invocation and returns its stdout. The synchronous form
-/// blocks the calling thread, so callers reach it from an actor or a detached
-/// task; the async form kills `gh` when its task is cancelled.
+/// blocks the calling thread, so callers reach it from an actor or a
+/// `BlockingWork` thread; the async form kills `gh` when its task is cancelled.
 nonisolated enum GHCommand {
     static func run(arguments: [String], in directory: String, timeout: Duration) throws -> Data {
         try run(command: ["gh"] + arguments, in: directory, timeout: timeout, cancellation: nil)
@@ -18,9 +18,9 @@ nonisolated enum GHCommand {
     static func run(command: [String], in directory: String, timeout: Duration) async throws -> Data {
         let cancellation = Cancellation()
         return try await withTaskCancellationHandler {
-            try await Task.detached(priority: .userInitiated) {
+            try await BlockingWork.run {
                 try run(command: command, in: directory, timeout: timeout, cancellation: cancellation)
-            }.value
+            }
         } onCancel: {
             cancellation.cancel()
         }
@@ -101,7 +101,7 @@ nonisolated enum GHCommand {
             timedOut.withLock { $0 = true }
             kill(-processIdentifier, SIGKILL)
         }
-        DispatchQueue.global().asyncAfter(deadline: .now() + timeout.seconds, execute: deadline)
+        BlockingWork.timers.asyncAfter(deadline: .now() + timeout.seconds, execute: deadline)
         defer { deadline.cancel() }
 
         // Read both pipes before waiting: a full pipe deadlocks the child,

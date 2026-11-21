@@ -3,23 +3,15 @@ import Testing
 
 @testable import Plume
 
-/// Parses every plan file on this machine through `MarkdownBlock`, the same
-/// way `RealTranscriptCorpusTests` locks the transcript parser against the
-/// real corpus rather than fixtures.
+/// Parses every plan file in a corpus through `MarkdownBlock`, the same way
+/// `RealTranscriptCorpusTests` locks the transcript parser against real files
+/// rather than hand-written ones: the anonymized fixture sample everywhere,
+/// and this machine's `~/.claude/plans` too where it has any.
 struct RealPlanCorpusTests {
-    private var plansDirectory: URL {
-        FileManager.default.homeDirectoryForCurrentUser.appending(path: ".claude/plans")
-    }
-
-    private func planFiles() -> [URL] {
-        FileManager.default.enumerator(at: plansDirectory, includingPropertiesForKeys: nil)?
-            .compactMap { $0 as? URL }
-            .filter { $0.pathExtension == "md" } ?? []
-    }
-
-    @Test func everyPlanFileParsesIntoAtLeastOneBlock() throws {
-        let files = planFiles()
-        try #require(!files.isEmpty, "no plan files on this machine")
+    @Test(arguments: ClaudeCorpus.withPlans)
+    func everyPlanFileParsesIntoAtLeastOneBlock(in corpus: ClaudeCorpus) throws {
+        let files = ClaudeCorpus.files(in: corpus.plansDirectory, withExtension: "md")
+        try #require(!files.isEmpty, "no plan files in \(corpus)")
 
         for url in files {
             guard let content = try? String(contentsOf: url, encoding: .utf8) else { continue }

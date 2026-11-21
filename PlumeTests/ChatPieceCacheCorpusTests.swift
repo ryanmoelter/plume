@@ -5,7 +5,8 @@ import Testing
 
 /// Feeds growing prefixes of every real transcript through one long-lived
 /// `ChatPieceCache` and checks each build against a fresh cache, locking the
-/// per-message memo against the real corpus rather than fixtures.
+/// per-message memo against real transcripts: the anonymized sample in
+/// `Fixtures/Corpus` everywhere, and this machine's `~/.claude` where it has any.
 @MainActor
 struct ChatPieceCacheCorpusTests {
     /// Each file is read only this far, cut back to its last whole line,
@@ -16,9 +17,9 @@ struct ChatPieceCacheCorpusTests {
     private static let fileLimit = 40
     private static let prefixFractions = [0.3, 0.6, 0.8, 0.95, 1.0]
 
-    private func mainTranscripts() -> [URL] {
+    private func mainTranscripts(in corpus: ClaudeCorpus) -> [URL] {
         let files = FileManager.default.enumerator(
-            at: SessionJSONLReader.projectsDirectory, includingPropertiesForKeys: [.fileSizeKey]
+            at: corpus.projectsDirectory, includingPropertiesForKeys: [.fileSizeKey]
         )?
         .compactMap { $0 as? URL }
         .filter { $0.pathExtension == "jsonl" && $0.deletingLastPathComponent().lastPathComponent != "subagents" } ?? []
@@ -26,9 +27,10 @@ struct ChatPieceCacheCorpusTests {
         return sized.sorted { ($0.1, $0.0.path) > ($1.1, $1.0.path) }.prefix(Self.fileLimit).map(\.0)
     }
 
-    @Test func growingPrefixesMatchAFreshCache() throws {
-        let main = mainTranscripts()
-        try #require(!main.isEmpty, "no transcripts on this machine")
+    @Test(arguments: ClaudeCorpus.withTranscripts)
+    func growingPrefixesMatchAFreshCache(in corpus: ClaudeCorpus) throws {
+        let main = mainTranscripts(in: corpus)
+        try #require(!main.isEmpty, "no transcripts in \(corpus)")
 
         let base = URL(fileURLWithPath: NSHomeDirectory())
         let dimensions = Dimensions(bodySize: 13)

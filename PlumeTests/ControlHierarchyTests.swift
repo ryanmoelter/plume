@@ -16,8 +16,10 @@ import Testing
 @MainActor
 struct ControlHierarchyTests {
     @Test func plumeIDRegistersAHostedControlWithItsFrame() async throws {
+        // No `removeAll()`: tests in this suite run in parallel, and emptying
+        // the shared registry would drop another test's live entries, which
+        // are never registered again. Every lookup is scoped to this window.
         let registry = ControlRegistry.shared
-        registry.removeAll()
         let host = NSHostingView(rootView:
             VStack {
                 Text("x").plumeID("probe-text", label: "Probe")
@@ -27,21 +29,22 @@ struct ControlHierarchyTests {
         )
         let window = makeWindow(content: host, size: CGSize(width: 200, height: 100))
         defer { window.close() }
-        // Other suites register into the same registry in parallel, so wait on
-        // this window's ids rather than the total count.
+        func mine(_ id: String) -> [ControlEntry] {
+            registry.entries(id: id, windowNumber: window.windowNumber).map(\.entry)
+        }
         try await settle {
             ["probe-text", "probe-button"].allSatisfy { id in
-                registry.entries(id: id).count == 1 && registry.entries(id: id).allSatisfy { $0.entry.window === window && $0.entry.frame.width > 0 }
+                mine(id).count == 1 && mine(id).allSatisfy { $0.frame.width > 0 }
             }
         }
 
-        let text = try registry.resolve(.control(id: "probe-text", index: nil, label: nil))
+        let text = try #require(mine("probe-text").first)
         #expect(text.label == "Probe")
         #expect(text.frame.width > 0 && text.frame.height > 0)
         #expect(text.frame.minX >= 0 && text.frame.maxY <= 100)
         #expect(text.window === window)
 
-        let button = try registry.resolve(.control(id: "probe-button", index: nil, label: nil))
+        let button = try #require(mine("probe-button").first)
         #expect(button.isEnabled == false)
 
         let backend = InProcessControlBackend(registry: registry)
@@ -133,8 +136,9 @@ struct ControlHierarchyTests {
 
     @Test func syntheticHoverReachesAPlumeHoverRegionAndShowsTheOverlay() async throws {
         let before = NSWorkspace.shared.frontmostApplication?.processIdentifier
+        // No `removeAll()`, for the same reason as the control registry: the
+        // regions are filtered to this window below.
         let registry = HoverRegistry.shared
-        registry.removeAll()
         let hovered = Hovered()
         let host = NSHostingView(rootView:
             VStack(spacing: 0) {
