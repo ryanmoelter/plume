@@ -224,8 +224,9 @@ surface and workspace match, selects a uniquely newest thread when a surface was
 reused, and verifies the recorded rollout's `session_meta.id` and directory.
 Ambiguous or unverifiable records remain terminal tabs. Imported Codex tabs keep
 their provider and thread ID and resume through app-server, not the Claude JSONL
-reader. Import does not stop or take over the source cmux process. Protection
-against concurrent resumes across applications is tracked separately in PLUME-153.
+reader. Import does not stop or take over the source cmux process. Headless
+resume preserves the conversation and unsent queue when Codex reports another
+active writer; see "External conversation ownership" below.
 
 ## Work after a turn and Stay Awake
 
@@ -242,14 +243,33 @@ This inventory describes Codex-managed terminal sessions, not arbitrary shell
 children. Use `exec_command` with a short `yield_time_ms` to keep a command such
 as `sleep 60` in a managed session. A shell command such as `sleep 60 &` can
 finish its command item immediately and leave an empty inventory; the shell’s
-child may also fail to start or be terminated as the shell exits. Plume does not
-infer live process ownership from printed PIDs or assistant messages, and
-shell-detached work currently acquires no hold. Supporting it needs reliable
-process ownership and exit evidence beyond this app-server inventory.
+child may also fail to start or be terminated as the shell exits.
+
+For zsh commands, Plume supplies a per-tab startup file that restores the
+user’s startup configuration and opens a read-only file descriptor. Shell
+children inherit it. Plume asks macOS which processes have that file open and
+checks for processes reparented to launchd. Groups with a live, attached
+leader still use managed-session tracking. Plume tracks confirmed detached
+processes by PID and birth time until exit or tab closure. This covers commands run
+by a Codex subagent that inherits the tab’s shell configuration.
+
+A process that closes the descriptor before discovery cannot be identified.
+Other shells, custom shell environment filters, and restrictive inheritance
+policies skip this mechanism. Attaching to a conversation started remotely
+preserves its existing shell configuration. Codex’s managed-session tracking
+still works in those cases.
 
 Local `!` commands also hold Stay Awake while their processes run. A completed
 command waiting in the composer queue is no longer running work. Moving the tab
 preserves its task ownership, and cancellation releases the reason.
+
+## Plume CLI environment
+
+Each headless thread gets its own Plume CLI environment through the thread's
+`shell_environment_policy.set` configuration. To check a live tab, ask it to run
+`env | grep -E '^PLUME_(SOCKET|TAB_ID|TASK_ID|BUNDLE_ID)='`.
+On Codex 0.153.4 all four values matched the scratch Plume instance, including
+the task and tab UUIDs in its store.
 
 ## Remote control
 
@@ -350,8 +370,9 @@ before launching or resuming another tab. This is a guard on Plume's launch path
 commands entered directly into the TUI cannot be preflighted by its read-only
 observer. Codex 0.153.4 rejects a second server resuming a live thread with an
 “already has an active writer” error. Plume does not apply Claude's
-process/transcript heuristics to Codex; friendly cross-app ownership recovery
-remains tracked separately.
+process/transcript heuristics to Codex. Headless resume classifies the server’s
+exact active-writer refusal and offers a retry after release. Terminal-mode
+refusals remain in the real TUI; its observer never claims the thread.
 
 Codex title generation follows the shared policy: once after the first completed
 turn, then when a plan provides a better subject. User-named tasks and existing
@@ -441,3 +462,25 @@ the remaining chat completed a follow-up. The Debug build and signature checks
 passed. The prior remote-test instance was restarted with its saved data and this
 build. The user subsequently confirmed that remote access works from iOS.
 See [Codex beta compatibility](codex-beta.md) for the remaining manual checklist.
+
+## Linked folders
+
+Headless Codex tabs send user-selected folders as `runtimeWorkspaceRoots` on `thread/start`, `thread/resume`, and new `turn/start` requests. The complete replacement includes the working directory and normalized, unique additional folders. Removing the last folder sends only the working directory. A persisted removal also replaces roots when resuming. Folder edits during a turn wait for the next turn; they never restart the shared app-server or change another thread.
+
+Named permission profiles stay unchanged. Roots materialize the profile’s `:workspace_roots`; they do not turn read-only into workspace-write or replace custom filesystem, network, or approval rules. There is no standalone add-directory request. `thread/settings/update` has no roots field.
+
+Remote attachment sends no roots override and adopts the returned roots through the existing folder store, respecting previously removed folders. Ordinary chats without selected folders or persisted removals omit the field for compatibility. A server that does not report `runtimeWorkspaceRoots` in its start/resume response cannot verify linked-folder support. Folder-dependent turns stop with an update notice instead of silently proceeding without the folders.
+
+Verified against installed CLI 0.153.4: ephemeral starts with two roots preserved `:read-only` and returned a read-only sandbox. `:workspace` returned the second root as writable, with network access still disabled.
+
+## External conversation ownership
+
+A headless resume treats the installed CLI’s exact `-32600` refusal, `thread <id> already has an active writer`, as authoritative ownership evidence for that requested thread. Plume keeps the cached history and unsent queue, explains that the conversation is open elsewhere, and retries the same thread only when the user asks. It never starts a replacement thread, interrupts the owner, or infers ownership from a directory or process name. Retry works after the owning app or terminal releases its writer. The protocol does not identify that application or supply a deep link, so Plume directs the user back to the app or terminal they were using.
+
+A live probe used two independent CLI 0.153.4 app-servers and a persisted thread in an isolated Codex home. The second server received the exact active-writer refusal while the first remained alive. After the probe stopped its own first server, the same second server resumed the same thread successfully. Fresh threads without a turn have no rollout; a second resume then reports no rollout rather than proving ownership.
+
+Terminal transport still lets the real TUI own resume and display the server refusal. Its read-only observer never claims a thread to test ownership. Plume’s local tab claim guards against duplicate tabs, but cannot identify an external owner before the TUI attempts resume.
+
+## Linear evidence from Codex MCP calls
+
+MCP name metadata remains separate from the generic MCP summary. Raw per-item evidence feeds the shared Linear scanner for root and child conversations, with child provenance retained when aggregating. Both content and structuredContent envelopes are supported. Failed calls never infer issue identifiers from results. History restoration and forgetting remain scoped to each tab.

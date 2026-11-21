@@ -131,7 +131,10 @@ struct ChatComposer: View, ThemedView {
         tab.provider == .codex && tab.transport == .headless ? tabDirectories.directory(for: tab) : nil
     }
 
-    private var completionPrefix: String { tab.provider == .codex ? "$" : "/" }
+    private var completionPrefix: String {
+        guard tab.provider == .codex else { return "/" }
+        return drafts.draft(forTab: tab.id).trimmingCharacters(in: .whitespaces).hasPrefix("/") ? "/" : "$"
+    }
 
     /// The CLI's commands, from this session when it has reported and from
     /// the last one to report in this tab's directory until then, so a cold
@@ -145,6 +148,9 @@ struct ChatComposer: View, ThemedView {
     /// headlessly, its version wins.
     private var availableSlashCommands: [SlashCommand] {
         if tab.provider == .codex, tab.transport == .headless {
+            if completionPrefix == "/" {
+                return PlumeSlashCommand.all.filter { $0.name == "add-dir" }
+            }
             return CodexSkillStore.shared.skills(in: skillDirectory).map(\.command)
         }
         guard tab.provider == .claudeCode, tab.transport == .headless else { return [] }
@@ -713,6 +719,11 @@ struct ChatComposer: View, ThemedView {
         // real TUI, where `/rc` already works. And only with a session live —
         // the launch path below is a tab's first message, which has no bridge
         // to attach to, so the command is dropped rather than sent as prose.
+        if !isCommandMode, images.isEmpty, tab.transport == .headless,
+           case .addDirectory(let path)? = PlumeSlashCommand.parse(text) {
+            addDirectory(path, typed: text)
+            return
+        }
         if !isCommandMode, images.isEmpty, tab.provider == .codex, tab.transport == .headless,
            case .remoteControl? = PlumeSlashCommand.parse(text) {
             guard let codex = headlessSession as? CodexSession else { return }

@@ -30,12 +30,13 @@ struct CodexSharedSessionTests {
     @Test func sharedSessionsIsolateInterleavedItemsAndApprovals() async throws {
         let h = Harness()
         let host = CodexSharedAppServer(physical: h.client)
-        let a = CodexSession(tabID: UUID(), taskID: UUID(), client: CodexAppServerClient(sharedServer: host))
-        let b = CodexSession(tabID: UUID(), taskID: UUID(), client: CodexAppServerClient(sharedServer: host))
+        let items = CodexItemStore()
+        let a = CodexSession(tabID: UUID(), taskID: UUID(), client: CodexAppServerClient(sharedServer: host), itemStore: items)
+        let b = CodexSession(tabID: UUID(), taskID: UUID(), client: CodexAppServerClient(sharedServer: host), itemStore: items)
         defer {
             a.stop(); b.stop()
             for session in [a, b] {
-                CodexItemStore.shared.forget(tabID: session.tabID)
+                items.forget(tabID: session.tabID)
                 CodexSubagentStore.shared.forget(tabID: session.tabID)
             }
         }
@@ -50,10 +51,10 @@ struct CodexSharedSessionTests {
         #expect(h.initializeCount == 1)
         h.client.receive(#"{"method":"item/completed","params":{"threadId":"first","item":{"id":"a","type":"agentMessage","text":"First answer"}}}"#)
         h.client.receive(#"{"method":"item/completed","params":{"threadId":"second","item":{"id":"b","type":"agentMessage","text":"Second answer"}}}"#)
-        #expect(CodexItemStore.shared.item(tabID: a.tabID, id: "a") != nil)
-        #expect(CodexItemStore.shared.item(tabID: a.tabID, id: "b") == nil)
-        #expect(CodexItemStore.shared.item(tabID: b.tabID, id: "b") != nil)
-        #expect(CodexItemStore.shared.item(tabID: b.tabID, id: "a") == nil)
+        #expect(items.item(tabID: a.tabID, id: "a") != nil)
+        #expect(items.item(tabID: a.tabID, id: "b") == nil)
+        #expect(items.item(tabID: b.tabID, id: "b") != nil)
+        #expect(items.item(tabID: b.tabID, id: "a") == nil)
         h.client.receive(#"{"id":900,"method":"item/commandExecution/requestApproval","params":{"threadId":"first","itemId":"cmd","command":"pwd","availableDecisions":["accept","decline"]}}"#)
         h.client.receive(#"{"id":901,"method":"item/commandExecution/requestApproval","params":{"threadId":"second","itemId":"cmd","command":"ls","availableDecisions":["accept","decline"]}}"#)
         // A newly attached remote root can replay an unresolved request.

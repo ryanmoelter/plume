@@ -56,7 +56,7 @@ struct CodexSessionTests {
         defer {
             session.stop()
             CodexSubagentStore.shared.forget(tabID: session.tabID)
-            CodexItemStore.shared.forget(tabID: session.tabID)
+            session.itemStore.forget(tabID: session.tabID)
         }
         session.start(workingDirectory: nil, resumeThreadID: nil, model: nil, environment: [:])
         try await waitUntil { session.sessionID == "parent" }
@@ -114,7 +114,7 @@ struct CodexSessionTests {
         let (session, client, sent) = makeSession()
         defer {
             session.stop()
-            CodexItemStore.shared.forget(tabID: session.tabID)
+            session.itemStore.forget(tabID: session.tabID)
             CodexSubagentStore.shared.forget(tabID: session.tabID)
             CodexCatalogStore.shared.forget(tabID: session.tabID)
             TabDirectoryStore.shared.forget(tabID: session.tabID)
@@ -161,7 +161,7 @@ struct CodexSessionTests {
         try await waitUntil { sent().filter { requestMethod(in: $0) == "thread/read" }.count == 1 }
         #expect(sent().filter { requestMethod(in: $0) == "thread/read" }.count == 1)
         #expect(CodexSubagentStore.shared.subagents(forTab: session.tabID).first?.transcript.messages.last?.blocks == [.markdown("Child reply once")])
-        #expect(CodexItemStore.shared.transcript(forTab: session.tabID)?.messages.contains { $0.id.contains("child-message") } != true)
+        #expect(session.itemStore.transcript(forTab: session.tabID)?.messages.contains { $0.id.contains("child-message") } != true)
         client.receive(#"{"id":"child-approval","method":"item/fileChange/requestApproval","params":{"threadId":"child-thread","turnId":"child-turn","itemId":"child-edit","reason":"child edit"}}"#)
         let childPermission = try #require(session.pendingPermissions.first)
         #expect(childPermission.agentID == "child-thread")
@@ -187,17 +187,17 @@ struct CodexSessionTests {
         #expect(turnParams["collaborationMode"]?["settings"]?["model"] == .string("gpt-6-astra"))
         #expect(turnParams["collaborationMode"]?["settings"]?["reasoning_effort"] == .string("high"))
         #expect(turnParams["collaborationMode"]?["settings"]?["developer_instructions"] == .null)
-        #expect(CodexItemStore.shared.transcript(forTab: session.tabID)?.messages.map(\.id) == ["old-turn#old", "live-turn#live"])
+        #expect(session.itemStore.transcript(forTab: session.tabID)?.messages.map(\.id) == ["old-turn#old", "live-turn#live"])
     }
 
     @Test func agentMessageDeltasStayBeforeToolsWithoutADuplicateOverlay() throws {
         let (session, client, _) = makeSession()
-        defer { CodexItemStore.shared.forget(tabID: session.tabID) }
+        defer { session.itemStore.forget(tabID: session.tabID) }
         client.receive(#"{"method":"item/started","params":{"turnId":"u","item":{"id":"i","type":"agentMessage","text":""}}}"#)
         client.receive(#"{"method":"item/agentMessage/delta","params":{"delta":"Hel","itemId":"i","threadId":"t","turnId":"u"}}"#)
         client.receive(#"{"method":"item/started","params":{"turnId":"u","item":{"id":"tool","type":"commandExecution","command":"ls"}}}"#)
         client.receive(#"{"method":"item/agentMessage/delta","params":{"delta":"lo","itemId":"i","turnId":"u"}}"#)
-        let live = try #require(CodexItemStore.shared.transcript(forTab: session.tabID))
+        let live = try #require(session.itemStore.transcript(forTab: session.tabID))
         #expect(live.messages.map(\.id) == ["u#i", "u#tool"])
         #expect(live.messages.first?.blocks == [.markdown("Hello")])
         #expect(session.streamingText.isEmpty)
@@ -205,7 +205,7 @@ struct CodexSessionTests {
         client.receive(#"{"method":"item/completed","params":{"turnId":"u","item":{"id":"i","type":"agentMessage","text":"Hello"}}}"#)
         client.receive(#"{"method":"item/started","params":{"turnId":"u","item":{"id":"final","type":"agentMessage","text":""}}}"#)
         client.receive(#"{"method":"item/agentMessage/delta","params":{"delta":"Done","itemId":"final","turnId":"u"}}"#)
-        let completed = try #require(CodexItemStore.shared.transcript(forTab: session.tabID))
+        let completed = try #require(session.itemStore.transcript(forTab: session.tabID))
         #expect(completed.messages.map(\.id) == ["u#i", "u#tool", "u#final"])
         #expect(completed.messages.first?.blocks == [.markdown("Hello")])
         #expect(completed.messages.last?.blocks == [.markdown("Done")])
@@ -214,13 +214,13 @@ struct CodexSessionTests {
 
     @Test func reasoningDeltasPreserveIndexedPartsInTheirOwnRow() throws {
         let (session, client, _) = makeSession()
-        defer { CodexItemStore.shared.forget(tabID: session.tabID) }
+        defer { session.itemStore.forget(tabID: session.tabID) }
         client.receive(#"{"method":"item/reasoning/textDelta","params":{"itemId":"r","contentIndex":0,"delta":"pondering"}}"#)
-        #expect(CodexItemStore.shared.transcript(forTab: session.tabID)?.messages.first?.blocks == [.thinking("pondering")])
+        #expect(session.itemStore.transcript(forTab: session.tabID)?.messages.first?.blocks == [.thinking("pondering")])
         client.receive(#"{"method":"item/reasoning/summaryTextDelta","params":{"itemId":"r","summaryIndex":0,"delta":"First"}}"#)
         client.receive(#"{"method":"item/reasoning/summaryTextDelta","params":{"itemId":"r","summaryIndex":1,"delta":"Second"}}"#)
         client.receive(#"{"method":"item/reasoning/summaryTextDelta","params":{"itemId":"r","summaryIndex":0,"delta":" part"}}"#)
-        let transcript = try #require(CodexItemStore.shared.transcript(forTab: session.tabID))
+        let transcript = try #require(session.itemStore.transcript(forTab: session.tabID))
         #expect(transcript.messages.count == 1)
         #expect(transcript.messages.first?.blocks == [.thinking("First part\nSecond")])
         #expect(session.streamingThinking.isEmpty)
@@ -470,7 +470,7 @@ struct CodexSessionTests {
 
     @Test func implementingAPlanQueuesANewCodeModeTurn() {
         let (session, client, _) = makeSession()
-        defer { CodexItemStore.shared.forget(tabID: session.tabID) }
+        defer { session.itemStore.forget(tabID: session.tabID) }
         session.setCollaborationMode(.plan)
         client.receive(#"{"method":"item/completed","params":{"turnId":"planning","item":{"id":"proposal","type":"plan","text":"Build it"}}}"#)
         #expect(session.planProposal?.markdown == "Build it")
@@ -486,7 +486,7 @@ struct CodexSessionTests {
 
     @Test func rejectingAPlanQueuesFeedbackInPlanMode() {
         let (session, client, _) = makeSession()
-        defer { CodexItemStore.shared.forget(tabID: session.tabID) }
+        defer { session.itemStore.forget(tabID: session.tabID) }
         client.receive(#"{"method":"item/completed","params":{"turnId":"planning","item":{"id":"proposal","type":"plan","text":"Build it"}}}"#)
 
         session.requestPlanChanges(" Keep the old API ")
@@ -498,7 +498,7 @@ struct CodexSessionTests {
 
     @Test func planDecisionWaitsForThePlanningTurnToFinish() {
         let (session, client, _) = makeSession()
-        defer { CodexItemStore.shared.forget(tabID: session.tabID) }
+        defer { session.itemStore.forget(tabID: session.tabID) }
         client.receive(#"{"method":"turn/started","params":{"turn":{"id":"planning"}}}"#)
         client.receive(#"{"method":"item/completed","params":{"turnId":"planning","item":{"id":"proposal","type":"plan","text":"Build it"}}}"#)
 

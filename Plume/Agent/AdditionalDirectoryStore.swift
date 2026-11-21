@@ -1,9 +1,9 @@
 import Foundation
 
-/// Changes a tab's `--add-dir` list, and restarts its running headless
-/// session so the change takes effect.
+/// Changes a tab's linked folders. Codex applies changes to the next turn;
+/// Claude Code restarts its headless session when idle.
 ///
-/// The CLI can neither add nor remove a folder mid-session, and a resume
+/// Claude Code can neither add nor remove a folder mid-session, and a resume
 /// restores none, so the restart passes the whole list again. Nothing
 /// running is cut short for it: the restart waits until the session is idle
 /// (`HeadlessSession.restartBlockers`), unless the user forces it with
@@ -20,7 +20,7 @@ enum AdditionalDirectoryStore {
     /// against the tab's working directory.
     @discardableResult
     static func add(_ paths: [String], to tab: TaskTab, history: UserDefaults = .standard) async -> [String] {
-        let base = runningSession(of: tab)?.launchDirectory ?? TabDirectoryStore.shared.directory(for: tab)
+        let base = runningLaunchDirectory(of: tab) ?? TabDirectoryStore.shared.directory(for: tab)
         let existing = tab.additionalDirectories
         let found = await Task.detached {
             AdditionalDirectories.additions(paths, to: existing, relativeTo: base)
@@ -61,7 +61,7 @@ enum AdditionalDirectoryStore {
     }
 
     private static func undecline(_ paths: [String], on tab: TaskTab) {
-        let base = runningSession(of: tab)?.launchDirectory ?? TabDirectoryStore.shared.directory(for: tab)
+        let base = runningLaunchDirectory(of: tab) ?? TabDirectoryStore.shared.directory(for: tab)
         let added = Set(paths.compactMap { AdditionalDirectories.normalized($0, relativeTo: base) })
         guard tab.removedAdditionalDirectories.contains(where: added.contains) else { return }
         tab.removedAdditionalDirectories.removeAll(where: added.contains)
@@ -96,7 +96,23 @@ enum AdditionalDirectoryStore {
         return session
     }
 
+    private static func runningLaunchDirectory(of tab: TaskTab) -> String? {
+        if let codex = runningCodexSession(of: tab) { return codex.launchDirectory }
+        return runningSession(of: tab)?.launchDirectory
+    }
+
+    private static func runningCodexSession(of tab: TaskTab) -> CodexSession? {
+        guard tab.provider == .codex, tab.transport == .headless,
+              let session = AgentSessionManager.shared.existingSession(for: tab.id) as? CodexSession,
+              !session.hasExited else { return nil }
+        return session
+    }
+
     private static func applyToRunningSession(of tab: TaskTab) {
+        if let codex = runningCodexSession(of: tab) {
+            codex.setAdditionalDirectories(tab.additionalDirectories)
+            return
+        }
         guard let session = runningSession(of: tab) else { return }
         guard AdditionalDirectories.needsRestart(
             launched: session.launchAdditionalDirectories,

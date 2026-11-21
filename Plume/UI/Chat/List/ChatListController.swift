@@ -1249,10 +1249,21 @@ extension ChatListDocumentView: NSMenuItemValidation {
         }
     }
 
-    func selectionMenu() -> NSMenu {
+    @objc func openLinkedDocument(_ sender: NSMenuItem) {
+        guard let url = sender.representedObject as? URL else { return }
+        ChatLinkOpener.openDocument(url)
+    }
+
+    func selectionMenu(fileURL: URL? = nil) -> NSMenu {
         let menu = NSMenu()
         menu.addItem(withTitle: "Copy", action: #selector(copy(_:)), keyEquivalent: "").target = self
         menu.addItem(withTitle: "Copy as Plain Text", action: #selector(copyAsPlainText(_:)), keyEquivalent: "").target = self
+        if let fileURL {
+            menu.addItem(.separator())
+            let item = menu.addItem(withTitle: "Open File", action: #selector(openLinkedDocument(_:)), keyEquivalent: "")
+            item.target = self
+            item.representedObject = fileURL
+        }
         return menu
     }
 }

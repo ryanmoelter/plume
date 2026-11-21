@@ -81,6 +81,28 @@ enum ChatLinkOpener {
         return .file(url)
     }
 
+    private nonisolated static let documentExtensions: Set<String> = [
+        "html", "htm", "pdf", "md", "txt", "rtf", "doc", "docx",
+        "xls", "xlsx", "ppt", "pptx", "csv", "tsv", "png", "jpg", "jpeg",
+        "gif", "webp", "heic", "svg", "mp3", "m4a", "wav", "mp4", "mov",
+    ]
+
+    nonisolated static func documentURL(for url: URL, relativeTo base: URL?) -> URL? {
+        guard let file = resolvedFileURL(for: url, relativeTo: base)?.resolvingSymlinksInPath(),
+              documentExtensions.contains(file.pathExtension.lowercased()),
+              let attributes = try? FileManager.default.attributesOfItem(atPath: file.path),
+              attributes[.type] as? FileAttributeType == .typeRegular,
+              !FileManager.default.isExecutableFile(atPath: file.path) else { return nil }
+        return file
+    }
+
+    static func openDocument(_ url: URL) {
+        Task.detached(priority: .userInitiated) {
+            guard let file = documentURL(for: url, relativeTo: nil) else { return }
+            NSWorkspace.shared.open(file)
+        }
+    }
+
     /// Hands the target to the system off the main thread — `NSWorkspace`
     /// blocks its caller while Launch Services starts the handler.
     ///

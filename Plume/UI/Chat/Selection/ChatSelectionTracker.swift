@@ -130,7 +130,9 @@ final class ChatSelectionTracker {
             store.set(word)
         }
         controller.takeSelectionFocus()
-        NSMenu.popUpContextMenu(controller.documentView.selectionMenu(), with: event, for: controller.documentView)
+        let fileURL = controller.selectableText(of: position.pieceID)?.link(at: position.offset)
+            .flatMap { ChatLinkOpener.documentURL(for: $0, relativeTo: controller.inputs.linkDirectory) }
+        NSMenu.popUpContextMenu(controller.documentView.selectionMenu(fileURL: fileURL), with: event, for: controller.documentView)
         return nil
     }
 

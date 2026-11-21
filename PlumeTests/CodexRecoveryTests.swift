@@ -9,6 +9,8 @@ struct CodexRecoveryTests {
         var client: CodexAppServerClient!
         var requests: [JSONValue] = []
         var failResume = false
+        var resumeErrorCode = -1
+        var resumeErrorMessage = "Thread unavailable"
         var resumedThread: JSONValue?
         var beforeResumeReply: (() -> Void)?
         var beforeHistoryReply: (() -> Void)?
@@ -23,7 +25,7 @@ struct CodexRecoveryTests {
                 if method == "thread/items/list" { beforeHistoryReply?() }
                 guard let id = request["id"], method != "turn/start" else { return true }
                 if method == "thread/resume", failResume {
-                    reply(id: id, error: .object(["code": .number(-1), "message": .string("Thread unavailable")]))
+                    reply(id: id, error: .object(["code": .number(Double(resumeErrorCode)), "message": .string(resumeErrorMessage)]))
                 } else {
                     let result: JSONValue = switch method {
                     case "thread/resume", "thread/start": .object([
@@ -56,6 +58,22 @@ struct CodexRecoveryTests {
         }
         Issue.record("Protocol task did not settle")
         throw CancellationError()
+    }
+
+    @Test func neverMountedThreadPersistsItsLastItem() async throws {
+        let directory = FileManager.default.temporaryDirectory.appending(path: UUID().uuidString)
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let items = CodexItemStore(cache: CodexHistoryCache(directory: directory))
+        let h = Harness()
+        let session = CodexSession(tabID: UUID(), taskID: UUID(), client: h.client, itemStore: items)
+        defer { session.stop() }
+        session.start(workingDirectory: nil, resumeThreadID: nil, model: nil, environment: [:])
+        try await waitFor { h.requests.contains { $0["method"] == .string("thread/backgroundTerminals/list") } }
+        h.client.receive(#"{"method":"item/completed","params":{"threadId":"thread","turnId":"turn","item":{"id":"reply","type":"agentMessage","text":"Done"}}}"#)
+        await items.flush(tabID: session.tabID)
+        let reopened = CodexHistoryCache(directory: directory)
+        let snapshot = await reopened.load(tabID: session.tabID, threadID: "thread")
+        #expect(snapshot?.entries.last?.stableID == "turn#reply")
     }
 
     private var activeRemoteThread: JSONValue {
@@ -181,6 +199,47 @@ struct CodexRecoveryTests {
         #expect(h.turns.isEmpty)
         #expect(!h.requests.contains { $0["method"] == .string("thread/start") })
         #expect(session.lastError?.contains("Thread unavailable") == true)
+    }
+
+    @Test func activeWriterRefusalKeepsHistoryAndUnsentInputForRetry() async throws {
+        let tabID = UUID()
+        let items = CodexItemStore()
+        items.upsert(tabID: tabID, item: .object(["id": .string("saved"), "type": .string("agentMessage"), "text": .string("Saved reply")]), turnID: "previous")
+        let h = Harness()
+        h.failResume = true
+        h.resumeErrorCode = -32600
+        h.resumeErrorMessage = "thread thread already has an active writer"
+        let session = CodexSession(tabID: tabID, taskID: UUID(), client: h.client, itemStore: items)
+        defer { session.stop() }
+        session.start(workingDirectory: nil, resumeThreadID: "thread", model: nil, environment: [:])
+        session.submit(text: "still unsent")
+        try await waitFor { session.hasExited }
+        #expect(session.hasActiveWriterConflict)
+        #expect(session.startFailure?.title == "This conversation is open elsewhere")
+        #expect(session.lastError?.contains("Close it there") == true)
+        #expect(session.queuedMessages.map(\.plainText) == ["still unsent"])
+        #expect(items.item(tabID: tabID, id: "previous#saved")?["text"] == .string("Saved reply"))
+        #expect(h.turns.isEmpty)
+        #expect(h.interrupts.isEmpty)
+        #expect(!h.requests.contains { $0["method"] == .string("thread/start") })
+
+        let retry = Harness()
+        let resumed = CodexSession(tabID: tabID, taskID: session.taskID, client: retry.client)
+        defer { resumed.stop() }
+        resumed.start(workingDirectory: nil, resumeThreadID: "thread", model: nil, environment: [:])
+        for blocks in session.queuedMessages { resumed.submit(blocks: blocks) }
+        try await waitFor { retry.turns.count == 1 }
+        #expect(!resumed.hasActiveWriterConflict)
+        #expect(retry.requests.first { $0["method"] == .string("thread/resume") }?["params"]?["threadId"] == .string("thread"))
+        #expect(!retry.requests.contains { $0["method"] == .string("thread/start") })
+        #expect(retry.turns[0]["params"]?["input"]?.arrayValue?.first?["text"] == .string("still unsent"))
+    }
+
+    @Test func ownershipRequiresTheMatchingServerRefusal() {
+        #expect(CodexThreadOwnership.isActiveWriterConflict(CodexAppServerClient.Failure.server(code: -32600, message: "thread target already has an active writer"), threadID: "target"))
+        #expect(!CodexThreadOwnership.isActiveWriterConflict(CodexAppServerClient.Failure.server(code: -32600, message: "thread other already has an active writer"), threadID: "target"))
+        #expect(!CodexThreadOwnership.isActiveWriterConflict(CodexAppServerClient.Failure.server(code: -32603, message: "thread target already has an active writer"), threadID: "target"))
+        #expect(!CodexThreadOwnership.isActiveWriterConflict(CodexAppServerClient.Failure.server(code: -32600, message: "command output: already has an active writer"), threadID: "target"))
     }
 
     @Test func disconnectDoesNotRequeueAnUncertainTurn() async throws {

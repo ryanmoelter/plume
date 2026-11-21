@@ -1,5 +1,6 @@
 import Testing
 import Foundation
+import AppKit
 @testable import Plume
 
 /// Covers how a clicked link's URL resolves to something openable. The agent
@@ -122,5 +123,35 @@ struct ChatLinkOpenerTests {
         let link = try #require(parsed.runs.compactMap(\.link).first)
         let expected = directory.appendingPathComponent(name).standardizedFileURL
         #expect(ChatLinkOpener.target(for: link, relativeTo: directory) == .file(expected))
+    }
+
+    @Test func documentOpenRequiresAnExistingNonExecutableDocument() throws {
+        let directory = try makeDirectory()
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let html = directory.appendingPathComponent("report.html")
+        try "<h1>Report</h1>".write(to: html, atomically: true, encoding: .utf8)
+        #expect(ChatLinkOpener.documentURL(for: URL(string: "report.html")!, relativeTo: directory) == html)
+        #expect(ChatLinkOpener.target(for: html, relativeTo: nil) == .file(html))
+        #expect(ChatLinkOpener.documentURL(for: directory.appendingPathComponent("missing.pdf"), relativeTo: nil) == nil)
+        #expect(ChatLinkOpener.documentURL(for: URL(string: "https://example.com/report.html")!, relativeTo: directory) == nil)
+        #expect(ChatLinkOpener.documentURL(for: directory, relativeTo: nil) == nil)
+        let script = directory.appendingPathComponent("run.sh")
+        try "echo hello".write(to: script, atomically: true, encoding: .utf8)
+        #expect(ChatLinkOpener.documentURL(for: script, relativeTo: nil) == nil)
+        try FileManager.default.setAttributes([.posixPermissions: 0o755], ofItemAtPath: html.path)
+        #expect(ChatLinkOpener.documentURL(for: html, relativeTo: nil) == nil)
+        let disguised = directory.appendingPathComponent("disguised.pdf")
+        try FileManager.default.createSymbolicLink(at: disguised, withDestinationURL: script)
+        #expect(ChatLinkOpener.documentURL(for: disguised, relativeTo: nil) == nil)
+    }
+
+    @Test func fileContextMenuKeepsCopyAndOffersExplicitOpen() {
+        let view = ChatListDocumentView()
+        #expect(view.selectionMenu().items.map(\.title) == ["Copy", "Copy as Plain Text"])
+        let file = URL(fileURLWithPath: "/tmp/report.html")
+        let menu = view.selectionMenu(fileURL: file)
+        #expect(menu.items.map(\.title) == ["Copy", "Copy as Plain Text", "", "Open File"])
+        #expect(menu.items.last?.representedObject as? URL == file)
+        #expect(menu.items.last?.target === view)
     }
 }

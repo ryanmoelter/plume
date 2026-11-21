@@ -268,6 +268,14 @@ struct ChatTabView: View, ThemedView {
     }
 
     private var folderRowsInput: FolderRowsInput {
+        if let codex = headlessSession as? CodexSession, !codex.hasExited {
+            return FolderRowsInput(
+                workingDirectory: gitDirectory,
+                launchDirectory: codex.launchDirectory,
+                added: tab.additionalDirectories,
+                launched: codex.hasPendingAdditionalDirectories ? codex.appliedAdditionalDirectories : nil
+            )
+        }
         let live = liveClaudeSession
         return FolderRowsInput(
             workingDirectory: gitDirectory,
@@ -278,6 +286,10 @@ struct ChatTabView: View, ThemedView {
     }
 
     private var folderRestart: FolderRestartFacts? {
+        if let codex = headlessSession as? CodexSession,
+           !codex.hasExited, codex.hasPendingAdditionalDirectories {
+            return FolderRestartFacts(blockers: [], canRestartNow: false, appliesOnNextTurn: true)
+        }
         guard let live = liveClaudeSession, live.isRestartPending else { return nil }
         return FolderRestartFacts(
             blockers: live.restartBlockers,
@@ -323,7 +335,7 @@ struct ChatTabView: View, ThemedView {
             planTitle: hasPlan ? planTitle : nil,
             folder: checkout?.projectName ?? gitDirectory.map { ($0 as NSString).lastPathComponent },
             folderRows: FolderRowsCache.shared.rows(for: tab.id),
-            canEditFolders: tab.provider == .claudeCode,
+            canEditFolders: FolderEditingPolicy.canEdit(provider: tab.provider, transport: tab.transport),
             folderRestart: folderRestart,
             branch: branch,
             pullRequest: pullRequest,
@@ -641,6 +653,7 @@ struct ChatTabView: View, ThemedView {
                         .textSelection(.enabled)
                     if headlessSession?.hasExited == true {
                         Button("Reconnect") { reconnectAgent() }
+                            .plumeID(AccessibilityID.chatStartFailureRetry, invoke: reconnectAgent)
                     }
                 }
                 .font(.callout)
@@ -1430,7 +1443,7 @@ struct ChatTabView: View, ThemedView {
                     .emphasis(.secondary)
                 if isComposerEnabled {
                     workspaceChoice
-                    if tab.provider == .claudeCode {
+                    if FolderEditingPolicy.canEdit(provider: tab.provider, transport: tab.transport) {
                         EmptyStateFolders(tab: tab)
                             .padding(.top, dimensions.inlineClauseSpacing)
                     }
@@ -1596,6 +1609,10 @@ struct ChatTabView: View, ThemedView {
     /// launch again on the next message. The PATH probe is re-run because
     /// installing the CLI is the fix this offers.
     private func retryAfterStartFailure() {
+        if tab.provider == .codex {
+            reconnectAgent()
+            return
+        }
         ClaudeCLILocator.invalidate()
         AgentSessionManager.shared.closeSession(for: tab.id)
         UntrustedDirectoryStore.shared.clear(tabID: tab.id)

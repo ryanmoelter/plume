@@ -9,7 +9,7 @@ import Observation
 @MainActor
 @Observable
 final class CodexSubagentStore {
-    static let shared = CodexSubagentStore(cache: .shared)
+    static let shared = CodexSubagentStore(cache: .shared, linearActivity: .shared)
 
     private struct Child {
         let storeID: UUID
@@ -29,6 +29,7 @@ final class CodexSubagentStore {
     private var children: [UUID: [String: Child]] = [:]
     private var taskIDs: [UUID: UUID] = [:]
     private let cache: CodexSubagentHistoryCache?
+    private let linearActivity: CodexLinearActivity?
     private var parentThreadIDs: [UUID: String] = [:]
     private var bindings: [UUID: UUID] = [:]
     private var restoredTabs: Set<UUID> = []
@@ -40,9 +41,11 @@ final class CodexSubagentStore {
         statusEngine: StatusEngine = .shared,
         completionTracker: SubagentCompletionTracker = .shared,
         statusOverrides: SubagentStatusOverrides = .shared,
-        cache: CodexSubagentHistoryCache? = nil
+        cache: CodexSubagentHistoryCache? = nil,
+        linearActivity: CodexLinearActivity? = nil
     ) {
         self.cache = cache
+        self.linearActivity = linearActivity
         self.statusEngine = statusEngine
         self.completionTracker = completionTracker
         self.statusOverrides = statusOverrides
@@ -280,6 +283,7 @@ final class CodexSubagentStore {
         parentHydratedTabs.remove(tabID)
         verifiedChildren.removeValue(forKey: tabID)
         statusEngine.setSubagentActivity(tabID: tabID, working: false)
+        linearActivity?.replaceChildren(tabID: tabID, evidence: [])
     }
 
     private func receiveActivity(tabID: UUID, item: JSONValue, historical: Bool) {
@@ -376,6 +380,11 @@ final class CodexSubagentStore {
 
     private func publish(tabID: UUID) {
         let subagents = subagents(forTab: tabID)
+        let evidence = subagents.flatMap { child in
+            guard let storeID = children[tabID]?[child.id]?.storeID else { return [LinearEvidence]() }
+            return items.linearEvidence(forTab: storeID, subagent: LinearSubagentRef(id: child.id, label: child.title))
+        }
+        linearActivity?.replaceChildren(tabID: tabID, evidence: evidence)
         completionTracker.observe(subagents, tabID: tabID)
         statusEngine.setSubagentActivity(tabID: tabID, working: subagents.contains { $0.status == .working })
         persist(tabID: tabID)

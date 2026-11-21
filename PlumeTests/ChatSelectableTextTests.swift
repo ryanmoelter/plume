@@ -121,4 +121,14 @@ struct ChatSelectableTextTests {
         #expect(String(slice.characters) == "b😀c")
         #expect(slice.runs.first?.inlinePresentationIntent == .stronglyEmphasized)
     }
+
+    @Test func linkLookupUsesUTF16OffsetsAndStaysInsideItsLabel() {
+        let pieces = ChatSelectionFixtures.pieces("😀 [report](report.html) outside")
+        let text = ChatSelectableText(piece: pieces[0])
+        #expect(text.link(at: 3)?.absoluteString == "report.html")
+        #expect(text.link(at: 8)?.absoluteString == "report.html")
+        #expect(text.link(at: 0) == nil)
+        #expect(text.link(at: 9) == nil)
+        #expect(text.link(at: text.length) == nil)
+    }
 }
