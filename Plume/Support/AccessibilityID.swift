@@ -422,6 +422,13 @@ enum AccessibilityID {
     // MARK: Permission request
 
     static let permissionDenialReasonField = "permission-denial-reason-field"
+    static let elicitationAccept = "elicitation-accept"
+    static let elicitationDecline = "elicitation-decline"
+    static let elicitationCancel = "elicitation-cancel"
+    static let elicitationOpenURL = "elicitation-open-url"
+    static let elicitationField = "elicitation-field"
+    static let elicitationIncludeField = "elicitation-include-field"
+    static let elicitationOption = "elicitation-option"
     static let permissionAllowButton = "permission-allow-button"
     static let permissionDenyButton = "permission-deny-button"
     static let permissionSuggestionButton = "permission-suggestion-button"

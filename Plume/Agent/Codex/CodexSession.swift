@@ -604,7 +604,7 @@ final class CodexSession: AgentSession {
         nextTurnStartSequence += 1
         let sequence = nextTurnStartSequence
         pendingTurnStartSequence = sequence
-        StatusEngine.shared.setStatus(.working, taskID: taskID, tabID: tabID)
+        reportPendingPermissions()
         var params: [String: JSONValue] = [
             "threadId": .string(threadID),
             "input": .array(turnInput(blocks))
@@ -737,6 +737,9 @@ final class CodexSession: AgentSession {
         CodexSubagentStore.shared.connectionClosed(tabID: tabID)
         isReady = false
         isWorking = false
+        for permission in pendingPermissions where permission.codexElicitation != nil {
+            answerElicitation(permission, action: .cancel)
+        }
         pendingPermissions.removeAll()
         permissionRequestIDs.removeAll()
         permissionKinds.removeAll()
@@ -794,6 +797,7 @@ final class CodexSession: AgentSession {
     // MARK: - Answering
 
     func resolve(_ permission: PendingPermission, with decision: PermissionDecision) {
+        guard permission.codexElicitation == nil else { return }
         guard let id = permissionRequestIDs.removeValue(forKey: permission.id) else { return }
         let kind = permissionKinds.removeValue(forKey: permission.id) ?? .decision
         if case .permissions(let requested) = kind {
@@ -821,6 +825,7 @@ final class CodexSession: AgentSession {
     }
 
     func resolve(_ permission: PendingPermission, with option: PermissionDecisionOption) {
+        guard permission.codexElicitation == nil else { return }
         guard let id = permissionRequestIDs.removeValue(forKey: permission.id) else { return }
         let kind = permissionKinds.removeValue(forKey: permission.id) ?? .decision
         if case .permissions(let requested) = kind {
@@ -868,6 +873,7 @@ final class CodexSession: AgentSession {
     }
 
     func answer(_ permission: PendingPermission, answers: [String: String]) {
+        guard permission.codexElicitation == nil else { return }
         guard let id = permissionRequestIDs.removeValue(forKey: permission.id) else { return }
         permissionKinds.removeValue(forKey: permission.id)
         var mapped: [String: JSONValue] = [:]
@@ -884,6 +890,25 @@ final class CodexSession: AgentSession {
         }
         client.respond(to: id, result: .object(["answers": .object(mapped)]))
         pendingPermissions.removeAll { $0.id == permission.id }
+        reportPendingPermissions()
+    }
+
+    func answerElicitation(
+        _ permission: PendingPermission,
+        action: CodexElicitationAction,
+        content: [String: JSONValue]? = nil
+    ) {
+        guard let request = permission.codexElicitation,
+              pendingPermissions.contains(where: { $0.id == permission.id && $0.codexElicitation == request }),
+              action != .accept || request.accepts(content: content),
+              let id = permissionRequestIDs.removeValue(forKey: permission.id) else { return }
+        var result: [String: JSONValue] = ["action": .string(action.rawValue)]
+        if action == .accept, case .form = request.mode, let content {
+            result["content"] = .object(content)
+        }
+        permissionKinds.removeValue(forKey: permission.id)
+        pendingPermissions.removeAll { $0.id == permission.id }
+        client.respond(to: id, result: .object(result))
         reportPendingPermissions()
     }
 
@@ -1028,6 +1053,7 @@ final class CodexSession: AgentSession {
             hydrateChild(threadID: threadID, retry: true)
             CodexSubagentStore.shared.receiveTurnLifecycle(tabID: tabID, threadID: threadID, working: true)
         case "turn/completed":
+            cancelTurnElicitations(threadID: threadID, turnID: params["turn"]?["id"]?.stringValue)
             hydrateChild(threadID: threadID)
             backgroundTasks.refresh(threadID: threadID)
             detachedProcesses?.refresh()
@@ -1078,12 +1104,12 @@ final class CodexSession: AgentSession {
             isWorking = true
             streamingText = ""
             streamingThinking = ""
-            StatusEngine.shared.setStatus(.working, taskID: taskID, tabID: tabID)
+            reportPendingPermissions()
             deliverPendingInterruptIfPossible()
         case "turn/completed":
             if let sessionID { backgroundTasks.refresh(threadID: sessionID) }
             detachedProcesses?.refresh()
-            endTurn(params["turn"] ?? .null)
+            endTurn(params["turn"] ?? .null, threadID: threadID(in: params) ?? sessionID)
             Task {
                 await itemStore.flush(tabID: tabID)
                 await CodexSubagentStore.shared.flush(tabID: tabID)
@@ -1178,15 +1204,19 @@ final class CodexSession: AgentSession {
         }
     }
 
-    private func endTurn(_ turn: JSONValue) {
+    private func endTurn(_ turn: JSONValue, threadID: String?) {
         let completedID = turn["id"]?.stringValue
+        cancelTurnElicitations(threadID: threadID, turnID: completedID)
         if let currentTurnID, let completedID, currentTurnID != completedID { return }
         isWorking = false
         currentTurnID = nil
         interruptRequested = false
-        pendingPermissions.removeAll()
-        permissionKinds.removeAll()
-        permissionRequestIDs.removeAll()
+        pendingPermissions.removeAll { permission in
+            guard permission.codexElicitation == nil else { return false }
+            permissionKinds.removeValue(forKey: permission.id)
+            permissionRequestIDs.removeValue(forKey: permission.id)
+            return true
+        }
         switch turn["status"]?.stringValue {
         case "failed":
             queuePaused = true
@@ -1201,6 +1231,16 @@ final class CodexSession: AgentSession {
             StatusEngine.shared.setStatus(.awaitingReply, taskID: taskID, tabID: tabID)
             if pendingTurnStartSequence == nil { flushQueue() }
             requestTitleIfDue()
+        }
+        if !pendingPermissions.isEmpty { reportPendingPermissions() }
+    }
+
+    private func cancelTurnElicitations(threadID: String?, turnID: String?) {
+        guard let threadID, let turnID else { return }
+        for permission in pendingPermissions {
+            guard let request = permission.codexElicitation,
+                  request.threadID == threadID, request.turnID == turnID else { continue }
+            answerElicitation(permission, action: .cancel)
         }
     }
 
@@ -1277,7 +1317,8 @@ final class CodexSession: AgentSession {
         case "item/commandExecution/requestApproval",
              "item/fileChange/requestApproval",
              "item/permissions/requestApproval",
-             "item/tool/requestUserInput":
+             "item/tool/requestUserInput",
+             "mcpServer/elicitation/request":
             return true
         default:
             return false
@@ -1304,6 +1345,28 @@ final class CodexSession: AgentSession {
             )
         case "item/tool/requestUserInput":
             enqueue(permission: questionPermission(params, agentID: agentID), id: id, kind: .question)
+        case "mcpServer/elicitation/request":
+            guard permissionRequestIDs[permissionKey(id)] == nil else { return }
+            guard let request = CodexElicitationRequest(params: params) else {
+                client.respondUnsupported(to: id, method: method)
+                return
+            }
+            if case .unsupported = request.mode {
+                client.respond(to: id, result: .object(["action": .string("decline")]))
+                return
+            }
+            enqueue(permission: PendingPermission(
+                id: "",
+                toolName: method,
+                displayName: request.serverName,
+                input: [:],
+                description: request.message,
+                decisionReason: nil,
+                toolUseID: nil,
+                agentID: agentID,
+                interactive: nil,
+                codexElicitation: request
+            ), id: id)
         default:
             // Every server request must be answered, or the turn stalls.
             client.respondUnsupported(to: id, method: method)
@@ -1327,7 +1390,8 @@ final class CodexSession: AgentSession {
             toolUseID: permission.toolUseID,
             agentID: permission.agentID,
             interactive: permission.interactive,
-            decisions: permission.decisions
+            decisions: permission.decisions,
+            codexElicitation: permission.codexElicitation
         )
         permissionRequestIDs[key] = id
         permissionKinds[key] = kind
@@ -1357,7 +1421,7 @@ final class CodexSession: AgentSession {
             let candidate: TaskStatus = switch permission.interactive {
             case .plan: .planApproval
             case .questions: .questionAsked
-            case nil: .permissionNeeded
+            case nil: permission.codexElicitation == nil ? .permissionNeeded : .questionAsked
             }
             if candidate.priority > (status?.priority ?? -1) { status = candidate }
         }

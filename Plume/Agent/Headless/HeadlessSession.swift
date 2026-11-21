@@ -20,6 +20,7 @@ struct PendingPermission: Identifiable, Equatable {
     var decisions: [PermissionDecisionOption] = []
     /// Claude's "always allow" offers, each accepted on its own with an allow.
     var suggestions: [PermissionSuggestion] = []
+    var codexElicitation: CodexElicitationRequest? = nil
 
     static func == (lhs: PendingPermission, rhs: PendingPermission) -> Bool { lhs.id == rhs.id }
 }

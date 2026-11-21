@@ -77,7 +77,8 @@ does not implement with a JSON-RPC error rather than silence.
 | `item/fileChange/requestApproval` | apply a patch |
 | `item/permissions/requestApproval` | widen the permission profile |
 | `item/tool/requestUserInput` | ask the user a question |
-| `mcpServer/elicitation/request`, `item/tool/call` | not implemented |
+| `mcpServer/elicitation/request` | ask the user for structured input or direct them to a website |
+| `item/tool/call` | not implemented |
 
 **`item/fileChange/requestApproval` does not carry the patch.** It carries
 `{itemId, threadId, turnId, reason?}`, and the diff lives on the `fileChange`
@@ -87,6 +88,17 @@ item table — unlike Claude's `can_use_tool`, which is self-contained.
 Decisions are closed enums chosen by the server per request
 (`availableDecisions`), and **none of them carries free text**. A Codex denial
 is `decline` or `cancel`; there is no deny-with-a-reason.
+
+MCP elicitation uses the same pending request queue, including requests from
+child threads. An accepted form sends `{action: "accept", content: {...}}` with
+typed values. Accepting a URL request sends only the action. Opening the link
+requires a separate user action. Decline and cancel carry only their action.
+The `openai/form` and `openaiForm` aliases accept the same supported field
+schemas. Plume declines requests whose fields or constraints it cannot render.
+Requests without a turn ID remain pending across turn completion.
+The matching turn's completion cancels correlated requests. A server resolution
+or disconnect removes the request, and closing the tab cancels its outstanding
+elicitations. Form values stay in the active prompt and are not cached.
 
 ## History
 

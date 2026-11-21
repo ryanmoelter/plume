@@ -170,6 +170,16 @@ struct CodexSessionTests {
         client.receive(#"{"method":"serverRequest/resolved","params":{"threadId":"child-thread","requestId":"child-approval"}}"#)
         #expect(session.pendingPermissions.isEmpty)
 
+        client.receive(#"{"id":"child-url","method":"mcpServer/elicitation/request","params":{"threadId":"child-thread","turnId":"child-turn","serverName":"test","mode":"url","message":"Open test","url":"https://example.com/test","elicitationId":"url-1"}}"#)
+        let childElicitation = try #require(session.pendingPermissions.first)
+        #expect(childElicitation.agentID == "child-thread")
+        #expect(childElicitation.codexElicitation?.serverName == "test")
+        client.receive(#"{"method":"serverRequest/resolved","params":{"threadId":"child-thread","requestId":"child-url"}}"#)
+        #expect(session.pendingPermissions.isEmpty)
+        let responseCount = sent().count
+        session.answerElicitation(childElicitation, action: .accept)
+        #expect(sent().count == responseCount)
+
         // This live row lands while history is outstanding. The item store's
         // revision merge keeps it after the authoritative page arrives.
         client.receive(#"{"method":"item/started","params":{"threadId":"persisted-thread","turnId":"live-turn","item":{"id":"live","type":"agentMessage","text":"Live"}}}"#)
@@ -334,6 +344,55 @@ struct CodexSessionTests {
         #expect(reply.contains("\"language\":{\"answers\":[\"Swift\"]}"))
     }
 
+    @Test func anElicitationRepliesWithTypedContentExactlyOnce() throws {
+        let (session, client, sent) = makeSession()
+        let request = #"{"id":19,"method":"mcpServer/elicitation/request","params":{"threadId":"t","turnId":"u","serverName":"test","mode":"form","message":"Details","requestedSchema":{"type":"object","required":["on","count","colors"],"properties":{"on":{"type":"boolean"},"count":{"type":"integer"},"colors":{"type":"array","items":{"enum":["red","blue"]}}}}}}"#
+        client.receive(request)
+        client.receive(request)
+        let permission = try #require(session.pendingPermissions.first)
+        #expect(session.pendingPermissions.count == 1)
+        session.answerElicitation(permission, action: .accept, content: ["count": .string("2")])
+        #expect(sent().isEmpty)
+        let content: [String: JSONValue] = [
+            "on": .bool(false), "count": .number(2), "colors": .array([.string("red"), .string("blue")])
+        ]
+        session.answerElicitation(permission, action: .accept, content: content)
+        session.answerElicitation(permission, action: .decline)
+        let line = try #require(sent().first)
+        let envelope = try JSONDecoder().decode(JSONValue.self, from: Data(line.utf8))
+        #expect(envelope["id"] == .number(19))
+        #expect(envelope["result"] == .object(["action": .string("accept"), "content": .object(content)]))
+        #expect(sent().count == 1)
+        #expect(session.pendingPermissions.isEmpty)
+    }
+
+    @Test func unsupportedElicitationDeclinesWithoutAForm() throws {
+        let (session, client, sent) = makeSession()
+        client.receive(#"{"id":"openai","method":"mcpServer/elicitation/request","params":{"threadId":"t","serverName":"test","mode":"openai/form","message":"Details","requestedSchema":{}}}"#)
+        let line = try #require(sent().first)
+        let envelope = try JSONDecoder().decode(JSONValue.self, from: Data(line.utf8))
+        #expect(envelope["id"] == .string("openai"))
+        #expect(envelope["result"] == .object(["action": .string("decline")]))
+        #expect(session.pendingPermissions.isEmpty)
+    }
+
+    @Test func turnCompletionCancelsOnlyItsElicitations() throws {
+        let (session, client, sent) = makeSession()
+        client.receive(#"{"id":"turn","method":"mcpServer/elicitation/request","params":{"threadId":"t","turnId":"u","serverName":"test","mode":"url","message":"Continue","url":"https://example.com/","elicitationId":"first"}}"#)
+        client.receive(#"{"id":"independent","method":"mcpServer/elicitation/request","params":{"threadId":"t","turnId":null,"serverName":"test","mode":"url","message":"Continue","url":"https://example.com/","elicitationId":"second"}}"#)
+        client.receive(#"{"method":"turn/started","params":{"threadId":"t","turn":{"id":"new-turn"}}}"#)
+        client.receive(#"{"method":"turn/completed","params":{"threadId":"t","turn":{"id":"u","status":"interrupted"}}}"#)
+        #expect(session.pendingPermissions.map(\.id) == ["string:independent"])
+        #expect(session.isWorking)
+        let independent = try #require(session.pendingPermissions.first)
+        session.answerElicitation(independent, action: .decline)
+        let envelopes = try sent().map { try JSONDecoder().decode(JSONValue.self, from: Data($0.utf8)) }
+        #expect(envelopes.map { $0["id"] } == [.string("turn"), .string("independent")])
+        #expect(envelopes.map { $0["result"] } == [
+            .object(["action": .string("cancel")]), .object(["action": .string("decline")])
+        ])
+    }
+
     @Test func expandedPermissionsCanBeGrantedForTheSession() throws {
         let (session, client, sent) = makeSession()
         client.receive(#"{"id":10,"method":"item/permissions/requestApproval","params":{"itemId":"p-item","threadId":"t","turnId":"u","cwd":"/tmp","startedAtMs":0,"permissions":{"network":{"enabled":true}},"reason":"Fetch docs"}}"#)
@@ -423,7 +482,10 @@ struct CodexSessionTests {
             "data": .array([]), "nextCursor": .null
         ]), client: client, sent: sent, cursor: &cursor)
 
+        client.receive(#"{"id":"standalone","method":"mcpServer/elicitation/request","params":{"threadId":"thread-1","serverName":"test","mode":"url","message":"Continue","url":"https://example.com/","elicitationId":"url"}}"#)
         session.submit(text: "start")
+        #expect(StatusEngine.shared.status(forTab: session.tabID) == .questionAsked)
+        client.receive(#"{"method":"serverRequest/resolved","params":{"threadId":"thread-1","requestId":"standalone"}}"#)
         try await answer("turn/start", result: .object([
             "turn": .object(["id": .string("turn-1")])
         ]), client: client, sent: sent, cursor: &cursor)
