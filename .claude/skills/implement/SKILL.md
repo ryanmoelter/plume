@@ -78,7 +78,7 @@ Only after the user approves. Check signatures first — `git log --format='%G? 
    - The media folder, `~/Library/Caches/Plume-agent-media/PLUME-<n>/`, with one line per file saying what it shows.
    - "Leave PLUME-<n> open until it reaches `main`."
 
-   Wait for its reply that the branch landed before cleaning up. The issue stays In Progress; the release agent moves it to Done.
+   Wait for its reply that the branch landed before cleaning up. The release agent moves the issue to In Review on the release branch and to Done only after confirming the change has merged into `main`.
 
    If this session is a child session of the release coordinator, send the hand-off with `mcp__plume__send_message` to `"parent"` instead of `ListAgents` and `SendMessage`. After its reply, skip step 7's worktree removal; the coordinator removes the worktree.
 3. **Otherwise, merge into `main`.** Rebase onto `main` and re-run the tests. Then, in the primary checkout, confirm it is on `main` and clean — if it is not, stop and ask, because another agent may own it. Run `git merge --no-ff -S <branch>`, push, and confirm `git rev-list --count main...origin/main` is 0. Mark the issue Done through `roadmap`; the user's approval of the merge is the confirmation.

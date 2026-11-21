@@ -11,4 +11,4 @@ Read [the canonical workflow](../../../.claude/skills/roadmap/SKILL.md) in full 
 
 ## Codex host adaptations
 
-Use the connected Linear tools for listing issues, reading descriptions, saving issues, and comments. Keep the source's exact state, estimate, project-routing, and provenance conventions. Mark Done only after direct user review and approval, or a confirmed merge into main,.
+Use the connected Linear tools for listing issues, reading descriptions, saving issues, and comments. Keep the source's exact state, estimate, project-routing, and provenance conventions. Mark Done only after confirming the change has merged into `main`.

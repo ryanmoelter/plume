@@ -106,7 +106,7 @@ If an agent used the auto-generated `worktree-agent-*` branch instead of creatin
 
 Then run the cross-cutting packages (step 1). **An `isolation: "worktree"` agent forks from `origin/main`, not from your current branch** — in the 0.13.0 run that was a commit dozens behind local `main`, since nothing had been pushed, so tell it to start with `git checkout -B <prefix>/<slug> <prefix>/release-<version>` before editing (a plain `git checkout <prefix>/release-<version>` fails because the primary checkout already has that branch out), or its annotations land on stale files and every shared file conflicts. Merge it the same way.
 
-When a package merges into the release branch, move its issues to **In Review**. An issue is Done once the user has reviewed and approved it directly, or once it merges into `main`, which needs the user's confirmation. Merging into a release branch is not Done. Move each issue to Done through the `roadmap` skill once it qualifies.
+When a package merges into the release branch, move its issues to **In Review**. Mark an issue Done only after confirming its change has merged into `main`. Get the user's confirmation before merging. Move each issue to Done through the `roadmap` skill once it qualifies.
 
 ### Hand-offs from implement agents
 
@@ -194,6 +194,6 @@ Only after the user approves. Follow `docs/releasing.md`; do not duplicate it he
 
 - **A failed push is not a failed commit.** If your SSH key lives in a password manager's agent, `git push` signs through it, so a locked agent fails with `sign_and_send_pubkey: signing failed` and `Permission denied (publickey)`. There is no `--no-gpg-sign` equivalent — the only fix is unlocking, so ask. This is unrelated to the commit-signing fallback in CLAUDE.md, and the commits themselves may all be signed while the push still fails.
 - A schema change meets the installed store for the first time on the first launch after updating. Watch the log for a `Plume.store.<timestamp>.bak` move.
-- Roadmap edits: only the coordinator writes to Linear. An issue is Done once the user has reviewed and approved it directly, or once it merges into `main`, which needs the user's confirmation. Merging into a release branch is not Done. An agent's turn ending is not Done either.
+- Roadmap edits: only the coordinator writes to Linear. Mark an issue Done only after confirming its change has merged into `main`. Get the user's confirmation before merging. An agent's turn ending is not Done either.
 - The installed Plume runs `git status` on this repo on a timer, so a long rebase in the primary checkout can hit `index.lock: File exists`. `git rebase --continue` picks up where it stopped; quit Plume first for anything long.
 - Six parallel `xcodebuild`s are slow but each worktree gets its own DerivedData. Do not try to share one.
