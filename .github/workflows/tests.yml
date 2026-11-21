@@ -59,9 +59,7 @@ jobs:
           restore-keys: spm-${{ runner.os }}-
 
       - name: Build for testing
-        run: |
-          set -o pipefail
-          xcodebuild build-for-testing $XCODEBUILD_FLAGS
+        run: xcodebuild build-for-testing $XCODEBUILD_FLAGS
 
       # One small suite first, so a run that can't start any test fails
       # in minutes and is told apart from one stuck test.
@@ -71,7 +69,6 @@ jobs:
           WATCHDOG_LABEL: smoke
           DIAGNOSTICS_DIR: .build/diagnostics
         run: |
-          set -o pipefail
           scripts/ci/run-with-watchdog.sh \
             xcodebuild test-without-building $XCODEBUILD_FLAGS \
               -only-testing:PlumeTests/HexColorTests \
@@ -90,7 +87,6 @@ jobs:
           TEST_RUNNER_SWT_EXPERIMENTAL_MAXIMUM_PARALLELIZATION_WIDTH: "3"
           DIAGNOSTICS_DIR: .build/diagnostics
         run: |
-          set -o pipefail
           scripts/ci/run-with-watchdog.sh \
             xcodebuild test-without-building $XCODEBUILD_FLAGS \
               -only-testing:PlumeTests \
@@ -99,8 +95,12 @@ jobs:
       - name: Summarize failures
         if: failure()
         run: |
-          [ -d .build/Tests.xcresult ] || exit 0
-          xcrun xcresulttool get test-results tests --path .build/Tests.xcresult \
+          set -o pipefail
+          # The full run's bundle, or the smoke test's when that is where it stopped.
+          bundle=.build/Tests.xcresult
+          [ -d "$bundle" ] || bundle=.build/Smoke.xcresult
+          [ -d "$bundle" ] || exit 0
+          xcrun xcresulttool get test-results tests --path "$bundle" \
             | python3 -c '
           import json, sys
           def messages(node):
@@ -154,6 +154,7 @@ jobs:
         with:
           name: test-results
           path: |
+            .build/Smoke.xcresult
             .build/Tests.xcresult
             .build/diagnostics
           retention-days: 7

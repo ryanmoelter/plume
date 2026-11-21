@@ -563,10 +563,10 @@ struct InfoPaneBracketGeometryTests {
     @MainActor @Test func thePlusRatiosMatchTheRenderedSymbol() throws {
         let pointSize: CGFloat = 16
         let arm = try Self.renderedPlusArm(pointSize: pointSize)
-        // SF Symbols' stroke shifts between macOS releases: the CI runner's
-        // draws it 0.007 per point (8%) off the ratio measured on the
-        // maintainer's Mac. A tenth of a point at 16 pt doesn't show, so the
-        // stroke allows about 11%; the arm length stays as tight as before.
+        // SF Symbols' stroke shifts between macOS releases: one release draws
+        // it 0.007 per point (8%) off the ratio measured on another. A tenth
+        // of a point at 16 pt doesn't show, so the stroke allows about 11%;
+        // the arm length stays as tight as before.
         #expect(abs(arm.stroke / pointSize - InfoPaneBracketStub.plusStrokeRatio) < 0.01)
         #expect(abs(arm.length / pointSize - InfoPaneBracketStub.plusArmLengthRatio) < 0.01)
     }

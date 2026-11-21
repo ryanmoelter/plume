@@ -11,8 +11,9 @@ import Testing
 /// `TerminalShortcutMonitor` runs as a local `.keyDown` monitor, which AppKit
 /// offers the event *before* it reaches the key window's
 /// `performKeyEquivalent` — the surface included. These tests pin both halves:
-/// the surface really does claim an Option chord when asked directly, and the
-/// monitor's own filter takes the chord first.
+/// the surface really does claim an Option chord its Ghostty config binds,
+/// and leaves one it doesn't, when asked directly; and the monitor's own
+/// filter takes the chord first.
 ///
 /// Needs a real GUI session for the same reason `SurfaceCommandTests` does —
 /// it builds real `NSWindow`s and surfaces.

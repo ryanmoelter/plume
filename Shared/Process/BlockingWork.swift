@@ -3,13 +3,14 @@ import Foundation
 /// Where work that blocks a thread runs: a wait on a child process, a pipe
 /// read, a deadline that kills one.
 ///
-/// The shared pools are the wrong place for it. `DispatchQueue.global()` and
-/// the cooperative pool behind `Task.detached` are sized to the core count, so
-/// once every thread in them is parked in a blocking call, the next item waits
-/// for one to come free, which on a busy three-core machine can be seconds or
-/// never. A deadline queued there fires late, and a kill meant to bound a hang
-/// becomes part of it. A dedicated thread, and a private serial queue for
-/// timers, always get a thread of their own.
+/// The shared pools are the wrong place for it. The cooperative pool behind
+/// `Task.detached` never grows past the core count, and `DispatchQueue.global()`
+/// adds threads only as the machine's load allows, so once their threads are
+/// parked in blocking calls the next item waits for one to come free, which on
+/// a busy three-core machine can be seconds or never. A deadline queued there
+/// fires late, and a kill meant to bound a hang becomes part of it. A
+/// dedicated thread, and a private serial queue for timers, always get a
+/// thread of their own.
 nonisolated enum BlockingWork {
     /// Runs `body` on a new thread.
     static func start(_ body: @escaping @Sendable () -> Void) {
