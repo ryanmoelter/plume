@@ -424,6 +424,9 @@ struct TaskRowView: View {
     /// centered in. The agent's is drawn smaller, so the task's reads first.
     static let badgeColumnWidth: CGFloat = 16
     private static let lineSpacing: CGFloat = 1
+    /// Separates an agent group from what is above it. It sits outside the
+    /// group's bar but inside its header's click and hover target.
+    private static let agentHeaderGap: CGFloat = 3
 
     /// What the row's agent groups need to draw and answer clicks, each group
     /// named by its header's line index.
@@ -480,6 +483,7 @@ struct TaskRowView: View {
             // Reaching half the stack's spacing past each edge leaves no gap
             // between lines where the pointer falls through to the row.
             member
+                .padding(.top, Self.headerGap(above: line, at: index))
                 .frame(maxWidth: .infinity, alignment: .leading)
                 .padding(.vertical, Self.lineSpacing / 2)
                 .contentShape(.rect)
@@ -498,6 +502,12 @@ struct TaskRowView: View {
         } else {
             member
         }
+    }
+
+    /// None above the first line, which already sits under the title.
+    private static func headerGap(above line: TaskRowDetails.Line, at index: Int) -> CGFloat {
+        guard index > 0, case .agentHeader = line else { return 0 }
+        return agentHeaderGap
     }
 
     /// What a click on the row itself does, for the control server's `invoke`.
