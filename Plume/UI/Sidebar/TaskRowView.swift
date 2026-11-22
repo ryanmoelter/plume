@@ -414,12 +414,17 @@ struct TaskRowView: View {
         }
     }
 
+    /// Switching agent tabs can rename the task, so the title swipes rather
+    /// than swapping.
     @ViewBuilder
     private var titleText: some View {
-        let text = Text(TitleStore.shared.displayTitle(for: task))
-            .lineLimit(1)
-            .truncationMode(.tail)
-            .bold(appearance.weight == .bold)
+        let isBold = appearance.weight == .bold
+        let text = FadeSwipeText(TitleStore.shared.displayTitle(for: task)) { title in
+            Text(title)
+                .lineLimit(1)
+                .truncationMode(.tail)
+                .bold(isBold)
+        }
         if let color = appearance.titleTint.flatMap(theme.colors.color(for:)) {
             text
                 .foregroundStyle(color.opacity(tintOpacity))
