@@ -363,7 +363,7 @@ struct TaskRowView: View {
                 }
                 titleText
                 if isRemoteControlled {
-                    remoteControlIcon
+                    remoteControlIcon()
                 }
                 if let heldDevices {
                     deviceLeaseIcon(heldDevices, label: TitleStore.shared.displayTitle(for: task))
@@ -372,9 +372,10 @@ struct TaskRowView: View {
         }
     }
 
-    private var remoteControlIcon: some View {
+    /// A nil `font` inherits the line's, as an agent header's icons do.
+    private func remoteControlIcon(font: Font? = .caption) -> some View {
         Image(systemName: StatusSymbol.remoteControl.name)
-            .font(.caption)
+            .font(font)
             .imageScale(.small)
             .foregroundStyle(ChatRole.attention(for: colorScheme))
             .help("Remote control is on")
@@ -382,15 +383,15 @@ struct TaskRowView: View {
 
     private func detachedChildMarker(label: String) -> some View {
         Image(systemName: "arrow.turn.down.right")
-            .font(.caption)
+            .imageScale(.small)
             .emphasis(.secondary)
             .help("Started by a session that is elsewhere")
             .plumeID(AccessibilityID.taskAgentChildMarker, label: label, value: "detached")
     }
 
-    private func deviceLeaseIcon(_ summary: String, label: String) -> some View {
+    private func deviceLeaseIcon(_ summary: String, label: String, font: Font? = .caption) -> some View {
         Image(systemName: "iphone")
-            .font(.caption)
+            .font(font)
             .imageScale(.small)
             .emphasis(.secondary)
             .help("Holds \(summary)")
@@ -596,14 +597,6 @@ struct TaskRowView: View {
         isEmphasized || !isInactive(status: status, tabKinds: [.agent]) ? .primary : .secondary
     }
 
-    /// Nil inherits the task title's font.
-    private var agentTitleFont: Font? {
-        #if DEBUG
-        if AppSettings.shared.sidebarAgentTitlesAtTaskNameSize { return nil }
-        #endif
-        return .caption
-    }
-
     private func agentHeaderLine(
         _ header: TaskRowDetails.AgentHeader,
         isFocused: Bool,
@@ -617,17 +610,16 @@ struct TaskRowView: View {
                 detachedChildMarker(label: header.label)
             }
             Text(header.title)
-                .font(agentTitleFont)
                 .bold(header.drawsBold(boldsAttention: AppSettings.shared.sidebarBoldsAgentsNeedingAttention))
                 .emphasis(titleEmphasis)
                 .animation(AgentGroupBar.fade, value: titleEmphasis)
                 .lineLimit(1)
                 .truncationMode(.tail)
             if header.isRemotelyControlled {
-                remoteControlIcon
+                remoteControlIcon(font: nil)
             }
             if let heldDevices = header.heldDevices {
-                deviceLeaseIcon(heldDevices, label: header.label)
+                deviceLeaseIcon(heldDevices, label: header.label, font: nil)
             }
             Spacer(minLength: 4)
             StatusBadge(
@@ -636,7 +628,6 @@ struct TaskRowView: View {
                 showsElapsed: false,
                 scalesDotWithFont: true
             )
-                .font(.caption)
                 .imageScale(.small)
                 .frame(width: Self.badgeColumnWidth)
         }
@@ -681,7 +672,7 @@ struct TaskRowView: View {
                     .truncationMode(.middle)
                 if let icons, index == icons.lineIndex {
                     if icons.isRemoteControlled {
-                        remoteControlIcon
+                        remoteControlIcon()
                     }
                     if !icons.heldDevices.isEmpty {
                         deviceLeaseIcon(

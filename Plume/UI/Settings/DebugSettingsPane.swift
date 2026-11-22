@@ -25,7 +25,6 @@ struct DebugSettingsPane: View {
                 Text("Fixtures")
             }
 
-            SidebarDebugSection()
             AgentInstallationDebugSection()
             RevealTuningDebugSection()
             MinimapDebugSection()
