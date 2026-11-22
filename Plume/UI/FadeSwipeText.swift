@@ -194,6 +194,10 @@ private struct FadeWipe<Content: View>: View, Animatable {
                 .mask { edge(from: lead, to: lead + Self.softness, colors: [.clear, .black]) }
             incoming.mask { edge(from: trail - Self.softness, to: trail, colors: [.black, .clear]) }
         }
+        // Only `sweeps` animates. The next wipe swaps both texts and moves
+        // both edges back to the start in an animated transaction, and
+        // animating that would draw both titles over each other.
+        .transaction { $0.animation = nil }
     }
 
     /// A gradient between two points measured from the leading edge.
