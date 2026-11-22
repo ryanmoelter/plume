@@ -16,7 +16,9 @@ struct FadeSwipeText<Content: View>: View {
     /// The wider of the two texts, which the wipe crosses.
     @State private var wipeWidth: CGFloat = 0
 
-    static var wipe: Animation { .easeInOut(duration: 0.4) }
+    /// The standard ease-in-out cubic. `easeInOut` is too gentle at this
+    /// length and reads as a linear sweep.
+    static var wipe: Animation { .timingCurve(0.65, 0, 0.35, 1, duration: 0.45) }
     /// Eases the frame to the new text's width, and so any icons after it,
     /// once the last wipe ends.
     static var settleWidth: Animation { .easeOut(duration: 0.2) }

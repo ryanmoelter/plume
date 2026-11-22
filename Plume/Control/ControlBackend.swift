@@ -96,6 +96,10 @@ enum ControlDispatcher {
                 result = .tabStatus(
                     try ControlStatusCommands.setStatus(params, in: try ControlTabCommands.frontmostContext())
                 )
+            case .setTabTitle(let params):
+                result = .title(try ControlTitleCommands.setTabTitle(params, in: try ControlTabCommands.frontmostContext()))
+            case .renameTask(let params):
+                result = .title(try ControlTitleCommands.renameTask(params, in: try ControlTabCommands.frontmostContext()))
             case .startChildSession(let params):
                 result = .childSession(
                     try await ControlChildSessionCommands.start(params, in: try ControlTabCommands.frontmostContext())
