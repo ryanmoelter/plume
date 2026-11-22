@@ -444,17 +444,20 @@ struct TaskRowView: View {
     @ViewBuilder
     private var titleText: some View {
         let isBold = appearance.weight == .bold
-        let text = FadeSwipeText(TitleStore.shared.displayTitle(for: task)) { title in
-            Text(title)
+        let tint = appearance.titleTint.flatMap(theme.colors.color(for:))?.opacity(tintOpacity)
+        let emphasis: Emphasis = isInactive ? .secondary : .primary
+        // The styling branches inside the content, so a tint change never
+        // gives the swipe a new identity mid-swipe.
+        FadeSwipeText(TitleStore.shared.displayTitle(for: task)) { title in
+            let text = Text(title)
                 .lineLimit(1)
                 .truncationMode(.tail)
                 .bold(isBold)
-        }
-        if let color = appearance.titleTint.flatMap(theme.colors.color(for:)) {
-            text
-                .foregroundStyle(color.opacity(tintOpacity))
-        } else {
-            text.emphasis(isInactive ? .secondary : .primary)
+            if let tint {
+                text.foregroundStyle(tint)
+            } else {
+                text.emphasis(emphasis)
+            }
         }
     }
 

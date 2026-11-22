@@ -171,8 +171,16 @@ enum TaskRowDetails {
         }
         return ChildMark(
             isDetached: true,
-            starter: Starter(title: titles.chipTitle(for: parent), taskTitle: titles.displayTitle(for: parentTask))
+            starter: Starter(title: label(of: parent, in: parentTask, titles: titles), taskTitle: titles.displayTitle(for: parentTask))
         )
+    }
+
+    /// The label the parent's own row gives it, numbered when another agent
+    /// there shares its title.
+    private static func label(of tab: TaskTab, in task: WorkTask, titles: TitleStore) -> String {
+        let agents = TaskStore.nestedAgentTabs(of: task).map(\.item)
+        let labels = distinctLabels(agents.map { titles.chipTitle(for: $0) })
+        return agents.firstIndex { $0.id == tab.id }.map { labels[$0] } ?? titles.chipTitle(for: tab)
     }
 
     /// The mark the task's title carries: the header it stands for, or, in a

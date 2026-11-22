@@ -447,6 +447,20 @@ struct TaskRowStarterTests {
         #expect(mark.starter?.help == "Started by Plan it in Refactor")
     }
 
+    @Test func aStarterSharingItsTitleInItsTaskTakesItsNumberedLabel() throws {
+        let task = TaskStore.createTask(in: context, siblings: [])
+        task.title = "Refactor"
+        let parent = try #require(task.tabs.first)
+        let sibling = TaskStore.addTab(to: task, kind: .agent, in: context)
+        let child = TaskStore.addChildTab(to: task, parent: parent, in: context)
+        TaskStore.moveTab(child, to: TaskStore.createTask(in: context, siblings: [task]))
+        let titles = TitleStore()
+        titles.setTitle("Chat", forTab: parent.id, source: .reply)
+        titles.setTitle("Chat", forTab: sibling.id, source: .reply)
+
+        #expect(TaskRowDetails.childMark(of: child, titles: titles).starter?.text == "Chat #1 · Refactor")
+    }
+
     @Test func aTaskNamedAfterItsStarterIsNotRepeated() {
         #expect(TaskRowDetails.Starter(title: "Plan it", taskTitle: "Plan it").text == "Plan it")
     }

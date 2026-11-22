@@ -45,7 +45,17 @@ struct FadeSwipeText<Content: View>: View {
         .onAppear {
             if swipe.phase != .idle { settle(on: text) }
         }
+        .task(id: swipe.step) {
+            guard swipe.phase != .idle else { return }
+            let step = swipe.step
+            try? await Task.sleep(for: Self.watchdog)
+            if swipe.step == step, swipe.phase != .idle { settle(on: swipe.target) }
+        }
     }
+
+    /// Far longer than any one step, so it only fires when a step's
+    /// completion was lost.
+    static var watchdog: Duration { .seconds(1) }
 
     private func settle(on text: String) {
         swipe.settle(on: text)
@@ -59,8 +69,9 @@ struct FadeSwipeText<Content: View>: View {
         case .fadeOut:
             sweep(Self.fadeOut)
         case .pause:
+            let step = swipe.step
             DispatchQueue.main.asyncAfter(deadline: .now() + Self.pause) {
-                perform(swipe.stepFinished())
+                perform(swipe.stepFinished(step))
             }
         case .fadeIn:
             sweep(Self.fadeIn)
@@ -68,10 +79,11 @@ struct FadeSwipeText<Content: View>: View {
     }
 
     private func sweep(_ animation: Animation) {
+        let step = swipe.step
         withAnimation(animation, completionCriteria: .logicallyComplete) {
             sweeps += 1
         } completion: {
-            perform(swipe.stepFinished())
+            perform(swipe.stepFinished(step))
         }
     }
 }
@@ -92,6 +104,9 @@ struct FadeSwipe: Equatable {
     private(set) var shown: String
     private(set) var target: String
     private(set) var phase = Phase.idle
+    /// Counts the steps started and the settles, so a callback can say which
+    /// step it finishes.
+    private(set) var step = 0
 
     init(_ text: String) {
         shown = text
@@ -101,37 +116,43 @@ struct FadeSwipe: Equatable {
     mutating func retarget(_ text: String) -> Step {
         target = text
         guard phase == .idle, text != shown else { return .none }
-        phase = .fadingOut
-        return .fadeOut
+        return start(.fadingOut, .fadeOut)
     }
 
-    /// Call when the step last returned has finished.
-    mutating func stepFinished() -> Step {
+    /// Call when the step that `step` named has finished. A callback from any
+    /// earlier step changes nothing.
+    mutating func stepFinished(_ finished: Int) -> Step {
+        guard finished == step else { return .none }
         switch phase {
         case .idle:
             return .none
         case .fadingOut:
-            phase = .pausing
-            return .pause
+            return start(.pausing, .pause)
         case .pausing:
             shown = target
-            phase = .fadingIn
-            return .fadeIn
+            return start(.fadingIn, .fadeIn)
         case .fadingIn:
             guard target != shown else {
                 phase = .idle
                 return .none
             }
-            phase = .fadingOut
-            return .fadeOut
+            return start(.fadingOut, .fadeOut)
         }
     }
 
-    /// Jumps straight to `text`. A step still in flight then finishes as a no-op.
+    /// Jumps straight to `text` and retires the step in flight, so its
+    /// callback changes nothing.
     mutating func settle(on text: String) {
         shown = text
         target = text
         phase = .idle
+        step += 1
+    }
+
+    private mutating func start(_ next: Phase, _ action: Step) -> Step {
+        phase = next
+        step += 1
+        return action
     }
 }
 

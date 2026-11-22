@@ -10,11 +10,11 @@ struct FadeSwipeTests {
         var swipe = FadeSwipe("Old")
         #expect(swipe.retarget("New") == .fadeOut)
         #expect(swipe.shown == "Old")
-        #expect(swipe.stepFinished() == .pause)
+        #expect(swipe.finish() == .pause)
         #expect(swipe.shown == "Old")
-        #expect(swipe.stepFinished() == .fadeIn)
+        #expect(swipe.finish() == .fadeIn)
         #expect(swipe.shown == "New")
-        #expect(swipe.stepFinished() == .none)
+        #expect(swipe.finish() == .none)
         #expect(swipe.phase == .idle)
     }
 
@@ -28,21 +28,21 @@ struct FadeSwipeTests {
         var swipe = FadeSwipe("A")
         _ = swipe.retarget("B")
         #expect(swipe.retarget("C") == .none)
-        _ = swipe.stepFinished()
+        _ = swipe.finish()
         #expect(swipe.retarget("D") == .none)
-        #expect(swipe.stepFinished() == .fadeIn)
+        #expect(swipe.finish() == .fadeIn)
         #expect(swipe.shown == "D")
     }
 
     @Test func aChangeDuringTheFadeInRunsAnotherSwipeAfterIt() {
         var swipe = FadeSwipe("A")
         _ = swipe.retarget("B")
-        _ = swipe.stepFinished()
-        _ = swipe.stepFinished()
+        _ = swipe.finish()
+        _ = swipe.finish()
         #expect(swipe.retarget("C") == .none)
-        #expect(swipe.stepFinished() == .fadeOut)
-        _ = swipe.stepFinished()
-        #expect(swipe.stepFinished() == .fadeIn)
+        #expect(swipe.finish() == .fadeOut)
+        _ = swipe.finish()
+        #expect(swipe.finish() == .fadeIn)
         #expect(swipe.shown == "C")
     }
 
@@ -50,10 +50,10 @@ struct FadeSwipeTests {
         var swipe = FadeSwipe("A")
         _ = swipe.retarget("B")
         _ = swipe.retarget("A")
-        _ = swipe.stepFinished()
-        #expect(swipe.stepFinished() == .fadeIn)
+        _ = swipe.finish()
+        #expect(swipe.finish() == .fadeIn)
         #expect(swipe.shown == "A")
-        #expect(swipe.stepFinished() == .none)
+        #expect(swipe.finish() == .none)
     }
 
     @Test func settlingDropsTheSwipeInFlight() {
@@ -61,6 +61,32 @@ struct FadeSwipeTests {
         _ = swipe.retarget("B")
         swipe.settle(on: "C")
         #expect(swipe.shown == "C")
-        #expect(swipe.stepFinished() == .none)
+        #expect(swipe.finish() == .none)
+    }
+
+    @Test func aCallbackFromASettledSwipeChangesNothing() {
+        var swipe = FadeSwipe("A")
+        _ = swipe.retarget("B")
+        let stale = swipe.step
+        swipe.settle(on: "B")
+        _ = swipe.retarget("C")
+        #expect(swipe.stepFinished(stale) == .none)
+        #expect(swipe.phase == .fadingOut)
+        #expect(swipe.shown == "B")
+    }
+
+    @Test func aCallbackFromAnEarlierStepChangesNothing() {
+        var swipe = FadeSwipe("A")
+        _ = swipe.retarget("B")
+        let fadeOut = swipe.step
+        _ = swipe.finish()
+        #expect(swipe.stepFinished(fadeOut) == .none)
+        #expect(swipe.phase == .pausing)
+    }
+}
+
+private extension FadeSwipe {
+    mutating func finish() -> Step {
+        stepFinished(step)
     }
 }
