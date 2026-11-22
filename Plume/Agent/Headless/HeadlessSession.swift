@@ -325,11 +325,10 @@ final class HeadlessSession: AgentSession {
     /// never reach the composer.
     @ObservationIgnored var onHostMessagesReturned: (([HostMessage]) -> Void)?
     /// Host messages the running turn carries.
-    @ObservationIgnored private var turnHostMessageCount = 0
+    @ObservationIgnored private var turnHostMessages = HostMessageTally()
     /// Host messages still on their way in when a held turn end stopped
     /// waiting for them, so the turn the CLI begins next answers them.
-    @ObservationIgnored private var hostMessagesAwaitingTurn = 0
-    private var turnCarriesHostMessage: Bool { turnHostMessageCount > 0 }
+    @ObservationIgnored private var hostMessagesAwaitingTurn = HostMessageTally()
 
     @ObservationIgnored private let statusEngine: StatusEngine
     @ObservationIgnored private let quotaStore: QuotaStore
@@ -475,8 +474,8 @@ final class HeadlessSession: AgentSession {
     func stopForRestart() -> AgentProcess? {
         isRestarting = true
         requeue(delivering: deliveringMessages.filter { $0.state != .absorbed })
-        turnHostMessageCount = 0
-        hostMessagesAwaitingTurn = 0
+        turnHostMessages = HostMessageTally()
+        hostMessagesAwaitingTurn = HostMessageTally()
         let stopping = close(markingExited: false)
         stopping?.terminate()
         return stopping
@@ -628,7 +627,7 @@ final class HeadlessSession: AgentSession {
         if !turn.wire.plainText.trimmingCharacters(in: .whitespacesAndNewlines).hasPrefix("/") {
             forkCutPoint.promptSent(uuid)
         }
-        turnHostMessageCount += turn.hosts.count
+        turnHostMessages += HostMessageTally(turn.hosts)
         return true
     }
 
@@ -714,7 +713,7 @@ final class HeadlessSession: AgentSession {
             requeue(turn, atFront: true)
             return false
         }
-        turnHostMessageCount += turn.hosts.count
+        turnHostMessages += HostMessageTally(turn.hosts)
         deliveringMessages.append(message)
         return true
     }
@@ -766,10 +765,10 @@ final class HeadlessSession: AgentSession {
             return
         }
         if let index { deliveringMessages.remove(at: index) }
-        let withdrawnHosts = message.turn.hosts.count
-        let awaiting = min(withdrawnHosts, hostMessagesAwaitingTurn)
+        let withdrawn = HostMessageTally(message.turn.hosts)
+        let awaiting = HostMessageTally.min(withdrawn, hostMessagesAwaitingTurn)
         hostMessagesAwaitingTurn -= awaiting
-        turnHostMessageCount = max(0, turnHostMessageCount - (withdrawnHosts - awaiting))
+        turnHostMessages -= withdrawn - awaiting
         returnToHost(message.turn.preamble + message.turn.hosts)
         completion(message.turn.userBlocks)
         // Nothing is left for the CLI to run after the `result` it already sent.
@@ -1545,8 +1544,8 @@ final class HeadlessSession: AgentSession {
     /// turn's reply before the transcript has caught up with it.
     private func beginUnpromptedTurn() {
         endDeliveryHold()
-        turnHostMessageCount += hostMessagesAwaitingTurn
-        hostMessagesAwaitingTurn = 0
+        turnHostMessages += hostMessagesAwaitingTurn
+        hostMessagesAwaitingTurn = HostMessageTally()
         isWorking = true
         lastError = nil
         wasInterrupted = false
@@ -1676,8 +1675,8 @@ final class HeadlessSession: AgentSession {
             guard !Task.isCancelled, let self, let held = self.heldResult else { return }
             self.deliveryHold = nil
             self.heldResult = nil
-            let unread = self.deliveringMessages.reduce(0) { $0 + $1.turn.hosts.count }
-            self.turnHostMessageCount = max(0, self.turnHostMessageCount - unread)
+            let unread = HostMessageTally(self.deliveringMessages.flatMap(\.turn.hosts))
+            self.turnHostMessages -= unread
             self.hostMessagesAwaitingTurn += unread
             self.finishTurn(held)
         }
@@ -1688,9 +1687,10 @@ final class HeadlessSession: AgentSession {
             text: result.text,
             isError: result.isError && !wasInterrupted,
             wasInterrupted: wasInterrupted,
-            isHostDriven: turnCarriesHostMessage
+            isHostDriven: turnHostMessages.all > 0,
+            isParentDriven: turnHostMessages.fromParent > 0
         )
-        turnHostMessageCount = 0
+        turnHostMessages = HostMessageTally()
         // Last, so a message the observer sends finds the queue already moved on.
         defer { onTurnFinished?(outcome) }
         isWorking = false
@@ -1775,9 +1775,9 @@ final class HeadlessSession: AgentSession {
     private func handleExit(status: Int32, errorLine: String?) {
         hasExited = true
         let unfinished = isWorking && !isClosed
-        let carriedHostMessage = turnCarriesHostMessage
-        turnHostMessageCount = 0
-        hostMessagesAwaitingTurn = 0
+        let carried = turnHostMessages
+        turnHostMessages = HostMessageTally()
+        hostMessagesAwaitingTurn = HostMessageTally()
         // The next launch reads the tab's list anyway.
         clearPendingRestart()
         isWorking = false
@@ -1828,7 +1828,8 @@ final class HeadlessSession: AgentSession {
                 text: lastError ?? "claude exited with status \(status)",
                 isError: !wasInterrupted,
                 wasInterrupted: wasInterrupted,
-                isHostDriven: carriedHostMessage,
+                isHostDriven: carried.all > 0,
+                isParentDriven: carried.fromParent > 0,
                 exitedMidTurn: true
             ))
         }
@@ -1908,6 +1909,48 @@ struct HostMessage: Equatable {
     let display: [UserContentBlock]
     let wire: [UserContentBlock]
     var origin: HostMessageOrigin?
+
+    var isFromParent: Bool {
+        if case .fromParent = origin { true } else { false }
+    }
+}
+
+/// How many host messages a turn carries, and how many of them its parent
+/// session sent.
+struct HostMessageTally: Equatable {
+    var all = 0
+    var fromParent = 0
+
+    init() {}
+
+    init(_ messages: [HostMessage]) {
+        all = messages.count
+        fromParent = messages.count(where: \.isFromParent)
+    }
+
+    static func min(_ a: Self, _ b: Self) -> Self {
+        var tally = Self()
+        tally.all = Swift.min(a.all, b.all)
+        tally.fromParent = Swift.min(a.fromParent, b.fromParent)
+        return tally
+    }
+
+    static func += (lhs: inout Self, rhs: Self) {
+        lhs.all += rhs.all
+        lhs.fromParent += rhs.fromParent
+    }
+
+    /// Floors at zero.
+    static func - (lhs: Self, rhs: Self) -> Self {
+        var tally = Self()
+        tally.all = max(0, lhs.all - rhs.all)
+        tally.fromParent = max(0, lhs.fromParent - rhs.fromParent)
+        return tally
+    }
+
+    static func -= (lhs: inout Self, rhs: Self) {
+        lhs = lhs - rhs
+    }
 }
 
 /// One entry in the queue. A turn the CLI never took comes back as one
@@ -1981,6 +2024,9 @@ struct AgentTurnOutcome: Equatable {
     let wasInterrupted: Bool
     /// Whether a message from `submitFromHost` was part of the turn.
     let isHostDriven: Bool
+    /// Whether the turn carried the parent session's brief or a message it
+    /// sent, possibly merged with what the user wrote.
+    var isParentDriven = false
     /// The process exited with the turn still running; `text` is why.
     var exitedMidTurn = false
     /// A queued message the user wrote began the next turn before this

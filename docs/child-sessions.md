@@ -129,7 +129,7 @@ The notes folder is never deleted, so the notes stay for the user to read after 
 
 ## Notes
 
-A child's finished turn becomes a note to its parent: a system reminder for the model, then a footer for the chat.
+A child's finished turn becomes a note to its parent when the parent started that turn: a system reminder for the model, then a footer for the chat.
 
 ```
 <system-reminder>
@@ -140,9 +140,9 @@ The session "Fix login" you started (6F1C…) finished a turn. It reported (quot
 
 The reply is cut to 400 characters, with each newline shown as ⏎. A message from a child uses the same shape with `"event":"message"` and is not cut. A message from the parent reaches the child the same way, with `"from_parent":true`. Every `<` in quoted text is written as `&lt;` in the reminder, and the footer's JSON keeps `/` escaped, so quoted text can never close either tag.
 
-If a child's process exits mid-turn, the parent gets the same note with "The session exited before finishing its turn: <reason>", under the usual wake rules.
+If a child's process exits mid-turn, the parent gets the same note with "The session exited before finishing its turn: <reason>", under the same rules.
 
-`HeadlessSession.submitFromHost` sends a note as a user turn and marks the turn that carries it as **host-driven**, once the CLI has taken it. `AgentTurnOutcome.isHostDriven` reports that at the turn's end. Held notes for the user's message are added only when that message is sent, so a queued message shows only what the user wrote.
+`HeadlessSession.submitFromHost` sends a note as a user turn and marks the turn that carries it as **host-driven**, once the CLI has taken it. `AgentTurnOutcome.isHostDriven` reports that at the turn's end, and `isParentDriven` reports whether one of those messages came from the parent (origin `.fromParent`: the brief or a `send_message`). `HostMessageTally` counts both through queueing, withdrawal and the delivery grace. Held notes for the user's message are added only when that message is sent, so a queued message shows only what the user wrote.
 
 Each queue entry is a `QueuedMessage` with its own identity. Its parts are either the user's text or a `HostMessage`: a display text (the parent's message, or each note's one-line summary), the wire text that is actually sent, and a `HostMessageOrigin`. Nothing is matched by equal text, so a parent and a user queueing the same words keep their own roles.
 
@@ -155,9 +155,9 @@ Each queue entry is a `QueuedMessage` with its own identity. Its parts are eithe
 
 `ChildSessionWakePolicy` holds one parent's notes, following Claude Desktop's side sessions:
 
-- **Every child turn end reports to the parent and wakes it.** That covers a turn the parent or its brief started, a turn the user drove in the child, a turn the child started itself (when background work finished, say) and a process that exited mid-turn. A message from a child also wakes the parent.
+- **A child turn the parent started reports to the parent and wakes it.** That is a turn that carried the brief or a parent's `send_message`, even merged with text the user typed, and a process that exited mid-way through one. A turn the user drove in the child, a turn the child started itself (when background work finished, say) and a turn its own children's notes woke send nothing; the parent only rechecks whether a sibling's batched notes can now go in. A message a child sends with `send_message` always reaches the parent and wakes it.
 - **Two kinds of report are held instead.** A child whose `wake_when_done` is false never wakes the parent, and neither does a child turn the user interrupted. Only the latest turn report per child is kept, batched or held, and a held one rides in front of the parent's next turn, whoever starts it. A child's `send_message` note is never dropped or replaced, held or not.
-- **A wake waits until none of the parent's children is working.** While any open child is mid-turn, waking notes batch. A message a child sends mid-turn therefore arrives once its own turn ends, and `send_message` says so. When the last working child ends its turn, every batched note goes in as one host-driven user turn, if the parent is idle, even when that child's own report does not wake. A child whose process exits mid-turn ends its turn there: `handleExit` calls `onTurnFinished`, so it reports and stops counting like any other turn end. A child whose tab closes, or whose task is archived or deleted, stops counting at once (`ChildSessionCoordinator.childClosing`). A restarted child (Refresh, or a change to its folders) ends its old process without finishing the turn and sends no report, so it stops counting once the resumed session replaces it (`ChildSessionCoordinator.childRestarted`).
+- **A wake waits until none of the parent's children is working.** While any open child is mid-turn, waking notes batch. A message a child sends mid-turn therefore arrives once its own turn ends, and `send_message` says so. When the last working child ends its turn, every batched note goes in as one host-driven user turn, if the parent is idle, even when that child's own report does not wake. A child whose process exits mid-turn ends its turn there: `handleExit` calls `onTurnFinished`, so it stops counting like any other turn end, and reports if the parent started the turn. A child whose tab closes, or whose task is archived or deleted, stops counting at once (`ChildSessionCoordinator.childClosing`). A restarted child (Refresh, or a change to its folders) ends its old process without finishing the turn and sends no report, so it stops counting once the resumed session replaces it (`ChildSessionCoordinator.childRestarted`).
 - **A child working longer than 30 minutes stops holding wakes** (`ChildSessionWakePolicy.workingLimit`), so one that never finishes cannot hold them forever. The coordinator schedules a check for that moment while notes are waiting.
 - **A working parent batches notes** until its turn ends. Then the same check applies: the notes go in only if no child is working.
 - **The wake turn ends in Desktop's footer** (`ChildSessionFormats.wakeFooter`): a `<side-sessions-event>` of prose that starts "None of the sessions you started is working now; their notes are above." It tells the model how to read the notes, to merge a child's branch only as the "Starting other sessions" instructions say, which say nothing of merging, and to start nothing the user did not ask for. A note carried in front of the user's own message gets no footer.
