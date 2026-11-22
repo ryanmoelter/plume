@@ -161,7 +161,8 @@ struct TabStripView: View {
             let end = max(last.maxX, toggleFrames[group.parentID]?.maxX ?? last.maxX)
             return TabStripGroupBars.Bar(
                 id: group.parentID,
-                title: tabs.first { $0.id == group.parentID }.map(chipTitle(of:)) ?? "",
+                title: (tabs.first { $0.id == group.parentID }.map(chipTitle(of:)) ?? "")
+                    + (paneCount > 1 ? " (pane \(pane + 1))" : ""),
                 minX: parent.minX,
                 maxX: end,
                 y: parent.maxY + 2 + CGFloat(group.depth) * 3,

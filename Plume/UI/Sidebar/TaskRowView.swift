@@ -201,7 +201,6 @@ struct TaskRowView: View {
         held.isEmpty ? nil : DeviceLeaseStore.summary(held)
     }
 
-
     /// Whether any of these tabs can be driven from elsewhere. Only the
     /// headless transport carries the bridge; a terminal tab's own TUI serves
     /// `/rc` itself.

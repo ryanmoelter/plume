@@ -687,7 +687,6 @@ final class AppSettings {
         }
     }
 
-
     /// Whether `ClaudeUsagePoller` asks Claude Code for the credit spend and
     /// the Fable window.
     var readsClaudeUsage: Bool {

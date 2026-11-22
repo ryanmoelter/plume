@@ -40,11 +40,11 @@ c screenshot
 
 To tear the instance down, capture its pid at launch — `open` reports none itself, so diff `pgrep -f "$APP/Contents/MacOS/Plume"` before and after — and `kill` that pid. Never `pkill -f` on the app's path: it matches every instance built from that DerivedData path, including a developer's own debug Plume. The `drive-plume` skill has the full launch-and-capture recipe.
 
-**`PLUME_SEED_CHILD_SESSIONS=<cases>` seeds sidebar rows with child sessions** in place of `PLUME_SEED_TASKS`, one task per comma-separated case, and selects the first:
+**`PLUME_SEED_CHILD_SESSIONS=<cases>` seeds sidebar rows with child sessions**, one task per comma-separated case, and selects the first. It works alongside `PLUME_SEED_TASKS`, which takes the selection when both are set:
 
 - `nested`: "Plan the refactor" on worktree `ryanm/plume-123-refactor` with open PR #1231 and PLUME-123 In Progress. Its child "Survey call sites" shares the folder, so it shows no folder lines. Its child "Update the models" sits in worktree `ryanm/refactor-models` with draft PR #1232, and the grandchild "Migrate the store tests" shares that folder.
 - `two-top`: "Fix the login bug" on worktree `ryanm/plume-140-login-crash` with PR #1401, and "Write release notes" in a `plume-site` checkout on `main` with no PR. Each has a child in its own folder. The task pins PR #1388 and links PLUME-141 (Todo), beside PLUME-140 (In Progress) from the branch.
-- `cap`: "Audit the docs" on worktree `ryanm/plume-150-docs-audit`, not yet pushed, with PLUME-150 In Progress, and six children in its folder, so the row folds behind "Show 3 more".
+- `cap`: "Audit the docs" on worktree `ryanm/plume-150-docs-audit`, not yet pushed, with PLUME-150 In Progress, and six children in its folder, so the row folds behind "Show 2 more".
 - `detached`: "Start the review" on worktree `ryanm/plume-160-review` with PR #1601 and PLUME-160 In Review, and in a second task its child "Review the diff" in the same folder, with a child of its own.
 - `all`: every case above, in that order.
 
