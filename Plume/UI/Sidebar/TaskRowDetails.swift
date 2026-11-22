@@ -134,19 +134,21 @@ enum TaskRowDetails {
         }
     }
 
-    /// The open session that started a child in another task, named as the
-    /// sidebar names its tab.
+    /// The open session that started a detached child, named as the sidebar
+    /// names its tab.
     struct Starter: Equatable {
         var title: String
-        var taskTitle: String
+        /// The parent's task, when it is not the child's own.
+        var taskTitle: String?
 
         /// The task's name joins only when it says something the title doesn't.
         var text: String {
-            taskTitle == title ? title : "\(title) · \(taskTitle)"
+            guard let taskTitle, taskTitle != title else { return title }
+            return "\(title) · \(taskTitle)"
         }
 
         var help: String {
-            "Started by \(title) in \(taskTitle)"
+            taskTitle.map { "Started by \(title) in \($0)" } ?? "Started by \(title)"
         }
 
         var accessibilityText: String {
@@ -161,17 +163,19 @@ enum TaskRowDetails {
         var starter: Starter?
     }
 
-    /// A parent in the same task is the header the child nests under, so
-    /// only a parent in another task is named.
+    /// An attached child nests under its parent's header, so only a
+    /// detached one names its parent.
     static func childMark(of tab: TaskTab, titles: TitleStore = .shared) -> ChildMark {
-        guard let parent = TaskStore.openParent(of: tab) else { return ChildMark() }
-        let isDetached = !TaskStore.isAttachedToParent(tab)
-        guard isDetached, let parentTask = parent.task, parentTask.id != tab.task?.id else {
-            return ChildMark(isDetached: isDetached)
-        }
+        guard let parent = TaskStore.openParent(of: tab), !TaskStore.isAttachedToParent(tab),
+              let parentTask = parent.task
+        else { return ChildMark() }
+        let isSameTask = parentTask.id == tab.task?.id
         return ChildMark(
             isDetached: true,
-            starter: Starter(title: label(of: parent, in: parentTask, titles: titles), taskTitle: titles.displayTitle(for: parentTask))
+            starter: Starter(
+                title: label(of: parent, in: parentTask, titles: titles),
+                taskTitle: isSameTask ? nil : titles.displayTitle(for: parentTask)
+            )
         )
     }
 
