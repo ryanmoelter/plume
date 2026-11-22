@@ -242,7 +242,8 @@ struct TaskRowView: View {
                         heldDevices: titleHeldDevices(
                             (titleIcons?.heldDevices ?? []) + (hasSeveralAgents ? taskLevelHeldDevices() : [])
                         ),
-                        isRemoteControlled: titleIcons?.isRemoteControlled ?? false
+                        isRemoteControlled: titleIcons?.isRemoteControlled ?? false,
+                        isDetachedChild: TaskRowDetails.headerStandingForTask(rawLines)?.isDetachedChild == true
                     )
                     descriptionLine
                     ForEach(Array(lines.prefix(badgeLineCount)).filter { TaskRowDetails.isDrawn($0.element) }, id: \.offset) { index, line in
@@ -350,13 +351,16 @@ struct TaskRowView: View {
         return selected?.kind == .agent ? selected?.id : task.lastFocusedAgentTabID
     }
 
-    private func title(heldDevices: String?, isRemoteControlled: Bool) -> some View {
+    private func title(heldDevices: String?, isRemoteControlled: Bool, isDetachedChild: Bool) -> some View {
         SidebarIconTitle(
             icon: icon,
             iconMinWidth: SidebarMetrics.taskIconMinWidth,
             spacing: 5
         ) {
             HStack(spacing: 4) {
+                if isDetachedChild {
+                    detachedChildMarker(label: TitleStore.shared.displayTitle(for: task))
+                }
                 titleText
                 if isRemoteControlled {
                     remoteControlIcon
@@ -374,6 +378,14 @@ struct TaskRowView: View {
             .imageScale(.small)
             .foregroundStyle(ChatRole.attention(for: colorScheme))
             .help("Remote control is on")
+    }
+
+    private func detachedChildMarker(label: String) -> some View {
+        Image(systemName: "arrow.turn.down.right")
+            .font(.caption)
+            .emphasis(.secondary)
+            .help("Started by a session that is elsewhere")
+            .plumeID(AccessibilityID.taskAgentChildMarker, label: label, value: "detached")
     }
 
     private func deviceLeaseIcon(_ summary: String, label: String) -> some View {
@@ -602,11 +614,7 @@ struct TaskRowView: View {
         let titleEmphasis = Self.agentTitleEmphasis(status: header.status, isEmphasized: isEmphasized)
         return HStack(spacing: 4) {
             if header.isDetachedChild {
-                Image(systemName: "arrow.turn.down.right")
-                    .font(.caption)
-                    .emphasis(.secondary)
-                    .help("Started by a session that is elsewhere")
-                    .plumeID(AccessibilityID.taskAgentChildMarker, label: header.label, value: "detached")
+                detachedChildMarker(label: header.label)
             }
             Text(header.title)
                 .font(agentTitleFont)

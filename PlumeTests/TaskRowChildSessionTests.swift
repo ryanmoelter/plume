@@ -64,6 +64,12 @@ struct TaskRowChildLinesTests {
         #expect(lines.map(TaskRowDetails.isDrawn) == [false, true, true, true, true, true])
         #expect(TaskRowDetails.headerCount(lines) == 1)
         #expect(TaskRowDetails.owningAgentLabels(lines)[1] == "Parent")
+        #expect(TaskRowDetails.headerStandingForTask(lines) == parentHeader)
+    }
+
+    @Test func onlyAnUndrawnHeaderStandsForTheTask() {
+        let lines = TaskRowDetails.lines(agents: [agent("One", nil), agent("Two", nil)])
+        #expect(TaskRowDetails.headerStandingForTask(lines) == nil)
     }
 
     @Test func aSoleTopLevelAgentWithNoLinesStillHoldsItsChildren() {

@@ -303,6 +303,14 @@ enum TaskRowDetails {
         if case .agentHeader(let header) = line { !header.standsForTask } else { true }
     }
 
+    /// The header the task's title stands in for, which the row never draws.
+    static func headerStandingForTask(_ lines: [Line]) -> AgentHeader? {
+        for line in lines {
+            if case .agentHeader(let header) = line, header.standsForTask { return header }
+        }
+        return nil
+    }
+
     /// Project first: it is the header the branch and pull request under it
     /// belong to, and it is labelled even when the task has only one.
     static func lines(for group: DirectoryGroup) -> [Line] {
