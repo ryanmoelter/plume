@@ -31,17 +31,25 @@ struct FadeSwipeText<Content: View>: View {
                     .animation(.easeInOut(duration: 0.2), value: text)
             } else {
                 content(swipe.shown)
-                    .modifier(FadeSwipeMask(sweeps: sweeps))
+                    .modifier(FadeSwipeMask(sweeps: sweeps, isActive: swipe.phase != .idle))
             }
         }
         .onChange(of: text) { _, new in
             if reduceMotion {
-                swipe.settle(on: new)
-                sweeps = (sweeps / 2).rounded(.up) * 2
+                settle(on: new)
             } else {
                 perform(swipe.retarget(new))
             }
         }
+        // A completion that never arrives would leave the text masked.
+        .onAppear {
+            if swipe.phase != .idle { settle(on: text) }
+        }
+    }
+
+    private func settle(on text: String) {
+        swipe.settle(on: text)
+        sweeps = (sweeps / 2).rounded(.up) * 2
     }
 
     private func perform(_ step: FadeSwipe.Step) {
@@ -132,6 +140,8 @@ struct FadeSwipe: Equatable {
 /// from an odd value shows it.
 private struct FadeSwipeMask: ViewModifier, Animatable {
     var sweeps: Double
+    /// An idle swipe shows its text whole, so it skips the mask's pass.
+    var isActive: Bool
 
     var animatableData: Double {
         get { sweeps }
@@ -146,12 +156,21 @@ private struct FadeSwipeMask: ViewModifier, Animatable {
         let progress = sweeps - whole
         let hides = Int(whole).isMultiple(of: 2)
         let start = -Self.softness + progress * (1 + Self.softness)
-        content.mask {
-            LinearGradient(
-                colors: hides ? [.clear, .black] : [.black, .clear],
-                startPoint: UnitPoint(x: start, y: 0.5),
-                endPoint: UnitPoint(x: start + Self.softness, y: 0.5)
-            )
+        // The identity transitions keep the swap between branches instant:
+        // the mask shows the text whole on either side of it.
+        if isActive {
+            content
+                .mask {
+                    LinearGradient(
+                        colors: hides ? [.clear, .black] : [.black, .clear],
+                        startPoint: UnitPoint(x: start, y: 0.5),
+                        endPoint: UnitPoint(x: start + Self.softness, y: 0.5)
+                    )
+                }
+                .transition(.identity)
+        } else {
+            content
+                .transition(.identity)
         }
     }
 }

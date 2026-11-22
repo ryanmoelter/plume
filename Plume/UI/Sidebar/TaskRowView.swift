@@ -92,6 +92,7 @@ struct TaskRowView: View {
     private func header(for tab: TaskTab, title: String, label: String, depth: Int) -> TaskRowDetails.AgentHeader {
         let status = Self.status(of: tab)
         let held = DeviceLeaseStore.shared.leases(ownedBy: [tab.id])
+        let mark = TaskRowDetails.childMark(of: tab)
         return TaskRowDetails.AgentHeader(
             tabID: tab.id,
             title: title,
@@ -103,8 +104,8 @@ struct TaskRowView: View {
             ),
             depth: depth,
             isRemotelyControlled: Self.isRemoteControlled(tabIDs: [tab.id]),
-            isDetachedChild: TaskStore.isDetachedChild(tab),
-            starter: TaskRowDetails.starter(of: tab),
+            isDetachedChild: mark.isDetached,
+            starter: mark.starter,
             heldDevices: held.isEmpty ? nil : DeviceLeaseStore.summary(held)
         )
     }
@@ -235,11 +236,16 @@ struct TaskRowView: View {
             hovered: hovered,
             pressed: isPressingGroup ? hovered : nil
         )
-        let taskHeader = TaskRowDetails.headerStandingForTask(rawLines)
+        let titleMark = TaskRowDetails.titleChildMark(
+            rawLines,
+            soleAgent: nestedAgentTabs.count == 1 ? TaskRowDetails.childMark(of: nestedAgentTabs[0].item) : nil
+        )
         VStack(alignment: .leading, spacing: Self.lineSpacing) {
             // Above the title's line, so the task's badge stays beside the title.
-            if let starter = taskHeader?.starter {
-                starterLine(starter, label: TitleStore.shared.displayTitle(for: task))
+            if let starter = titleMark?.starter {
+                SidebarIconTitle(icon: icon.map { AnyView($0.hidden()) }, iconMinWidth: SidebarMetrics.taskIconMinWidth, spacing: 5) {
+                    starterLine(starter, label: TitleStore.shared.displayTitle(for: task))
+                }
             }
             HStack(alignment: .top, spacing: 6) {
                 VStack(alignment: .leading, spacing: Self.lineSpacing) {
@@ -248,7 +254,7 @@ struct TaskRowView: View {
                             (titleIcons?.heldDevices ?? []) + (hasSeveralAgents ? taskLevelHeldDevices() : [])
                         ),
                         isRemoteControlled: titleIcons?.isRemoteControlled ?? false,
-                        isDetachedChild: taskHeader?.isDetachedChild == true
+                        isDetachedChild: titleMark?.isDetached == true
                     )
                     descriptionLine
                     ForEach(Array(lines.prefix(badgeLineCount)).filter { TaskRowDetails.isDrawn($0.element) }, id: \.offset) { index, line in
@@ -281,7 +287,7 @@ struct TaskRowView: View {
         .padding(.vertical, 2)
         .contentShape(.rect)
         .accessibilityElement(children: .combine)
-        .accessibilityLabel(accessibilityLabel(lines: allLines, agentTabIDs: agentTabIDs))
+        .accessibilityLabel(accessibilityLabel(lines: allLines, agentTabIDs: agentTabIDs, starter: titleMark?.starter))
         .plumeID(AccessibilityID.taskRow, label: TitleStore.shared.displayTitle(for: task), value: isSelected ? "selected" : nil, invoke: selectRow)
         // Adding or closing an agent tab changes how many groups the row
         // shows, so its height eases rather than snapping the rows below it.
@@ -394,7 +400,9 @@ struct TaskRowView: View {
             .plumeID(AccessibilityID.taskAgentChildMarker, label: label, value: "detached")
     }
 
-    /// Part of its group's click target, like the rest of the header.
+    /// Not a click target of its own: a click on it does what a click on
+    /// the line it heads does, selecting the child above a header and the
+    /// task above the title.
     private func starterLine(_ starter: TaskRowDetails.Starter, label: String) -> some View {
         Text(starter.text)
             .font(.caption)
@@ -789,8 +797,9 @@ struct TaskRowView: View {
         )
     }
 
-    private func accessibilityLabel(lines: [TaskRowDetails.Line], agentTabIDs: [UUID]) -> String {
+    private func accessibilityLabel(lines: [TaskRowDetails.Line], agentTabIDs: [UUID], starter: TaskRowDetails.Starter?) -> String {
         ([TitleStore.shared.displayTitle(for: task)]
+            + (starter.map { [$0.accessibilityText] } ?? [])
             + (task.taskDescription.isEmpty ? [] : [task.taskDescription])
             + (isUnread ? ["unread"] : [])
             + lines.compactMap(TaskRowDetails.accessibilityText)

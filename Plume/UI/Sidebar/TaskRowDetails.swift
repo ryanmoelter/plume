@@ -134,34 +134,54 @@ enum TaskRowDetails {
         }
     }
 
-    /// The open session that started a detached child, named as the sidebar
-    /// names its tab.
+    /// The open session that started a child in another task, named as the
+    /// sidebar names its tab.
     struct Starter: Equatable {
         var title: String
         var taskTitle: String
-        var isInSameTask: Bool
 
         /// The task's name joins only when it says something the title doesn't.
         var text: String {
-            isInSameTask || taskTitle == title ? title : "\(title) · \(taskTitle)"
+            taskTitle == title ? title : "\(title) · \(taskTitle)"
         }
 
         var help: String {
             "Started by \(title) in \(taskTitle)"
         }
+
+        var accessibilityText: String {
+            "started by \(text)"
+        }
     }
 
-    /// Nil unless `tab` is a detached child.
-    static func starter(of tab: TaskTab, titles: TitleStore = .shared) -> Starter? {
-        guard TaskStore.isDetachedChild(tab),
-              let parent = TaskStore.openParent(of: tab),
-              let parentTask = parent.task
-        else { return nil }
-        return Starter(
-            title: titles.chipTitle(for: parent),
-            taskTitle: titles.displayTitle(for: parentTask),
-            isInSameTask: parentTask.id == tab.task?.id
+    /// How a child session's row line marks its parent.
+    struct ChildMark: Equatable {
+        /// Outside its parent's run in the strip.
+        var isDetached = false
+        var starter: Starter?
+    }
+
+    /// A parent in the same task is the header the child nests under, so
+    /// only a parent in another task is named.
+    static func childMark(of tab: TaskTab, titles: TitleStore = .shared) -> ChildMark {
+        guard let parent = TaskStore.openParent(of: tab) else { return ChildMark() }
+        let isDetached = !TaskStore.isAttachedToParent(tab)
+        guard isDetached, let parentTask = parent.task, parentTask.id != tab.task?.id else {
+            return ChildMark(isDetached: isDetached)
+        }
+        return ChildMark(
+            isDetached: true,
+            starter: Starter(title: titles.chipTitle(for: parent), taskTitle: titles.displayTitle(for: parentTask))
         )
+    }
+
+    /// The mark the task's title carries: the header it stands for, or, in a
+    /// row with no headers, its only agent's.
+    static func titleChildMark(_ lines: [Line], soleAgent: ChildMark?) -> ChildMark? {
+        if let header = headerStandingForTask(lines) {
+            return ChildMark(isDetached: header.isDetachedChild, starter: header.starter)
+        }
+        return lines.contains { if case .agentHeader = $0 { true } else { false } } ? nil : soleAgent
     }
 
     /// A title that appears once stays bare; one that repeats is numbered on
@@ -598,12 +618,9 @@ enum TaskRowDetails {
         switch line {
         case .text(let text): text
         case .agentHeader(let header):
-            if header.standsForTask {
-                header.starter.map { "started by \($0.text)" }
-            } else {
-                ([header.title] + (header.starter.map { ["started by \($0.text)"] } ?? []) + [header.statusText])
-                    .joined(separator: ", ")
-            }
+            // The row's own label names the starter of a header it stands for.
+            header.standsForTask ? nil : ([header.title] + (header.starter.map { [$0.accessibilityText] } ?? []) + [header.statusText])
+                .joined(separator: ", ")
         case .project(let name): name
         case .branch(let branch, let isWorktree, let companion):
             [isWorktree ? "worktree" : nil, branch,

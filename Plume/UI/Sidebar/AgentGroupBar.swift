@@ -132,8 +132,7 @@ extension AgentGroupBar {
                     let height = frame.height - 2 * endInset
                     if height > width {
                         Capsule()
-                            .fill(color)
-                            .animation(colorFade, value: color)
+                            .animation(colorFade) { $0.foregroundStyle(color) }
                             .frame(width: width, height: height)
                             .position(
                                 x: frame.minX + CGFloat(group.level) * indent + style.lineWidth / 2,
