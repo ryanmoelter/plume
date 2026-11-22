@@ -163,6 +163,13 @@ enum TaskRowDetails {
         var starter: Starter?
     }
 
+    /// The tab the task's title stands for: the header standing for the
+    /// task, or, in a row with no headers, its only agent.
+    static func titleTabID(_ lines: [Line], soleAgent: UUID?) -> UUID? {
+        if let header = headerStandingForTask(lines) { return header.tabID }
+        return lines.contains { if case .agentHeader = $0 { true } else { false } } ? nil : soleAgent
+    }
+
     /// An attached child nests under its parent's header, so only a
     /// detached one names its parent.
     static func childMark(of tab: TaskTab, titles: TitleStore = .shared) -> ChildMark {
@@ -553,9 +560,9 @@ enum TaskRowDetails {
 
     /// For each line, what its text belongs to, so a line that shifts into
     /// another's place changes its text without a wipe. A header is its tab,
-    /// an issue its identifier and a pinned pull request itself; any other
-    /// line is the agent above it, its kind, and how many of that kind came
-    /// before it in that agent's group.
+    /// an issue its identifier and a pull request itself; any other line is
+    /// the agent above it, its kind, and how many of that kind came before it
+    /// in that agent's group.
     static func wipeKeys(_ lines: [Line]) -> [String] {
         var owner = "task"
         var seen: [String: Int] = [:]
@@ -569,6 +576,8 @@ enum TaskRowDetails {
                 return "linear \(identifier)"
             case .pinnedPullRequest(let reference, _):
                 return "pinned \(reference.owner)/\(reference.repo)#\(reference.number)"
+            case .pullRequest(_, .pullRequest(let pullRequest)):
+                return "pullRequest \(pullRequest.url ?? "#\(pullRequest.number)")"
             case .text: kind = "text"
             case .project: kind = "project"
             case .branch: kind = "branch"

@@ -5,14 +5,14 @@ import SwiftUI
 /// one, a fixed gap apart, so the two never overlap. With Reduce Motion on,
 /// it crossfades instead. The first value shows without any animation, and
 /// an idle text draws only `content`: no mask, no task, no geometry reader.
-struct FadeSwipeText<Content: View>: View {
+struct FadeWipeText<Content: View>: View {
     private let text: String
     /// What the text belongs to. A new key with the text means a different
     /// line took this one's place, so the text changes without a wipe.
     private let key: AnyHashable?
     private let content: (String) -> Content
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
-    @State private var swipe: FadeSwipe
+    @State private var state: FadeWipeState
     /// Wipes run so far. It only ever grows, so no animation runs backward
     /// through a reset; a wipe's progress is its distance past `wipeStart`.
     @State private var sweeps: Double = 0
@@ -31,7 +31,7 @@ struct FadeSwipeText<Content: View>: View {
         self.text = text
         self.key = key
         self.content = content
-        _swipe = State(initialValue: FadeSwipe(text))
+        _state = State(initialValue: FadeWipeState(text))
     }
 
     var body: some View {
@@ -40,24 +40,24 @@ struct FadeSwipeText<Content: View>: View {
                 content(text)
                     .contentTransition(.opacity)
                     .animation(.easeInOut(duration: 0.2), value: text)
-            } else if let outgoing = swipe.outgoing {
+            } else if let outgoing = state.outgoing {
                 FadeWipe(
                     sweeps: sweeps,
                     start: wipeStart,
                     width: wipeWidth,
                     outgoing: content(outgoing),
-                    incoming: content(swipe.shown)
+                    incoming: content(state.shown)
                 )
                 .onGeometryChange(for: CGFloat.self) { $0.size.width } action: { wipeWidth = $0 }
                 // A completion that never arrives would leave both texts drawn.
-                .task(id: swipe.step) {
-                    let step = swipe.step
+                .task(id: state.step) {
+                    let step = state.step
                     try? await Task.sleep(for: Self.watchdog)
-                    if swipe.step == step, swipe.phase != .idle { settle(on: swipe.target) }
+                    if state.step == step, state.phase != .idle { settle(on: state.target) }
                 }
                 .transition(.identity)
             } else {
-                content(swipe.shown)
+                content(state.shown)
                     .transition(.identity)
             }
         }
@@ -65,12 +65,12 @@ struct FadeSwipeText<Content: View>: View {
             if reduceMotion || old.key != new.key {
                 settle(on: new.text)
             } else {
-                withAnimation(Self.wipe) { perform(swipe.retarget(new.text)) }
+                withAnimation(Self.wipe) { perform(state.retarget(new.text)) }
             }
         }
         // Unmounting mid-wipe drops its completion.
         .onAppear {
-            if swipe.phase != .idle { settle(on: text) }
+            if state.phase != .idle { settle(on: text) }
         }
     }
 
@@ -80,27 +80,27 @@ struct FadeSwipeText<Content: View>: View {
     }
 
     private func settle(on text: String) {
-        swipe.settle(on: text)
+        state.settle(on: text)
         sweeps = sweeps.rounded(.up)
     }
 
     /// Called inside an animation, so the frame changing width to fit both
     /// texts moves with it.
-    private func perform(_ step: FadeSwipe.Step) {
+    private func perform(_ step: FadeWipeState.Step) {
         guard step == .wipe else { return }
         wipeStart = sweeps.rounded(.up)
-        let token = swipe.step
+        let token = state.step
         withAnimation(Self.wipe, completionCriteria: .logicallyComplete) {
             sweeps = wipeStart + 1
         } completion: {
-            withAnimation(Self.settleWidth) { perform(swipe.stepFinished(token)) }
+            withAnimation(Self.settleWidth) { perform(state.stepFinished(token)) }
         }
     }
 }
 
 /// The text a wipe shows. A change mid-wipe only retargets it: the wipe in
 /// flight finishes, then one more runs from what it showed to the latest text.
-struct FadeSwipe: Equatable {
+struct FadeWipeState: Equatable {
     enum Phase: Equatable {
         case idle, wiping
     }
@@ -177,8 +177,8 @@ private struct FadeWipe<Content: View>: View, Animatable {
         set { sweeps = newValue }
     }
 
-    /// Sized for the 13 pt title: the gap reads as a clean break, and the
-    /// edges stay soft without smearing a short word.
+    /// Sized for the sidebar's title and caption lines: the gap reads as a
+    /// clean break, and the edges stay soft without smearing a short word.
     static var softness: CGFloat { 14 }
     static var gap: CGFloat { 4 }
 
@@ -196,7 +196,7 @@ private struct FadeWipe<Content: View>: View, Animatable {
         }
         // Only `sweeps` animates. The next wipe swaps both texts and moves
         // both edges back to the start in an animated transaction, and
-        // animating that would draw both titles over each other.
+        // animating that would draw both texts over each other.
         .transaction { $0.animation = nil }
     }
 

@@ -14,7 +14,7 @@ struct LinearIssueLine: View {
                 LinearIssueGlyph(issue)
                     .font(.caption)
                     .imageScale(.small)
-                FadeSwipeText(issue.title, key: identifier) {
+                FadeWipeText(issue.title, key: identifier) {
                     Text($0)
                         .font(.caption)
                         .emphasis(.secondary)

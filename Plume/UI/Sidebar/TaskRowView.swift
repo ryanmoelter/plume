@@ -245,7 +245,14 @@ struct TaskRowView: View {
             // Above the title's line, so the task's badge stays beside the title.
             if let starter = titleMark?.starter {
                 SidebarIconTitle(icon: icon.map { AnyView($0.hidden()) }, iconMinWidth: SidebarMetrics.taskIconMinWidth, spacing: 5) {
-                    starterLine(starter, label: TitleStore.shared.displayTitle(for: task))
+                    starterLine(
+                        starter,
+                        label: TitleStore.shared.displayTitle(for: task),
+                        key: TaskRowDetails.titleTabID(
+                            rawLines,
+                            soleAgent: nestedAgentTabs.count == 1 ? nestedAgentTabs[0].item.id : nil
+                        )
+                    )
                 }
             }
             HStack(alignment: .top, spacing: 6) {
@@ -405,7 +412,7 @@ struct TaskRowView: View {
     /// the line it heads does, selecting the child above a header and the
     /// task above the title.
     private func starterLine(_ starter: TaskRowDetails.Starter, label: String, key: AnyHashable? = nil) -> some View {
-        FadeSwipeText(starter.text, key: key) {
+        FadeWipeText(starter.text, key: key) {
             Text($0)
                 .font(.caption)
                 .emphasis(.secondary)
@@ -442,7 +449,7 @@ struct TaskRowView: View {
         }
     }
 
-    /// Switching agent tabs can rename the task, so the title swipes rather
+    /// Switching agent tabs can rename the task, so the title wipes rather
     /// than swapping.
     @ViewBuilder
     private var titleText: some View {
@@ -450,8 +457,8 @@ struct TaskRowView: View {
         let tint = appearance.titleTint.flatMap(theme.colors.color(for:))?.opacity(tintOpacity)
         let emphasis: Emphasis = isInactive ? .secondary : .primary
         // The styling branches inside the content, so a tint change never
-        // gives the swipe a new identity mid-swipe.
-        FadeSwipeText(TitleStore.shared.displayTitle(for: task)) { title in
+        // gives the wipe a new identity mid-wipe.
+        FadeWipeText(TitleStore.shared.displayTitle(for: task)) { title in
             let text = Text(title)
                 .lineLimit(1)
                 .truncationMode(.tail)
@@ -635,6 +642,7 @@ struct TaskRowView: View {
 
     private func agentHeaderLine(
         _ header: TaskRowDetails.AgentHeader,
+        wipeKey: String,
         isFocused: Bool,
         isHovered: Bool,
         isPressed: Bool,
@@ -644,9 +652,9 @@ struct TaskRowView: View {
         let isBold = header.drawsBold(boldsAttention: AppSettings.shared.sidebarBoldsAgentsNeedingAttention)
         return VStack(alignment: .leading, spacing: Self.lineSpacing) {
             if let starter = header.starter {
-                starterLine(starter, label: header.label, key: header.tabID)
+                starterLine(starter, label: header.label, key: wipeKey)
             }
-            agentHeaderTitleLine(header, titleEmphasis: titleEmphasis, isBold: isBold)
+            agentHeaderTitleLine(header, wipeKey: wipeKey, titleEmphasis: titleEmphasis, isBold: isBold)
                 .plumeID(
                     AccessibilityID.taskAgentGroup,
                     label: header.label,
@@ -656,12 +664,12 @@ struct TaskRowView: View {
         }
     }
 
-    private func agentHeaderTitleLine(_ header: TaskRowDetails.AgentHeader, titleEmphasis: Emphasis, isBold: Bool) -> some View {
+    private func agentHeaderTitleLine(_ header: TaskRowDetails.AgentHeader, wipeKey: String, titleEmphasis: Emphasis, isBold: Bool) -> some View {
         HStack(spacing: 4) {
             if header.isDetachedChild {
                 detachedChildMarker(label: header.label)
             }
-            FadeSwipeText(header.title, key: header.tabID) {
+            FadeWipeText(header.title, key: wipeKey) {
                 Text($0)
                     .bold(isBold)
                     .emphasis(titleEmphasis)
@@ -701,7 +709,7 @@ struct TaskRowView: View {
         let emphasis: Emphasis = groups.isEmphasized(index) ? .primary : .secondary
         switch line {
         case .text(let text):
-            FadeSwipeText(text, key: wipeKey) {
+            FadeWipeText(text, key: wipeKey) {
                 Text($0)
                     .font(.caption)
                     .emphasis(.secondary)
@@ -711,6 +719,7 @@ struct TaskRowView: View {
         case .agentHeader(let header):
             agentHeaderLine(
                 header,
+                wipeKey: wipeKey,
                 isFocused: groups.focused == index,
                 isHovered: groups.hovered == index,
                 isPressed: groups.pressed == index,
@@ -718,7 +727,7 @@ struct TaskRowView: View {
             )
         case .project(let name):
             HStack(spacing: 4) {
-                FadeSwipeText(name, key: wipeKey) {
+                FadeWipeText(name, key: wipeKey) {
                     Text($0)
                         .font(.caption)
                         .emphasis(emphasis)
@@ -750,7 +759,7 @@ struct TaskRowView: View {
                         .imageScale(.small)
                         .emphasis(emphasis)
                 }
-                FadeSwipeText(branch, key: wipeKey) {
+                FadeWipeText(branch, key: wipeKey) {
                     Text($0)
                         .font(.caption)
                         .emphasis(emphasis)

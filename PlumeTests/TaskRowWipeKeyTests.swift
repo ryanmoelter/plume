@@ -41,4 +41,25 @@ struct TaskRowWipeKeyTests {
         ])
         #expect(Set(keys) == Set(reordered))
     }
+
+    @Test func aPullRequestLineKeysOnThePullRequestItShows() {
+        func line(_ number: Int, title: String) -> TaskRowDetails.Line {
+            .pullRequest(directory: nil, state: .pullRequest(PullRequest(
+                number: number, state: .open, isDraft: false,
+                url: "https://github.com/ryanmoelter/plume/pull/\(number)", title: title
+            )))
+        }
+        let retitled = TaskRowDetails.wipeKeys([line(7, title: "Old"), line(7, title: "New")])
+        #expect(retitled[0] == retitled[1])
+        #expect(TaskRowDetails.wipeKeys([line(7, title: "Fix")]) != TaskRowDetails.wipeKeys([line(8, title: "Fix")]))
+    }
+
+    @Test func theTitleStandsForItsHeaderOrItsOnlyAgent() {
+        let parent = UUID(), child = UUID(), sole = UUID()
+        var standing = TaskRowDetails.AgentHeader(tabID: parent, title: "Chat", status: .working)
+        standing.standsForTask = true
+        #expect(TaskRowDetails.titleTabID([.agentHeader(standing), header(child)], soleAgent: sole) == parent)
+        #expect(TaskRowDetails.titleTabID([.project("Plume")], soleAgent: sole) == sole)
+        #expect(TaskRowDetails.titleTabID([header(child)], soleAgent: sole) == nil)
+    }
 }

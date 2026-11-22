@@ -38,7 +38,7 @@ struct PullRequestLine: View {
         HStack(spacing: 4) {
             glyph(PullRequestRowContent.leading(summary))
             if let title = summary.title {
-                FadeSwipeText(title, key: titleKey) {
+                FadeWipeText(title, key: titleKey) {
                     Text($0)
                         .emphasis(.secondary)
                         .lineLimit(1)
