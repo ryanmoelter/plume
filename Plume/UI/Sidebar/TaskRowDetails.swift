@@ -547,6 +547,37 @@ enum TaskRowDetails {
         }
     }
 
+    /// For each line, what its text belongs to, so a line that shifts into
+    /// another's place changes its text without a wipe. A header is its tab,
+    /// an issue its identifier and a pinned pull request itself; any other
+    /// line is the agent above it, its kind, and how many of that kind came
+    /// before it in that agent's group.
+    static func wipeKeys(_ lines: [Line]) -> [String] {
+        var owner = "task"
+        var seen: [String: Int] = [:]
+        return lines.map { line in
+            let kind: String
+            switch line {
+            case .agentHeader(let header):
+                owner = header.tabID.uuidString
+                return "agent \(owner)"
+            case .linearIssue(let identifier, _):
+                return "linear \(identifier)"
+            case .pinnedPullRequest(let reference, _):
+                return "pinned \(reference.owner)/\(reference.repo)#\(reference.number)"
+            case .text: kind = "text"
+            case .project: kind = "project"
+            case .branch: kind = "branch"
+            case .pullRequest: kind = "pullRequest"
+            case .linearOverflow, .pinnedPullRequestOverflow, .activity: kind = "other"
+            }
+            let slot = "\(owner) \(kind)"
+            let ordinal = seen[slot, default: 0]
+            seen[slot] = ordinal + 1
+            return "\(slot) \(ordinal)"
+        }
+    }
+
     /// For each line, the agent groups it sits in, outermost first, each named
     /// by its header's index. A child's group sits inside its parent's, so the
     /// parent's group runs on past its children. Lines above the first header

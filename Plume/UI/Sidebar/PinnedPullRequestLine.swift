@@ -8,7 +8,7 @@ struct PinnedPullRequestLine: View {
     var body: some View {
         Group {
             if case .pullRequest(let pull) = detail {
-                PullRequestLine(summary: PullRequestSummary(pull))
+                PullRequestLine(summary: PullRequestSummary(pull), titleKey: reference)
             } else {
                 HStack(spacing: 4) {
                     PinnedPullRequestOverflowLine.symbol
@@ -30,15 +30,20 @@ struct PinnedPullRequestLine: View {
 /// pull request and pinned ones draw the same way.
 struct PullRequestLine: View {
     let summary: PullRequestSummary
+    /// What the line belongs to, so a different pull request taking its
+    /// place changes the title without a wipe.
+    var titleKey: AnyHashable? = nil
 
     var body: some View {
         HStack(spacing: 4) {
             glyph(PullRequestRowContent.leading(summary))
             if let title = summary.title {
-                Text(title)
-                    .emphasis(.secondary)
-                    .lineLimit(1)
-                    .truncationMode(.tail)
+                FadeSwipeText(title, key: titleKey) {
+                    Text($0)
+                        .emphasis(.secondary)
+                        .lineLimit(1)
+                        .truncationMode(.tail)
+                }
             }
             Text("#\(summary.number)")
                 .emphasis(.secondary)

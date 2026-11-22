@@ -226,6 +226,7 @@ struct TaskRowView: View {
         let titleIcons = icons?.lineIndex == nil ? icons : nil
         let firstDrawnLine = rawLines.firstIndex(where: TaskRowDetails.isDrawn)
         let owners = TaskRowDetails.owningAgentLabels(rawLines)
+        let wipeKeys = TaskRowDetails.wipeKeys(rawLines)
         let nesting = TaskRowDetails.agentGroupNesting(rawLines)
         let hovered = hasSeveralAgents ? TaskRowDetails.hoveredAgentGroup(hoveredLines: hoveredLines, nesting: nesting) : nil
         let groups = AgentGroupState(
@@ -258,7 +259,7 @@ struct TaskRowView: View {
                     )
                     descriptionLine
                     ForEach(Array(lines.prefix(badgeLineCount)).filter { TaskRowDetails.isDrawn($0.element) }, id: \.offset) { index, line in
-                        groupedDetailLine(line, at: index, owner: owners[index], icons: icons, groups: groups, firstDrawnLine: firstDrawnLine)
+                        groupedDetailLine(line, at: index, owner: owners[index], wipeKey: wipeKeys[index], icons: icons, groups: groups, firstDrawnLine: firstDrawnLine)
                     }
                 }
                 Spacer(minLength: 4)
@@ -271,7 +272,7 @@ struct TaskRowView: View {
             }
 
             ForEach(Array(lines.dropFirst(badgeLineCount)).filter { TaskRowDetails.isDrawn($0.element) }, id: \.offset) { index, line in
-                groupedDetailLine(line, at: index, owner: owners[index], icons: icons, groups: groups, firstDrawnLine: firstDrawnLine)
+                groupedDetailLine(line, at: index, owner: owners[index], wipeKey: wipeKeys[index], icons: icons, groups: groups, firstDrawnLine: firstDrawnLine)
             }
 
             if let title = cap.toggleTitle, let symbol = cap.toggleSymbol {
@@ -403,14 +404,16 @@ struct TaskRowView: View {
     /// Not a click target of its own: a click on it does what a click on
     /// the line it heads does, selecting the child above a header and the
     /// task above the title.
-    private func starterLine(_ starter: TaskRowDetails.Starter, label: String) -> some View {
-        Text(starter.text)
-            .font(.caption)
-            .emphasis(.secondary)
-            .lineLimit(1)
-            .truncationMode(.tail)
-            .help(starter.help)
-            .plumeID(AccessibilityID.taskAgentStarter, label: label, value: starter.text)
+    private func starterLine(_ starter: TaskRowDetails.Starter, label: String, key: AnyHashable? = nil) -> some View {
+        FadeSwipeText(starter.text, key: key) {
+            Text($0)
+                .font(.caption)
+                .emphasis(.secondary)
+                .lineLimit(1)
+                .truncationMode(.tail)
+        }
+        .help(starter.help)
+        .plumeID(AccessibilityID.taskAgentStarter, label: label, value: starter.text)
     }
 
     private func deviceLeaseIcon(_ summary: String, label: String, font: Font? = .caption) -> some View {
@@ -538,11 +541,12 @@ struct TaskRowView: View {
         _ line: TaskRowDetails.Line,
         at index: Int,
         owner: String?,
+        wipeKey: String,
         icons: ProjectLineIcons?,
         groups: AgentGroupState,
         firstDrawnLine: Int?
     ) -> some View {
-        let member = detailLine(line, at: index, owner: owner, icons: icons, groups: groups)
+        let member = detailLine(line, at: index, owner: owner, wipeKey: wipeKey, icons: icons, groups: groups)
             .animation(AgentGroupBar.fade, value: groups.isEmphasized(index))
             .agentGroupMember(groups.nesting[index])
         if !groups.nesting[index].isEmpty, let tabID = groups.targets[index] {
@@ -640,7 +644,7 @@ struct TaskRowView: View {
         let isBold = header.drawsBold(boldsAttention: AppSettings.shared.sidebarBoldsAgentsNeedingAttention)
         return VStack(alignment: .leading, spacing: Self.lineSpacing) {
             if let starter = header.starter {
-                starterLine(starter, label: header.label)
+                starterLine(starter, label: header.label, key: header.tabID)
             }
             agentHeaderTitleLine(header, titleEmphasis: titleEmphasis, isBold: isBold)
                 .plumeID(
@@ -657,14 +661,16 @@ struct TaskRowView: View {
             if header.isDetachedChild {
                 detachedChildMarker(label: header.label)
             }
-            Text(header.title)
-                .bold(isBold)
-                .emphasis(titleEmphasis)
-                .animation(AgentGroupBar.fade, value: titleEmphasis)
-                // Selecting an unread agent reads it, which drops the bold.
-                .animation(AgentGroupBar.fade, value: isBold)
-                .lineLimit(1)
-                .truncationMode(.tail)
+            FadeSwipeText(header.title, key: header.tabID) {
+                Text($0)
+                    .bold(isBold)
+                    .emphasis(titleEmphasis)
+                    .animation(AgentGroupBar.fade, value: titleEmphasis)
+                    // Selecting an unread agent reads it, which drops the bold.
+                    .animation(AgentGroupBar.fade, value: isBold)
+                    .lineLimit(1)
+                    .truncationMode(.tail)
+            }
             if header.isRemotelyControlled {
                 remoteControlIcon(font: nil)
             }
@@ -688,17 +694,20 @@ struct TaskRowView: View {
         _ line: TaskRowDetails.Line,
         at index: Int,
         owner: String?,
+        wipeKey: String,
         icons: ProjectLineIcons?,
         groups: AgentGroupState
     ) -> some View {
         let emphasis: Emphasis = groups.isEmphasized(index) ? .primary : .secondary
         switch line {
         case .text(let text):
-            Text(text)
-                .font(.caption)
-                .emphasis(.secondary)
-                .lineLimit(1)
-                .truncationMode(.middle)
+            FadeSwipeText(text, key: wipeKey) {
+                Text($0)
+                    .font(.caption)
+                    .emphasis(.secondary)
+                    .lineLimit(1)
+                    .truncationMode(.middle)
+            }
         case .agentHeader(let header):
             agentHeaderLine(
                 header,
@@ -709,11 +718,13 @@ struct TaskRowView: View {
             )
         case .project(let name):
             HStack(spacing: 4) {
-                Text(name)
-                    .font(.caption)
-                    .emphasis(emphasis)
-                    .lineLimit(1)
-                    .truncationMode(.middle)
+                FadeSwipeText(name, key: wipeKey) {
+                    Text($0)
+                        .font(.caption)
+                        .emphasis(emphasis)
+                        .lineLimit(1)
+                        .truncationMode(.middle)
+                }
                 if let icons, index == icons.lineIndex {
                     if icons.isRemoteControlled {
                         remoteControlIcon()
@@ -739,11 +750,13 @@ struct TaskRowView: View {
                         .imageScale(.small)
                         .emphasis(emphasis)
                 }
-                Text(branch)
-                    .font(.caption)
-                    .emphasis(emphasis)
-                    .lineLimit(1)
-                    .truncationMode(.middle)
+                FadeSwipeText(branch, key: wipeKey) {
+                    Text($0)
+                        .font(.caption)
+                        .emphasis(emphasis)
+                        .lineLimit(1)
+                        .truncationMode(.middle)
+                }
                 if let companion {
                     PullRequestChip(state: companion, emphasis: emphasis, symbolWeight: .bold)
                 }
@@ -775,7 +788,7 @@ struct TaskRowView: View {
                     PullRequestLine(summary: PullRequestSummary(
                         pullRequest,
                         ignoredChecks: PullRequestStore.shared.ignoredPendingChecks(for: directory)
-                    ))
+                    ), titleKey: wipeKey)
                 } else {
                     PullRequestChip(
                         state: state,

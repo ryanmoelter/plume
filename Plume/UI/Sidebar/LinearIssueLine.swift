@@ -14,11 +14,13 @@ struct LinearIssueLine: View {
                 LinearIssueGlyph(issue)
                     .font(.caption)
                     .imageScale(.small)
-                Text(issue.title)
-                    .font(.caption)
-                    .emphasis(.secondary)
-                    .lineLimit(1)
-                    .truncationMode(.tail)
+                FadeSwipeText(issue.title, key: identifier) {
+                    Text($0)
+                        .font(.caption)
+                        .emphasis(.secondary)
+                        .lineLimit(1)
+                        .truncationMode(.tail)
+                }
             }
             Text(identifier)
                 .font(.caption)

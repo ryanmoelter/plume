@@ -3,9 +3,13 @@ import SwiftUI
 /// Text that changes with one wipe from left to right: the new text shows
 /// behind a trailing soft edge while the old text clears ahead of a leading
 /// one, a fixed gap apart, so the two never overlap. With Reduce Motion on,
-/// it crossfades instead. The first value shows without any animation.
+/// it crossfades instead. The first value shows without any animation, and
+/// an idle text draws only `content`: no mask, no task, no geometry reader.
 struct FadeSwipeText<Content: View>: View {
     private let text: String
+    /// What the text belongs to. A new key with the text means a different
+    /// line took this one's place, so the text changes without a wipe.
+    private let key: AnyHashable?
     private let content: (String) -> Content
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @State private var swipe: FadeSwipe
@@ -25,8 +29,9 @@ struct FadeSwipeText<Content: View>: View {
     /// Far longer than a wipe, so it only fires when a completion was lost.
     static var watchdog: Duration { .seconds(1) }
 
-    init(_ text: String, @ViewBuilder content: @escaping (String) -> Content) {
+    init(_ text: String, key: AnyHashable? = nil, @ViewBuilder content: @escaping (String) -> Content) {
         self.text = text
+        self.key = key
         self.content = content
         _swipe = State(initialValue: FadeSwipe(text))
     }
@@ -46,29 +51,34 @@ struct FadeSwipeText<Content: View>: View {
                     incoming: content(swipe.shown)
                 )
                 .onGeometryChange(for: CGFloat.self) { $0.size.width } action: { wipeWidth = $0 }
+                // A completion that never arrives would leave both texts drawn.
+                .task(id: swipe.step) {
+                    let step = swipe.step
+                    try? await Task.sleep(for: Self.watchdog)
+                    if swipe.step == step, swipe.phase != .idle { settle(on: swipe.target) }
+                }
                 .transition(.identity)
             } else {
                 content(swipe.shown)
                     .transition(.identity)
             }
         }
-        .onChange(of: text) { _, new in
-            if reduceMotion {
-                settle(on: new)
+        .onChange(of: Keyed(key: key, text: text)) { old, new in
+            if reduceMotion || old.key != new.key {
+                settle(on: new.text)
             } else {
-                withAnimation(Self.wipe) { perform(swipe.retarget(new)) }
+                withAnimation(Self.wipe) { perform(swipe.retarget(new.text)) }
             }
         }
-        // A completion that never arrives would leave both texts drawn.
+        // Unmounting mid-wipe drops its completion.
         .onAppear {
             if swipe.phase != .idle { settle(on: text) }
         }
-        .task(id: swipe.step) {
-            guard swipe.phase != .idle else { return }
-            let step = swipe.step
-            try? await Task.sleep(for: Self.watchdog)
-            if swipe.step == step, swipe.phase != .idle { settle(on: swipe.target) }
-        }
+    }
+
+    private struct Keyed: Equatable {
+        let key: AnyHashable?
+        let text: String
     }
 
     private func settle(on text: String) {
@@ -181,7 +191,9 @@ private struct FadeWipe<Content: View>: View, Animatable {
         let lead = -Self.softness + progress * travel
         let trail = lead - Self.gap
         ZStack(alignment: .leading) {
-            outgoing.mask { edge(from: lead, to: lead + Self.softness, colors: [.clear, .black]) }
+            outgoing
+                .accessibilityHidden(true)
+                .mask { edge(from: lead, to: lead + Self.softness, colors: [.clear, .black]) }
             incoming.mask { edge(from: trail - Self.softness, to: trail, colors: [.black, .clear]) }
         }
     }
