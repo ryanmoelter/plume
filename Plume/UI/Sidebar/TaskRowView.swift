@@ -609,14 +609,17 @@ struct TaskRowView: View {
         isEmphasized: Bool
     ) -> some View {
         let titleEmphasis = Self.agentTitleEmphasis(status: header.status, isEmphasized: isEmphasized)
+        let isBold = header.drawsBold(boldsAttention: AppSettings.shared.sidebarBoldsAgentsNeedingAttention)
         return HStack(spacing: 4) {
             if header.isDetachedChild {
                 detachedChildMarker(label: header.label)
             }
             Text(header.title)
-                .bold(header.drawsBold(boldsAttention: AppSettings.shared.sidebarBoldsAgentsNeedingAttention))
+                .bold(isBold)
                 .emphasis(titleEmphasis)
                 .animation(AgentGroupBar.fade, value: titleEmphasis)
+                // Selecting an unread agent reads it, which drops the bold.
+                .animation(AgentGroupBar.fade, value: isBold)
                 .lineLimit(1)
                 .truncationMode(.tail)
             if header.isRemotelyControlled {
