@@ -29,6 +29,10 @@ import SwiftData
 /// - `lone`: "Plan the migration" on worktree `ryanm/plume-170-migration` with
 ///   PR #1701, and in a second task its child "Write the migration", that
 ///   task's only agent, in the same folder.
+/// - `split`: "Triage the crash reports" on worktree `ryanm/plume-180-triage`
+///   with PR #1801, and its child "Group the stack traces" in the same task
+///   and folder, opened in the split's other pane, so it sits outside its
+///   parent's run.
 @MainActor
 enum ChildSessionFixtures {
     private static let root = "/tmp/plume-fixtures/child-sessions"
@@ -43,7 +47,7 @@ enum ChildSessionFixtures {
 
     static func seed(_ spec: String, in context: ModelContext) -> [WorkTask] {
         var cases = spec.split(separator: ",").map { $0.trimmingCharacters(in: .whitespaces) }
-        if cases.contains("all") { cases = ["nested", "two-top", "cap", "detached", "lone"] }
+        if cases.contains("all") { cases = ["nested", "two-top", "cap", "detached", "lone", "split"] }
         let existing = (try? context.fetch(FetchDescriptor<WorkTask>())) ?? []
         var tasks: [WorkTask] = []
         seedLinearIssues()
@@ -122,6 +126,12 @@ enum ChildSessionFixtures {
                 let (_, lone) = newTask("Write the migration", in: folder)
                 lone.parentTabID = parent.id
                 ChildSessionIndex.shared.record(child: lone, parent: parent)
+            case "split":
+                let folder = worktree("plume-180-triage", branch: "ryanm/plume-180-triage",
+                                      pullRequest: pullRequest(1801, "Group crash reports by frame"))
+                let (task, parent) = newTask("Triage the crash reports", in: folder)
+                let traces = child("Group the stack traces", of: parent, in: task, folder: folder)
+                TaskStore.openInSplit(traces, side: .right, in: task)
             default:
                 Log.app.error("Unknown PLUME_SEED_CHILD_SESSIONS case \(seedCase, privacy: .public)")
             }
