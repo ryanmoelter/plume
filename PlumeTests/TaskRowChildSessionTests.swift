@@ -392,3 +392,72 @@ struct TaskRowChildSelectionTests {
         #expect(TaskStore.rowClickTab(of: task) == nil)
     }
 }
+
+/// A detached child names the session that started it, by the parent's chip
+/// title, adding the parent's task only when it is another task and reads
+/// differently. An attached child names no starter.
+@MainActor
+struct TaskRowStarterTests {
+    private let context: ModelContext
+
+    init() throws {
+        let container = try ModelContainer(
+            for: Schema([TaskGroup.self, WorkTask.self, TaskTab.self]),
+            configurations: [ModelConfiguration(isStoredInMemoryOnly: true)]
+        )
+        context = ModelContext(container)
+    }
+
+    @Test func anAttachedChildNamesNoStarter() throws {
+        let task = TaskStore.createTask(in: context, siblings: [])
+        let parent = try #require(task.tabs.first)
+        let child = TaskStore.addChildTab(to: task, parent: parent, in: context)
+
+        #expect(TaskRowDetails.starter(of: child, titles: TitleStore()) == nil)
+        #expect(TaskRowDetails.starter(of: parent, titles: TitleStore()) == nil)
+    }
+
+    @Test func aChildDetachedInItsParentsTaskNamesOnlyTheParent() throws {
+        let task = TaskStore.createTask(in: context, siblings: [])
+        task.title = "Refactor"
+        let parent = try #require(task.tabs.first)
+        let child = TaskStore.addChildTab(to: task, parent: parent, in: context)
+        _ = TaskStore.addTab(to: task, kind: .terminal, in: context)
+        TaskStore.moveTab(child, toPane: 0, at: 5, in: task)
+        let titles = TitleStore()
+        titles.setTitle("Plan it", forTab: parent.id, source: .reply)
+
+        let starter = try #require(TaskRowDetails.starter(of: child, titles: titles))
+
+        #expect(starter.text == "Plan it")
+        #expect(starter.help == "Started by Plan it in Refactor")
+    }
+
+    @Test func aChildInAnotherTaskAddsThatTasksName() throws {
+        let task = TaskStore.createTask(in: context, siblings: [])
+        task.title = "Refactor"
+        let parent = try #require(task.tabs.first)
+        let child = TaskStore.addChildTab(to: task, parent: parent, in: context)
+        TaskStore.moveTab(child, to: TaskStore.createTask(in: context, siblings: [task]))
+        let titles = TitleStore()
+        titles.setTitle("Plan it", forTab: parent.id, source: .reply)
+
+        let starter = try #require(TaskRowDetails.starter(of: child, titles: titles))
+
+        #expect(starter.text == "Plan it · Refactor")
+        #expect(starter.help == "Started by Plan it in Refactor")
+    }
+
+    @Test func aTaskNamedAfterItsStarterIsNotRepeated() {
+        let starter = TaskRowDetails.Starter(title: "Plan it", taskTitle: "Plan it", isInSameTask: false)
+        #expect(starter.text == "Plan it")
+    }
+
+    @Test func theHeadersAccessibilityTextNamesTheStarter() {
+        let starter = TaskRowDetails.Starter(title: "Plan it", taskTitle: "Refactor", isInSameTask: false)
+        var header = TaskRowDetails.AgentHeader(tabID: UUID(), title: "Child", status: .awaitingReply, starter: starter)
+        #expect(TaskRowDetails.accessibilityText(.agentHeader(header)) == "Child, started by Plan it · Refactor, \(TaskStatus.awaitingReply.label)")
+        header.standsForTask = true
+        #expect(TaskRowDetails.accessibilityText(.agentHeader(header)) == "started by Plan it · Refactor")
+    }
+}

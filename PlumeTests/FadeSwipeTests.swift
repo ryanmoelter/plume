@@ -4,6 +4,7 @@ import Testing
 /// A fade swipe fades the old text out, pauses, then fades the new one in.
 /// Changes that land mid-swipe only retarget it, so it always settles on the
 /// latest text.
+@MainActor
 struct FadeSwipeTests {
     @Test func aChangeFadesOutPausesThenFadesInTheNewText() {
         var swipe = FadeSwipe("Old")

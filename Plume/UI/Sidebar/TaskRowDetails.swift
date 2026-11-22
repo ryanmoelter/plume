@@ -70,6 +70,8 @@ enum TaskRowDetails {
         var isRemotelyControlled: Bool
         /// A child session outside its parent's run in the strip.
         var isDetachedChild: Bool
+        /// The session that started a detached child.
+        var starter: Starter?
         /// The devices the tab holds, as `DeviceLeaseStore.summary` words them.
         var heldDevices: String?
         /// The label of the agent this one nests under, set by
@@ -88,6 +90,7 @@ enum TaskRowDetails {
             depth: Int = 0,
             isRemotelyControlled: Bool = false,
             isDetachedChild: Bool = false,
+            starter: Starter? = nil,
             heldDevices: String? = nil,
             parentLabel: String? = nil
         ) {
@@ -99,6 +102,7 @@ enum TaskRowDetails {
             self.depth = depth
             self.isRemotelyControlled = isRemotelyControlled
             self.isDetachedChild = isDetachedChild
+            self.starter = starter
             self.heldDevices = heldDevices
             self.parentLabel = parentLabel
         }
@@ -128,6 +132,36 @@ enum TaskRowDetails {
                 + (isPressed ? ["pressed"] : []))
                 .joined(separator: "; ")
         }
+    }
+
+    /// The open session that started a detached child, named as the sidebar
+    /// names its tab.
+    struct Starter: Equatable {
+        var title: String
+        var taskTitle: String
+        var isInSameTask: Bool
+
+        /// The task's name joins only when it says something the title doesn't.
+        var text: String {
+            isInSameTask || taskTitle == title ? title : "\(title) · \(taskTitle)"
+        }
+
+        var help: String {
+            "Started by \(title) in \(taskTitle)"
+        }
+    }
+
+    /// Nil unless `tab` is a detached child.
+    static func starter(of tab: TaskTab, titles: TitleStore = .shared) -> Starter? {
+        guard TaskStore.isDetachedChild(tab),
+              let parent = TaskStore.openParent(of: tab),
+              let parentTask = parent.task
+        else { return nil }
+        return Starter(
+            title: titles.chipTitle(for: parent),
+            taskTitle: titles.displayTitle(for: parentTask),
+            isInSameTask: parentTask.id == tab.task?.id
+        )
     }
 
     /// A title that appears once stays bare; one that repeats is numbered on
@@ -563,7 +597,13 @@ enum TaskRowDetails {
     static func accessibilityText(_ line: Line) -> String? {
         switch line {
         case .text(let text): text
-        case .agentHeader(let header): header.standsForTask ? nil : "\(header.title), \(header.statusText)"
+        case .agentHeader(let header):
+            if header.standsForTask {
+                header.starter.map { "started by \($0.text)" }
+            } else {
+                ([header.title] + (header.starter.map { ["started by \($0.text)"] } ?? []) + [header.statusText])
+                    .joined(separator: ", ")
+            }
         case .project(let name): name
         case .branch(let branch, let isWorktree, let companion):
             [isWorktree ? "worktree" : nil, branch,

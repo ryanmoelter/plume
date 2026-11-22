@@ -104,6 +104,7 @@ struct TaskRowView: View {
             depth: depth,
             isRemotelyControlled: Self.isRemoteControlled(tabIDs: [tab.id]),
             isDetachedChild: TaskStore.isDetachedChild(tab),
+            starter: TaskRowDetails.starter(of: tab),
             heldDevices: held.isEmpty ? nil : DeviceLeaseStore.summary(held)
         )
     }
@@ -234,7 +235,12 @@ struct TaskRowView: View {
             hovered: hovered,
             pressed: isPressingGroup ? hovered : nil
         )
+        let taskHeader = TaskRowDetails.headerStandingForTask(rawLines)
         VStack(alignment: .leading, spacing: Self.lineSpacing) {
+            // Above the title's line, so the task's badge stays beside the title.
+            if let starter = taskHeader?.starter {
+                starterLine(starter, label: TitleStore.shared.displayTitle(for: task))
+            }
             HStack(alignment: .top, spacing: 6) {
                 VStack(alignment: .leading, spacing: Self.lineSpacing) {
                     title(
@@ -242,7 +248,7 @@ struct TaskRowView: View {
                             (titleIcons?.heldDevices ?? []) + (hasSeveralAgents ? taskLevelHeldDevices() : [])
                         ),
                         isRemoteControlled: titleIcons?.isRemoteControlled ?? false,
-                        isDetachedChild: TaskRowDetails.headerStandingForTask(rawLines)?.isDetachedChild == true
+                        isDetachedChild: taskHeader?.isDetachedChild == true
                     )
                     descriptionLine
                     ForEach(Array(lines.prefix(badgeLineCount)).filter { TaskRowDetails.isDrawn($0.element) }, id: \.offset) { index, line in
@@ -386,6 +392,17 @@ struct TaskRowView: View {
             .emphasis(.secondary)
             .help("Started by a session that is elsewhere")
             .plumeID(AccessibilityID.taskAgentChildMarker, label: label, value: "detached")
+    }
+
+    /// Part of its group's click target, like the rest of the header.
+    private func starterLine(_ starter: TaskRowDetails.Starter, label: String) -> some View {
+        Text(starter.text)
+            .font(.caption)
+            .emphasis(.secondary)
+            .lineLimit(1)
+            .truncationMode(.tail)
+            .help(starter.help)
+            .plumeID(AccessibilityID.taskAgentStarter, label: label, value: starter.text)
     }
 
     private func deviceLeaseIcon(_ summary: String, label: String, font: Font? = .caption) -> some View {
@@ -610,7 +627,22 @@ struct TaskRowView: View {
     ) -> some View {
         let titleEmphasis = Self.agentTitleEmphasis(status: header.status, isEmphasized: isEmphasized)
         let isBold = header.drawsBold(boldsAttention: AppSettings.shared.sidebarBoldsAgentsNeedingAttention)
-        return HStack(spacing: 4) {
+        return VStack(alignment: .leading, spacing: Self.lineSpacing) {
+            if let starter = header.starter {
+                starterLine(starter, label: header.label)
+            }
+            agentHeaderTitleLine(header, titleEmphasis: titleEmphasis, isBold: isBold)
+                .plumeID(
+                    AccessibilityID.taskAgentGroup,
+                    label: header.label,
+                    value: header.controlValue(isFocused: isFocused, isHovered: isHovered, isPressed: isPressed),
+                    invoke: { selectAgentTab(header.tabID) }
+                )
+        }
+    }
+
+    private func agentHeaderTitleLine(_ header: TaskRowDetails.AgentHeader, titleEmphasis: Emphasis, isBold: Bool) -> some View {
+        HStack(spacing: 4) {
             if header.isDetachedChild {
                 detachedChildMarker(label: header.label)
             }
@@ -638,12 +670,6 @@ struct TaskRowView: View {
                 .imageScale(.small)
                 .frame(width: Self.badgeColumnWidth)
         }
-        .plumeID(
-            AccessibilityID.taskAgentGroup,
-            label: header.label,
-            value: header.controlValue(isFocused: isFocused, isHovered: isHovered, isPressed: isPressed),
-            invoke: { selectAgentTab(header.tabID) }
-        )
     }
 
     @ViewBuilder
