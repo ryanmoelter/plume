@@ -188,6 +188,9 @@ enum AccessibilityID {
     /// The arrow in front of a child session's title.
     static let tabChipChildMarker = "tab-chip-child-marker"
     static let tabChildrenToggle = "tab-children-toggle"
+    /// The bar under a parent tab and its attached children, labelled like
+    /// the parent's chip.
+    static let tabGroupBar = "tab-group-bar"
     /// The chip's context menu, each labelled like its `tabChip`.
     static let tabMoveToOtherPaneMenuItem = "tab-move-to-other-pane-menu-item"
     static let tabCloseSplitMenuItem = "tab-close-split-menu-item"
