@@ -100,19 +100,6 @@ enum TaskRowDetails {
             self.parentLabel = parentLabel
         }
 
-        enum Marker: Equatable {
-            case child
-            case detached
-        }
-
-        /// A child's marker draws only under a sole top-level agent, since with
-        /// several the nesting alone shows the family.
-        func marker(showsChildMarkers: Bool) -> Marker? {
-            if depth == 0 { return isDetachedChild ? .detached : nil }
-            guard showsChildMarkers else { return nil }
-            return isDetachedChild ? .detached : .child
-        }
-
         /// Whether the title draws bold: the agent has stopped for the user.
         var needsAttention: Bool {
             status.wantsAttention || isUnread
@@ -180,12 +167,11 @@ enum TaskRowDetails {
     /// `agents` come in `TaskStore.nestedByParent` order, each header's
     /// `depth` saying how far it nests.
     ///
-    /// With one top-level agent and child sessions under it, the task row is
-    /// that agent: its lines show as a one-agent row's do, with no header,
-    /// then `taskLines`, then its children. Otherwise each top-level agent
-    /// takes a header. A shared attribute, absence included, shows once at
-    /// the task level, where a one-agent row shows it; the rest show under
-    /// each agent's header. The project is shared when every top-level
+    /// Every agent takes a header. With several top-level agents, a shared
+    /// attribute, absence included, shows once at the task level, where a
+    /// one-agent row shows it; the rest show under each agent's header. A
+    /// sole top-level agent keeps all its lines under its own header, so its
+    /// group sets it apart from its children. The project is shared when every top-level
     /// agent's reads the same. A branch or pull request is shared only when
     /// every one is also in the same folder: two clones on one branch are
     /// still two checkouts, and a shared branch above per-agent projects
@@ -199,31 +185,20 @@ enum TaskRowDetails {
         let perAgent = agents.map { lines(for: $0.workspace) }
         let parents = parentIndices(depths: agents.map(\.header.depth))
         let topLevel = agents.indices.filter { parents[$0] == nil }
-        let hidesTopLevelHeader = topLevel.count == 1 && agents.count > 1
-
-        var lines: [Line]
-        var shownByTopLevel: [Int: [Line]] = [:]
-        if hidesTopLevelHeader {
-            lines = perAgent[topLevel[0]] + taskLines
-        } else {
-            let shared = sharedAttributes(topLevel.map { (agents[$0].workspace, perAgent[$0]) })
-            func isShared(_ line: Line) -> Bool {
-                attribute(of: line).map(shared.contains) ?? false
-            }
-            lines = (topLevel.first.map { perAgent[$0] } ?? []).filter(isShared) + taskLines
-            for index in topLevel {
-                shownByTopLevel[index] = perAgent[index].filter { !isShared($0) }
-            }
+        let shared = topLevel.count > 1
+            ? sharedAttributes(topLevel.map { (agents[$0].workspace, perAgent[$0]) }) : []
+        func isShared(_ line: Line) -> Bool {
+            attribute(of: line).map(shared.contains) ?? false
         }
+        var lines = (topLevel.first.map { perAgent[$0] } ?? []).filter(isShared) + taskLines
         for index in agents.indices {
-            if hidesTopLevelHeader, parents[index] == nil { continue }
             var header = agents[index].header
             let shown: [Line]
             if let parent = parents[index] {
                 header.parentLabel = agents[parent].header.label
                 shown = Self.lines(of: agents[index].workspace, differingFrom: agents[parent].workspace)
             } else {
-                shown = shownByTopLevel[index] ?? perAgent[index]
+                shown = perAgent[index].filter { !isShared($0) }
             }
             lines.append(.agentHeader(header))
             lines.append(contentsOf: shown)
@@ -302,19 +277,6 @@ enum TaskRowDetails {
             result.append(contentsOf: lines[start..<end])
         }
         return (result, headers.indices.filter { !kept.contains($0) }.map { headers[$0].tabID })
-    }
-
-    /// The first project line above every agent header: the one the row's
-    /// own agent shows, where its icons ride.
-    static func rowProjectLineIndex(_ lines: [Line]) -> Int? {
-        for index in lines.indices {
-            switch lines[index] {
-            case .project: return index
-            case .agentHeader: return nil
-            default: continue
-            }
-        }
-        return nil
     }
 
     static func headerCount(_ lines: [Line]) -> Int {

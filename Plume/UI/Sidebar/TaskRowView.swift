@@ -157,30 +157,22 @@ struct TaskRowView: View {
         )
     }
 
-    /// The remote-control and device icons of the agent the task row stands
-    /// for, when it shows no header of its own. Its project header repeats per
-    /// directory, and the icons belong to the task rather than to any one of
-    /// them, so they ride on the first, or on the title when no project line
-    /// sits above the headers. Every agent with a header carries its own
-    /// tab's icons instead.
+    /// The remote-control and device icons of a task with one agent tab. Its
+    /// project header repeats per directory, and the icons belong to the task
+    /// rather than to any one of them, so they ride on the first, or on the
+    /// title when there is no project line. With several agent tabs, each
+    /// header carries its own tab's icons instead.
     private struct ProjectLineIcons {
         var lineIndex: Int?
         var isRemoteControlled: Bool
         var heldDevices: [DeviceLease]
     }
 
-    /// `headerTabIDs` are the tabs whose icons ride on their own headers.
-    private func projectLineIcons(
-        in lines: [TaskRowDetails.Line],
-        agentTabIDs: [UUID],
-        headerTabIDs: Set<UUID>
-    ) -> ProjectLineIcons {
+    private func projectLineIcons(in lines: [TaskRowDetails.Line], agentTabIDs: [UUID]) -> ProjectLineIcons {
         ProjectLineIcons(
-            lineIndex: TaskRowDetails.rowProjectLineIndex(lines),
-            isRemoteControlled: Self.isRemoteControlled(tabIDs: agentTabIDs.filter { !headerTabIDs.contains($0) }),
-            heldDevices: DeviceLeaseStore.shared.leases(
-                ownedBy: task.orderedLiveTabs.map(\.id).filter { !headerTabIDs.contains($0) }
-            )
+            lineIndex: lines.firstIndex { if case .project = $0 { true } else { false } },
+            isRemoteControlled: Self.isRemoteControlled(tabIDs: agentTabIDs),
+            heldDevices: DeviceLeaseStore.shared.leases(ownedBy: task.orderedLiveTabs.map(\.id))
         )
     }
 
@@ -203,8 +195,6 @@ struct TaskRowView: View {
         let nestedAgentTabs = TaskStore.nestedAgentTabs(of: task)
         let agentTabIDs = nestedAgentTabs.map(\.item.id)
         let hasSeveralAgents = agentTabIDs.count > 1
-        let rowAgentTabID = hasSeveralAgents ? TaskStore.soleTopLevelAgentTab(in: nestedAgentTabs)?.id : agentTabIDs.first
-        let headerTabIDs = Set(hasSeveralAgents ? agentTabIDs.filter { $0 != rowAgentTabID } : [])
         let working = workingLinearIssues
         let pinned = pinnedPullRequests
         let allLines = detailLines(nestedAgentTabs: nestedAgentTabs, working: working, pinned: pinned)
@@ -213,9 +203,7 @@ struct TaskRowView: View {
         let rawLines = folded.lines
         let lines = Array(rawLines.enumerated())
         let badgeLineCount = Self.badgeLineCount(of: rawLines)
-        let rowOwnsIcons = !hasSeveralAgents || rowAgentTabID != nil
-        let icons = rowOwnsIcons
-            ? projectLineIcons(in: rawLines, agentTabIDs: agentTabIDs, headerTabIDs: headerTabIDs) : nil
+        let icons = hasSeveralAgents ? nil : projectLineIcons(in: rawLines, agentTabIDs: agentTabIDs)
         let titleIcons = icons?.lineIndex == nil ? icons : nil
         let owners = TaskRowDetails.owningAgentLabels(rawLines)
         let nesting = TaskRowDetails.agentGroupNesting(rawLines)
@@ -226,16 +214,15 @@ struct TaskRowView: View {
             focused: hasSeveralAgents && isSelected
                 ? TaskRowDetails.focusedAgentGroup(rawLines, focusedTabID: task.selectedTabID) : nil,
             hovered: hovered,
-            pressed: isPressingGroup ? hovered : nil,
-            showsChildMarkers: hasSeveralAgents && rowAgentTabID != nil
+            pressed: isPressingGroup ? hovered : nil
         )
         VStack(alignment: .leading, spacing: Self.lineSpacing) {
             HStack(alignment: .top, spacing: 6) {
                 VStack(alignment: .leading, spacing: Self.lineSpacing) {
                     title(
-                        heldDevices: rowOwnsIcons
-                            ? titleIcons.flatMap { $0.heldDevices.isEmpty ? nil : DeviceLeaseStore.summary($0.heldDevices) }
-                            : taskLevelHeldDevices(),
+                        heldDevices: hasSeveralAgents
+                            ? taskLevelHeldDevices()
+                            : titleIcons.flatMap { $0.heldDevices.isEmpty ? nil : DeviceLeaseStore.summary($0.heldDevices) },
                         isRemoteControlled: titleIcons?.isRemoteControlled ?? false
                     )
                     descriptionLine
@@ -262,7 +249,7 @@ struct TaskRowView: View {
 
             // A folded header's activity shows here until it unfolds.
             TaskActivityRow(
-                tabIDs: (hasSeveralAgents ? rowAgentTabID.map { [$0] } ?? [] : agentTabIDs) + folded.hiddenTabIDs
+                tabIDs: (hasSeveralAgents ? [] : agentTabIDs) + folded.hiddenTabIDs
             )
         }
         .agentGroupBars(isEnabled: hasSeveralAgents, style: barStyle(groups))
@@ -362,14 +349,6 @@ struct TaskRowView: View {
         }
     }
 
-    private func detachedMarker(label: String) -> some View {
-        Image(systemName: "arrow.turn.down.right")
-            .font(.caption)
-            .emphasis(.secondary)
-            .help("Started by a session that is elsewhere")
-            .plumeID(AccessibilityID.taskAgentChildMarker, label: label, value: "detached")
-    }
-
     private var remoteControlIcon: some View {
         Image(systemName: StatusSymbol.remoteControl.name)
             .font(.caption)
@@ -455,7 +434,6 @@ struct TaskRowView: View {
         var focused: Int?
         var hovered: Int?
         var pressed: Int?
-        var showsChildMarkers = false
 
         /// Whether the pointer raises this line's text to full strength.
         func isEmphasized(_ index: Int) -> Bool {
@@ -580,21 +558,16 @@ struct TaskRowView: View {
         isFocused: Bool,
         isHovered: Bool,
         isPressed: Bool,
-        isEmphasized: Bool,
-        showsChildMarkers: Bool
+        isEmphasized: Bool
     ) -> some View {
         let titleEmphasis = Self.agentTitleEmphasis(status: header.status, isEmphasized: isEmphasized)
         return HStack(spacing: 4) {
-            switch header.marker(showsChildMarkers: showsChildMarkers) {
-            case .detached:
-                detachedMarker(label: header.label)
-            case .child:
+            if header.isDetachedChild {
                 Image(systemName: "arrow.turn.down.right")
                     .font(.caption)
                     .emphasis(.secondary)
-                    .plumeID(AccessibilityID.taskAgentChildMarker, label: header.label, value: "child")
-            case nil:
-                EmptyView()
+                    .help("Started by a session that is elsewhere")
+                    .plumeID(AccessibilityID.taskAgentChildMarker, label: header.label, value: "detached")
             }
             Text(header.title)
                 .font(.caption)
@@ -650,8 +623,7 @@ struct TaskRowView: View {
                 isFocused: groups.focused == index,
                 isHovered: groups.hovered == index,
                 isPressed: groups.pressed == index,
-                isEmphasized: groups.isEmphasized(index),
-                showsChildMarkers: groups.showsChildMarkers
+                isEmphasized: groups.isEmphasized(index)
             )
         case .project(let name):
             HStack(spacing: 4) {
