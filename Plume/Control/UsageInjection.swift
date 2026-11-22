@@ -46,7 +46,8 @@ enum UsageInjection {
                 limitCents: cents(params.creditLimit),
                 balanceCents: cents(params.creditBalance),
                 isEnabled: true,
-                currency: "USD"
+                currency: "USD",
+                resetsAt: params.creditResetsInDays.map { now.addingTimeInterval($0 * 86_400) }
             )
             : nil
         poller.isSuspended = true

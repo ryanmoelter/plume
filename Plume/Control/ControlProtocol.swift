@@ -372,6 +372,7 @@ nonisolated struct InjectUsageParams: Decodable, Equatable {
     var creditUsed: Double?
     var creditLimit: Double?
     var creditBalance: Double?
+    var creditResetsInDays: Double?
     var isUsingOverage: Bool?
     /// Sets the persisted "Always show credit and Fable quota" setting.
     var alwaysShow: Bool?
@@ -391,6 +392,14 @@ nonisolated struct InjectUsageParams: Decodable, Equatable {
         }
         if fableResetsInHours != nil, fable == nil {
             throw ControlError.badParams("fableResetsInHours needs fable")
+        }
+        if let creditResetsInDays {
+            guard creditUsed != nil || creditLimit != nil || creditBalance != nil else {
+                throw ControlError.badParams("creditResetsInDays needs a credit reading")
+            }
+            guard creditResetsInDays > 0 else {
+                throw ControlError.badParams("creditResetsInDays must be positive")
+            }
         }
     }
 
