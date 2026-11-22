@@ -179,7 +179,7 @@ enum TaskRowDetails {
     /// one-agent row shows it; the rest show under each agent's header. A
     /// sole top-level agent with children is the task, so its header
     /// `standsForTask`: its group opens straight onto its lines, and its
-    /// children follow as groups of their own, a level shallower. The
+    /// children nest inside it as they would under a drawn header. The
     /// project is shared when every top-level agent's reads the same. A branch or pull request is shared only when
     /// every one is also in the same folder: two clones on one branch are
     /// still two checkouts, and a shared branch above per-agent projects
@@ -207,7 +207,6 @@ enum TaskRowDetails {
             let shown: [Line]
             if let parent = parents[index] {
                 header.parentLabel = agents[parent].header.label
-                if parentTakesTaskLines { header.depth -= 1 }
                 shown = Self.lines(of: agents[index].workspace, differingFrom: agents[parent].workspace)
             } else {
                 header.standsForTask = parentTakesTaskLines

@@ -7,7 +7,7 @@ import Testing
 /// header, with children nested under their parent's, and hoist what they
 /// share. A sole top-level agent stands for the task: its header draws
 /// nothing, its group holds its own and the task's lines, and its children
-/// follow as groups of their own. A child shows only the lines that differ
+/// still nest inside it. A child shows only the lines that differ
 /// from its parent's, and every drawn header after the fourth folds behind a
 /// toggle.
 @MainActor
@@ -52,7 +52,6 @@ struct TaskRowChildLinesTests {
         )
         parentHeader.standsForTask = true
         childHeader.parentLabel = "Parent"
-        childHeader.depth = 0
         #expect(lines == [
             .agentHeader(parentHeader),
             .project("Plume"),
@@ -61,13 +60,13 @@ struct TaskRowChildLinesTests {
             .linearOverflow(1),
             .agentHeader(childHeader),
         ])
-        #expect(TaskRowDetails.agentGroupNesting(lines) == [[0], [0], [0], [0], [0], [5]])
+        #expect(TaskRowDetails.agentGroupNesting(lines) == [[0], [0], [0], [0], [0], [0, 5]])
         #expect(lines.map(TaskRowDetails.isDrawn) == [false, true, true, true, true, true])
         #expect(TaskRowDetails.headerCount(lines) == 1)
         #expect(TaskRowDetails.owningAgentLabels(lines)[1] == "Parent")
     }
 
-    @Test func aSoleTopLevelAgentWithNoLinesLeavesOnlyItsChildrenDrawn() {
+    @Test func aSoleTopLevelAgentWithNoLinesStillHoldsItsChildren() {
         let parent = UUID(), child = UUID()
         let lines = TaskRowDetails.lines(agents: [
             agent("Parent", nil, id: parent),
@@ -75,7 +74,8 @@ struct TaskRowChildLinesTests {
             agent("Grandchild", nil, depth: 2),
         ])
         #expect(lines.map(TaskRowDetails.isDrawn) == [false, true, true])
-        #expect(TaskRowDetails.agentGroupNesting(lines) == [[0], [1], [1, 2]])
+        #expect(TaskRowDetails.agentGroupNesting(lines) == [[0], [0, 1], [0, 1, 2]])
+        #expect(TaskRowDetails.agentTabTargets(lines, nesting: TaskRowDetails.agentGroupNesting(lines))[1] == child)
         #expect(TaskRowDetails.focusedAgentGroup(lines, focusedTabID: parent) == 0)
     }
 
