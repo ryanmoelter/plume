@@ -122,6 +122,13 @@ Delegate to a Sonnet verifier, on the release branch in the primary checkout:
 
 Publish a review page with the `Artifact` tool before telling the user (load `artifact-design` first). It has one section per package: the issue identifier and title, its checklist, and that package's screenshots and recordings from `~/Library/Caches/Plume-agent-media/<issue>/`, each captioned with what it shows. `files` accepts only paths under the working directory or the scratchpad, so copy each package's media into a folder in the scratchpad and publish from there. Republish the same page path as later packages land, so the user keeps one link for the release.
 
+Make the page a review queue the user checks off and you read back:
+
+- **State:** declare `capabilities: {db: {}}` (load `artifact-capabilities` first). Give each card a stable id and a "Mark reviewed" button. The button writes `reviewed/<id>` and Undo deletes it. Render from an `onSnapshot` of the `reviewed` collection, so a reviewed card folds into a "Reviewed" list at the bottom.
+- **Reading it:** read the queue with `ArtifactData` `list` on `reviewed`, not by asking the user. A reviewed card is the user's approval for that item: merge its package and move its issue on.
+- **Updating it:** when you resolve an item yourself, such as a hand-off the user approved in its own session, write its `reviewed` doc with `by: "claude"` and a note. A card that comes back for a fix gets a new id, so its old checkmark doesn't hide it.
+- **Cards:** one per package, one per manual check that is still open (from the release's checklist issue), and one per decision the user owes you. Add a card as soon as new work starts, marked in progress, so the page always shows everything left before release.
+
 Tell the user the app is running, give the review page's link, and give a per-package checklist of what to try. Each round of feedback becomes targeted agents on the release branch (Sonnet for tweaks, Opus for behavior bugs), then rebuild and relaunch through the verifier. The verifier recaptures the media a fix changed, and the coordinator republishes the review page.
 
 If the user wants what has merged so far in beta users' hands before the cycle ends, use the `release-beta` skill. It ships a beta from `main` and keeps the cycle going on the same release branch.
