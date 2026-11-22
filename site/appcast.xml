@@ -3,13 +3,12 @@
   <channel>
     <title>Plume</title>
     <item>
-      <title>Plume 0.20.0-beta.2</title>
-      <pubDate>Thu, 19 Nov 2026 17:55:55 +0000</pubDate>
-      <sparkle:channel>beta</sparkle:channel>
-      <sparkle:version>42</sparkle:version>
-      <sparkle:shortVersionString>0.20.0-beta.2</sparkle:shortVersionString>
+      <title>Plume 0.20.0</title>
+      <pubDate>Sun, 22 Nov 2026 23:57:09 +0000</pubDate>
+      <sparkle:version>43</sparkle:version>
+      <sparkle:shortVersionString>0.20.0</sparkle:shortVersionString>
       <sparkle:minimumSystemVersion>26.2</sparkle:minimumSystemVersion>
-      <sparkle:fullReleaseNotesLink>https://github.com/ryanmoelter/plume/releases/tag/v0.20.0-beta.2</sparkle:fullReleaseNotesLink>
+      <sparkle:fullReleaseNotesLink>https://github.com/ryanmoelter/plume/releases/tag/v0.20.0</sparkle:fullReleaseNotesLink>
       <description sparkle:format="markdown"><![CDATA[
 
 ### New
@@ -19,98 +18,67 @@
   - Group a parent tab with its child sessions in the tab bar, and show them in the info pane
 - Show each agent in a task in the sidebar
   - Jump directly to a tab from the sidebar
+- Show Fable quota and usage credits
+- Clean up the info pane
+  - Show sections more clearly
+  - Make it less overwhelming
+  - Sort pull requests and Linear issues by status
+  - Open a check's page when clicking it
 - Revamp the conversation minimap
-  - Now on the left side, to avoid conflicting with the info pane
+  - Move to the left side, to avoid conflicting with the info pane
   - More focus on prompts
   - Cleaner presentation
   - Differentiate prompts from questions/plans
   - Improve scrolling behavior on large conversations
-- Show Fable quota and usage credits
-- Performance
+- Show a merge conflict indicator on PRs
+- Improve performance
   - Improve scrolling performance in long chats
   - Improve typing performance in the composer
   - Switch to a task with a long conversation much faster
   - Show a sent message much faster
-- Show a red warning triangle on a PR chip when the PR has a merge conflict
+  - Use much less CPU when an agent runs many subagents
+- Show link chips for more links
+  - Bare GitHub PR and Linear links
+  - Linear Diffs PR links
+  - claude.ai artifact links
+- Let agents link a Linear issue to their task with `plume issue link`
+- Show images an agent sends
 - Compact a conversation from the context meter's popover
-- Give each tab its own folder, branch and worktree
+- Choose to open PR links in GitHub or Linear Diffs, in Settings > Projects
+- Refresh a conversation's Claude process from its tab to update MCP/skills
+- Rebind the composer's formatting shortcuts (Bold, Italic, Code, Link) in Settings > Shortcuts
+- Page the transcript with Page Up and Page Down while typing
 - Misc fixes
+  - Animate text changes in the sidebar
+  - Place a device tab's toolbar on the side that leaves the device the most room
+  - Track folder, branch, and worktree at the tab level instead of task level
+  - Order Home's Idle section by most recently opened
+  - Link to the running version's release notes from Settings > About
+  - Fix starting a worktree session in a Git LFS repository failing with "git-lfs: command not found"
+  - A worktree that fails to create no longer leaves its new branch behind
+  - A child's finished turn reports to its parent only when the parent started that turn
   - Show when plan mode runs a different model in the model chip, like when Haiku plans with Sonnet
   - Double-click the sidebar's edge to restore its default width, and cap how wide it gets
-  - Group mentioned PRs in the info pane, and open their menu on click
-  - Show Manual in the permission picker when Claude Code reports its default mode
+  - Group mentioned PRs in the info pane
+  - Show Manual in the permission picker when Claude Code reports its "default" mode (which is manual)
   - Clear out stale window-size settings that piled up with each update
+  - Use more clear icons for Linear's in-progress states
+  - Click a subagent row in the chat to open its transcript
+  - Offer "Always allow" choices on permission requests
+  - Keep a task's branch row when another task in the same folder is deleted
+  - Stop child processes from outliving Plume through inherited pipes
 
 ### Recently
-
-- Show files an agent sends: images inline, other files as cards
-- Show link chips for more links, including bare GitHub PR, Linear and artifact links
-- Clean up the info pane, sorting pull requests and Linear issues by status
-- Include agent skills for Plume's CLI tools
-- Get Beta updates through Settings > Updates > Update source
-
-
-]]></description>
-      <enclosure url="https://github.com/ryanmoelter/plume/releases/download/v0.20.0-beta.2/Plume-0.20.0-beta.2.dmg" sparkle:edSignature="d91q5HAqtHg9GTaQj7920DbEmtUKavcozBrusTjKtrZM7PvUrEdFaFF8q88iIDErGy9lIE8Xlyk2GzRsfSRmCw==" length="37919706" type="application/octet-stream" />
-    </item>
-    <item>
-      <title>Plume 0.19.1</title>
-      <pubDate>Wed, 11 Nov 2026 10:28:13 +0000</pubDate>
-      <sparkle:version>40</sparkle:version>
-      <sparkle:shortVersionString>0.19.1</sparkle:shortVersionString>
-      <sparkle:minimumSystemVersion>26.2</sparkle:minimumSystemVersion>
-      <sparkle:fullReleaseNotesLink>https://github.com/ryanmoelter/plume/releases/tag/v0.19.1</sparkle:fullReleaseNotesLink>
-      <description sparkle:format="markdown"><![CDATA[
-
-### Fixed
-
-- Fix Beta updates
-
-### 0.19.0
 
 - Bundle Plume's agent skills, and offer to install them from Home
-  - Teach agents to use `plume`, `plume devices`, `plume wt`, and `plume stack`
 - Get Beta updates through Settings > Updates > Update source
 - Update using the built-in updater, even when installed via Homebrew
-- See subagents and background work on Home, as chips on each item
-- Update rendering of plans and subagent transcripts to share the chat's renderer
-  - This means all improvement to the main chat like copy/paste across items, link chips for GitHub/Linear, etc. all work in plans and subagents
-- Improve Android device tabs
-  - Pair a phone over Wi-Fi with a QR code or pairing code
-  - Render emulators on the GPU, using about 95% less CPU
-  - Copy/paste with the Mac clipboard into any device tab
-  - Fold and unfold foldable emulators from the tab
-  - Lower a physical device's video quality on a slow connection
-  - Use less memory/CPU when streaming physical devices
-  - Allow agents to specify phone/tablet/foldable instead of a specific model when reserving remote devices
-- Make the info pane clearer
-  - Show all PRs in the same section
-  - List all check statuses for a given PR
-  - Copy a Linear issue's link from its row
-- Add the extended color palette, and match Home's sun and moon to your theme
-- Misc fixes
-  - Polish the composer
-    - Keep code blocks and text inside list items, indented like CommonMark
-    - Paste a URL over selected text to link it
-  - Show a tooltip on file chips with the file's full path
-  - Show new project/worktree/folder options at the top of their dropdowns
-  - ⌘⇧H opens Home
-  - On Home, choosing a group picks its project
-  - Mark a task unread when its terminal rings the bell
-  - Stop agents from outliving Plume after a crash
-  - Fix a rare transcript issue when an agent moves into a worktree
-
-### Recently
-
 - Add Home page, to keep track of all your chats
-- Add `plume devices`, to manage Android devices and emulators for agents
 - Host Android emulators, physical devices, and remote devices in a tab
-- Mention Linear issues, pull requests, and files in the composer with `@` and `#`
-- Add the `plume` command-line tool, with `plume wt` and `plume stack`
 
 
 ]]></description>
-      <enclosure url="https://github.com/ryanmoelter/plume/releases/download/v0.19.1/Plume-0.19.1.dmg" sparkle:edSignature="3yW75rnHghJ6MYm6t/CnW29J3e3JyKpcMjO/GmAQ+NcLUMrlnX4EyeJrWZmwsF8SbutwmTqFexI2CZC1OFZ8DQ==" length="36007420" type="application/octet-stream" />
+      <enclosure url="https://github.com/ryanmoelter/plume/releases/download/v0.20.0/Plume-0.20.0.dmg" sparkle:edSignature="LNsHaX+msudwuRSWhkAur68Ed1CwgOpX4s2w1gDaEjtKHop5lhWCjInP4PmvRZLnKQ1rdD3NPFszrtl5gWBVCA==" length="37956252" type="application/octet-stream" />
     </item>
   </channel>
 </rss>
