@@ -22,6 +22,17 @@ nonisolated enum LoginShellPath {
         return path.split(separator: ":").map(String.init)
     }
 
+    /// Read once per launch, on first use. Blocks on a shell, so call it off
+    /// the main actor.
+    static let cachedDirectories: [String] = directories()
+
+    /// `loginDirectories` first, then whatever `inherited` adds, joined as a PATH.
+    static func merged(loginDirectories: [String], inherited: String?) -> String {
+        var seen = Set<String>()
+        let extra = (inherited ?? "").split(separator: ":").map(String.init)
+        return (loginDirectories + extra).filter { !$0.isEmpty && seen.insert($0).inserted }.joined(separator: ":")
+    }
+
     /// The PATH after the last marker, which skips anything a profile printed.
     static func parse(_ output: String) -> String? {
         guard let line = output.split(whereSeparator: \.isNewline).last(where: { $0.hasPrefix(marker) }) else { return nil }
