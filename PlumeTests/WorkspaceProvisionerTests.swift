@@ -210,6 +210,42 @@ struct WorktreeProvisioningTests {
         #expect(branches.contains("plume/feature-0001"))
     }
 
+    @Test func aFailedCheckoutRemovesTheBranchItCreated() throws {
+        let repository = try makeRepository()
+        defer { try? FileManager.default.removeItem(atPath: repository) }
+        try "* filter=broken\n".write(toFile: "\(repository)/.gitattributes", atomically: true, encoding: .utf8)
+        try GitRunner.run(["config", "filter.broken.required", "true"], in: repository)
+        try GitRunner.run(["config", "filter.broken.clean", "cat"], in: repository)
+        try GitRunner.run(["config", "filter.broken.smudge", "false"], in: repository)
+        try GitRunner.run(["add", ".gitattributes"], in: repository)
+        try GitRunner.run(["commit", "-m", "attrs"], in: repository)
+
+        #expect(throws: GitError.self) {
+            try WorkspaceProvisioner.createWorktree(repository: repository, branch: "plume/doomed-0001")
+        }
+
+        let branches = try GitRunner.run(["branch", "--list", "plume/doomed-0001"], in: repository)
+        #expect(branches.isEmpty)
+    }
+
+    @Test func aFailedCreationKeepsABranchThatAlreadyExisted() throws {
+        let repository = try makeRepository()
+        defer { try? FileManager.default.removeItem(atPath: repository) }
+        try GitRunner.run(["branch", "plume/taken-0001"], in: repository)
+
+        #expect(throws: GitError.self) {
+            try WorkspaceProvisioner.createWorktree(repository: repository, branch: "plume/taken-0001")
+        }
+
+        let branches = try GitRunner.run(["branch", "--list", "plume/taken-0001"], in: repository)
+        #expect(branches.contains("plume/taken-0001"))
+    }
+
+    @Test func loginPathLeadsAndDropsDuplicates() {
+        let merged = LoginShellPath.merged(loginDirectories: ["/opt/homebrew/bin", "/usr/bin"], inherited: "/usr/bin:/bin")
+        #expect(merged == "/opt/homebrew/bin:/usr/bin:/bin")
+    }
+
     /// The whole point of the `.plume/.gitignore` bootstrap.
     @Test func repositoryStaysCleanAfterCreatingAWorktree() throws {
         let repository = try makeRepository()

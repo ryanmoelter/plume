@@ -50,6 +50,8 @@ nonisolated struct ControlServerRequest: Decodable {
         case "tab.split": command = .splitTab(try TabMoveParams(from: decoder))
         case "sidebar.reveal": command = .revealInSidebar(try SidebarRevealParams(from: decoder))
         case "tab.status": command = .setTabStatus(try TabStatusParams(from: decoder))
+        case "tab.title": command = .setTabTitle(try TabTitleParams(from: decoder))
+        case "task.rename": command = .renameTask(try TaskRenameParams(from: decoder))
         case "child-session.start": command = .startChildSession(try ChildSessionStartParams(from: decoder))
         case "child-session.report": command = .reportChildSession(try ChildSessionReportParams(from: decoder))
         case "child-session.propose": command = .proposeChildSession(try ChildSessionProposeParams(from: decoder))
@@ -99,6 +101,8 @@ nonisolated enum ControlCommand {
     case splitTab(TabMoveParams)
     case revealInSidebar(SidebarRevealParams)
     case setTabStatus(TabStatusParams)
+    case setTabTitle(TabTitleParams)
+    case renameTask(TaskRenameParams)
     case startChildSession(ChildSessionStartParams)
     case reportChildSession(ChildSessionReportParams)
     case proposeChildSession(ChildSessionProposeParams)
@@ -372,6 +376,7 @@ nonisolated struct InjectUsageParams: Decodable, Equatable {
     var creditUsed: Double?
     var creditLimit: Double?
     var creditBalance: Double?
+    var creditResetsInDays: Double?
     var isUsingOverage: Bool?
     /// Sets the persisted "Always show credit and Fable quota" setting.
     var alwaysShow: Bool?
@@ -391,6 +396,14 @@ nonisolated struct InjectUsageParams: Decodable, Equatable {
         }
         if fableResetsInHours != nil, fable == nil {
             throw ControlError.badParams("fableResetsInHours needs fable")
+        }
+        if let creditResetsInDays {
+            guard creditUsed != nil || creditLimit != nil || creditBalance != nil else {
+                throw ControlError.badParams("creditResetsInDays needs a credit reading")
+            }
+            guard creditResetsInDays > 0 else {
+                throw ControlError.badParams("creditResetsInDays must be positive")
+            }
         }
     }
 
@@ -974,6 +987,7 @@ nonisolated enum ControlResult: Encodable {
     case tab(TabTaskResult)
     case sidebarReveal(SidebarRevealResult)
     case tabStatus(TabStatusResult)
+    case title(TitleResult)
     case childSession(ChildSessionResult)
     case childSessionProposals(ChildSessionProposalsResult)
     case childSessionOffers(ChildSessionOffersResult)
@@ -1004,6 +1018,7 @@ nonisolated enum ControlResult: Encodable {
         case .tab(let v): try v.encode(to: encoder)
         case .sidebarReveal(let v): try v.encode(to: encoder)
         case .tabStatus(let v): try v.encode(to: encoder)
+        case .title(let v): try v.encode(to: encoder)
         case .childSession(let v): try v.encode(to: encoder)
         case .childSessionProposals(let v): try v.encode(to: encoder)
         case .childSessionOffers(let v): try v.encode(to: encoder)

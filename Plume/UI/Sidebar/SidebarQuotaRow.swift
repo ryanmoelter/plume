@@ -284,6 +284,7 @@ struct UsageCreditSection: View, ThemedView {
                     fraction: fraction,
                     color: StatuslineColors.meter(for: attention, colors: colors),
                     attention: attention,
+                    pacing: UsageCreditFormat.pacing(credit, now: .now),
                     isStale: isStale,
                     height: PacingMark.barHeight * 2
                 )
@@ -421,6 +422,17 @@ enum UsageCreditFormat {
     static func fraction(_ credit: UsageCredit?) -> Double? {
         guard let used = credit?.usedCents, let limit = credit?.limitCents, limit > 0 else { return nil }
         return min(max(Double(used) / Double(limit), 0), 1)
+    }
+
+    /// How far through the billing month the clock is, or nil without a limit
+    /// to pace against. The reading names only when the period resets, so it
+    /// opens one calendar month earlier.
+    static func pacing(_ credit: UsageCredit?, now: Date, calendar: Calendar = .current) -> Double? {
+        guard fraction(credit) != nil,
+              let resetsAt = credit?.resetsAt,
+              let opened = calendar.date(byAdding: .month, value: -1, to: resetsAt)
+        else { return nil }
+        return QuotaFreshness.pacing(resetsAt: resetsAt, now: now, window: resetsAt.timeIntervalSince(opened))
     }
 
     static func detailLines(_ credit: UsageCredit?, locale: Locale = .current) -> [String] {

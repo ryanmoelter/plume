@@ -107,7 +107,12 @@ struct TabStripView: View {
         .plumeID(AccessibilityID.tabStrip, label: paneLabel)
         .coordinateSpace(.named(Self.coordinateSpace))
         .background(alignment: .topLeading) {
-            TabStripGroupBars(bars: groupBars(grouping), color: groupBarColor, animation: Self.groupAnimation)
+            TabStripGroupBars(
+                bars: groupBars(grouping),
+                color: groupBarColor,
+                highlightColor: ChatRole.selection(for: colorScheme),
+                animation: Self.groupAnimation
+            )
         }
         // One destination for the whole strip, placing the drop by its
         // location, so there is no gap between chips where a drop misses.
@@ -146,17 +151,22 @@ struct TabStripView: View {
     }
 
     /// One bar per shown group, under its parent through its last shown
-    /// chip, each level of nesting a step lower.
+    /// chip, each level of nesting a step lower. Every group holding the
+    /// pane's selected tab is highlighted.
     private func groupBars(_ grouping: TabStripGrouping) -> [TabStripGroupBars.Bar] {
-        grouping.visibleGroups.compactMap { group in
+        let highlighted = tabs.first { shown.contains($0.id) }.map { grouping.groupParents(containing: $0.id) } ?? []
+        return grouping.visibleGroups.compactMap { group in
             guard let parent = chipFrames[group.parentID],
                   let last = chipFrames[grouping.lastVisibleID(in: group)] else { return nil }
             let end = max(last.maxX, toggleFrames[group.parentID]?.maxX ?? last.maxX)
             return TabStripGroupBars.Bar(
                 id: group.parentID,
+                title: (tabs.first { $0.id == group.parentID }.map(chipTitle(of:)) ?? "")
+                    + (paneCount > 1 ? " (pane \(pane + 1))" : ""),
                 minX: parent.minX,
                 maxX: end,
-                y: parent.maxY + 2 + CGFloat(group.depth) * 3
+                y: parent.maxY + 2 + CGFloat(group.depth) * 3,
+                isHighlighted: highlighted.contains(group.parentID)
             )
         }
     }
@@ -575,21 +585,25 @@ private struct TabChildrenToggle: View {
 private struct TabStripGroupBars: View {
     struct Bar: Identifiable, Equatable {
         let id: UUID
+        let title: String
         let minX: CGFloat
         let maxX: CGFloat
         let y: CGFloat
+        let isHighlighted: Bool
     }
 
     let bars: [Bar]
     let color: Color
+    let highlightColor: Color
     let animation: Animation
 
     var body: some View {
         ZStack(alignment: .topLeading) {
             ForEach(bars) { bar in
                 Capsule()
-                    .fill(color)
+                    .fill(bar.isHighlighted ? highlightColor : color)
                     .frame(width: max(bar.maxX - bar.minX, 0), height: 2)
+                    .plumeID(AccessibilityID.tabGroupBar, label: bar.title, value: bar.isHighlighted ? "highlighted" : nil)
                     .offset(x: bar.minX, y: bar.y)
             }
         }

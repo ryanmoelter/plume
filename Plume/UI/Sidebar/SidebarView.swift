@@ -174,7 +174,10 @@ struct SidebarView: View {
                 .sidebarRow(isSelected: selection == .task(task.id), tintBar: tintBar(for: task), washTint: washTint(for: task))
                 // Simultaneous, not exclusive: a plain `.onTapGesture` claims
                 // the mouse-down, and the row's drag never starts.
-                .simultaneousGesture(TapGesture().onEnded { select(task) })
+                .simultaneousGesture(TapGesture().onEnded {
+                    select(task)
+                    TaskRowClick.rowClicked(task)
+                })
                 .simultaneousGesture(TapGesture(count: 2).onEnded { appearanceEditingID = task.id })
                 .popover(isPresented: isEditingAppearance(of: task.id), arrowEdge: .trailing) {
                     TaskAppearancePopover(task: task)

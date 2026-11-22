@@ -187,6 +187,45 @@ enum TaskStore {
         return result
     }
 
+    /// The task's live agent tabs in strip order, each child session that is
+    /// attached to its parent's run right after its parent. A detached child
+    /// stays top-level where the strip puts it.
+    static func nestedAgentTabs(of task: WorkTask) -> [(item: TaskTab, depth: Int)] {
+        let agents = task.orderedLiveTabs.filter { $0.kind == .agent }
+        let attached = Set(agents.filter(isAttachedToParent).map(\.id))
+        return nestedByParent(agents, id: \.id, parentID: { attached.contains($0.id) ? $0.parentTabID : nil })
+    }
+
+    /// The agent tab a task's sidebar row stands for, when it has exactly one
+    /// with no parent in the task. A child whose parent is in another task
+    /// counts as top-level here.
+    static func soleTopLevelAgentTab(of task: WorkTask) -> TaskTab? {
+        soleTopLevelAgentTab(in: nestedAgentTabs(of: task))
+    }
+
+    static func soleTopLevelAgentTab(in nested: [(item: TaskTab, depth: Int)]) -> TaskTab? {
+        let topLevel = nested.filter { $0.depth == 0 }
+        return topLevel.count == 1 ? topLevel[0].item : nil
+    }
+
+    /// The tab a click on the task's own sidebar row selects, if it changes
+    /// one. With one top-level chat and its children, the row is that chat,
+    /// so it wins over a child. A selected terminal or device tab stays, as
+    /// it does in any other task.
+    static func rowClickTab(of task: WorkTask) -> TaskTab? {
+        let nested = nestedAgentTabs(of: task)
+        guard nested.count > 1, let parent = soleTopLevelAgentTab(in: nested), task.selectedTabID != parent.id else {
+            return nil
+        }
+        let selected = task.liveTabs.first { $0.id == task.selectedTabID }
+        guard selected == nil || selected?.kind == .agent else { return nil }
+        return parent
+    }
+
+    static func selectRowClickTab(of task: WorkTask) {
+        if let tab = rowClickTab(of: task) { selectTab(tab, in: task) }
+    }
+
     // MARK: - Selection
 
     /// The one place selection changes, so `lastFocusedAgentTabID` and each

@@ -46,6 +46,7 @@ final class AppSettings {
         static let sidebarShowsTaskColorBar = "sidebarShowsTaskColorBar"
         static let sidebarColorsTaskNames = "sidebarColorsTaskNames"
         static let sidebarBoldTaskNames = "sidebarBoldTaskNames"
+        static let sidebarBoldsAgentsNeedingAttention = "sidebarBoldsAgentsNeedingAttention"
         static let alwaysShowsCreditAndFableQuota = "alwaysShowsCreditAndFableQuota"
         static let readsClaudeUsage = "checksClaudeUsage"
         /// Earlier builds of the usage reader wrote these; nothing reads them.
@@ -219,6 +220,7 @@ final class AppSettings {
             : defaults.bool(forKey: Key.sidebarShowsTaskColorBar)
         self.sidebarColorsTaskNames = defaults.bool(forKey: Key.sidebarColorsTaskNames)
         self.sidebarBoldTaskNames = defaults.bool(forKey: Key.sidebarBoldTaskNames)
+        self.sidebarBoldsAgentsNeedingAttention = defaults.bool(forKey: Key.sidebarBoldsAgentsNeedingAttention)
         self.alwaysShowsCreditAndFableQuota = defaults.bool(forKey: Key.alwaysShowsCreditAndFableQuota)
         for key in Key.retiredClaudeUsageKeys { defaults.removeObject(forKey: key) }
         self.readsClaudeUsage = defaults.object(forKey: Key.readsClaudeUsage) == nil
@@ -667,6 +669,13 @@ final class AppSettings {
     var sidebarBoldTaskNames: Bool {
         didSet {
             defaults.set(sidebarBoldTaskNames, forKey: Key.sidebarBoldTaskNames)
+        }
+    }
+
+    /// Bolds an agent header's title in the sidebar while it needs the user.
+    var sidebarBoldsAgentsNeedingAttention: Bool {
+        didSet {
+            defaults.set(sidebarBoldsAgentsNeedingAttention, forKey: Key.sidebarBoldsAgentsNeedingAttention)
         }
     }
 

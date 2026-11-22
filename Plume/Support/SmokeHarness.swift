@@ -10,6 +10,12 @@ import SwiftUI
 /// `PLUME_SEED_TASKS=<n>` creates n tasks and selects the first.
 /// `PLUME_SEED_SIDEBAR_FIXTURES=1` seeds the sidebar fixture group; `linear`
 /// seeds only its Linear tasks.
+/// `PLUME_SEED_CHILD_SESSIONS=<cases>` seeds one task per comma-separated
+/// case of child sessions nested in the sidebar row, and selects the first:
+/// `nested`, `two-top`, `cap`, `detached`, or `all` for every case. Each row
+/// carries stubbed worktrees, branches, pull requests and Linear issues;
+/// `ChildSessionFixtures` lists what each case shows. It works with or
+/// without `PLUME_SEED_TASKS`.
 /// `PLUME_CYCLE_SELECTION=<seconds>` then rotates the selection on that
 /// interval, so surface survival across task switches is observable from
 /// outside the app by watching the child processes.
@@ -20,6 +26,10 @@ enum SmokeHarness {
         if let fixtures = environment["PLUME_SEED_SIDEBAR_FIXTURES"], fixtures == "1" || fixtures == "linear" {
             let groups = (try? context.fetch(FetchDescriptor<TaskGroup>(sortBy: [SortDescriptor(\.orderIndex)]))) ?? []
             SidebarFixtures.seed(in: context, existingGroups: groups)
+        }
+        if let spec = environment["PLUME_SEED_CHILD_SESSIONS"],
+           let first = ChildSessionFixtures.seed(spec, in: context).first {
+            selection.wrappedValue = first.id
         }
         guard let countValue = environment["PLUME_SEED_TASKS"],
               let count = Int(countValue), count > 0

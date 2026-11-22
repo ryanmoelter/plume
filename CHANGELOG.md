@@ -1,5 +1,72 @@
 # Changelog
 
+## 0.20.0 (43)
+
+### New
+
+- Let agents start child sessions in new tabs
+  - Accept or dismiss sessions an agent proposes, from a card in the chat
+  - Group a parent tab with its child sessions in the tab bar, and show them in the info pane
+- Show each agent in a task in the sidebar
+  - Jump directly to a tab from the sidebar
+- Show Fable quota and usage credits
+- Clean up the info pane
+  - Show sections more clearly
+  - Make it less overwhelming
+  - Sort pull requests and Linear issues by status
+  - Open a check's page when clicking it
+- Revamp the conversation minimap
+  - Move to the left side, to avoid conflicting with the info pane
+  - More focus on prompts
+  - Cleaner presentation
+  - Differentiate prompts from questions/plans
+  - Improve scrolling behavior on large conversations
+- Show a merge conflict indicator on PRs
+- Improve performance
+  - Improve scrolling performance in long chats
+  - Improve typing performance in the composer
+  - Switch to a task with a long conversation much faster
+  - Show a sent message much faster
+  - Use much less CPU when an agent runs many subagents
+- Show link chips for more links
+  - Bare GitHub PR and Linear links
+  - Linear Diffs PR links
+  - claude.ai artifact links
+- Let agents link a Linear issue to their task with `plume issue link`
+- Show images an agent sends
+- Compact a conversation from the context meter's popover
+- Choose to open PR links in GitHub or Linear Diffs, in Settings > Projects
+- Refresh a conversation's Claude process from its tab to update MCP/skills
+- Rebind the composer's formatting shortcuts (Bold, Italic, Code, Link) in Settings > Shortcuts
+- Page the transcript with Page Up and Page Down while typing
+- Misc fixes
+  - Animate text changes in the sidebar
+  - Place a device tab's toolbar on the side that leaves the device the most room
+  - Track folder, branch, and worktree at the tab level instead of task level
+  - Order Home's Idle section by most recently opened
+  - Link to the running version's release notes from Settings > About
+  - Fix starting a worktree session in a Git LFS repository failing with "git-lfs: command not found"
+  - A worktree that fails to create no longer leaves its new branch behind
+  - A child's finished turn reports to its parent only when the parent started that turn
+  - Show when plan mode runs a different model in the model chip, like when Haiku plans with Sonnet
+  - Double-click the sidebar's edge to restore its default width, and cap how wide it gets
+  - Group mentioned PRs in the info pane
+  - Show Manual in the permission picker when Claude Code reports its "default" mode (which is manual)
+  - Clear out stale window-size settings that piled up with each update
+  - Use more clear icons for Linear's in-progress states
+  - Click a subagent row in the chat to open its transcript
+  - Offer "Always allow" choices on permission requests
+  - Keep a task's branch row when another task in the same folder is deleted
+  - Stop child processes from outliving Plume through inherited pipes
+
+### Recently
+
+- Bundle Plume's agent skills, and offer to install them from Home
+- Get Beta updates through Settings > Updates > Update source
+- Update using the built-in updater, even when installed via Homebrew
+- Add Home page, to keep track of all your chats
+- Host Android emulators, physical devices, and remote devices in a tab
+
 ## 0.20.0-beta.2 (42)
 
 ### New

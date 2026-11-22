@@ -654,6 +654,20 @@ struct ClaudeUsageTests {
         #expect(UsageCreditFormat.detailLines(nil) == ["No reading yet"])
     }
 
+    @Test func creditPacingFollowsTheBillingMonth() throws {
+        var utc = Calendar(identifier: .gregorian)
+        utc.timeZone = try #require(TimeZone(identifier: "UTC"))
+        let resetsAt = try #require(utc.date(from: DateComponents(year: 2026, month: 12, day: 1)))
+        // November has 30 days, so the 16th at midnight is half way through.
+        let midMonth = try #require(utc.date(from: DateComponents(year: 2026, month: 11, day: 16)))
+        let limited = UsageCredit(usedCents: 1240, limitCents: 5000, resetsAt: resetsAt)
+
+        #expect(UsageCreditFormat.pacing(limited, now: midMonth, calendar: utc) == 0.5)
+        #expect(UsageCreditFormat.pacing(UsageCredit(usedCents: 1240, resetsAt: resetsAt), now: midMonth, calendar: utc) == nil)
+        #expect(UsageCreditFormat.pacing(UsageCredit(usedCents: 1240, limitCents: 5000), now: midMonth, calendar: utc) == nil)
+        #expect(UsageCreditFormat.pacing(limited, now: resetsAt.addingTimeInterval(60), calendar: utc) == nil)
+    }
+
     @Test func placeholdersAreNotAReading() {
         #expect(!QuotaSnapshot.empty(at: start).hasReading)
         var credit = QuotaSnapshot.empty(at: start)

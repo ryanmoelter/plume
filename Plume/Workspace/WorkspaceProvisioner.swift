@@ -202,7 +202,22 @@ nonisolated enum WorkspaceProvisioner {
             )
             try ensureExcluded(path: path, in: repository)
         }
-        try GitRunner.run(["worktree", "add", "-b", branch, path] + (startPoint.map { [$0] } ?? []), in: repository)
+        let branchExisted = (try? GitRunner.run(["rev-parse", "--verify", "--quiet", "refs/heads/\(branch)"], in: repository)) != nil
+        // git-lfs and other filters run from the checkout, so git needs the login PATH.
+        let loginPath = LoginShellPath.merged(
+            loginDirectories: LoginShellPath.cachedDirectories,
+            inherited: ProcessInfo.processInfo.environment["PATH"]
+        )
+        do {
+            try GitRunner.run(
+                ["worktree", "add", "-b", branch, path] + (startPoint.map { [$0] } ?? []),
+                in: repository,
+                environment: ["PATH": loginPath]
+            )
+        } catch {
+            if !branchExisted { _ = try? GitRunner.run(["branch", "-D", branch], in: repository) }
+            throw error
+        }
         return path
     }
 

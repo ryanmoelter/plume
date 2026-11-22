@@ -28,7 +28,8 @@ nonisolated enum GitRunner {
         _ arguments: [String],
         in directory: String? = nil,
         timeout: Duration? = nil,
-        trimsOutput: Bool = true
+        trimsOutput: Bool = true,
+        environment: [String: String] = [:]
     ) throws -> String {
         let process = Process()
         process.executableURL = URL(fileURLWithPath: "/usr/bin/env")
@@ -40,6 +41,7 @@ nonisolated enum GitRunner {
         // `.git/index` and re-fire the `.git` watcher that asked for it.
         process.environment = ProcessInfo.processInfo.environment
             .merging(["GIT_OPTIONAL_LOCKS": "0"]) { _, override in override }
+            .merging(environment) { _, override in override }
 
         let output = Pipe.closeOnExec()
         let error = Pipe.closeOnExec()

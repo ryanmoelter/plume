@@ -1,0 +1,534 @@
+import Foundation
+import SwiftData
+import Testing
+@testable import Plume
+
+/// A task row with child sessions. Several top-level agents each take a
+/// header, with children nested under their parent's, and hoist what they
+/// share. A sole top-level agent stands for the task: its header draws
+/// nothing, its group holds its own and the task's lines, and its children
+/// still nest inside it. A child shows only the lines that differ
+/// from its parent's, and every drawn header after the fourth folds behind a
+/// toggle.
+@MainActor
+struct TaskRowChildLinesTests {
+    private let open = PullRequestFetchState.pullRequest(PullRequest(number: 42, state: .open, isDraft: false))
+
+    private func agent(
+        _ title: String,
+        _ directory: String?,
+        branch: String? = nil,
+        pullRequest: PullRequestFetchState? = nil,
+        depth: Int = 0,
+        id: UUID = UUID()
+    ) -> TaskRowDetails.AgentGroup {
+        TaskRowDetails.AgentGroup(
+            header: TaskRowDetails.AgentHeader(tabID: id, title: title, status: .awaitingReply, depth: depth),
+            workspace: TaskRowDetails.DirectoryGroup(directory: directory, branch: branch, pullRequest: pullRequest)
+        )
+    }
+
+    private func headers(_ lines: [TaskRowDetails.Line]) -> [String] {
+        lines.compactMap { if case .agentHeader(let header) = $0 { header.title } else { nil } }
+    }
+
+    /// Every header's parent label, top-level headers included as nil.
+    private func parentLabels(_ lines: [TaskRowDetails.Line]) -> [String?] {
+        lines.compactMap { line -> String?? in
+            if case .agentHeader(let header) = line { .some(header.parentLabel) } else { .none }
+        }
+    }
+
+    @Test func aSoleTopLevelAgentStandsForTheTaskWithItsAndTheTasksLinesInItsGroup() {
+        var parentHeader = TaskRowDetails.AgentHeader(tabID: UUID(), title: "Parent", status: .awaitingReply)
+        var childHeader = TaskRowDetails.AgentHeader(tabID: UUID(), title: "Child", status: .awaitingReply, depth: 1)
+        let workspace = TaskRowDetails.DirectoryGroup(directory: "/Users/me/Plume", branch: "main", pullRequest: open)
+        let lines = TaskRowDetails.lines(
+            agents: [
+                TaskRowDetails.AgentGroup(header: parentHeader, workspace: workspace),
+                TaskRowDetails.AgentGroup(header: childHeader, workspace: workspace),
+            ],
+            taskLines: [.linearOverflow(1)]
+        )
+        parentHeader.standsForTask = true
+        childHeader.parentLabel = "Parent"
+        #expect(lines == [
+            .agentHeader(parentHeader),
+            .project("Plume"),
+            .branch("main"),
+            .pullRequest(directory: "/Users/me/Plume", state: open),
+            .linearOverflow(1),
+            .agentHeader(childHeader),
+        ])
+        #expect(TaskRowDetails.agentGroupNesting(lines) == [[0], [0], [0], [0], [0], [0, 5]])
+        #expect(lines.map(TaskRowDetails.isDrawn) == [false, true, true, true, true, true])
+        #expect(TaskRowDetails.headerCount(lines) == 1)
+        #expect(TaskRowDetails.owningAgentLabels(lines)[1] == "Parent")
+        #expect(TaskRowDetails.headerStandingForTask(lines) == parentHeader)
+    }
+
+    @Test func onlyAnUndrawnHeaderStandsForTheTask() {
+        let lines = TaskRowDetails.lines(agents: [agent("One", nil), agent("Two", nil)])
+        #expect(TaskRowDetails.headerStandingForTask(lines) == nil)
+    }
+
+    @Test func aSoleTopLevelAgentWithNoLinesStillHoldsItsChildren() {
+        let parent = UUID(), child = UUID()
+        let lines = TaskRowDetails.lines(agents: [
+            agent("Parent", nil, id: parent),
+            agent("Child", nil, depth: 1, id: child),
+            agent("Grandchild", nil, depth: 2),
+        ])
+        #expect(lines.map(TaskRowDetails.isDrawn) == [false, true, true])
+        #expect(TaskRowDetails.agentGroupNesting(lines) == [[0], [0, 1], [0, 1, 2]])
+        #expect(TaskRowDetails.agentTabTargets(lines, nesting: TaskRowDetails.agentGroupNesting(lines))[1] == child)
+        #expect(TaskRowDetails.focusedAgentGroup(lines, focusedTabID: parent) == 0)
+    }
+
+    @Test func theCapCountsOnlyDrawnHeadersAndNeverFoldsTheTasksAgent() {
+        let parent = UUID()
+        let lines = TaskRowDetails.lines(agents: [agent("Parent", "/Users/me/Plume", id: parent)]
+            + (1...5).map { agent("Child \($0)", nil, depth: 1) })
+        let folded = AgentRowCap.fold(lines, isExpanded: false, focusedTabID: nil)
+        #expect(Array(folded.lines.prefix(2)) == Array(lines.prefix(2)))
+        #expect(folded.layout == AgentRowCap.Layout(visibleCount: 4, toggleTitle: "Show 1 more", toggleSymbol: "chevron.down"))
+        #expect(!folded.hiddenTabIDs.contains(parent))
+    }
+
+    @Test func aChildShowsOnlyTheLinesThatDifferFromItsParents() {
+        let lines = TaskRowDetails.lines(agents: [
+            agent("Parent", "/Users/me/Plume", branch: "main"),
+            agent("Child", "/Users/me/Plume-fix", branch: "fix", depth: 1),
+        ])
+        #expect(Array(lines.suffix(3)) == [lines[3], .project("Plume-fix"), .branch("fix")])
+    }
+
+    @Test func aChildInAnotherCheckoutKeepsAMatchingBranch() {
+        let child = TaskRowDetails.lines(
+            of: TaskRowDetails.DirectoryGroup(directory: "/a/Plume", branch: "main"),
+            differingFrom: TaskRowDetails.DirectoryGroup(directory: "/b/Plume", branch: "main")
+        )
+        #expect(child == [.branch("main")])
+    }
+
+    @Test func aGrandchildComparesAgainstItsOwnParent() {
+        let lines = TaskRowDetails.lines(agents: [
+            agent("Parent", "/Users/me/Plume", branch: "main"),
+            agent("Child", "/Users/me/Other", branch: "dev", depth: 1),
+            agent("Grandchild", "/Users/me/Other", branch: "dev", depth: 2),
+        ])
+        #expect(headers(lines) == ["Parent", "Child", "Grandchild"])
+        #expect(parentLabels(lines) == [nil, "Parent", "Child"])
+        #expect(lines.last.map { if case .agentHeader = $0 { true } else { false } } == true)
+    }
+
+    @Test func severalTopLevelAgentsNestTheirChildrenWithTheTaskLevelLinesHoisted() {
+        let lines = TaskRowDetails.lines(agents: [
+            agent("One", "/Users/me/Plume", branch: "main"),
+            agent("Child", "/Users/me/Plume", branch: "main", depth: 1),
+            agent("Two", "/Users/me/Plume", branch: "main"),
+        ])
+        #expect(headers(lines) == ["One", "Child", "Two"])
+        #expect(parentLabels(lines) == [nil, "One", nil])
+        // Project and branch are shared by both top-level agents, so they sit
+        // at the task level and the child, matching its parent, shows nothing.
+        #expect(lines.count == 5)
+        #expect(TaskRowDetails.agentGroupNesting(lines) == [[], [], [2], [2, 3], [4]])
+    }
+
+    @Test func childrenDoNotStopTopLevelAgentsSharingLines() {
+        let lines = TaskRowDetails.lines(agents: [
+            agent("One", "/Users/me/Plume", branch: "main"),
+            agent("Child", "/Users/me/Elsewhere", branch: "other", depth: 1),
+            agent("Two", "/Users/me/Plume", branch: "main"),
+        ])
+        #expect(Array(lines.prefix(2)) == [.project("Plume"), .branch("main")])
+    }
+
+    @Test func plainTopLevelAgentsTakeNoParentLabel() {
+        let lines = TaskRowDetails.lines(agents: [agent("One", nil), agent("Two", nil)])
+        #expect(parentLabels(lines) == [nil, nil])
+        #expect(headers(lines) == ["One", "Two"])
+    }
+
+    @Test func activityFollowsItsAgentsOwnLinesBeforeItsChildren() {
+        let one = UUID(), child = UUID()
+        let lines = TaskRowDetails.lines(
+            agents: [
+                agent("One", "/Users/me/Plume", branch: "main", id: one),
+                agent("Child", "/Users/me/Plume", branch: "fix", depth: 1, id: child),
+                agent("Two", "/Users/me/Plume", branch: "dev"),
+            ],
+            activity: [one, child]
+        )
+        // The shared project sits first, at the task level.
+        #expect(lines[3] == .activity(tabID: one))
+        #expect(lines[6] == .activity(tabID: child))
+        let nesting = TaskRowDetails.agentGroupNesting(lines)
+        #expect(TaskRowDetails.agentTabTargets(lines, nesting: nesting)[6] == child)
+    }
+
+    @Test func aSoleTopLevelAgentsActivityFollowsTheTasksLines() {
+        let parent = UUID()
+        let lines = TaskRowDetails.lines(
+            agents: [agent("Parent", nil, id: parent), agent("Child", nil, depth: 1)],
+            taskLines: [.linearOverflow(2)],
+            activity: [parent]
+        )
+        #expect(Array(lines[1...2]) == [.linearOverflow(2), .activity(tabID: parent)])
+    }
+
+    @Test func severalTopLevelAgentsKeepTheTasksLinesAboveTheHeaders() {
+        let lines = TaskRowDetails.lines(
+            agents: [agent("One", nil), agent("Child", nil, depth: 1), agent("Two", nil)],
+            taskLines: [.linearOverflow(1)]
+        )
+        #expect(lines.first == .linearOverflow(1))
+        #expect(TaskRowDetails.agentGroupNesting(lines).first == [])
+    }
+
+    @Test func foldingKeepsEachHeadersLinesWithIt() {
+        let two = UUID()
+        let lines: [TaskRowDetails.Line] = [
+            .project("Plume"),
+            .agentHeader(TaskRowDetails.AgentHeader(tabID: UUID(), title: "One", status: .working)),
+            .branch("one"),
+            .agentHeader(TaskRowDetails.AgentHeader(tabID: two, title: "Two", status: .working)),
+            .branch("two"),
+            .activity(tabID: two),
+        ]
+        #expect(TaskRowDetails.lines(lines, keepingHeaders: 1) == (Array(lines.prefix(3)), [two]))
+        #expect(TaskRowDetails.lines(lines, keepingHeaders: 2) == (lines, []))
+        #expect(TaskRowDetails.headerCount(lines) == 2)
+    }
+
+    @Test func foldingKeepsTheFocusedAgentAndItsParents() {
+        let focused = UUID()
+        func header(_ title: String, depth: Int = 0, id: UUID = UUID()) -> TaskRowDetails.Line {
+            .agentHeader(TaskRowDetails.AgentHeader(tabID: id, title: title, status: .working, depth: depth))
+        }
+        let lines: [TaskRowDetails.Line] = [
+            header("1"), header("2"), header("3"), header("4"),
+            header("5"),
+            header("6"),
+            header("6a", depth: 1, id: focused),
+            .branch("fix"),
+            header("7"),
+        ]
+        let folded = AgentRowCap.fold(lines, isExpanded: false, focusedTabID: focused)
+        #expect(folded.lines == Array(lines.prefix(4)) + Array(lines[5...7]))
+        #expect(folded.layout == AgentRowCap.Layout(visibleCount: 6, toggleTitle: "Show 2 more", toggleSymbol: "chevron.down"))
+        #expect(folded.hiddenTabIDs.count == 2)
+        let expanded = AgentRowCap.fold(lines, isExpanded: true, focusedTabID: focused)
+        #expect(expanded.lines == lines)
+        #expect(expanded.hiddenTabIDs.isEmpty)
+    }
+
+    @Test func aFocusedAgentThatWouldBeTheOnlyHiddenOneLeavesNoToggle() {
+        let focused = UUID()
+        let lines: [TaskRowDetails.Line] = (1...4).map {
+            .agentHeader(TaskRowDetails.AgentHeader(tabID: UUID(), title: "\($0)", status: .working))
+        } + [.agentHeader(TaskRowDetails.AgentHeader(tabID: focused, title: "5", status: .working))]
+        let folded = AgentRowCap.fold(lines, isExpanded: false, focusedTabID: focused)
+        #expect(folded.lines == lines)
+        #expect(folded.layout.toggleTitle == nil)
+    }
+
+    @Test func anExpandedRowOffersShowFewerOnlyWhenCollapsingWouldHideSomething() {
+        let focused = UUID()
+        let lines: [TaskRowDetails.Line] = (1...4).map {
+            .agentHeader(TaskRowDetails.AgentHeader(tabID: UUID(), title: "\($0)", status: .working))
+        } + [.agentHeader(TaskRowDetails.AgentHeader(tabID: focused, title: "5", status: .working))]
+        let keepsAll = AgentRowCap.fold(lines, isExpanded: true, focusedTabID: focused)
+        #expect(keepsAll.layout.toggleTitle == nil)
+        let hidesOne = AgentRowCap.fold(lines, isExpanded: true, focusedTabID: nil)
+        #expect(hidesOne.layout == AgentRowCap.Layout(visibleCount: 5, toggleTitle: "Show fewer", toggleSymbol: "chevron.up"))
+    }
+
+    @Test func aChildsValueNamesItsParent() {
+        let header = TaskRowDetails.AgentHeader(tabID: UUID(), title: "fix", status: .awaitingReply, parentLabel: "Parent")
+        #expect(header.controlValue(isFocused: false, isHovered: false) == "\(header.statusText); child of Parent")
+    }
+
+    @Test func aHeaderNeedsAttentionWhenItsStatusWantsTheUserOrItIsUnread() {
+        for status in TaskStatus.allCases {
+            let header = TaskRowDetails.AgentHeader(tabID: UUID(), title: "Chat", status: status)
+            let expected: Bool = switch status {
+            case .permissionNeeded, .questionAsked, .planApproval, .needsTerminalInput: true
+            default: false
+            }
+            #expect(header.needsAttention == expected, "\(status)")
+        }
+        let unread = TaskRowDetails.AgentHeader(tabID: UUID(), title: "Chat", status: .done, isUnread: true)
+        #expect(unread.needsAttention)
+        #expect(unread.drawsBold(boldsAttention: true))
+        #expect(!unread.drawsBold(boldsAttention: false))
+        #expect(unread.controlValue(isFocused: false, isHovered: false) == "\(unread.statusText); attention")
+    }
+}
+
+@MainActor
+struct AgentRowCapTests {
+    @Test func fourHeadersFit() {
+        #expect(AgentRowCap.layout(total: 4, isExpanded: false)
+            == AgentRowCap.Layout(visibleCount: 4, toggleTitle: nil, toggleSymbol: nil))
+    }
+
+    @Test func theTogglesValueAddsHover() {
+        #expect(AgentRowCap.toggleValue(isExpanded: false, isHovered: false) == "collapsed")
+        #expect(AgentRowCap.toggleValue(isExpanded: false, isHovered: true) == "collapsed; hovered")
+        #expect(AgentRowCap.toggleValue(isExpanded: true, isHovered: true) == "expanded; hovered")
+    }
+
+    @Test func aFifthFoldsBehindAToggle() {
+        #expect(AgentRowCap.layout(total: 6, isExpanded: false)
+            == AgentRowCap.Layout(visibleCount: 4, toggleTitle: "Show 2 more", toggleSymbol: "chevron.down"))
+        #expect(AgentRowCap.layout(total: 6, isExpanded: true)
+            == AgentRowCap.Layout(visibleCount: 6, toggleTitle: "Show fewer", toggleSymbol: "chevron.up"))
+    }
+}
+
+/// With one top-level agent, the task's title and a click on its row both
+/// follow that agent rather than whichever child was last focused.
+@MainActor
+struct TaskRowChildSelectionTests {
+    private let context: ModelContext
+
+    init() throws {
+        let container = try ModelContainer(
+            for: Schema([TaskGroup.self, WorkTask.self, TaskTab.self]),
+            configurations: [ModelConfiguration(isStoredInMemoryOnly: true)]
+        )
+        context = ModelContext(container)
+    }
+
+    @Test func aDetachedChildInTheSameTaskStaysTopLevelInStripOrder() throws {
+        let task = TaskStore.createTask(in: context, siblings: [])
+        let parent = try #require(task.tabs.first)
+        let child = TaskStore.addChildTab(to: task, parent: parent, in: context)
+        let sibling = TaskStore.addTab(to: task, kind: .agent, in: context)
+        TaskStore.moveTab(child, toPane: 0, at: 5, in: task)
+        let grandchild = TaskStore.addChildTab(to: task, parent: child, in: context)
+
+        let nested = TaskStore.nestedAgentTabs(of: task).map { ($0.item.id, $0.depth) }
+
+        #expect(nested.map(\.0) == [parent.id, sibling.id, child.id, grandchild.id])
+        #expect(nested.map(\.1) == [0, 0, 0, 1])
+    }
+
+    @Test func aChildInTheOtherPaneLeavesTheRowClickAlone() throws {
+        let task = TaskStore.createTask(in: context, siblings: [])
+        let parent = try #require(task.tabs.first)
+        let child = TaskStore.addChildTab(to: task, parent: parent, in: context)
+        TaskStore.openInSplit(child, side: .right, in: task)
+
+        #expect(TaskStore.nestedAgentTabs(of: task).map(\.depth) == [0, 0])
+        #expect(TaskStore.rowClickTab(of: task) == nil)
+    }
+
+    @Test func theTopLevelAgentNamesTheTaskWhenAChildIsFocused() throws {
+        let task = TaskStore.createTask(in: context, siblings: [])
+        let parent = try #require(task.tabs.first)
+        let child = TaskStore.addChildTab(to: task, parent: parent, in: context)
+        TaskStore.selectTab(child, in: task)
+
+        let store = TitleStore()
+        store.setTitle("Parent work", forTab: parent.id, source: .reply)
+        store.setTitle("Child work", forTab: child.id, source: .reply)
+
+        #expect(store.displayTitle(for: task) == "Parent work")
+    }
+
+    @Test func anUntitledTopLevelAgentLeavesTheTitleToTheFocusedChild() throws {
+        let task = TaskStore.createTask(in: context, siblings: [])
+        let parent = try #require(task.tabs.first)
+        let child = TaskStore.addChildTab(to: task, parent: parent, in: context)
+        TaskStore.selectTab(child, in: task)
+
+        let store = TitleStore()
+        store.setTitle("Child work", forTab: child.id, source: .reply)
+
+        #expect(store.displayTitle(for: task) == "Child work")
+    }
+
+    @Test func oneAgentWithNoChildrenKeepsTheOldTitleRule() throws {
+        let task = TaskStore.createTask(in: context, siblings: [])
+        let agent = try #require(task.tabs.first)
+        let terminal = TaskStore.addTab(to: task, kind: .terminal, in: context)
+        TaskStore.selectTab(terminal, in: task)
+        task.lastFocusedAgentTabID = nil
+
+        let store = TitleStore()
+        store.setTitle("Agent work", forTab: agent.id, source: .reply)
+        store.setTitle("vim", forTab: terminal.id, source: .reply)
+
+        #expect(store.displayTitle(for: task) == "vim")
+    }
+
+    @Test func severalTopLevelAgentsKeepTheLastFocusedTitle() throws {
+        let task = TaskStore.createTask(in: context, siblings: [])
+        let first = try #require(task.tabs.first)
+        let second = TaskStore.addTab(to: task, kind: .agent, in: context)
+        TaskStore.selectTab(second, in: task)
+
+        let store = TitleStore()
+        store.setTitle("First", forTab: first.id, source: .reply)
+        store.setTitle("Second", forTab: second.id, source: .reply)
+
+        #expect(store.displayTitle(for: task) == "Second")
+    }
+
+    @Test func aRowClickSelectsTheTopLevelAgentOverAChild() throws {
+        let task = TaskStore.createTask(in: context, siblings: [])
+        let parent = try #require(task.tabs.first)
+        let child = TaskStore.addChildTab(to: task, parent: parent, in: context)
+        TaskStore.selectTab(child, in: task)
+
+        TaskStore.selectRowClickTab(of: task)
+        #expect(task.selectedTabID == parent.id)
+    }
+
+    @Test func aRowClickLeavesATerminalSelected() throws {
+        let task = TaskStore.createTask(in: context, siblings: [])
+        let parent = try #require(task.tabs.first)
+        _ = TaskStore.addChildTab(to: task, parent: parent, in: context)
+        let terminal = TaskStore.addTab(to: task, kind: .terminal, in: context)
+        TaskStore.selectTab(terminal, in: task)
+
+        #expect(TaskStore.rowClickTab(of: task) == nil)
+    }
+
+    @Test func aRowClickWithSeveralTopLevelAgentsChangesNothing() throws {
+        let task = TaskStore.createTask(in: context, siblings: [])
+        let first = try #require(task.tabs.first)
+        _ = TaskStore.addChildTab(to: task, parent: first, in: context)
+        let second = TaskStore.addTab(to: task, kind: .agent, in: context)
+        TaskStore.selectTab(second, in: task)
+
+        #expect(TaskStore.rowClickTab(of: task) == nil)
+    }
+
+    @Test func aRowClickWithNoChildrenChangesNothing() throws {
+        let task = TaskStore.createTask(in: context, siblings: [])
+        let terminal = TaskStore.addTab(to: task, kind: .terminal, in: context)
+        TaskStore.selectTab(terminal, in: task)
+
+        #expect(TaskStore.rowClickTab(of: task) == nil)
+    }
+}
+
+/// A detached child marks its parent and names the session that started it,
+/// by the parent's chip title, adding that parent's task when it is another
+/// one. An attached child nests under its parent's header and takes no mark.
+/// The task's title takes the mark of the header it stands for, or of the
+/// task's only agent.
+@MainActor
+struct TaskRowStarterTests {
+    private let context: ModelContext
+
+    init() throws {
+        let container = try ModelContainer(
+            for: Schema([TaskGroup.self, WorkTask.self, TaskTab.self]),
+            configurations: [ModelConfiguration(isStoredInMemoryOnly: true)]
+        )
+        context = ModelContext(container)
+    }
+
+    private let starter = TaskRowDetails.Starter(title: "Plan it", taskTitle: "Refactor")
+
+    @Test func anAttachedChildIsUnmarked() throws {
+        let task = TaskStore.createTask(in: context, siblings: [])
+        let parent = try #require(task.tabs.first)
+        let child = TaskStore.addChildTab(to: task, parent: parent, in: context)
+
+        #expect(TaskRowDetails.childMark(of: child, titles: TitleStore()) == TaskRowDetails.ChildMark())
+        #expect(TaskRowDetails.childMark(of: parent, titles: TitleStore()) == TaskRowDetails.ChildMark())
+    }
+
+    @Test func aChildDetachedInItsParentsTaskNamesItsStarterAlone() throws {
+        let task = TaskStore.createTask(in: context, siblings: [])
+        task.title = "Refactor"
+        let parent = try #require(task.tabs.first)
+        let child = TaskStore.addChildTab(to: task, parent: parent, in: context)
+        _ = TaskStore.addTab(to: task, kind: .terminal, in: context)
+        TaskStore.moveTab(child, toPane: 0, at: 5, in: task)
+        let titles = TitleStore()
+        titles.setTitle("Plan it", forTab: parent.id, source: .reply)
+
+        let mark = TaskRowDetails.childMark(of: child, titles: titles)
+
+        #expect(mark == TaskRowDetails.ChildMark(isDetached: true, starter: TaskRowDetails.Starter(title: "Plan it", taskTitle: nil)))
+        #expect(mark.starter?.text == "Plan it")
+        #expect(mark.starter?.help == "Started by Plan it")
+    }
+
+    @Test func aChildInTheOtherPaneNamesItsStarterAlone() throws {
+        let task = TaskStore.createTask(in: context, siblings: [])
+        let parent = try #require(task.tabs.first)
+        let child = TaskStore.addChildTab(to: task, parent: parent, in: context)
+        TaskStore.openInSplit(child, side: .right, in: task)
+        let titles = TitleStore()
+        titles.setTitle("Plan it", forTab: parent.id, source: .reply)
+
+        #expect(TaskRowDetails.childMark(of: child, titles: titles).starter == TaskRowDetails.Starter(title: "Plan it", taskTitle: nil))
+    }
+
+    @Test func aChildMovedToItsOwnTaskNamesItsStarterAndThatTask() throws {
+        let task = TaskStore.createTask(in: context, siblings: [])
+        task.title = "Refactor"
+        let parent = try #require(task.tabs.first)
+        let child = TaskStore.addChildTab(to: task, parent: parent, in: context)
+        TaskStore.moveTab(child, to: TaskStore.createTask(in: context, siblings: [task]))
+        let titles = TitleStore()
+        titles.setTitle("Plan it", forTab: parent.id, source: .reply)
+
+        let mark = TaskRowDetails.childMark(of: child, titles: titles)
+
+        #expect(mark == TaskRowDetails.ChildMark(isDetached: true, starter: starter))
+        #expect(mark.starter?.text == "Plan it · Refactor")
+        #expect(mark.starter?.help == "Started by Plan it in Refactor")
+    }
+
+    @Test func aStarterSharingItsTitleInItsTaskTakesItsNumberedLabel() throws {
+        let task = TaskStore.createTask(in: context, siblings: [])
+        task.title = "Refactor"
+        let parent = try #require(task.tabs.first)
+        let sibling = TaskStore.addTab(to: task, kind: .agent, in: context)
+        let child = TaskStore.addChildTab(to: task, parent: parent, in: context)
+        TaskStore.moveTab(child, to: TaskStore.createTask(in: context, siblings: [task]))
+        let titles = TitleStore()
+        titles.setTitle("Chat", forTab: parent.id, source: .reply)
+        titles.setTitle("Chat", forTab: sibling.id, source: .reply)
+
+        #expect(TaskRowDetails.childMark(of: child, titles: titles).starter?.text == "Chat #1 · Refactor")
+    }
+
+    @Test func aTaskNamedAfterItsStarterIsNotRepeated() {
+        #expect(TaskRowDetails.Starter(title: "Plan it", taskTitle: "Plan it").text == "Plan it")
+    }
+
+    @Test func aRowWithNoHeadersPutsItsOnlyAgentsMarkOnTheTitle() {
+        let mark = TaskRowDetails.ChildMark(isDetached: true, starter: starter)
+        #expect(TaskRowDetails.titleChildMark([.project("Plume")], soleAgent: mark) == mark)
+    }
+
+    @Test func aHeaderTheTitleStandsForGivesTheTitleItsMark() {
+        var header = TaskRowDetails.AgentHeader(tabID: UUID(), title: "Child", status: .awaitingReply, isDetachedChild: true, starter: starter)
+        header.standsForTask = true
+        let child = TaskRowDetails.AgentHeader(tabID: UUID(), title: "Grandchild", status: .awaitingReply, depth: 1)
+        #expect(TaskRowDetails.titleChildMark([.agentHeader(header), .agentHeader(child)], soleAgent: nil)
+            == TaskRowDetails.ChildMark(isDetached: true, starter: starter))
+    }
+
+    @Test func drawnHeadersLeaveTheTitleUnmarked() {
+        let header = TaskRowDetails.AgentHeader(tabID: UUID(), title: "Child", status: .awaitingReply, isDetachedChild: true, starter: starter)
+        #expect(TaskRowDetails.titleChildMark([.agentHeader(header)], soleAgent: TaskRowDetails.ChildMark(isDetached: true)) == nil)
+    }
+
+    @Test func aDrawnHeadersAccessibilityTextNamesTheStarter() {
+        var header = TaskRowDetails.AgentHeader(tabID: UUID(), title: "Child", status: .awaitingReply, starter: starter)
+        #expect(TaskRowDetails.accessibilityText(.agentHeader(header)) == "Child, started by Plan it · Refactor, \(TaskStatus.awaitingReply.label)")
+        header.standsForTask = true
+        #expect(TaskRowDetails.accessibilityText(.agentHeader(header)) == nil)
+    }
+}

@@ -23,7 +23,7 @@ On the release branch:
 
 1. Set `MARKETING_VERSION` to `<version>-beta.<n>` and bump `CURRENT_PROJECT_VERSION`, in the **app target's** Debug and Release blocks only. Xcode quotes a beta version; leave the quotes. Commit the bump alone.
 2. Draft `## Draft: <version>-beta.<n> (<build>)` at the top of `CHANGELOG.md`. Use the voice and the sources from `release-cycle` step 5. For beta 2 and later, cover only what changed since the previous beta. End with the `### Recently` list.
-3. Leave the draft **uncommitted**, and tell the user it's ready. They edit it and remove `Draft: ` to approve it. Then confirm the heading is exactly `## <version>-beta.<n> (<build>)`, and commit `CHANGELOG.md` on its own.
+3. Leave the draft **uncommitted**, and tell the user it's ready. They edit it and remove `Draft: ` to approve it. **Only the user removing `Draft: ` approves the notes.** Never remove it yourself, and never treat "let's release" or any other message as approval. Then confirm the heading is exactly `## <version>-beta.<n> (<build>)`, and commit `CHANGELOG.md` on its own.
 
 ## 3. Merge to main
 
