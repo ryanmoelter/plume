@@ -110,6 +110,7 @@ enum AccessibilityID {
     static let settingsSidebarShowsTaskColorBarToggle = "settings-sidebar-shows-task-color-bar-toggle"
     static let settingsSidebarColorsTaskNamesToggle = "settings-sidebar-colors-task-names-toggle"
     static let settingsSidebarBoldTaskNamesToggle = "settings-sidebar-bold-task-names-toggle"
+    static let settingsSidebarBoldAgentAttentionToggle = "settings-sidebar-bold-agent-attention-toggle"
     static let settingsAlwaysShowsCreditAndFableQuotaToggle = "settings-always-shows-credit-and-fable-quota-toggle"
     static let settingsReadsClaudeUsageToggle = "settings-reads-claude-usage-toggle"
     static let settingsSidebarColorsTaskIconsToggle = "settings-sidebar-colors-task-icons-toggle"

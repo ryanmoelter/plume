@@ -46,6 +46,7 @@ final class AppSettings {
         static let sidebarShowsTaskColorBar = "sidebarShowsTaskColorBar"
         static let sidebarColorsTaskNames = "sidebarColorsTaskNames"
         static let sidebarBoldTaskNames = "sidebarBoldTaskNames"
+        static let sidebarBoldsAgentsNeedingAttention = "sidebarBoldsAgentsNeedingAttention"
         static let alwaysShowsCreditAndFableQuota = "alwaysShowsCreditAndFableQuota"
         #if DEBUG
         static let debugSidebarAgentTitlesAtTaskNameSize = "debugSidebarAgentTitlesAtTaskNameSize"
@@ -222,6 +223,7 @@ final class AppSettings {
             : defaults.bool(forKey: Key.sidebarShowsTaskColorBar)
         self.sidebarColorsTaskNames = defaults.bool(forKey: Key.sidebarColorsTaskNames)
         self.sidebarBoldTaskNames = defaults.bool(forKey: Key.sidebarBoldTaskNames)
+        self.sidebarBoldsAgentsNeedingAttention = defaults.bool(forKey: Key.sidebarBoldsAgentsNeedingAttention)
         self.alwaysShowsCreditAndFableQuota = defaults.bool(forKey: Key.alwaysShowsCreditAndFableQuota)
         #if DEBUG
         self.sidebarAgentTitlesAtTaskNameSize = defaults.bool(forKey: Key.debugSidebarAgentTitlesAtTaskNameSize)
@@ -673,6 +675,13 @@ final class AppSettings {
     var sidebarBoldTaskNames: Bool {
         didSet {
             defaults.set(sidebarBoldTaskNames, forKey: Key.sidebarBoldTaskNames)
+        }
+    }
+
+    /// Bolds an agent header's title in the sidebar while it needs the user.
+    var sidebarBoldsAgentsNeedingAttention: Bool {
+        didSet {
+            defaults.set(sidebarBoldsAgentsNeedingAttention, forKey: Key.sidebarBoldsAgentsNeedingAttention)
         }
     }
 

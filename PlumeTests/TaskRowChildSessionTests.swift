@@ -216,6 +216,8 @@ struct TaskRowChildLinesTests {
         }
         let unread = TaskRowDetails.AgentHeader(tabID: UUID(), title: "Chat", status: .done, isUnread: true)
         #expect(unread.needsAttention)
+        #expect(unread.drawsBold(boldsAttention: true))
+        #expect(!unread.drawsBold(boldsAttention: false))
         #expect(unread.controlValue(isFocused: false, isHovered: false) == "\(unread.statusText); attention")
     }
 }

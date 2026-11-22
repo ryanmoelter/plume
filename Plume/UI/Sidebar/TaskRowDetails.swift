@@ -100,9 +100,13 @@ enum TaskRowDetails {
             self.parentLabel = parentLabel
         }
 
-        /// Whether the title draws bold: the agent has stopped for the user.
+        /// The agent has stopped for the user, or has a reply they have not read.
         var needsAttention: Bool {
             status.wantsAttention || isUnread
+        }
+
+        func drawsBold(boldsAttention: Bool) -> Bool {
+            boldsAttention && needsAttention
         }
 
         var statusText: String {

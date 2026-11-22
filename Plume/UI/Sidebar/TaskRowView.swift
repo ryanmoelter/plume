@@ -579,7 +579,7 @@ struct TaskRowView: View {
             }
             Text(header.title)
                 .font(agentTitleFont)
-                .bold(header.needsAttention)
+                .bold(header.drawsBold(boldsAttention: AppSettings.shared.sidebarBoldsAgentsNeedingAttention))
                 .emphasis(titleEmphasis)
                 .animation(AgentGroupBar.fade, value: titleEmphasis)
                 .lineLimit(1)
