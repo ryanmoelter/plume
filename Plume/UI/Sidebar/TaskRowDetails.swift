@@ -75,6 +75,9 @@ enum TaskRowDetails {
         /// The label of the agent this one nests under, set by
         /// `lines(agents:taskLines:activity:)`. Nil for a top-level agent.
         var parentLabel: String?
+        /// The task's title and badge speak for this agent, so its header
+        /// draws nothing and only opens its group.
+        var standsForTask = false
 
         init(
             tabID: UUID,
@@ -171,12 +174,13 @@ enum TaskRowDetails {
     /// `agents` come in `TaskStore.nestedByParent` order, each header's
     /// `depth` saying how far it nests.
     ///
-    /// Every agent takes a header. With several top-level agents, a shared
+    /// With several top-level agents, each takes a header, and a shared
     /// attribute, absence included, shows once at the task level, where a
     /// one-agent row shows it; the rest show under each agent's header. A
-    /// sole top-level agent keeps all its lines under its own header, so its
-    /// group sets it apart from its children. The project is shared when every top-level
-    /// agent's reads the same. A branch or pull request is shared only when
+    /// sole top-level agent with children is the task, so its header
+    /// `standsForTask`: its group opens straight onto its lines, and its
+    /// children follow as groups of their own, a level shallower. The
+    /// project is shared when every top-level agent's reads the same. A branch or pull request is shared only when
     /// every one is also in the same folder: two clones on one branch are
     /// still two checkouts, and a shared branch above per-agent projects
     /// would sit outside its header. `taskLines` follow the shared lines,
@@ -203,8 +207,10 @@ enum TaskRowDetails {
             let shown: [Line]
             if let parent = parents[index] {
                 header.parentLabel = agents[parent].header.label
+                if parentTakesTaskLines { header.depth -= 1 }
                 shown = Self.lines(of: agents[index].workspace, differingFrom: agents[parent].workspace)
             } else {
+                header.standsForTask = parentTakesTaskLines
                 shown = perAgent[index].filter { !isShared($0) }
             }
             lines.append(.agentHeader(header))
@@ -256,9 +262,10 @@ enum TaskRowDetails {
         }
     }
 
-    /// `lines` keeping the first `count` headers, plus the header of
+    /// `lines` keeping the first `count` drawn headers, plus the header of
     /// `keptTabID` and every header above it, so a kept child never loses
-    /// its parent. A header's own lines travel with it.
+    /// its parent. A header's own lines travel with it, and a header that
+    /// `standsForTask` is always kept.
     static func lines(
         _ lines: [Line],
         keepingHeaders count: Int,
@@ -270,7 +277,8 @@ enum TaskRowDetails {
             guard case .agentHeader(let header) = lines[index] else { preconditionFailure() }
             return header
         }
-        var kept = Set(headers.indices.prefix(count))
+        let drawn = headers.indices.filter { !headers[$0].standsForTask }
+        var kept = Set(headers.indices.filter { headers[$0].standsForTask } + drawn.prefix(count))
         if let keptIndex = headers.firstIndex(where: { $0.tabID == keptTabID }), !kept.contains(keptIndex) {
             kept.insert(keptIndex)
             var depth = headers[keptIndex].depth
@@ -287,8 +295,13 @@ enum TaskRowDetails {
         return (result, headers.indices.filter { !kept.contains($0) }.map { headers[$0].tabID })
     }
 
+    /// Only the headers a row draws.
     static func headerCount(_ lines: [Line]) -> Int {
-        lines.count { if case .agentHeader = $0 { true } else { false } }
+        lines.count { if case .agentHeader(let header) = $0 { !header.standsForTask } else { false } }
+    }
+
+    static func isDrawn(_ line: Line) -> Bool {
+        if case .agentHeader(let header) = line { !header.standsForTask } else { true }
     }
 
     /// Project first: it is the header the branch and pull request under it
@@ -543,7 +556,7 @@ enum TaskRowDetails {
     static func accessibilityText(_ line: Line) -> String? {
         switch line {
         case .text(let text): text
-        case .agentHeader(let header): "\(header.title), \(header.statusText)"
+        case .agentHeader(let header): header.standsForTask ? nil : "\(header.title), \(header.statusText)"
         case .project(let name): name
         case .branch(let branch, let isWorktree, let companion):
             [isWorktree ? "worktree" : nil, branch,

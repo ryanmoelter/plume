@@ -161,7 +161,9 @@ struct TaskRowView: View {
     /// project header repeats per directory, and the icons belong to the task
     /// rather than to any one of them, so they ride on the first, or on the
     /// title when there is no project line. With several agent tabs, each
-    /// header carries its own tab's icons instead.
+    /// header carries its own tab's icons instead, except a header that
+    /// stands for the task: its icons ride on its group's first line when
+    /// that is a project line, and on the title otherwise.
     private struct ProjectLineIcons {
         var lineIndex: Int?
         var isRemoteControlled: Bool
@@ -176,11 +178,27 @@ struct TaskRowView: View {
         )
     }
 
+    private func taskAgentIcons(in lines: [TaskRowDetails.Line]) -> ProjectLineIcons? {
+        guard let start = lines.firstIndex(where: { !TaskRowDetails.isDrawn($0) }),
+              case .agentHeader(let header) = lines[start]
+        else { return nil }
+        let next = lines.index(after: start)
+        let startsWithProject = if lines.indices.contains(next), case .project = lines[next] { true } else { false }
+        return ProjectLineIcons(
+            lineIndex: startsWithProject ? next : nil,
+            isRemoteControlled: header.isRemotelyControlled,
+            heldDevices: DeviceLeaseStore.shared.leases(ownedBy: [header.tabID])
+        )
+    }
+
     /// With several agent tabs, a lease owned by a terminal or device tab
     /// belongs to no header, so it shows beside the task's title.
-    private func taskLevelHeldDevices() -> String? {
-        let held = DeviceLeaseStore.shared.leases(ownedBy: task.orderedLiveTabs.filter { $0.kind != .agent }.map(\.id))
-        return held.isEmpty ? nil : DeviceLeaseStore.summary(held)
+    private func taskLevelHeldDevices() -> [DeviceLease] {
+        DeviceLeaseStore.shared.leases(ownedBy: task.orderedLiveTabs.filter { $0.kind != .agent }.map(\.id))
+    }
+
+    private func titleHeldDevices(_ held: [DeviceLease]) -> String? {
+        held.isEmpty ? nil : DeviceLeaseStore.summary(held)
     }
 
 
@@ -203,8 +221,9 @@ struct TaskRowView: View {
         let rawLines = folded.lines
         let lines = Array(rawLines.enumerated())
         let badgeLineCount = Self.badgeLineCount(of: rawLines)
-        let icons = hasSeveralAgents ? nil : projectLineIcons(in: rawLines, agentTabIDs: agentTabIDs)
+        let icons = hasSeveralAgents ? taskAgentIcons(in: rawLines) : projectLineIcons(in: rawLines, agentTabIDs: agentTabIDs)
         let titleIcons = icons?.lineIndex == nil ? icons : nil
+        let firstDrawnLine = rawLines.firstIndex(where: TaskRowDetails.isDrawn)
         let owners = TaskRowDetails.owningAgentLabels(rawLines)
         let nesting = TaskRowDetails.agentGroupNesting(rawLines)
         let hovered = hasSeveralAgents ? TaskRowDetails.hoveredAgentGroup(hoveredLines: hoveredLines, nesting: nesting) : nil
@@ -220,14 +239,14 @@ struct TaskRowView: View {
             HStack(alignment: .top, spacing: 6) {
                 VStack(alignment: .leading, spacing: Self.lineSpacing) {
                     title(
-                        heldDevices: hasSeveralAgents
-                            ? taskLevelHeldDevices()
-                            : titleIcons.flatMap { $0.heldDevices.isEmpty ? nil : DeviceLeaseStore.summary($0.heldDevices) },
+                        heldDevices: titleHeldDevices(
+                            (titleIcons?.heldDevices ?? []) + (hasSeveralAgents ? taskLevelHeldDevices() : [])
+                        ),
                         isRemoteControlled: titleIcons?.isRemoteControlled ?? false
                     )
                     descriptionLine
-                    ForEach(Array(lines.prefix(badgeLineCount)), id: \.offset) { index, line in
-                        groupedDetailLine(line, at: index, owner: owners[index], icons: icons, groups: groups)
+                    ForEach(Array(lines.prefix(badgeLineCount)).filter { TaskRowDetails.isDrawn($0.element) }, id: \.offset) { index, line in
+                        groupedDetailLine(line, at: index, owner: owners[index], icons: icons, groups: groups, firstDrawnLine: firstDrawnLine)
                     }
                 }
                 Spacer(minLength: 4)
@@ -239,8 +258,8 @@ struct TaskRowView: View {
                 )
             }
 
-            ForEach(Array(lines.dropFirst(badgeLineCount)), id: \.offset) { index, line in
-                groupedDetailLine(line, at: index, owner: owners[index], icons: icons, groups: groups)
+            ForEach(Array(lines.dropFirst(badgeLineCount)).filter { TaskRowDetails.isDrawn($0.element) }, id: \.offset) { index, line in
+                groupedDetailLine(line, at: index, owner: owners[index], icons: icons, groups: groups, firstDrawnLine: firstDrawnLine)
             }
 
             if let title = cap.toggleTitle, let symbol = cap.toggleSymbol {
@@ -411,12 +430,13 @@ struct TaskRowView: View {
     }
 
     /// The first project line shares the status badge's lines, so a badge
-    /// glyph taller than the title never changes the row's height. An agent
-    /// header never does: its own badge sits in the same trailing column.
+    /// glyph taller than the title never changes the row's height. A drawn
+    /// agent header never does: its own badge sits in the same trailing column.
     private static func badgeLineCount(of lines: [TaskRowDetails.Line]) -> Int {
-        switch lines.first {
-        case .project: 1
-        default: 0
+        let skipped = lines.prefix { !TaskRowDetails.isDrawn($0) }.count
+        switch lines.dropFirst(skipped).first {
+        case .project: return skipped + 1
+        default: return skipped
         }
     }
 
@@ -474,7 +494,8 @@ struct TaskRowView: View {
         at index: Int,
         owner: String?,
         icons: ProjectLineIcons?,
-        groups: AgentGroupState
+        groups: AgentGroupState,
+        firstDrawnLine: Int?
     ) -> some View {
         let member = detailLine(line, at: index, owner: owner, icons: icons, groups: groups)
             .animation(AgentGroupBar.fade, value: groups.isEmphasized(index))
@@ -483,7 +504,7 @@ struct TaskRowView: View {
             // Reaching half the stack's spacing past each edge leaves no gap
             // between lines where the pointer falls through to the row.
             member
-                .padding(.top, Self.headerGap(above: line, at: index))
+                .padding(.top, Self.headerGap(above: line, at: index, firstDrawnLine: firstDrawnLine))
                 .frame(maxWidth: .infinity, alignment: .leading)
                 .padding(.vertical, Self.lineSpacing / 2)
                 .contentShape(.rect)
@@ -504,9 +525,9 @@ struct TaskRowView: View {
         }
     }
 
-    /// None above the first line, which already sits under the title.
-    private static func headerGap(above line: TaskRowDetails.Line, at index: Int) -> CGFloat {
-        guard index > 0, case .agentHeader = line else { return 0 }
+    /// None above the first drawn line, which already sits under the title.
+    private static func headerGap(above line: TaskRowDetails.Line, at index: Int, firstDrawnLine: Int?) -> CGFloat {
+        guard let firstDrawnLine, index > firstDrawnLine, case .agentHeader = line else { return 0 }
         return agentHeaderGap
     }
 

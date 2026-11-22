@@ -3,11 +3,13 @@ import SwiftData
 import Testing
 @testable import Plume
 
-/// A task row with child sessions: every agent takes a header, with children
-/// nested under their parent's. A sole top-level agent keeps its lines under
-/// its own header; several hoist what they share. A child shows only the lines
-/// that differ from its parent's, and every header after the fourth folds
-/// behind a toggle.
+/// A task row with child sessions. Several top-level agents each take a
+/// header, with children nested under their parent's, and hoist what they
+/// share. A sole top-level agent stands for the task: its header draws
+/// nothing, its group holds its own and the task's lines, and its children
+/// follow as groups of their own. A child shows only the lines that differ
+/// from its parent's, and every drawn header after the fourth folds behind a
+/// toggle.
 @MainActor
 struct TaskRowChildLinesTests {
     private let open = PullRequestFetchState.pullRequest(PullRequest(number: 42, state: .open, isDraft: false))
@@ -37,8 +39,8 @@ struct TaskRowChildLinesTests {
         }
     }
 
-    @Test func aSoleTopLevelAgentKeepsItsAndTheTasksLinesInItsGroup() {
-        let parentHeader = TaskRowDetails.AgentHeader(tabID: UUID(), title: "Parent", status: .awaitingReply)
+    @Test func aSoleTopLevelAgentStandsForTheTaskWithItsAndTheTasksLinesInItsGroup() {
+        var parentHeader = TaskRowDetails.AgentHeader(tabID: UUID(), title: "Parent", status: .awaitingReply)
         var childHeader = TaskRowDetails.AgentHeader(tabID: UUID(), title: "Child", status: .awaitingReply, depth: 1)
         let workspace = TaskRowDetails.DirectoryGroup(directory: "/Users/me/Plume", branch: "main", pullRequest: open)
         let lines = TaskRowDetails.lines(
@@ -48,7 +50,9 @@ struct TaskRowChildLinesTests {
             ],
             taskLines: [.linearOverflow(1)]
         )
+        parentHeader.standsForTask = true
         childHeader.parentLabel = "Parent"
+        childHeader.depth = 0
         #expect(lines == [
             .agentHeader(parentHeader),
             .project("Plume"),
@@ -57,7 +61,32 @@ struct TaskRowChildLinesTests {
             .linearOverflow(1),
             .agentHeader(childHeader),
         ])
-        #expect(TaskRowDetails.agentGroupNesting(lines) == [[0], [0], [0], [0], [0], [0, 5]])
+        #expect(TaskRowDetails.agentGroupNesting(lines) == [[0], [0], [0], [0], [0], [5]])
+        #expect(lines.map(TaskRowDetails.isDrawn) == [false, true, true, true, true, true])
+        #expect(TaskRowDetails.headerCount(lines) == 1)
+        #expect(TaskRowDetails.owningAgentLabels(lines)[1] == "Parent")
+    }
+
+    @Test func aSoleTopLevelAgentWithNoLinesLeavesOnlyItsChildrenDrawn() {
+        let parent = UUID(), child = UUID()
+        let lines = TaskRowDetails.lines(agents: [
+            agent("Parent", nil, id: parent),
+            agent("Child", nil, depth: 1, id: child),
+            agent("Grandchild", nil, depth: 2),
+        ])
+        #expect(lines.map(TaskRowDetails.isDrawn) == [false, true, true])
+        #expect(TaskRowDetails.agentGroupNesting(lines) == [[0], [1], [1, 2]])
+        #expect(TaskRowDetails.focusedAgentGroup(lines, focusedTabID: parent) == 0)
+    }
+
+    @Test func theCapCountsOnlyDrawnHeadersAndNeverFoldsTheTasksAgent() {
+        let parent = UUID()
+        let lines = TaskRowDetails.lines(agents: [agent("Parent", "/Users/me/Plume", id: parent)]
+            + (1...5).map { agent("Child \($0)", nil, depth: 1) })
+        let folded = AgentRowCap.fold(lines, isExpanded: false, focusedTabID: nil)
+        #expect(Array(folded.lines.prefix(2)) == Array(lines.prefix(2)))
+        #expect(folded.layout == AgentRowCap.Layout(visibleCount: 4, toggleTitle: "Show 1 more", toggleSymbol: "chevron.down"))
+        #expect(!folded.hiddenTabIDs.contains(parent))
     }
 
     @Test func aChildShowsOnlyTheLinesThatDifferFromItsParents() {
