@@ -37,7 +37,7 @@ struct TaskRowChildLinesTests {
         }
     }
 
-    @Test func aSoleTopLevelAgentKeepsItsLinesUnderItsOwnHeader() {
+    @Test func aSoleTopLevelAgentKeepsItsAndTheTasksLinesInItsGroup() {
         let parentHeader = TaskRowDetails.AgentHeader(tabID: UUID(), title: "Parent", status: .awaitingReply)
         var childHeader = TaskRowDetails.AgentHeader(tabID: UUID(), title: "Child", status: .awaitingReply, depth: 1)
         let workspace = TaskRowDetails.DirectoryGroup(directory: "/Users/me/Plume", branch: "main", pullRequest: open)
@@ -50,14 +50,14 @@ struct TaskRowChildLinesTests {
         )
         childHeader.parentLabel = "Parent"
         #expect(lines == [
-            .linearOverflow(1),
             .agentHeader(parentHeader),
             .project("Plume"),
             .branch("main"),
             .pullRequest(directory: "/Users/me/Plume", state: open),
+            .linearOverflow(1),
             .agentHeader(childHeader),
         ])
-        #expect(TaskRowDetails.agentGroupNesting(lines) == [[], [1], [1], [1], [1], [1, 5]])
+        #expect(TaskRowDetails.agentGroupNesting(lines) == [[0], [0], [0], [0], [0], [0, 5]])
     }
 
     @Test func aChildShowsOnlyTheLinesThatDifferFromItsParents() {
@@ -133,13 +133,23 @@ struct TaskRowChildLinesTests {
         #expect(TaskRowDetails.agentTabTargets(lines, nesting: nesting)[6] == child)
     }
 
-    @Test func aSoleTopLevelAgentsActivityFollowsItsOwnHeader() {
+    @Test func aSoleTopLevelAgentsActivityFollowsTheTasksLines() {
         let parent = UUID()
         let lines = TaskRowDetails.lines(
             agents: [agent("Parent", nil, id: parent), agent("Child", nil, depth: 1)],
+            taskLines: [.linearOverflow(2)],
             activity: [parent]
         )
-        #expect(lines[1] == .activity(tabID: parent))
+        #expect(Array(lines[1...2]) == [.linearOverflow(2), .activity(tabID: parent)])
+    }
+
+    @Test func severalTopLevelAgentsKeepTheTasksLinesAboveTheHeaders() {
+        let lines = TaskRowDetails.lines(
+            agents: [agent("One", nil), agent("Child", nil, depth: 1), agent("Two", nil)],
+            taskLines: [.linearOverflow(1)]
+        )
+        #expect(lines.first == .linearOverflow(1))
+        #expect(TaskRowDetails.agentGroupNesting(lines).first == [])
     }
 
     @Test func foldingKeepsEachHeadersLinesWithIt() {

@@ -180,7 +180,8 @@ enum TaskRowDetails {
     /// every one is also in the same folder: two clones on one branch are
     /// still two checkouts, and a shared branch above per-agent projects
     /// would sit outside its header. `taskLines` follow the shared lines,
-    /// before the first header.
+    /// before the first header, except under a sole top-level agent: the task
+    /// is that agent, so they follow its own lines inside its group.
     ///
     /// A child session shows only the lines that differ from its parent's,
     /// by `lines(of:differingFrom:)`. A tab in `activity` gets an
@@ -194,7 +195,9 @@ enum TaskRowDetails {
         func isShared(_ line: Line) -> Bool {
             attribute(of: line).map(shared.contains) ?? false
         }
-        var lines = (topLevel.first.map { perAgent[$0] } ?? []).filter(isShared) + taskLines
+        let parentTakesTaskLines = topLevel.count == 1 && agents.count > 1
+        var lines = (topLevel.first.map { perAgent[$0] } ?? []).filter(isShared)
+            + (parentTakesTaskLines ? [] : taskLines)
         for index in agents.indices {
             var header = agents[index].header
             let shown: [Line]
@@ -206,6 +209,7 @@ enum TaskRowDetails {
             }
             lines.append(.agentHeader(header))
             lines.append(contentsOf: shown)
+            if parentTakesTaskLines, parents[index] == nil { lines.append(contentsOf: taskLines) }
             if activity.contains(header.tabID) { lines.append(.activity(tabID: header.tabID)) }
         }
         return lines
@@ -463,7 +467,8 @@ enum TaskRowDetails {
 
     /// For each line, the agent groups it sits in, outermost first, each named
     /// by its header's index. A child's group sits inside its parent's, so the
-    /// parent's group runs on past its children. Task-level lines sit in none.
+    /// parent's group runs on past its children. Lines above the first header
+    /// sit in none.
     static func agentGroupNesting(_ lines: [Line]) -> [[Int]] {
         var open: [(index: Int, depth: Int)] = []
         return lines.indices.map { index in
@@ -471,7 +476,8 @@ enum TaskRowDetails {
             case .agentHeader(let header):
                 open.removeAll { $0.depth >= header.depth }
                 open.append((index, header.depth))
-            case .project, .branch, .pullRequest, .activity:
+            case .project, .branch, .pullRequest, .activity,
+                 .linearIssue, .linearOverflow, .pinnedPullRequest, .pinnedPullRequestOverflow:
                 break
             default:
                 open = []
