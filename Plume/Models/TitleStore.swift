@@ -127,12 +127,20 @@ final class TitleStore {
         sources.removeAll()
     }
 
-    /// The tab whose title stands in for the task: the last agent tab the user
-    /// focused, else the selected tab, else the first.
+    /// The tab whose title stands in for the task: its one top-level agent
+    /// tab when it has exactly one, child sessions under it and a title
+    /// (`hasTitle`), else the last agent tab the user focused, else the
+    /// selected tab, else the first.
     ///
-    /// Preferring the last-focused *agent* tab keeps the sidebar showing what
-    /// the agent is doing when the user dips into a terminal tab.
-    static func representativeTab(of task: WorkTask) -> TaskTab? {
+    /// The sole top-level tab wins so opening one of its child sessions never
+    /// renames the task. Preferring the last-focused *agent* tab keeps the
+    /// sidebar showing what the agent is doing when the user dips into a
+    /// terminal tab.
+    static func representativeTab(of task: WorkTask, hasTitle: (TaskTab) -> Bool = { _ in true }) -> TaskTab? {
+        let nested = TaskStore.nestedAgentTabs(of: task)
+        if nested.count > 1, let topLevel = TaskStore.soleTopLevelAgentTab(in: nested), hasTitle(topLevel) {
+            return topLevel
+        }
         let tabs = task.orderedTabs
         if let id = task.lastFocusedAgentTabID, let tab = tabs.first(where: { $0.id == id }) {
             return tab
@@ -153,7 +161,7 @@ final class TitleStore {
 
     /// The agent's title for a task, ignoring the name the user gave it.
     func generatedTitle(for task: WorkTask) -> String? {
-        Self.representativeTab(of: task).flatMap(displayTitle(forTab:))
+        Self.representativeTab(of: task, hasTitle: { displayTitle(forTab: $0) != nil }).flatMap(displayTitle(forTab:))
     }
 
     /// The tab's live title, else the snapshot saved from an earlier launch.

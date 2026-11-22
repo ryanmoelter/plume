@@ -30,6 +30,21 @@ struct TabStripGroupingTests {
         #expect(grouping.hidden.isEmpty)
     }
 
+    @Test func aTabBelongsToEveryGroupEnclosingIt() {
+        let parent = UUID(), child = UUID(), grandchild = UUID(), other = UUID()
+        let grouping = TabStripGrouping([
+            Entry(id: parent, parentID: nil),
+            Entry(id: child, parentID: parent),
+            Entry(id: grandchild, parentID: child),
+            Entry(id: other, parentID: nil)
+        ])
+
+        #expect(grouping.groupParents(containing: parent) == [parent])
+        #expect(grouping.groupParents(containing: child) == [parent, child])
+        #expect(grouping.groupParents(containing: grandchild) == [parent, child])
+        #expect(grouping.groupParents(containing: other).isEmpty)
+    }
+
     @Test func aChildAwayFromItsParentIsNotGrouped() {
         let parent = UUID(), other = UUID(), child = UUID()
         let grouping = TabStripGrouping([

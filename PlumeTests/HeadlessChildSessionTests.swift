@@ -4,8 +4,9 @@ import Testing
 
 /// A headless session serves Plume's MCP server over `mcp_message`, allows
 /// its tools without asking, reports whether a finished turn carried a
-/// message Plume sent, and puts held notes in front of the user's next
-/// message. Line shapes come from probing `claude -p` 2.1.321.
+/// message Plume sent and whether the parent sent it, and puts held notes
+/// in front of the user's next message. Line shapes come from probing
+/// `claude -p` 2.1.321.
 @MainActor
 struct HeadlessChildSessionTests {
     private final class Recorder {
@@ -175,6 +176,34 @@ struct HeadlessChildSessionTests {
         #expect(recorder.outcomes.first?.text == "DONE")
     }
 
+    @Test func onlyATurnCarryingTheParentsMessageReportsAsParentDriven() throws {
+        let (session, recorder) = makeSession()
+        session.submitFromHost(blocks: [.text("brief")], origin: .fromParent(text: "brief"))
+        try receive(session, Self.result)
+        session.submit(text: "typed")
+        try receive(session, Self.result)
+        session.submitFromHost(blocks: [.text("notes")], origin: .notes([]))
+        try receive(session, Self.result)
+
+        #expect(recorder.outcomes.map(\.isParentDriven) == [true, false, false])
+        #expect(recorder.outcomes.map(\.isHostDriven) == [true, false, true])
+    }
+
+    @Test func aTurnMergingTheParentsMessageWithTheUsersIsParentDriven() throws {
+        let (session, _) = makeSession()
+        session.submit(text: "typed")
+        session.submitFromHost(blocks: [.text("wire")], display: [.text("shown")], origin: .fromParent(text: "shown"))
+        session.debugExit(status: 1, errorLine: "boom")
+        session.sendNow(appending: [.text("draft")])
+
+        let (resumed, recorder) = makeSession()
+        for message in session.queue { resumed.submit(message) }
+        try receive(resumed, Self.result)
+
+        #expect(try sentTexts(recorder) == ["wire\n\ndraft"])
+        #expect(recorder.outcomes.map(\.isParentDriven) == [true])
+    }
+
     @Test func aQueuedHostMessageMarksTheTurnThatCarriesIt() throws {
         let (session, recorder) = makeSession()
         session.submit(text: "typed")
@@ -340,14 +369,24 @@ struct HeadlessChildSessionTests {
 
     @Test func anExitMidTurnReportsAnErrorOutcome() throws {
         let (session, recorder) = makeSession()
-        session.submitFromHost(blocks: [.text("brief")])
+        session.submitFromHost(blocks: [.text("brief")], origin: .fromParent(text: "brief"))
         session.debugExit(status: 1, errorLine: "API down")
 
         let outcome = try #require(recorder.outcomes.first)
         #expect(outcome.exitedMidTurn)
         #expect(outcome.isError)
         #expect(outcome.isHostDriven)
+        #expect(outcome.isParentDriven)
         #expect(ChildSessionFormats.reportText(of: outcome) == "The session exited before finishing its turn: API down")
+    }
+
+    @Test func anExitMidwayThroughAUsersTurnIsNotParentDriven() throws {
+        let (session, recorder) = makeSession()
+        session.submit(text: "typed")
+        session.debugExit(status: 1, errorLine: "API down")
+
+        #expect(recorder.outcomes.map(\.exitedMidTurn) == [true])
+        #expect(recorder.outcomes.map(\.isParentDriven) == [false])
     }
 
     @Test func aForkWhoseCutIsRefusedHandsOverInsteadOfReporting() {

@@ -132,6 +132,17 @@ final class LinkedPullRequestStore {
         details[reference]
     }
 
+    #if DEBUG
+    /// Publishes `detail` for a task's pinned `reference` with no `gh` call.
+    /// It stays retained by the task and reads as asked for good, so neither
+    /// a prune nor a refresh replaces it.
+    func seedFixture(_ reference: PullRequestReference, detail: Detail, forTask taskID: UUID) {
+        retainedByTask[taskID, default: []].append(reference)
+        details[reference] = detail
+        askedAt[reference] = .distantFuture
+    }
+    #endif
+
     /// Fetches every reference with no answer yet, or one older than its
     /// lifetime. References share one request per repository, and only
     /// `maxConcurrentRepositories` requests run at once.

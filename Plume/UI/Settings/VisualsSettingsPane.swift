@@ -45,6 +45,12 @@ struct VisualsSettingsPane: View {
                         value: settings.sidebarBoldTaskNames ? "on" : "off",
                         invoke: { settings.sidebarBoldTaskNames.toggle() }
                     )
+                Toggle("Bold agents that need attention", isOn: $settings.sidebarBoldsAgentsNeedingAttention)
+                    .plumeID(
+                        AccessibilityID.settingsSidebarBoldAgentAttentionToggle,
+                        value: settings.sidebarBoldsAgentsNeedingAttention ? "on" : "off",
+                        invoke: { settings.sidebarBoldsAgentsNeedingAttention.toggle() }
+                    )
             } header: {
                 Text("Sidebar")
             }

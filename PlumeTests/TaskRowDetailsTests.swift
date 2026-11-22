@@ -681,7 +681,7 @@ struct TaskRowAgentLinesTests {
     }
 
     @Test func aHeadersValueAddsFocusHoverAndPress() {
-        let header = TaskRowDetails.AgentHeader(tabID: UUID(), title: "Chat", status: .working, isUnread: true)
+        let header = TaskRowDetails.AgentHeader(tabID: UUID(), title: "Chat", status: .working)
         #expect(header.controlValue(isFocused: false, isHovered: false) == header.statusText)
         #expect(header.controlValue(isFocused: true, isHovered: true) == "\(header.statusText); focused; hovered")
         #expect(header.controlValue(isFocused: false, isHovered: true, isPressed: true)

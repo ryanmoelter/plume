@@ -325,7 +325,8 @@ final class ChildSessionCoordinator {
                     let reason = relaunched.map(Self.launchFailure) ?? "no session was created"
                     self.turnFinished(in: child, outcome: AgentTurnOutcome(
                         text: reason,
-                        isError: true, wasInterrupted: false, isHostDriven: true, exitedMidTurn: true
+                        isError: true, wasInterrupted: false, isHostDriven: true, isParentDriven: true,
+                        exitedMidTurn: true
                     ))
                 }
                 return true
@@ -641,11 +642,18 @@ final class ChildSessionCoordinator {
         // offer still pending in it.
         ChildSessionOfferBoard.shared.withdrawAll(inTab: tab.id)
         if let parent = parent(of: tab) {
-            let note = ChildSessionFormats.turnFinishedNote(
-                child: participant(tab), text: ChildSessionFormats.reportText(of: outcome)
-            )
-            let wakes = !outcome.wasInterrupted && !silentChildren.contains(tab.id)
-            deliver(.init(childID: tab.id, text: note), toParent: parent, wakes: wakes)
+            // Only a turn the parent started reports back, not one the user
+            // or the child's own children drove. Either way this child has
+            // stopped working, which may free notes from its siblings.
+            if outcome.isParentDriven {
+                let note = ChildSessionFormats.turnFinishedNote(
+                    child: participant(tab), text: ChildSessionFormats.reportText(of: outcome)
+                )
+                let wakes = !outcome.wasInterrupted && !silentChildren.contains(tab.id)
+                deliver(.init(childID: tab.id, text: note), toParent: parent, wakes: wakes)
+            } else {
+                recheckWake(of: parent)
+            }
         }
         guard var policy = policies[tab.id] else { return }
         // The user's queued message already answered the interrupt.
@@ -840,7 +848,7 @@ final class ChildSessionCoordinator {
     /// server.
     func simulateTurnFinished(in child: TaskTab, text: String, wakes: Bool) {
         turnFinished(in: child, outcome: AgentTurnOutcome(
-            text: text, isError: false, wasInterrupted: !wakes, isHostDriven: true
+            text: text, isError: false, wasInterrupted: !wakes, isHostDriven: true, isParentDriven: true
         ))
     }
     #endif

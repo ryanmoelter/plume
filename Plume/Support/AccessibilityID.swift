@@ -20,6 +20,7 @@ enum AccessibilityID {
     static let taskDeviceLeaseBadge = "task-device-lease-badge"
     static let taskDescription = "task-description"
     static let taskAgentGroup = "task-agent-group"
+    static let taskAgentCapToggle = "task-agent-cap-toggle"
     static let taskEditButton = "task-edit-button"
     static let groupEditButton = "group-edit-button"
     static let groupHeaderEditButton = "group-header-edit-button"
@@ -109,6 +110,7 @@ enum AccessibilityID {
     static let settingsSidebarShowsTaskColorBarToggle = "settings-sidebar-shows-task-color-bar-toggle"
     static let settingsSidebarColorsTaskNamesToggle = "settings-sidebar-colors-task-names-toggle"
     static let settingsSidebarBoldTaskNamesToggle = "settings-sidebar-bold-task-names-toggle"
+    static let settingsSidebarBoldAgentAttentionToggle = "settings-sidebar-bold-agent-attention-toggle"
     static let settingsAlwaysShowsCreditAndFableQuotaToggle = "settings-always-shows-credit-and-fable-quota-toggle"
     static let settingsReadsClaudeUsageToggle = "settings-reads-claude-usage-toggle"
     static let settingsSidebarColorsTaskIconsToggle = "settings-sidebar-colors-task-icons-toggle"
@@ -185,6 +187,9 @@ enum AccessibilityID {
     /// The arrow in front of a child session's title.
     static let tabChipChildMarker = "tab-chip-child-marker"
     static let tabChildrenToggle = "tab-children-toggle"
+    /// The bar under a parent tab and its attached children, labelled like
+    /// the parent's chip.
+    static let tabGroupBar = "tab-group-bar"
     /// The chip's context menu, each labelled like its `tabChip`.
     static let tabMoveToOtherPaneMenuItem = "tab-move-to-other-pane-menu-item"
     static let tabCloseSplitMenuItem = "tab-close-split-menu-item"

@@ -9,8 +9,9 @@ import SwiftUI
 /// `SubagentCompletionTracker`, so a subagent folds away here and there at the
 /// same moment.
 ///
-/// A sidebar row covers a whole task, which can hold several agent tabs, so
-/// this gathers across all of them — where the chat's list is one tab's.
+/// It gathers across whichever agent tabs it is given: every tab of a task
+/// with one agent, or a single agent's tab when the row shows each agent
+/// under its own header.
 ///
 /// Both views only read the tracker. `TranscriptStore` is what observes, so a
 /// subagent's linger runs whether or not anything is mounted to show it — a
@@ -42,6 +43,10 @@ struct TaskActivityRow: View, ThemedView {
             backgroundTasks > 0 ? backgroundTaskText(backgroundTasks) : nil,
         ].compactMap { $0 }
         return parts.isEmpty ? nil : parts.joined(separator: ", ")
+    }
+
+    static func hasActivity(tabIDs: [UUID]) -> Bool {
+        !visibleSubagents(in: tabIDs).isEmpty || backgroundTaskCount(in: tabIDs) > 0
     }
 
     private static func backgroundTaskText(_ count: Int) -> String {

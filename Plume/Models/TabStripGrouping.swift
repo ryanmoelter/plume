@@ -59,6 +59,13 @@ nonisolated struct TabStripGrouping: Equatable {
         groups.first { $0.parentID == parentID }
     }
 
+    /// The parents of every group `id` belongs to, its own group included
+    /// when it is a parent.
+    func groupParents(containing id: UUID) -> Set<UUID> {
+        guard let index = ids.firstIndex(of: id) else { return [] }
+        return Set(groups.filter { $0.range.contains(index) }.map(\.parentID))
+    }
+
     /// Groups whose parent's chip shows, the ones the strip draws.
     var visibleGroups: [Group] {
         groups.filter { !hidden.contains($0.parentID) }
