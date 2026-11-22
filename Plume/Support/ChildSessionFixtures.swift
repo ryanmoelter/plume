@@ -26,6 +26,9 @@ import SwiftData
 /// - `detached`: "Start the review" on worktree `ryanm/plume-160-review` with
 ///   PR #1601 and PLUME-160 In Review; "Review the diff", its child in another
 ///   task, shares the folder, with a child of its own.
+/// - `lone`: "Plan the migration" on worktree `ryanm/plume-170-migration` with
+///   PR #1701, and in a second task its child "Write the migration", that
+///   task's only agent, in the same folder.
 @MainActor
 enum ChildSessionFixtures {
     private static let root = "/tmp/plume-fixtures/child-sessions"
@@ -40,7 +43,7 @@ enum ChildSessionFixtures {
 
     static func seed(_ spec: String, in context: ModelContext) -> [WorkTask] {
         var cases = spec.split(separator: ",").map { $0.trimmingCharacters(in: .whitespaces) }
-        if cases.contains("all") { cases = ["nested", "two-top", "cap", "detached"] }
+        if cases.contains("all") { cases = ["nested", "two-top", "cap", "detached", "lone"] }
         let existing = (try? context.fetch(FetchDescriptor<WorkTask>())) ?? []
         var tasks: [WorkTask] = []
         seedLinearIssues()
@@ -112,6 +115,13 @@ enum ChildSessionFixtures {
                 detached.parentTabID = parent.id
                 ChildSessionIndex.shared.record(child: detached, parent: parent)
                 _ = child("Check the tests", of: detached, in: task, folder: folder)
+            case "lone":
+                let folder = worktree("plume-170-migration", branch: "ryanm/plume-170-migration",
+                                      pullRequest: pullRequest(1701, "Migrate the task store"))
+                let (_, parent) = newTask("Plan the migration", in: folder)
+                let (_, lone) = newTask("Write the migration", in: folder)
+                lone.parentTabID = parent.id
+                ChildSessionIndex.shared.record(child: lone, parent: parent)
             default:
                 Log.app.error("Unknown PLUME_SEED_CHILD_SESSIONS case \(seedCase, privacy: .public)")
             }
