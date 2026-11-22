@@ -58,6 +58,11 @@ enum AgentGroupBar {
 
     static let fade = Animation.easeOut(duration: 0.15)
 
+    /// A bar's color eases on its own curve: it changes with focus, which a
+    /// hovered or pressed group's look does not show, and a spring's
+    /// overshoot flashes a color past its target.
+    static let colorFade = Animation.easeInOut(duration: 0.22)
+
     /// How a row draws its groups' bars, each group named by its header index.
     struct Style {
         var color: Color
@@ -122,11 +127,12 @@ extension AgentGroupBar {
             ForEach(groups.keys.sorted(), id: \.self) { key in
                 if let group = groups[key], let frame = frame(of: group, in: proxy) {
                     let look = style.looks[key] ?? .normal
+                    let color = style.colors[key] ?? style.color
                     let width = width(of: look, lineWidth: style.lineWidth)
                     let height = frame.height - 2 * endInset
                     if height > width {
                         Capsule()
-                            .fill(style.colors[key] ?? style.color)
+                            .animation(colorFade) { $0.foregroundStyle(color) }
                             .frame(width: width, height: height)
                             .position(
                                 x: frame.minX + CGFloat(group.level) * indent + style.lineWidth / 2,

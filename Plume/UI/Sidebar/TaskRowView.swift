@@ -92,6 +92,7 @@ struct TaskRowView: View {
     private func header(for tab: TaskTab, title: String, label: String, depth: Int) -> TaskRowDetails.AgentHeader {
         let status = Self.status(of: tab)
         let held = DeviceLeaseStore.shared.leases(ownedBy: [tab.id])
+        let mark = TaskRowDetails.childMark(of: tab)
         return TaskRowDetails.AgentHeader(
             tabID: tab.id,
             title: title,
@@ -103,7 +104,8 @@ struct TaskRowView: View {
             ),
             depth: depth,
             isRemotelyControlled: Self.isRemoteControlled(tabIDs: [tab.id]),
-            isDetachedChild: TaskStore.isDetachedChild(tab),
+            isDetachedChild: mark.isDetached,
+            starter: mark.starter,
             heldDevices: held.isEmpty ? nil : DeviceLeaseStore.summary(held)
         )
     }
@@ -224,6 +226,7 @@ struct TaskRowView: View {
         let titleIcons = icons?.lineIndex == nil ? icons : nil
         let firstDrawnLine = rawLines.firstIndex(where: TaskRowDetails.isDrawn)
         let owners = TaskRowDetails.owningAgentLabels(rawLines)
+        let wipeKeys = TaskRowDetails.wipeKeys(rawLines)
         let nesting = TaskRowDetails.agentGroupNesting(rawLines)
         let hovered = hasSeveralAgents ? TaskRowDetails.hoveredAgentGroup(hoveredLines: hoveredLines, nesting: nesting) : nil
         let groups = AgentGroupState(
@@ -234,7 +237,24 @@ struct TaskRowView: View {
             hovered: hovered,
             pressed: isPressingGroup ? hovered : nil
         )
+        let titleMark = TaskRowDetails.titleChildMark(
+            rawLines,
+            soleAgent: nestedAgentTabs.count == 1 ? TaskRowDetails.childMark(of: nestedAgentTabs[0].item) : nil
+        )
         VStack(alignment: .leading, spacing: Self.lineSpacing) {
+            // Above the title's line, so the task's badge stays beside the title.
+            if let starter = titleMark?.starter {
+                SidebarIconTitle(icon: icon.map { AnyView($0.hidden()) }, iconMinWidth: SidebarMetrics.taskIconMinWidth, spacing: 5) {
+                    starterLine(
+                        starter,
+                        label: TitleStore.shared.displayTitle(for: task),
+                        key: TaskRowDetails.titleTabID(
+                            rawLines,
+                            soleAgent: nestedAgentTabs.count == 1 ? nestedAgentTabs[0].item.id : nil
+                        )
+                    )
+                }
+            }
             HStack(alignment: .top, spacing: 6) {
                 VStack(alignment: .leading, spacing: Self.lineSpacing) {
                     title(
@@ -242,11 +262,11 @@ struct TaskRowView: View {
                             (titleIcons?.heldDevices ?? []) + (hasSeveralAgents ? taskLevelHeldDevices() : [])
                         ),
                         isRemoteControlled: titleIcons?.isRemoteControlled ?? false,
-                        isDetachedChild: TaskRowDetails.headerStandingForTask(rawLines)?.isDetachedChild == true
+                        isDetachedChild: titleMark?.isDetached == true
                     )
                     descriptionLine
                     ForEach(Array(lines.prefix(badgeLineCount)).filter { TaskRowDetails.isDrawn($0.element) }, id: \.offset) { index, line in
-                        groupedDetailLine(line, at: index, owner: owners[index], icons: icons, groups: groups, firstDrawnLine: firstDrawnLine)
+                        groupedDetailLine(line, at: index, owner: owners[index], wipeKey: wipeKeys[index], icons: icons, groups: groups, firstDrawnLine: firstDrawnLine)
                     }
                 }
                 Spacer(minLength: 4)
@@ -259,7 +279,7 @@ struct TaskRowView: View {
             }
 
             ForEach(Array(lines.dropFirst(badgeLineCount)).filter { TaskRowDetails.isDrawn($0.element) }, id: \.offset) { index, line in
-                groupedDetailLine(line, at: index, owner: owners[index], icons: icons, groups: groups, firstDrawnLine: firstDrawnLine)
+                groupedDetailLine(line, at: index, owner: owners[index], wipeKey: wipeKeys[index], icons: icons, groups: groups, firstDrawnLine: firstDrawnLine)
             }
 
             if let title = cap.toggleTitle, let symbol = cap.toggleSymbol {
@@ -275,7 +295,7 @@ struct TaskRowView: View {
         .padding(.vertical, 2)
         .contentShape(.rect)
         .accessibilityElement(children: .combine)
-        .accessibilityLabel(accessibilityLabel(lines: allLines, agentTabIDs: agentTabIDs))
+        .accessibilityLabel(accessibilityLabel(lines: allLines, agentTabIDs: agentTabIDs, starter: titleMark?.starter))
         .plumeID(AccessibilityID.taskRow, label: TitleStore.shared.displayTitle(for: task), value: isSelected ? "selected" : nil, invoke: selectRow)
         // Adding or closing an agent tab changes how many groups the row
         // shows, so its height eases rather than snapping the rows below it.
@@ -388,6 +408,21 @@ struct TaskRowView: View {
             .plumeID(AccessibilityID.taskAgentChildMarker, label: label, value: "detached")
     }
 
+    /// Not a click target of its own: a click on it does what a click on
+    /// the line it heads does, selecting the child above a header and the
+    /// task above the title.
+    private func starterLine(_ starter: TaskRowDetails.Starter, label: String, key: AnyHashable? = nil) -> some View {
+        FadeWipeText(starter.text, key: key) {
+            Text($0)
+                .font(.caption)
+                .emphasis(.secondary)
+                .lineLimit(1)
+                .truncationMode(.tail)
+        }
+        .help(starter.help)
+        .plumeID(AccessibilityID.taskAgentStarter, label: label, value: starter.text)
+    }
+
     private func deviceLeaseIcon(_ summary: String, label: String, font: Font? = .caption) -> some View {
         Image(systemName: "iphone")
             .font(font)
@@ -414,17 +449,25 @@ struct TaskRowView: View {
         }
     }
 
+    /// Switching agent tabs can rename the task, so the title wipes rather
+    /// than swapping.
     @ViewBuilder
     private var titleText: some View {
-        let text = Text(TitleStore.shared.displayTitle(for: task))
-            .lineLimit(1)
-            .truncationMode(.tail)
-            .bold(appearance.weight == .bold)
-        if let color = appearance.titleTint.flatMap(theme.colors.color(for:)) {
-            text
-                .foregroundStyle(color.opacity(tintOpacity))
-        } else {
-            text.emphasis(isInactive ? .secondary : .primary)
+        let isBold = appearance.weight == .bold
+        let tint = appearance.titleTint.flatMap(theme.colors.color(for:))?.opacity(tintOpacity)
+        let emphasis: Emphasis = isInactive ? .secondary : .primary
+        // The styling branches inside the content, so a tint change never
+        // gives the wipe a new identity mid-wipe.
+        FadeWipeText(TitleStore.shared.displayTitle(for: task)) { title in
+            let text = Text(title)
+                .lineLimit(1)
+                .truncationMode(.tail)
+                .bold(isBold)
+            if let tint {
+                text.foregroundStyle(tint)
+            } else {
+                text.emphasis(emphasis)
+            }
         }
     }
 
@@ -505,11 +548,12 @@ struct TaskRowView: View {
         _ line: TaskRowDetails.Line,
         at index: Int,
         owner: String?,
+        wipeKey: String,
         icons: ProjectLineIcons?,
         groups: AgentGroupState,
         firstDrawnLine: Int?
     ) -> some View {
-        let member = detailLine(line, at: index, owner: owner, icons: icons, groups: groups)
+        let member = detailLine(line, at: index, owner: owner, wipeKey: wipeKey, icons: icons, groups: groups)
             .animation(AgentGroupBar.fade, value: groups.isEmphasized(index))
             .agentGroupMember(groups.nesting[index])
         if !groups.nesting[index].isEmpty, let tabID = groups.targets[index] {
@@ -598,22 +642,43 @@ struct TaskRowView: View {
 
     private func agentHeaderLine(
         _ header: TaskRowDetails.AgentHeader,
+        wipeKey: String,
         isFocused: Bool,
         isHovered: Bool,
         isPressed: Bool,
         isEmphasized: Bool
     ) -> some View {
         let titleEmphasis = Self.agentTitleEmphasis(status: header.status, isEmphasized: isEmphasized)
-        return HStack(spacing: 4) {
+        let isBold = header.drawsBold(boldsAttention: AppSettings.shared.sidebarBoldsAgentsNeedingAttention)
+        return VStack(alignment: .leading, spacing: Self.lineSpacing) {
+            if let starter = header.starter {
+                starterLine(starter, label: header.label, key: wipeKey)
+            }
+            agentHeaderTitleLine(header, wipeKey: wipeKey, titleEmphasis: titleEmphasis, isBold: isBold)
+                .plumeID(
+                    AccessibilityID.taskAgentGroup,
+                    label: header.label,
+                    value: header.controlValue(isFocused: isFocused, isHovered: isHovered, isPressed: isPressed),
+                    invoke: { selectAgentTab(header.tabID) }
+                )
+        }
+    }
+
+    private func agentHeaderTitleLine(_ header: TaskRowDetails.AgentHeader, wipeKey: String, titleEmphasis: Emphasis, isBold: Bool) -> some View {
+        HStack(spacing: 4) {
             if header.isDetachedChild {
                 detachedChildMarker(label: header.label)
             }
-            Text(header.title)
-                .bold(header.drawsBold(boldsAttention: AppSettings.shared.sidebarBoldsAgentsNeedingAttention))
-                .emphasis(titleEmphasis)
-                .animation(AgentGroupBar.fade, value: titleEmphasis)
-                .lineLimit(1)
-                .truncationMode(.tail)
+            FadeWipeText(header.title, key: wipeKey) {
+                Text($0)
+                    .bold(isBold)
+                    .emphasis(titleEmphasis)
+                    .animation(AgentGroupBar.fade, value: titleEmphasis)
+                    // Selecting an unread agent reads it, which drops the bold.
+                    .animation(AgentGroupBar.fade, value: isBold)
+                    .lineLimit(1)
+                    .truncationMode(.tail)
+            }
             if header.isRemotelyControlled {
                 remoteControlIcon(font: nil)
             }
@@ -630,12 +695,6 @@ struct TaskRowView: View {
                 .imageScale(.small)
                 .frame(width: Self.badgeColumnWidth)
         }
-        .plumeID(
-            AccessibilityID.taskAgentGroup,
-            label: header.label,
-            value: header.controlValue(isFocused: isFocused, isHovered: isHovered, isPressed: isPressed),
-            invoke: { selectAgentTab(header.tabID) }
-        )
     }
 
     @ViewBuilder
@@ -643,20 +702,24 @@ struct TaskRowView: View {
         _ line: TaskRowDetails.Line,
         at index: Int,
         owner: String?,
+        wipeKey: String,
         icons: ProjectLineIcons?,
         groups: AgentGroupState
     ) -> some View {
         let emphasis: Emphasis = groups.isEmphasized(index) ? .primary : .secondary
         switch line {
         case .text(let text):
-            Text(text)
-                .font(.caption)
-                .emphasis(.secondary)
-                .lineLimit(1)
-                .truncationMode(.middle)
+            FadeWipeText(text, key: wipeKey) {
+                Text($0)
+                    .font(.caption)
+                    .emphasis(.secondary)
+                    .lineLimit(1)
+                    .truncationMode(.middle)
+            }
         case .agentHeader(let header):
             agentHeaderLine(
                 header,
+                wipeKey: wipeKey,
                 isFocused: groups.focused == index,
                 isHovered: groups.hovered == index,
                 isPressed: groups.pressed == index,
@@ -664,11 +727,13 @@ struct TaskRowView: View {
             )
         case .project(let name):
             HStack(spacing: 4) {
-                Text(name)
-                    .font(.caption)
-                    .emphasis(emphasis)
-                    .lineLimit(1)
-                    .truncationMode(.middle)
+                FadeWipeText(name, key: wipeKey) {
+                    Text($0)
+                        .font(.caption)
+                        .emphasis(emphasis)
+                        .lineLimit(1)
+                        .truncationMode(.middle)
+                }
                 if let icons, index == icons.lineIndex {
                     if icons.isRemoteControlled {
                         remoteControlIcon()
@@ -694,11 +759,13 @@ struct TaskRowView: View {
                         .imageScale(.small)
                         .emphasis(emphasis)
                 }
-                Text(branch)
-                    .font(.caption)
-                    .emphasis(emphasis)
-                    .lineLimit(1)
-                    .truncationMode(.middle)
+                FadeWipeText(branch, key: wipeKey) {
+                    Text($0)
+                        .font(.caption)
+                        .emphasis(emphasis)
+                        .lineLimit(1)
+                        .truncationMode(.middle)
+                }
                 if let companion {
                     PullRequestChip(state: companion, emphasis: emphasis, symbolWeight: .bold)
                 }
@@ -730,7 +797,7 @@ struct TaskRowView: View {
                     PullRequestLine(summary: PullRequestSummary(
                         pullRequest,
                         ignoredChecks: PullRequestStore.shared.ignoredPendingChecks(for: directory)
-                    ))
+                    ), titleKey: wipeKey)
                 } else {
                     PullRequestChip(
                         state: state,
@@ -755,8 +822,9 @@ struct TaskRowView: View {
         )
     }
 
-    private func accessibilityLabel(lines: [TaskRowDetails.Line], agentTabIDs: [UUID]) -> String {
+    private func accessibilityLabel(lines: [TaskRowDetails.Line], agentTabIDs: [UUID], starter: TaskRowDetails.Starter?) -> String {
         ([TitleStore.shared.displayTitle(for: task)]
+            + (starter.map { [$0.accessibilityText] } ?? [])
             + (task.taskDescription.isEmpty ? [] : [task.taskDescription])
             + (isUnread ? ["unread"] : [])
             + lines.compactMap(TaskRowDetails.accessibilityText)

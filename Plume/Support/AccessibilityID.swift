@@ -199,6 +199,8 @@ enum AccessibilityID {
     static let tabMoveToNewTaskMenuItem = "tab-move-to-new-task-menu-item"
     static let tabMoveNextToParentMenuItem = "tab-move-next-to-parent-menu-item"
     static let taskAgentChildMarker = "task-agent-child-marker"
+    /// The starter's name above a detached child; `value` is the name shown.
+    static let taskAgentStarter = "task-agent-starter"
     /// A note from another session in the chat, which selects its tab.
     static let sideSessionEventRow = "side-session-event-row"
     /// A proposed session's whole card and its buttons; `label` is the

@@ -302,6 +302,30 @@ struct TaskRowChildSelectionTests {
         context = ModelContext(container)
     }
 
+    @Test func aDetachedChildInTheSameTaskStaysTopLevelInStripOrder() throws {
+        let task = TaskStore.createTask(in: context, siblings: [])
+        let parent = try #require(task.tabs.first)
+        let child = TaskStore.addChildTab(to: task, parent: parent, in: context)
+        let sibling = TaskStore.addTab(to: task, kind: .agent, in: context)
+        TaskStore.moveTab(child, toPane: 0, at: 5, in: task)
+        let grandchild = TaskStore.addChildTab(to: task, parent: child, in: context)
+
+        let nested = TaskStore.nestedAgentTabs(of: task).map { ($0.item.id, $0.depth) }
+
+        #expect(nested.map(\.0) == [parent.id, sibling.id, child.id, grandchild.id])
+        #expect(nested.map(\.1) == [0, 0, 0, 1])
+    }
+
+    @Test func aChildInTheOtherPaneLeavesTheRowClickAlone() throws {
+        let task = TaskStore.createTask(in: context, siblings: [])
+        let parent = try #require(task.tabs.first)
+        let child = TaskStore.addChildTab(to: task, parent: parent, in: context)
+        TaskStore.openInSplit(child, side: .right, in: task)
+
+        #expect(TaskStore.nestedAgentTabs(of: task).map(\.depth) == [0, 0])
+        #expect(TaskStore.rowClickTab(of: task) == nil)
+    }
+
     @Test func theTopLevelAgentNamesTheTaskWhenAChildIsFocused() throws {
         let task = TaskStore.createTask(in: context, siblings: [])
         let parent = try #require(task.tabs.first)
@@ -390,5 +414,121 @@ struct TaskRowChildSelectionTests {
         TaskStore.selectTab(terminal, in: task)
 
         #expect(TaskStore.rowClickTab(of: task) == nil)
+    }
+}
+
+/// A detached child marks its parent and names the session that started it,
+/// by the parent's chip title, adding that parent's task when it is another
+/// one. An attached child nests under its parent's header and takes no mark.
+/// The task's title takes the mark of the header it stands for, or of the
+/// task's only agent.
+@MainActor
+struct TaskRowStarterTests {
+    private let context: ModelContext
+
+    init() throws {
+        let container = try ModelContainer(
+            for: Schema([TaskGroup.self, WorkTask.self, TaskTab.self]),
+            configurations: [ModelConfiguration(isStoredInMemoryOnly: true)]
+        )
+        context = ModelContext(container)
+    }
+
+    private let starter = TaskRowDetails.Starter(title: "Plan it", taskTitle: "Refactor")
+
+    @Test func anAttachedChildIsUnmarked() throws {
+        let task = TaskStore.createTask(in: context, siblings: [])
+        let parent = try #require(task.tabs.first)
+        let child = TaskStore.addChildTab(to: task, parent: parent, in: context)
+
+        #expect(TaskRowDetails.childMark(of: child, titles: TitleStore()) == TaskRowDetails.ChildMark())
+        #expect(TaskRowDetails.childMark(of: parent, titles: TitleStore()) == TaskRowDetails.ChildMark())
+    }
+
+    @Test func aChildDetachedInItsParentsTaskNamesItsStarterAlone() throws {
+        let task = TaskStore.createTask(in: context, siblings: [])
+        task.title = "Refactor"
+        let parent = try #require(task.tabs.first)
+        let child = TaskStore.addChildTab(to: task, parent: parent, in: context)
+        _ = TaskStore.addTab(to: task, kind: .terminal, in: context)
+        TaskStore.moveTab(child, toPane: 0, at: 5, in: task)
+        let titles = TitleStore()
+        titles.setTitle("Plan it", forTab: parent.id, source: .reply)
+
+        let mark = TaskRowDetails.childMark(of: child, titles: titles)
+
+        #expect(mark == TaskRowDetails.ChildMark(isDetached: true, starter: TaskRowDetails.Starter(title: "Plan it", taskTitle: nil)))
+        #expect(mark.starter?.text == "Plan it")
+        #expect(mark.starter?.help == "Started by Plan it")
+    }
+
+    @Test func aChildInTheOtherPaneNamesItsStarterAlone() throws {
+        let task = TaskStore.createTask(in: context, siblings: [])
+        let parent = try #require(task.tabs.first)
+        let child = TaskStore.addChildTab(to: task, parent: parent, in: context)
+        TaskStore.openInSplit(child, side: .right, in: task)
+        let titles = TitleStore()
+        titles.setTitle("Plan it", forTab: parent.id, source: .reply)
+
+        #expect(TaskRowDetails.childMark(of: child, titles: titles).starter == TaskRowDetails.Starter(title: "Plan it", taskTitle: nil))
+    }
+
+    @Test func aChildMovedToItsOwnTaskNamesItsStarterAndThatTask() throws {
+        let task = TaskStore.createTask(in: context, siblings: [])
+        task.title = "Refactor"
+        let parent = try #require(task.tabs.first)
+        let child = TaskStore.addChildTab(to: task, parent: parent, in: context)
+        TaskStore.moveTab(child, to: TaskStore.createTask(in: context, siblings: [task]))
+        let titles = TitleStore()
+        titles.setTitle("Plan it", forTab: parent.id, source: .reply)
+
+        let mark = TaskRowDetails.childMark(of: child, titles: titles)
+
+        #expect(mark == TaskRowDetails.ChildMark(isDetached: true, starter: starter))
+        #expect(mark.starter?.text == "Plan it · Refactor")
+        #expect(mark.starter?.help == "Started by Plan it in Refactor")
+    }
+
+    @Test func aStarterSharingItsTitleInItsTaskTakesItsNumberedLabel() throws {
+        let task = TaskStore.createTask(in: context, siblings: [])
+        task.title = "Refactor"
+        let parent = try #require(task.tabs.first)
+        let sibling = TaskStore.addTab(to: task, kind: .agent, in: context)
+        let child = TaskStore.addChildTab(to: task, parent: parent, in: context)
+        TaskStore.moveTab(child, to: TaskStore.createTask(in: context, siblings: [task]))
+        let titles = TitleStore()
+        titles.setTitle("Chat", forTab: parent.id, source: .reply)
+        titles.setTitle("Chat", forTab: sibling.id, source: .reply)
+
+        #expect(TaskRowDetails.childMark(of: child, titles: titles).starter?.text == "Chat #1 · Refactor")
+    }
+
+    @Test func aTaskNamedAfterItsStarterIsNotRepeated() {
+        #expect(TaskRowDetails.Starter(title: "Plan it", taskTitle: "Plan it").text == "Plan it")
+    }
+
+    @Test func aRowWithNoHeadersPutsItsOnlyAgentsMarkOnTheTitle() {
+        let mark = TaskRowDetails.ChildMark(isDetached: true, starter: starter)
+        #expect(TaskRowDetails.titleChildMark([.project("Plume")], soleAgent: mark) == mark)
+    }
+
+    @Test func aHeaderTheTitleStandsForGivesTheTitleItsMark() {
+        var header = TaskRowDetails.AgentHeader(tabID: UUID(), title: "Child", status: .awaitingReply, isDetachedChild: true, starter: starter)
+        header.standsForTask = true
+        let child = TaskRowDetails.AgentHeader(tabID: UUID(), title: "Grandchild", status: .awaitingReply, depth: 1)
+        #expect(TaskRowDetails.titleChildMark([.agentHeader(header), .agentHeader(child)], soleAgent: nil)
+            == TaskRowDetails.ChildMark(isDetached: true, starter: starter))
+    }
+
+    @Test func drawnHeadersLeaveTheTitleUnmarked() {
+        let header = TaskRowDetails.AgentHeader(tabID: UUID(), title: "Child", status: .awaitingReply, isDetachedChild: true, starter: starter)
+        #expect(TaskRowDetails.titleChildMark([.agentHeader(header)], soleAgent: TaskRowDetails.ChildMark(isDetached: true)) == nil)
+    }
+
+    @Test func aDrawnHeadersAccessibilityTextNamesTheStarter() {
+        var header = TaskRowDetails.AgentHeader(tabID: UUID(), title: "Child", status: .awaitingReply, starter: starter)
+        #expect(TaskRowDetails.accessibilityText(.agentHeader(header)) == "Child, started by Plan it · Refactor, \(TaskStatus.awaitingReply.label)")
+        header.standsForTask = true
+        #expect(TaskRowDetails.accessibilityText(.agentHeader(header)) == nil)
     }
 }

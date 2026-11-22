@@ -187,9 +187,13 @@ enum TaskStore {
         return result
     }
 
-    /// The task's live agent tabs, each child session right after its parent.
+    /// The task's live agent tabs in strip order, each child session that is
+    /// attached to its parent's run right after its parent. A detached child
+    /// stays top-level where the strip puts it.
     static func nestedAgentTabs(of task: WorkTask) -> [(item: TaskTab, depth: Int)] {
-        nestedByParent(task.orderedLiveTabs.filter { $0.kind == .agent }, id: \.id, parentID: \.parentTabID)
+        let agents = task.orderedLiveTabs.filter { $0.kind == .agent }
+        let attached = Set(agents.filter(isAttachedToParent).map(\.id))
+        return nestedByParent(agents, id: \.id, parentID: { attached.contains($0.id) ? $0.parentTabID : nil })
     }
 
     /// The agent tab a task's sidebar row stands for, when it has exactly one

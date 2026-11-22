@@ -70,6 +70,8 @@ enum TaskRowDetails {
         var isRemotelyControlled: Bool
         /// A child session outside its parent's run in the strip.
         var isDetachedChild: Bool
+        /// The session that started a detached child.
+        var starter: Starter?
         /// The devices the tab holds, as `DeviceLeaseStore.summary` words them.
         var heldDevices: String?
         /// The label of the agent this one nests under, set by
@@ -88,6 +90,7 @@ enum TaskRowDetails {
             depth: Int = 0,
             isRemotelyControlled: Bool = false,
             isDetachedChild: Bool = false,
+            starter: Starter? = nil,
             heldDevices: String? = nil,
             parentLabel: String? = nil
         ) {
@@ -99,6 +102,7 @@ enum TaskRowDetails {
             self.depth = depth
             self.isRemotelyControlled = isRemotelyControlled
             self.isDetachedChild = isDetachedChild
+            self.starter = starter
             self.heldDevices = heldDevices
             self.parentLabel = parentLabel
         }
@@ -128,6 +132,75 @@ enum TaskRowDetails {
                 + (isPressed ? ["pressed"] : []))
                 .joined(separator: "; ")
         }
+    }
+
+    /// The open session that started a detached child, named as the sidebar
+    /// names its tab.
+    struct Starter: Equatable {
+        var title: String
+        /// The parent's task, when it is not the child's own.
+        var taskTitle: String?
+
+        /// The task's name joins only when it says something the title doesn't.
+        var text: String {
+            guard let taskTitle, taskTitle != title else { return title }
+            return "\(title) · \(taskTitle)"
+        }
+
+        var help: String {
+            taskTitle.map { "Started by \(title) in \($0)" } ?? "Started by \(title)"
+        }
+
+        var accessibilityText: String {
+            "started by \(text)"
+        }
+    }
+
+    /// How a child session's row line marks its parent.
+    struct ChildMark: Equatable {
+        /// Outside its parent's run in the strip.
+        var isDetached = false
+        var starter: Starter?
+    }
+
+    /// The tab the task's title stands for: the header standing for the
+    /// task, or, in a row with no headers, its only agent.
+    static func titleTabID(_ lines: [Line], soleAgent: UUID?) -> UUID? {
+        if let header = headerStandingForTask(lines) { return header.tabID }
+        return lines.contains { if case .agentHeader = $0 { true } else { false } } ? nil : soleAgent
+    }
+
+    /// An attached child nests under its parent's header, so only a
+    /// detached one names its parent.
+    static func childMark(of tab: TaskTab, titles: TitleStore = .shared) -> ChildMark {
+        guard let parent = TaskStore.openParent(of: tab), !TaskStore.isAttachedToParent(tab),
+              let parentTask = parent.task
+        else { return ChildMark() }
+        let isSameTask = parentTask.id == tab.task?.id
+        return ChildMark(
+            isDetached: true,
+            starter: Starter(
+                title: label(of: parent, in: parentTask, titles: titles),
+                taskTitle: isSameTask ? nil : titles.displayTitle(for: parentTask)
+            )
+        )
+    }
+
+    /// The label the parent's own row gives it, numbered when another agent
+    /// there shares its title.
+    private static func label(of tab: TaskTab, in task: WorkTask, titles: TitleStore) -> String {
+        let agents = TaskStore.nestedAgentTabs(of: task).map(\.item)
+        let labels = distinctLabels(agents.map { titles.chipTitle(for: $0) })
+        return agents.firstIndex { $0.id == tab.id }.map { labels[$0] } ?? titles.chipTitle(for: tab)
+    }
+
+    /// The mark the task's title carries: the header it stands for, or, in a
+    /// row with no headers, its only agent's.
+    static func titleChildMark(_ lines: [Line], soleAgent: ChildMark?) -> ChildMark? {
+        if let header = headerStandingForTask(lines) {
+            return ChildMark(isDetached: header.isDetachedChild, starter: header.starter)
+        }
+        return lines.contains { if case .agentHeader = $0 { true } else { false } } ? nil : soleAgent
     }
 
     /// A title that appears once stays bare; one that repeats is numbered on
@@ -485,6 +558,39 @@ enum TaskRowDetails {
         }
     }
 
+    /// For each line, what its text belongs to, so a line that shifts into
+    /// another's place changes its text without a wipe. A header is its tab,
+    /// an issue its identifier and a pull request itself; any other line is
+    /// the agent above it, its kind, and how many of that kind came before it
+    /// in that agent's group.
+    static func wipeKeys(_ lines: [Line]) -> [String] {
+        var owner = "task"
+        var seen: [String: Int] = [:]
+        return lines.map { line in
+            let kind: String
+            switch line {
+            case .agentHeader(let header):
+                owner = header.tabID.uuidString
+                return "agent \(owner)"
+            case .linearIssue(let identifier, _):
+                return "linear \(identifier)"
+            case .pinnedPullRequest(let reference, _):
+                return "pinned \(reference.owner)/\(reference.repo)#\(reference.number)"
+            case .pullRequest(_, .pullRequest(let pullRequest)):
+                return "pullRequest \(pullRequest.url ?? "#\(pullRequest.number)")"
+            case .text: kind = "text"
+            case .project: kind = "project"
+            case .branch: kind = "branch"
+            case .pullRequest: kind = "pullRequest"
+            case .linearOverflow, .pinnedPullRequestOverflow, .activity: kind = "other"
+            }
+            let slot = "\(owner) \(kind)"
+            let ordinal = seen[slot, default: 0]
+            seen[slot] = ordinal + 1
+            return "\(slot) \(ordinal)"
+        }
+    }
+
     /// For each line, the agent groups it sits in, outermost first, each named
     /// by its header's index. A child's group sits inside its parent's, so the
     /// parent's group runs on past its children. Lines above the first header
@@ -563,7 +669,10 @@ enum TaskRowDetails {
     static func accessibilityText(_ line: Line) -> String? {
         switch line {
         case .text(let text): text
-        case .agentHeader(let header): header.standsForTask ? nil : "\(header.title), \(header.statusText)"
+        case .agentHeader(let header):
+            // The row's own label names the starter of a header it stands for.
+            header.standsForTask ? nil : ([header.title] + (header.starter.map { [$0.accessibilityText] } ?? []) + [header.statusText])
+                .joined(separator: ", ")
         case .project(let name): name
         case .branch(let branch, let isWorktree, let companion):
             [isWorktree ? "worktree" : nil, branch,
