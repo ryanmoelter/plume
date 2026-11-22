@@ -1,21 +1,27 @@
 import SwiftUI
 
-/// Text that changes with a fade swipe: a soft edge sweeps the old text out
-/// from left to right, and after a short pause sweeps the new text in the
-/// same way. With Reduce Motion on, it crossfades instead. The first value
-/// shows without any animation.
+/// Text that changes with one wipe from left to right: the new text shows
+/// behind a trailing soft edge while the old text clears ahead of a leading
+/// one, a fixed gap apart, so the two never overlap. With Reduce Motion on,
+/// it crossfades instead. The first value shows without any animation.
 struct FadeSwipeText<Content: View>: View {
     private let text: String
     private let content: (String) -> Content
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @State private var swipe: FadeSwipe
-    /// Sweeps run so far. It only ever grows, so no animation runs backward
-    /// through a reset: an even value shows the text, an odd one hides it.
+    /// Wipes run so far. It only ever grows, so no animation runs backward
+    /// through a reset; a wipe's progress is its distance past `wipeStart`.
     @State private var sweeps: Double = 0
+    @State private var wipeStart: Double = 0
+    /// The wider of the two texts, which the wipe crosses.
+    @State private var wipeWidth: CGFloat = 0
 
-    static var fadeOut: Animation { .easeInOut(duration: 0.2) }
-    static var pause: TimeInterval { 0.06 }
-    static var fadeIn: Animation { .easeOut(duration: 0.25) }
+    static var wipe: Animation { .easeInOut(duration: 0.4) }
+    /// Eases the frame to the new text's width, and so any icons after it,
+    /// once the last wipe ends.
+    static var settleWidth: Animation { .easeOut(duration: 0.2) }
+    /// Far longer than a wipe, so it only fires when a completion was lost.
+    static var watchdog: Duration { .seconds(1) }
 
     init(_ text: String, @ViewBuilder content: @escaping (String) -> Content) {
         self.text = text
@@ -29,19 +35,29 @@ struct FadeSwipeText<Content: View>: View {
                 content(text)
                     .contentTransition(.opacity)
                     .animation(.easeInOut(duration: 0.2), value: text)
+            } else if let outgoing = swipe.outgoing {
+                FadeWipe(
+                    sweeps: sweeps,
+                    start: wipeStart,
+                    width: wipeWidth,
+                    outgoing: content(outgoing),
+                    incoming: content(swipe.shown)
+                )
+                .onGeometryChange(for: CGFloat.self) { $0.size.width } action: { wipeWidth = $0 }
+                .transition(.identity)
             } else {
                 content(swipe.shown)
-                    .modifier(FadeSwipeMask(sweeps: sweeps, isActive: swipe.phase != .idle))
+                    .transition(.identity)
             }
         }
         .onChange(of: text) { _, new in
             if reduceMotion {
                 settle(on: new)
             } else {
-                perform(swipe.retarget(new))
+                withAnimation(Self.wipe) { perform(swipe.retarget(new)) }
             }
         }
-        // A completion that never arrives would leave the text masked.
+        // A completion that never arrives would leave both texts drawn.
         .onAppear {
             if swipe.phase != .idle { settle(on: text) }
         }
@@ -53,59 +69,45 @@ struct FadeSwipeText<Content: View>: View {
         }
     }
 
-    /// Far longer than any one step, so it only fires when a step's
-    /// completion was lost.
-    static var watchdog: Duration { .seconds(1) }
-
     private func settle(on text: String) {
         swipe.settle(on: text)
-        sweeps = (sweeps / 2).rounded(.up) * 2
+        sweeps = sweeps.rounded(.up)
     }
 
+    /// Called inside an animation, so the frame changing width to fit both
+    /// texts moves with it.
     private func perform(_ step: FadeSwipe.Step) {
-        switch step {
-        case .none:
-            break
-        case .fadeOut:
-            sweep(Self.fadeOut)
-        case .pause:
-            let step = swipe.step
-            DispatchQueue.main.asyncAfter(deadline: .now() + Self.pause) {
-                perform(swipe.stepFinished(step))
-            }
-        case .fadeIn:
-            sweep(Self.fadeIn)
-        }
-    }
-
-    private func sweep(_ animation: Animation) {
-        let step = swipe.step
-        withAnimation(animation, completionCriteria: .logicallyComplete) {
-            sweeps += 1
+        guard step == .wipe else { return }
+        wipeStart = sweeps.rounded(.up)
+        let token = swipe.step
+        withAnimation(Self.wipe, completionCriteria: .logicallyComplete) {
+            sweeps = wipeStart + 1
         } completion: {
-            perform(swipe.stepFinished(step))
+            withAnimation(Self.settleWidth) { perform(swipe.stepFinished(token)) }
         }
     }
 }
 
-/// The phases of a fade swipe. A change that lands mid-swipe only retargets
-/// it: the text that shows next is whatever is latest when the old text has
-/// gone, and a change during the fade-in runs another swipe once it ends.
+/// The text a wipe shows. A change mid-wipe only retargets it: the wipe in
+/// flight finishes, then one more runs from what it showed to the latest text.
 struct FadeSwipe: Equatable {
     enum Phase: Equatable {
-        case idle, fadingOut, pausing, fadingIn
+        case idle, wiping
     }
 
     /// What the view starts next.
     enum Step: Equatable {
-        case none, fadeOut, pause, fadeIn
+        case none, wipe
     }
 
+    /// The text wiping in, or the only text while idle.
     private(set) var shown: String
+    /// The text wiping out; nil while idle.
+    private(set) var outgoing: String?
     private(set) var target: String
     private(set) var phase = Phase.idle
-    /// Counts the steps started and the settles, so a callback can say which
-    /// step it finishes.
+    /// Counts the wipes started and the settles, so a completion can say
+    /// which wipe it finishes.
     private(set) var step = 0
 
     init(_ text: String) {
@@ -116,82 +118,81 @@ struct FadeSwipe: Equatable {
     mutating func retarget(_ text: String) -> Step {
         target = text
         guard phase == .idle, text != shown else { return .none }
-        return start(.fadingOut, .fadeOut)
+        return startWipe()
     }
 
-    /// Call when the step that `step` named has finished. A callback from any
-    /// earlier step changes nothing.
+    /// Call when the wipe that `step` named has finished. A completion from
+    /// any earlier wipe changes nothing.
     mutating func stepFinished(_ finished: Int) -> Step {
-        guard finished == step else { return .none }
-        switch phase {
-        case .idle:
+        guard finished == step, phase == .wiping else { return .none }
+        outgoing = nil
+        guard target != shown else {
+            phase = .idle
             return .none
-        case .fadingOut:
-            return start(.pausing, .pause)
-        case .pausing:
-            shown = target
-            return start(.fadingIn, .fadeIn)
-        case .fadingIn:
-            guard target != shown else {
-                phase = .idle
-                return .none
-            }
-            return start(.fadingOut, .fadeOut)
         }
+        return startWipe()
     }
 
-    /// Jumps straight to `text` and retires the step in flight, so its
-    /// callback changes nothing.
+    /// Jumps straight to `text` and retires the wipe in flight, so its
+    /// completion changes nothing.
     mutating func settle(on text: String) {
         shown = text
+        outgoing = nil
         target = text
         phase = .idle
         step += 1
     }
 
-    private mutating func start(_ next: Phase, _ action: Step) -> Step {
-        phase = next
+    private mutating func startWipe() -> Step {
+        outgoing = shown
+        shown = target
+        phase = .wiping
         step += 1
-        return action
+        return .wipe
     }
 }
 
-/// Masks its content with a soft edge at `sweeps`' fractional part across the
-/// width: a sweep from an even value hides what is left of the edge, and one
-/// from an odd value shows it.
-private struct FadeSwipeMask: ViewModifier, Animatable {
+/// Both texts, leading-aligned, each masked by its own soft edge. One
+/// progress value drives both edges, the old text's a fixed gap ahead of the
+/// new text's, across the wider text plus both edges and the gap.
+private struct FadeWipe<Content: View>: View, Animatable {
     var sweeps: Double
-    /// An idle swipe shows its text whole, so it skips the mask's pass.
-    var isActive: Bool
+    let start: Double
+    let width: CGFloat
+    let outgoing: Content
+    let incoming: Content
 
     var animatableData: Double {
         get { sweeps }
         set { sweeps = newValue }
     }
 
-    /// The soft edge's width, as a fraction of the content's.
-    private static let softness = 0.4
+    /// Sized for the 13 pt title: the gap reads as a clean break, and the
+    /// edges stay soft without smearing a short word.
+    static var softness: CGFloat { 14 }
+    static var gap: CGFloat { 4 }
 
-    func body(content: Content) -> some View {
-        let whole = sweeps.rounded(.down)
-        let progress = sweeps - whole
-        let hides = Int(whole).isMultiple(of: 2)
-        let start = -Self.softness + progress * (1 + Self.softness)
-        // The identity transitions keep the swap between branches instant:
-        // the mask shows the text whole on either side of it.
-        if isActive {
-            content
-                .mask {
-                    LinearGradient(
-                        colors: hides ? [.clear, .black] : [.black, .clear],
-                        startPoint: UnitPoint(x: start, y: 0.5),
-                        endPoint: UnitPoint(x: start + Self.softness, y: 0.5)
-                    )
-                }
-                .transition(.identity)
-        } else {
-            content
-                .transition(.identity)
+    var body: some View {
+        let progress = CGFloat(min(max(sweeps - start, 0), 1))
+        let travel = width + 2 * Self.softness + Self.gap
+        // The old text shows right of `lead`, the new one left of `trail`.
+        let lead = -Self.softness + progress * travel
+        let trail = lead - Self.gap
+        ZStack(alignment: .leading) {
+            outgoing.mask { edge(from: lead, to: lead + Self.softness, colors: [.clear, .black]) }
+            incoming.mask { edge(from: trail - Self.softness, to: trail, colors: [.black, .clear]) }
+        }
+    }
+
+    /// A gradient between two points measured from the leading edge.
+    private func edge(from: CGFloat, to: CGFloat, colors: [Color]) -> some View {
+        GeometryReader { proxy in
+            let span = max(proxy.size.width, 1)
+            LinearGradient(
+                colors: colors,
+                startPoint: UnitPoint(x: from / span, y: 0.5),
+                endPoint: UnitPoint(x: to / span, y: 0.5)
+            )
         }
     }
 }
