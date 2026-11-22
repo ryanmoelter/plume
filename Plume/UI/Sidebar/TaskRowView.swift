@@ -553,6 +553,14 @@ struct TaskRowView: View {
         isEmphasized || !isInactive(status: status, tabKinds: [.agent]) ? .primary : .secondary
     }
 
+    /// Nil inherits the task title's font.
+    private var agentTitleFont: Font? {
+        #if DEBUG
+        if AppSettings.shared.sidebarAgentTitlesAtTaskNameSize { return nil }
+        #endif
+        return .caption
+    }
+
     private func agentHeaderLine(
         _ header: TaskRowDetails.AgentHeader,
         isFocused: Bool,
@@ -570,7 +578,7 @@ struct TaskRowView: View {
                     .plumeID(AccessibilityID.taskAgentChildMarker, label: header.label, value: "detached")
             }
             Text(header.title)
-                .font(.caption)
+                .font(agentTitleFont)
                 .bold(header.needsAttention)
                 .emphasis(titleEmphasis)
                 .animation(AgentGroupBar.fade, value: titleEmphasis)

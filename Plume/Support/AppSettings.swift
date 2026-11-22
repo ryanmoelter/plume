@@ -47,6 +47,9 @@ final class AppSettings {
         static let sidebarColorsTaskNames = "sidebarColorsTaskNames"
         static let sidebarBoldTaskNames = "sidebarBoldTaskNames"
         static let alwaysShowsCreditAndFableQuota = "alwaysShowsCreditAndFableQuota"
+        #if DEBUG
+        static let debugSidebarAgentTitlesAtTaskNameSize = "debugSidebarAgentTitlesAtTaskNameSize"
+        #endif
         static let readsClaudeUsage = "checksClaudeUsage"
         /// Earlier builds of the usage reader wrote these; nothing reads them.
         static let retiredClaudeUsageKeys = ["readsClaudeUsage", "claudeUsageKeychainCancels", "dismissedClaudeUsageOffer"]
@@ -220,6 +223,9 @@ final class AppSettings {
         self.sidebarColorsTaskNames = defaults.bool(forKey: Key.sidebarColorsTaskNames)
         self.sidebarBoldTaskNames = defaults.bool(forKey: Key.sidebarBoldTaskNames)
         self.alwaysShowsCreditAndFableQuota = defaults.bool(forKey: Key.alwaysShowsCreditAndFableQuota)
+        #if DEBUG
+        self.sidebarAgentTitlesAtTaskNameSize = defaults.bool(forKey: Key.debugSidebarAgentTitlesAtTaskNameSize)
+        #endif
         for key in Key.retiredClaudeUsageKeys { defaults.removeObject(forKey: key) }
         self.readsClaudeUsage = defaults.object(forKey: Key.readsClaudeUsage) == nil
             ? true
@@ -677,6 +683,16 @@ final class AppSettings {
             defaults.set(alwaysShowsCreditAndFableQuota, forKey: Key.alwaysShowsCreditAndFableQuota)
         }
     }
+
+    #if DEBUG
+    /// Draws the sidebar's agent header titles at the task title's size
+    /// rather than caption size.
+    var sidebarAgentTitlesAtTaskNameSize = false {
+        didSet {
+            defaults.set(sidebarAgentTitlesAtTaskNameSize, forKey: Key.debugSidebarAgentTitlesAtTaskNameSize)
+        }
+    }
+    #endif
 
     /// Whether `ClaudeUsagePoller` asks Claude Code for the credit spend and
     /// the Fable window.
