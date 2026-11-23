@@ -22,7 +22,9 @@ struct RealPlanCorpusTests {
         try #require(!files.isEmpty, "no plan files on this machine")
 
         for url in files {
-            guard let content = try? String(contentsOf: url, encoding: .utf8) else { continue }
+            guard let content = try? String(contentsOf: url, encoding: .utf8),
+                !content.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+            else { continue }
             let blocks = MarkdownBlock.parse(content)
             #expect(!blocks.isEmpty, "\(url.lastPathComponent) parsed into no blocks")
         }

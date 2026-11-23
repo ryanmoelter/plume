@@ -30,6 +30,7 @@ Some tests depend on the machine that runs them, so a fresh clone fails them for
 
 - **`SurfaceCommandTests` needs a real GUI session.** It spawns real `NSWindow`s and PTYs, so it fails from a headless shell.
 - **`SessionJSONLReaderTests.encodingResolvesADirectoryClaudeCodeHasUsed` only asserts where Claude Code has run in this checkout.** It derives the repo path from `#filePath` and locates the transcript directory by the `cwd` Claude Code records, which a worktree or a freshly cloned machine has none of. There its `#require` fails with "Claude Code has not run in …". The test passes once Claude Code has run in your checkout. More than one directory can legitimately record the same `cwd`, because an agent working in a worktree still stamps the parent repository's path, so the test asserts the encoded name is *among* the owning directories rather than the only one.
+- **`RealPlanCorpusTests` needs at least one non-empty `*.md` plan in `~/.claude/plans`.** It skips empty files, but its `#require` fails on a machine with no plans.
 - **`RealTranscriptCorpusTests` parses every Claude Code transcript on the machine**, so its run time and coverage vary with your history.
 
 ## Writing tests
