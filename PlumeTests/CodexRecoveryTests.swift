@@ -134,6 +134,42 @@ struct CodexRecoveryTests {
         #expect(h.turns.isEmpty)
     }
 
+    @Test func refreshReportsActiveParentTurnOnceAndResubmitsOnlyQueuedFollowup() async throws {
+        func parentMessage(_ text: String) -> QueuedMessage {
+            let host = HostMessage(display: [.text(text)], wire: [.text(text)], origin: .fromParent(text: text))
+            return QueuedMessage(parts: [.host(host)])
+        }
+        let original = Harness()
+        let session = CodexSession(tabID: UUID(), taskID: UUID(), client: original.client)
+        session.start(workingDirectory: nil, resumeThreadID: nil, model: nil, isChildSession: true, environment: [:])
+        session.submit(parentMessage("Active brief"))
+        try await waitFor { original.turns.count == 1 }
+        let followup = parentMessage("Queued follow-up")
+        session.submit(followup)
+        let queued = session.queue
+        #expect(queued == [followup])
+
+        var outcomes: [AgentTurnOutcome] = []
+        session.onTurnFinished = { outcomes.append($0) }
+        let resumedThreadID = try #require(session.sessionID)
+        session.stop()
+
+        let replacement = Harness()
+        let resumed = CodexSession(tabID: session.tabID, taskID: session.taskID, client: replacement.client)
+        defer { resumed.stop() }
+        resumed.start(workingDirectory: nil, resumeThreadID: resumedThreadID, model: nil, isChildSession: true, environment: [:])
+        for message in queued { resumed.submit(message) }
+        session.reportInterruptedParentTurn()
+        session.reportInterruptedParentTurn()
+
+        try await waitFor { replacement.turns.count == 1 }
+        #expect(outcomes.count == 1)
+        #expect(outcomes.first?.isParentDriven == true)
+        #expect(outcomes.first?.wasInterrupted == true)
+        #expect(session.queue == [followup])
+        #expect(replacement.turns.first?["params"]?["input"]?.arrayValue?.first?["text"] == .string("Queued follow-up"))
+    }
+
     @Test func resumeRestoresRemoteTurnAndQueuesFollowupUntilItEnds() async throws {
         let h = Harness()
         h.resumedThread = activeRemoteThread

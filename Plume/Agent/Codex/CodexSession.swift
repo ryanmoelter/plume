@@ -702,6 +702,8 @@ final class CodexSession: AgentSession {
         CodexSubagentStore.shared.connectionClosed(tabID: tabID)
         isReady = false
         isWorking = false
+        workingSince = nil
+        pendingTurnStartSequence = nil
         pendingPermissions.removeAll()
         permissionRequestIDs.removeAll()
         permissionKinds.removeAll()
@@ -715,6 +717,14 @@ final class CodexSession: AgentSession {
         if let sessionID { client.releaseThread(threadID: sessionID, turnID: currentTurnID) }
         client.stop()
         hasExited = true
+    }
+
+    /// Refresh carries only unsent messages. The interrupted turn may have
+    /// already performed work, so the parent decides whether to send it again.
+    func reportInterruptedParentTurn() {
+        guard hasExited, activeHosts.contains(where: \.isFromParent) else { return }
+        let outcome = takeChildOutcome(text: finalReply, isError: false, interrupted: true)
+        onTurnFinished?(outcome)
     }
 
     // MARK: - Settings

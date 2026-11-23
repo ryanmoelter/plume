@@ -96,8 +96,7 @@ enum AgentLauncher {
         case (.claudeCode, .headless):
             if !restartHeadless(task: task, tab: tab) { relaunchHeadless(task: task, tab: tab) }
         case (.codex, .headless):
-            AgentSessionManager.shared.closeSession(for: tab.id)
-            launch(message: nil, task: task, tab: tab, resumeSessionID: tab.agentSessionID)
+            relaunchHeadless(task: task, tab: tab)
         case (_, .terminal):
             SurfaceManager.shared.closeSession(for: tab.id)
             launch(message: nil, task: task, tab: tab, resumeSessionID: tab.agentSessionID)
@@ -116,7 +115,11 @@ enum AgentLauncher {
         let queued = queue(of: previous)
         if let previous = previous as? HeadlessSession { persistLiveSettings(of: previous, to: tab) }
         if previous != nil { AgentSessionManager.shared.closeSession(for: tab.id) }
-        return resume(task: task, tab: tab, inheriting: previous, queued: queued)
+        let resumed = resume(task: task, tab: tab, inheriting: previous, queued: queued)
+        // The new session already holds the unsent messages. Only now tell
+        // the parent the previous turn stopped, so wake checks see the queue.
+        (previous as? CodexSession)?.reportInterruptedParentTurn()
+        return resumed
     }
 
     /// Relaunches a fork whose cut the CLI refused, keeping the whole
@@ -228,6 +231,7 @@ enum AgentLauncher {
                 DraftStore.shared.setDraft(draft.filter { !$0.isEmpty }.joined(separator: "\n\n"), forTab: tab.id)
             }
             (previous as? HeadlessSession)?.onHostMessagesReturned?(parts.hosts)
+            (previous as? CodexSession)?.onHostMessagesReturned?(parts.hosts)
         }
         return resumed
     }
