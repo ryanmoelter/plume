@@ -5,10 +5,12 @@ A macOS guest has its own window server, focus and launchd. So a debug build can
 ## Setup
 
 0. Turn on **Settings ▸ Labs ▸ macOS VMs for testing** in the Plume that will own the VMs. It is off by default. Off, the device picker shows no macOS VMs section unless a VM is left from before, and every `vms.*` socket command answers "macOS VMs are a Labs feature; turn them on in Settings ▸ Labs", which `plume devices … --kind=vm` prints before exiting 1. From a shell, `defaults write com.ryanmoelter.Plume labsVMsEnabled -bool true` (`com.ryanmoelter.Plume.debug` for every debug build) turns it on; the app reads it at launch, so relaunch after. Turning it off while VMs run stops nothing: new claims are refused, while the socket, the picker and the VM tab still offer a VM left from before (leased, running, or one that didn't stop) so it can be shown and released, and leases run out or are released as usual. `VMManager` starts its reaper on the first claim and touches no Tart until then, so a Plume that never opts in pays nothing.
-1. Install Tart, which moved to `openai/tools`. Trust the `tart` and `softnet` formulas when Homebrew asks.
+1. Install Tart, which moved to `openai/tools`. Homebrew refuses its `tart` and `softnet` formulas until they are trusted.
 
    ```
    brew tap openai/tools
+   brew trust --formula openai/tools/tart
+   brew trust --formula openai/tools/softnet
    brew install tart
    ```
 

@@ -11,10 +11,12 @@ Ask the user before steps that need them: installing Homebrew packages, turning 
 
 ## First-time setup
 
-1. **Install Tart.** It lives in the `openai/tools` tap. Homebrew asks to trust the `tart` and `softnet` formulas, so run `brew trust` on both when it does.
+1. **Install Tart.** It lives in the `openai/tools` tap, and Homebrew refuses its `tart` and `softnet` formulas until they are trusted.
 
    ```
    brew tap openai/tools
+   brew trust --formula openai/tools/tart
+   brew trust --formula openai/tools/softnet
    brew install tart
    ```
 
