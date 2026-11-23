@@ -1,6 +1,6 @@
 # Testing in a macOS VM
 
-A macOS guest has its own window server, focus and launchd. So a debug build can be frontmost there, run menu commands, take screenshots and run UI tests without touching the host. PLUME-290 builds a pool of at most 2 guests, owned by the installed app. This document starts with the base image and the spike that proved the path; the pool itself is documented as it lands.
+A macOS guest has its own window server, focus and launchd. So a debug build can be frontmost there, run menu commands, take screenshots and run UI tests without touching the host. PLUME-290 builds a pool of at most 2 guests, owned by the installed app. This document covers the base image, the pool in the app, and the spike that proved the path.
 
 ## The base image
 
@@ -13,6 +13,20 @@ A macOS guest has its own window server, focus and launchd. So a debug build can
 5. Shut down, rename the VM to `plume-base-<os>`, and write `vms/base-<os>.json`.
 
 Pass `--xcode=<Xcode.app>` to copy another Xcode, `--image=<ref>` to start from another image, and `--force` to replace an existing base. The guest user is `admin`, password `admin`, the image's published default.
+
+## The pool
+
+`VMManager.shared` (`Plume/VM/`) owns the guests, as `SurfaceManager` owns terminals. Slot `vm:<n>` always boots clone `plume-<os>-<n>` and keeps its share and control socket in `vms/vm<n>/`. Leases live in memory only, because the guests die with the app.
+
+- **Claiming.** A claim answers at once and boots in the background: `reserved`, `cloning` (lock the clone, and clone the base if the clone is missing), `starting`, then `ready` once ssh answers and the guest user is logged in and unlocked. The claimant polls `vms.status`. A boot has 4 minutes before it fails.
+- **Owners.** An owner that already holds a slot gets it renewed, and booted again if its boot failed. A claim naming another worktree fails, since shares are fixed at boot.
+- **Clone locks.** An `flock` on `vms/<clone>.lock` is held for the VM's whole life. A slot whose clone another Plume holds reads `heldElsewhere`, and claims skip it.
+- **Pool full.** Every slot leased, or Virtualization refusing another macOS guest (`VZError` code 6), reads as pool full. The tool exits 3 and lists the slots.
+- **Failure.** A failed boot keeps its lease and `error`, so the claimant sees why; the tool then releases the slot.
+- **Stopping.** Release, expiry (checked every minute) and closing the owner tab (`TaskStore.forgetTab`) stop the guest and keep the clone, so the next boot is warm. A stop asks the guest to `sudo shutdown -h now` over ssh, and forces `stop()` after 12 seconds. `reset` deletes a free slot's clone, so the next claim clones the base again.
+- **Quitting.** Quitting with a guest running asks first, then stops every guest and answers `.terminateLater`. The app quits once all have stopped, or after 20 seconds.
+- **Display.** `VMManager.displays[n]` is what a `VZVirtualMachineView` shows. Call `attach(to:)` on the main actor; the VM itself stays on its slot's serial queue.
+- **Entitlement.** The app is signed with `com.apple.security.virtualization` (`Configuration/Plume.entitlements`, also passed by `scripts/lib/sign-bundle.sh`).
 
 ## Spike findings
 
