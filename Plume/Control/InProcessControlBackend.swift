@@ -163,7 +163,27 @@ final class InProcessControlBackend: ControlBackend {
         }
         let point = WindowGeometry.appKitPoint(fromTopLeft: CGPoint(x: rect.midX, y: rect.midY), contentHeight: height)
         SyntheticHover.move(to: point, in: window)
-        return HoverResult(rect: Rect(rect), windowNumber: window.windowNumber, regions: HoverRegistry.shared.hoveredCount)
+        return HoverResult(
+            rect: Rect(rect), windowNumber: window.windowNumber, regions: HoverRegistry.shared.hoveredCount,
+            chatCursor: chatCursor(at: point, in: window)
+        )
+    }
+
+    /// Runs the chat list's own pointer update, which the synthetic pointer
+    /// never triggers, and names the cursor it left set.
+    private func chatCursor(at point: NSPoint, in window: NSWindow) -> String? {
+        guard let content = window.contentView,
+              let list = ViewFinder.all(ChatListDocumentView.self, in: content).first(where: {
+                  $0.visibleRect.contains($0.convert(point, from: nil))
+              }),
+              let controller = list.controller else { return nil }
+        controller.updatePointer(at: point)
+        return switch NSCursor.current {
+        case .iBeam: "iBeam"
+        case .pointingHand: "pointingHand"
+        case .arrow: "arrow"
+        default: "other"
+        }
     }
 
     func clear(_ params: ClearParams) async throws {

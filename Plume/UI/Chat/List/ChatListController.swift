@@ -112,6 +112,10 @@ final class ChatListController: NSObject {
 
     let selection = ChatSelectionStore()
     private var selectionTracker: ChatSelectionTracker?
+    private var pointerCursor = ChatPointerCursor()
+    /// The last piece the pointer was over, so a move doesn't reparse its
+    /// markdown to look for a link.
+    private var pointerText: (id: String, text: ChatSelectableText)?
 
     private(set) var inputs = ChatListInputs()
     private var model = ChatLayoutModel()
@@ -296,6 +300,7 @@ final class ChatListController: NSObject {
         var stale: Set<String> = []
 
         if new.pieces != old.pieces || new.tabID != old.tabID {
+            pointerText = nil
             selection.update(pieces: new.pieces, previousIDs: new.tabID == old.tabID ? old.pieces.map(\.id) : [])
             if selection.selection == nil {
                 // Out of SwiftUI's update pass before moving first responder.
@@ -582,6 +587,7 @@ final class ChatListController: NSObject {
         #else
         clipBoundsChangedNow()
         #endif
+        updatePointerAfterScroll()
     }
 
     private func clipBoundsChangedNow() {
@@ -1185,9 +1191,44 @@ final class ChatListDocumentView: NSView {
 
     override var isFlipped: Bool { true }
 
+    private var pointerArea: NSTrackingArea?
+
     override func layout() {
         super.layout()
         controller?.layoutPass()
+    }
+
+    override func updateTrackingAreas() {
+        super.updateTrackingAreas()
+        if let pointerArea { removeTrackingArea(pointerArea) }
+        let area = NSTrackingArea(
+            rect: .zero,
+            options: [.mouseMoved, .mouseEnteredAndExited, .cursorUpdate, .activeInKeyWindow, .inVisibleRect],
+            owner: self,
+            userInfo: nil
+        )
+        addTrackingArea(area)
+        pointerArea = area
+    }
+
+    override func mouseMoved(with event: NSEvent) {
+        controller?.updatePointer(at: event.locationInWindow)
+    }
+
+    override func mouseEntered(with event: NSEvent) {
+        controller?.updatePointer(at: event.locationInWindow)
+    }
+
+    override func mouseExited(with event: NSEvent) {
+        controller?.pointerLeft()
+    }
+
+    /// A row's hosting view answers the cursor update when the pointer
+    /// enters it, so the transcript sets its own cursor here as well.
+    override func cursorUpdate(with event: NSEvent) {
+        if controller?.updatePointer(at: event.locationInWindow) == .unowned {
+            super.cursorUpdate(with: event)
+        }
     }
 
     /// Only while a selection exists, collapsed at the start of a drag
@@ -1309,6 +1350,47 @@ extension ChatListController {
         return pieces[..<index].last { selection.isSelectable($0.id) }.map {
             ChatTextPosition(pieceID: $0.id, offset: selection.length(of: $0.id))
         }
+    }
+
+    /// Sets the cursor for the pointer at `windowPoint`: the I-beam over
+    /// selectable text, the pointing hand over a link in it.
+    @discardableResult
+    func updatePointer(at windowPoint: NSPoint) -> ChatPointerKind {
+        let kind = pointerKind(at: windowPoint)
+        pointerCursor.move(to: kind)?.set()
+        return kind
+    }
+
+    func pointerLeft() {
+        pointerCursor.move(to: .unowned)?.set()
+    }
+
+    /// Content scrolls under a pointer that stays put.
+    func updatePointerAfterScroll() {
+        guard let window = documentView.window, window.isKeyWindow,
+              NSWindow.windowNumber(at: NSEvent.mouseLocation, belowWindowWithWindowNumber: 0) == window.windowNumber
+        else { return }
+        let point = window.mouseLocationOutsideOfEventStream
+        guard documentView.visibleRect.contains(documentView.convert(point, from: nil)) else { return }
+        updatePointer(at: point)
+    }
+
+    func pointerKind(at windowPoint: NSPoint) -> ChatPointerKind {
+        guard let hit = scrollView.window?.contentView?.hitTest(windowPoint), hit.isDescendant(of: documentView) else {
+            return .unowned
+        }
+        if let position = selectionPosition(onTextAt: windowPoint, character: true) {
+            return pointerSelectableText(of: position.pieceID)?.link(at: position.offset) == nil ? .text : .link
+        }
+        guard let row = hosts.first(where: { hit.isDescendant(of: $0.value.view) }) else { return .plain }
+        return selection.isSelectable(row.key) ? .plain : .unowned
+    }
+
+    private func pointerSelectableText(of pieceID: String) -> ChatSelectableText? {
+        if let pointerText, pointerText.id == pieceID { return pointerText.text }
+        let text = selectableText(of: pieceID)
+        pointerText = text.map { (pieceID, $0) }
+        return text
     }
 
     /// The realized piece under a point, or the nearest one above or below

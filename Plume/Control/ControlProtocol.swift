@@ -860,6 +860,9 @@ nonisolated struct HoverResult: Codable, Equatable {
     var windowNumber: Int
     /// How many `plumeHover` regions the pointer now rests in.
     var regions: Int
+    /// Over a chat list: the cursor its pointer update left set, `iBeam`,
+    /// `pointingHand`, `arrow` or `other`.
+    var chatCursor: String? = nil
 }
 
 nonisolated struct ScreenshotResult: Codable, Equatable {
