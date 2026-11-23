@@ -260,8 +260,8 @@ case "$cmd" in
   reset) plume devices reset "$@" ;;
   release)
     [[ "${1:-}" == vm:* ]] || die "release takes a vm:<n> key; see 'plume-vm list'"
-    stop_slot "${1#vm:}"
     plume devices release "$@"
+    stop_slot "${1#vm:}"
     ;;
   ssh)
     claim_vm

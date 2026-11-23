@@ -104,10 +104,10 @@ struct VMDevicesTests {
         let (code, console) = run(["claim", "--kind=vm", "--json"])
         #expect(code == 0)
         let object = try #require(try JSONSerialization.jsonObject(with: Data(console.stdout.utf8)) as? [String: Any])
-        #expect(Set(object.keys) == [
+        #expect(Set(object.keys).isSuperset(of: [
             "key", "ip", "user", "sshKey", "share", "guestShare", "worktree", "guestWorktree", "controlSocket",
             "owner", "expiresAt", "reused",
-        ])
+        ]))
         #expect(object["key"] as? String == "vm:2")
         #expect(object["reused"] as? Bool == true)
         #expect(object["guestWorktree"] as? String == "/Volumes/My Shared Files/worktree")
@@ -276,5 +276,26 @@ struct VMDevicesTests {
         #expect(code == 0)
         #expect(console.stdout == "released vm:1\n")
         #expect(run.requests == [.listVMs, .releaseVM(.init(key: "vm:1", owner: .label("/repo/wt"), force: false))])
+    }
+
+    @Test func releaseMineTriesEveryVMAndReportsWhatItReleasedBeforeFailing() throws {
+        let run = try Run()
+        run.app.reply = { request in
+            switch request {
+            case .listVMs:
+                var response = CLIResponse.success
+                response.vms = [VMDevicesTests.slot(1, .ready), VMDevicesTests.slot(2, .ready)]
+                return response
+            case .releaseVM(let params) where params.key == "vm:1":
+                return .failure("vm:1 is stopping")
+            default:
+                return .success
+            }
+        }
+        let (code, console) = run(["release", "--mine"])
+        #expect(code == 1)
+        #expect(console.stdout == "released vm:2\n")
+        #expect(console.stderr.contains("couldn't release vm:1: vm:1 is stopping"))
+        #expect(run.requests.count == 3)
     }
 }

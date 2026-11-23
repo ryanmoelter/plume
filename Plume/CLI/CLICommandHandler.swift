@@ -139,7 +139,7 @@ final class CLICommandHandler {
             switch request {
             case .claimVM(let params):
                 let claimed = try vms.claim(owner: params.owner, worktree: params.worktree, branch: params.branch, ttl: params.ttl)
-                if let callerTabID = params.owner.tabID { showVMTab(slot: claimed.slot, besideTab: callerTabID) }
+                if !claimed.reused, let callerTabID = params.owner.tabID { showVMTab(slot: claimed.slot, besideTab: callerTabID) }
                 response.vm = vms.info(claimed.slot)
                 response.created = !claimed.reused
             case .vmStatus(let params):
@@ -178,7 +178,8 @@ final class CLICommandHandler {
 
     /// Best effort: a claim from a tab Plume doesn't show opens nothing. A VM tab that claimed
     /// shows the slot itself; any other caller gets a VM tab opposite its pane, behind the
-    /// selection, as `devices.show` places a device tab.
+    /// selection. Only a new lease opens one, so a tab the user closed stays closed while the
+    /// lease is renewed.
     private func showVMTab(slot: Int, besideTab callerTabID: UUID) {
         guard let (task, context) = currentTask(ofTab: callerTabID) else { return }
         if let caller = task.tabs.first(where: { $0.id == callerTabID }), caller.kind == .vm {

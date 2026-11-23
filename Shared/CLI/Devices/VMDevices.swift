@@ -155,15 +155,23 @@ nonisolated extension Devices {
         console.printError("(wait, or 'plume devices release vm:<n>' one you own)")
     }
 
-    /// Releases every VM `owner` holds, returning their keys. None when no app answers, so
-    /// `release --mine` still releases the devices.
-    static func releaseVMs(ownedBy owner: DeviceLeaseOwner, environment: [String: String], app: any DeviceAppClient) throws -> [String] {
-        guard let socket = CLISocket.resolvedPath(environment: environment) else { return [] }
-        let mine = vmRowsIfAnswering(environment: environment, app: app).filter { $0.owner == owner }
-        for slot in mine {
-            _ = try sendVM(.releaseVM(.init(key: slot.key, owner: owner, force: false)), socket: socket, app: app)
+    /// Releases every VM `owner` holds, trying each even after one fails. None when no app
+    /// answers, so `release --mine` still releases the devices.
+    static func releaseVMs(
+        ownedBy owner: DeviceLeaseOwner, environment: [String: String], app: any DeviceAppClient
+    ) -> (released: [String], failures: [String]) {
+        guard let socket = CLISocket.resolvedPath(environment: environment) else { return ([], []) }
+        var released: [String] = []
+        var failures: [String] = []
+        for slot in vmRowsIfAnswering(environment: environment, app: app) where slot.owner == owner {
+            do {
+                _ = try sendVM(.releaseVM(.init(key: slot.key, owner: owner, force: false)), socket: socket, app: app)
+                released.append(slot.key)
+            } catch {
+                failures.append("\(slot.key): \(describe(error))")
+            }
         }
-        return mine.map(\.key)
+        return (released, failures)
     }
 
     /// The app's VM rows, or none when no app answers: a plain `list` still shows the devices.
@@ -202,32 +210,20 @@ nonisolated extension Devices {
     }
 
     struct VMClaimResult: Encodable {
-        var key: String
-        var ip: String?
-        var user: String
-        var sshKey: String
-        var share: String
-        var guestShare: String
-        var worktree: String?
-        var guestWorktree: String?
-        var controlSocket: String
-        var owner: DeviceLeaseOwner?
-        var expiresAt: Date?
+        var slot: VMLeaseInfo
         var reused: Bool
 
         init(_ slot: VMLeaseInfo, reused: Bool) {
-            key = slot.key
-            ip = slot.ip
-            user = slot.user
-            sshKey = slot.sshKey
-            share = slot.share
-            guestShare = slot.guestShare
-            worktree = slot.worktree
-            guestWorktree = slot.guestWorktree
-            controlSocket = slot.controlSocket
-            owner = slot.owner
-            expiresAt = slot.expiresAt
+            self.slot = slot
             self.reused = reused
+        }
+
+        private enum CodingKeys: String, CodingKey { case reused }
+
+        func encode(to encoder: any Encoder) throws {
+            try slot.encode(to: encoder)
+            var container = encoder.container(keyedBy: CodingKeys.self)
+            try container.encode(reused, forKey: .reused)
         }
     }
 

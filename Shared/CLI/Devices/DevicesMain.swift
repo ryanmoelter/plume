@@ -388,9 +388,14 @@ nonisolated enum Devices {
                 let released = try pool.releaseMine(owner: claimant.owner).map(\.key)
                 let remote = try pool.remoteLeases(ownedBy: claimant.owner)
                 for (key, lease) in remote { try releaseRemote(key: key, lease: lease, pool: pool, app: app, console: console) }
-                let vms = try releaseVMs(ownedBy: claimant.owner, environment: environment, app: app)
-                let all = released + remote.map(\.key) + vms
-                console.print(all.isEmpty ? "no leases held" : "released " + all.joined(separator: ", "))
+                let vms = releaseVMs(ownedBy: claimant.owner, environment: environment, app: app)
+                let all = released + remote.map(\.key) + vms.released
+                if !all.isEmpty || vms.failures.isEmpty {
+                    console.print(all.isEmpty ? "no leases held" : "released " + all.joined(separator: ", "))
+                }
+                if !vms.failures.isEmpty {
+                    throw CLIFailure("couldn't release " + vms.failures.joined(separator: "; "))
+                }
             } else if let serial {
                 let key = try pool.leaseKey(for: serial)
                 if let held = try pool.lease(key, owner: claimant.owner, force: force), held.kind == .remote {

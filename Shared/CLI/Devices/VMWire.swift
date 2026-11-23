@@ -39,6 +39,8 @@ nonisolated enum VMPaths {
     static let guestShare = guestShareRoot + "/share"
     static let guestWorktree = guestShareRoot + "/worktree"
     static let keyPrefix = "vm:"
+    /// How long the app lets one `tart` command run.
+    static let tartTimeout: TimeInterval = 300
 
     static var directory: String { CLISocket.releaseApplicationSupport + "/vms" }
     static var sshKey: String { directory + "/id_ed25519" }
