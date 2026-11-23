@@ -13,6 +13,8 @@
 #   test [--only-testing X]... [--skip-build]
 #                             build for testing on the host, then run the UI tests in the guest
 #                             (needs a base built with make-base-image.sh --with-xcode)
+#   grant-fda [--app PATH]    walk through granting the debug app Full Disk Access in a VM, then
+#                             save that VM as the base image (once per base image)
 # `plume` comes from $PLUME_CLI, else this worktree's build, else PATH, skipping any too old for
 # VMs. Set PLUME_SOCKET to the socket of the app that should own the VM.
 set -euo pipefail
@@ -25,7 +27,7 @@ DERIVED_DATA="$ROOT/build/vm-dd"
 DEFAULT_TESTS=(PlumeUITests PlumeTests/SurfaceCommandTests PlumeTests/TerminalShortcutReclaimTests PlumeTests/ControlHierarchyTests)
 CONTROL="$ROOT/scripts/debug/plume-control.py"
 
-usage() { sed -n '2,17p' "${BASH_SOURCE[0]}"; }
+usage() { sed -n '2,19p' "${BASH_SOURCE[0]}"; }
 die() { echo "plume-vm: $*" >&2; exit 1; }
 log() { echo "==> $*" >&2; }
 q() { printf '%q' "$1"; }
@@ -126,6 +128,14 @@ done'
   guest "bash -s -- $(q "$GUEST_WORKTREE") $(q "$WORKTREE") $(q "$GUEST_SHARE") $(q "$SHARE")" <<<"$script"
 }
 
+bundle_id() { plutil -extract CFBundleIdentifier raw -o - "$1/Contents/Info.plist"; }
+
+# The guest's Full Disk Access answer for a bundle ID: 2 granted, 0 denied, empty when never asked.
+# Fails when the TCC database is unreadable; the Cirrus image grants sshd Full Disk Access.
+guest_fda() {
+  guest "sqlite3 '/Library/Application Support/com.apple.TCC/TCC.db' \"select auth_value from access where service='kTCCServiceSystemPolicyAllFiles' and client='$1'\""
+}
+
 wait_for_guest_socket() {
   for _ in $(seq 1 30); do
     guest 'test -S /tmp/plume-control.sock' 2>/dev/null && return 0
@@ -151,18 +161,46 @@ cmd_launch() {
   [[ -d "$app" ]] || die "no app at $app: build this worktree first, or pass --app"
 
   claim_vm
+  launch_app "$app" "$seed" ${envs[@]+"${envs[@]}"}
+
+  local id fda
+  id="$(bundle_id "$app")"
+  if ! fda="$(guest_fda "$id" 2>/dev/null)"; then
+    log "couldn't read $VM_KEY's TCC database, so Full Disk Access is unknown"
+  elif [[ "$fda" != 2 ]]; then
+    echo "plume-vm: $id has no Full Disk Access in $VM_KEY, so it shows the \"Grant Full Disk Access?\" sheet on first launch; grant it once per base image with scripts/vm/plume-vm grant-fda" >&2
+  fi
+
+  local branch
+  branch="$(git -C "$ROOT" branch --show-current)"
+  plume devices installed "$VM_KEY" "$branch" >/dev/null
+
+  cat <<MSG
+$VM_KEY is running $(basename "$app") on $branch. Drive it with:
+  scripts/debug/plume-control.py --socket "$CONTROL_SOCKET" hierarchy
+Right after launch, menu chords read disabled until a tab chip is invoked. Run this once before sending chords:
+  scripts/debug/plume-control.py --socket "$CONTROL_SOCKET" invoke target='{"id":"tab-chip","index":0}'
+MSG
+}
+
+# Copies the app into the claimed VM, starts it, and forwards its control socket.
+launch_app() {
+  local app=$1 seed=$2 envs=("${@:3}")
   stop_slot "$SLOT"
   guest 'pkill -x Plume || true'
   cmd_prepare
 
+  # A fresh folder name each time: the guest's virtiofs can keep listing a recreated folder as empty.
+  local drop
+  drop="app-$(date +%s)"
   log "Copying $(basename "$app") into the share"
-  rm -rf "${SHARE:?}/app"
-  mkdir -p "$SHARE/app"
-  cp -Rc "$app" "$SHARE/app/Plume.app"
+  rm -rf "${SHARE:?}"/app "${SHARE:?}"/app-*
+  mkdir -p "$SHARE/$drop"
+  cp -Rc "$app" "$SHARE/$drop/Plume.app"
 
   # rsync, not ditto or cp: virtiofs breaks bundle symlinks for both.
   log "Installing it in the guest"
-  guest "mkdir -p \"\$HOME/PlumeVM\" && rsync -a --delete $(q "$GUEST_SHARE/app/Plume.app/") \"\$HOME/PlumeVM/Plume.app/\""
+  guest "mkdir -p \"\$HOME/PlumeVM\" && rsync -a --delete $(q "$GUEST_SHARE/$drop/Plume.app/") \"\$HOME/PlumeVM/Plume.app/\""
 
   local open_envs=" --env PLUME_CONTROL_SOCKET=/tmp/plume-control.sock" e
   [[ -z "$seed" ]] || open_envs+=" --env $(q "PLUME_SEED_TASKS=$seed")"
@@ -182,17 +220,6 @@ cmd_launch() {
 
   python3 "$CONTROL" --socket "$CONTROL_SOCKET" --wait 30 tasks >/dev/null \
     || die "the control socket forward doesn't answer"
-
-  local branch
-  branch="$(git -C "$ROOT" branch --show-current)"
-  plume devices installed "$VM_KEY" "$branch" >/dev/null
-
-  cat <<MSG
-$VM_KEY is running $(basename "$app") on $branch. Drive it with:
-  scripts/debug/plume-control.py --socket "$CONTROL_SOCKET" hierarchy
-Right after launch, menu chords read disabled until a tab chip is invoked. Run this once before sending chords:
-  scripts/debug/plume-control.py --socket "$CONTROL_SOCKET" invoke target='{"id":"tab-chip","index":0}'
-MSG
 }
 
 # Reads `xcresulttool get test-results tests` JSON on stdin and fails, naming each one, if any
@@ -281,6 +308,96 @@ cmd_test() {
   return "$status"
 }
 
+# Full Disk Access is a TCC grant: SIP protects TCC.db and only MDM can push one, so a person
+# grants it once, in a VM tab, and that clone becomes the base every later clone inherits.
+cmd_grant_fda() {
+  local app=""
+  while [[ $# -gt 0 ]]; do
+    case "$1" in
+      --app) app="$2"; shift 2 ;;
+      --app=*) app="${1#--app=}"; shift ;;
+      *) die "unknown grant-fda argument: $1" ;;
+    esac
+  done
+  [[ -n "$app" ]] || app="$(products_dir)/Plume.app"
+  [[ -d "$app" ]] || die "no app at $app: build this worktree first, or pass --app"
+  local id os base fda
+  id="$(bundle_id "$app")"
+  os="$(sw_vers -productVersion | cut -d. -f1)"
+  base="plume-base-$os"
+  tart get "$base" >/dev/null 2>&1 || die "no $base; build it with scripts/vm/make-base-image.sh"
+
+  claim_vm
+  local clone="plume-$os-$SLOT"
+  fda="$(guest_fda "$id")" || die "can't read $VM_KEY's TCC database over ssh"
+  if [[ "$fda" == 2 ]]; then
+    log "$VM_KEY already grants $id Full Disk Access"
+  else
+    launch_app "$app" ""
+    guest "open 'x-apple.systempreferences:com.apple.preference.security?Privacy_AllFiles'"
+    cat >&2 <<MSG
+
+In Plume, open a device tab and click Show on $VM_KEY under macOS VMs. Then, in the guest's
+System Settings ▸ Privacy & Security ▸ Full Disk Access:
+  1. Turn on Plume α, the debug build. If it isn't listed, click +, press ⌘⇧G, enter ~/PlumeVM/Plume.app, and click Open.
+  2. When asked for a password, enter: admin
+  3. If asked to quit and reopen it, click Later.
+Waiting up to 15 minutes for the grant...
+MSG
+    local i
+    for i in $(seq 1 300); do
+      [[ "$(guest_fda "$id" 2>/dev/null)" == 2 ]] && break
+      [[ $i -lt 300 ]] || die "no grant after 15 minutes; run grant-fda again"
+      sleep 3
+    done
+    log "Granted"
+  fi
+
+  log "Checking the sheet stays away after a fresh launch"
+  guest "pkill -x Plume || true; defaults delete $(q "$id") hasPromptedForFullDiskAccess 2>/dev/null || true"
+  launch_app "$app" ""
+  sleep 3
+  local sheet
+  sheet="$(python3 "$CONTROL" --socket "$CONTROL_SOCKET" list plumeID=full-disk-access-dismiss-button)" \
+    || die "couldn't read the guest app's controls"
+  if ! python3 -c 'import json, sys; sys.exit(1 if json.load(sys.stdin)["result"] else 0)' <<<"$sheet"; then
+    die "the app still shows its Full Disk Access sheet, so the grant doesn't match this build's signature; check codesign -d -r- on $app"
+  fi
+  log "The app holds Full Disk Access"
+
+  log "Cleaning up $VM_KEY"
+  guest "bash -s -- $(q "$id")" <<'EOF'
+pkill -x Plume; pkill -x "System Settings"
+if [[ -f "$HOME/.plume-vm-links" ]]; then
+  while IFS= read -r link; do [[ -L "$link" ]] && sudo rm -f "$link"; done < "$HOME/.plume-vm-links"
+  rm -f "$HOME/.plume-vm-links"
+fi
+defaults delete "$1" 2>/dev/null
+rm -rf "$HOME/PlumeVM" "$HOME/Library/Application Support"/Plume.debug*
+true
+EOF
+  plume devices release "$VM_KEY" >/dev/null
+  stop_slot "$SLOT"
+
+  log "Waiting for $VM_KEY to stop"
+  local locks=() lock
+  for i in $(seq 1 60); do
+    with_locks 1 "$VMS_DIR/$clone.lock" true && break
+    [[ $i -lt 60 ]] || die "$clone is still locked; once it stops, run grant-fda again"
+    sleep 2
+  done
+
+  # Every clone lock is held across the swap, so no Plume clones a half-replaced base.
+  for lock in "$VMS_DIR"/plume-"$os"-*.lock; do [[ -e "$lock" ]] && locks+=("$lock"); done
+  log "Saving $clone as $base"
+  with_locks "${#locks[@]}" "${locks[@]}" bash -c \
+    'tart delete "$2-fda" 2>/dev/null; tart clone "$1" "$2-fda" && tart delete "$2" && tart rename "$2-fda" "$2"' _ "$clone" "$base" \
+    || die "another VM is running, or the swap failed; release every VM, then run grant-fda again"
+  plutil -replace fullDiskAccess -string "$id" "$VMS_DIR/base-$os.json" 2>/dev/null || true
+  delete_stale_clones "$os"
+  log "$base now grants $id Full Disk Access; every new clone inherits it"
+}
+
 cmd="${1:-help}"
 [[ $# -eq 0 ]] || shift
 case "$cmd" in
@@ -309,5 +426,6 @@ case "$cmd" in
   prepare) claim_vm; cmd_prepare ;;
   launch) cmd_launch "$@" ;;
   test) cmd_test "$@" ;;
+  grant-fda) cmd_grant_fda "$@" ;;
   *) usage >&2; exit 2 ;;
 esac
