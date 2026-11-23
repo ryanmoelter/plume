@@ -63,6 +63,12 @@ nonisolated struct ControlServerRequest: Decodable {
         case "child-session.offer.answer": command = .answerChildSessionOffer(try ChildSessionOfferAnswerParams(from: decoder))
         case "injectUsage": command = .injectUsage(try InjectUsageParams(from: decoder))
         case "scrollTo": command = .scrollTo(try ScrollToParams(from: decoder))
+        case "sidebar.width": command = .sidebarWidth(try SidebarWidthParams(from: decoder))
+        case "menu.open": command = .openMenu(try MenuOpenParams(from: decoder))
+        case "menu.items": command = .menuItems
+        case "menu.pick": command = .pickMenuItem(try MenuPickParams(from: decoder))
+        case "menu.close": command = .closeMenus
+        case "menu.screenshot": command = .menuScreenshot(try MenuScreenshotParams(from: decoder))
         default:
             throw DecodingError.dataCorruptedError(
                 forKey: .command, in: container, debugDescription: "unknown command \"\(name)\""
@@ -114,23 +120,79 @@ nonisolated enum ControlCommand {
     case answerChildSessionOffer(ChildSessionOfferAnswerParams)
     case injectUsage(InjectUsageParams)
     case scrollTo(ScrollToParams)
+    case sidebarWidth(SidebarWidthParams)
+    case openMenu(MenuOpenParams)
+    case menuItems
+    case pickMenuItem(MenuPickParams)
+    case closeMenus
+    case menuScreenshot(MenuScreenshotParams)
 }
 
 /// Scrolls the scroll view under `target` until the control is visible, or
-/// the largest one in the window to an `edge` (`top` or `bottom`) — for rows
-/// a lazy container hasn't mounted, which have no registered control yet.
+/// scrolls one scroll view to an `edge` (`top` or `bottom`), to an `offset`
+/// from its top, or `by` a signed distance (positive is down). `within` names
+/// a control inside the scroll view to use; without it, the window's largest
+/// scroll view.
 nonisolated struct ScrollToParams: Decodable, Equatable {
     var target: ControlTarget?
     var edge: String?
+    var offset: Double?
+    var by: Double?
+    var within: ControlTarget?
     var windowNumber: Int?
 
-    func validate() throws {
-        switch (target, edge) {
-        case (nil, nil): throw ControlError.badParams("scrollTo needs a target or an edge")
-        case (.some, .some): throw ControlError.badParams("scrollTo takes target or edge, not both")
-        default: break
+    enum Destination: Equatable {
+        case control(ControlTarget)
+        case top
+        case bottom
+        case offset(Double)
+        case by(Double)
+    }
+
+    func destination() throws -> Destination {
+        let given = [target != nil, edge != nil, offset != nil, by != nil].filter { $0 }.count
+        guard given == 1 else {
+            throw ControlError.badParams(given == 0
+                ? "scrollTo needs a target, an edge, an offset or by"
+                : "scrollTo takes one of target, edge, offset and by")
+        }
+        if let target {
+            guard within == nil else { throw ControlError.badParams("scrollTo finds a target's own scroll view; within goes with edge, offset or by") }
+            return .control(target)
+        }
+        if let offset { return .offset(offset) }
+        if let by { return .by(by) }
+        switch edge {
+        case "top": return .top
+        case "bottom": return .bottom
+        default: throw ControlError.badParams("edge is top or bottom")
         }
     }
+}
+
+/// The scroll view's position after a `scrollTo`, in points from the top of
+/// its document.
+nonisolated struct ScrollToResult: Codable, Equatable {
+    var offset: Double
+    var maxOffset: Double
+    var visibleHeight: Double
+    var documentHeight: Double
+    var frame: Rect
+}
+
+/// Sets the sidebar's width, clamped to its range. Without `width`, reads it.
+nonisolated struct SidebarWidthParams: Decodable, Equatable {
+    var width: Double?
+    var windowNumber: Int?
+}
+
+/// `width` is 0 while `isCollapsed`.
+nonisolated struct SidebarWidthResult: Codable, Equatable {
+    var width: Double
+    var isCollapsed: Bool
+    var requested: Double?
+    var minimum: Double
+    var maximum: Double
 }
 
 /// Sets the window's content size, in points. With `live`, the size steps
@@ -999,6 +1061,9 @@ nonisolated enum ControlResult: Encodable {
     case childSessionProposals(ChildSessionProposalsResult)
     case childSessionOffers(ChildSessionOffersResult)
     case injectUsage(InjectUsageResult)
+    case scrollTo(ScrollToResult)
+    case sidebarWidth(SidebarWidthResult)
+    case popupMenu(PopupMenuResult)
 
     func encode(to encoder: Encoder) throws {
         switch self {
@@ -1030,6 +1095,9 @@ nonisolated enum ControlResult: Encodable {
         case .childSessionProposals(let v): try v.encode(to: encoder)
         case .childSessionOffers(let v): try v.encode(to: encoder)
         case .injectUsage(let v): try v.encode(to: encoder)
+        case .scrollTo(let v): try v.encode(to: encoder)
+        case .sidebarWidth(let v): try v.encode(to: encoder)
+        case .popupMenu(let v): try v.encode(to: encoder)
         }
     }
 }

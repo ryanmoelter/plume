@@ -32,7 +32,13 @@ protocol ControlBackend {
     func resize(_ params: ResizeParams) async throws -> ResizeResult
     func scrollChat(_ params: ScrollChatParams) async throws -> ScrollHitchReport
     func injectUsage(_ params: InjectUsageParams) async throws -> InjectUsageResult
-    func scrollTo(_ params: ScrollToParams) throws
+    func scrollTo(_ params: ScrollToParams) throws -> ScrollToResult
+    func sidebarWidth(_ params: SidebarWidthParams) throws -> SidebarWidthResult
+    func openMenu(_ params: MenuOpenParams) async throws -> PopupMenuResult
+    func menuItems() throws -> PopupMenuResult
+    func pickMenuItem(_ params: MenuPickParams) async throws -> PopupMenuResult
+    func closeMenus() async
+    func menuScreenshot(_ params: MenuScreenshotParams) throws -> ScreenshotResult
 }
 
 /// The one switch over `ControlCommand`, so a transport only moves bytes.
@@ -136,9 +142,15 @@ enum ControlDispatcher {
                 result = .childSession(try ControlChildSessionCommands.answerOffer(params))
             case .injectUsage(let params):
                 result = .injectUsage(try await backend.injectUsage(params))
-            case .scrollTo(let params):
-                try backend.scrollTo(params)
+            case .scrollTo(let params): result = .scrollTo(try backend.scrollTo(params))
+            case .sidebarWidth(let params): result = .sidebarWidth(try backend.sidebarWidth(params))
+            case .openMenu(let params): result = .popupMenu(try await backend.openMenu(params))
+            case .menuItems: result = .popupMenu(try backend.menuItems())
+            case .pickMenuItem(let params): result = .popupMenu(try await backend.pickMenuItem(params))
+            case .closeMenus:
+                await backend.closeMenus()
                 result = .empty
+            case .menuScreenshot(let params): result = .screenshot(try backend.menuScreenshot(params))
             }
             return .success(id: request.id, result)
         } catch {

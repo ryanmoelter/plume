@@ -31,6 +31,8 @@ final class ControlServer {
         let path = AppPaths.controlSocketPath(pid: getpid(), environment: environment)
         do {
             try start(path: path)
+            PopupMenuTracker.shared.start()
+            SyntheticClick.installWindowHook()
             Log.control.info("control socket at \(path, privacy: .public)")
         } catch {
             Log.control.error("control server failed to start at \(path, privacy: .public): \(error.localizedDescription, privacy: .public)")

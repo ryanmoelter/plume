@@ -12,10 +12,19 @@ enum RowMenu {
 
     /// For a row whose click shows its menu rather than opening anything.
     @MainActor static func popUp(_ entries: [Entry]) {
+        // At the click rather than the pointer, which a synthetic click
+        // never moves.
+        let click = NSApp.currentEvent.flatMap { event in
+            event.window?.contentView.map { ($0, $0.convert(event.locationInWindow, from: nil)) }
+        }
         // After the click's own event handling, which a modal menu
         // tracking loop would otherwise run inside.
         Task { @MainActor in
-            make(entries).popUp(positioning: nil, at: NSEvent.mouseLocation, in: nil)
+            if let (view, point) = click {
+                make(entries).popUp(positioning: nil, at: point, in: view)
+            } else {
+                make(entries).popUp(positioning: nil, at: NSEvent.mouseLocation, in: nil)
+            }
         }
     }
 

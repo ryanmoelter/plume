@@ -738,14 +738,6 @@ struct ClaudeUsageTests {
         #expect(byEdge.edge == "bottom")
     }
 
-    @Test func scrollToNamesWhatIsWrongWithItsParams() {
-        func message(_ params: ScrollToParams) -> String? {
-            do { try params.validate(); return nil } catch { return error.localizedDescription }
-        }
-        #expect(message(ScrollToParams())?.contains("needs a target or an edge") == true)
-        #expect(message(ScrollToParams(target: .control(id: "x", index: nil, label: nil), edge: "top"))?.contains("not both") == true)
-        #expect(message(ScrollToParams(edge: "top")) == nil)
-    }
 
     @Test func injectUsageRejectsOutOfRangeParams() throws {
         #expect(throws: ControlError.self) { try InjectUsageParams(fable: 1.5).validate() }

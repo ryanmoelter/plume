@@ -64,6 +64,11 @@ extension InProcessControlBackend {
         }
     }
 
+    func selectedTaskPaneCount() throws -> Int {
+        let selected = CLICommandHandler.shared.frontmostWindow?.selectedTaskID()
+        return try windowTasks().first { $0.id == selected }?.paneCount ?? 1
+    }
+
     private func windowTasks() throws -> [WorkTask] {
         guard let window = CLICommandHandler.shared.frontmostWindow else { throw ControlError.noWindow }
         let descriptor = FetchDescriptor<WorkTask>(predicate: #Predicate { !$0.isArchived })

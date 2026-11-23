@@ -64,9 +64,10 @@ extension View {
     }
 
     /// Marks a subtree as off screen for the control server, for a container
-    /// that hides content by opacity rather than unmounting it.
+    /// that hides content by opacity rather than unmounting it. A hidden
+    /// ancestor keeps the subtree hidden whatever it passes.
     func plumeControlsHidden(_ hidden: Bool) -> some View {
-        environment(\.plumeControlsHidden, hidden)
+        transformEnvironment(\.plumeControlsHidden) { $0 = $0 || hidden }
     }
 }
 
