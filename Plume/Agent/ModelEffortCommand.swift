@@ -78,7 +78,7 @@ nonisolated struct AgentModel: Identifiable, Hashable, Sendable {
     /// never heard of assumes nothing.
     var nominalContextWindow: Int? {
         guard AgentModel.selectable.contains(where: { $0.id == id }) else { return nil }
-        return self == AgentModel.haiku || self == AgentModel.haiku4dot5At200K ? 200_000 : 1_000_000
+        return id == AgentModel.haiku.id || id == AgentModel.haiku4dot5At200K.id ? 200_000 : 1_000_000
     }
 
     // MARK: - Presets

@@ -3,7 +3,7 @@ import Testing
 
 struct ClaudeModelCatalogTests {
     @Test func catalogUsesAdvertisedTokensAndLabels() {
-        let models = ClaudeModelCatalog.models(in: [
+        let catalog = ClaudeModelCatalog(payload: [
             "models": .array([
                 .object(["value": .string("default"), "resolvedModel": .string("claude-opus-5-5")]),
                 .object(["value": .string("sonnet"), "resolvedModel": .string("claude-sonnet-5-5"),
@@ -16,7 +16,8 @@ struct ClaudeModelCatalogTests {
             ])
         ])
 
-        #expect(models == [
+        #expect(catalog?.defaultModel == .opus5dot5)
+        #expect(catalog?.models == [
             AgentModel(id: "sonnet", label: "Sonnet 5.5"),
             AgentModel(id: "claude-fable-5-2[1m]", label: "Fable 5.2"),
             AgentModel(id: "custom/agent", label: "Custom Agent"),
@@ -24,8 +25,9 @@ struct ClaudeModelCatalogTests {
     }
 
     @Test func onlyTheDefaultIsDistinctFromAnUnavailableCatalog() {
-        #expect(ClaudeModelCatalog.models(in: [:]) == nil)
-        #expect(ClaudeModelCatalog.models(in: ["models": .array([.object(["value": .string("default")])])]) == [])
+        #expect(ClaudeModelCatalog(payload: [:]) == nil)
+        let catalog = ClaudeModelCatalog(payload: ["models": .array([.object(["value": .string("default")])])])
+        #expect(catalog?.models == [])
     }
 
     @Test @MainActor func pinnedCatalogAliasKeepsItsLaunchToken() {

@@ -1,10 +1,16 @@
 import Foundation
 
 /// Models Claude Code offers for the configuration in a working directory.
-nonisolated enum ClaudeModelCatalog {
-    static func models(in payload: [String: JSONValue]) -> [AgentModel]? {
+nonisolated struct ClaudeModelCatalog: Sendable {
+    let models: [AgentModel]
+    let defaultModel: AgentModel?
+
+    init?(payload: [String: JSONValue]) {
+        guard let entries = payload["models"]?.arrayValue else { return nil }
+        let defaultID = entries.first { $0["value"]?.stringValue == "default" }?["resolvedModel"]?.stringValue
+        defaultModel = defaultID.flatMap { AgentModel.recognizing($0) }
         var ids: Set<String> = []
-        return payload["models"]?.arrayValue?.compactMap { value in
+        models = entries.compactMap { value in
             guard let id = value["value"]?.stringValue, !id.isEmpty, id != "default",
                   (try? ModelEffortCommand.sanitizedToken(id)) != nil,
                   ids.insert(id).inserted else { return nil }
@@ -18,17 +24,17 @@ nonisolated enum ClaudeModelCatalog {
     }
 
     @concurrent
-    static func discover(in directory: String) async -> [AgentModel]? {
+    static func discover(in directory: String) async -> ClaudeModelCatalog? {
         guard ClaudeTrustStore.isTrusted(directory),
               let request = StreamJSONEncoder.initialize(requestID: "models") else { return nil }
 
-        let (results, continuation) = AsyncStream<[AgentModel]?>.makeStream()
+        let (results, continuation) = AsyncStream<ClaudeModelCatalog?>.makeStream()
         let process = AgentProcess(
             label: "claude model catalog",
             onLine: { line in
                 guard case .controlResponse(let response) = StreamJSONDecoder.decode(line: line),
                       response.requestID == "models" else { return }
-                continuation.yield(response.isError ? nil : models(in: response.payload))
+                continuation.yield(response.isError ? nil : ClaudeModelCatalog(payload: response.payload))
                 continuation.finish()
             },
             onExit: { _, _ in continuation.finish() }
@@ -60,21 +66,23 @@ nonisolated enum ClaudeModelCatalog {
 @Observable
 final class ClaudeModelCatalogStore {
     static let shared = ClaudeModelCatalogStore()
-    private var catalogs: [String: [AgentModel]] = [:]
-    @ObservationIgnored private var pending: [String: Task<[AgentModel]?, Never>] = [:]
+    private var catalogs: [String: ClaudeModelCatalog] = [:]
+    @ObservationIgnored private var pending: [String: Task<Void, Never>] = [:]
 
-    func models(in directory: String?) -> [AgentModel]? {
+    func catalog(in directory: String?) -> ClaudeModelCatalog? {
         directory.flatMap { catalogs[$0] }
     }
 
     func refresh(in directory: String) async {
         if let task = pending[directory] {
-            catalogs[directory] = await task.value
+            await task.value
             return
         }
-        let task = Task { await ClaudeModelCatalog.discover(in: directory) }
+        let task = Task {
+            catalogs[directory] = await ClaudeModelCatalog.discover(in: directory)
+            pending[directory] = nil
+        }
         pending[directory] = task
-        catalogs[directory] = await task.value
-        pending[directory] = nil
+        await task.value
     }
 }

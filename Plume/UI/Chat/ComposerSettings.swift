@@ -21,6 +21,7 @@ struct ComposerSettings {
         var permissionMode: PermissionMode?
         var effort: AgentEffort
         var model: AgentModel?
+        var followsClaudeCode = false
 
         /// Reads the app's settings and, through them, the CLI's own.
         @MainActor
@@ -33,7 +34,8 @@ struct ComposerSettings {
                     appDefault: settings.resolvedDefaultPermissionMode
                 ),
                 effort: settings.defaultEffort,
-                model: settings.resolvedDefaultModel
+                model: settings.resolvedDefaultModel,
+                followsClaudeCode: settings.defaultClaudeModel == .followClaudeCode
             )
         }
     }
@@ -90,12 +92,14 @@ struct ComposerSettings {
     }
     func models(for provider: AgentProviderKind) -> [AgentModel] {
         if provider == .codex { return CodexCatalogStore.shared.models(for: tab.id) }
-        return (session as? HeadlessSession)?.offeredModels
-            ?? ClaudeModelCatalogStore.shared.models(in: workingDirectory)
-            ?? provider.models
+        return claudeCatalog?.models ?? provider.models
     }
 
     private var workingDirectory: String? { TabDirectoryStore.shared.directory(for: tab) }
+    private var claudeCatalog: ClaudeModelCatalog? {
+        (session as? HeadlessSession)?.modelCatalog
+            ?? ClaudeModelCatalogStore.shared.catalog(in: workingDirectory)
+    }
 
     func refreshModels(installed: Set<AgentProviderKind>) async {
         let providers = installed.intersection(canChangeProvider ? [.claudeCode, .codex] : [provider])
@@ -105,7 +109,7 @@ struct ComposerSettings {
     }
 
     private func refreshClaudeModels(ifInstalled installed: Bool) async {
-        guard installed, (session as? HeadlessSession)?.offeredModels == nil,
+        guard installed, (session as? HeadlessSession)?.modelCatalog == nil,
               let workingDirectory else { return }
         await ClaudeModelCatalogStore.shared.refresh(in: workingDirectory)
     }
@@ -164,6 +168,7 @@ struct ComposerSettings {
     }
     func defaultModel(for provider: AgentProviderKind) -> AgentModel? {
         if provider == .codex { return CodexCatalogStore.shared.defaultModel(for: tab.id) }
+        if defaults.followsClaudeCode, let model = claudeCatalog?.defaultModel { return model }
         return defaults.model
     }
 
@@ -245,7 +250,9 @@ struct ComposerSettings {
     func clearModel() {
         tab.model = nil
         tab.isModelUserChosen = false
-        if let session, let fallback = defaultModel {
+        if defaults.followsClaudeCode, let headless = session as? HeadlessSession {
+            headless.setDefaultModel()
+        } else if let session, let fallback = defaultModel {
             session.setModel(fallback)
         }
     }
