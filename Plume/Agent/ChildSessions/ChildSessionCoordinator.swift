@@ -290,7 +290,7 @@ final class ChildSessionCoordinator {
         let notes = AppPaths.sideSessionNotesDirectory(parentTabID: parent.id)
         try? FileManager.default.createDirectory(at: notes, withIntermediateDirectories: true)
         var directories = parent.additionalDirectories
-        directories.append(notes.path)
+        if request.provider == .claudeCode { directories.append(notes.path) }
         child.additionalDirectories = AdditionalDirectories.list(directories, excluding: nil)
 
         let isFork = request.context == .fork

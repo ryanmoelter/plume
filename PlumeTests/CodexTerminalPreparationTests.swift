@@ -76,6 +76,7 @@ struct CodexTerminalPreparationTests {
         let duplicate = monitor.start(tabID: tab, taskID: UUID(), directory: "/project") { _ in }
         #expect(duplicate.generation == launch.generation)
         #expect(preparations == 1)
+        #expect(monitor.isLaunching(tabID: tab))
         let destination = UUID()
         monitor.reparent(tabID: tab, taskID: destination)
         #expect(monitor.taskID(forTab: tab) == destination)
@@ -88,6 +89,7 @@ struct CodexTerminalPreparationTests {
         } catch {
             #expect(error is CancellationError)
         }
+        #expect(!monitor.isLaunching(tabID: tab))
         #expect(monitor.taskID(forTab: tab) == nil)
         #expect(!monitor.isCurrentLaunch(tabID: tab, generation: launch.generation))
         #expect(!monitor.owns(threadID: "thread", excludingTabID: UUID()))

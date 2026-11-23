@@ -12,6 +12,7 @@ struct CodexRecoveryTests {
         var resumeErrorCode = -1
         var resumeErrorMessage = "Thread unavailable"
         var failStart = false
+        var echoesWorkspaceRoots = true
         var resumedThread: JSONValue?
         var beforeResumeReply: (() -> Void)?
         var beforeHistoryReply: (() -> Void)?
@@ -28,12 +29,18 @@ struct CodexRecoveryTests {
                 if (method == "thread/resume" && failResume) || (method == "thread/start" && failStart) {
                     reply(id: id, error: .object(["code": .number(Double(resumeErrorCode)), "message": .string(resumeErrorMessage)]))
                 } else {
-                    let result: JSONValue = switch method {
-                    case "thread/resume", "thread/start": .object([
-                        "thread": resumedThread ?? .object(["id": .string("thread")]),
-                        "model": .string("gpt-6-astra"), "reasoningEffort": .string("medium")
-                    ])
-                    default: .object(["data": .array([])])
+                    let result: JSONValue
+                    if method == "thread/resume" || method == "thread/start" {
+                        var fields: [String: JSONValue] = [
+                            "thread": resumedThread ?? .object(["id": .string("thread")]),
+                            "model": .string("gpt-6-astra"), "reasoningEffort": .string("medium")
+                        ]
+                        if echoesWorkspaceRoots {
+                            fields["runtimeWorkspaceRoots"] = request["params"]?["runtimeWorkspaceRoots"]
+                        }
+                        result = .object(fields)
+                    } else {
+                        result = .object(["data": .array([])])
                     }
                     reply(id: id, result: result)
                 }
@@ -92,7 +99,8 @@ struct CodexRecoveryTests {
             workingDirectory: "/workspace", resumeThreadID: nil, model: nil,
             permissionProfile: AgentPermissionPreset.codexWorkspace.id,
             defaultPermissionProfile: AgentPermissionPreset.codexDangerFullAccess.id,
-            isChildSession: true, childNotesDirectory: "/notes/session", environment: [:]
+            isChildSession: true, childNotesDirectory: "/notes/session", environment: [:],
+            additionalDirectories: ["/notes/session", "/extra"]
         )
         let brief = HostMessage(
             display: [.text("Check login")], wire: [.text("Task:\nCheck login")],
@@ -105,7 +113,10 @@ struct CodexRecoveryTests {
         #expect(session.workingSince == workingSince)
         let start = try #require(h.requests.first { $0["method"] == .string("thread/start") })
         #expect(start["params"]?["permissions"] == .string(":workspace"))
-        #expect(start["params"]?["runtimeWorkspaceRoots"] == .array([.string("/workspace"), .string("/notes/session")]))
+        #expect(start["params"]?["runtimeWorkspaceRoots"] == .array([.string("/workspace"), .string("/notes/session"), .string("/extra")]))
+        #expect(!session.hasPendingAdditionalDirectories)
+        #expect(session.appliedAdditionalDirectories == ["/extra"])
+        session.setAdditionalDirectories([])
         #expect(h.turns.first?["params"]?["input"]?.arrayValue?.first?["text"] == .string("Task:\nCheck login"))
         session.submit(text: "User follow-up")
 
@@ -114,6 +125,7 @@ struct CodexRecoveryTests {
         h.client.receive(#"{"method":"item/completed","params":{"threadId":"thread","turnId":"t1","item":{"id":"final","type":"agentMessage","phase":"final_answer","text":"Login works"}}}"#)
         h.client.receive(#"{"method":"turn/completed","params":{"threadId":"thread","turn":{"id":"t1","status":"completed"}}}"#)
         try await waitFor { h.turns.count == 2 }
+        #expect(h.turns.last?["params"]?["runtimeWorkspaceRoots"] == .array([.string("/workspace"), .string("/notes/session")]))
         #expect(outcomes.map(\.isParentDriven) == [true])
         #expect(outcomes.first?.text == "Login works")
 
@@ -122,6 +134,23 @@ struct CodexRecoveryTests {
         h.client.receive(#"{"method":"turn/completed","params":{"threadId":"thread","turn":{"id":"t2","status":"completed"}}}"#)
         try await waitFor { outcomes.count == 2 }
         #expect(outcomes.map(\.isParentDriven) == [true, false])
+    }
+
+    @Test func childWithoutNotesRootSupportFailsBeforeAdoption() async throws {
+        let h = Harness()
+        h.echoesWorkspaceRoots = false
+        let session = CodexSession(tabID: UUID(), taskID: UUID(), client: h.client)
+        defer { session.stop() }
+        session.start(
+            workingDirectory: "/workspace", resumeThreadID: nil, model: nil,
+            isChildSession: true, childNotesDirectory: "/notes/session", environment: [:]
+        )
+        let brief = HostMessage(display: [.text("Check login")], wire: [.text("Check login")], origin: .fromParent(text: "Check login"))
+        session.submit(QueuedMessage(parts: [.host(brief)]))
+        try await waitFor { session.hasExited }
+        #expect(session.sessionID == nil)
+        #expect(session.lastError?.contains("cannot apply linked folders") == true)
+        #expect(h.turns.isEmpty)
     }
 
     @Test(arguments: [false, true])

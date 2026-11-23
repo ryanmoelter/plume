@@ -4,9 +4,10 @@ import os
 /// Each terminal has a private server shared by the real Codex TUI and this
 /// read-only observer. Only the TUI answers requests or starts/resumes turns.
 @MainActor
+@Observable
 final class CodexTerminalMonitor {
     static let shared = CodexTerminalMonitor()
-    private var sessions: [UUID: Observation] = [:]
+    private var sessions: [UUID: TerminalObservation] = [:]
     struct Preparation {
         let overrides: [String: JSONValue]
         let detached: CodexDetachedProcessMonitor?
@@ -47,6 +48,10 @@ final class CodexTerminalMonitor {
         }
     }
 
+    func isLaunching(tabID: UUID) -> Bool {
+        launches[tabID] != nil
+    }
+
     func isCurrentLaunch(tabID: UUID, generation: UUID) -> Bool {
         launchGenerations[tabID] == generation
     }
@@ -70,7 +75,7 @@ final class CodexTerminalMonitor {
             do {
                 try Task.checkCancellation()
                 guard let self, isCurrentLaunch(tabID: tabID, generation: generation) else { throw CancellationError() }
-                let observation = try Observation(tabID: tabID, taskID: self.taskID(forTab: tabID) ?? taskID, directory: directory,
+                let observation = try TerminalObservation(tabID: tabID, taskID: self.taskID(forTab: tabID) ?? taskID, directory: directory,
                                                   resumeThreadID: resumeThreadID, preparation: prepared, onThread: onThread)
                 sessions[tabID] = observation
                 pendingThreadIDs.removeValue(forKey: tabID)
@@ -153,7 +158,7 @@ final class CodexTerminalMonitor {
         }
     }
 
-    private final class Observation {
+    private final class TerminalObservation {
         let socketPath: String
         let tabID: UUID
         var taskID: UUID

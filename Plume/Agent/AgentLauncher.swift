@@ -382,7 +382,8 @@ enum AgentLauncher {
         tab: TaskTab,
         resumeSessionID: String?
     ) {
-        guard SurfaceManager.shared.existingSession(for: tab.id) == nil else { return }
+        guard SurfaceManager.shared.existingSession(for: tab.id) == nil,
+              !CodexTerminalMonitor.shared.isLaunching(tabID: tab.id) else { return }
         guard !AgentSessionManager.shared.isCodexThreadOwnedElsewhere(resumeSessionID, by: tab.id) else {
             Log.agent.error("Refusing to resume a Codex thread already open in another Plume tab")
             StatusEngine.shared.setStatus(.error, taskID: task.id, tabID: tab.id)
@@ -447,6 +448,12 @@ enum AgentLauncher {
             session.failToLaunch(reason: "This Codex conversation is already open in another \(AppIdentity.displayName) tab. Continue there, or close that tab before resuming here.")
             return
         }
+        let workingDirectory = TabDirectoryStore.shared.directory(for: tab)
+        let notesDirectory = tab.parentTabID.map { AppPaths.sideSessionNotesDirectory(parentTabID: $0).path }
+        if let notesDirectory {
+            let directories = tab.additionalDirectories.filter { $0 != notesDirectory }
+            if directories != tab.additionalDirectories { tab.additionalDirectories = directories }
+        }
         session.onAdoptDirectories = { [weak tab] paths in
             guard let tab else { return }
             AdditionalDirectoryStore.adopt(paths, into: tab)
@@ -460,7 +467,7 @@ enum AgentLauncher {
             }
         }
         session.start(
-            workingDirectory: TabDirectoryStore.shared.directory(for: tab),
+            workingDirectory: workingDirectory,
             resumeThreadID: resumeSessionID,
             model: resumeSessionID == nil || tab.isModelUserChosen ? tab.model : nil,
             collaborationMode: tab.codexCollaborationMode,
@@ -468,7 +475,7 @@ enum AgentLauncher {
             defaultPermissionProfile: tab.isChildSession
                 ? AgentPermissionPreset.codexWorkspace.id : AppSettings.shared.defaultCodexPermissionProfile.id,
             isChildSession: tab.isChildSession,
-            childNotesDirectory: tab.parentTabID.map { AppPaths.sideSessionNotesDirectory(parentTabID: $0).path },
+            childNotesDirectory: workingDirectory == nil ? nil : notesDirectory,
             // One app-server runs every headless Codex tab, so the tab's own
             // IDs ride on its thread rather than on the process.
             environment: LoginShellCommand.sharedPlumeEnvironment(),

@@ -71,6 +71,7 @@ final class CodexSession: AgentSession, SideQuestionSession {
 
     func setAdditionalDirectories(_ paths: [String]) {
         additionalDirectories = AdditionalDirectories.list(paths, excluding: launchDirectory)
+            .filter { $0 != childNotesDirectory }
         replacesWorkspaceRoots = true
     }
 
@@ -290,6 +291,7 @@ final class CodexSession: AgentSession, SideQuestionSession {
         launchDirectory = workingDirectory
         self.childNotesDirectory = childNotesDirectory
         self.additionalDirectories = AdditionalDirectories.list(additionalDirectories, excluding: workingDirectory)
+            .filter { $0 != childNotesDirectory }
         replacesWorkspaceRoots = !preserveRemoteConfiguration && (replaceAdditionalDirectories || !self.additionalDirectories.isEmpty)
         if preserveRemoteConfiguration { effort = nil }
         if let model, !preserveRemoteConfiguration { self.model = model }
@@ -381,8 +383,8 @@ final class CodexSession: AgentSession, SideQuestionSession {
             guard !hasExited else { return }
             if !threadConfiguration.isEmpty { params["config"] = .object(threadConfiguration) }
             let requestedDirectories = additionalDirectories
-            let requestedRoots = replacesWorkspaceRoots
-            if requestedRoots || childNotesDirectory != nil {
+            let requestedRoots = !preserveRemoteConfiguration && (replacesWorkspaceRoots || childNotesDirectory != nil)
+            if requestedRoots {
                 params["runtimeWorkspaceRoots"] = workspaceRoots(requestedDirectories)
             }
             let method: String
@@ -400,12 +402,12 @@ final class CodexSession: AgentSession, SideQuestionSession {
                 params["dynamicTools"] = .array([CodexPresenceTool.definition])
             }
             let result = try await client.send(method, .object(params))
-            guard adopt(startResponse: result), let threadID = sessionID else {
-                throw SessionFailure.missingThreadID
-            }
             supportsWorkspaceRoots = result["runtimeWorkspaceRoots"]?.arrayValue != nil
             if requestedRoots && !supportsWorkspaceRoots {
                 throw SessionFailure.unsupportedWorkspaceRoots
+            }
+            guard adopt(startResponse: result), let threadID = sessionID else {
+                throw SessionFailure.missingThreadID
             }
             launchDirectory = result["cwd"]?.stringValue ?? result["thread"]?["cwd"]?.stringValue ?? workingDirectory
             if let roots = result["runtimeWorkspaceRoots"]?.arrayValue?.compactMap(\.stringValue) {

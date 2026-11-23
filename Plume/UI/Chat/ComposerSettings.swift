@@ -60,6 +60,7 @@ struct ComposerSettings {
         session?.hasExited != false
             && AgentSessionManager.shared.existingSession(for: tab.id)?.hasExited != false
             && SurfaceManager.shared.existingSession(for: tab.id) == nil
+            && !CodexTerminalMonitor.shared.isLaunching(tabID: tab.id)
             && tab.agentSessionID?.isEmpty != false
             && tab.sessionJSONLPath?.isEmpty != false
     }
