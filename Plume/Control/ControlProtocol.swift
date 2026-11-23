@@ -860,6 +860,10 @@ nonisolated struct HoverResult: Codable, Equatable {
     var windowNumber: Int
     /// How many `plumeHover` regions the pointer now rests in.
     var regions: Int
+    /// The cursor set before this hover ran, which only a real pointer, or
+    /// an earlier hover, could have set: `iBeam`, `pointingHand`, `arrow` or
+    /// `other`.
+    var cursor: String? = nil
     /// Over a chat list: the cursor its pointer update left set, `iBeam`,
     /// `pointingHand`, `arrow` or `other`.
     var chatCursor: String? = nil
