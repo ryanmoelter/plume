@@ -106,13 +106,17 @@ Plume shows its "Grant Full Disk Access?" sheet on the first launch that finds t
 
 Run it from a terminal with `PLUME_SOCKET` naming the Plume whose VM tab you'll use, after building the debug app. It:
 
-1. Claims a VM and checks the guest's TCC database over ssh. The Cirrus image grants `sshd-keygen-wrapper` Full Disk Access, so ssh can read the database (`select auth_value from access where service='kTCCServiceSystemPolicyAllFiles' and client='<bundle id>'`; 2 is granted).
-2. Launches the app and opens System Settings ▸ Privacy & Security ▸ Full Disk Access in the guest, then prints the steps. The app's probe already added it to that list, switched off. In Plume, open a device tab and click Show on the VM. In the guest, turn on Plume α, enter the password `admin`, and click Later if macOS offers to quit and reopen it.
-3. Polls the database every 3 seconds, for up to 15 minutes, until the grant appears.
-4. Deletes `hasPromptedForFullDiskAccess`, relaunches the app, and fails if the sheet's `full-disk-access-dismiss-button` is on screen.
-5. Quits the app and System Settings, and removes the debug app's defaults and data and the path links.
-6. Releases the VM and waits for its clone lock. Then it holds every `plume-<os>-<n>` clone lock while it clones the slot's clone to `plume-base-<os>`, replacing the old base, so no Plume clones a half-replaced base. It refuses while any VM runs.
-7. Records `"fullDiskAccess": "<bundle id>"` in `vms/base-<os>.json` and deletes the stale clones, as a rebuild does.
+1. Restores `plume-base-<os>` from `plume-base-<os>-old` if an earlier run was interrupted mid-swap.
+2. Deletes every free `plume-<os>-<n>` clone, then claims a VM. The clone becomes the base, so it must be a fresh clone of the current base: if the claimed clone existed before the claim, the script fails and asks for `plume devices reset vm:<n>`.
+3. Checks the guest's TCC database over ssh. The Cirrus image grants `sshd-keygen-wrapper` Full Disk Access, so ssh can read the database (`select max(auth_value) from access where service='kTCCServiceSystemPolicyAllFiles' and client='<bundle id>' and client_type=0`; 2 is granted). When a fresh clone already has the grant, the base has it too, so the script releases the VM and stops there.
+4. Launches the app without `prepare`'s path links, and opens System Settings ▸ Privacy & Security ▸ Full Disk Access in the guest, then prints the steps. The app's probe already added it to that list, switched off. In Plume, open a device tab and click Show on the VM. In the guest, turn on Plume α, enter the password `admin`, and click Later if macOS offers to quit and reopen it.
+5. Polls the database every 3 seconds, for up to 15 minutes, until the grant appears.
+6. Deletes `hasPromptedForFullDiskAccess` and relaunches the app. It waits for the main window, then fails if the sheet's `full-disk-access-dismiss-button` appears within 10 seconds.
+7. Quits the app and System Settings. It removes the debug app's defaults, `Plume.debug*` data, caches and saved state, and `~/PlumeVM`, plus `~/.claude`, `~/.claude/skills` and `~/Library/Application Support/Plume` when they didn't exist before the launch.
+8. Releases the VM and waits for its clone lock. Then it holds every slot's clone lock, so no Plume clones a half-replaced base, and refuses while any VM runs. It clones the slot's clone to `plume-base-<os>-fda`, renames the old base to `plume-base-<os>-old` and the new one into place, then deletes the old one. A failed rename puts the old base back.
+9. Records `"fullDiskAccess": "<bundle id>"` in `vms/base-<os>.json`, warning if it can't, and deletes the stale clones, as a rebuild does.
+
+If the script exits early, from an error, Ctrl-C or the 15-minute timeout, it releases its VM and drops the tunnel.
 
 The VM tab is the only window it needs; no `tart run` window opens on the host. A `tart run --no-graphics` boot of the base itself would need a VNC client to click in, because Plume's VM tab shows only the VMs Plume boots.
 

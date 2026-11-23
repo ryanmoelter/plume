@@ -3,6 +3,8 @@
 VMS_DIR="$HOME/Library/Application Support/Plume/vms"
 KEY="$VMS_DIR/id_ed25519"
 GUEST_USER=admin
+# VMPaths.slotCount
+VM_SLOTS=2
 
 # Runs a command while holding every named lock, or exits 3 at once when any is held.
 with_locks() {
@@ -11,6 +13,14 @@ with_locks() {
   perl -e 'use Fcntl ":flock"; my $n = shift; my @held;
     for (1 .. $n) { open(my $f, ">>", shift) or exit 2; flock($f, LOCK_EX | LOCK_NB) or exit 3; push @held, $f }
     system(@ARGV); exit($? == 0 ? 0 : 1)' "$count" "$@"
+}
+
+# with_locks over every slot's clone lock for an OS, including slots that have no clone yet.
+with_slot_locks() {
+  local os=$1 n locks=()
+  shift
+  for n in $(seq 1 "$VM_SLOTS"); do locks+=("$VMS_DIR/plume-$os-$n.lock"); done
+  with_locks "$VM_SLOTS" "${locks[@]}" "$@"
 }
 
 # Deletes each plume-<os>-<n> clone under its clone lock, so a Plume booting one meanwhile keeps
