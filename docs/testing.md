@@ -14,7 +14,7 @@ xcodebuild -scheme Plume -destination 'platform=macOS' test -only-testing:PlumeT
 
 ## GUI suites in a VM
 
-`PlumeUITests` and the GUI suites put windows on screen and take focus, so run them in a macOS VM instead of on your host: `scripts/vm/plume-vm test`. It builds for testing, runs the default set in a guest, and prints the `.xcresult` path. `docs/vm-testing.md` covers setup and limits.
+`PlumeUITests` and the GUI suites put windows on screen and take focus, so run them in a macOS VM instead of on your host: `scripts/vm/plume-vm test`. It builds for testing, runs the default set in a guest, and prints the `.xcresult` path. It needs a base image built with `scripts/vm/make-base-image.sh --with-xcode`; the default base has no Xcode. `docs/vm-testing.md` covers setup and limits.
 
 ## Reading failures
 

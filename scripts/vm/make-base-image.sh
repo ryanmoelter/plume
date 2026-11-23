@@ -1,12 +1,14 @@
 #!/usr/bin/env bash
 # Builds the macOS base image Plume's VM pool clones: a Cirrus vanilla image for the host's
-# macOS major, with the host's own Xcode copied in and the guest set up to run the debug app
-# and UI tests unattended. Tart boots the VM during setup only; the result is a stopped
-# `plume-base-<os>` VM in ~/.tart/vms. docs/vm-testing.md is the reference.
-# Usage: make-base-image.sh [--xcode=<Xcode.app>] [--image=<oci ref>] [--force]
-#   --xcode  the Xcode to copy in (default: the selected Xcode, from xcode-select -p)
-#   --image  the vanilla image to start from (default: the Cirrus vanilla image for the host's macOS major)
-#   --force  replace an existing plume-base-<os>
+# macOS major, set up to run the debug app unattended. It has no Xcode unless asked, which is
+# enough for `plume-vm launch`; `plume-vm test` needs --with-xcode. Tart boots the VM during
+# setup only; the result is a stopped `plume-base-<os>` VM in ~/.tart/vms. docs/vm-testing.md
+# is the reference.
+# Usage: make-base-image.sh [--with-xcode[=<Xcode.app>] | --xip=<Xcode.xip>] [--image=<oci ref>] [--force]
+#   --with-xcode  copy in Xcode, to run UI tests (default: the selected Xcode, from xcode-select -p)
+#   --xip         copy in the Xcode inside this .xip instead; implies --with-xcode
+#   --image       the vanilla image to start from (default: the Cirrus vanilla image for the host's macOS major)
+#   --force       replace an existing plume-base-<os>
 set -euo pipefail
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
@@ -15,15 +17,19 @@ source "$ROOT/scripts/vm/lib.sh"
 # Cirrus's published default; the vanilla image ships with it.
 GUEST_PASSWORD=admin
 
+with_xcode=0
 xcode=""
+xip=""
 image=""
 force=0
 for arg in "$@"; do
   case "$arg" in
-    --xcode=*) xcode="${arg#--xcode=}" ;;
+    --with-xcode) with_xcode=1 ;;
+    --with-xcode=*) with_xcode=1; xcode="${arg#--with-xcode=}" ;;
+    --xip=*) with_xcode=1; xip="${arg#--xip=}" ;;
     --image=*) image="${arg#--image=}" ;;
     --force) force=1 ;;
-    -h|--help) sed -n '2,10p' "${BASH_SOURCE[0]}"; exit 0 ;;
+    -h|--help) sed -n '2,11p' "${BASH_SOURCE[0]}"; exit 0 ;;
     *) echo "unknown argument: $arg" >&2; exit 2 ;;
   esac
 done
@@ -38,11 +44,11 @@ if [[ -z "$image" ]]; then
     *) echo "no known Cirrus vanilla image for macOS $os; pass --image=" >&2; exit 1 ;;
   esac
 fi
-if [[ -z "$xcode" ]]; then
-  xcode="$(cd "$(xcode-select -p)/../.." && pwd)"
+if [[ -n "$xip" && -n "$xcode" ]]; then
+  echo "pass --xip or --with-xcode=<Xcode.app>, not both" >&2
+  exit 2
 fi
-[[ -d "$xcode/Contents/Developer" ]] || { echo "not an Xcode bundle: $xcode" >&2; exit 1; }
-host_xcode="$(DEVELOPER_DIR="$xcode/Contents/Developer" xcodebuild -version | paste -sd' ' -)"
+[[ -z "$xip" || -f "$xip" ]] || { echo "no such file: $xip" >&2; exit 1; }
 
 base="plume-base-$os"
 build="$base-build"
@@ -61,6 +67,20 @@ cleanup() {
 }
 trap cleanup EXIT
 
+host_xcode=""
+if [[ $with_xcode -eq 1 ]]; then
+  if [[ -n "$xip" ]]; then
+    echo "==> Expanding $xip"
+    mkdir "$work/xip"
+    (cd "$work/xip" && xip --expand "$xip")
+    xcode="$(find "$work/xip" -maxdepth 1 -name '*.app' | head -1)"
+  elif [[ -z "$xcode" ]]; then
+    xcode="$(cd "$(xcode-select -p)/../.." && pwd)"
+  fi
+  [[ -d "$xcode/Contents/Developer" ]] || { echo "not an Xcode bundle: $xcode" >&2; exit 1; }
+  host_xcode="$(DEVELOPER_DIR="$xcode/Contents/Developer" xcodebuild -version | paste -sd' ' -)"
+fi
+
 printf '#!/bin/sh\necho %s\n' "$GUEST_PASSWORD" > "$work/askpass"
 chmod +x "$work/askpass"
 cat > "$work/ssh_config" <<EOF
@@ -78,7 +98,9 @@ guest() { ssh -F "$work/ssh_config" -o BatchMode=yes "$ip" "$@"; }
 
 echo "==> Cloning $image to $build (the first run downloads about 30 GB)"
 tart clone "$image" "$build"
-tart set "$build" --cpu 4 --memory 8192 --disk-size 120 --display 1920x1200
+tart set "$build" --cpu 4 --memory 8192 --display 1920x1200
+# Only Xcode and its build products need more than the vanilla image's disk.
+[[ $with_xcode -eq 0 ]] || tart set "$build" --disk-size 120
 
 mkdir -p "$VMS_DIR"
 chmod 700 "$VMS_DIR"
@@ -95,31 +117,39 @@ SSH_ASKPASS="$work/askpass" SSH_ASKPASS_REQUIRE=force \
   ssh-copy-id -F "$work/ssh_config" -i "$KEY.pub" "$ip" >/dev/null 2>&1
 guest true
 
-echo "==> Growing the disk"
-guest 'sudo diskutil apfs resizeContainer "$(diskutil info -plist / | plutil -extract ParentWholeDisk raw -o - -)" 0 >/dev/null 2>&1 || true; df -h / | tail -1'
+if [[ $with_xcode -eq 1 ]]; then
+  echo "==> Growing the disk"
+  guest 'sudo diskutil apfs resizeContainer "$(diskutil info -plist / | plutil -extract ParentWholeDisk raw -o - -)" 0 >/dev/null 2>&1 || true; df -h / | tail -1'
 
-# Streamed over ssh, not copied through a share: reading a symlink's extended attributes
-# over virtiofs fails with ELOOP, so ditto and cp -a drop every framework symlink.
-echo "==> Copying $xcode into the guest"
-guest 'sudo rm -rf /Applications/Xcode.app'
-ditto -c "$xcode" - | ssh -F "$work/ssh_config" -o BatchMode=yes -o Compression=no "$ip" \
-  'sudo ditto -x --hfsCompression - /Applications/Xcode.app'
-guest 'codesign --verify --deep --strict /Applications/Xcode.app'
+  # Streamed over ssh, not copied through a share: reading a symlink's extended attributes
+  # over virtiofs fails with ELOOP, so ditto and cp -a drop every framework symlink.
+  echo "==> Copying $xcode into the guest"
+  guest 'sudo rm -rf /Applications/Xcode.app'
+  ditto -c "$xcode" - | ssh -F "$work/ssh_config" -o BatchMode=yes -o Compression=no "$ip" \
+    'sudo ditto -x --hfsCompression - /Applications/Xcode.app'
+  guest 'codesign --verify --deep --strict /Applications/Xcode.app'
 
-echo "==> Setting up Xcode"
-guest 'sudo xcode-select -s /Applications/Xcode.app && sudo xcodebuild -license accept && sudo xcodebuild -runFirstLaunch >/dev/null'
-guest_xcode="$(guest 'xcodebuild -version' | paste -sd' ' -)"
-if [[ "$guest_xcode" != "$host_xcode" ]]; then
-  echo "guest Xcode ($guest_xcode) differs from the host's ($host_xcode)" >&2
-  exit 1
-fi
+  echo "==> Setting up Xcode"
+  guest 'sudo xcode-select -s /Applications/Xcode.app && sudo xcodebuild -license accept && sudo xcodebuild -runFirstLaunch >/dev/null'
+  guest_xcode="$(guest 'xcodebuild -version' | paste -sd' ' -)"
+  if [[ "$guest_xcode" != "$host_xcode" ]]; then
+    echo "guest Xcode ($guest_xcode) differs from the host's ($host_xcode)" >&2
+    exit 1
+  fi
 
-echo "==> Configuring the guest for unattended testing"
-guest bash -s <<'EOF'
+  # DevTools, the _developer group and automation mode exist for xcodebuild and XCUITest.
+  echo "==> Enabling developer tools"
+  guest bash -s <<'EOF'
 set -euo pipefail
 sudo DevToolsSecurity -enable >/dev/null
 sudo dseditgroup -o edit -a admin -t user _developer
 sudo automationmodetool enable-automationmode-without-authentication </dev/null >/dev/null 2>&1
+EOF
+fi
+
+echo "==> Configuring the guest for unattended use"
+guest bash -s <<'EOF'
+set -euo pipefail
 sudo pmset -a sleep 0 displaysleep 0 disksleep 0 powernap 0 standby 0
 defaults -currentHost write com.apple.screensaver idleTime -int 0
 sudo defaults write /Library/Preferences/com.apple.screensaver loginWindowIdleTime -int 0
@@ -137,9 +167,14 @@ set -euo pipefail
 sudo -n true
 [[ "$(defaults read /Library/Preferences/com.apple.loginwindow autoLoginUser)" == admin ]]
 sudo -n systemsetup -getremotelogin | grep -q 'On'
+EOF
+if [[ $with_xcode -eq 1 ]]; then
+  guest bash -s <<'EOF'
+set -euo pipefail
 automationmodetool | grep -q 'DOES NOT REQUIRE'
 DevToolsSecurity -status | grep -q enabled
 EOF
+fi
 
 echo "==> Shutting down"
 guest 'sudo shutdown -h now' >/dev/null 2>&1 || true
@@ -148,17 +183,25 @@ tart_pid=""
 
 tart delete "$base" >/dev/null 2>&1 || true
 tart rename "$build" "$base"
+if [[ $with_xcode -eq 1 ]]; then
+  xcode_meta="\"xcode\": true,
+  \"xcodeVersion\": \"$host_xcode\","
+  mode="with Xcode: $host_xcode"
+else
+  xcode_meta='"xcode": false,'
+  mode="without Xcode; plume-vm test needs --with-xcode"
+fi
 cat > "$VMS_DIR/base-$os.json" <<EOF
 {
   "name": "$base",
   "image": "$image",
-  "xcode": "$host_xcode",
+  $xcode_meta
   "hostMacOS": "$(sw_vers -productVersion) ($(sw_vers -buildVersion))",
   "created": "$(date -u +%Y-%m-%dT%H:%M:%SZ)",
   "tart": "$(tart --version)"
 }
 EOF
-echo "==> Built $base ($host_xcode)"
+echo "==> Built $base ($mode)"
 
 # Slot clones were made from the old base. Delete each one under its clone lock, so a Plume
 # booting it meanwhile keeps it; the app's next claim clones the new base.

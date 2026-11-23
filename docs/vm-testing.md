@@ -12,20 +12,20 @@ A macOS guest has its own window server, focus and launchd. So a debug build can
    brew install tart
    ```
 
-2. Run `scripts/vm/make-base-image.sh`. It needs no input and takes about 4 minutes once the vanilla image is cached.
+2. Run `scripts/vm/make-base-image.sh`. It needs no input. The base has no Xcode, which is all `plume-vm launch` needs. To run `plume-vm test` too, add `--with-xcode`, which copies in the host's Xcode and takes longer (about 4 minutes once the vanilla image is cached; the Xcode copy is most of that). Without Xcode the base builds faster and is about 8 GB smaller on the host.
 3. Run a Plume that has the VM pool. `plume-vm` talks to the app at `PLUME_SOCKET`, so set it to the socket of the app that should own the VM. When you test a debug build of this feature, that is the debug build's socket, and `PLUME_CLI` is its `plume` tool.
 
 ## The base image
 
-`scripts/vm/make-base-image.sh` builds `plume-base-<os>`, a stopped Tart VM in `~/.tart/vms`, where `<os>` is the host's macOS major. It runs in about 4 minutes once the vanilla image is cached; the first run downloads about 30 GB. It runs these steps:
+`scripts/vm/make-base-image.sh` builds `plume-base-<os>`, a stopped Tart VM in `~/.tart/vms`, where `<os>` is the host's macOS major. The first run downloads about 30 GB. Without Xcode it runs steps 1, 2, 4 and 5; `--with-xcode` adds step 3 and takes about 4 minutes once the vanilla image is cached. The steps:
 
-1. Clone the Cirrus vanilla image for the host's major, then set 4 CPUs, 8 GB, a 120 GB disk and a 1920×1200 display.
+1. Clone the Cirrus vanilla image for the host's major, then set 4 CPUs, 8 GB and a 1920×1200 display. With Xcode the disk grows to 120 GB; without it the vanilla image's 50 GB disk stays, since only Xcode and its build products need the room.
 2. Boot it with `tart run --no-graphics`, then install `~/Library/Application Support/Plume/vms/id_ed25519` with the vanilla password.
-3. Stream the host's selected `Xcode.app` in over ssh, then accept the license, run `-runFirstLaunch`, and fail unless the guest's `xcodebuild -version` equals the host's.
-4. Enable DevTools, the `_developer` group and automation mode without authentication. Turn off sleep, the screensaver, the screen lock, Spotlight and automatic updates.
-5. Shut down, rename the VM to `plume-base-<os>`, and write `vms/base-<os>.json`.
+3. With Xcode only: stream the host's selected `Xcode.app` in over ssh, then accept the license, run `-runFirstLaunch`, fail unless the guest's `xcodebuild -version` equals the host's, and enable DevTools, the `_developer` group and automation mode without authentication. Those three exist for `xcodebuild` and XCUITest.
+4. Turn off sleep, the screensaver, the screen lock, Spotlight and automatic updates.
+5. Shut down, rename the VM to `plume-base-<os>`, and write `vms/base-<os>.json`. The file records `"xcode": true` with `"xcodeVersion"`, or `"xcode": false`. A file without the field, or with a version string in `xcode` as older bases wrote, means the base has Xcode. The script prints the mode at the end.
 
-Pass `--xcode=<Xcode.app>` to copy another Xcode, `--image=<ref>` to start from another image, and `--force` to replace an existing base. A rebuild then deletes every `plume-<os>-<n>` clone whose lock is free, since they were cloned from the old base, and names any it skipped; run `plume devices reset vm:<n>` on those once they are free. The guest user is `admin`, password `admin`, the image's published default.
+Pass `--with-xcode` to copy in the selected Xcode, `--with-xcode=<Xcode.app>` for another one, `--xip=<Xcode.xip>` to expand and copy a `.xip` (both imply Xcode), `--image=<ref>` to start from another image, and `--force` to replace an existing base. A rebuild then deletes every `plume-<os>-<n>` clone whose lock is free, since they were cloned from the old base, and names any it skipped; run `plume devices reset vm:<n>` on those once they are free. The guest user is `admin`, password `admin`, the image's published default.
 
 ## The pool
 
@@ -56,7 +56,7 @@ A device tab is the one way into a VM from the UI. Its picker lists the slots un
 | `ssh [-- cmd…]` | Opens a shell, or runs one command, in your VM. |
 | `prepare` | Mirrors the host paths in the guest (see below). `launch` and `test` run it first. |
 | `launch [--app PATH] [--seed N] [--env K=V]…` | Copies the debug app in, starts it frontmost, and forwards its control socket to the host. |
-| `test [--only-testing X]… [--skip-build]` | Builds for testing on the host, then runs the tests in the guest. |
+| `test [--only-testing X]… [--skip-build]` | Builds for testing on the host, then runs the tests in the guest. Needs a base with Xcode. |
 
 Every command that needs a VM first runs `plume devices claim --kind=vm --json --worktree=<the script's checkout>`, so the guest always shares the checkout the script builds from. That call is idempotent: it renews the lease you already hold. `claim` defaults `--worktree` to that checkout too.
 
@@ -84,7 +84,7 @@ Release the VM when you finish: `scripts/vm/plume-vm release`. A VM left claimed
 
 ### Running the tests
 
-`test` refuses to run when the guest's `xcodebuild -version` differs from the host's. It stops any app and tunnel that `launch` started. Unless `--skip-build` is set, it runs `build-for-testing` into `build/vm-dd`. It copies `Build/Products` into the share, runs `rsync -a --delete` into `~/PlumeVM/Products` in the guest, then runs `test-without-building -xctestrun`. The default set is `PlumeUITests`, `PlumeTests/SurfaceCommandTests`, `PlumeTests/TerminalShortcutReclaimTests` and `PlumeTests/ControlHierarchyTests`; each `--only-testing` replaces it.
+`test` needs a base built with `--with-xcode`. It reads `vms/base-<os>.json` (or asks the guest when there is none) and, on a base without Xcode, refuses before building, naming `scripts/vm/make-base-image.sh --with-xcode --force`. A `--force` rebuild leaves existing slot clones on the old base, so run `plume devices reset vm:<n>` on any it skipped. `launch`, `prepare` and `ssh` work on either kind of base. `test` also refuses when the guest's `xcodebuild -version` differs from the host's. It stops any app and tunnel that `launch` started. Unless `--skip-build` is set, it runs `build-for-testing` into `build/vm-dd`. It copies `Build/Products` into the share, runs `rsync -a --delete` into `~/PlumeVM/Products` in the guest, then runs `test-without-building -xctestrun`. The default set is `PlumeUITests`, `PlumeTests/SurfaceCommandTests`, `PlumeTests/TerminalShortcutReclaimTests` and `PlumeTests/ControlHierarchyTests`; each `--only-testing` replaces it.
 
 The script prints the host path of the `.xcresult` and its summary. It fails when any `--only-testing` identifier matches no test that ran, comparing each of its components (target, suite, test) in full, and otherwise exits with `xcodebuild`'s status.
 
@@ -93,7 +93,7 @@ The script prints the host path of the `.xcresult` and its summary. It fails whe
 - Guest Metal is paravirtualized. Use a VM for correctness, not performance.
 - A guest never really sleeps, so it can't test sleep behavior.
 - Each running VM uses about 8 GB of RAM.
-- The guest's Xcode must match the host's. Rebuild the base image after an Xcode update.
+- With `--with-xcode`, the guest's Xcode must match the host's, so rebuild the base image after an Xcode update. A base without Xcode has no such limit, and `plume-vm test` is unavailable on it.
 - VMs die with their owning app. Quitting, relaunching or crashing it stops them.
 - Virtualization allows 2 macOS guests per host, shared with every other app that runs one.
 
