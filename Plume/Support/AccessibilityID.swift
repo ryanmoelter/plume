@@ -384,6 +384,7 @@ enum AccessibilityID {
     static let workspaceNewWorktreeItem = "workspace-new-worktree-item"
     static let workspaceWorktreeItem = "workspace-worktree-item"
     static let workspaceSubfolderItem = "workspace-subfolder-item"
+    static let workspaceChooseFolderItem = "workspace-choose-folder-item"
 
     // MARK: Worktree removal dialog
 

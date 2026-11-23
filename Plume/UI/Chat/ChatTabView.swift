@@ -305,7 +305,11 @@ struct ChatTabView: View, ThemedView {
         )
         let gitState = GitStateStore.shared.state(for: gitDirectory)
         let checkout = CheckoutFactsStore.shared.facts(for: gitDirectory)
-        let branch = GitState.displayedBranch(state: gitState, storedBranchName: tab.branchName).map {
+        let branch = GitState.displayedBranch(
+            state: gitState,
+            storedBranchName: tab.branchName,
+            lastKnownBranch: GitStateStore.shared.lastKnownBranch(for: gitDirectory)
+        ).map {
             InfoPaneFacts.Branch(
                 name: $0,
                 isWorktree: checkout?.isWorktree ?? false,

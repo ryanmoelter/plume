@@ -38,6 +38,9 @@ final class GitStateStore {
     /// often; dropping the answer there would blank the branch on every switch
     /// until a `git` call refilled it.
     private var states: [String: GitState] = [:]
+    /// The last branch `git` reported per directory. A deleted worktree makes
+    /// `git` fail and clears its state, but this stays.
+    private var lastKnownBranches: [String: String] = [:]
     @ObservationIgnored private var pollTimer: Timer?
 #if DEBUG
     /// Seeded states, for directories that have no repository on disk — a
@@ -52,6 +55,11 @@ final class GitStateStore {
     func state(for directory: String?) -> GitState? {
         guard let directory else { return nil }
         return states[directory]
+    }
+
+    func lastKnownBranch(for directory: String?) -> String? {
+        guard let directory else { return nil }
+        return lastKnownBranches[directory]
     }
 
     /// Begins watching a directory, or takes another reference to one already
@@ -162,6 +170,9 @@ final class GitStateStore {
     /// working in the repo makes many that leave the answer unchanged.
     /// Assigning anyway would invalidate every view reading `states`.
     private func publish(_ state: GitState?, for directory: String) {
+        if let branch = state?.branch, lastKnownBranches[directory] != branch {
+            lastKnownBranches[directory] = branch
+        }
         guard states[directory] != state else { return }
         states[directory] = state
     }
@@ -183,6 +194,7 @@ final class GitStateStore {
         watches.removeValue(forKey: directory)?.watcher?.stop()
         pending.removeValue(forKey: directory)?.cancel()
         states.removeValue(forKey: directory)
+        lastKnownBranches.removeValue(forKey: directory)
         if watches.isEmpty {
             pollTimer?.invalidate()
             pollTimer = nil
@@ -197,6 +209,7 @@ final class GitStateStore {
         inFlight.removeAll()
         watches.removeAll()
         states.removeAll()
+        lastKnownBranches.removeAll()
 #if DEBUG
         fixtureStates.removeAll()
 #endif
