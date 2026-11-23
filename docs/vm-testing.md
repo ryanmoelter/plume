@@ -42,12 +42,12 @@ Pass `--xcode=<Xcode.app>` to copy another Xcode, `--image=<ref>` to start from 
 
 ## Using a VM: `scripts/vm/plume-vm`
 
-`plume-vm` runs the debug build of the current worktree, or its UI tests, in a VM. It resolves the `plume` tool from `$PLUME_CLI`, else this worktree's build, else `plume` on PATH when `plume devices help` mentions `--kind=vm`. Any other result fails and names the problem.
+`plume-vm` runs the debug build of the current worktree, or its UI tests, in a VM. It resolves the `plume` tool from `$PLUME_CLI`, else this worktree's build, else `plume` on PATH, and takes the first whose `plume devices help` shows `--mine [--kind=vm]`. A Plume tab sets `PLUME_CLI` to its own app's tool, and a tool older than the VM pool reads `vm:<n>` as an Android serial: `release vm:1` then prints `vm:1 was not leased` and `list --kind=vm` is rejected. So the script skips such a tool and says so. Any other result fails and names the problem.
 
 | Command | What it does |
 | --- | --- |
 | `claim [--worktree=P]` | Leases a VM and prints `vm:<n>`. Same as `plume devices claim --kind=vm`, with the worktree defaulting to the script's checkout. |
-| `release vm:<n>` | Releases the VM, then drops the slot's tunnel and pid files. A refused release leaves them. |
+| `release [vm:<n>]` | Releases that VM, or without a key every VM you hold (`plume devices release --mine --kind=vm`), then drops each slot's tunnel and pid files. A refused release leaves them. |
 | `list` | Lists the VM slots. |
 | `reset vm:<n>` | Deletes a free slot's clone. |
 | `ssh [-- cmd…]` | Opens a shell, or runs one command, in your VM. |
@@ -77,7 +77,7 @@ Right after launch, the menu chords read disabled. Invoke the selected tab chip 
 scripts/debug/plume-control.py --socket <controlSocket> invoke target='{"id":"tab-chip","index":0}'
 ```
 
-Release the VM when you finish: `scripts/vm/plume-vm release vm:<n>`. A VM left claimed holds one of the 2 slots until its lease expires.
+Release the VM when you finish: `scripts/vm/plume-vm release`. A VM left claimed holds one of the 2 slots until its lease expires.
 
 ### Running the tests
 
@@ -154,6 +154,9 @@ Measured on 2026-11-22: host macOS 27.2.1 (26B131), Xcode 27.2 (27B52), Tart 2.4
 
 - `build-for-testing -derivedDataPath <worktree>/build/vm-dd` writes an `.xctestrun` whose paths are all `__TESTROOT__`-relative, so the products tree can move. Copy `Build/Products` into the share with `cp -Rc`, then `rsync -a` it to guest-local disk.
 - `xcodebuild test-without-building -xctestrun Products/Plume_Plume_macosx27.2-arm64.xctestrun -destination 'platform=macOS' -only-testing:PlumeTests/SurfaceCommandTests -only-testing:PlumeUITests -resultBundlePath r.xcresult` runs unattended over ssh with no authentication prompt. On the script-built base: 6 passed, 2 failed, about 1m20s. The host reads the `.xcresult` after it is copied back through the share.
-- Two UI tests failed on both guest runs, timing out on the identifier lookup. `testNewTaskButtonIsAccessible` queried `buttons`, but the control is a `Menu` with a primary action, which XCUITest exposes as a pop-up button; it now queries any descendant. `testComposerFieldIsAccessibleWithSeededTask` fails because `TabContentView` puts a container `.accessibilityIdentifier` that overrides the identifiers inside it (app code, not fixed).
-- On one run all three `SurfaceCommandTests` crashed the test host with `EXC_BAD_ACCESS` in `objc_release`. The cause: test windows lacked `isReleasedWhenClosed = false`, so `close()` over-released them. Fixed in `SurfaceCommandTests` and `TerminalShortcutReclaimTests`.
-- `focusedSurfaceConsumesOptionChordsWithoutTheMonitor` needs a Ghostty config that binds alt+j, which libghostty reads from the user's config and tests cannot override. A guest has none, so the test is skipped there.
+- The spike's crash and failures have these causes:
+  - All three `SurfaceCommandTests` once crashed the test host with `EXC_BAD_ACCESS` in `objc_release`. Their test windows lacked `isReleasedWhenClosed = false`, so `close()` over-released them. Fixed in `SurfaceCommandTests` and `TerminalShortcutReclaimTests`.
+  - `focusedSurfaceConsumesOptionChordsWithoutTheMonitor` (⌥J) depends on the user's Ghostty config binding alt+j, which tests can't override. It skips when there is no binding, as in a guest.
+  - `testNewTaskButtonIsAccessible` queried `buttons`, but the control is a `Menu` with a primary action, which XCUITest exposes as a pop-up button. It now queries any descendant.
+  - `testComposerFieldIsAccessibleWithSeededTask` still fails. The `.plumeID(AccessibilityID.tabPane…)` container identifier at `TabContentView.swift:115` overrides the identifiers inside it. The fix waits on the maintainer's decision.
+- Current result in the guest: 16 passed, 1 failed (the composer test), 1 skipped (the ⌥J test).
