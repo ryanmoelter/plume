@@ -88,6 +88,7 @@ final class CodexSession: AgentSession {
     /// finished merging.
     private var isReady = false
     private var hasStartedHandshake = false
+    private var allowsPlumeTools = false
     private var nextTurnStartSequence = 0
     private var pendingTurnStartSequence: Int?
     /// `turn/interrupt` is addressed to a specific turn, so the id from
@@ -167,6 +168,7 @@ final class CodexSession: AgentSession {
         if let model, !preserveRemoteConfiguration { self.model = model }
         self.collaborationMode = collaborationMode
         hasStartedHandshake = true
+        allowsPlumeTools = !preserveRemoteConfiguration
         isReady = false
         do {
             try client.start(workingDirectory: workingDirectory, environment: environment)
@@ -246,6 +248,7 @@ final class CodexSession: AgentSession {
                 params["threadId"] = .string(resumeThreadID)
             } else {
                 method = "thread/start"
+                params["dynamicTools"] = .array([CodexPresenceTool.definition])
             }
             let result = try await client.send(method, .object(params))
             guard adopt(startResponse: result), let threadID = sessionID else {
@@ -1206,6 +1209,14 @@ final class CodexSession: AgentSession {
         agentID: String?
     ) {
         switch method {
+        case "item/tool/call":
+            guard allowsPlumeTools, let sessionID, params["threadId"]?.stringValue == sessionID,
+                  let currentTurnID, params["turnId"]?.stringValue == currentTurnID
+            else {
+                client.respondUnsupported(to: id, method: method)
+                return
+            }
+            client.respond(to: id, result: CodexPresenceTool.call(params))
         case "item/commandExecution/requestApproval":
             enqueue(permission: commandPermission(params, agentID: agentID), id: id)
         case "item/fileChange/requestApproval":
