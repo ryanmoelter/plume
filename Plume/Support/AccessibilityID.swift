@@ -264,6 +264,9 @@ enum AccessibilityID {
     static let vmPickerShowButton = "vm-picker-show-button"
     static let vmPickerError = "vm-picker-error"
     static let vmPickerUnsupported = "vm-picker-unsupported"
+    /// A VM tab whose slot is free while Labs has VMs off.
+    static let vmLabsOff = "vm-labs-off"
+    static let labsVMsToggle = "labs-vms-toggle"
     static let shutDownEmulatorMenuItem = "shut-down-emulator-menu-item"
     static let deviceSurface = "device-surface"
     static let deviceBackButton = "device-back-button"

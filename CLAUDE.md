@@ -146,6 +146,7 @@ A device tab (`TabKind.device`) shows a live Android emulator over its gRPC cont
 
 `VMManager.shared` runs up to 2 macOS guests, which `plume devices --kind=vm` leases and `scripts/vm/plume-vm` drives. Use one when a check needs the debug app frontmost. **`docs/vm-testing.md` is the reference** — setup, path mirroring, the spike findings and the limits. Read it before touching `Plume/VM/` or `scripts/vm/`.
 
+- **VMs are a Labs feature, off by default** (`AppSettings.labsVMsEnabled`, Settings ▸ Labs). Off, the picker hides them, `vms.*` refuses, and `VMManager` stays inert. Turning it off never stops a running VM. A debug build reads it from `com.ryanmoelter.Plume.debug`'s defaults at launch.
 - **The device tab is the UI's way into a VM.** Its picker lists the slots, and claiming or showing one turns the tab into a `.vm` tab in place (`TaskStore.showVM`); Change Slot and Release turn it back (`TaskStore.showDevicePicker`). There is no New VM Tab command.
 - **`VMManager` owns the VMs, on private queues.** Views never create or stop one. Leases live in memory, and VMs die with the app.
 - **Every clone gets a fresh `ecid`.** `tart clone` copies it, so two clones would share a machine identity.

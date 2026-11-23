@@ -134,6 +134,7 @@ final class CLICommandHandler {
 
     /// The `vms.*` commands. A refusal names its reason; a full pool also lists every slot.
     private func handleVM(_ request: CLIRequest) async -> CLIResponse {
+        if vms.refusesCommands { return .failure(VMManager.labsDisabledMessage) }
         do {
             var response = CLIResponse.success
             switch request {

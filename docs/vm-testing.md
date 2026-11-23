@@ -4,6 +4,7 @@ A macOS guest has its own window server, focus and launchd. So a debug build can
 
 ## Setup
 
+0. Turn on **Settings ▸ Labs ▸ macOS VMs for testing** in the Plume that will own the VMs. It is off by default. Off, the device picker shows no macOS VMs section, and every `vms.*` socket command answers "macOS VMs are a Labs feature; turn them on in Settings ▸ Labs", which `plume devices … --kind=vm` prints before exiting 1. From a shell, `defaults write com.ryanmoelter.Plume labsVMsEnabled -bool true` (`com.ryanmoelter.Plume.debug` for every debug build) turns it on; the app reads it at launch, so relaunch after. Turning it off while VMs run stops nothing: new claims are refused, while the socket still answers so a VM left from before can be listed and released, and leases run out or are released as usual. `VMManager` starts its reaper on the first claim and touches no Tart until then, so a Plume that never opts in pays nothing.
 1. Install Tart, which moved to `openai/tools`. Trust the `tart` and `softnet` formulas when Homebrew asks.
 
    ```
@@ -28,7 +29,7 @@ Pass `--xcode=<Xcode.app>` to copy another Xcode, `--image=<ref>` to start from 
 
 ## The pool
 
-`VMManager.shared` (`Plume/VM/`) owns the guests. VMs need macOS 27: on an earlier host the device picker's macOS VMs section and the VM tab show only that, and `vms.claim` fails with it.
+`VMManager.shared` (`Plume/VM/`) owns the guests. VMs need Labs turned on (Setup step 0) and macOS 27: on an earlier host the device picker's macOS VMs section and the VM tab show only that, and `vms.claim` fails with it.
 
 A device tab is the one way into a VM from the UI. Its picker lists the slots under macOS VMs, with Claim for a free slot and Show for a leased or running one. Either turns the tab into a VM tab (`TabKind.vm`, `vmSlot` set) in place, through `TaskStore.showVM`. Change Slot and Release turn it back into a device tab showing the picker (`TaskStore.showDevicePicker`), and so does a VM tab left with no slot. Slot `vm:<n>` always boots clone `plume-<os>-<n>` and keeps its share and control socket in `vms/vm<n>/`. Leases live in memory only, because the guests die with the app.
 

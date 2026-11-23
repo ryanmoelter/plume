@@ -79,8 +79,11 @@ struct DevicePickerView: View {
         }
     }
 
+    @ViewBuilder
     private var vmSection: some View {
-        section("macOS VMs") { VMPickerSection(tab: tab) }
+        if AppSettings.shared.labsVMsEnabled {
+            section("macOS VMs") { VMPickerSection(tab: tab) }
+        }
     }
 
     /// Remote devices this app reserved are adb devices too; they show as their own tabs instead.

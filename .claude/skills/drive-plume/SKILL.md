@@ -34,7 +34,7 @@ kill "$PID"
 
 ## When the app must be frontmost
 
-A scratch instance is never active, so menu commands and chords read disabled, activation and focus behavior can't be tested, and a screenshot needs a visible window. For those checks, run the build in a macOS VM instead. The guest has its own window server, so the host's focus never moves. `docs/vm-testing.md` is the reference.
+A scratch instance is never active, so menu commands and chords read disabled, activation and focus behavior can't be tested, and a screenshot needs a visible window. For those checks, run the build in a macOS VM instead. The guest has its own window server, so the host's focus never moves. `docs/vm-testing.md` is the reference. VMs are a Labs feature: the Plume that owns them needs Settings ▸ Labs ▸ macOS VMs for testing turned on, or `claim` fails saying so. Ask the user before turning it on in an app they are running.
 
 ```
 scripts/vm/plume-vm claim

@@ -238,6 +238,14 @@ struct VMDevicesTests {
         #expect(console.stderr == "plume devices: vm:1 is leased by another owner, a\n")
     }
 
+    @Test func labsOffPrintsWhereToTurnVMsOn() throws {
+        let run = try Run()
+        run.app.reply = { _ in .failure("macOS VMs are a Labs feature; turn them on in Settings ▸ Labs") }
+        let (code, console) = run(["claim", "--kind=vm"])
+        #expect(code == 1)
+        #expect(console.stderr == "plume devices: macOS VMs are a Labs feature; turn them on in Settings ▸ Labs\n")
+    }
+
     @Test func listingOnlyVMsNeverRunsADB() throws {
         let run = try Run()
         run.env.adbFailure = "adb not found"

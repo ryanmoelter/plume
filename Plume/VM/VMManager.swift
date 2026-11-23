@@ -25,6 +25,7 @@ final class VMManager {
     }
 
     nonisolated static let unsupportedMessage = "VMs need macOS 27"
+    nonisolated static let labsDisabledMessage = "macOS VMs are a Labs feature; turn them on in Settings ▸ Labs"
 
     struct Lease: Equatable {
         var owner: DeviceLeaseOwner
@@ -65,6 +66,7 @@ final class VMManager {
         case slotTaken(String)
         case stillRunning(String)
         case unsupported
+        case labsDisabled
 
         var errorDescription: String? {
             switch self {
@@ -91,6 +93,8 @@ final class VMManager {
                 VMManager.stillRunningMessage(key)
             case .unsupported:
                 VMManager.unsupportedMessage
+            case .labsDisabled:
+                VMManager.labsDisabledMessage
             }
         }
     }
@@ -105,6 +109,8 @@ final class VMManager {
     /// Whether a tab is a VM or device tab in a task that isn't archived. A lease such a tab owns renews
     /// itself for as long as the tab is there.
     @ObservationIgnored var isLiveVMTab: (UUID) -> Bool = { _ in false }
+    /// The Labs toggle. Off, nothing new is claimed, but VMs already running keep their leases.
+    @ObservationIgnored var isEnabled: () -> Bool = { true }
     @ObservationIgnored private var bootTasks: [Int: Task<Void, Never>] = [:]
     @ObservationIgnored private var deadlineTasks: [Int: Task<Void, Never>] = [:]
     /// The slot's last stop, until it finishes.
@@ -123,6 +129,7 @@ final class VMManager {
         }
     }
 
+    /// Starts the reaper on the first claim, so a user who never opts in pays nothing.
     func start() {
         guard reapTask == nil else { return }
         reapTask = Task { [weak self] in
@@ -134,6 +141,12 @@ final class VMManager {
     }
 
     func slot(_ number: Int) -> Slot? { slots.first { $0.number == number } }
+
+    /// With Labs off, the socket refuses every VM command until no VM is left from before, so a
+    /// running one can still be listed and released.
+    var refusesCommands: Bool {
+        !isEnabled() && runningCount == 0 && !slots.contains { $0.lease != nil }
+    }
 
     /// Slots that may still have a VM, which a quit has to stop: a failed slot's VM is still
     /// stopping until its stop finishes, or running if that stop failed.
@@ -162,7 +175,9 @@ final class VMManager {
         ttl: TimeInterval? = nil,
         preferred: Int? = nil
     ) async throws -> (slot: Int, reused: Bool) {
+        guard isEnabled() else { throw Failure.labsDisabled }
         guard Self.isSupported else { throw Failure.unsupported }
+        start()
         let ttl = ttl ?? Self.defaultTTL
         let worktree = await Self.resolved(requestedWorktree)
         let baseExists = await backend.baseImageExists()

@@ -32,14 +32,25 @@ struct VMTabView: View {
     private var owner: DeviceLeaseOwner { tab.vmLeaseOwner }
 
     var body: some View {
-        if VMManager.isSupported {
+        if VMManager.isSupported, !showsLabsOff {
             supportedBody
+        } else if VMManager.isSupported {
+            Text(VMManager.labsDisabledMessage)
+                .foregroundStyle(.secondary)
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
+                .plumeID(AccessibilityID.vmLabsOff, value: VMManager.labsDisabledMessage)
         } else {
             Text(VMManager.unsupportedMessage)
                 .foregroundStyle(.secondary)
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
                 .plumeID(AccessibilityID.vmTab, value: VMManager.unsupportedMessage)
         }
+    }
+
+    /// With Labs off, a tab still shows a VM left running from before, so it can be released.
+    private var showsLabsOff: Bool {
+        guard !AppSettings.shared.labsVMsEnabled, tab.vmSlot != 0, let slot = vms.slot(tab.vmSlot) else { return false }
+        return VMPickerRow(slot).canClaim
     }
 
     @ViewBuilder

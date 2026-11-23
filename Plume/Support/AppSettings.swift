@@ -73,6 +73,7 @@ final class AppSettings {
         static let keepsAwakeOnBattery = "keepsAwakeOnBattery"
         static let keepAwakeBatteryCutoffPercent = "keepAwakeBatteryCutoffPercent"
         static let keepsAwakeWithLidClosed = "keepsAwakeWithLidClosed"
+        static let labsVMsEnabled = "labsVMsEnabled"
         static let keepsAwakeForRemoteControl = "keepsAwakeForRemoteControl"
         static let keepsAwakeForRemoteControlOnBattery = "keepsAwakeForRemoteControlOnBattery"
         static let showsKeepAwakeDebugReadout = "showsKeepAwakeDebugReadout"
@@ -284,6 +285,7 @@ final class AppSettings {
         // Unset reads as false: turning this on installs a privileged helper
         // and asks for admin approval, which has to be the user's move.
         self.keepsAwakeWithLidClosed = defaults.bool(forKey: Key.keepsAwakeWithLidClosed)
+        self.labsVMsEnabled = defaults.bool(forKey: Key.labsVMsEnabled)
 
         // Unset reads as on: a remotely driven session that sleeps mid-turn
         // strands whoever is driving it, with no way to wake it from away.
@@ -828,6 +830,13 @@ final class AppSettings {
     var keepsAwakeWithLidClosed: Bool {
         didSet {
             defaults.set(keepsAwakeWithLidClosed, forKey: Key.keepsAwakeWithLidClosed)
+        }
+    }
+
+    /// Labs: the macOS VM pool, in the device picker and over `plume devices --kind=vm`.
+    var labsVMsEnabled: Bool {
+        didSet {
+            defaults.set(labsVMsEnabled, forKey: Key.labsVMsEnabled)
         }
     }
 

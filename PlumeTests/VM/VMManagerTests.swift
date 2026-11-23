@@ -150,6 +150,32 @@ struct VMManagerTests {
         await #expect(throws: VMManager.Failure.poolFull) { try await manager.claim(owner: .label("c"), worktree: nil, branch: nil) }
     }
 
+    @Test func labsOffRefusesAClaimWithoutTouchingTheHost() async {
+        manager.isEnabled = { false }
+        await #expect(throws: VMManager.Failure.labsDisabled) {
+            try await manager.claim(owner: .label("a"), worktree: nil, branch: nil)
+        }
+        #expect(backend.calls.isEmpty)
+        #expect(manager.slots.allSatisfy { $0.lease == nil && $0.state == .idle })
+    }
+
+    @Test func labsOffRefusesTheSocketUntilNoVMIsLeftFromBefore() async throws {
+        let handler = CLICommandHandler()
+        handler.vms = manager
+        manager.isEnabled = { false }
+        #expect(await handler.handle(.listVMs) == .failure("macOS VMs are a Labs feature; turn them on in Settings ▸ Labs"))
+
+        manager.isEnabled = { true }
+        _ = try await manager.claim(owner: .label("a"), worktree: nil, branch: nil)
+        await settle { state(1) == .ready }
+        manager.isEnabled = { false }
+        #expect(!manager.refusesCommands)
+        #expect(await handler.handle(.listVMs).ok)
+        let claim = await handler.handle(.claimVM(.init(owner: .label("b"), worktree: nil, branch: nil, ttl: 60)))
+        #expect(claim.error == VMManager.labsDisabledMessage)
+        #expect(await handler.handle(.releaseVM(.init(key: "vm:1", owner: .label("a"), force: false))).ok)
+    }
+
     @Test func aSlotAnotherPlumeHoldsIsSkipped() async throws {
         backend.heldElsewhere = [1]
         #expect(try await manager.claim(owner: .label("a"), worktree: nil, branch: nil).slot == 2)
