@@ -61,6 +61,7 @@ struct ChatComposer: View, ThemedView {
     @State private var closingSuggestionPanel: SuggestionPanel?
     @State private var textAreaTop: CGFloat = 0
     /// Kept until the draft that caused it is edited.
+    @State private var sideQuestionError: String?
     @State private var addDirectoryError: (message: String, draft: String)?
 
     private var headlessSession: (any AgentSession)? {
@@ -131,7 +132,11 @@ struct ChatComposer: View, ThemedView {
         tab.provider == .codex && tab.transport == .headless ? tabDirectories.directory(for: tab) : nil
     }
 
-    private var completionPrefix: String { tab.provider == .codex ? "$" : "/" }
+    private var completionPrefix: String { completionPrefix(in: drafts.draft(forTab: tab.id)) }
+
+    private func completionPrefix(in text: String) -> String {
+        tab.provider == .codex && !text.hasPrefix("/") ? "$" : "/"
+    }
 
     /// The CLI's commands, from this session when it has reported and from
     /// the last one to report in this tab's directory until then, so a cold
@@ -143,8 +148,14 @@ struct ChatComposer: View, ThemedView {
     /// process. `/add-dir` changes the tab's own list, so it needs neither.
     /// They never shadow a name the CLI reports: if a later CLI serves `/rc`
     /// headlessly, its version wins.
-    private var availableSlashCommands: [SlashCommand] {
+    private var availableSlashCommands: [SlashCommand] { availableSlashCommands(prefix: completionPrefix) }
+
+    private func availableSlashCommands(prefix: String) -> [SlashCommand] {
         if tab.provider == .codex, tab.transport == .headless {
+            if prefix == "/" {
+                return [SlashCommand(name: "btw", description: "Ask about completed turns in a side chat",
+                                     argumentHint: "<question>", isPlumeProvided: true)]
+            }
             return CodexSkillStore.shared.skills(in: skillDirectory).map(\.command)
         }
         guard tab.provider == .claudeCode, tab.transport == .headless else { return [] }
@@ -365,7 +376,10 @@ struct ChatComposer: View, ThemedView {
                     .padding(.bottom, dimensions.panelContentInset)
                 }
                 if let addDirectoryError {
-                    addDirectoryErrorRow(addDirectoryError.message)
+                    composerErrorRow(addDirectoryError.message, id: AccessibilityID.composerAddDirectoryError)
+                }
+                if let sideQuestionError {
+                    composerErrorRow(sideQuestionError, id: AccessibilityID.composerSideQuestionError)
                 }
                 if isCommandMode {
                     commandModeChip
@@ -382,8 +396,11 @@ struct ChatComposer: View, ThemedView {
                         let sendable = sendableText(text)
                         if sendable != hasSendableText { hasSendableText = sendable }
                         if let error = addDirectoryError, error.draft != text { addDirectoryError = nil }
+                        sideQuestionError = nil
                         updateCommandMode(for: text)
-                        autocomplete.slash.update(text: text, caretLocation: caretLocation, commands: availableSlashCommands, prefix: completionPrefix)
+                        let prefix = completionPrefix(in: text)
+                        autocomplete.slash.update(text: text, caretLocation: caretLocation,
+                                                  commands: availableSlashCommands(prefix: prefix), prefix: prefix)
                     },
                     onCaretChange: { location in
                         caretLocation = location
@@ -682,6 +699,10 @@ struct ChatComposer: View, ThemedView {
     private func steer() {
         guard canSend, !isCommandMode, let headlessSession else { return }
         let text = drafts.draft(forTab: tab.id)
+        if isCodexSideQuestion(text) {
+            send()
+            return
+        }
         let images = attachedImages
         let blocks: [UserContentBlock] = [.text(expandingMentions(in: text))] + images.map { .image($0) }
         Task {
@@ -703,6 +724,10 @@ struct ChatComposer: View, ThemedView {
         // prose.
         if handOff != nil, PlumeSlashCommand.parse(text) != nil {
             NSSound.beep()
+            return
+        }
+        if !isCommandMode, isCodexSideQuestion(text) {
+            sendCodexSideQuestion(text)
             return
         }
         let images = attachedImages
@@ -792,7 +817,7 @@ struct ChatComposer: View, ThemedView {
         }
         let text = drafts.draft(forTab: tab.id)
         var draftBlocks: [UserContentBlock] = []
-        if canSend, !isCommandMode, PlumeSlashCommand.parse(text) == nil {
+        if canSend, !isCommandMode, !isCodexSideQuestion(text), PlumeSlashCommand.parse(text) == nil {
             draftBlocks = [.text(CommandModeMatcher.unescaped(expandingMentions(in: text)))]
                 + attachedImages.map { .image($0) }
             drafts.setDraft("", forTab: tab.id)
@@ -857,7 +882,7 @@ struct ChatComposer: View, ThemedView {
         }
     }
 
-    private func addDirectoryErrorRow(_ error: String) -> some View {
+    private func composerErrorRow(_ error: String, id: String) -> some View {
         HStack(spacing: 4) {
             Image(systemName: "exclamationmark.triangle")
                 .font(typography.caption.font)
@@ -869,7 +894,33 @@ struct ChatComposer: View, ThemedView {
         .foregroundStyle(colors.danger)
         .frame(maxWidth: .infinity, alignment: .leading)
         .padding(.bottom, dimensions.panelContentInset)
-        .plumeID(AccessibilityID.composerAddDirectoryError, value: error)
+        .plumeID(id, value: error)
+    }
+
+    private func isCodexSideQuestion(_ text: String) -> Bool {
+        tab.provider == .codex && tab.transport == .headless
+            && text.split(whereSeparator: \.isWhitespace).first == "/btw"
+    }
+
+    private func sendCodexSideQuestion(_ text: String) {
+        guard case .sideQuestion(let question)? = PlumeSlashCommand.parse(text) else {
+            sideQuestionError = "Enter a question after /btw."
+            return
+        }
+        guard attachedImages.isEmpty else {
+            sideQuestionError = "Remove the attachments to ask a side question."
+            return
+        }
+        guard let codex = headlessSession as? CodexSession, !codex.hasExited else {
+            sideQuestionError = hasConversation
+                ? "Reconnect this chat before asking a side question."
+                : "Complete a turn in this chat before asking a side question."
+            return
+        }
+        drafts.setDraft("", forTab: tab.id)
+        hasSendableText = false
+        sideQuestionError = nil
+        codex.askSideQuestion(question)
     }
 
     /// The session a Plume command runs against. A side question needs a

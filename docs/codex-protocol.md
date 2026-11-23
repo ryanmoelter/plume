@@ -441,3 +441,9 @@ the remaining chat completed a follow-up. The Debug build and signature checks
 passed. The prior remote-test instance was restarted with its saved data and this
 build. The user subsequently confirmed that remote access works from iOS.
 See [Codex beta compatibility](codex-beta.md) for the remaining manual checklist.
+
+### Side questions
+
+In a headless Codex chat, `/btw <question>` reads up to twelve recent turns with `thread/turns/list`. Plume keeps text from completed turns and excludes the turn active when the question was asked. The snapshot can omit older messages, tool output, and attachments. The side chat shows the scope as “Completed turns.”
+
+A separate ephemeral Luna process answers with the same tool-free configuration as title generation. The snapshot goes through stdin. Plume keeps the exchange in memory and cancels outstanding questions when the session closes. The main conversation continues independently.

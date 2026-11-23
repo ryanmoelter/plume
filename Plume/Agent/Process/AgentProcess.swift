@@ -65,7 +65,8 @@ nonisolated final class AgentProcess: @unchecked Sendable {
         arguments: [String],
         workingDirectory: String?,
         environment: [String: String],
-        removingEnvironment: [String] = []
+        removingEnvironment: [String] = [],
+        standardInput: FileHandle? = nil
     ) throws {
         // The agent reaches PATH only through the user's shell profile, which a
         // GUI-launched app does not inherit, so the command runs inside a
@@ -84,7 +85,11 @@ nonisolated final class AgentProcess: @unchecked Sendable {
         }
         process.environment = LoginShellCommand.childEnvironment(overrides: environment, removing: removingEnvironment)
 
-        process.standardInput = inPipe
+        if let standardInput {
+            process.standardInput = standardInput
+        } else {
+            process.standardInput = inPipe
+        }
         process.standardOutput = outPipe
         process.standardError = errPipe
 

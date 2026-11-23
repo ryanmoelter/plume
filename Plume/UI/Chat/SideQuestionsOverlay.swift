@@ -11,6 +11,7 @@ struct SideQuestionsOverlay: View, ThemedView {
 
     let sideQuestions: [SideQuestion]
     var glass: Glass = .regular
+    var onCancel: ((String) -> Void)?
     let onClose: () -> Void
 
     var body: some View {
@@ -27,7 +28,7 @@ struct SideQuestionsOverlay: View, ThemedView {
                     VStack(alignment: .leading, spacing: 0) {
                         ForEach(Array(sideQuestions.reversed().enumerated()), id: \.element.id) { index, exchange in
                             if index > 0 { Divider() }
-                            SideQuestionRow(exchange: exchange)
+                            SideQuestionRow(exchange: exchange, onCancel: onCancel)
                         }
                     }
                     .frame(maxWidth: dimensions.contentWidth)
@@ -64,6 +65,7 @@ struct SideQuestionsOverlay: View, ThemedView {
 private struct SideQuestionRow: View, ThemedView {
     @Environment(\.theme) var theme
     let exchange: SideQuestion
+    let onCancel: ((String) -> Void)?
 
     var body: some View {
         VStack(alignment: .leading, spacing: 10) {
@@ -71,6 +73,11 @@ private struct SideQuestionRow: View, ThemedView {
                 Text(exchange.question)
                     .font(typography.body.font)
                     .textSelection(.enabled)
+                if let contextLabel = exchange.contextLabel {
+                    Text(contextLabel)
+                        .font(typography.caption.font)
+                        .emphasis(.subtle)
+                }
                 footer(copying: exchange.question, label: "Copy prompt", at: exchange.askedAt)
             }
             .padding(10)
@@ -91,6 +98,9 @@ private struct SideQuestionRow: View, ThemedView {
                     .controlSize(.small)
                 Text("Asking…")
                     .emphasis(.subtle)
+                if let onCancel {
+                    SideQuestionCancelButton(exchange: exchange) { onCancel(exchange.id) }
+                }
             }
             .font(typography.caption.font)
         case .answered(let answer):
