@@ -43,6 +43,11 @@ enum CodexRemoteThreadAdopter {
             guard manager.claimCodexThread(threadID, for: tab.id),
                   let session = manager.session(for: tab.id, taskID: task.id, provider: .codex) as? CodexSession else { return false }
             try context.save()
+            session.onAdoptDirectories = { [weak tab] paths in
+                guard let tab else { return }
+                AdditionalDirectoryStore.adopt(paths, into: tab)
+            }
+            session.declinedDirectories = { [weak tab] in tab?.removedAdditionalDirectories ?? [] }
             session.start(workingDirectory: TabDirectoryStore.shared.directory(for: tab),
                           resumeThreadID: threadID, model: nil,
                           preserveRemoteConfiguration: true, environment: [:])

@@ -299,6 +299,32 @@ struct KeepAwakeTests {
         #expect(coordinator.tally == (working: 1, backgroundTasks: 1, remotelyControlled: false))
     }
 
+    @Test func detachedProcessesUseTheExistingStayAwakeSetting() {
+        let tracker = BackgroundTaskTracker()
+        let detached = CodexDetachedProcessTracker(backgroundTasks: tracker)
+        let engine = StatusEngine(backgroundTasks: tracker)
+        let (coordinator, assertion, settings) = makeCoordinator(engine: engine)
+        let tab = UUID()
+        engine.setStatus(.awaitingReply, taskID: UUID(), tabID: tab)
+        let generation = detached.begin(tabID: tab)
+        detached.replace(tabID: tab, generation: generation, processes: [
+            CodexDetachedProcess(id: "confirmed", startedAt: Date().addingTimeInterval(-7200))
+        ])
+        settings.keepAwakeMode = .auto
+        coordinator.refresh()
+        #expect(coordinator.tally == (working: 0, backgroundTasks: 1, remotelyControlled: false))
+        #expect(assertion.held != nil)
+        settings.keepAwakeMode = .never
+        coordinator.refresh()
+        #expect(assertion.held == nil)
+        settings.keepAwakeMode = .auto
+        coordinator.refresh()
+        #expect(assertion.held != nil)
+        detached.replace(tabID: tab, generation: generation, processes: [])
+        coordinator.refresh()
+        #expect(assertion.held == nil)
+    }
+
     /// The panel lists one reason per tab, but the footer counts tasks.
     @Test func theTallyCountsTasksNotTabs() {
         let tracker = BackgroundTaskTracker()

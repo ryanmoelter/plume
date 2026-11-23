@@ -4,34 +4,130 @@ import os
 /// Each terminal has a private server shared by the real Codex TUI and this
 /// read-only observer. Only the TUI answers requests or starts/resumes turns.
 @MainActor
+@Observable
 final class CodexTerminalMonitor {
     static let shared = CodexTerminalMonitor()
-    private var sessions: [UUID: Observation] = [:]
+    private var sessions: [UUID: TerminalObservation] = [:]
+    struct Preparation {
+        let overrides: [String: JSONValue]
+        let detached: CodexDetachedProcessMonitor?
+    }
+    struct Launch {
+        let generation: UUID
+        let task: Task<String, Error>
+    }
+    typealias Prepare = @MainActor (UUID, String?, [String: String]) async throws -> Preparation
+    private let prepare: Prepare
+    private var launches: [UUID: Launch] = [:]
+    private var launchGenerations: [UUID: UUID] = [:]
+    private var pendingThreadIDs: [UUID: String] = [:]
+    private var pendingTaskIDs: [UUID: UUID] = [:]
+
+    init(prepare: @escaping Prepare = CodexTerminalMonitor.prepare) {
+        self.prepare = prepare
+    }
+
+    private static func prepare(tabID: UUID, directory: String?, environment: [String: String]) async throws -> Preparation {
+        try await prepareWithConfiguration(tabID: tabID) {
+            try await CodexTerminalPreparation.configuration(directory: directory, environment: environment)
+        }
+    }
+
+    static func prepareWithConfiguration(tabID: UUID, configuration: @MainActor () async throws -> JSONValue) async throws -> Preparation {
+        let detached = CodexDetachedProcessMonitor(tabID: tabID)
+        do {
+            let config = try await configuration()
+            let overrides = await detached.prepare(configuration: config)
+            try Task.checkCancellation()
+            return Preparation(overrides: overrides, detached: detached)
+        } catch {
+            detached.stop()
+            try Task.checkCancellation()
+            Log.agent.error("Codex terminal process tracking unavailable; preserving its normal launch")
+            return Preparation(overrides: [:], detached: nil)
+        }
+    }
+
+    func isLaunching(tabID: UUID) -> Bool {
+        launches[tabID] != nil
+    }
+
+    func isCurrentLaunch(tabID: UUID, generation: UUID) -> Bool {
+        launchGenerations[tabID] == generation
+    }
 
     func owns(threadID: String, excludingTabID: UUID) -> Bool {
-        sessions.contains { id, observation in
+        pendingThreadIDs.contains { $0.key != excludingTabID && $0.value == threadID } || sessions.contains { id, observation in
             id != excludingTabID && !observation.stopped &&
                 (observation.rootID == threadID || observation.loadedIDs.contains(threadID))
         }
     }
 
-    func start(tabID: UUID, taskID: UUID, directory: String?, resumeThreadID: String? = nil, onThread: @escaping (String) -> Void) throws -> String {
-        if let existing = sessions[tabID] { return existing.socketPath }
-        let observation = try Observation(tabID: tabID, taskID: taskID, directory: directory, resumeThreadID: resumeThreadID, onThread: onThread)
-        sessions[tabID] = observation
-        observation.onStop = { [weak self, weak observation] in
-            guard let self, sessions[tabID] === observation else { return }
-            sessions.removeValue(forKey: tabID)
+    func start(tabID: UUID, taskID: UUID, directory: String?, resumeThreadID: String? = nil, onThread: @escaping (String) -> Void) -> Launch {
+        if let existing = launches[tabID] { return existing }
+        let generation = UUID()
+        launchGenerations[tabID] = generation
+        pendingThreadIDs[tabID] = resumeThreadID
+        pendingTaskIDs[tabID] = taskID
+        let prepare = prepare
+        let launch = Task { [weak self] in
+            let prepared = try await prepare(tabID, directory, LoginShellCommand.plumeEnvironment(taskID: taskID, tabID: tabID))
+            do {
+                try Task.checkCancellation()
+                guard let self, isCurrentLaunch(tabID: tabID, generation: generation) else { throw CancellationError() }
+                let observation = try TerminalObservation(tabID: tabID, taskID: self.taskID(forTab: tabID) ?? taskID, directory: directory,
+                                                  resumeThreadID: resumeThreadID, preparation: prepared, onThread: onThread)
+                sessions[tabID] = observation
+                pendingThreadIDs.removeValue(forKey: tabID)
+                pendingTaskIDs.removeValue(forKey: tabID)
+                observation.onStop = { [weak self, weak observation] in
+                    guard let self, sessions[tabID] === observation else { return }
+                    sessions.removeValue(forKey: tabID)
+                    launches.removeValue(forKey: tabID)
+                    launchGenerations.removeValue(forKey: tabID)
+                }
+                return observation.socketPath
+            } catch {
+                prepared.detached?.stop()
+                throw error
+            }
         }
-        return observation.socketPath
+        launches[tabID] = Launch(generation: generation, task: launch)
+        Task { [weak self] in
+            do { _ = try await launch.value } catch {
+                guard let self, isCurrentLaunch(tabID: tabID, generation: generation) else { return }
+                launches.removeValue(forKey: tabID)
+                pendingThreadIDs.removeValue(forKey: tabID)
+                pendingTaskIDs.removeValue(forKey: tabID)
+            }
+        }
+        return Launch(generation: generation, task: launch)
     }
 
-    func reparent(tabID: UUID, taskID: UUID) { sessions[tabID]?.taskID = taskID }
+    func taskID(forTab tabID: UUID) -> UUID? {
+        sessions[tabID]?.taskID ?? pendingTaskIDs[tabID]
+    }
+
+    func reparent(tabID: UUID, taskID: UUID) {
+        sessions[tabID]?.taskID = taskID
+        if pendingTaskIDs[tabID] != nil { pendingTaskIDs[tabID] = taskID }
+    }
 
     /// Reports no status: the caller is closing or forgetting the tab, and a
     /// report would re-register it with the engine and persist over its status.
-    func stop(tabID: UUID) { sessions.removeValue(forKey: tabID)?.stop(reportsStatus: false) }
+    func stop(tabID: UUID) {
+        launches.removeValue(forKey: tabID)?.task.cancel()
+        launchGenerations.removeValue(forKey: tabID)
+        pendingThreadIDs.removeValue(forKey: tabID)
+        pendingTaskIDs.removeValue(forKey: tabID)
+        sessions.removeValue(forKey: tabID)?.stop(reportsStatus: false)
+    }
     func stopAll() {
+        for launch in launches.values { launch.task.cancel() }
+        launches.removeAll()
+        launchGenerations.removeAll()
+        pendingThreadIDs.removeAll()
+        pendingTaskIDs.removeAll()
         for session in Array(sessions.values) { session.stop(reportsStatus: false) }
         sessions.removeAll()
     }
@@ -62,7 +158,7 @@ final class CodexTerminalMonitor {
         }
     }
 
-    private final class Observation {
+    private final class TerminalObservation {
         let socketPath: String
         let tabID: UUID
         var taskID: UUID
@@ -78,6 +174,8 @@ final class CodexTerminalMonitor {
         var reader: Task<Void, Never>?
         var watchdog: Task<Void, Never>?
         var background: CodexBackgroundTaskTracker?
+        let detached: CodexDetachedProcessMonitor?
+        var previousStatus: TaskStatus?
         var stopped = false
         var onStop: (() -> Void)?
         var lastRead = Date()
@@ -86,11 +184,12 @@ final class CodexTerminalMonitor {
         var hadThread = false
         let onThread: (String) -> Void
 
-        init(tabID: UUID, taskID: UUID, directory workingDirectory: String?, resumeThreadID: String?, onThread: @escaping (String) -> Void) throws {
+        init(tabID: UUID, taskID: UUID, directory workingDirectory: String?, resumeThreadID: String?, preparation: Preparation, onThread: @escaping (String) -> Void) throws {
             self.tabID = tabID
             self.taskID = taskID
             self.onThread = onThread
             self.rootID = resumeThreadID
+            self.detached = preparation.detached
             directory = URL(fileURLWithPath: "/private/tmp").appendingPathComponent("plume-cdx-" + String(UUID().uuidString.prefix(12)))
             try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: false, attributes: [.posixPermissions: 0o700])
             socketPath = directory.appendingPathComponent("s").path
@@ -105,7 +204,8 @@ final class CodexTerminalMonitor {
             })
             self.process = process
             do {
-                try process.start(arguments: ["codex", "app-server", "--listen", "unix://" + socketPath], workingDirectory: workingDirectory, environment: LoginShellCommand.plumeEnvironment(taskID: taskID, tabID: tabID))
+                let arguments = try CodexTerminalPreparation.serverArguments(socketPath: socketPath, overrides: preparation.overrides)
+                try process.start(arguments: arguments, workingDirectory: workingDirectory, environment: LoginShellCommand.plumeEnvironment(taskID: taskID, tabID: tabID))
             } catch {
                 try? FileManager.default.removeItem(at: directory)
                 throw error
@@ -138,8 +238,11 @@ final class CodexTerminalMonitor {
             // unsupported-method reply here could deny the TUI's own request.
             client.onServerRequest = { _, _, _ in }
             client.onNotification = { [weak self] method, params in
-                guard let self, !stopped, method == "thread/started",
-                      let thread = params["thread"], CodexTerminalMonitor.isConversationRoot(thread),
+                guard let self, !stopped else { return }
+                if method == "turn/completed" || (method == "item/completed" && params["item"]?["type"]?.stringValue == "commandExecution") {
+                    detached?.refresh()
+                }
+                guard method == "thread/started", let thread = params["thread"], CodexTerminalMonitor.isConversationRoot(thread),
                       let id = thread["id"]?.stringValue else { return }
                 rootID = id
                 onThread(id)
@@ -195,6 +298,7 @@ final class CodexTerminalMonitor {
                 ]))
                 guard !stopped, !Task.isCancelled, generation == connectionGeneration else { return }
                 client.notify("initialized")
+                detached?.refresh()
                 while !stopped, !Task.isCancelled, generation == connectionGeneration {
                     try await refresh(client: client, generation: generation)
                     lastRead = Date()
@@ -254,7 +358,10 @@ final class CodexTerminalMonitor {
                     TitleStore.shared.setTitle(preview, forTab: tabID, source: .fallback)
                 }
             }
-            StatusEngine.shared.setStatus(CodexTerminalMonitor.aggregateStatus(threads),
+            let status = CodexTerminalMonitor.aggregateStatus(threads)
+            if status == .awaitingReply, let previousStatus, previousStatus != .awaitingReply { detached?.refresh() }
+            previousStatus = status
+            StatusEngine.shared.setStatus(status,
                                          taskID: taskID, tabID: tabID, notifiable: !threads.isEmpty)
             // All descendants share this private server; detached children
             // remain real work even after the parent finishes its own turn.
@@ -274,6 +381,7 @@ final class CodexTerminalMonitor {
             wire.close()
             client?.stop()
             background?.stop()
+            detached?.stop()
             StatusEngine.shared.setSubagentActivity(tabID: tabID, working: false)
             if let status = CodexTerminalMonitor.statusAfterStop(failed: failed, reportsStatus: reportsStatus) {
                 StatusEngine.shared.setStatus(status, taskID: taskID, tabID: tabID, notifiable: false)

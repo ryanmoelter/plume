@@ -13,8 +13,12 @@ struct AgentFirstMessageView: View {
     @State private var resumeSheetShown = false
     @FocusState private var inputFocused: Bool
 
+    private var isLaunching: Bool {
+        tab.provider == .codex && CodexTerminalMonitor.shared.isLaunching(tabID: tab.id)
+    }
+
     private var canSend: Bool {
-        !message.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty && directoryExists
+        !isLaunching && !message.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty && directoryExists
     }
 
     private var directoryExists: Bool {
@@ -30,7 +34,7 @@ struct AgentFirstMessageView: View {
                 .font(.system(size: 32))
                 .foregroundStyle(.secondary)
 
-            Text("Start a conversation")
+            Text(isLaunching ? "Starting Codex…" : "Start a conversation")
                 .font(.headline)
 
             VStack(spacing: 6) {
@@ -59,6 +63,7 @@ struct AgentFirstMessageView: View {
                 }
                 ComposerControlsRow(task: task, tab: tab, headlessSession: nil)
             }
+            .disabled(isLaunching)
             .frame(maxWidth: 560)
 
             Spacer()
@@ -84,12 +89,13 @@ struct AgentFirstMessageView: View {
     private func send() {
         guard canSend else { return }
         AgentLauncher.launch(message: message, task: task, tab: tab)
-        message = ""
+        if tab.provider != .codex { message = "" }
     }
 
     /// Storing the ID is the whole resume: `TabContentView` swaps this view
     /// for `AutoResumingAgentTabView`, which launches `claude --resume`.
     private func resume(_ session: StoredSession) {
+        guard !isLaunching else { return }
         if tab.agentSessionID != session.sessionID {
             TitleStore.shared.beginNewConversation(forTab: tab.id)
         }

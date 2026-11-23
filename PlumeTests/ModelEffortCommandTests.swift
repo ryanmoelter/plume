@@ -241,6 +241,7 @@ struct ModelEffortCommandTests {
     ])
     func nominalContextWindowMatchesTheRealFigure(model: AgentModel, expected: Int) {
         #expect(model.nominalContextWindow == expected)
+        #expect(AgentModel(id: model.id, label: "CLI Label").nominalContextWindow == expected)
     }
 
     /// A model this build has never heard of assumes nothing, rather than

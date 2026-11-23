@@ -29,6 +29,19 @@ struct ChildSessionProposalStoreTests {
         #expect(ChildSessionProposalStore.makeID().wholeMatch(of: /task_[0-9a-f]{8}/) != nil)
     }
 
+    @Test func theProviderSurvivesStorageAndCannotChangeOnStart() throws {
+        let encoded = try store(["provider": .string("codex"), "model": .string("gpt-5.6-luna")]).json
+        let saved = try #require(ChildSessionProposalStore(json: encoded).proposals.first)
+        #expect(try saved.request().get().provider == .codex)
+        #expect(try saved.request().get().model?.id == "gpt-5.6-luna")
+        #expect(saved.conflict(with: ["provider": .string("codex")]) == nil)
+        #expect(saved.conflict(with: ["provider": .string("claude-code")]) != nil)
+
+        let legacy = try #require(ChildSessionProposalStore(json: try store().json).proposals.first)
+        #expect(legacy.provider == nil)
+        #expect(try legacy.request().get().provider == .claudeCode)
+    }
+
     @Test func aProposalExpiresAfterSevenDays() throws {
         let store = try store()
         let proposal = try #require(store.proposal(id: "task_0000abcd"))

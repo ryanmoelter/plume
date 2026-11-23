@@ -21,6 +21,7 @@ struct ComposerSettings {
         var permissionMode: PermissionMode?
         var effort: AgentEffort
         var model: AgentModel?
+        var followsClaudeCode = false
 
         /// Reads the app's settings and, through them, the CLI's own.
         @MainActor
@@ -33,7 +34,8 @@ struct ComposerSettings {
                     appDefault: settings.resolvedDefaultPermissionMode
                 ),
                 effort: settings.defaultEffort,
-                model: settings.resolvedDefaultModel
+                model: settings.resolvedDefaultModel,
+                followsClaudeCode: settings.defaultClaudeModel == .followClaudeCode
             )
         }
     }
@@ -58,11 +60,14 @@ struct ComposerSettings {
         session?.hasExited != false
             && AgentSessionManager.shared.existingSession(for: tab.id)?.hasExited != false
             && SurfaceManager.shared.existingSession(for: tab.id) == nil
+            && !CodexTerminalMonitor.shared.isLaunching(tabID: tab.id)
             && tab.agentSessionID?.isEmpty != false
             && tab.sessionJSONLPath?.isEmpty != false
     }
 
-    var model: AgentModel? { session?.model ?? tab.model ?? defaultModel }
+    var model: AgentModel? {
+        session?.model ?? models.first { $0.id == tab.modelRaw } ?? tab.model ?? defaultModel
+    }
     var effort: AgentEffort {
         let selected = session?.effort ?? tab.effort
         guard provider == .codex else { return selected ?? defaults.effort }
@@ -87,7 +92,37 @@ struct ComposerSettings {
         models(for: provider)
     }
     func models(for provider: AgentProviderKind) -> [AgentModel] {
-        provider == .codex ? CodexCatalogStore.shared.models(for: tab.id) : provider.models
+        if provider == .codex { return CodexCatalogStore.shared.models(for: tab.id) }
+        return claudeCatalog?.models ?? provider.models
+    }
+
+    private var workingDirectory: String? { TabDirectoryStore.shared.directory(for: tab) }
+    private var claudeCatalog: ClaudeModelCatalog? {
+        (session as? HeadlessSession)?.modelCatalog
+            ?? ClaudeModelCatalogStore.shared.catalog(in: workingDirectory)
+    }
+
+    func refreshModels(installed: Set<AgentProviderKind>) async {
+        let providers = installed.intersection(canChangeProvider ? [.claudeCode, .codex] : [provider])
+        async let claude: Void = refreshClaudeModels(ifInstalled: providers.contains(.claudeCode))
+        async let codex: Void = refreshCodexModels(ifInstalled: providers.contains(.codex))
+        _ = await (claude, codex)
+    }
+
+    private func refreshClaudeModels(ifInstalled installed: Bool) async {
+        guard installed, (session as? HeadlessSession)?.modelCatalog == nil,
+              let workingDirectory else { return }
+        await ClaudeModelCatalogStore.shared.refresh(in: workingDirectory)
+    }
+
+    private func refreshCodexModels(ifInstalled installed: Bool) async {
+        guard installed, !(session is CodexSession) else { return }
+        let directory = workingDirectory
+        let values = await CodexCatalogStore.shared.discoverModels(workingDirectory: directory)
+        guard directory == workingDirectory,
+              AgentSessionManager.shared.existingSession(for: tab.id)?.hasExited != false else { return }
+        CodexCatalogStore.shared.forgetModels(tabID: tab.id)
+        if let values { CodexCatalogStore.shared.replaceModels(tabID: tab.id, values: values) }
     }
     var efforts: [AgentEffort] {
         provider == .codex
@@ -134,6 +169,7 @@ struct ComposerSettings {
     }
     func defaultModel(for provider: AgentProviderKind) -> AgentModel? {
         if provider == .codex { return CodexCatalogStore.shared.defaultModel(for: tab.id) }
+        if defaults.followsClaudeCode, let model = claudeCatalog?.defaultModel { return model }
         return defaults.model
     }
 
@@ -215,7 +251,9 @@ struct ComposerSettings {
     func clearModel() {
         tab.model = nil
         tab.isModelUserChosen = false
-        if let session, let fallback = defaultModel {
+        if defaults.followsClaudeCode, let headless = session as? HeadlessSession {
+            headless.setDefaultModel()
+        } else if let session, let fallback = defaultModel {
             session.setModel(fallback)
         }
     }

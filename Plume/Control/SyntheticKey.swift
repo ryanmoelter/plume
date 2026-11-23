@@ -88,11 +88,19 @@ enum SyntheticKey {
         // `TerminalShortcutMonitor` match on, so it carries the unmodified
         // character while `characters` carries what the chord composes to.
         let bare = String(shortcut.key)
+        let characters: String
+        if shortcut.key == "\t", flags.contains(.shift) {
+            characters = "\u{19}"
+        } else if namedKey != nil {
+            characters = bare
+        } else {
+            characters = composed(code, flags: flags) ?? bare
+        }
         func event(_ type: NSEvent.EventType) -> NSEvent? {
             NSEvent.keyEvent(
                 with: type, location: .zero, modifierFlags: flags,
                 timestamp: ProcessInfo.processInfo.systemUptime, windowNumber: window.windowNumber,
-                context: nil, characters: namedKey != nil ? bare : (composed(code, flags: flags) ?? bare),
+                context: nil, characters: characters,
                 charactersIgnoringModifiers: bare, isARepeat: false, keyCode: UInt16(code)
             )
         }

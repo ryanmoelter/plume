@@ -72,7 +72,7 @@ final class CodexBackgroundTaskTracker {
         polls.removeAll()
         dirty.removeAll()
         entriesByThread.removeAll()
-        tracker.forget(tabID: tabID)
+        tracker.replace(tabID: tabID, entries: [])
     }
 
     private func readInventory(threadID: String) async {

@@ -50,6 +50,19 @@ struct ChatSelectableText: Equatable {
         return fragments.lastIndex { $0.length > 0 }
     }
 
+    func link(at offset: Int) -> URL? {
+        guard let index = fragmentIndex(containing: offset) else { return nil }
+        let fragment = fragments[index]
+        let local = offset - fragment.start
+        for run in fragment.source.runs {
+            guard let link = run.link else { continue }
+            let start = String(fragment.source[..<run.range.lowerBound].characters).utf16.count
+            let length = String(fragment.source[run.range].characters).utf16.count
+            if start <= local, local < start + length { return link }
+        }
+        return nil
+    }
+
     /// The word at `offset`, or the run of spaces and punctuation between two
     /// words when `offset` falls in one. Words never span fragments, so two
     /// list items or table cells stay apart.

@@ -829,15 +829,24 @@ final class ComposerNSTextView: NSTextView {
     }
 
     override func insertBacktab(_ sender: Any?) {
+        if !handleShiftTab() { super.insertBacktab(sender) }
+    }
+
+    private func handleShiftTab() -> Bool {
         let outdent = editsMarkdown ? ComposerMarkdownEditing.outdent(in: string, selection: selectedRange()) : nil
         switch ComposerShiftTab.decide(
             autocompleteShowing: autocompleteHandler?.isShowing == true,
             outdent: outdent,
             canTogglePlanMode: onTogglePlanMode != nil && !hasMarkedText()
         ) {
-        case .outdent(let result): apply(result)
-        case .togglePlanMode: onTogglePlanMode?()
-        case .autocomplete, .ordinary: super.insertBacktab(sender)
+        case .outdent(let result):
+            apply(result)
+            return true
+        case .togglePlanMode:
+            onTogglePlanMode?()
+            return true
+        case .autocomplete, .ordinary:
+            return false
         }
     }
 
@@ -953,6 +962,11 @@ final class ComposerNSTextView: NSTextView {
             default:
                 break
             }
+        }
+        if event.keyCode == 48 /* Tab */,
+           event.modifierFlags.intersection([.command, .control, .option, .shift]) == .shift,
+           !hasMarkedText(), handleShiftTab() {
+            return
         }
         if let autocompleteHandler, event.keyCode == 36 /* Return */, autocompleteHandler.claimsReturn,
            !event.modifierFlags.contains(.command) {

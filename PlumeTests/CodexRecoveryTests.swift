@@ -9,6 +9,10 @@ struct CodexRecoveryTests {
         var client: CodexAppServerClient!
         var requests: [JSONValue] = []
         var failResume = false
+        var resumeErrorCode = -1
+        var resumeErrorMessage = "Thread unavailable"
+        var failStart = false
+        var echoesWorkspaceRoots = true
         var resumedThread: JSONValue?
         var beforeResumeReply: (() -> Void)?
         var beforeHistoryReply: (() -> Void)?
@@ -22,15 +26,21 @@ struct CodexRecoveryTests {
                 if method == "thread/resume" { beforeResumeReply?() }
                 if method == "thread/items/list" { beforeHistoryReply?() }
                 guard let id = request["id"], method != "turn/start" else { return true }
-                if method == "thread/resume", failResume {
-                    reply(id: id, error: .object(["code": .number(-1), "message": .string("Thread unavailable")]))
+                if (method == "thread/resume" && failResume) || (method == "thread/start" && failStart) {
+                    reply(id: id, error: .object(["code": .number(Double(resumeErrorCode)), "message": .string(resumeErrorMessage)]))
                 } else {
-                    let result: JSONValue = switch method {
-                    case "thread/resume", "thread/start": .object([
-                        "thread": resumedThread ?? .object(["id": .string("thread")]),
-                        "model": .string("gpt-6-astra"), "reasoningEffort": .string("medium")
-                    ])
-                    default: .object(["data": .array([])])
+                    let result: JSONValue
+                    if method == "thread/resume" || method == "thread/start" {
+                        var fields: [String: JSONValue] = [
+                            "thread": resumedThread ?? .object(["id": .string("thread")]),
+                            "model": .string("gpt-6-astra"), "reasoningEffort": .string("medium")
+                        ]
+                        if echoesWorkspaceRoots {
+                            fields["runtimeWorkspaceRoots"] = request["params"]?["runtimeWorkspaceRoots"]
+                        }
+                        result = .object(fields)
+                    } else {
+                        result = .object(["data": .array([])])
                     }
                     reply(id: id, result: result)
                 }
@@ -58,9 +68,153 @@ struct CodexRecoveryTests {
         throw CancellationError()
     }
 
+    @Test func neverMountedThreadPersistsItsLastItem() async throws {
+        let directory = FileManager.default.temporaryDirectory.appending(path: UUID().uuidString)
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let items = CodexItemStore(cache: CodexHistoryCache(directory: directory))
+        let h = Harness()
+        let session = CodexSession(tabID: UUID(), taskID: UUID(), client: h.client, itemStore: items)
+        defer { session.stop() }
+        session.start(workingDirectory: nil, resumeThreadID: nil, model: nil, environment: [:])
+        try await waitFor { h.requests.contains { $0["method"] == .string("thread/backgroundTerminals/list") } }
+        h.client.receive(#"{"method":"item/completed","params":{"threadId":"thread","turnId":"turn","item":{"id":"reply","type":"agentMessage","text":"Done"}}}"#)
+        await items.flush(tabID: session.tabID)
+        let reopened = CodexHistoryCache(directory: directory)
+        let snapshot = await reopened.load(tabID: session.tabID, threadID: "thread")
+        #expect(snapshot?.entries.last?.stableID == "turn#reply")
+    }
+
     private var activeRemoteThread: JSONValue {
         .object(["id": .string("thread"), "status": .object(["type": .string("active")]),
                  "turns": .array([.object(["id": .string("remote-turn"), "status": .string("inProgress")])])])
+    }
+
+    @Test func parentBriefAndUserFollowUpKeepTheirTurnOrigins() async throws {
+        let h = Harness()
+        let session = CodexSession(tabID: UUID(), taskID: UUID(), client: h.client)
+        defer { session.stop() }
+        var outcomes: [AgentTurnOutcome] = []
+        session.onTurnFinished = { outcomes.append($0) }
+        session.start(
+            workingDirectory: "/workspace", resumeThreadID: nil, model: nil,
+            permissionProfile: AgentPermissionPreset.codexWorkspace.id,
+            defaultPermissionProfile: AgentPermissionPreset.codexDangerFullAccess.id,
+            isChildSession: true, childNotesDirectory: "/notes/session", environment: [:],
+            additionalDirectories: ["/notes/session", "/extra"]
+        )
+        let brief = HostMessage(
+            display: [.text("Check login")], wire: [.text("Task:\nCheck login")],
+            origin: .fromParent(text: "Check login")
+        )
+        session.submit(QueuedMessage(parts: [.host(brief)]))
+        #expect(session.hasPendingParentBrief)
+        let workingSince = try #require(session.workingSince)
+        try await waitFor { h.turns.count == 1 }
+        #expect(session.workingSince == workingSince)
+        let start = try #require(h.requests.first { $0["method"] == .string("thread/start") })
+        #expect(start["params"]?["permissions"] == .string(":workspace"))
+        #expect(start["params"]?["runtimeWorkspaceRoots"] == .array([.string("/workspace"), .string("/notes/session"), .string("/extra")]))
+        #expect(!session.hasPendingAdditionalDirectories)
+        #expect(session.appliedAdditionalDirectories == ["/extra"])
+        session.setAdditionalDirectories([])
+        #expect(h.turns.first?["params"]?["input"]?.arrayValue?.first?["text"] == .string("Task:\nCheck login"))
+        session.submit(text: "User follow-up")
+
+        h.reply(id: try #require(h.turns[0]["id"]), result: .object(["turn": .object(["id": .string("t1")])]))
+        h.client.receive(#"{"method":"turn/started","params":{"threadId":"thread","turn":{"id":"t1"}}}"#)
+        h.client.receive(#"{"method":"item/completed","params":{"threadId":"thread","turnId":"t1","item":{"id":"final","type":"agentMessage","phase":"final_answer","text":"Login works"}}}"#)
+        h.client.receive(#"{"method":"turn/completed","params":{"threadId":"thread","turn":{"id":"t1","status":"completed"}}}"#)
+        try await waitFor { h.turns.count == 2 }
+        #expect(h.turns.last?["params"]?["runtimeWorkspaceRoots"] == .array([.string("/workspace"), .string("/notes/session")]))
+        #expect(outcomes.map(\.isParentDriven) == [true])
+        #expect(outcomes.first?.text == "Login works")
+
+        h.reply(id: try #require(h.turns[1]["id"]), result: .object(["turn": .object(["id": .string("t2")])]))
+        h.client.receive(#"{"method":"turn/started","params":{"threadId":"thread","turn":{"id":"t2"}}}"#)
+        h.client.receive(#"{"method":"turn/completed","params":{"threadId":"thread","turn":{"id":"t2","status":"completed"}}}"#)
+        try await waitFor { outcomes.count == 2 }
+        #expect(outcomes.map(\.isParentDriven) == [true, false])
+    }
+
+    @Test func childWithoutNotesRootSupportFailsBeforeAdoption() async throws {
+        let h = Harness()
+        h.echoesWorkspaceRoots = false
+        let session = CodexSession(tabID: UUID(), taskID: UUID(), client: h.client)
+        defer { session.stop() }
+        session.start(
+            workingDirectory: "/workspace", resumeThreadID: nil, model: nil,
+            isChildSession: true, childNotesDirectory: "/notes/session", environment: [:]
+        )
+        let brief = HostMessage(display: [.text("Check login")], wire: [.text("Check login")], origin: .fromParent(text: "Check login"))
+        session.submit(QueuedMessage(parts: [.host(brief)]))
+        try await waitFor { session.hasExited }
+        #expect(session.sessionID == nil)
+        #expect(session.lastError?.contains("cannot apply linked folders") == true)
+        #expect(h.turns.isEmpty)
+    }
+
+    @Test(arguments: [false, true])
+    func parentBriefReportsStartupFailureAfterTheChildStopsHoldingWakes(disconnectAfterAdopt: Bool) async throws {
+        let h = Harness()
+        h.failStart = !disconnectAfterAdopt
+        let session = CodexSession(tabID: UUID(), taskID: UUID(), client: h.client)
+        defer { session.stop() }
+        var outcomes: [AgentTurnOutcome] = []
+        session.onTurnFinished = { outcome in
+            #expect(session.hasExited)
+            #expect(!session.hasPendingParentBrief)
+            #expect(session.workingSince == nil)
+            outcomes.append(outcome)
+        }
+        if disconnectAfterAdopt {
+            h.beforeHistoryReply = {
+                #expect(session.sessionID == "thread")
+                h.client.onExit?(1, "Connection lost during history hydration")
+            }
+        }
+        session.start(workingDirectory: nil, resumeThreadID: nil, model: nil, isChildSession: true, environment: [:])
+        let brief = HostMessage(display: [.text("Check login")], wire: [.text("Check login")], origin: .fromParent(text: "Check login"))
+        session.submit(QueuedMessage(parts: [.host(brief)]))
+        try await waitFor { outcomes.count == 1 }
+        #expect(outcomes.first?.isParentDriven == true)
+        #expect(outcomes.first?.exitedMidTurn == true)
+        #expect(h.turns.isEmpty)
+    }
+
+    @Test func refreshReportsActiveParentTurnOnceAndResubmitsOnlyQueuedFollowup() async throws {
+        func parentMessage(_ text: String) -> QueuedMessage {
+            let host = HostMessage(display: [.text(text)], wire: [.text(text)], origin: .fromParent(text: text))
+            return QueuedMessage(parts: [.host(host)])
+        }
+        let original = Harness()
+        let session = CodexSession(tabID: UUID(), taskID: UUID(), client: original.client)
+        session.start(workingDirectory: nil, resumeThreadID: nil, model: nil, isChildSession: true, environment: [:])
+        session.submit(parentMessage("Active brief"))
+        try await waitFor { original.turns.count == 1 }
+        let followup = parentMessage("Queued follow-up")
+        session.submit(followup)
+        let queued = session.queue
+        #expect(queued == [followup])
+
+        var outcomes: [AgentTurnOutcome] = []
+        session.onTurnFinished = { outcomes.append($0) }
+        let resumedThreadID = try #require(session.sessionID)
+        session.stop()
+
+        let replacement = Harness()
+        let resumed = CodexSession(tabID: session.tabID, taskID: session.taskID, client: replacement.client)
+        defer { resumed.stop() }
+        resumed.start(workingDirectory: nil, resumeThreadID: resumedThreadID, model: nil, isChildSession: true, environment: [:])
+        for message in queued { resumed.submit(message) }
+        session.reportInterruptedParentTurn()
+        session.reportInterruptedParentTurn()
+
+        try await waitFor { replacement.turns.count == 1 }
+        #expect(outcomes.count == 1)
+        #expect(outcomes.first?.isParentDriven == true)
+        #expect(outcomes.first?.wasInterrupted == true)
+        #expect(session.queue == [followup])
+        #expect(replacement.turns.first?["params"]?["input"]?.arrayValue?.first?["text"] == .string("Queued follow-up"))
     }
 
     @Test func resumeRestoresRemoteTurnAndQueuesFollowupUntilItEnds() async throws {
@@ -71,6 +225,7 @@ struct CodexRecoveryTests {
         session.start(workingDirectory: nil, resumeThreadID: "thread", model: nil, environment: [:])
         try await waitFor { session.canSteer }
         #expect(session.isWorking)
+        #expect(session.workingSince != nil)
         session.submit(text: "Follow up after the remote turn")
         #expect(h.turns.isEmpty)
         #expect(session.queuedMessages.count == 1)
@@ -181,6 +336,47 @@ struct CodexRecoveryTests {
         #expect(h.turns.isEmpty)
         #expect(!h.requests.contains { $0["method"] == .string("thread/start") })
         #expect(session.lastError?.contains("Thread unavailable") == true)
+    }
+
+    @Test func activeWriterRefusalKeepsHistoryAndUnsentInputForRetry() async throws {
+        let tabID = UUID()
+        let items = CodexItemStore()
+        items.upsert(tabID: tabID, item: .object(["id": .string("saved"), "type": .string("agentMessage"), "text": .string("Saved reply")]), turnID: "previous")
+        let h = Harness()
+        h.failResume = true
+        h.resumeErrorCode = -32600
+        h.resumeErrorMessage = "thread thread already has an active writer"
+        let session = CodexSession(tabID: tabID, taskID: UUID(), client: h.client, itemStore: items)
+        defer { session.stop() }
+        session.start(workingDirectory: nil, resumeThreadID: "thread", model: nil, environment: [:])
+        session.submit(text: "still unsent")
+        try await waitFor { session.hasExited }
+        #expect(session.hasActiveWriterConflict)
+        #expect(session.startFailure?.title == "This conversation is open elsewhere")
+        #expect(session.lastError?.contains("Close it there") == true)
+        #expect(session.queuedMessages.map(\.plainText) == ["still unsent"])
+        #expect(items.item(tabID: tabID, id: "previous#saved")?["text"] == .string("Saved reply"))
+        #expect(h.turns.isEmpty)
+        #expect(h.interrupts.isEmpty)
+        #expect(!h.requests.contains { $0["method"] == .string("thread/start") })
+
+        let retry = Harness()
+        let resumed = CodexSession(tabID: tabID, taskID: session.taskID, client: retry.client)
+        defer { resumed.stop() }
+        resumed.start(workingDirectory: nil, resumeThreadID: "thread", model: nil, environment: [:])
+        for blocks in session.queuedMessages { resumed.submit(blocks: blocks) }
+        try await waitFor { retry.turns.count == 1 }
+        #expect(!resumed.hasActiveWriterConflict)
+        #expect(retry.requests.first { $0["method"] == .string("thread/resume") }?["params"]?["threadId"] == .string("thread"))
+        #expect(!retry.requests.contains { $0["method"] == .string("thread/start") })
+        #expect(retry.turns[0]["params"]?["input"]?.arrayValue?.first?["text"] == .string("still unsent"))
+    }
+
+    @Test func ownershipRequiresTheMatchingServerRefusal() {
+        #expect(CodexThreadOwnership.isActiveWriterConflict(CodexAppServerClient.Failure.server(code: -32600, message: "thread target already has an active writer"), threadID: "target"))
+        #expect(!CodexThreadOwnership.isActiveWriterConflict(CodexAppServerClient.Failure.server(code: -32600, message: "thread other already has an active writer"), threadID: "target"))
+        #expect(!CodexThreadOwnership.isActiveWriterConflict(CodexAppServerClient.Failure.server(code: -32603, message: "thread target already has an active writer"), threadID: "target"))
+        #expect(!CodexThreadOwnership.isActiveWriterConflict(CodexAppServerClient.Failure.server(code: -32600, message: "command output: already has an active writer"), threadID: "target"))
     }
 
     @Test func disconnectDoesNotRequeueAnUncertainTurn() async throws {

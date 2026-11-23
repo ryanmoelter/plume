@@ -198,6 +198,79 @@ struct ChildSessionTabTests {
         #expect(ChildSessionWorkspace.subfolder(of: "/rx/a", in: "/r") == nil)
     }
 
+    @Test func cancellationDuringWorktreePreparationStartsNoChild() async throws {
+        let repository = try makeRepository()
+        defer { try? FileManager.default.removeItem(atPath: repository) }
+        let existing = try WorkspaceProvisioner.createWorktree(repository: repository, branch: "existing")
+        let prepared = try WorkspaceProvisioner.createWorktree(repository: repository, branch: "prepared")
+        let (task, parent) = try makeTask()
+        parent.provider = .codex
+        parent.transport = .headless
+        parent.workspace = .directory(repository)
+        let request = try StartSessionRequest.parse([
+            "title": .string("Child"), "prompt": .string("p"), "initiation": .string("user_asked"),
+            "provider": .string("codex"), "use_worktree": .bool(true)
+        ]).get()
+
+        let (entered, signal) = AsyncStream<Void>.makeStream()
+        let (finished, release) = AsyncStream<Void>.makeStream()
+        let coordinator = ChildSessionCoordinator { _, _ in
+            signal.yield()
+            // A git operation already in progress can complete after cancellation.
+            for await _ in finished { break }
+            return .success(.init(path: prepared, repository: repository, branch: "prepared"))
+        }
+        let start = Task { await coordinator.startSession(request, from: parent, approvedByUser: true) }
+        var iterator = entered.makeAsyncIterator()
+        await iterator.next()
+        start.cancel()
+        release.finish()
+
+        guard case .failure(let error) = await start.value else {
+            Issue.record("A cancelled request opened a child")
+            return
+        }
+        #expect(error.message.contains("cancelled"))
+        #expect(task.liveTabs.map(\.id) == [parent.id])
+        #expect(task.ownedWorktrees.isEmpty)
+        #expect(!FileManager.default.fileExists(atPath: prepared))
+        #expect(FileManager.default.fileExists(atPath: existing))
+        let branches = try GitRunner.run(["branch", "--list"], in: repository)
+        #expect(!branches.contains("prepared"))
+        #expect(branches.contains("existing"))
+    }
+
+    @Test func anInterruptBeforeTheFirstChildMessageHoldsIt() async throws {
+        let (task, parent) = try makeTask()
+        parent.provider = .codex
+        parent.transport = .headless
+        let child = TaskStore.addChildTab(to: task, parent: parent, provider: .codex, in: context)
+        let coordinator = ChildSessionCoordinator()
+        let parentSession = CodexSession(tabID: parent.id, taskID: task.id)
+        let childSession = CodexSession(tabID: child.id, taskID: task.id)
+        coordinator.attach(to: parentSession, tab: parent)
+        coordinator.attach(to: childSession, tab: child)
+        parentSession.onTurnFinished?(AgentTurnOutcome(text: nil, isError: false, wasInterrupted: true, isHostDriven: false))
+
+        let tools = try #require(childSession.childSessionTools)
+        let result = await tools.run(
+            PlumeMCPServer.ToolCall(
+                tool: .sendMessage, arguments: ["to": .string("parent"), "message": .string("Finished")], toolUseID: nil
+            ),
+            false
+        )
+        #expect(!result.isError)
+        let preamble = try #require(parentSession.userMessagePreamble?())
+        guard case .preamble(let taken) = preamble.origin else {
+            Issue.record("The first note should wait for the user's next turn")
+            return
+        }
+        #expect(taken.waking.count == 1)
+        #expect(taken.held.isEmpty)
+        #expect(taken.waking.first?.text.contains("Finished") == true)
+        #expect(parentSession.userMessagePreamble?() == nil)
+    }
+
     /// A temporary folder is one Claude Code has never been told to trust,
     /// so the launch fails its pre-flight without spawning `claude`.
     @Test func aChildThatCannotLaunchLeavesNoTabAndNoWorktree() async throws {

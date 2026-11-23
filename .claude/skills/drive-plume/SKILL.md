@@ -7,6 +7,8 @@ description: Drive and inspect a running debug build of Plume from an agent — 
 
 A debug build serves a Unix-socket control server; `scripts/debug/plume-control.py` is the client. **`docs/control-server.md` is the reference** for the wire format, every command and the limits. This skill is the working recipe.
 
+When a check sends a message in a Codex chat, select Luna before sending. For a seeded chat, set `PLUME_SEED_MODEL` to the Luna model ID from the installed Codex catalog.
+
 ## Launch a scratch instance
 
 Never drive the instance the user is working in. Give the scratch instance its own `PLUME_APP_SUPPORT` so it has its own store, and its own socket path so the client finds it without guessing.

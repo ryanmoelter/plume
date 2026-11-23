@@ -8,7 +8,7 @@ import os
 /// approvals waiting on the user. See `docs/codex-protocol.md`.
 @MainActor
 @Observable
-final class CodexSession: AgentSession {
+final class CodexSession: AgentSession, SideQuestionSession {
     /// Permission profiles and the rest of the v2 thread surface are gated
     /// behind this negotiated capability in current Codex releases.
     static let initializeCapabilities: JSONValue = .object([
@@ -17,6 +17,17 @@ final class CodexSession: AgentSession {
             CodexCommand.ignoredNotifications.map(JSONValue.string)
         )
     ])
+
+    static var initializeParameters: JSONValue {
+        .object([
+            "clientInfo": .object([
+                "name": .string("Plume"),
+                "title": .string(AppIdentity.displayName),
+                "version": .string(Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String ?? "0")
+            ]),
+            "capabilities": initializeCapabilities
+        ])
+    }
 
     let tabID: UUID
     var taskID: UUID
@@ -45,6 +56,29 @@ final class CodexSession: AgentSession {
     /// Set by `sendNow`, so the next turn to go out is the whole queue as one.
     private var sendsQueueAsOneTurn = false
     private var selectedPermissionProfile: String?
+    private var detachedProcesses: CodexDetachedProcessMonitor?
+    @ObservationIgnored var onAdoptDirectories: (([String]) -> Void)?
+    @ObservationIgnored var declinedDirectories: (() -> [String])?
+    private(set) var launchDirectory: String?
+    private(set) var appliedAdditionalDirectories: [String] = []
+    private var additionalDirectories: [String] = []
+    private var childNotesDirectory: String?
+    private var replacesWorkspaceRoots = false
+    private var supportsWorkspaceRoots = false
+    var hasPendingAdditionalDirectories: Bool {
+        Set(additionalDirectories) != Set(appliedAdditionalDirectories)
+    }
+
+    func setAdditionalDirectories(_ paths: [String]) {
+        additionalDirectories = AdditionalDirectories.list(paths, excluding: launchDirectory)
+            .filter { $0 != childNotesDirectory }
+        replacesWorkspaceRoots = true
+    }
+
+    private func workspaceRoots(_ paths: [String]) -> JSONValue {
+        let required = [launchDirectory, childNotesDirectory].compactMap { $0 }
+        return .array(AdditionalDirectories.list(required + paths, excluding: nil).map(JSONValue.string))
+    }
     /// Codex reports tokens, never dollars.
     let sessionCostUSD: Double? = nil
     private(set) var contextWindow: Int?
@@ -55,17 +89,31 @@ final class CodexSession: AgentSession {
     let slashCommands: [SlashCommand] = []
     var startFailure: ChatStartFailure? {
         guard hasExited else { return nil }
+        if hasActiveWriterConflict {
+            return ChatStartFailure(title: "This conversation is open elsewhere", detail: lastError, remedy: .retry)
+        }
         // An unsolicited app-server exit is a disconnect even at status zero.
         return ChatStartFailure.classify(error: lastError, exitStatus: exitStatus == 0 ? nil : exitStatus, provider: .codex)
     }
 
     private(set) var lastError: String?
+    private(set) var hasActiveWriterConflict = false
+    private var requestedResumeThreadID: String?
     private(set) var permissionMode: PermissionMode?
     private(set) var model: AgentModel?
     private(set) var effort: AgentEffort?
     private(set) var collaborationMode: CodexCollaborationMode = .default
     private(set) var hasReportedModeAndModel = false
-    private(set) var queuedMessages: [[UserContentBlock]] = []
+    private(set) var queue: [QueuedMessage] = []
+    var queuedMessages: [[UserContentBlock]] { queue.map(\.display) }
+    var unreadHostMessages: [HostMessage] { queue.flatMap { $0.parts.hosts } }
+    var hasPendingParentBrief: Bool { !hasExited && !isReady && unreadHostMessages.contains(where: \.isFromParent) }
+    private(set) var workingSince: Date?
+    @ObservationIgnored var onTurnFinished: ((AgentTurnOutcome) -> Void)?
+    @ObservationIgnored var onHostMessagesReturned: (([HostMessage]) -> Void)?
+    @ObservationIgnored var onThreadAdopted: ((String) -> Void)?
+    private var activeHosts: [HostMessage] = []
+    private var finalReply: String?
 
     let supportsPlanApproval = true
     let supportsSteering = true
@@ -74,6 +122,74 @@ final class CodexSession: AgentSession {
         isWorking && currentTurnID != nil && sessionID != nil && !isSteering && !hasExited
     }
     private(set) var planProposal: CodexItemStore.PlanProposal?
+
+    private(set) var sideQuestions: [SideQuestion] = []
+    private var dismissedSideQuestionID: String?
+    @ObservationIgnored private var sideQuestionTasks: [String: Task<Void, Never>] = [:]
+
+    var chippedSideQuestion: SideQuestion? {
+        guard let question = sideQuestions.last, question.id != dismissedSideQuestionID else { return nil }
+        return question
+    }
+
+    func dismissChippedSideQuestion() {
+        dismissedSideQuestionID = sideQuestions.last?.id
+    }
+
+    func askSideQuestion(_ question: String) {
+        let id = UUID().uuidString
+        sideQuestions.append(SideQuestion(id: id, question: question, askedAt: .now, state: .running,
+                                          contextLabel: "Completed turns"))
+        guard !hasExited, let threadID = sessionID else {
+            finishSideQuestion(id, state: .failed("Complete a turn in this chat before asking a side question."))
+            return
+        }
+        guard sideQuestionTasks.count < 3 else {
+            finishSideQuestion(id, state: .failed("Three side questions are already running."))
+            return
+        }
+        let liveTurnID = currentTurnID
+        sideQuestionTasks[id] = Task { [weak self, client] in
+            do {
+                let result = try await client.readSideQuestionTurns(threadID: threadID)
+                guard !Task.isCancelled else { return }
+                guard let turns = result["data"]?.arrayValue else {
+                    self?.finishSideQuestion(id, state: .failed("Couldn’t read completed turns."))
+                    return
+                }
+                guard let prompt = CodexSideQuestion.prompt(question: question, turns: turns, excluding: liveTurnID) else {
+                    self?.finishSideQuestion(id, state: .failed("No completed turns with text are available yet."))
+                    return
+                }
+                let answer = await CodexEphemeralInference.generate(.sideQuestion(prompt))
+                guard !Task.isCancelled else { return }
+                self?.finishSideQuestion(id, state: answer.map(SideQuestion.State.answered)
+                    ?? .failed("Codex couldn’t answer the side question. Try again."))
+            } catch {
+                guard !Task.isCancelled else { return }
+                let message = error is CodexAppServerClient.SideQuestionHistoryTimeout
+                    ? "Reading completed turns timed out." : "Couldn’t read completed turns."
+                self?.finishSideQuestion(id, state: .failed(message))
+            }
+        }
+    }
+
+    func cancelSideQuestion(_ id: String) {
+        guard let task = sideQuestionTasks[id] else { return }
+        task.cancel()
+        finishSideQuestion(id, state: .failed("Canceled."))
+    }
+
+    private func finishSideQuestion(_ id: String, state: SideQuestion.State) {
+        sideQuestionTasks[id] = nil
+        guard let index = sideQuestions.firstIndex(where: { $0.id == id }) else { return }
+        sideQuestions[index].state = state
+        if case .answered = state { sideQuestions[index].answeredAt = .now }
+    }
+
+    private func cancelSideQuestions() {
+        for id in Array(sideQuestionTasks.keys) { cancelSideQuestion(id) }
+    }
 
     private let client: CodexAppServerClient
     private let standaloneRemoteControl: CodexRemoteControl?
@@ -88,6 +204,17 @@ final class CodexSession: AgentSession {
     /// finished merging.
     private var isReady = false
     private var hasStartedHandshake = false
+    private var allowsPlumeTools = false
+    @ObservationIgnored var childSessionTools: CodexChildSessionTools?
+    @ObservationIgnored var userMessagePreamble: (() -> HostMessage?)?
+    @ObservationIgnored private var runningChildTools: [String: Task<Void, Never>] = [:]
+    @ObservationIgnored private var childToolApprovals: [String: PlumeMCPServer.ToolCall] = [:]
+    @ObservationIgnored private var pendingOffers: Set<String> = []
+    private var activeCollaborationMode: CodexCollaborationMode?
+
+    var childSessionCollaborationMode: CodexCollaborationMode {
+        activeCollaborationMode == .plan ? .plan : collaborationMode
+    }
     private var nextTurnStartSequence = 0
     private var pendingTurnStartSequence: Int?
     /// `turn/interrupt` is addressed to a specific turn, so the id from
@@ -130,8 +257,11 @@ final class CodexSession: AgentSession {
     private var attemptedChildHydrations: Set<String> = []
     private var failedChildHydrations: Set<String> = []
 
-    init(tabID: UUID, taskID: UUID, initialEffort: AgentEffort? = nil, client: CodexAppServerClient? = nil, generateTitle: CodexTitleGenerator.Generate? = nil) {
+    let itemStore: CodexItemStore
+
+    init(tabID: UUID, taskID: UUID, initialEffort: AgentEffort? = nil, client: CodexAppServerClient? = nil, itemStore: CodexItemStore = CodexItemStore(), generateTitle: CodexTitleGenerator.Generate? = nil) {
         let client = client ?? CodexAppServerClient.sharedSessionClient()
+        self.itemStore = itemStore
         self.tabID = tabID
         self.taskID = taskID
         self.effort = initialEffort
@@ -158,15 +288,26 @@ final class CodexSession: AgentSession {
         collaborationMode: CodexCollaborationMode = .default,
         permissionProfile: String? = nil,
         defaultPermissionProfile: String = AgentPermissionPreset.codexWorkspace.id,
+        isChildSession: Bool = false,
+        childNotesDirectory: String? = nil,
         preserveRemoteConfiguration: Bool = false,
         environment: [String: String],
-        threadEnvironment: [String: String] = [:]
+        threadEnvironment: [String: String] = [:],
+        additionalDirectories: [String] = [],
+        replaceAdditionalDirectories: Bool = false
     ) {
         guard !hasStartedHandshake else { return }
+        requestedResumeThreadID = resumeThreadID
+        launchDirectory = workingDirectory
+        self.childNotesDirectory = childNotesDirectory
+        self.additionalDirectories = AdditionalDirectories.list(additionalDirectories, excluding: workingDirectory)
+            .filter { $0 != childNotesDirectory }
+        replacesWorkspaceRoots = !preserveRemoteConfiguration && (replaceAdditionalDirectories || !self.additionalDirectories.isEmpty)
         if preserveRemoteConfiguration { effort = nil }
         if let model, !preserveRemoteConfiguration { self.model = model }
         self.collaborationMode = collaborationMode
         hasStartedHandshake = true
+        allowsPlumeTools = !preserveRemoteConfiguration
         isReady = false
         do {
             try client.start(workingDirectory: workingDirectory, environment: environment)
@@ -183,6 +324,7 @@ final class CodexSession: AgentSession {
                 resumeThreadID: resumeThreadID,
                 permissionProfile: permissionProfile,
                 defaultPermissionProfile: defaultPermissionProfile,
+                isChildSession: isChildSession,
                 preserveRemoteConfiguration: preserveRemoteConfiguration,
                 threadEnvironment: threadEnvironment
             )
@@ -204,18 +346,12 @@ final class CodexSession: AgentSession {
         resumeThreadID: String?,
         permissionProfile: String?,
         defaultPermissionProfile: String,
+        isChildSession: Bool,
         preserveRemoteConfiguration: Bool,
         threadEnvironment: [String: String]
     ) async {
         do {
-            _ = try await client.send("initialize", .object([
-                "clientInfo": .object([
-                    "name": .string("Plume"),
-                    "title": .string(AppIdentity.displayName),
-                    "version": .string(Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String ?? "0")
-                ]),
-                "capabilities": Self.initializeCapabilities
-            ]))
+            _ = try await client.send("initialize", Self.initializeParameters)
             client.notify("initialized")
 
             await hydrateRateLimits()
@@ -231,9 +367,36 @@ final class CodexSession: AgentSession {
             var params: [String: JSONValue] = [:]
             if let workingDirectory { params["cwd"] = .string(workingDirectory) }
             if let model { params["model"] = .string(model.id) }
-            selectedPermissionProfile = resolvedPermissionProfile?.id
-            if let resolvedPermissionProfile { params["permissions"] = .string(resolvedPermissionProfile.id) }
-            if let config = Self.threadConfig(environment: threadEnvironment) { params["config"] = config }
+            selectedPermissionProfile = if isChildSession, resolvedPermissionProfile?.id != permissionProfile {
+                AgentPermissionPreset.codexWorkspace.id
+            } else {
+                resolvedPermissionProfile?.id
+            }
+            if let selectedPermissionProfile { params["permissions"] = .string(selectedPermissionProfile) }
+            var threadConfiguration = Self.threadConfig(environment: threadEnvironment)?.objectValue ?? [:]
+            if !preserveRemoteConfiguration, client.processIdentifier != nil {
+                do {
+                    var readParams: [String: JSONValue] = ["includeLayers": .bool(false)]
+                    if let workingDirectory { readParams["cwd"] = .string(workingDirectory) }
+                    let configuration = try await client.send("config/read", .object(readParams))
+                    guard !hasExited, !Task.isCancelled else { return }
+                    if let effective = configuration["config"], effective.objectValue != nil {
+                        let monitor = CodexDetachedProcessMonitor(tabID: tabID)
+                        detachedProcesses = monitor
+                        let overrides = await monitor.prepare(configuration: effective)
+                        threadConfiguration.merge(overrides) { _, new in new }
+                    }
+                } catch {
+                    Log.agent.error("Codex detached-work configuration is unavailable")
+                }
+            }
+            guard !hasExited else { return }
+            if !threadConfiguration.isEmpty { params["config"] = .object(threadConfiguration) }
+            let requestedDirectories = additionalDirectories
+            let requestedRoots = !preserveRemoteConfiguration && (replacesWorkspaceRoots || childNotesDirectory != nil)
+            if requestedRoots {
+                params["runtimeWorkspaceRoots"] = workspaceRoots(requestedDirectories)
+            }
             let method: String
             if let resumeThreadID, !resumeThreadID.isEmpty {
                 method = "thread/resume"
@@ -246,14 +409,30 @@ final class CodexSession: AgentSession {
                 params["threadId"] = .string(resumeThreadID)
             } else {
                 method = "thread/start"
+                params["dynamicTools"] = .array([CodexPresenceTool.definition] + (childSessionTools?.definitions ?? []))
             }
             let result = try await client.send(method, .object(params))
+            supportsWorkspaceRoots = result["runtimeWorkspaceRoots"]?.arrayValue != nil
+            if requestedRoots && !supportsWorkspaceRoots {
+                throw SessionFailure.unsupportedWorkspaceRoots
+            }
             guard adopt(startResponse: result), let threadID = sessionID else {
                 throw SessionFailure.missingThreadID
             }
+            launchDirectory = result["cwd"]?.stringValue ?? result["thread"]?["cwd"]?.stringValue ?? workingDirectory
+            if let roots = result["runtimeWorkspaceRoots"]?.arrayValue?.compactMap(\.stringValue) {
+                appliedAdditionalDirectories = AdditionalDirectories.list(roots, excluding: launchDirectory)
+                    .filter { $0 != childNotesDirectory }
+                if !replacesWorkspaceRoots {
+                    let declined = Set(declinedDirectories?() ?? [])
+                    additionalDirectories = appliedAdditionalDirectories.filter { !declined.contains($0) }
+                    replacesWorkspaceRoots = additionalDirectories != appliedAdditionalDirectories
+                    onAdoptDirectories?(additionalDirectories)
+                }
+            }
             drainDeferredInbound()
             await hydrateHistory(threadID: threadID)
-            planProposal = CodexItemStore.shared.latestPendingPlan(forTab: tabID)
+            planProposal = itemStore.latestPendingPlan(forTab: tabID)
             guard !hasExited else { return }
             isReady = true
             backgroundTasks.refresh(threadID: threadID)
@@ -261,8 +440,11 @@ final class CodexSession: AgentSession {
             if !isWorking { StatusEngine.shared.setStatus(.awaitingReply, taskID: taskID, tabID: tabID) }
             flushQueue()
         } catch {
+            guard !hasExited else { return }
+            captureUnsentParentBrief()
             reportFailure(error)
             stop()
+            reportChildOutcome(text: lastError, isError: true, exited: true)
         }
     }
 
@@ -279,10 +461,7 @@ final class CodexSession: AgentSession {
 
     private func hydrateCatalogs(workingDirectory: String?) async {
         do {
-            let values = try await paginated(
-                method: "model/list",
-                baseParams: ["includeHidden": .bool(false)]
-            )
+            let values = try await client.listModels()
             CodexCatalogStore.shared.replaceModels(tabID: tabID, values: values)
         } catch {
             Log.agent.error("Codex model catalog load failed: \(error.localizedDescription, privacy: .public)")
@@ -318,7 +497,9 @@ final class CodexSession: AgentSession {
     @discardableResult
     private func adopt(startResponse result: JSONValue) -> Bool {
         guard let id = result["thread"]?["id"]?.stringValue, !id.isEmpty else { return false }
+        itemStore.bind(tabID: tabID, threadID: id)
         sessionID = id
+        onThreadAdopted?(id)
         restoreRuntimeState(from: result["thread"] ?? .null)
         serverTitle = CodexThreadTitle.name(result["thread"]?["name"]?.stringValue)
         hasServerTitle = serverTitle != nil
@@ -353,6 +534,7 @@ final class CodexSession: AgentSession {
         }
         guard status == "active" || (status == nil && activeTurn != nil) else { return }
         isWorking = true
+        if workingSince == nil { workingSince = .now }
         currentTurnID = activeTurn?["id"]?.stringValue
         let flags = thread["status"]?["activeFlags"]?.arrayValue?.compactMap(\.stringValue) ?? []
         let taskStatus: TaskStatus = flags.contains("waitingOnApproval") ? .permissionNeeded
@@ -361,7 +543,7 @@ final class CodexSession: AgentSession {
     }
 
     private func hydrateHistory(threadID: String) async {
-        let revision = CodexItemStore.shared.revision(forTab: tabID)
+        let revision = itemStore.revision(forTab: tabID)
         var cursor: String?
         var items: [JSONValue] = []
         repeat {
@@ -381,8 +563,8 @@ final class CodexSession: AgentSession {
                 return
             }
         } while cursor != nil
-        CodexItemStore.shared.mergeHistory(tabID: tabID, entries: items, since: revision)
-        CodexItemStore.shared.historyHydrated(tabID: tabID)
+        itemStore.mergeHistory(tabID: tabID, entries: items, since: revision)
+        itemStore.historyHydrated(tabID: tabID)
         for entry in items { discoverSubagents(in: entry["item"] ?? entry, historical: true) }
         CodexSubagentStore.shared.parentHistoryHydrated(tabID: tabID)
     }
@@ -476,17 +658,23 @@ final class CodexSession: AgentSession {
         let normalized = blocks.normalized
         guard normalized.hasContent else { return .queued }
         hasUserSubmitted = true
-        if openingMessage == nil, !normalized.plainText.isEmpty { openingMessage = normalized.plainText }
+        return submit(QueuedMessage(parts: [.user(normalized)]))
+    }
+
+    @discardableResult
+    func submit(_ message: QueuedMessage) -> AgentDelivery {
+        if openingMessage == nil, !message.display.plainText.isEmpty { openingMessage = message.display.plainText }
         // A normal follow-up is also an answer to a pending proposal. Clear
         // the decision surface immediately; `send` repeats this for a message
         // queued before the proposal arrived.
         planProposal = nil
-        guard isReady, let threadID = sessionID, !isWorking else {
-            queuedMessages.append(normalized)
+        guard isReady, let threadID = sessionID, !isWorking, pendingTurnStartSequence == nil else {
+            queue.append(message)
+            if hasPendingParentBrief, workingSince == nil { workingSince = .now }
             return .queued
         }
         queuePaused = false
-        send(blocks: normalized, threadID: threadID)
+        send(parts: message.parts, threadID: threadID)
         return .sent
     }
 
@@ -519,36 +707,58 @@ final class CodexSession: AgentSession {
         }
     }
 
-    private func send(blocks: [UserContentBlock], threadID: String) {
+    private func send(parts: [QueuedMessage.Part], threadID: String) {
+        if replacesWorkspaceRoots && !supportsWorkspaceRoots {
+            queue.insert(QueuedMessage(parts: parts), at: 0)
+            captureUnsentParentBrief()
+            reportFailure(SessionFailure.unsupportedWorkspaceRoots)
+            stop()
+            reportChildOutcome(text: lastError, isError: true, exited: true)
+            return
+        }
+        var turn = OutgoingTurn(parts: parts)
+        if turn.userBlocks != nil, let preamble = userMessagePreamble?() {
+            turn.preamble = [preamble]
+        }
+        let blocks = turn.wire
+        activeHosts = turn.hosts
+        if turn.userBlocks != nil { hasUserSubmitted = true }
+        finalReply = nil
         planProposal = nil
         lastError = nil
         streamingText = ""
         streamingThinking = ""
         isWorking = true
+        if workingSince == nil { workingSince = .now }
         nextTurnStartSequence += 1
         let sequence = nextTurnStartSequence
         pendingTurnStartSequence = sequence
-        StatusEngine.shared.setStatus(.working, taskID: taskID, tabID: tabID)
+        reportPendingPermissions()
         var params: [String: JSONValue] = [
             "threadId": .string(threadID),
             "input": .array(turnInput(blocks))
         ]
+        let requestedDirectories = additionalDirectories
+        let requestedRoots = replacesWorkspaceRoots
+        if requestedRoots { params["runtimeWorkspaceRoots"] = workspaceRoots(requestedDirectories) }
         if let selectedPermissionProfile { params["permissions"] = .string(selectedPermissionProfile) }
         if let effort { params["effort"] = .string(effort.rawValue) }
         if let model { params["model"] = .string(model.id) }
+        activeCollaborationMode = collaborationMode
         if let collaborationMode = collaborationModeValue() {
             params["collaborationMode"] = collaborationMode
         }
         Task {
             do {
                 let result = try await client.send("turn/start", .object(params))
+                if requestedRoots { appliedAdditionalDirectories = requestedDirectories }
                 if TitleStore.shared.title(forTab: tabID) == nil, let title = CodexThreadTitle.preview(blocks.plainText) {
                     TitleStore.shared.setTitle(title, forTab: tabID, source: .fallback)
                 }
                 finishTurnStart(sequence: sequence, result: result)
                 requestTitleIfDue()
             } catch {
-                failTurnStart(sequence: sequence, error: error, blocks: blocks)
+                failTurnStart(sequence: sequence, error: error, turn: turn)
             }
         }
     }
@@ -558,16 +768,16 @@ final class CodexSession: AgentSession {
               pendingTurnStartSequence == nil,
               let threadID = sessionID,
               !isWorking,
-              !queuedMessages.isEmpty
+              !queue.isEmpty
         else { return }
-        let next = sendsQueueAsOneTurn ? takeQueueAsOneTurn() : queuedMessages.removeFirst()
-        send(blocks: next, threadID: threadID)
+        let next = sendsQueueAsOneTurn ? takeQueueAsOneTurn() : queue.removeFirst().parts
+        send(parts: next, threadID: threadID)
     }
 
-    private func takeQueueAsOneTurn() -> [UserContentBlock] {
+    private func takeQueueAsOneTurn() -> [QueuedMessage.Part] {
         sendsQueueAsOneTurn = false
-        defer { queuedMessages = [] }
-        return queuedMessages.mergedIntoOneTurn
+        defer { queue = [] }
+        return queue.flatMap(\.parts)
     }
 
     private func finishTurnStart(sequence: Int, result: JSONValue) {
@@ -583,22 +793,32 @@ final class CodexSession: AgentSession {
         }
     }
 
-    private func failTurnStart(sequence: Int, error: Error, blocks: [UserContentBlock]) {
+    private func failTurnStart(sequence: Int, error: Error, turn: OutgoingTurn) {
         guard pendingTurnStartSequence == sequence else { return }
         pendingTurnStartSequence = nil
+        activeCollaborationMode = nil
         if let failure = error as? CodexAppServerClient.Failure, failure == .notRunning {
-            queuedMessages.insert(blocks, at: 0)
+            queue.insert(QueuedMessage(parts: turn.parts), at: 0)
+            if !turn.preamble.isEmpty { onHostMessagesReturned?(turn.preamble) }
         }
         // Once the request was written, a transport failure cannot tell us
         // whether Codex accepted it. Never put the text back in the queue and
         // risk running the same user turn twice after recovery.
         reportFailure(error)
+        reportChildOutcome(text: lastError, isError: true)
     }
 
     @discardableResult
     func removeQueuedMessage(at index: Int) -> [UserContentBlock]? {
-        guard queuedMessages.indices.contains(index) else { return nil }
-        return queuedMessages.remove(at: index)
+        guard queue.indices.contains(index) else { return nil }
+        let message = queue.remove(at: index)
+        if !isWorking, !hasPendingParentBrief { workingSince = nil }
+        if !message.parts.hosts.isEmpty { onHostMessagesReturned?(message.parts.hosts) }
+        return message.parts.userBlocks
+    }
+
+    func canEditQueuedMessage(at index: Int) -> Bool {
+        queue.indices.contains(index) && queue[index].parts.userBlocks != nil
     }
 
     /// The merged turn goes out when the interrupted turn completes, which
@@ -607,9 +827,9 @@ final class CodexSession: AgentSession {
         let normalized = blocks.normalized
         if normalized.hasContent {
             hasUserSubmitted = true
-            queuedMessages.append(normalized)
+            queue.append(QueuedMessage(parts: [.user(normalized)]))
         }
-        guard !queuedMessages.isEmpty else { return }
+        guard !queue.isEmpty else { return }
         sendsQueueAsOneTurn = true
         queuePaused = false
         if isWorking { interrupt() } else { flushQueue() }
@@ -645,17 +865,25 @@ final class CodexSession: AgentSession {
     }
 
     func stop() {
+        cancelSideQuestions()
+        cancelChildSessionTools()
         titleTask?.cancel()
         titleTask = nil
         Task {
-            await CodexItemStore.shared.flush(tabID: tabID)
+            await itemStore.flush(tabID: tabID)
             await CodexSubagentStore.shared.flush(tabID: tabID)
         }
         if !client.usesSharedServer { remoteControl.stop() }
         backgroundTasks.stop()
+        detachedProcesses?.stop()
         CodexSubagentStore.shared.connectionClosed(tabID: tabID)
         isReady = false
         isWorking = false
+        for permission in pendingPermissions where permission.codexElicitation != nil {
+            answerElicitation(permission, action: .cancel)
+        }
+        workingSince = nil
+        pendingTurnStartSequence = nil
         pendingPermissions.removeAll()
         permissionRequestIDs.removeAll()
         permissionKinds.removeAll()
@@ -669,6 +897,14 @@ final class CodexSession: AgentSession {
         if let sessionID { client.releaseThread(threadID: sessionID, turnID: currentTurnID) }
         client.stop()
         hasExited = true
+    }
+
+    /// Refresh carries only unsent messages. The interrupted turn may have
+    /// already performed work, so the parent decides whether to send it again.
+    func reportInterruptedParentTurn() {
+        guard hasExited, activeHosts.contains(where: \.isFromParent) else { return }
+        let outcome = takeChildOutcome(text: finalReply, isError: false, interrupted: true)
+        onTurnFinished?(outcome)
     }
 
     // MARK: - Settings
@@ -713,7 +949,15 @@ final class CodexSession: AgentSession {
     // MARK: - Answering
 
     func resolve(_ permission: PendingPermission, with decision: PermissionDecision) {
+        guard permission.codexElicitation == nil else { return }
         guard let id = permissionRequestIDs.removeValue(forKey: permission.id) else { return }
+        if childToolApprovals[permission.id] != nil {
+            switch decision {
+            case .allow: _ = resolveChildToolApproval(permission.id, requestID: id, approved: true)
+            case .deny: _ = resolveChildToolApproval(permission.id, requestID: id, approved: false)
+            }
+            return
+        }
         let kind = permissionKinds.removeValue(forKey: permission.id) ?? .decision
         if case .permissions(let requested) = kind {
             let granted: JSONValue = switch decision {
@@ -740,7 +984,9 @@ final class CodexSession: AgentSession {
     }
 
     func resolve(_ permission: PendingPermission, with option: PermissionDecisionOption) {
+        guard permission.codexElicitation == nil else { return }
         guard let id = permissionRequestIDs.removeValue(forKey: permission.id) else { return }
+        if resolveChildToolApproval(permission.id, requestID: id, approved: option.allowsAction) { return }
         let kind = permissionKinds.removeValue(forKey: permission.id) ?? .decision
         if case .permissions(let requested) = kind {
             client.respond(to: id, result: .object([
@@ -787,6 +1033,7 @@ final class CodexSession: AgentSession {
     }
 
     func answer(_ permission: PendingPermission, answers: [String: String]) {
+        guard permission.codexElicitation == nil else { return }
         guard let id = permissionRequestIDs.removeValue(forKey: permission.id) else { return }
         permissionKinds.removeValue(forKey: permission.id)
         var mapped: [String: JSONValue] = [:]
@@ -803,6 +1050,25 @@ final class CodexSession: AgentSession {
         }
         client.respond(to: id, result: .object(["answers": .object(mapped)]))
         pendingPermissions.removeAll { $0.id == permission.id }
+        reportPendingPermissions()
+    }
+
+    func answerElicitation(
+        _ permission: PendingPermission,
+        action: CodexElicitationAction,
+        content: [String: JSONValue]? = nil
+    ) {
+        guard let request = permission.codexElicitation,
+              pendingPermissions.contains(where: { $0.id == permission.id && $0.codexElicitation == request }),
+              action != .accept || request.accepts(content: content),
+              let id = permissionRequestIDs.removeValue(forKey: permission.id) else { return }
+        var result: [String: JSONValue] = ["action": .string(action.rawValue)]
+        if action == .accept, case .form = request.mode, let content {
+            result["content"] = .object(content)
+        }
+        permissionKinds.removeValue(forKey: permission.id)
+        pendingPermissions.removeAll { $0.id == permission.id }
+        client.respond(to: id, result: .object(result))
         reportPendingPermissions()
     }
 
@@ -947,14 +1213,17 @@ final class CodexSession: AgentSession {
             hydrateChild(threadID: threadID, retry: true)
             CodexSubagentStore.shared.receiveTurnLifecycle(tabID: tabID, threadID: threadID, working: true)
         case "turn/completed":
+            cancelTurnElicitations(threadID: threadID, turnID: params["turn"]?["id"]?.stringValue)
             hydrateChild(threadID: threadID)
             backgroundTasks.refresh(threadID: threadID)
+            detachedProcesses?.refresh()
             CodexSubagentStore.shared.receiveTurnLifecycle(tabID: tabID, threadID: threadID, working: false, status: params["turn"]?["status"]?.stringValue)
         case "item/started", "item/completed":
             hydrateChild(threadID: threadID)
             guard let item = params["item"] else { return }
             if item["type"]?.stringValue == "commandExecution" {
                 backgroundTasks.refresh(threadID: threadID)
+                if method == "item/completed" { detachedProcesses?.refresh() }
             }
             CodexSubagentStore.shared.receiveChildItem(tabID: tabID, threadID: threadID, item: item, turnID: params["turnId"]?.stringValue, lifecycle: method == "item/started" ? .started : .completed)
             discoverSubagents(in: item)
@@ -993,20 +1262,22 @@ final class CodexSession: AgentSession {
         case "turn/started":
             currentTurnID = params["turn"]?["id"]?.stringValue
             isWorking = true
+            if workingSince == nil { workingSince = .now }
             streamingText = ""
             streamingThinking = ""
-            StatusEngine.shared.setStatus(.working, taskID: taskID, tabID: tabID)
+            reportPendingPermissions()
             deliverPendingInterruptIfPossible()
         case "turn/completed":
             if let sessionID { backgroundTasks.refresh(threadID: sessionID) }
-            endTurn(params["turn"] ?? .null)
+            detachedProcesses?.refresh()
+            endTurn(params["turn"] ?? .null, threadID: threadID(in: params) ?? sessionID)
             Task {
-                await CodexItemStore.shared.flush(tabID: tabID)
+                await itemStore.flush(tabID: tabID)
                 await CodexSubagentStore.shared.flush(tabID: tabID)
             }
         case "item/agentMessage/delta":
             if let itemID = params["itemId"]?.stringValue {
-                CodexItemStore.shared.appendText(
+                itemStore.appendText(
                     tabID: tabID, itemID: itemID, turnID: params["turnId"]?.stringValue,
                     type: "agentMessage", field: "text",
                     delta: params["delta"]?.stringValue ?? ""
@@ -1015,7 +1286,7 @@ final class CodexSession: AgentSession {
         case "item/reasoning/textDelta", "item/reasoning/summaryTextDelta":
             if let itemID = params["itemId"]?.stringValue {
                 let isSummary = method == "item/reasoning/summaryTextDelta"
-                CodexItemStore.shared.appendText(
+                itemStore.appendText(
                     tabID: tabID, itemID: itemID, turnID: params["turnId"]?.stringValue,
                     type: "reasoning",
                     field: isSummary ? "summary" : "content",
@@ -1025,7 +1296,7 @@ final class CodexSession: AgentSession {
             }
         case "item/plan/delta":
             if let itemID = params["itemId"]?.stringValue {
-                CodexItemStore.shared.appendText(
+                itemStore.appendText(
                     tabID: tabID, itemID: itemID, turnID: params["turnId"]?.stringValue,
                     type: "plan", field: "text",
                     delta: params["delta"]?.stringValue ?? ""
@@ -1044,10 +1315,12 @@ final class CodexSession: AgentSession {
             // the user has to act on.
             if params["willRetry"] != .bool(true) {
                 isWorking = false
+                workingSince = nil
                 currentTurnID = nil
                 interruptRequested = false
                 queuePaused = true
                 StatusEngine.shared.setStatus(.error, taskID: taskID, tabID: tabID, notifiable: hasUserSubmitted)
+                reportChildOutcome(text: lastError, isError: true)
             }
         case "serverRequest/resolved":
             dropPermission(requestID: params["requestId"])
@@ -1055,22 +1328,28 @@ final class CodexSession: AgentSession {
             if let item = params["item"] {
                 if item["type"]?.stringValue == "commandExecution", let sessionID {
                     backgroundTasks.refresh(threadID: sessionID)
+                    if method == "item/completed" { detachedProcesses?.refresh() }
                 }
                 discoverSubagents(in: item)
                 let lifecycle: CodexItemStore.ItemLifecycle = method == "item/started" ? .started : .completed
-                CodexItemStore.shared.upsert(
+                itemStore.upsert(
                     tabID: tabID,
                     item: item,
                     turnID: params["turnId"]?.stringValue,
                     lifecycle: lifecycle
                 )
                 if lifecycle == .completed, item["type"]?.stringValue == "plan" {
-                    planProposal = CodexItemStore.shared.latestPendingPlan(forTab: tabID)
+                    planProposal = itemStore.latestPendingPlan(forTab: tabID)
+                }
+                if lifecycle == .completed, item["type"]?.stringValue == "agentMessage",
+                   item["phase"]?.stringValue != "commentary",
+                   params["turnId"]?.stringValue == currentTurnID {
+                    finalReply = item["text"]?.stringValue
                 }
             }
         case "item/commandExecution/outputDelta":
             if let itemID = params["itemId"]?.stringValue {
-                CodexItemStore.shared.append(
+                itemStore.append(
                     tabID: tabID,
                     itemID: itemID,
                     turnID: params["turnId"]?.stringValue,
@@ -1080,7 +1359,7 @@ final class CodexSession: AgentSession {
             }
         case "item/fileChange/patchUpdated":
             if let itemID = params["itemId"]?.stringValue, let changes = params["changes"] {
-                CodexItemStore.shared.set(
+                itemStore.set(
                     tabID: tabID,
                     itemID: itemID,
                     turnID: params["turnId"]?.stringValue,
@@ -1093,16 +1372,27 @@ final class CodexSession: AgentSession {
         }
     }
 
-    private func endTurn(_ turn: JSONValue) {
+    private func endTurn(_ turn: JSONValue, threadID: String?) {
         let completedID = turn["id"]?.stringValue
+        cancelTurnElicitations(threadID: threadID, turnID: completedID)
         if let currentTurnID, let completedID, currentTurnID != completedID { return }
         isWorking = false
+        workingSince = nil
         currentTurnID = nil
+        activeCollaborationMode = nil
         interruptRequested = false
-        pendingPermissions.removeAll()
-        permissionKinds.removeAll()
-        permissionRequestIDs.removeAll()
-        switch turn["status"]?.stringValue {
+        cancelChildSessionTools()
+        pendingPermissions.removeAll { permission in
+            guard permission.codexElicitation == nil else { return false }
+            permissionKinds.removeValue(forKey: permission.id)
+            permissionRequestIDs.removeValue(forKey: permission.id)
+            return true
+        }
+        let status = turn["status"]?.stringValue
+        let reply = status == "failed" ? turn["error"]?["message"]?.stringValue : finalReply
+        var outcome = takeChildOutcome(text: reply, isError: status == "failed", interrupted: status == "interrupted")
+        outcome.userTurnFollows = queue.contains { $0.parts.userBlocks != nil } && sendsQueueAsOneTurn
+        switch status {
         case "failed":
             queuePaused = true
             sendsQueueAsOneTurn = false
@@ -1117,6 +1407,39 @@ final class CodexSession: AgentSession {
             if pendingTurnStartSequence == nil { flushQueue() }
             requestTitleIfDue()
         }
+        if !pendingPermissions.isEmpty { reportPendingPermissions() }
+        onTurnFinished?(outcome)
+    }
+
+    private func cancelTurnElicitations(threadID: String?, turnID: String?) {
+        guard let threadID, let turnID else { return }
+        for permission in pendingPermissions {
+            guard let request = permission.codexElicitation,
+                  request.threadID == threadID, request.turnID == turnID else { continue }
+            answerElicitation(permission, action: .cancel)
+        }
+    }
+
+    private func takeChildOutcome(
+        text: String?, isError: Bool, interrupted: Bool = false, exited: Bool = false
+    ) -> AgentTurnOutcome {
+        let outcome = AgentTurnOutcome(
+            text: text, isError: isError, wasInterrupted: interrupted,
+            isHostDriven: !activeHosts.isEmpty, isParentDriven: activeHosts.contains(where: \.isFromParent),
+            exitedMidTurn: exited
+        )
+        activeHosts = []
+        finalReply = nil
+        return outcome
+    }
+
+    private func reportChildOutcome(text: String?, isError: Bool, exited: Bool = false) {
+        let outcome = takeChildOutcome(text: text, isError: isError, exited: exited)
+        onTurnFinished?(outcome)
+    }
+
+    private func captureUnsentParentBrief() {
+        if activeHosts.isEmpty, hasPendingParentBrief { activeHosts = unreadHostMessages }
     }
 
     private func requestTitleIfDue() {
@@ -1192,7 +1515,8 @@ final class CodexSession: AgentSession {
         case "item/commandExecution/requestApproval",
              "item/fileChange/requestApproval",
              "item/permissions/requestApproval",
-             "item/tool/requestUserInput":
+             "item/tool/requestUserInput",
+             "mcpServer/elicitation/request":
             return true
         default:
             return false
@@ -1206,6 +1530,18 @@ final class CodexSession: AgentSession {
         agentID: String?
     ) {
         switch method {
+        case "item/tool/call":
+            guard allowsPlumeTools, let sessionID, params["threadId"]?.stringValue == sessionID,
+                  let currentTurnID, params["turnId"]?.stringValue == currentTurnID
+            else {
+                client.respondUnsupported(to: id, method: method)
+                return
+            }
+            if params["tool"]?.stringValue == CodexPresenceTool.name {
+                client.respond(to: id, result: CodexPresenceTool.call(params))
+            } else {
+                handleChildTool(id, params: params)
+            }
         case "item/commandExecution/requestApproval":
             enqueue(permission: commandPermission(params, agentID: agentID), id: id)
         case "item/fileChange/requestApproval":
@@ -1219,10 +1555,104 @@ final class CodexSession: AgentSession {
             )
         case "item/tool/requestUserInput":
             enqueue(permission: questionPermission(params, agentID: agentID), id: id, kind: .question)
+        case "mcpServer/elicitation/request":
+            guard permissionRequestIDs[permissionKey(id)] == nil else { return }
+            guard let request = CodexElicitationRequest(params: params) else {
+                client.respondUnsupported(to: id, method: method)
+                return
+            }
+            if case .unsupported = request.mode {
+                client.respond(to: id, result: .object(["action": .string("decline")]))
+                return
+            }
+            enqueue(permission: PendingPermission(
+                id: "",
+                toolName: method,
+                displayName: request.serverName,
+                input: [:],
+                description: request.message,
+                decisionReason: nil,
+                toolUseID: nil,
+                agentID: agentID,
+                interactive: nil,
+                codexElicitation: request
+            ), id: id)
         default:
             // Every server request must be answered, or the turn stalls.
             client.respondUnsupported(to: id, method: method)
         }
+    }
+
+    private func handleChildTool(_ id: CodexRPC.RequestID, params: JSONValue) {
+        let useID = params["callId"]?.stringValue.flatMap { callID in
+            currentTurnID.map { "\($0)#\(callID)" }
+        } ?? toolUseID(in: params)
+        guard let call = childSessionTools?.call(params, toolUseID: useID) else {
+            client.respond(to: id, result: CodexPresenceTool.result("Unknown or invalid Plume tool.", success: false))
+            return
+        }
+        let key = permissionKey(id)
+        guard runningChildTools[key] == nil, childToolApprovals[key] == nil else { return }
+        switch PlumeMCPServer.decision(
+            toolName: call.tool.qualifiedName,
+            input: call.arguments,
+            permissionMode: childSessionCollaborationMode == .plan ? .plan : .manual,
+            showsBypassPermissions: AppSettings.shared.showsBypassPermissions
+        ) {
+        case .deny(let message):
+            client.respond(to: id, result: CodexPresenceTool.result(message, success: false))
+        case .allow:
+            runChildTool(call, id: id, approved: false)
+        case nil:
+            childToolApprovals[key] = call
+            enqueue(permission: PendingPermission(
+                id: key, toolName: call.tool.codexName, displayName: "Start child session",
+                input: call.arguments, description: nil, decisionReason: nil,
+                toolUseID: call.toolUseID, agentID: nil, interactive: nil
+            ), id: id)
+        }
+    }
+
+    private func resolveChildToolApproval(_ key: String, requestID: CodexRPC.RequestID, approved: Bool) -> Bool {
+        guard let call = childToolApprovals.removeValue(forKey: key) else { return false }
+        permissionKinds.removeValue(forKey: key)
+        pendingPermissions.removeAll { $0.id == key }
+        reportPendingPermissions()
+        if approved {
+            runChildTool(call, id: requestID, approved: true)
+        } else {
+            client.respond(to: requestID, result: CodexPresenceTool.result("The user declined to start this session.", success: false))
+        }
+        return true
+    }
+
+    private func runChildTool(_ call: PlumeMCPServer.ToolCall, id: CodexRPC.RequestID, approved: Bool) {
+        guard let tools = childSessionTools else { return }
+        let key = permissionKey(id)
+        runningChildTools[key] = Task { [weak self] in
+            guard !Task.isCancelled else { return }
+            let result = await tools.run(call, approved)
+            guard let self, !Task.isCancelled else { return }
+            self.runningChildTools[key] = nil
+            self.client.respond(to: id, result: CodexPresenceTool.result(result.text, success: !result.isError))
+        }
+    }
+
+    private func cancelChildSessionTools() {
+        for task in runningChildTools.values { task.cancel() }
+        runningChildTools.removeAll()
+        childToolApprovals.removeAll()
+        pendingOffers.removeAll()
+    }
+
+    func setOffer(_ toolUseID: String, waitsForUser: Bool) {
+        guard isWorking, !hasExited else { return }
+        if waitsForUser {
+            pendingOffers.insert(toolUseID)
+        } else {
+            pendingOffers.remove(toolUseID)
+        }
+        reportPendingPermissions()
     }
 
     private func enqueue(
@@ -1242,7 +1672,8 @@ final class CodexSession: AgentSession {
             toolUseID: permission.toolUseID,
             agentID: permission.agentID,
             interactive: permission.interactive,
-            decisions: permission.decisions
+            decisions: permission.decisions,
+            codexElicitation: permission.codexElicitation
         )
         permissionRequestIDs[key] = id
         permissionKinds[key] = kind
@@ -1267,12 +1698,12 @@ final class CodexSession: AgentSession {
 
     private func reportPendingPermissions() {
         guard !hasExited else { return }
-        var status: TaskStatus?
+        var status: TaskStatus? = pendingOffers.isEmpty ? nil : .questionAsked
         for permission in pendingPermissions {
             let candidate: TaskStatus = switch permission.interactive {
             case .plan: .planApproval
             case .questions: .questionAsked
-            case nil: .permissionNeeded
+            case nil: permission.codexElicitation == nil ? .permissionNeeded : .questionAsked
             }
             if candidate.priority > (status?.priority ?? -1) { status = candidate }
         }
@@ -1378,7 +1809,7 @@ final class CodexSession: AgentSession {
             // child item is intentionally absent from the root item store.
             input = ["changes": changes]
         } else {
-            input = CodexItemStore.shared.fileChangeInput(
+            input = itemStore.fileChangeInput(
                 tabID: tabID,
                 itemID: itemID,
                 turnID: turnID
@@ -1425,6 +1856,8 @@ final class CodexSession: AgentSession {
     private func dropPermission(requestID: JSONValue?) {
         guard let requestID, let id = CodexRPC.RequestID(json: requestID) else { return }
         let key = permissionKey(id)
+        runningChildTools.removeValue(forKey: key)?.cancel()
+        childToolApprovals.removeValue(forKey: key)
         guard permissionRequestIDs.removeValue(forKey: key) != nil else { return }
         permissionKinds.removeValue(forKey: key)
         pendingPermissions.removeAll { $0.id == key }
@@ -1432,25 +1865,33 @@ final class CodexSession: AgentSession {
     }
 
     private func reportFailure(_ error: Error) {
+        hasActiveWriterConflict = CodexThreadOwnership.isActiveWriterConflict(error, threadID: requestedResumeThreadID)
         isWorking = false
+        workingSince = nil
         interruptRequested = false
         queuePaused = true
         sendsQueueAsOneTurn = false
-        lastError = (error as? CodexAppServerClient.Failure).map(String.init(describing:))
-            ?? error.localizedDescription
+        lastError = hasActiveWriterConflict
+            ? "Continue in the app or terminal using this conversation. Close it there, then try again here. Your unsent messages are kept."
+            : (error as? CodexAppServerClient.Failure).map(String.init(describing:)) ?? error.localizedDescription
         StatusEngine.shared.setStatus(.error, taskID: taskID, tabID: tabID, notifiable: hasUserSubmitted)
     }
 
     private func handleExit(status: Int32, message: String?) {
+        cancelSideQuestions()
+        cancelChildSessionTools()
+        captureUnsentParentBrief()
         titleTask?.cancel()
         titleTask = nil
         clearForeignRouting()
         if !client.usesSharedServer { remoteControl.stop() }
         backgroundTasks.stop()
+        detachedProcesses?.stop()
         CodexSubagentStore.shared.connectionClosed(tabID: tabID)
         hasExited = true
         exitStatus = status
         isWorking = false
+        workingSince = nil
         isReady = false
         pendingTurnStartSequence = nil
         interruptRequested = false
@@ -1465,9 +1906,18 @@ final class CodexSession: AgentSession {
         // that reaches here is an unexpected loss of the app-server, even if
         // the subprocess happened to return zero.
         StatusEngine.shared.setStatus(.error, taskID: taskID, tabID: tabID, notifiable: hasUserSubmitted)
+        reportChildOutcome(text: lastError, isError: true, exited: true)
     }
 
-    private enum SessionFailure: Error {
+    private enum SessionFailure: LocalizedError {
         case missingThreadID
+        case unsupportedWorkspaceRoots
+
+        var errorDescription: String? {
+            switch self {
+            case .missingThreadID: "Codex did not return a conversation ID."
+            case .unsupportedWorkspaceRoots: "This Codex version cannot apply linked folders. Update Codex before sending this conversation."
+            }
+        }
     }
 }

@@ -8,12 +8,15 @@ import Foundation
 @MainActor
 @Observable
 final class AgentSessionManager {
-    static let shared = AgentSessionManager()
+    static let shared = AgentSessionManager(codexItemStore: .shared)
 
     private var sessions: [UUID: any AgentSession] = [:]
     @ObservationIgnored private let codexClientFactory: @MainActor () -> CodexAppServerClient
 
-    init(codexClientFactory: @escaping @MainActor () -> CodexAppServerClient = { .sharedSessionClient() }) {
+    private let codexItemStore: CodexItemStore
+
+    init(codexItemStore: CodexItemStore = CodexItemStore(), codexClientFactory: @escaping @MainActor () -> CodexAppServerClient = { .sharedSessionClient() }) {
+        self.codexItemStore = codexItemStore
         self.codexClientFactory = codexClientFactory
     }
     /// Reserves resumed threads before the asynchronous handshake publishes
@@ -59,7 +62,7 @@ final class AgentSessionManager {
         if let existing = sessions[tabID] { return existing }
         let session: any AgentSession = switch provider {
         case .claudeCode: HeadlessSession(tabID: tabID, taskID: taskID, initialEffort: initialEffort)
-        case .codex: CodexSession(tabID: tabID, taskID: taskID, initialEffort: initialEffort, client: codexClientFactory())
+        case .codex: CodexSession(tabID: tabID, taskID: taskID, initialEffort: initialEffort, client: codexClientFactory(), itemStore: codexItemStore)
         }
         (session as? HeadlessSession)?.titleContextProvider = titleContextProvider
         (session as? CodexSession)?.titleContextProvider = titleContextProvider

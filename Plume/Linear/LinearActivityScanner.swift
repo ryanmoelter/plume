@@ -7,18 +7,34 @@ nonisolated enum LinearActivityScanner {
         var evidence: [LinearEvidence] = []
         for message in messages {
             for block in message.blocks {
-                guard case .toolCall(let call) = block, let tool = linearTool(call.name) else { continue }
-                evidence += scan(call, tool: tool, subagent: subagent)
+                guard case .toolCall(let call) = block else { continue }
+                evidence += scan(call, subagent: subagent)
             }
         }
         return evidence
     }
 
+    static func scan(_ call: ToolCall, subagent: LinearSubagentRef?) -> [LinearEvidence] {
+        guard let tool = linearTool(call.name) else { return [] }
+        return scan(call, tool: tool, subagent: subagent)
+    }
+
+    static func toolName(server: String, tool: String) -> String? {
+        if server == "codex_apps" {
+            for prefix in ["linear.", "linear_"] where tool.hasPrefix(prefix) {
+                return String(tool.dropFirst(prefix.count))
+            }
+            return nil
+        }
+        guard server.lowercased().components(separatedBy: CharacterSet.alphanumerics.inverted).contains("linear") else { return nil }
+        return tool
+    }
+
     private static func linearTool(_ name: String) -> String? {
         guard name.hasPrefix("mcp__") else { return nil }
         let parts = name.components(separatedBy: "__")
-        guard parts.count >= 3, parts[1].localizedCaseInsensitiveContains("linear") else { return nil }
-        return parts[2...].joined(separator: "__")
+        guard parts.count >= 3 else { return nil }
+        return toolName(server: parts[1], tool: parts[2...].joined(separator: "__"))
     }
 
     /// Tools whose input names one issue. List and search tools are excluded
@@ -40,10 +56,10 @@ nonisolated enum LinearActivityScanner {
         var identifiers: [String] = []
         for key in ["id", "issueId", "identifier"] {
             if let value = input[key] as? String, let id = LinearIdentifier.normalize(value) {
-                identifiers.append(id)
+                if !identifiers.contains(id) { identifiers.append(id) }
             }
         }
-        if issue, let result = call.result, let id = resultIdentifier(result), !identifiers.contains(id) {
+        if issue, !call.didFail, let result = call.result, let id = resultIdentifier(result), !identifiers.contains(id) {
             identifiers.append(id)
         }
 
@@ -58,8 +74,18 @@ nonisolated enum LinearActivityScanner {
 
     private static func resultIdentifier(_ result: String) -> String? {
         guard let object = parseObject(result) else { return nil }
+        return identifier(in: object)
+    }
+
+    private static func identifier(in object: [String: Any]) -> String? {
         for key in ["identifier", "id"] {
             if let value = object[key] as? String, let id = LinearIdentifier.normalize(value) { return id }
+        }
+        if let structured = object["structuredContent"] as? [String: Any], let id = identifier(in: structured) { return id }
+        for content in object["content"] as? [[String: Any]] ?? [] {
+            guard content["type"] as? String == "text", let text = content["text"] as? String,
+                  let result = parseObject(text), let id = identifier(in: result) else { continue }
+            return id
         }
         return nil
     }

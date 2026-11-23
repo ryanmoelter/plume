@@ -1,3 +1,4 @@
+import SwiftData
 import Foundation
 import GhosttyTerminal
 import os
@@ -96,8 +97,7 @@ enum AgentLauncher {
         case (.claudeCode, .headless):
             if !restartHeadless(task: task, tab: tab) { relaunchHeadless(task: task, tab: tab) }
         case (.codex, .headless):
-            AgentSessionManager.shared.closeSession(for: tab.id)
-            launch(message: nil, task: task, tab: tab, resumeSessionID: tab.agentSessionID)
+            relaunchHeadless(task: task, tab: tab)
         case (_, .terminal):
             SurfaceManager.shared.closeSession(for: tab.id)
             launch(message: nil, task: task, tab: tab, resumeSessionID: tab.agentSessionID)
@@ -116,7 +116,11 @@ enum AgentLauncher {
         let queued = queue(of: previous)
         if let previous = previous as? HeadlessSession { persistLiveSettings(of: previous, to: tab) }
         if previous != nil { AgentSessionManager.shared.closeSession(for: tab.id) }
-        return resume(task: task, tab: tab, inheriting: previous, queued: queued)
+        let resumed = resume(task: task, tab: tab, inheriting: previous, queued: queued)
+        // The new session already holds the unsent messages. Only now tell
+        // the parent the previous turn stopped, so wake checks see the queue.
+        (previous as? CodexSession)?.reportInterruptedParentTurn()
+        return resumed
     }
 
     /// Relaunches a fork whose cut the CLI refused, keeping the whole
@@ -188,6 +192,7 @@ enum AgentLauncher {
 
     private static func queue(of session: (any AgentSession)?) -> [QueuedMessage] {
         if let headless = session as? HeadlessSession { return headless.queue }
+        if let codex = session as? CodexSession { return codex.queue }
         return (session?.queuedMessages ?? []).map { QueuedMessage(parts: [.user($0)]) }
     }
 
@@ -216,6 +221,8 @@ enum AgentLauncher {
             } else {
                 for message in queued { resumed.submit(message) }
             }
+        } else if let resumed = resumed as? CodexSession {
+            for message in queued { resumed.submit(message) }
         } else if let resumed {
             for message in queued { resumed.submit(blocks: message.display) }
         } else if !queued.isEmpty {
@@ -225,6 +232,7 @@ enum AgentLauncher {
                 DraftStore.shared.setDraft(draft.filter { !$0.isEmpty }.joined(separator: "\n\n"), forTab: tab.id)
             }
             (previous as? HeadlessSession)?.onHostMessagesReturned?(parts.hosts)
+            (previous as? CodexSession)?.onHostMessagesReturned?(parts.hosts)
         }
         return resumed
     }
@@ -374,42 +382,48 @@ enum AgentLauncher {
         tab: TaskTab,
         resumeSessionID: String?
     ) {
-        guard SurfaceManager.shared.existingSession(for: tab.id) == nil else { return }
+        guard SurfaceManager.shared.existingSession(for: tab.id) == nil,
+              !CodexTerminalMonitor.shared.isLaunching(tabID: tab.id) else { return }
         guard !AgentSessionManager.shared.isCodexThreadOwnedElsewhere(resumeSessionID, by: tab.id) else {
             Log.agent.error("Refusing to resume a Codex thread already open in another Plume tab")
             StatusEngine.shared.setStatus(.error, taskID: task.id, tabID: tab.id)
             return
         }
-        let socket: String
-        do {
-            socket = try CodexTerminalMonitor.shared.start(
-                tabID: tab.id, taskID: task.id, directory: TabDirectoryStore.shared.directory(for: tab),
-                resumeThreadID: resumeSessionID
-            ) { [tabID = tab.id] id in
-                AgentEventMonitor.shared.onSessionIDDiscovered?(tabID, id)
-            }
-        } catch {
-            StatusEngine.shared.setStatus(.error, taskID: task.id, tabID: tab.id)
-            return
+        let startup = CodexTerminalMonitor.shared.start(
+            tabID: tab.id, taskID: task.id, directory: TabDirectoryStore.shared.directory(for: tab),
+            resumeThreadID: resumeSessionID
+        ) { [tabID = tab.id] id in
+            AgentEventMonitor.shared.onSessionIDDiscovered?(tabID, id)
         }
-        let provider = CodexProvider(remoteSocket: socket)
-        let launch = provider.launchCommand(
-            firstMessage: message,
-            resumeSessionID: resumeSessionID,
-            taskID: nil,
-            tabID: nil,
-            permissionMode: nil
-        )
-        StatusEngine.shared.register(tabID: tab.id, taskID: task.id, status: .notStarted)
-        SurfaceManager.shared.session(
-            for: tab.id,
-            options: TerminalSurfaceOptions(
-                workingDirectory: TabDirectoryStore.shared.directory(for: tab),
-                envVars: launch.environment
-                    .merging(LoginShellCommand.plumeEnvironment(taskID: task.id, tabID: tab.id)) { current, _ in current },
-                command: launch.command
-            )
-        )
+        Task { [task, tab] in
+            do {
+                let socket = try await startup.task.value
+                guard !tab.isDeleted,
+                      CodexTerminalMonitor.shared.isCurrentLaunch(tabID: tab.id, generation: startup.generation),
+                      SurfaceManager.shared.existingSession(for: tab.id) == nil else { return }
+                let currentTask = tab.task ?? task
+                let provider = CodexProvider(remoteSocket: socket)
+                let launch = provider.launchCommand(
+                    firstMessage: message, resumeSessionID: resumeSessionID,
+                    taskID: nil, tabID: nil, permissionMode: nil
+                )
+                StatusEngine.shared.register(tabID: tab.id, taskID: currentTask.id, status: .notStarted)
+                SurfaceManager.shared.session(
+                    for: tab.id,
+                    options: TerminalSurfaceOptions(
+                        workingDirectory: TabDirectoryStore.shared.directory(for: tab),
+                        envVars: launch.environment
+                            .merging(LoginShellCommand.plumeEnvironment(taskID: currentTask.id, tabID: tab.id)) { current, _ in current },
+                        command: launch.command
+                    )
+                )
+            } catch {
+                guard !tab.isDeleted,
+                      CodexTerminalMonitor.shared.isCurrentLaunch(tabID: tab.id, generation: startup.generation) else { return }
+                Log.agent.error("Codex terminal configuration could not be prepared safely")
+                StatusEngine.shared.setStatus(.error, taskID: tab.task?.id ?? task.id, tabID: tab.id)
+            }
+        }
     }
 
     private static func launchCodexHeadless(
@@ -434,17 +448,40 @@ enum AgentLauncher {
             session.failToLaunch(reason: "This Codex conversation is already open in another \(AppIdentity.displayName) tab. Continue there, or close that tab before resuming here.")
             return
         }
+        let workingDirectory = TabDirectoryStore.shared.directory(for: tab)
+        let notesDirectory = AppPaths.sideSessionNotesDirectory(parentTabID: tab.parentTabID ?? tab.id).path
+        if tab.isChildSession {
+            let directories = tab.additionalDirectories.filter { $0 != notesDirectory }
+            if directories != tab.additionalDirectories { tab.additionalDirectories = directories }
+        }
+        session.onAdoptDirectories = { [weak tab] paths in
+            guard let tab else { return }
+            AdditionalDirectoryStore.adopt(paths, into: tab)
+        }
+        session.declinedDirectories = { [weak tab] in tab?.removedAdditionalDirectories ?? [] }
+        ChildSessionCoordinator.shared.attach(to: session, tab: tab)
+        if tab.isChildSession {
+            session.onThreadAdopted = { [weak tab] id in
+                guard let tab, tab.isLive else { return }
+                recordSessionID(id, on: tab)
+            }
+        }
         session.start(
-            workingDirectory: TabDirectoryStore.shared.directory(for: tab),
+            workingDirectory: workingDirectory,
             resumeThreadID: resumeSessionID,
             model: resumeSessionID == nil || tab.isModelUserChosen ? tab.model : nil,
             collaborationMode: tab.codexCollaborationMode,
             permissionProfile: tab.permissionModeRaw,
-            defaultPermissionProfile: AppSettings.shared.defaultCodexPermissionProfile.id,
+            defaultPermissionProfile: tab.isChildSession
+                ? AgentPermissionPreset.codexWorkspace.id : AppSettings.shared.defaultCodexPermissionProfile.id,
+            isChildSession: tab.isChildSession,
+            childNotesDirectory: notesDirectory,
             // One app-server runs every headless Codex tab, so the tab's own
             // IDs ride on its thread rather than on the process.
             environment: LoginShellCommand.sharedPlumeEnvironment(),
-            threadEnvironment: LoginShellCommand.plumeEnvironment(taskID: task.id, tabID: tab.id)
+            threadEnvironment: LoginShellCommand.plumeEnvironment(taskID: task.id, tabID: tab.id),
+            additionalDirectories: tab.additionalDirectories,
+            replaceAdditionalDirectories: !tab.removedAdditionalDirectories.isEmpty
         )
         if blocks.hasContent {
             session.submit(blocks: blocks)

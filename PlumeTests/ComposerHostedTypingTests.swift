@@ -16,6 +16,7 @@ struct ComposerHostedTypingTests {
         var width: CGFloat = 400
         var referenceResolver: ComposerReferenceResolver?
         var referencePalette: ReferenceChipPalette?
+        var planModeToggleCount = 0
     }
 
     private struct Host: View {
@@ -29,7 +30,8 @@ struct ComposerHostedTypingTests {
                 fontSize: 13,
                 isFocused: $isFocused,
                 sendKey: .commandReturn,
-                onSend: {}
+                onSend: {},
+                onTogglePlanMode: { draft.planModeToggleCount += 1 }
             )
             composer.referenceResolver = draft.referenceResolver
             composer.referencePalette = draft.referencePalette
@@ -56,11 +58,11 @@ struct ComposerHostedTypingTests {
             }
         }
 
-        func press(_ characters: String, keyCode: UInt16, modifiers: NSEvent.ModifierFlags = []) async throws {
+        func press(_ characters: String, keyCode: UInt16, modifiers: NSEvent.ModifierFlags = [], charactersIgnoringModifiers: String? = nil) async throws {
             let event = try #require(NSEvent.keyEvent(
                 with: .keyDown, location: .zero, modifierFlags: modifiers,
                 timestamp: ProcessInfo.processInfo.systemUptime, windowNumber: window.windowNumber,
-                context: nil, characters: characters, charactersIgnoringModifiers: characters,
+                context: nil, characters: characters, charactersIgnoringModifiers: charactersIgnoringModifiers ?? characters,
                 isARepeat: false, keyCode: keyCode
             ))
             try await handle { view.keyDown(with: event) }
@@ -79,7 +81,7 @@ struct ComposerHostedTypingTests {
         }
 
         func shiftTab() async throws {
-            try await press("\u{19}", keyCode: 48, modifiers: .shift)
+            try await press("\u{19}", keyCode: 48, modifiers: .shift, charactersIgnoringModifiers: "\t")
         }
 
         func left() async throws {
@@ -153,6 +155,19 @@ struct ComposerHostedTypingTests {
         try await harness.type("b")
 
         #expect(harness.draft.markdown == "- a\n- b")
+        #expect(harness.draft.planModeToggleCount == 0)
+    }
+
+    @Test func shiftTabTogglesPlanModeInPlainText() async throws {
+        let harness = try await Self.makeHarness()
+        defer { harness.close() }
+
+        try await harness.type("Draft")
+        try await harness.shiftTab()
+        #expect(harness.draft.planModeToggleCount == 1)
+        try await harness.shiftTab()
+        #expect(harness.draft.planModeToggleCount == 2)
+        #expect(harness.draft.markdown == "Draft")
     }
 
     @Test func caretSkipsAHiddenBullet() async throws {

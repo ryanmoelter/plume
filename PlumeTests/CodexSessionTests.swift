@@ -56,7 +56,7 @@ struct CodexSessionTests {
         defer {
             session.stop()
             CodexSubagentStore.shared.forget(tabID: session.tabID)
-            CodexItemStore.shared.forget(tabID: session.tabID)
+            session.itemStore.forget(tabID: session.tabID)
         }
         session.start(workingDirectory: nil, resumeThreadID: nil, model: nil, environment: [:])
         try await waitUntil { session.sessionID == "parent" }
@@ -114,7 +114,7 @@ struct CodexSessionTests {
         let (session, client, sent) = makeSession()
         defer {
             session.stop()
-            CodexItemStore.shared.forget(tabID: session.tabID)
+            session.itemStore.forget(tabID: session.tabID)
             CodexSubagentStore.shared.forget(tabID: session.tabID)
             CodexCatalogStore.shared.forget(tabID: session.tabID)
             TabDirectoryStore.shared.forget(tabID: session.tabID)
@@ -161,7 +161,7 @@ struct CodexSessionTests {
         try await waitUntil { sent().filter { requestMethod(in: $0) == "thread/read" }.count == 1 }
         #expect(sent().filter { requestMethod(in: $0) == "thread/read" }.count == 1)
         #expect(CodexSubagentStore.shared.subagents(forTab: session.tabID).first?.transcript.messages.last?.blocks == [.markdown("Child reply once")])
-        #expect(CodexItemStore.shared.transcript(forTab: session.tabID)?.messages.contains { $0.id.contains("child-message") } != true)
+        #expect(session.itemStore.transcript(forTab: session.tabID)?.messages.contains { $0.id.contains("child-message") } != true)
         client.receive(#"{"id":"child-approval","method":"item/fileChange/requestApproval","params":{"threadId":"child-thread","turnId":"child-turn","itemId":"child-edit","reason":"child edit"}}"#)
         let childPermission = try #require(session.pendingPermissions.first)
         #expect(childPermission.agentID == "child-thread")
@@ -169,6 +169,16 @@ struct CodexSessionTests {
         #expect(childPermission.input["changes"]?.arrayValue?.first?["path"] == .string("child.swift"))
         client.receive(#"{"method":"serverRequest/resolved","params":{"threadId":"child-thread","requestId":"child-approval"}}"#)
         #expect(session.pendingPermissions.isEmpty)
+
+        client.receive(#"{"id":"child-url","method":"mcpServer/elicitation/request","params":{"threadId":"child-thread","turnId":"child-turn","serverName":"test","mode":"url","message":"Open test","url":"https://example.com/test","elicitationId":"url-1"}}"#)
+        let childElicitation = try #require(session.pendingPermissions.first)
+        #expect(childElicitation.agentID == "child-thread")
+        #expect(childElicitation.codexElicitation?.serverName == "test")
+        client.receive(#"{"method":"serverRequest/resolved","params":{"threadId":"child-thread","requestId":"child-url"}}"#)
+        #expect(session.pendingPermissions.isEmpty)
+        let responseCount = sent().count
+        session.answerElicitation(childElicitation, action: .accept)
+        #expect(sent().count == responseCount)
 
         // This live row lands while history is outstanding. The item store's
         // revision merge keeps it after the authoritative page arrives.
@@ -187,17 +197,17 @@ struct CodexSessionTests {
         #expect(turnParams["collaborationMode"]?["settings"]?["model"] == .string("gpt-6-astra"))
         #expect(turnParams["collaborationMode"]?["settings"]?["reasoning_effort"] == .string("high"))
         #expect(turnParams["collaborationMode"]?["settings"]?["developer_instructions"] == .null)
-        #expect(CodexItemStore.shared.transcript(forTab: session.tabID)?.messages.map(\.id) == ["old-turn#old", "live-turn#live"])
+        #expect(session.itemStore.transcript(forTab: session.tabID)?.messages.map(\.id) == ["old-turn#old", "live-turn#live"])
     }
 
     @Test func agentMessageDeltasStayBeforeToolsWithoutADuplicateOverlay() throws {
         let (session, client, _) = makeSession()
-        defer { CodexItemStore.shared.forget(tabID: session.tabID) }
+        defer { session.itemStore.forget(tabID: session.tabID) }
         client.receive(#"{"method":"item/started","params":{"turnId":"u","item":{"id":"i","type":"agentMessage","text":""}}}"#)
         client.receive(#"{"method":"item/agentMessage/delta","params":{"delta":"Hel","itemId":"i","threadId":"t","turnId":"u"}}"#)
         client.receive(#"{"method":"item/started","params":{"turnId":"u","item":{"id":"tool","type":"commandExecution","command":"ls"}}}"#)
         client.receive(#"{"method":"item/agentMessage/delta","params":{"delta":"lo","itemId":"i","turnId":"u"}}"#)
-        let live = try #require(CodexItemStore.shared.transcript(forTab: session.tabID))
+        let live = try #require(session.itemStore.transcript(forTab: session.tabID))
         #expect(live.messages.map(\.id) == ["u#i", "u#tool"])
         #expect(live.messages.first?.blocks == [.markdown("Hello")])
         #expect(session.streamingText.isEmpty)
@@ -205,7 +215,7 @@ struct CodexSessionTests {
         client.receive(#"{"method":"item/completed","params":{"turnId":"u","item":{"id":"i","type":"agentMessage","text":"Hello"}}}"#)
         client.receive(#"{"method":"item/started","params":{"turnId":"u","item":{"id":"final","type":"agentMessage","text":""}}}"#)
         client.receive(#"{"method":"item/agentMessage/delta","params":{"delta":"Done","itemId":"final","turnId":"u"}}"#)
-        let completed = try #require(CodexItemStore.shared.transcript(forTab: session.tabID))
+        let completed = try #require(session.itemStore.transcript(forTab: session.tabID))
         #expect(completed.messages.map(\.id) == ["u#i", "u#tool", "u#final"])
         #expect(completed.messages.first?.blocks == [.markdown("Hello")])
         #expect(completed.messages.last?.blocks == [.markdown("Done")])
@@ -214,13 +224,13 @@ struct CodexSessionTests {
 
     @Test func reasoningDeltasPreserveIndexedPartsInTheirOwnRow() throws {
         let (session, client, _) = makeSession()
-        defer { CodexItemStore.shared.forget(tabID: session.tabID) }
+        defer { session.itemStore.forget(tabID: session.tabID) }
         client.receive(#"{"method":"item/reasoning/textDelta","params":{"itemId":"r","contentIndex":0,"delta":"pondering"}}"#)
-        #expect(CodexItemStore.shared.transcript(forTab: session.tabID)?.messages.first?.blocks == [.thinking("pondering")])
+        #expect(session.itemStore.transcript(forTab: session.tabID)?.messages.first?.blocks == [.thinking("pondering")])
         client.receive(#"{"method":"item/reasoning/summaryTextDelta","params":{"itemId":"r","summaryIndex":0,"delta":"First"}}"#)
         client.receive(#"{"method":"item/reasoning/summaryTextDelta","params":{"itemId":"r","summaryIndex":1,"delta":"Second"}}"#)
         client.receive(#"{"method":"item/reasoning/summaryTextDelta","params":{"itemId":"r","summaryIndex":0,"delta":" part"}}"#)
-        let transcript = try #require(CodexItemStore.shared.transcript(forTab: session.tabID))
+        let transcript = try #require(session.itemStore.transcript(forTab: session.tabID))
         #expect(transcript.messages.count == 1)
         #expect(transcript.messages.first?.blocks == [.thinking("First part\nSecond")])
         #expect(session.streamingThinking.isEmpty)
@@ -334,6 +344,55 @@ struct CodexSessionTests {
         #expect(reply.contains("\"language\":{\"answers\":[\"Swift\"]}"))
     }
 
+    @Test func anElicitationRepliesWithTypedContentExactlyOnce() throws {
+        let (session, client, sent) = makeSession()
+        let request = #"{"id":19,"method":"mcpServer/elicitation/request","params":{"threadId":"t","turnId":"u","serverName":"test","mode":"form","message":"Details","requestedSchema":{"type":"object","required":["on","count","colors"],"properties":{"on":{"type":"boolean"},"count":{"type":"integer"},"colors":{"type":"array","items":{"enum":["red","blue"]}}}}}}"#
+        client.receive(request)
+        client.receive(request)
+        let permission = try #require(session.pendingPermissions.first)
+        #expect(session.pendingPermissions.count == 1)
+        session.answerElicitation(permission, action: .accept, content: ["count": .string("2")])
+        #expect(sent().isEmpty)
+        let content: [String: JSONValue] = [
+            "on": .bool(false), "count": .number(2), "colors": .array([.string("red"), .string("blue")])
+        ]
+        session.answerElicitation(permission, action: .accept, content: content)
+        session.answerElicitation(permission, action: .decline)
+        let line = try #require(sent().first)
+        let envelope = try JSONDecoder().decode(JSONValue.self, from: Data(line.utf8))
+        #expect(envelope["id"] == .number(19))
+        #expect(envelope["result"] == .object(["action": .string("accept"), "content": .object(content)]))
+        #expect(sent().count == 1)
+        #expect(session.pendingPermissions.isEmpty)
+    }
+
+    @Test func unsupportedElicitationDeclinesWithoutAForm() throws {
+        let (session, client, sent) = makeSession()
+        client.receive(#"{"id":"openai","method":"mcpServer/elicitation/request","params":{"threadId":"t","serverName":"test","mode":"openai/form","message":"Details","requestedSchema":{}}}"#)
+        let line = try #require(sent().first)
+        let envelope = try JSONDecoder().decode(JSONValue.self, from: Data(line.utf8))
+        #expect(envelope["id"] == .string("openai"))
+        #expect(envelope["result"] == .object(["action": .string("decline")]))
+        #expect(session.pendingPermissions.isEmpty)
+    }
+
+    @Test func turnCompletionCancelsOnlyItsElicitations() throws {
+        let (session, client, sent) = makeSession()
+        client.receive(#"{"id":"turn","method":"mcpServer/elicitation/request","params":{"threadId":"t","turnId":"u","serverName":"test","mode":"url","message":"Continue","url":"https://example.com/","elicitationId":"first"}}"#)
+        client.receive(#"{"id":"independent","method":"mcpServer/elicitation/request","params":{"threadId":"t","turnId":null,"serverName":"test","mode":"url","message":"Continue","url":"https://example.com/","elicitationId":"second"}}"#)
+        client.receive(#"{"method":"turn/started","params":{"threadId":"t","turn":{"id":"new-turn"}}}"#)
+        client.receive(#"{"method":"turn/completed","params":{"threadId":"t","turn":{"id":"u","status":"interrupted"}}}"#)
+        #expect(session.pendingPermissions.map(\.id) == ["string:independent"])
+        #expect(session.isWorking)
+        let independent = try #require(session.pendingPermissions.first)
+        session.answerElicitation(independent, action: .decline)
+        let envelopes = try sent().map { try JSONDecoder().decode(JSONValue.self, from: Data($0.utf8)) }
+        #expect(envelopes.map { $0["id"] } == [.string("turn"), .string("independent")])
+        #expect(envelopes.map { $0["result"] } == [
+            .object(["action": .string("cancel")]), .object(["action": .string("decline")])
+        ])
+    }
+
     @Test func expandedPermissionsCanBeGrantedForTheSession() throws {
         let (session, client, sent) = makeSession()
         client.receive(#"{"id":10,"method":"item/permissions/requestApproval","params":{"itemId":"p-item","threadId":"t","turnId":"u","cwd":"/tmp","startedAtMs":0,"permissions":{"network":{"enabled":true}},"reason":"Fetch docs"}}"#)
@@ -423,7 +482,10 @@ struct CodexSessionTests {
             "data": .array([]), "nextCursor": .null
         ]), client: client, sent: sent, cursor: &cursor)
 
+        client.receive(#"{"id":"standalone","method":"mcpServer/elicitation/request","params":{"threadId":"thread-1","serverName":"test","mode":"url","message":"Continue","url":"https://example.com/","elicitationId":"url"}}"#)
         session.submit(text: "start")
+        #expect(StatusEngine.shared.status(forTab: session.tabID) == .questionAsked)
+        client.receive(#"{"method":"serverRequest/resolved","params":{"threadId":"thread-1","requestId":"standalone"}}"#)
         try await answer("turn/start", result: .object([
             "turn": .object(["id": .string("turn-1")])
         ]), client: client, sent: sent, cursor: &cursor)
@@ -470,7 +532,7 @@ struct CodexSessionTests {
 
     @Test func implementingAPlanQueuesANewCodeModeTurn() {
         let (session, client, _) = makeSession()
-        defer { CodexItemStore.shared.forget(tabID: session.tabID) }
+        defer { session.itemStore.forget(tabID: session.tabID) }
         session.setCollaborationMode(.plan)
         client.receive(#"{"method":"item/completed","params":{"turnId":"planning","item":{"id":"proposal","type":"plan","text":"Build it"}}}"#)
         #expect(session.planProposal?.markdown == "Build it")
@@ -486,7 +548,7 @@ struct CodexSessionTests {
 
     @Test func rejectingAPlanQueuesFeedbackInPlanMode() {
         let (session, client, _) = makeSession()
-        defer { CodexItemStore.shared.forget(tabID: session.tabID) }
+        defer { session.itemStore.forget(tabID: session.tabID) }
         client.receive(#"{"method":"item/completed","params":{"turnId":"planning","item":{"id":"proposal","type":"plan","text":"Build it"}}}"#)
 
         session.requestPlanChanges(" Keep the old API ")
@@ -498,7 +560,7 @@ struct CodexSessionTests {
 
     @Test func planDecisionWaitsForThePlanningTurnToFinish() {
         let (session, client, _) = makeSession()
-        defer { CodexItemStore.shared.forget(tabID: session.tabID) }
+        defer { session.itemStore.forget(tabID: session.tabID) }
         client.receive(#"{"method":"turn/started","params":{"turn":{"id":"planning"}}}"#)
         client.receive(#"{"method":"item/completed","params":{"turnId":"planning","item":{"id":"proposal","type":"plan","text":"Build it"}}}"#)
 

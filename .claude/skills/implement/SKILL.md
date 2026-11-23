@@ -55,7 +55,7 @@ A Sonnet verifier builds and launches the worktree's own bundle:
 - Find it with `-showBuildSettings | awk '$1 == "BUILT_PRODUCTS_DIR"'`, and launch with `env -u CLAUDE_CODE_CHILD_SESSION -u CLAUDECODE open <app>`. Without the `env -u`, every agent tab's `claude` reads itself as nested and the chat shows nothing.
 - Quit or relaunch only PIDs matching this bundle path (`pgrep -f "^<app>/Contents/MacOS/Plume"`). Other agents run their own builds.
 - Drive the change itself with the `drive-plume` skill, not just the launch: perform the issue's user-visible behavior and read back the result. If the verifier can't reach a step, it reports the missing hook; an implementer adds it, and the verifier runs again before the user is asked to test.
-- Capture each new or changed behavior with the control server's `screenshot`, cropped to the relevant control where that reads better. Save the files to `~/Library/Caches/Plume-agent-media/PLUME-<n>/`, which outlives the worktree, with names that say what each one shows. Take a before-and-after pair for a change in motion. A short screenshot sequence stands in for a recording until the control server can record (PLUME-383). Never capture the full screen; the control server captures only this build's window. The window must not be hidden, so launch with `open -g` and not `-j`.
+- Capture each new or changed behavior with the control server's `screenshot`, cropped to the relevant control where that reads better. Save the files to `~/Library/Caches/Plume-agent-media/PLUME-<n>/`, which outlives the worktree, with names that say what each one shows. For a change in motion, use the recording recipe in `drive-plume`. Never capture the full screen; the control server captures only this build's window. The window must not be hidden, so launch with `open -g` and not `-j`.
 - Then send `command -v plume >/dev/null && plume notify "Ready to test" "PLUME-<n>"`.
 
 Tell the user it is running, list the captured media by path, and give a short checklist of what to try. Iterate on their feedback: a sub-agent edits, the verifier rebuilds, relaunches, and recaptures any media the edit changed. Skip the review loop between iterations. Rebase onto `main` or the release branch when asked. If the user waives manual testing, note it and move on.
@@ -78,7 +78,7 @@ Only after the user approves. Check signatures first — `git log --format='%G? 
    - The media folder, `~/Library/Caches/Plume-agent-media/PLUME-<n>/`, with one line per file saying what it shows.
    - "Leave PLUME-<n> open until it reaches `main`."
 
-   Wait for its reply that the branch landed before cleaning up. The issue stays In Progress; the release agent moves it to Done.
+   Wait for its reply that the branch landed before cleaning up. The release agent moves the issue to In Review on the release branch and to Done only after confirming the change has merged into `main`.
 
    If this session is a child session of the release coordinator, send the hand-off with `mcp__plume__send_message` to `"parent"` instead of `ListAgents` and `SendMessage`. After its reply, skip step 7's worktree removal; the coordinator removes the worktree.
 3. **Otherwise, merge into `main`.** Rebase onto `main` and re-run the tests. Then, in the primary checkout, confirm it is on `main` and clean — if it is not, stop and ask, because another agent may own it. Run `git merge --no-ff -S <branch>`, push, and confirm `git rev-list --count main...origin/main` is 0. Mark the issue Done through `roadmap`; the user's approval of the merge is the confirmation.

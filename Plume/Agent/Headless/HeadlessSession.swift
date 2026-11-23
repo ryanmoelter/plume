@@ -20,6 +20,7 @@ struct PendingPermission: Identifiable, Equatable {
     var decisions: [PermissionDecisionOption] = []
     /// Claude's "always allow" offers, each accepted on its own with an allow.
     var suggestions: [PermissionSuggestion] = []
+    var codexElicitation: CodexElicitationRequest? = nil
 
     static func == (lhs: PendingPermission, rhs: PendingPermission) -> Bool { lhs.id == rhs.id }
 }
@@ -47,6 +48,18 @@ struct SideQuestion: Identifiable, Equatable {
     let askedAt: Date
     var state: State = .pending
     var answeredAt: Date?
+    var contextLabel: String?
+
+    var isInProgress: Bool {
+        state == .pending || state == .running
+    }
+}
+
+@MainActor
+protocol SideQuestionSession {
+    var sideQuestions: [SideQuestion] { get }
+    var chippedSideQuestion: SideQuestion? { get }
+    func dismissChippedSideQuestion()
 }
 
 /// One headless `claude` conversation, driving a tab.
@@ -57,7 +70,7 @@ struct SideQuestion: Identifiable, Equatable {
 /// streaming text, and quota pushed as events.
 @MainActor
 @Observable
-final class HeadlessSession: AgentSession {
+final class HeadlessSession: AgentSession, SideQuestionSession {
     let tabID: UUID
     var taskID: UUID
 
@@ -246,6 +259,7 @@ final class HeadlessSession: AgentSession {
     /// `effort` is never corrected; it only ever reflects what this host sent.
     private(set) var permissionMode: PermissionMode?
     private(set) var model: AgentModel?
+    private(set) var modelCatalog: ClaudeModelCatalog?
     private(set) var effort: AgentEffort?
 
     /// False while `model`/`permissionMode` are still Plume's own guess —
@@ -968,6 +982,13 @@ final class HeadlessSession: AgentSession {
         send(StreamJSONEncoder.setModel(newModel.token, requestID: nextRequestID()))
     }
 
+    func setDefaultModel() {
+        let requestID = nextRequestID()
+        guard send(StreamJSONEncoder.setModel("default", requestID: requestID)) else { return }
+        requestedModelID = "default"
+        pendingControlRequests[requestID] = .setDefaultModel
+    }
+
     /// Asks the CLI to name the conversation.
     ///
     /// The reply is what delivers the title. The CLI may also write an
@@ -1440,6 +1461,13 @@ final class HeadlessSession: AgentSession {
         switch pending {
         case .initialize:
             applyReportedCommands(in: response)
+            modelCatalog = ClaudeModelCatalog(payload: response.payload)
+        case .setDefaultModel:
+            if requestedModelID == "default", !response.isError,
+               let id = response.payload["model"]?.stringValue,
+               let reported = AgentModel.recognizing(id) {
+                model = reported
+            }
         case .remoteControl(let enabled):
             updateRemoteControl(RemoteControlState.applying(
                 response: response,
@@ -1867,6 +1895,7 @@ final class HeadlessSession: AgentSession {
     /// id until it arrives. Replies to everything else are ignored.
     private enum PendingControlRequest {
         case initialize
+        case setDefaultModel
         case remoteControl(enabled: Bool)
         case generateSessionTitle
         case setPermissionMode(PermissionMode)

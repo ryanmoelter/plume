@@ -18,6 +18,14 @@ is detected. Missing-CLI download links remain available in Settings.
 - The default Headless transport provides Plume’s chat UI. Terminal mode runs
   the Codex TUI and has a different remote-access scope, described below.
 
+## Generated files
+
+Codex can write a report, image, or other file into the workspace and link to
+it in the chat. Click the link to reveal it in Finder. For supported documents
+and media, right-click the link and choose **Open File** to view it in its
+default macOS app. Codex app-server 0.153.4 does not publish Claude-style
+hosted artifact cards.
+
 ## Remote control
 
 All connected headless Codex chats share one server and remote-control setting.
@@ -37,18 +45,19 @@ shared headless remote connection.
 
 ## Known limitations
 
-- Cross-app resume protection is tracked in PLUME-153. Codex rejects a second
-  server trying to resume a conversation with an active writer; Plume does not
-  yet offer a friendly ownership/recovery flow. End the other application’s
-  session before resuming it in Plume.
-- MCP elicitation (`mcpServer/elicitation/request`) and dynamic tool calls
-  (`item/tool/call`) are not implemented. Plume answers unsupported requests
-  with an error rather than leaving them pending.
-- Stay Awake tracks commands kept alive in Codex’s managed terminal sessions.
-  Shell-detached commands such as `sleep 60 &` or `nohup … &` are not reliably
-  reported by Codex and do not acquire a background-work hold. A printed PID
-  or an agent’s “started” message is not proof that the process remains alive.
-  Tracked in [PLUME-160](https://linear.app/plume-term/issue/PLUME-160/track-codex-shell-detached-background-work-for-stay-awake).
+- If another app or terminal owns a conversation, headless resume keeps its
+  saved history and unsent messages and explains how to retry after release.
+  Continue in the owning app, or close the conversation there and choose
+  Reconnect or Try Again in Plume. Codex does not identify the owning app, so
+  Plume cannot open it directly. Terminal mode shows the refusal in the Codex
+  TUI; Plume’s observer never takes ownership to test whether it is available.
+- Headless chats support standard MCP form and URL elicitation. Plume declines
+  forms whose fields or constraints it cannot render. Dynamic tools are
+  available on threads Plume started with those tools registered.
+- Stay Awake tracks Codex’s managed terminal sessions. With the default zsh
+  environment, it also tracks background processes that survive their command
+  shell and retain the tab’s marker until Plume detects them. Some shells and
+  custom environment policies only support managed-session tracking.
 - Generated titles are best-effort and use a separate, tool-free Codex request.
   If it fails or the CLI is incompatible, the conversation preview remains.
 
@@ -80,7 +89,9 @@ clicked or sent, and the approximate time.
    Check that the tool returns a running session, rather than an exit code. With
    the relevant Stay Awake option enabled, the background reason should remain
    after the reply and disappear when the command exits. Closing the tab should
-   clear its reasons too. Shell-detached work is a separate known limitation.
+   clear its reasons too. For a detached build, confirm the process is still
+   alive after the reply before checking the background reason. Codex can reap
+   a command launched with `&` as soon as its shell exits.
 5. **Claude regression:** send a normal Claude chat message, approve a plan or
    tool request, and switch between Claude and Codex tabs. Claude’s controls,
    transcript, and remote-control behavior should remain independent.

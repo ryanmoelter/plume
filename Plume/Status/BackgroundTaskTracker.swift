@@ -8,7 +8,7 @@ import Observation
 /// the agent's turn ends. The tab drops to `awaitingReply` at that point, and
 /// without this the Mac would sleep before the task ever fires.
 ///
-/// Each tab has one of two sources, and both replace their entries wholesale
+/// Each source replaces its entries wholesale
 /// rather than counting up and down — a counter kept in step by hand would
 /// eventually miss a release, which here means the Mac never sleeps again.
 ///
@@ -19,6 +19,9 @@ import Observation
 /// - **Inferred entries** (`replace`), read from the transcript for a
 ///   terminal tab or from a Codex inventory. They name an end only when the
 ///   task announced one, so `hardCap` bounds them.
+///
+/// Kernel-confirmed detached processes add independent membership without an
+/// expiry. Closing their inventory or observing process exit clears them.
 ///
 /// A live tab's inferred entries still supply what the list lacks — the
 /// list reports a `Monitor` as a plain command and gives no start time.
@@ -72,6 +75,11 @@ final class BackgroundTaskTracker {
     /// A tab present here, even with an empty list, ignores its inferred
     /// entries for membership.
     private var liveEntriesByTab: [UUID: [Entry]] = [:]
+    private struct DetachedInventory {
+        let generation: UUID
+        var entries: [Entry]
+    }
+    private var detachedInventories: [UUID: DetachedInventory] = [:]
 
     /// Bumped when an expiry passes, so a derived reason set recomputes
     /// without anything having written to the transcript.
@@ -115,31 +123,66 @@ final class BackgroundTaskTracker {
         armExpiryTimer()
     }
 
+    func beginDetached(tabID: UUID) -> UUID {
+        let generation = UUID()
+        detachedInventories[tabID] = DetachedInventory(generation: generation, entries: [])
+        return generation
+    }
+
+    func replaceDetached(tabID: UUID, generation: UUID, entries: [Entry]) {
+        guard let inventory = detachedInventories[tabID], inventory.generation == generation else { return }
+        let previous = Dictionary(inventory.entries.map { ($0.id, $0) }, uniquingKeysWith: { first, _ in first })
+        var unique: [String: Entry] = [:]
+        for entry in entries {
+            unique[entry.id] = Entry(
+                id: entry.id, kind: entry.kind, description: entry.description,
+                startedAt: previous[entry.id]?.startedAt ?? min(unique[entry.id]?.startedAt ?? entry.startedAt, entry.startedAt),
+                expiresAt: nil
+            )
+        }
+        let carried = unique.values.sorted {
+            $0.startedAt == $1.startedAt ? $0.id < $1.id : $0.startedAt < $1.startedAt
+        }
+        guard inventory.entries != carried else { return }
+        detachedInventories[tabID] = DetachedInventory(generation: generation, entries: carried)
+    }
+
+    func endDetached(tabID: UUID, generation: UUID) {
+        guard detachedInventories[tabID]?.generation == generation else { return }
+        detachedInventories.removeValue(forKey: tabID)
+    }
+
     func forget(tabID: UUID) {
         let removedInferred = entriesByTab.removeValue(forKey: tabID) != nil
         let removedLive = liveEntriesByTab.removeValue(forKey: tabID) != nil
-        guard removedInferred || removedLive else { return }
+        let removedDetached = detachedInventories.removeValue(forKey: tabID) != nil
+        guard removedInferred || removedLive || removedDetached else { return }
         armExpiryTimer()
     }
 
     func reset() {
         entriesByTab.removeAll()
         liveEntriesByTab.removeAll()
+        detachedInventories.removeAll()
         armExpiryTimer()
     }
 
     func inFlight(tabID: UUID, now: Date = Date()) -> [Entry] {
         _ = revision
-        guard let live = liveEntriesByTab[tabID] else {
-            return (entriesByTab[tabID] ?? []).filter { $0.isRunning(at: now) }
+        let primary: [Entry]
+        if let live = liveEntriesByTab[tabID] {
+            let inferred = Dictionary(
+                (entriesByTab[tabID] ?? []).map { ($0.id, $0) },
+                uniquingKeysWith: { first, _ in first }
+            )
+            primary = live.map { $0.enriched(by: inferred[$0.id]) }
+        } else {
+            primary = (entriesByTab[tabID] ?? []).filter { $0.isRunning(at: now) }
         }
-        let inferred = Dictionary(
-            (entriesByTab[tabID] ?? []).map { ($0.id, $0) },
-            uniquingKeysWith: { first, _ in first }
-        )
-        return live
-            .map { $0.enriched(by: inferred[$0.id]) }
-            .sorted { $0.startedAt < $1.startedAt }
+        var seen = Set<String>()
+        return (primary + (detachedInventories[tabID]?.entries ?? []))
+            .filter { seen.insert($0.id).inserted }
+            .sorted { $0.startedAt == $1.startedAt ? $0.id < $1.id : $0.startedAt < $1.startedAt }
     }
 
     /// Every tab with something still running, for the keep-awake reason set.
@@ -150,7 +193,7 @@ final class BackgroundTaskTracker {
     var tabsWithBackgroundTasks: [(tabID: UUID, kind: Kind, description: String?, count: Int)] {
         _ = revision
         let now = Date()
-        return Set(entriesByTab.keys).union(liveEntriesByTab.keys).compactMap { tabID in
+        return Set(entriesByTab.keys).union(liveEntriesByTab.keys).union(detachedInventories.keys).compactMap { tabID in
             let running = inFlight(tabID: tabID, now: now)
             guard let first = running.first else { return nil }
             return (tabID, first.kind, first.description, running.count)

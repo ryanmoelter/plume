@@ -11,9 +11,12 @@ nonisolated struct ChildSessionStartParams: Decodable, Equatable {
     var name: String?
     var useWorktree: Bool?
     var context: String?
+    var provider: String?
+    var model: String?
+    var effort: String?
 
     private enum CodingKeys: String, CodingKey {
-        case parent, title, prompt, background, name, context
+        case parent, title, prompt, background, name, context, provider, model, effort
         case useWorktree = "use_worktree"
     }
 }
@@ -38,13 +41,14 @@ nonisolated struct ChildSessionProposeParams: Decodable, Equatable {
     var name: String?
     var useWorktree: Bool?
     var context: String?
+    var provider: String?
     var model: String?
     var effort: String?
     var permissionMode: String?
     var toolUseID: String?
 
     private enum CodingKeys: String, CodingKey {
-        case parent, title, prompt, background, name, context, model, effort
+        case parent, title, prompt, background, name, context, provider, model, effort
         case useWorktree = "use_worktree"
         case permissionMode = "permission_mode"
         case toolUseID = "tool_use_id"
@@ -132,7 +136,8 @@ enum ControlChildSessionCommands {
         var arguments: [String: JSONValue] = ["initiation": .string(StartSessionRequest.Initiation.userAsked.rawValue)]
         for (key, value) in [
             ("title", params.title), ("prompt", params.prompt), ("background", params.background),
-            ("name", params.name), ("context", params.context)
+            ("name", params.name), ("context", params.context), ("provider", params.provider),
+            ("model", params.model), ("effort", params.effort)
         ] {
             if let value { arguments[key] = .string(value) }
         }
@@ -270,7 +275,7 @@ enum ControlChildSessionCommands {
         var arguments: [String: JSONValue] = ["initiation": .string(initiation.rawValue)]
         for (key, value) in [
             ("title", params.title), ("prompt", params.prompt), ("background", params.background),
-            ("name", params.name), ("context", params.context), ("model", params.model),
+            ("name", params.name), ("context", params.context), ("provider", params.provider), ("model", params.model),
             ("effort", params.effort), ("permission_mode", params.permissionMode)
         ] {
             if let value { arguments[key] = .string(value) }

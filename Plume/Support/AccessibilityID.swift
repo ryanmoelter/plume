@@ -351,6 +351,7 @@ enum AccessibilityID {
     // The workspace segment keeps its `composer-` string, which external
     // drivers already query.
     static let composerWorkspacePicker = "composer-workspace-picker"
+    static let composerSideQuestionError = "composer-side-question-error"
     static let composerAddDirectoryError = "composer-add-directory-error"
     static let emptyStateAddFolderMenu = "empty-state-add-folder-menu"
     static let addFolderMenuRecentFolder = "add-folder-menu-recent-folder"
@@ -422,6 +423,13 @@ enum AccessibilityID {
     // MARK: Permission request
 
     static let permissionDenialReasonField = "permission-denial-reason-field"
+    static let elicitationAccept = "elicitation-accept"
+    static let elicitationDecline = "elicitation-decline"
+    static let elicitationCancel = "elicitation-cancel"
+    static let elicitationOpenURL = "elicitation-open-url"
+    static let elicitationField = "elicitation-field"
+    static let elicitationIncludeField = "elicitation-include-field"
+    static let elicitationOption = "elicitation-option"
     static let permissionAllowButton = "permission-allow-button"
     static let permissionDenyButton = "permission-deny-button"
     static let permissionSuggestionButton = "permission-suggestion-button"
@@ -518,6 +526,7 @@ enum AccessibilityID {
 
     static let sideQuestionsClose = "side-questions-close"
     static let sideQuestionChip = "side-question-chip"
+    static let sideQuestionCancel = "side-question-cancel"
     static let sideQuestionChipDismiss = "side-question-chip-dismiss"
     static let messageRollbackButton = "message-rollback-button"
     static let messageForkButton = "message-fork-button"

@@ -1,5 +1,11 @@
 import SwiftUI
 
+enum FolderEditingPolicy {
+    static func canEdit(provider: AgentProviderKind, transport: AgentTransport) -> Bool {
+        provider == .claudeCode || transport == .headless
+    }
+}
+
 /// What the Folders section does to the tab's `--add-dir` list.
 struct InfoPaneFolderActions {
     let add: ([String]) -> Void
@@ -19,9 +25,11 @@ struct FolderRestartFacts: Equatable {
     var canRestartNow: Bool
     /// The last attempt could not relaunch, so the next idle moment retries.
     var hasFailed = false
+    var appliesOnNextTurn = false
 
     var note: String {
-        switch blockers.first {
+        if appliesOnNextTurn { return "Applies to the next turn" }
+        return switch blockers.first {
         case .turn: "Applies after this turn"
         case .unstartedFork: "Applies after this fork's first turn"
         case .unsettledRewind: "Applies after the next turn"

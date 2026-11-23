@@ -30,7 +30,15 @@ Releases are signed, notarized and published by the maintainer. `docs/releasing.
 
 ## The roadmap
 
-The roadmap lives in a private Linear workspace, and `PLUME-123` references throughout the repo point into it. `.mcp.json` configures the `plume-linear` MCP server that the `roadmap` and `release-cycle` skills use. Ask the maintainer for access; without it, those two skills don't work, and everything else does.
+The roadmap lives in a private Linear workspace, and `PLUME-123` references throughout the repo point into it. `.mcp.json` configures the `plume-linear` MCP server for Claude Code; `.codex/config.toml` configures the same server for Codex. Ask the maintainer for access to private roadmap operations. Local builds and tests do not need Linear access.
+
+## Agent setup
+
+Claude Code reads `CLAUDE.md` automatically. Codex uses the same file through `project_doc_fallback_filenames` in `.codex/config.toml`. That config raises `project_doc_max_bytes` to 64 KiB so Codex reads the whole guide. Keep the guide in one place rather than copying it into `AGENTS.md`.
+
+Open this checkout as a trusted project in Codex so it loads `.codex/config.toml`. Sign in to the `plume-linear` MCP server in the agent you use. Start a new chat after changing project configuration or adding skills.
+
+Project skills live in `.claude/skills/`, with Codex discovery through `.agents/skills/`. Invoke a skill by name, such as `/roadmap` in Claude Code or `$roadmap` in Codex. Read each skill's instructions before running its workflow.
 
 ## Branches and commits
 

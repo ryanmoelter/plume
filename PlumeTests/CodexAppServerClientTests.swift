@@ -89,6 +89,31 @@ struct CodexAppServerClientTests {
         #expect(try await reply.value == .object(["ok": .bool(true)]))
     }
 
+    @Test func modelListRequestsEveryPageWithoutHiddenModels() async throws {
+        let (client, sent) = makeClient()
+        defer { client.stop() }
+        let models = Task { try await client.listModels() }
+
+        try await waitUntil { sent().count == 1 }
+        let first = try #require(sent().first)
+        let firstID = try #require(requestID(in: first))
+        let firstRequest = try JSONDecoder().decode(JSONValue.self, from: Data(first.utf8))
+        #expect(firstRequest["method"] == .string("model/list"))
+        #expect(firstRequest["params"] == .object(["includeHidden": .bool(false)]))
+        client.receive(#"{"id":\#(firstID),"result":{"data":[{"id":"first"}],"nextCursor":"page-2"}}"#)
+
+        try await waitUntil { sent().count == 2 }
+        let second = try #require(sent().dropFirst().first)
+        let secondID = try #require(requestID(in: second))
+        let secondRequest = try JSONDecoder().decode(JSONValue.self, from: Data(second.utf8))
+        #expect(secondRequest["method"] == .string("model/list"))
+        #expect(secondRequest["params"] == .object(["includeHidden": .bool(false), "cursor": .string("page-2")]))
+        client.receive(#"{"id":\#(secondID),"result":{"data":[{"id":"second"}],"nextCursor":null}}"#)
+
+        let loaded = try await models.value
+        #expect(loaded.map { $0["id"]?.stringValue } == ["first", "second"])
+    }
+
     @Test func anErrorReplyThrowsTheServersMessage() async throws {
         let (client, sent) = makeClient()
         let reply = Task { try await client.send("nope") }

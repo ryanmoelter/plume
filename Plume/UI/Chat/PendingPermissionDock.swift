@@ -20,7 +20,11 @@ struct PendingPermissionDock: View {
 
     @ViewBuilder
     private func row(for permission: PendingPermission, in session: any AgentSession) -> some View {
-        if let interactive = permission.interactive {
+        if let request = permission.codexElicitation, let codex = session as? CodexSession {
+            CodexElicitationRow(request: request, permissionID: permission.id, isChild: permission.agentID != nil) {
+                codex.answerElicitation(permission, action: $0, content: $1)
+            }
+        } else if let interactive = permission.interactive {
             InteractiveToolRow(
                 payload: interactive,
                 isPending: true,

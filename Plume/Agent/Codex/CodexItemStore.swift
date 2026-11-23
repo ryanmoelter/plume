@@ -10,7 +10,7 @@ import Observation
 @MainActor
 @Observable
 final class CodexItemStore {
-    static let shared = CodexItemStore(cache: .shared)
+    static let shared = CodexItemStore(cache: .shared, linearActivity: .shared)
 
     /// Lifecycle is carried separately from the item payload because some
     /// item types (notably agent messages) have no status field.
@@ -28,10 +28,15 @@ final class CodexItemStore {
         var historical: Set<String> = []
         var completed: Set<String> = []
         var cached: Set<String> = []
+        var linearCalls: [String: [LinearEvidence]] = [:]
+        var linearOrder: [String] = []
+        var linearRevision = 0
     }
 
     private var tabs: [UUID: Items] = [:]
+    private var reportedLinearRevisions: [UUID: Int] = [:]
     private let cache: CodexHistoryCache?
+    private let linearActivity: CodexLinearActivity?
     private var threadIDs: [UUID: String] = [:]
     private var bindings: [UUID: UUID] = [:]
     private var hydratedTabs: Set<UUID> = []
@@ -43,14 +48,17 @@ final class CodexItemStore {
     @ObservationIgnored var onLatestItemChanged: ((UUID, String?) -> Void)?
     @ObservationIgnored private var reportedLatestItems: [UUID: String?] = [:]
 
-    init(cache: CodexHistoryCache? = nil) { self.cache = cache }
+    init(cache: CodexHistoryCache? = nil, linearActivity: CodexLinearActivity? = nil) {
+        self.cache = cache
+        self.linearActivity = linearActivity
+    }
 
-    /// Only a mounted, persisted tab binds disk storage. Test sessions and
-    /// child stores remain entirely in memory unless explicitly configured.
     func bind(tabID: UUID, threadID: String) {
         guard !threadID.isEmpty, threadIDs[tabID] != threadID else { return }
         if threadIDs[tabID] != nil {
+            linearActivity?.replaceParent(tabID: tabID, evidence: [])
             tabs.removeValue(forKey: tabID)
+            reportedLinearRevisions.removeValue(forKey: tabID)
             hydratedTabs.remove(tabID)
             restoredTabs.remove(tabID)
             savedCopies.remove(tabID)
@@ -93,6 +101,7 @@ final class CodexItemStore {
             current.cached.insert(entry.stableID)
             if entry.completed { current.completed.insert(entry.stableID) }
             if entry.historical { current.historical.insert(entry.stableID) }
+            refreshLinearEvidence(key: entry.stableID, in: &current)
         }
         current.order = restoredOrder + current.order.filter { !restoredIDs.contains($0) }
         tabs[tabID] = current
@@ -111,6 +120,10 @@ final class CodexItemStore {
                 items.values.removeValue(forKey: key)
                 items.completed.remove(key)
                 items.historical.remove(key)
+                if items.linearCalls.removeValue(forKey: key) != nil {
+                    items.linearOrder.removeAll { $0 == key }
+                    items.linearRevision += 1
+                }
             }
             items.order.removeAll { items.cached.contains($0) }
             items.cached.removeAll()
@@ -141,6 +154,10 @@ final class CodexItemStore {
 
     private func persist(tabID: UUID) {
         reportLatestItem(tabID: tabID)
+        if let revision = tabs[tabID]?.linearRevision, reportedLinearRevisions[tabID] != revision {
+            reportedLinearRevisions[tabID] = revision
+            linearActivity?.replaceParent(tabID: tabID, evidence: linearEvidence(forTab: tabID))
+        }
         guard let cache, let threadID = threadIDs[tabID], tabs[tabID] != nil,
               restoredTabs.contains(tabID) || hydratedTabs.contains(tabID) else { return }
         guard let snapshot = snapshot(tabID: tabID, threadID: threadID) else { return }
@@ -160,6 +177,7 @@ final class CodexItemStore {
         var replacement = Items()
         for item in items { upsert(item, turnID: nil, lifecycle: .snapshot, into: &replacement) }
         tabs[tabID] = replacement
+        reportedLinearRevisions.removeValue(forKey: tabID)
         persist(tabID: tabID)
     }
 
@@ -198,7 +216,9 @@ final class CodexItemStore {
             merged.revisions[id] = revision
             merged.historical.insert(id)
             if page.completed.contains(id) { merged.completed.insert(id) }
+            refreshLinearEvidence(key: id, in: &merged)
         }
+        merged.linearOrder = merged.order.filter { merged.linearCalls[$0] != nil }
         tabs[tabID] = merged
         persist(tabID: tabID)
     }
@@ -301,6 +321,36 @@ final class CodexItemStore {
         return Transcript(messages: messages)
     }
 
+    func linearEvidence(forTab tabID: UUID, subagent: LinearSubagentRef? = nil) -> [LinearEvidence] {
+        guard let items = tabs[tabID] else { return [] }
+        return items.linearOrder.flatMap { key in
+            (items.linearCalls[key] ?? []).map {
+                LinearEvidence(identifier: $0.identifier, tool: $0.tool, requestedState: $0.requestedState,
+                               subagent: subagent, outcome: $0.outcome)
+            }
+        }
+    }
+
+    private func refreshLinearEvidence(key: String, in items: inout Items) {
+        guard let item = items.values[key], item["type"]?.stringValue == "mcpToolCall",
+              let server = item["server"]?.stringValue, let tool = item["tool"]?.stringValue,
+              LinearActivityScanner.toolName(server: server, tool: tool) != nil else { return }
+        let call = ToolCall(
+            id: key, name: "mcp__\(server)__\(tool)", summary: ToolCallSummary(name: "MCP"),
+            input: .json(Self.pretty(item["arguments"])),
+            result: Self.prettyResult(item["result"] ?? item["error"])
+                ?? (items.completed.contains(key) || item["status"]?.stringValue == "failed" ? "{}" : nil),
+            didFail: item["status"]?.stringValue == "failed" || item["error"].map { $0 != .null } == true
+                || item["result"]?["isError"]?.boolValue == true
+        )
+        let evidence = LinearActivityScanner.scan(call, subagent: nil)
+        if items.linearCalls[key] != evidence {
+            if items.linearCalls[key] == nil { items.linearOrder.append(key) }
+            items.linearCalls[key] = evidence
+            items.linearRevision += 1
+        }
+    }
+
     func latestPendingPlan(forTab tabID: UUID) -> PlanProposal? {
         // A saved suffix may contain a later reply that settled a live plan.
         // Wait for authoritative history before offering any proposal action.
@@ -335,6 +385,8 @@ final class CodexItemStore {
     func forget(tabID: UUID) {
         // Archive/close clears live state while retaining offline history.
         tabs.removeValue(forKey: tabID)
+        linearActivity?.replaceParent(tabID: tabID, evidence: [])
+        reportedLinearRevisions.removeValue(forKey: tabID)
         reportedLatestItems.removeValue(forKey: tabID)
         bindings.removeValue(forKey: tabID)
         threadIDs.removeValue(forKey: tabID)
@@ -369,6 +421,7 @@ final class CodexItemStore {
         if lifecycle == .completed || item["status"]?.stringValue == "completed" {
             items.completed.insert(key)
         }
+        refreshLinearEvidence(key: key, in: &items)
     }
 
     private func resolveKey(_ itemID: String, turnID: String?, in items: Items) -> String? {
@@ -429,6 +482,9 @@ final class CodexItemStore {
         else { return }
         if let index = items.order.firstIndex(of: legacyID) { items.order[index] = id }
         items.values[id] = normalized(value, stableID: id)
+        items.linearCalls[id] = items.linearCalls.removeValue(forKey: legacyID)
+        if let index = items.linearOrder.firstIndex(of: legacyID) { items.linearOrder[index] = id }
+        items.linearRevision += 1
         items.revisions[id] = items.revisions.removeValue(forKey: legacyID)
         if items.historical.remove(legacyID) != nil { items.historical.insert(id) }
         if items.completed.remove(legacyID) != nil { items.completed.insert(id) }
@@ -500,10 +556,28 @@ final class CodexItemStore {
             let server = item["server"]?.stringValue ?? "MCP"
             let tool = item["tool"]?.stringValue ?? "tool"
             let output = CodexImageDecoder.extracting(item["result"] ?? item["error"])
-            return call(id, "MCP", summary: "\(server).\(tool)", input: .json(pretty(item["arguments"])), result: prettyResult(output.text), images: output.images)
+            let status = item["status"]?.stringValue
+            return ToolCall(
+                id: id, name: "mcp__\(server)__\(tool)",
+                summary: ToolCallSummary(name: "MCP", detail: "\(server).\(tool)", detailStyle: .prose),
+                input: .json(pretty(item["arguments"])),
+                result: prettyResult(output.text) ?? (status == "completed" || status == "failed" ? "{}" : nil),
+                didFail: status == "failed" || item["error"].map { $0 != .null } == true
+                    || item["result"]?["isError"]?.boolValue == true,
+                resultImages: output.images
+            )
         case "dynamicToolCall":
             let namespace = item["namespace"]?.stringValue.map { "\($0)." } ?? ""
             let tool = item["tool"]?.stringValue ?? "Tool"
+            if namespace.isEmpty, PlumeMCPTool.allCases.contains(where: { $0.codexName == tool }) {
+                let text = item["contentItems"]?.arrayValue?.compactMap { $0["text"]?.stringValue }.joined(separator: "\n")
+                var childCall = call(
+                    id, tool, summary: tool, input: .json(pretty(item["arguments"])),
+                    result: text?.nonEmpty
+                )
+                childCall.didFail = item["success"] == .bool(false)
+                return childCall
+            }
             let output = CodexImageDecoder.extracting(item["contentItems"])
             return call(id, tool, summary: namespace + tool, input: .json(pretty(item["arguments"])), result: prettyResult(output.text), images: output.images)
         case "collabAgentToolCall":
@@ -559,31 +633,40 @@ final class CodexItemStore {
     }
 
     private static func userBlocks(_ content: [JSONValue]) -> [ChatBlock] {
-        content.compactMap { value in
+        content.flatMap { value -> [ChatBlock] in
             switch value["type"]?.stringValue {
             case "text":
-                guard let text = value["text"]?.stringValue else { return nil }
-                let kind = InjectedContent.classify(text: text, isMeta: false)
-                return kind.isUserProse ? .markdown(kind.bodyText(text)) : .injected(kind, text: text)
+                guard let text = value["text"]?.stringValue else { return [] }
+                let split = InjectedContent.splittingLeadingSystemReminders(text)
+                guard split.reminders.contains(where: { $0.hasPrefix("<\(SideSessionEvent.tag)") }) else {
+                    return [userTextBlock(text)]
+                }
+                let events = InjectedContent.classifyingLeading(split.reminders).map { ChatBlock.injected($0.kind, text: $0.text) }
+                return split.rest.isEmpty ? events : events + [userTextBlock(split.rest)]
             case "skill":
                 let name = value["name"]?.stringValue ?? "Skill"
-                return .injected(.skill(name: name), text: value["path"]?.stringValue ?? "")
+                return [.injected(.skill(name: name), text: value["path"]?.stringValue ?? "")]
             case "mention":
-                return .injected(.systemNote, text: "Mention: \(value["name"]?.stringValue ?? value["path"]?.stringValue ?? "")")
+                return [.injected(.systemNote, text: "Mention: \(value["name"]?.stringValue ?? value["path"]?.stringValue ?? "")")]
             case "image":
-                if let image = CodexImageDecoder.url(value["url"]?.stringValue) { return .image(image) }
+                if let image = CodexImageDecoder.url(value["url"]?.stringValue) { return [.image(image)] }
                 let url = value["url"]?.stringValue ?? ""
-                return .injected(.systemNote, text: url.hasPrefix("data:") ? "Image could not be decoded" : "Image unavailable: \(url)")
+                return [.injected(.systemNote, text: url.hasPrefix("data:") ? "Image could not be decoded" : "Image unavailable: \(url)")]
             case "localImage":
-                if let image = CodexImageDecoder.local(value["path"]?.stringValue) { return .image(image) }
-                return .injected(.systemNote, text: "Image unavailable: \(value["path"]?.stringValue ?? "unknown path")")
+                if let image = CodexImageDecoder.local(value["path"]?.stringValue) { return [.image(image)] }
+                return [.injected(.systemNote, text: "Image unavailable: \(value["path"]?.stringValue ?? "unknown path")")]
             case "audio":
-                return .injected(.systemNote, text: value["url"]?.stringValue ?? "Attachment")
+                return [.injected(.systemNote, text: value["url"]?.stringValue ?? "Attachment")]
             case "localAudio":
-                return .injected(.systemNote, text: value["path"]?.stringValue ?? "Attachment")
-            default: return nil
+                return [.injected(.systemNote, text: value["path"]?.stringValue ?? "Attachment")]
+            default: return []
             }
         }
+    }
+
+    private static func userTextBlock(_ text: String) -> ChatBlock {
+        let kind = InjectedContent.classify(text: text, isMeta: false)
+        return kind.isUserProse ? .markdown(kind.bodyText(text)) : .injected(kind, text: text)
     }
 
     private static func strings(_ value: JSONValue?) -> [String] {
