@@ -83,13 +83,6 @@ struct TabStripView: View {
                 } label: {
                     Label("Android Device Tab", systemImage: "ipad.landscape.and.iphone")
                 }
-                if VMManager.isSupported {
-                    Button {
-                        addTab(.vm)
-                    } label: {
-                        Label("macOS VM Tab", systemImage: "desktopcomputer")
-                    }
-                }
             } label: {
                 Image(systemName: "plus")
                     .frame(width: 22, height: 22)
@@ -103,7 +96,6 @@ struct TabStripView: View {
             .plumeMenuItem(AccessibilityID.newChatTabMenuItem, label: paneLabel) { addTab(.agent) }
             .plumeMenuItem(AccessibilityID.newTerminalTabMenuItem, label: paneLabel) { addTab(.terminal) }
             .plumeMenuItem(AccessibilityID.newAndroidDeviceTabMenuItem, label: paneLabel) { addTab(.device) }
-            .plumeMenuItem(AccessibilityID.newVMTabMenuItem, label: paneLabel, isPresent: VMManager.isSupported) { addTab(.vm) }
 
             Spacer()
         }

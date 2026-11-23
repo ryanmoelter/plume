@@ -16,7 +16,8 @@ struct VMTabHost: View {
 }
 
 /// Views one slot of `VMManager`'s pool. A VM this tab claimed is its own: the lease renews while
-/// the tab exists, and closing the tab stops the VM. A VM another owner holds is only shown.
+/// the tab exists, and closing the tab stops the VM. A VM another owner holds is only shown. With no
+/// slot, the tab goes back to being a device tab, whose picker lists the slots.
 struct VMTabView: View {
     let tab: TaskTab
 
@@ -28,9 +29,7 @@ struct VMTabView: View {
 
     private var vms: VMManager { .shared }
 
-    private var owner: DeviceLeaseOwner {
-        .tab(id: tab.id, app: DeviceLeaseCoordinator.shared.appSocket ?? "")
-    }
+    private var owner: DeviceLeaseOwner { tab.vmLeaseOwner }
 
     var body: some View {
         if VMManager.isSupported {
@@ -54,7 +53,7 @@ struct VMTabView: View {
                 content(phase, slot: slot)
                     .frame(maxWidth: .infinity, maxHeight: .infinity)
             } else {
-                picker
+                Color.clear.onAppear { TaskStore.showDevicePicker(in: tab) }
             }
             if let actionError {
                 Text(actionError)
@@ -118,8 +117,8 @@ struct VMTabView: View {
                 .help("Delete this slot's clone, so its next boot starts from the base image")
                 .plumeID(AccessibilityID.vmResetButton, invoke: { reset(slot) })
                 .disabled(!canReset)
-            Button("Change Slot") { choose(0) }
-                .plumeID(AccessibilityID.vmChangeSlotButton, invoke: { choose(0) })
+            Button("Change Slot") { showDevicePicker() }
+                .plumeID(AccessibilityID.vmChangeSlotButton, invoke: { showDevicePicker() })
         }
         .font(.callout)
         .controlSize(.small)
@@ -208,49 +207,16 @@ struct VMTabView: View {
         }
     }
 
-    // MARK: Picker
-
-    private var picker: some View {
-        VStack(alignment: .leading, spacing: 12) {
-            Text("Choose a VM").font(.headline)
-            ForEach(vms.slots) { slot in
-                let summary = Self.summary(of: slot)
-                let isFree = slot.lease == nil && (slot.state == .idle || slot.state == .failed)
-                HStack(spacing: 12) {
-                    Image(systemName: "desktopcomputer")
-                        .accessibilityHidden(true)
-                    VStack(alignment: .leading, spacing: 2) {
-                        Text(slot.key).font(.body.monospaced())
-                        Text(summary).font(.caption).foregroundStyle(.secondary)
-                    }
-                    Spacer()
-                    Button("Show") { choose(slot.number) }
-                        .plumeID(AccessibilityID.vmPickerShowButton, label: slot.key, invoke: { choose(slot.number) })
-                        .disabled(isFree)
-                    Button("Claim") { claim(slot.number) }
-                        .plumeID(AccessibilityID.vmPickerClaimButton, label: slot.key, invoke: { claim(slot.number) })
-                        .disabled(!isFree)
-                }
-                .padding(10)
-                .background(.quaternary.opacity(0.5), in: .rect(cornerRadius: 8))
-                .plumeID(AccessibilityID.vmPickerRow, label: slot.key, value: summary)
-            }
-        }
-        .frame(maxWidth: 420)
-        .padding()
-        .frame(maxWidth: .infinity, maxHeight: .infinity)
-    }
-
-    private static func summary(of slot: VMManager.Slot) -> String {
-        guard let lease = slot.lease else { return slot.state == .resetting ? "Resetting…" : slot.state.rawValue }
-        return "\(slot.state.rawValue), held by \(lease.owner.description)"
-    }
-
     // MARK: Actions
 
     private func choose(_ number: Int) {
         actionError = nil
         tab.vmSlot = number
+    }
+
+    private func showDevicePicker() {
+        actionError = nil
+        TaskStore.showDevicePicker(in: tab)
     }
 
     private func claim(_ number: Int) {
@@ -281,7 +247,7 @@ struct VMTabView: View {
     private func release(_ slot: VMManager.Slot) {
         do {
             try vms.release(slot.key, owner: slot.lease?.owner ?? owner, force: false)
-            actionError = nil
+            showDevicePicker()
         } catch {
             actionError = error.localizedDescription
         }
@@ -296,7 +262,7 @@ struct VMTabView: View {
         }
         do {
             try vms.release(current.key, owner: held.owner, force: true)
-            actionError = nil
+            showDevicePicker()
         } catch {
             actionError = error.localizedDescription
         }

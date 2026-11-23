@@ -102,7 +102,7 @@ final class VMManager {
 
     @ObservationIgnored private let backend: any VMBackend
     @ObservationIgnored var now: () -> Date = Date.init
-    /// Whether a tab is a VM tab in a task that isn't archived. A lease such a tab owns renews
+    /// Whether a tab is a VM or device tab in a task that isn't archived. A lease such a tab owns renews
     /// itself for as long as the tab is there.
     @ObservationIgnored var isLiveVMTab: (UUID) -> Bool = { _ in false }
     @ObservationIgnored private var bootTasks: [Int: Task<Void, Never>] = [:]

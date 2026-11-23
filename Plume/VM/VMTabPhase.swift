@@ -55,3 +55,22 @@ enum VMTabChoice {
             ?? candidates.first { !$0.showsLiveSlot }?.id
     }
 }
+
+/// One slot's row in the device picker's VM section.
+struct VMPickerRow: Equatable {
+    var summary: String
+    var canClaim: Bool
+    /// A free slot has nothing to show, so only Claim opens it.
+    var canShow: Bool
+
+    init(_ slot: VMManager.Slot) {
+        let isFree = slot.lease == nil && (slot.state == .idle || slot.state == .failed)
+        canClaim = isFree
+        canShow = !isFree
+        if let lease = slot.lease {
+            summary = "\(slot.state.rawValue), held by \(lease.owner.description)"
+        } else {
+            summary = slot.state == .resetting ? "Resetting…" : slot.state.rawValue
+        }
+    }
+}

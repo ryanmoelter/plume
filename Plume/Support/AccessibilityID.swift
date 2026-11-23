@@ -239,8 +239,6 @@ enum AccessibilityID {
     static let newTerminalTabMenuItem = "new-terminal-tab-menu-item"
     static let newAndroidDeviceTabMenuItem = "new-android-device-tab-menu-item"
     static let newAndroidDeviceTabCommand = "new-android-device-tab-command"
-    static let newVMTabMenuItem = "new-vm-tab-menu-item"
-    static let newVMTabCommand = "new-vm-tab-command"
     /// A VM tab's whole content; `value` is its `VMTabPhase.label`.
     static let vmTab = "vm-tab"
     static let vmSurface = "vm-surface"
@@ -264,6 +262,8 @@ enum AccessibilityID {
     static let vmPickerRow = "vm-picker-row"
     static let vmPickerClaimButton = "vm-picker-claim-button"
     static let vmPickerShowButton = "vm-picker-show-button"
+    static let vmPickerError = "vm-picker-error"
+    static let vmPickerUnsupported = "vm-picker-unsupported"
     static let shutDownEmulatorMenuItem = "shut-down-emulator-menu-item"
     static let deviceSurface = "device-surface"
     static let deviceBackButton = "device-back-button"

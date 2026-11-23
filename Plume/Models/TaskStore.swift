@@ -409,6 +409,20 @@ enum TaskStore {
         return tab
     }
 
+    /// Turns a device tab, or a VM tab, into a VM tab showing `slot`. The tab keeps its place, and
+    /// any VM lease it owns stays its own.
+    static func showVM(slot: Int, in tab: TaskTab) {
+        if tab.kind == .device { DeviceSessionManager.shared.closeSession(for: tab.id) }
+        tab.kind = .vm
+        tab.vmSlot = slot
+    }
+
+    /// Turns a VM tab back into a device tab with no device, which shows the device picker.
+    static func showDevicePicker(in tab: TaskTab) {
+        tab.kind = .device
+        tab.vmSlot = 0
+    }
+
     /// Moves `tab` and its attached children into `pane`'s strip at the gap `position`
     /// (counted in the strip as drawn, `tab` included), or onto its end,
     /// wherever `TabStripMove` lets it land. A tab arriving from another pane
