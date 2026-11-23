@@ -20,6 +20,7 @@ struct SideQuestionChip: View, ThemedView {
     let maxHeight: CGFloat
     let onOpenPanel: () -> Void
     let onDismiss: () -> Void
+    var onCancel: (() -> Void)?
 
     @State private var answerOverflow = ScrollOverflow()
     @State private var promptHeight: CGFloat = 0
@@ -52,8 +53,16 @@ struct SideQuestionChip: View, ThemedView {
             Label("/btw", systemImage: Self.symbol)
                 .font(typography.caption.semibold)
                 .emphasis(.secondary)
+            if let contextLabel = exchange.contextLabel {
+                Text(contextLabel)
+                    .font(typography.caption.font)
+                    .emphasis(.subtle)
+            }
             status
             Spacer(minLength: 0)
+            if exchange.isInProgress, let onCancel {
+                SideQuestionCancelButton(exchange: exchange, onCancel: onCancel)
+            }
             Button(action: onDismiss) {
                 Image(systemName: "xmark.circle.fill")
                     .emphasis(.secondary)
@@ -192,4 +201,15 @@ struct ScrollOverflow: Equatable {
     }
 
     init() {}
+}
+
+struct SideQuestionCancelButton: View {
+    let exchange: SideQuestion
+    let onCancel: () -> Void
+
+    var body: some View {
+        Button("Cancel", action: onCancel)
+            .buttonStyle(.plain)
+            .plumeID(AccessibilityID.sideQuestionCancel, label: exchange.question, invoke: onCancel)
+    }
 }

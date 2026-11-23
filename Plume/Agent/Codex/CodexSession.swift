@@ -8,7 +8,7 @@ import os
 /// approvals waiting on the user. See `docs/codex-protocol.md`.
 @MainActor
 @Observable
-final class CodexSession: AgentSession {
+final class CodexSession: AgentSession, SideQuestionSession {
     /// Permission profiles and the rest of the v2 thread surface are gated
     /// behind this negotiated capability in current Codex releases.
     static let initializeCapabilities: JSONValue = .object([
@@ -110,6 +110,74 @@ final class CodexSession: AgentSession {
         isWorking && currentTurnID != nil && sessionID != nil && !isSteering && !hasExited
     }
     private(set) var planProposal: CodexItemStore.PlanProposal?
+
+    private(set) var sideQuestions: [SideQuestion] = []
+    private var dismissedSideQuestionID: String?
+    @ObservationIgnored private var sideQuestionTasks: [String: Task<Void, Never>] = [:]
+
+    var chippedSideQuestion: SideQuestion? {
+        guard let question = sideQuestions.last, question.id != dismissedSideQuestionID else { return nil }
+        return question
+    }
+
+    func dismissChippedSideQuestion() {
+        dismissedSideQuestionID = sideQuestions.last?.id
+    }
+
+    func askSideQuestion(_ question: String) {
+        let id = UUID().uuidString
+        sideQuestions.append(SideQuestion(id: id, question: question, askedAt: .now, state: .running,
+                                          contextLabel: "Completed turns"))
+        guard !hasExited, let threadID = sessionID else {
+            finishSideQuestion(id, state: .failed("Complete a turn in this chat before asking a side question."))
+            return
+        }
+        guard sideQuestionTasks.count < 3 else {
+            finishSideQuestion(id, state: .failed("Three side questions are already running."))
+            return
+        }
+        let liveTurnID = currentTurnID
+        sideQuestionTasks[id] = Task { [weak self, client] in
+            do {
+                let result = try await client.readSideQuestionTurns(threadID: threadID)
+                guard !Task.isCancelled else { return }
+                guard let turns = result["data"]?.arrayValue else {
+                    self?.finishSideQuestion(id, state: .failed("Couldn’t read completed turns."))
+                    return
+                }
+                guard let prompt = CodexSideQuestion.prompt(question: question, turns: turns, excluding: liveTurnID) else {
+                    self?.finishSideQuestion(id, state: .failed("No completed turns with text are available yet."))
+                    return
+                }
+                let answer = await CodexEphemeralInference.generate(.sideQuestion(prompt))
+                guard !Task.isCancelled else { return }
+                self?.finishSideQuestion(id, state: answer.map(SideQuestion.State.answered)
+                    ?? .failed("Codex couldn’t answer the side question. Try again."))
+            } catch {
+                guard !Task.isCancelled else { return }
+                let message = error is CodexAppServerClient.SideQuestionHistoryTimeout
+                    ? "Reading completed turns timed out." : "Couldn’t read completed turns."
+                self?.finishSideQuestion(id, state: .failed(message))
+            }
+        }
+    }
+
+    func cancelSideQuestion(_ id: String) {
+        guard let task = sideQuestionTasks[id] else { return }
+        task.cancel()
+        finishSideQuestion(id, state: .failed("Canceled."))
+    }
+
+    private func finishSideQuestion(_ id: String, state: SideQuestion.State) {
+        sideQuestionTasks[id] = nil
+        guard let index = sideQuestions.firstIndex(where: { $0.id == id }) else { return }
+        sideQuestions[index].state = state
+        if case .answered = state { sideQuestions[index].answeredAt = .now }
+    }
+
+    private func cancelSideQuestions() {
+        for id in Array(sideQuestionTasks.keys) { cancelSideQuestion(id) }
+    }
 
     private let client: CodexAppServerClient
     private let standaloneRemoteControl: CodexRemoteControl?
@@ -726,6 +794,7 @@ final class CodexSession: AgentSession {
     }
 
     func stop() {
+        cancelSideQuestions()
         titleTask?.cancel()
         titleTask = nil
         Task {
@@ -1594,6 +1663,7 @@ final class CodexSession: AgentSession {
     }
 
     private func handleExit(status: Int32, message: String?) {
+        cancelSideQuestions()
         titleTask?.cancel()
         titleTask = nil
         clearForeignRouting()

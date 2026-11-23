@@ -16,6 +16,8 @@ final class CodexAppServerClient {
 
     private enum ModelCatalogFailure: Error { case malformedPage, repeatedCursor }
 
+    struct SideQuestionHistoryTimeout: Error {}
+
     private let sharedServer: CodexSharedAppServer?
     var usesSharedServer: Bool { sharedServer != nil }
     var sharedRemoteControl: CodexRemoteControl? { sharedServer?.remoteControl }
@@ -129,6 +131,45 @@ final class CodexAppServerClient {
                 }
             }
         }
+        return try await sendDirect(method, params, id: id)
+    }
+
+    func readSideQuestionTurns(threadID: String, timeout: Duration = .seconds(15)) async throws -> JSONValue {
+        if let sharedServer {
+            return try await sharedServer.readSideQuestionTurns(from: self, threadID: threadID, timeout: timeout)
+        }
+        let params: JSONValue = .object([
+            "threadId": .string(threadID),
+            "sortDirection": .string("desc"),
+            "itemsView": .string("full"),
+            "limit": .number(Double(CodexSideQuestion.turnLimit))
+        ])
+        return try await withThrowingTaskGroup(of: JSONValue.self) { group in
+            group.addTask { try await self.sendCancellable("thread/turns/list", params) }
+            group.addTask {
+                try await Task.sleep(for: timeout)
+                throw SideQuestionHistoryTimeout()
+            }
+            defer { group.cancelAll() }
+            guard let result = try await group.next() else { throw CancellationError() }
+            return result
+        }
+    }
+
+    private func sendCancellable(_ method: String, _ params: JSONValue) async throws -> JSONValue {
+        nextRequestNumber += 1
+        let id = CodexRPC.RequestID.number(nextRequestNumber)
+        return try await withTaskCancellationHandler {
+            try Task.checkCancellation()
+            return try await sendDirect(method, params, id: id)
+        } onCancel: {
+            Task { @MainActor in
+                self.pending.removeValue(forKey: id)?.resume(throwing: CancellationError())
+            }
+        }
+    }
+
+    private func sendDirect(_ method: String, _ params: JSONValue, id: CodexRPC.RequestID) async throws -> JSONValue {
         let line = encode(["id": id.json, "method": .string(method), "params": params])
         return try await withCheckedThrowingContinuation { continuation in
             pending[id] = continuation

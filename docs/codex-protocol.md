@@ -496,3 +496,9 @@ Terminal transport still lets the real TUI own resume and display the server ref
 ## Linear evidence from Codex MCP calls
 
 MCP name metadata remains separate from the generic MCP summary. Raw per-item evidence feeds the shared Linear scanner for root and child conversations, with child provenance retained when aggregating. Both content and structuredContent envelopes are supported. Failed calls never infer issue identifiers from results. History restoration and forgetting remain scoped to each tab.
+
+### Side questions
+
+In a headless Codex chat, `/btw <question>` reads up to twelve recent turns with `thread/turns/list`. Plume keeps text from completed turns and excludes the turn active when the question was asked. The snapshot can omit older messages, tool output, and attachments. The side chat shows the scope as “Completed turns.”
+
+A separate ephemeral Luna process answers with the same tool-free configuration as title generation. The snapshot goes through stdin. Plume keeps the exchange in memory and cancels outstanding questions when the session closes. The main conversation continues independently.

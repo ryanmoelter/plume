@@ -355,7 +355,7 @@ struct ChatTabView: View, ThemedView {
                 state: { LinearStore.shared.state(for: $0) },
                 hasSettled: { [taskID = task.id] in LinearMentionTracker.shared.hasSettled($0, taskID: taskID) }
             ),
-            sideChatCount: claudeSession?.sideQuestions.count ?? 0,
+            sideChatCount: sideQuestionSession?.sideQuestions.count ?? 0,
             artifacts: ConversationArtifact.artifacts(in: conversationMessages),
             remoteControl: headlessSession.flatMap(RemoteControlStatus.init(session:))
         )
@@ -441,7 +441,11 @@ struct ChatTabView: View, ThemedView {
         )
     }
 
-    /// Side questions, redo and fork are Claude Code control requests.
+    private var sideQuestionSession: (any SideQuestionSession)? {
+        headlessSession as? any SideQuestionSession
+    }
+
+    /// Redo and fork are Claude Code control requests.
     private var claudeSession: HeadlessSession? {
         headlessSession as? HeadlessSession
     }
@@ -602,8 +606,9 @@ struct ChatTabView: View, ThemedView {
             }
         }
         .overlay {
-            if isSideChatShown, let claudeSession {
-                SideQuestionsOverlay(sideQuestions: claudeSession.sideQuestions, glass: planGlass) {
+            if isSideChatShown, let sideQuestionSession {
+                SideQuestionsOverlay(sideQuestions: sideQuestionSession.sideQuestions, glass: planGlass,
+                                     onCancel: (headlessSession as? CodexSession)?.cancelSideQuestion) {
                     isSideChatShown = false
                 }
                 .environment(\.chatFontSize, CGFloat(settings.chatFontSize))
@@ -674,13 +679,16 @@ struct ChatTabView: View, ThemedView {
             if !commandRuns.isEmpty {
                 commandRunsView
             }
-            if let claudeSession, let exchange = claudeSession.chippedSideQuestion {
+            if let sideQuestionSession, let exchange = sideQuestionSession.chippedSideQuestion {
                 SideQuestionChip(
                     exchange: exchange,
                     glass: planGlass,
                     maxHeight: chatHeight / 2,
                     onOpenPanel: { isSideChatShown = true },
-                    onDismiss: { claudeSession.dismissChippedSideQuestion() }
+                    onDismiss: { sideQuestionSession.dismissChippedSideQuestion() },
+                    onCancel: (headlessSession as? CodexSession).map { session in
+                        { session.cancelSideQuestion(exchange.id) }
+                    }
                 )
                 .listItemPadding(vertical: false)
             }

@@ -48,6 +48,18 @@ struct SideQuestion: Identifiable, Equatable {
     let askedAt: Date
     var state: State = .pending
     var answeredAt: Date?
+    var contextLabel: String?
+
+    var isInProgress: Bool {
+        state == .pending || state == .running
+    }
+}
+
+@MainActor
+protocol SideQuestionSession {
+    var sideQuestions: [SideQuestion] { get }
+    var chippedSideQuestion: SideQuestion? { get }
+    func dismissChippedSideQuestion()
 }
 
 /// One headless `claude` conversation, driving a tab.
@@ -58,7 +70,7 @@ struct SideQuestion: Identifiable, Equatable {
 /// streaming text, and quota pushed as events.
 @MainActor
 @Observable
-final class HeadlessSession: AgentSession {
+final class HeadlessSession: AgentSession, SideQuestionSession {
     let tabID: UUID
     var taskID: UUID
 

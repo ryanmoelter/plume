@@ -198,6 +198,14 @@ final class CodexSharedAppServer {
         return result
     }
 
+    func readSideQuestionTurns(from endpoint: CodexAppServerClient, threadID: String, timeout: Duration) async throws -> JSONValue {
+        guard attached(endpoint) else { throw CodexAppServerClient.Failure.notRunning }
+        let requestGeneration = generation
+        let result = try await physical.readSideQuestionTurns(threadID: threadID, timeout: timeout)
+        guard attached(endpoint), generation == requestGeneration else { throw CodexAppServerClient.Failure.notRunning }
+        return result
+    }
+
     private func discoverRemoteThread(_ id: String) {
         guard threadOwners[id] == nil, !ignoredThreads.contains(id) else { return }
         remoteCandidates.insert(id)
