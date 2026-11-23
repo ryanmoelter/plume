@@ -71,13 +71,19 @@ struct CodexDetachedProcessMonitorTests {
         defer { try? FileManager.default.removeItem(at: root) }
         let lease = try CodexDetachedProcessMonitor.Lease.create(configuration: .object([:]), baseDirectory: root)
         defer { lease.remove() }
+        let release = root.appendingPathComponent("release")
+        defer { try? Data().write(to: release) }
         let process = AgentProcess(label: "marker-test", onLine: { _ in }, onExit: { _, _ in })
-        try process.start(arguments: ["/bin/zsh", "-c", "/bin/sleep 2 >/dev/null 2>&1 &"], workingDirectory: root.path,
-                          environment: environment(lease, home: root))
+        let worker = #"for ((i=0; i<300; i++)); do [[ -e "$1" || ! -d "$2" ]] && exit; /bin/sleep 0.1; done"#
+        try process.start(
+            arguments: ["/bin/zsh", "-c", "( " + worker + " ) >/dev/null 2>&1 &", "marker-test", release.path, root.path],
+            workingDirectory: root.path, environment: environment(lease, home: root)
+        )
         await process.waitUntilExited()
         let found = CodexDetachedProcessMonitor.scan(marker: lease.marker, retaining: [])
         #expect(!found.isEmpty)
-        #expect(found.allSatisfy { $0.parent == 1 })
+        #expect(found.contains { $0.parent == 1 })
+        try Data().write(to: release)
         let deadline = ContinuousClock.now + .seconds(5)
         var remaining = found
         while !remaining.isEmpty, ContinuousClock.now < deadline {
