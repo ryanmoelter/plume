@@ -8,13 +8,17 @@ nonisolated enum ChildSessionFormats {
 
     // MARK: - Starting a child
 
-    static func firstMessage(prompt: String, background: String?, notesFolder: String) -> String {
+    static func firstMessage(prompt: String, background: String?, notesFolder: String?) -> String {
         var parts: [String] = []
         if let background, !background.isEmpty {
             parts.append("Background (from the session that started this one):\n\(background)")
         }
         parts.append("Task:\n\(prompt)")
-        parts.append("Shared notes folder for this group of sessions (outside the repo; read siblings' notes there, leave hand-over notes or large findings there instead of pasting them into messages): \(notesFolder)")
+        if let notesFolder {
+            parts.append("Shared notes folder for this group of sessions (outside the repo; read siblings' notes there, leave hand-over notes or large findings there instead of pasting them into messages): \(notesFolder)")
+        } else {
+            parts.append("Put the handover in your final reply. Plume sends it to the session that started this turn.")
+        }
         return parts.joined(separator: "\n\n")
     }
 

@@ -453,6 +453,7 @@ enum AgentLauncher {
             defaultPermissionProfile: tab.isChildSession
                 ? AgentPermissionPreset.codexWorkspace.id : AppSettings.shared.defaultCodexPermissionProfile.id,
             isChildSession: tab.isChildSession,
+            childNotesDirectory: tab.parentTabID.map { AppPaths.sideSessionNotesDirectory(parentTabID: $0).path },
             // One app-server runs every headless Codex tab, so the tab's own
             // IDs ride on its thread rather than on the process.
             environment: LoginShellCommand.sharedPlumeEnvironment(),

@@ -68,7 +68,7 @@ final class CodexSession: AgentSession {
     private(set) var queue: [QueuedMessage] = []
     var queuedMessages: [[UserContentBlock]] { queue.map(\.display) }
     var unreadHostMessages: [HostMessage] { queue.flatMap { $0.parts.hosts } }
-    var hasPendingParentBrief: Bool { !isReady && unreadHostMessages.contains(where: \.isFromParent) }
+    var hasPendingParentBrief: Bool { !hasExited && !isReady && unreadHostMessages.contains(where: \.isFromParent) }
     private(set) var workingSince: Date?
     @ObservationIgnored var onTurnFinished: ((AgentTurnOutcome) -> Void)?
     @ObservationIgnored var onHostMessagesReturned: (([HostMessage]) -> Void)?
@@ -168,6 +168,7 @@ final class CodexSession: AgentSession {
         permissionProfile: String? = nil,
         defaultPermissionProfile: String = AgentPermissionPreset.codexWorkspace.id,
         isChildSession: Bool = false,
+        childNotesDirectory: String? = nil,
         preserveRemoteConfiguration: Bool = false,
         environment: [String: String],
         threadEnvironment: [String: String] = [:]
@@ -194,6 +195,7 @@ final class CodexSession: AgentSession {
                 permissionProfile: permissionProfile,
                 defaultPermissionProfile: defaultPermissionProfile,
                 isChildSession: isChildSession,
+                childNotesDirectory: childNotesDirectory,
                 preserveRemoteConfiguration: preserveRemoteConfiguration,
                 threadEnvironment: threadEnvironment
             )
@@ -216,6 +218,7 @@ final class CodexSession: AgentSession {
         permissionProfile: String?,
         defaultPermissionProfile: String,
         isChildSession: Bool,
+        childNotesDirectory: String?,
         preserveRemoteConfiguration: Bool,
         threadEnvironment: [String: String]
     ) async {
@@ -242,6 +245,9 @@ final class CodexSession: AgentSession {
 
             var params: [String: JSONValue] = [:]
             if let workingDirectory { params["cwd"] = .string(workingDirectory) }
+            if let workingDirectory, let childNotesDirectory {
+                params["runtimeWorkspaceRoots"] = .array([.string(workingDirectory), .string(childNotesDirectory)])
+            }
             if let model { params["model"] = .string(model.id) }
             selectedPermissionProfile = if isChildSession, resolvedPermissionProfile?.id != permissionProfile {
                 AgentPermissionPreset.codexWorkspace.id
@@ -277,12 +283,11 @@ final class CodexSession: AgentSession {
             if !isWorking { StatusEngine.shared.setStatus(.awaitingReply, taskID: taskID, tabID: tabID) }
             flushQueue()
         } catch {
+            guard !hasExited else { return }
+            captureUnsentParentBrief()
             reportFailure(error)
-            if hasPendingParentBrief {
-                activeHosts = unreadHostMessages
-                reportChildOutcome(text: lastError, isError: true, exited: true)
-            }
             stop()
+            reportChildOutcome(text: lastError, isError: true, exited: true)
         }
     }
 
@@ -509,6 +514,7 @@ final class CodexSession: AgentSession {
         planProposal = nil
         guard isReady, let threadID = sessionID, !isWorking, pendingTurnStartSequence == nil else {
             queue.append(message)
+            if hasPendingParentBrief, workingSince == nil { workingSince = .now }
             return .queued
         }
         queuePaused = false
@@ -556,7 +562,7 @@ final class CodexSession: AgentSession {
         streamingText = ""
         streamingThinking = ""
         isWorking = true
-        workingSince = .now
+        if workingSince == nil { workingSince = .now }
         nextTurnStartSequence += 1
         let sequence = nextTurnStartSequence
         pendingTurnStartSequence = sequence
@@ -632,6 +638,7 @@ final class CodexSession: AgentSession {
     func removeQueuedMessage(at index: Int) -> [UserContentBlock]? {
         guard queue.indices.contains(index) else { return nil }
         let message = queue.remove(at: index)
+        if !isWorking, !hasPendingParentBrief { workingSince = nil }
         if !message.parts.hosts.isEmpty { onHostMessagesReturned?(message.parts.hosts) }
         return message.parts.userBlocks
     }
@@ -1185,7 +1192,12 @@ final class CodexSession: AgentSession {
     }
 
     private func reportChildOutcome(text: String?, isError: Bool, exited: Bool = false) {
-        onTurnFinished?(takeChildOutcome(text: text, isError: isError, exited: exited))
+        let outcome = takeChildOutcome(text: text, isError: isError, exited: exited)
+        onTurnFinished?(outcome)
+    }
+
+    private func captureUnsentParentBrief() {
+        if activeHosts.isEmpty, hasPendingParentBrief { activeHosts = unreadHostMessages }
     }
 
     private func requestTitleIfDue() {
@@ -1512,6 +1524,7 @@ final class CodexSession: AgentSession {
     }
 
     private func handleExit(status: Int32, message: String?) {
+        captureUnsentParentBrief()
         titleTask?.cancel()
         titleTask = nil
         clearForeignRouting()
@@ -1536,9 +1549,6 @@ final class CodexSession: AgentSession {
         // that reaches here is an unexpected loss of the app-server, even if
         // the subprocess happened to return zero.
         StatusEngine.shared.setStatus(.error, taskID: taskID, tabID: tabID, notifiable: hasUserSubmitted)
-        if activeHosts.isEmpty, unreadHostMessages.contains(where: \.isFromParent), sessionID == nil {
-            activeHosts = unreadHostMessages
-        }
         reportChildOutcome(text: lastError, isError: true, exited: true)
     }
 

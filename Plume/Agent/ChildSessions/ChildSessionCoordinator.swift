@@ -305,7 +305,8 @@ final class ChildSessionCoordinator {
         }
 
         let brief = ChildSessionFormats.firstMessage(
-            prompt: request.prompt, background: request.background, notesFolder: notes.path
+            prompt: request.prompt, background: request.background,
+            notesFolder: request.provider == .codex && launchDirectory == nil ? nil : notes.path
         )
         PendingFirstMessageStore.shared.set(OptimisticFirstMessage(text: brief), forTab: child.id)
 
