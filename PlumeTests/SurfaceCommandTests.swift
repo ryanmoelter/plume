@@ -12,7 +12,7 @@ import Testing
 /// surface's creation used to clobber the first's string and both fell back to
 /// a bare login shell. See `GhosttyCommandStorage`.
 @MainActor
-@Suite struct SurfaceCommandTests {
+@Suite(.serialized) struct SurfaceCommandTests {
     @Test func backToBackSurfacesBothRunTheirOwnCommand() async throws {
         let first = Probe()
         let second = Probe()
@@ -72,6 +72,7 @@ import Testing
                 backing: .buffered,
                 defer: false
             )
+            window.isReleasedWhenClosed = false
             window.contentView = host
             window.orderFrontRegardless()
         }

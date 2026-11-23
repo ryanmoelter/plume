@@ -14,6 +14,7 @@ import Testing
 /// Needs a GUI session, like `SurfaceCommandTests`; from a headless shell the
 /// windows never lay out.
 @MainActor
+@Suite(.serialized)
 struct ControlHierarchyTests {
     @Test func plumeIDRegistersAHostedControlWithItsFrame() async throws {
         let registry = ControlRegistry.shared

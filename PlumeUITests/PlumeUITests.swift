@@ -55,7 +55,7 @@ final class PlumeUITests: XCTestCase {
         let app = XCUIApplication()
         app.launch()
 
-        let newTaskButton = app.buttons[AccessibilityID.newTaskButton].firstMatch
+        let newTaskButton = app.descendants(matching: .any)[AccessibilityID.newTaskButton].firstMatch
         XCTAssertTrue(newTaskButton.waitForExistence(timeout: 10))
     }
 
