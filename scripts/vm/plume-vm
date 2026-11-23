@@ -106,19 +106,6 @@ stop_slot() {
   rm -f "${dir:?}/tunnel.pid" "${dir:?}/app.pid"
 }
 
-# A base without the "xcode" field predates the option, and every such base has Xcode. A missing
-# file means the base's age is unknown, so the guest answers.
-base_has_xcode() {
-  local meta value
-  meta="$VMS_DIR/base-$(sw_vers -productVersion | cut -d. -f1).json"
-  if [[ -f "$meta" ]]; then
-    value="$(plutil -extract xcode raw -o - "$meta" 2>/dev/null || true)"
-    [[ "$value" != false ]]
-  else
-    guest 'test -d /Applications/Xcode.app'
-  fi
-}
-
 cmd_prepare() {
   log "Mirroring host paths in $VM_KEY"
   local script
@@ -252,7 +239,7 @@ cmd_test() {
   [[ ${#only[@]} -gt 0 ]] || only=("${DEFAULT_TESTS[@]}")
 
   claim_vm
-  base_has_xcode || die "this VM's base image has no Xcode, so it can't run tests; rebuild it with scripts/vm/make-base-image.sh --with-xcode --force, then run plume devices reset $VM_KEY once it is released"
+  guest 'test -d /Applications/Xcode.app' || die "this VM's base image has no Xcode, so it can't run tests; rebuild it with scripts/vm/make-base-image.sh --with-xcode --force, then run plume devices reset $VM_KEY once it is released"
   local host_xcode guest_xcode
   host_xcode="$(xcodebuild -version | paste -sd' ' -)"
   guest_xcode="$(guest 'xcodebuild -version' | paste -sd' ' -)"

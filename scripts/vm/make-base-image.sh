@@ -49,6 +49,7 @@ if [[ -n "$xip" && -n "$xcode" ]]; then
   exit 2
 fi
 [[ -z "$xip" || -f "$xip" ]] || { echo "no such file: $xip" >&2; exit 1; }
+[[ -z "$xip" ]] || xip="$(cd "$(dirname "$xip")" && pwd)/$(basename "$xip")"
 
 base="plume-base-$os"
 build="$base-build"
