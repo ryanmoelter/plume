@@ -6,10 +6,10 @@ nonisolated enum CLIPath {
         URL(fileURLWithPath: path).resolvingSymlinksInPath().standardizedFileURL.path
     }
 
-    /// An argument as an absolute path: `~` expanded, relative to `directory`, symlinks resolved.
+    /// An argument as an absolute path: `~` expanded and relative to `directory`, symlinks kept.
     static func absolute(_ path: String, from directory: String = FileManager.default.currentDirectoryPath) -> String {
         let expanded = (path as NSString).expandingTildeInPath
         let base = URL(fileURLWithPath: directory, isDirectory: true)
-        return resolved(URL(fileURLWithPath: expanded, relativeTo: base).standardizedFileURL.path)
+        return URL(fileURLWithPath: expanded, relativeTo: base).standardizedFileURL.path
     }
 }

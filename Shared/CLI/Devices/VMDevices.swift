@@ -56,7 +56,7 @@ nonisolated extension Devices {
         switch command {
         case .claim(let worktreeFlag, let ownerFlag, let ttl, let json):
             let claimant = try claimant(ownerFlag: ownerFlag, environment: environment, devices: devices)
-            let worktree = worktreeFlag.map { CLIPath.absolute($0) } ?? claimant.worktree
+            let worktree = worktreeFlag.map { CLIPath.resolved(CLIPath.absolute($0)) } ?? claimant.worktree
             let response = try sendVM(
                 .claimVM(.init(owner: claimant.owner, worktree: worktree, branch: claimant.branch, ttl: ttl)), socket: socket, app: app
             )
