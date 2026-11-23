@@ -54,8 +54,8 @@ resolve_plume() {
   built="$(products_dir 2>/dev/null)/Plume.app/Contents/Helpers/plume" || true
   if [[ -x "$built" ]]; then
     PLUME="$built"
-  elif command -v plume >/dev/null && plume devices help 2>&1 | grep -q -- '--kind=vm'; then
-    PLUME="$(command -v plume)"
+  elif built="$(type -P plume)" && "$built" devices help 2>&1 | grep -q -- '--kind=vm'; then
+    PLUME="$built"
   else
     die "no plume tool supports --kind=vm: build this worktree (xcodebuild -scheme Plume build), or set PLUME_CLI"
   fi
@@ -65,9 +65,9 @@ plume() { resolve_plume; "$PLUME" "$@"; }
 
 json_get() { printf '%s' "$CLAIM" | plutil -extract "$1" raw -o - - 2>/dev/null || true; }
 
-# Leases (or renews) the caller's VM and loads its fields.
+# Leases (or renews) the caller's VM, sharing this checkout, and loads its fields.
 claim_vm() {
-  CLAIM="$(plume devices claim --kind=vm --json "$@")"
+  CLAIM="$(plume devices claim --kind=vm --json --worktree="$ROOT")"
   VM_KEY="$(json_get key)"
   [[ -n "$VM_KEY" ]] || die "claim returned no VM key: $CLAIM"
   SLOT="${VM_KEY#vm:}"
@@ -91,7 +91,8 @@ stop_slot() {
   local dir="$VMS_DIR/vm${1:?}" pid=""
   if [[ -f "$dir/tunnel.pid" ]]; then
     pid="$(<"$dir/tunnel.pid")"
-    if [[ -n "$pid" ]] && ps -p "$pid" -o command= 2>/dev/null | grep -q '^ssh '; then
+    if [[ -n "$pid" ]] && ps -p "$pid" -o command= 2>/dev/null | grep -q '^ssh ' \
+      && ps -p "$pid" -o command= 2>/dev/null | grep -qF -- " -L $dir/control.sock:"; then
       kill "$pid" 2>/dev/null || true
     fi
   fi
@@ -251,7 +252,10 @@ cmd="${1:-help}"
 [[ $# -eq 0 ]] || shift
 case "$cmd" in
   -h|--help|help) usage ;;
-  claim) plume devices claim --kind=vm "$@" ;;
+  claim)
+    [[ " $* " == *" --worktree"* ]] || set -- --worktree="$ROOT" "$@"
+    plume devices claim --kind=vm "$@"
+    ;;
   list) plume devices list --kind=vm "$@" ;;
   reset) plume devices reset "$@" ;;
   release)
