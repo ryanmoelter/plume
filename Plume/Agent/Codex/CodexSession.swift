@@ -98,6 +98,16 @@ final class CodexSession: AgentSession {
     private var isReady = false
     private var hasStartedHandshake = false
     private var allowsPlumeTools = false
+    @ObservationIgnored var childSessionTools: CodexChildSessionTools?
+    @ObservationIgnored var userMessagePreamble: (() -> HostMessage?)?
+    @ObservationIgnored private var runningChildTools: [String: Task<Void, Never>] = [:]
+    @ObservationIgnored private var childToolApprovals: [String: PlumeMCPServer.ToolCall] = [:]
+    @ObservationIgnored private var pendingOffers: Set<String> = []
+    private var activeCollaborationMode: CodexCollaborationMode?
+
+    var childSessionCollaborationMode: CodexCollaborationMode {
+        activeCollaborationMode == .plan ? .plan : collaborationMode
+    }
     private var nextTurnStartSequence = 0
     private var pendingTurnStartSequence: Int?
     /// `turn/interrupt` is addressed to a specific turn, so the id from
@@ -270,7 +280,7 @@ final class CodexSession: AgentSession {
                 params["threadId"] = .string(resumeThreadID)
             } else {
                 method = "thread/start"
-                params["dynamicTools"] = .array([CodexPresenceTool.definition])
+                params["dynamicTools"] = .array([CodexPresenceTool.definition] + (childSessionTools?.definitions ?? []))
             }
             let result = try await client.send(method, .object(params))
             guard adopt(startResponse: result), let threadID = sessionID else {
@@ -556,7 +566,10 @@ final class CodexSession: AgentSession {
     }
 
     private func send(parts: [QueuedMessage.Part], threadID: String) {
-        let turn = OutgoingTurn(parts: parts)
+        var turn = OutgoingTurn(parts: parts)
+        if turn.userBlocks != nil, let preamble = userMessagePreamble?() {
+            turn.preamble = [preamble]
+        }
         let blocks = turn.wire
         activeHosts = turn.hosts
         if turn.userBlocks != nil { hasUserSubmitted = true }
@@ -578,6 +591,7 @@ final class CodexSession: AgentSession {
         if let selectedPermissionProfile { params["permissions"] = .string(selectedPermissionProfile) }
         if let effort { params["effort"] = .string(effort.rawValue) }
         if let model { params["model"] = .string(model.id) }
+        activeCollaborationMode = collaborationMode
         if let collaborationMode = collaborationModeValue() {
             params["collaborationMode"] = collaborationMode
         }
@@ -590,7 +604,7 @@ final class CodexSession: AgentSession {
                 finishTurnStart(sequence: sequence, result: result)
                 requestTitleIfDue()
             } catch {
-                failTurnStart(sequence: sequence, error: error, parts: parts)
+                failTurnStart(sequence: sequence, error: error, turn: turn)
             }
         }
     }
@@ -625,11 +639,13 @@ final class CodexSession: AgentSession {
         }
     }
 
-    private func failTurnStart(sequence: Int, error: Error, parts: [QueuedMessage.Part]) {
+    private func failTurnStart(sequence: Int, error: Error, turn: OutgoingTurn) {
         guard pendingTurnStartSequence == sequence else { return }
         pendingTurnStartSequence = nil
+        activeCollaborationMode = nil
         if let failure = error as? CodexAppServerClient.Failure, failure == .notRunning {
-            queue.insert(QueuedMessage(parts: parts), at: 0)
+            queue.insert(QueuedMessage(parts: turn.parts), at: 0)
+            if !turn.preamble.isEmpty { onHostMessagesReturned?(turn.preamble) }
         }
         // Once the request was written, a transport failure cannot tell us
         // whether Codex accepted it. Never put the text back in the queue and
@@ -695,6 +711,7 @@ final class CodexSession: AgentSession {
     }
 
     func stop() {
+        cancelChildSessionTools()
         titleTask?.cancel()
         titleTask = nil
         Task {
@@ -774,6 +791,13 @@ final class CodexSession: AgentSession {
 
     func resolve(_ permission: PendingPermission, with decision: PermissionDecision) {
         guard let id = permissionRequestIDs.removeValue(forKey: permission.id) else { return }
+        if childToolApprovals[permission.id] != nil {
+            switch decision {
+            case .allow: _ = resolveChildToolApproval(permission.id, requestID: id, approved: true)
+            case .deny: _ = resolveChildToolApproval(permission.id, requestID: id, approved: false)
+            }
+            return
+        }
         let kind = permissionKinds.removeValue(forKey: permission.id) ?? .decision
         if case .permissions(let requested) = kind {
             let granted: JSONValue = switch decision {
@@ -801,6 +825,7 @@ final class CodexSession: AgentSession {
 
     func resolve(_ permission: PendingPermission, with option: PermissionDecisionOption) {
         guard let id = permissionRequestIDs.removeValue(forKey: permission.id) else { return }
+        if resolveChildToolApproval(permission.id, requestID: id, approved: option.allowsAction) { return }
         let kind = permissionKinds.removeValue(forKey: permission.id) ?? .decision
         if case .permissions(let requested) = kind {
             client.respond(to: id, result: .object([
@@ -1167,13 +1192,16 @@ final class CodexSession: AgentSession {
         isWorking = false
         workingSince = nil
         currentTurnID = nil
+        activeCollaborationMode = nil
         interruptRequested = false
+        cancelChildSessionTools()
         pendingPermissions.removeAll()
         permissionKinds.removeAll()
         permissionRequestIDs.removeAll()
         let status = turn["status"]?.stringValue
         let reply = status == "failed" ? turn["error"]?["message"]?.stringValue : finalReply
-        let outcome = takeChildOutcome(text: reply, isError: status == "failed", interrupted: status == "interrupted")
+        var outcome = takeChildOutcome(text: reply, isError: status == "failed", interrupted: status == "interrupted")
+        outcome.userTurnFollows = queue.contains { $0.parts.userBlocks != nil } && sendsQueueAsOneTurn
         switch status {
         case "failed":
             queuePaused = true
@@ -1308,7 +1336,11 @@ final class CodexSession: AgentSession {
                 client.respondUnsupported(to: id, method: method)
                 return
             }
-            client.respond(to: id, result: CodexPresenceTool.call(params))
+            if params["tool"]?.stringValue == CodexPresenceTool.name {
+                client.respond(to: id, result: CodexPresenceTool.call(params))
+            } else {
+                handleChildTool(id, params: params)
+            }
         case "item/commandExecution/requestApproval":
             enqueue(permission: commandPermission(params, agentID: agentID), id: id)
         case "item/fileChange/requestApproval":
@@ -1326,6 +1358,78 @@ final class CodexSession: AgentSession {
             // Every server request must be answered, or the turn stalls.
             client.respondUnsupported(to: id, method: method)
         }
+    }
+
+    private func handleChildTool(_ id: CodexRPC.RequestID, params: JSONValue) {
+        let useID = params["callId"]?.stringValue.flatMap { callID in
+            currentTurnID.map { "\($0)#\(callID)" }
+        } ?? toolUseID(in: params)
+        guard let call = childSessionTools?.call(params, toolUseID: useID) else {
+            client.respond(to: id, result: CodexPresenceTool.result("Unknown or invalid Plume tool.", success: false))
+            return
+        }
+        let key = permissionKey(id)
+        guard runningChildTools[key] == nil, childToolApprovals[key] == nil else { return }
+        switch PlumeMCPServer.decision(
+            toolName: call.tool.qualifiedName,
+            input: call.arguments,
+            permissionMode: childSessionCollaborationMode == .plan ? .plan : .manual,
+            showsBypassPermissions: AppSettings.shared.showsBypassPermissions
+        ) {
+        case .deny(let message):
+            client.respond(to: id, result: CodexPresenceTool.result(message, success: false))
+        case .allow:
+            runChildTool(call, id: id, approved: false)
+        case nil:
+            childToolApprovals[key] = call
+            enqueue(permission: PendingPermission(
+                id: key, toolName: call.tool.codexName, displayName: "Start child session",
+                input: call.arguments, description: nil, decisionReason: nil,
+                toolUseID: call.toolUseID, agentID: nil, interactive: nil
+            ), id: id)
+        }
+    }
+
+    private func resolveChildToolApproval(_ key: String, requestID: CodexRPC.RequestID, approved: Bool) -> Bool {
+        guard let call = childToolApprovals.removeValue(forKey: key) else { return false }
+        permissionKinds.removeValue(forKey: key)
+        pendingPermissions.removeAll { $0.id == key }
+        reportPendingPermissions()
+        if approved {
+            runChildTool(call, id: requestID, approved: true)
+        } else {
+            client.respond(to: requestID, result: CodexPresenceTool.result("The user declined to start this session.", success: false))
+        }
+        return true
+    }
+
+    private func runChildTool(_ call: PlumeMCPServer.ToolCall, id: CodexRPC.RequestID, approved: Bool) {
+        guard let tools = childSessionTools else { return }
+        let key = permissionKey(id)
+        runningChildTools[key] = Task { [weak self] in
+            guard !Task.isCancelled else { return }
+            let result = await tools.run(call, approved)
+            guard let self, !Task.isCancelled else { return }
+            self.runningChildTools[key] = nil
+            self.client.respond(to: id, result: CodexPresenceTool.result(result.text, success: !result.isError))
+        }
+    }
+
+    private func cancelChildSessionTools() {
+        for task in runningChildTools.values { task.cancel() }
+        runningChildTools.removeAll()
+        childToolApprovals.removeAll()
+        pendingOffers.removeAll()
+    }
+
+    func setOffer(_ toolUseID: String, waitsForUser: Bool) {
+        guard isWorking, !hasExited else { return }
+        if waitsForUser {
+            pendingOffers.insert(toolUseID)
+        } else {
+            pendingOffers.remove(toolUseID)
+        }
+        reportPendingPermissions()
     }
 
     private func enqueue(
@@ -1370,7 +1474,7 @@ final class CodexSession: AgentSession {
 
     private func reportPendingPermissions() {
         guard !hasExited else { return }
-        var status: TaskStatus?
+        var status: TaskStatus? = pendingOffers.isEmpty ? nil : .questionAsked
         for permission in pendingPermissions {
             let candidate: TaskStatus = switch permission.interactive {
             case .plan: .planApproval
@@ -1528,6 +1632,8 @@ final class CodexSession: AgentSession {
     private func dropPermission(requestID: JSONValue?) {
         guard let requestID, let id = CodexRPC.RequestID(json: requestID) else { return }
         let key = permissionKey(id)
+        runningChildTools.removeValue(forKey: key)?.cancel()
+        childToolApprovals.removeValue(forKey: key)
         guard permissionRequestIDs.removeValue(forKey: key) != nil else { return }
         permissionKinds.removeValue(forKey: key)
         pendingPermissions.removeAll { $0.id == key }
@@ -1546,6 +1652,7 @@ final class CodexSession: AgentSession {
     }
 
     private func handleExit(status: Int32, message: String?) {
+        cancelChildSessionTools()
         captureUnsentParentBrief()
         titleTask?.cancel()
         titleTask = nil

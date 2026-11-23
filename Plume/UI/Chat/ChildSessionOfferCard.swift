@@ -19,7 +19,7 @@ struct ChildSessionOfferCard: View, ThemedView {
     static func card(for call: ToolCall, chatTabID: UUID) -> ChildSessionOfferCard? {
         guard let arguments = ChildSessionFormats.offerArguments(of: call) else { return nil }
         let live = ChildSessionOfferBoard.shared.offer(call.id).flatMap { $0.parentTabID == chatTabID ? $0 : nil }
-        let session = AgentSessionManager.shared.existingSession(for: chatTabID) as? HeadlessSession
+        let session = AgentSessionManager.shared.existingSession(for: chatTabID)
         guard let state = ChildSessionOfferCardState.reading(
             live: live?.state, result: call.result, didFail: call.didFail,
             turnIsRunning: session.map { $0.isWorking && !$0.hasExited } ?? false

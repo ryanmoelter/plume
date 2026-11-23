@@ -57,7 +57,7 @@ nonisolated enum ChildSessionFormats {
     /// The title and brief of a `start_session` call that offers a session,
     /// or nil for any other call.
     static func offerArguments(of call: ToolCall) -> (title: String, prompt: String)? {
-        guard call.name == PlumeMCPTool.startSession.qualifiedName,
+        guard PlumeMCPTool.startSession.matches(call.name),
               case .json(let text) = call.input,
               let object = try? JSONSerialization.jsonObject(with: Data(text.utf8)) as? [String: Any],
               (object["initiation"] as? String)?.trimmingCharacters(in: .whitespacesAndNewlines)
@@ -76,7 +76,7 @@ nonisolated enum ChildSessionFormats {
     /// The task_id a `start_session` call's result names, when the call
     /// proposed a session rather than starting one.
     static func proposalID(of call: ToolCall) -> String? {
-        guard call.name == PlumeMCPTool.startSession.qualifiedName, !call.didFail,
+        guard PlumeMCPTool.startSession.matches(call.name), !call.didFail,
               let result = call.result, result.hasPrefix("Proposed \""),
               // The last match, since the title before the real id is the agent's own text.
               let match = result.matches(of: /\(task_id: (task_[0-9a-f]{8})\)\. The user sees a card/).last

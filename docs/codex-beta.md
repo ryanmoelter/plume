@@ -41,9 +41,9 @@ shared headless remote connection.
   server trying to resume a conversation with an active writer; Plume does not
   yet offer a friendly ownership/recovery flow. End the other application’s
   session before resuming it in Plume.
-- MCP elicitation (`mcpServer/elicitation/request`) and dynamic tool calls
-  (`item/tool/call`) are not implemented. Plume answers unsupported requests
-  with an error rather than leaving them pending.
+- Plume answers MCP elicitation (`mcpServer/elicitation/request`) with an
+  unsupported-request error. Dynamic tools are available on threads Plume
+  started with their registration.
 - Stay Awake tracks commands kept alive in Codex’s managed terminal sessions.
   Shell-detached commands such as `sleep 60 &` or `nohup … &` are not reliably
   reported by Codex and do not acquire a background-work hold. A printed PID

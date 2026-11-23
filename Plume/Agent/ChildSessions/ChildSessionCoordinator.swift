@@ -2,7 +2,7 @@ import Foundation
 import os
 import SwiftData
 
-/// Runs child sessions: the sessions an agent in a headless Claude tab starts
+/// Runs child sessions: the sessions an agent in a headless tab starts
 /// in tabs beside its own, and the notes that pass between them.
 ///
 /// A session's id, to the model, is its tab's UUID. Only
@@ -58,6 +58,14 @@ final class ChildSessionCoordinator {
     }
 
     func attach(to session: CodexSession, tab: TaskTab) {
+        let tabID = tab.id
+        if !tab.isChildSession {
+            session.childSessionTools = CodexChildSessionTools(role: .parent) { [weak self, weak tab] call, approvedByUser in
+                guard let self, let tab, tab.isLive else { return .failure("This session's tab is closed.") }
+                return await self.handle(call, from: tab, forkCut: nil, approvedByUser: approvedByUser)
+            }
+        }
+        session.userMessagePreamble = { [weak self] in self?.takePreamble(forParent: tabID) }
         session.onTurnFinished = { [weak self, weak tab] outcome in
             guard let self, let tab, tab.isLive else { return }
             self.turnFinished(in: tab, outcome: outcome)
@@ -127,6 +135,11 @@ final class ChildSessionCoordinator {
     }
 
     // MARK: - Tools
+
+    private static func contextRefusal(_ context: StartSessionRequest.Context?, parent: TaskTab) -> ChildSessionError? {
+        guard context == .fork, parent.provider == .codex else { return nil }
+        return .invalid("A Codex parent can start only fresh sessions. Use context: fresh.")
+    }
 
     /// `approvedByUser` is true when the user allowed this call from the
     /// permission prompt.
@@ -213,9 +226,10 @@ final class ChildSessionCoordinator {
         forkCut: String? = nil
     ) async -> Result<TaskTab, ChildSessionError> {
         guard !parent.isChildSession else { return .failure(.failed("This session cannot start sessions of its own.")) }
-        guard parent.provider == .claudeCode, parent.transport == .headless else {
-            return .failure(.failed("Only a headless Claude Code session can start a child session."))
+        guard parent.transport == .headless else {
+            return .failure(.failed("Only a headless session can start a child session."))
         }
+        if let refusal = Self.contextRefusal(request.context, parent: parent) { return .failure(refusal) }
         if request.provider == .codex, request.context == .fork {
             return .failure(.invalid(StartSessionRequest.codexForkError))
         }
@@ -268,10 +282,12 @@ final class ChildSessionCoordinator {
             }
         }
         if request.provider == .claudeCode {
-            TabLaunchChoices(parent).apply(to: child)
+            if parent.provider == .claudeCode {
+                TabLaunchChoices(parent).apply(to: child)
+                if let model = live.model { child.model = model }
+                if let effort = live.effort { child.effort = effort }
+            }
             child.transport = .headless
-            if let model = live.model { child.model = model }
-            if let effort = live.effort { child.effort = effort }
             child.permissionMode = mode
         } else {
             child.codexCollaborationMode = .default
@@ -399,6 +415,7 @@ final class ChildSessionCoordinator {
     func raiseOffer(_ request: StartSessionRequest, from parent: TaskTab, toolUseID: String) -> ChildSessionError? {
         guard !parent.isChildSession else { return .failed("This session cannot start sessions of its own.") }
         guard LiveSettings(of: parent).permissionMode != .plan else { return .parentInPlanMode }
+        if let refusal = Self.contextRefusal(request.context, parent: parent) { return refusal }
         if let existing = ChildSessionOfferBoard.shared.offer(toolUseID), existing.result == nil {
             return .failed("An offer for this call is already waiting.")
         }
@@ -475,6 +492,7 @@ final class ChildSessionCoordinator {
         _ request: StartSessionRequest, from parent: TaskTab, forkCut: String? = nil, now: Date = .now
     ) -> Result<ChildSessionProposal, ChildSessionError> {
         guard !parent.isChildSession else { return .failure(.failed("This session cannot start sessions of its own.")) }
+        if let refusal = Self.contextRefusal(request.context, parent: parent) { return .failure(refusal) }
         guard ChildSessionProposalStore(json: parent.childProposalsJSON).isWritable else {
             return .failure(.failed("This session's stored proposals could not be read, so no new one can be recorded."))
         }
@@ -852,6 +870,15 @@ final class ChildSessionCoordinator {
         let effort: AgentEffort?
 
         init(of tab: TaskTab) {
+            if tab.provider == .codex {
+                let session = AgentSessionManager.shared.existingSession(for: tab.id) as? CodexSession
+                let collaboration = session.flatMap { $0.hasExited ? nil : $0.childSessionCollaborationMode }
+                    ?? tab.codexCollaborationMode
+                permissionMode = collaboration == .plan ? .plan : .manual
+                model = nil
+                effort = nil
+                return
+            }
             let session = AgentSessionManager.shared.existingSession(for: tab.id) as? HeadlessSession
             let running = session.flatMap { $0.hasExited ? nil : $0 }
             permissionMode = running.map { $0.confirmedPermissionMode.known ?? .manual } ?? Self.recordedMode(of: tab)

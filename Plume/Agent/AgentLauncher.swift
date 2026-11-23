@@ -441,8 +441,8 @@ enum AgentLauncher {
             session.failToLaunch(reason: "This Codex conversation is already open in another \(AppIdentity.displayName) tab. Continue there, or close that tab before resuming here.")
             return
         }
+        ChildSessionCoordinator.shared.attach(to: session, tab: tab)
         if tab.isChildSession {
-            ChildSessionCoordinator.shared.attach(to: session, tab: tab)
             session.onThreadAdopted = { [weak tab] id in
                 guard let tab, tab.isLive else { return }
                 recordSessionID(id, on: tab)

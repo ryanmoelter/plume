@@ -504,6 +504,15 @@ final class CodexItemStore {
         case "dynamicToolCall":
             let namespace = item["namespace"]?.stringValue.map { "\($0)." } ?? ""
             let tool = item["tool"]?.stringValue ?? "Tool"
+            if namespace.isEmpty, PlumeMCPTool.allCases.contains(where: { $0.codexName == tool }) {
+                let text = item["contentItems"]?.arrayValue?.compactMap { $0["text"]?.stringValue }.joined(separator: "\n")
+                var childCall = call(
+                    id, tool, summary: tool, input: .json(pretty(item["arguments"])),
+                    result: text?.nonEmpty
+                )
+                childCall.didFail = item["success"] == .bool(false)
+                return childCall
+            }
             let output = CodexImageDecoder.extracting(item["contentItems"])
             return call(id, tool, summary: namespace + tool, input: .json(pretty(item["arguments"])), result: prettyResult(output.text), images: output.images)
         case "collabAgentToolCall":
@@ -559,31 +568,40 @@ final class CodexItemStore {
     }
 
     private static func userBlocks(_ content: [JSONValue]) -> [ChatBlock] {
-        content.compactMap { value in
+        content.flatMap { value -> [ChatBlock] in
             switch value["type"]?.stringValue {
             case "text":
-                guard let text = value["text"]?.stringValue else { return nil }
-                let kind = InjectedContent.classify(text: text, isMeta: false)
-                return kind.isUserProse ? .markdown(kind.bodyText(text)) : .injected(kind, text: text)
+                guard let text = value["text"]?.stringValue else { return [] }
+                let split = InjectedContent.splittingLeadingSystemReminders(text)
+                guard split.reminders.contains(where: { $0.hasPrefix("<\(SideSessionEvent.tag)") }) else {
+                    return [userTextBlock(text)]
+                }
+                let events = InjectedContent.classifyingLeading(split.reminders).map { ChatBlock.injected($0.kind, text: $0.text) }
+                return split.rest.isEmpty ? events : events + [userTextBlock(split.rest)]
             case "skill":
                 let name = value["name"]?.stringValue ?? "Skill"
-                return .injected(.skill(name: name), text: value["path"]?.stringValue ?? "")
+                return [.injected(.skill(name: name), text: value["path"]?.stringValue ?? "")]
             case "mention":
-                return .injected(.systemNote, text: "Mention: \(value["name"]?.stringValue ?? value["path"]?.stringValue ?? "")")
+                return [.injected(.systemNote, text: "Mention: \(value["name"]?.stringValue ?? value["path"]?.stringValue ?? "")")]
             case "image":
-                if let image = CodexImageDecoder.url(value["url"]?.stringValue) { return .image(image) }
+                if let image = CodexImageDecoder.url(value["url"]?.stringValue) { return [.image(image)] }
                 let url = value["url"]?.stringValue ?? ""
-                return .injected(.systemNote, text: url.hasPrefix("data:") ? "Image could not be decoded" : "Image unavailable: \(url)")
+                return [.injected(.systemNote, text: url.hasPrefix("data:") ? "Image could not be decoded" : "Image unavailable: \(url)")]
             case "localImage":
-                if let image = CodexImageDecoder.local(value["path"]?.stringValue) { return .image(image) }
-                return .injected(.systemNote, text: "Image unavailable: \(value["path"]?.stringValue ?? "unknown path")")
+                if let image = CodexImageDecoder.local(value["path"]?.stringValue) { return [.image(image)] }
+                return [.injected(.systemNote, text: "Image unavailable: \(value["path"]?.stringValue ?? "unknown path")")]
             case "audio":
-                return .injected(.systemNote, text: value["url"]?.stringValue ?? "Attachment")
+                return [.injected(.systemNote, text: value["url"]?.stringValue ?? "Attachment")]
             case "localAudio":
-                return .injected(.systemNote, text: value["path"]?.stringValue ?? "Attachment")
-            default: return nil
+                return [.injected(.systemNote, text: value["path"]?.stringValue ?? "Attachment")]
+            default: return []
             }
         }
+    }
+
+    private static func userTextBlock(_ text: String) -> ChatBlock {
+        let kind = InjectedContent.classify(text: text, isMeta: false)
+        return kind.isUserProse ? .markdown(kind.bodyText(text)) : .injected(kind, text: text)
     }
 
     private static func strings(_ value: JSONValue?) -> [String] {
