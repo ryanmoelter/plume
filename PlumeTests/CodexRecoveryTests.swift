@@ -178,6 +178,7 @@ struct CodexRecoveryTests {
         session.start(workingDirectory: nil, resumeThreadID: "thread", model: nil, environment: [:])
         try await waitFor { session.canSteer }
         #expect(session.isWorking)
+        #expect(session.workingSince != nil)
         session.submit(text: "Follow up after the remote turn")
         #expect(h.turns.isEmpty)
         #expect(session.queuedMessages.count == 1)

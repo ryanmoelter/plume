@@ -379,6 +379,7 @@ final class CodexSession: AgentSession {
         }
         guard status == "active" || (status == nil && activeTurn != nil) else { return }
         isWorking = true
+        if workingSince == nil { workingSince = .now }
         currentTurnID = activeTurn?["id"]?.stringValue
         let flags = thread["status"]?["activeFlags"]?.arrayValue?.compactMap(\.stringValue) ?? []
         let taskStatus: TaskStatus = flags.contains("waitingOnApproval") ? .permissionNeeded

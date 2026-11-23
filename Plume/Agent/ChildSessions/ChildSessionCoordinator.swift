@@ -65,6 +65,9 @@ final class ChildSessionCoordinator {
         session.onHostMessagesReturned = { [weak self, weak tab] messages in
             guard let self, let tab, tab.isLive else { return }
             self.hostMessagesReturned(messages, by: tab)
+            if messages.contains(where: \.isFromParent), let parent = self.parent(of: tab) {
+                self.recheckWake(of: parent)
+            }
         }
     }
 
