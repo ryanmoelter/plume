@@ -14,6 +14,11 @@ struct BranchDisplayTests {
         #expect(GitState.displayedBranch(state: nil, storedBranchName: nil) == nil)
     }
 
+    @Test func detachedHeadDoesNotShowTheLastKnownBranch() {
+        let detached = GitState(branch: nil, upstream: nil, ahead: 0, behind: 0, isDirty: false)
+        #expect(GitState.displayedBranch(state: detached, storedBranchName: nil, lastKnownBranch: "old") == nil)
+    }
+
     @Test func storeKeepsTheLastBranchAfterGitStopsAnswering() {
         let store = GitStateStore()
         defer { store.reset() }

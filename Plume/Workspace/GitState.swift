@@ -74,7 +74,8 @@ nonisolated struct GitState: Equatable {
         storedBranchName: String?,
         lastKnownBranch: String? = nil
     ) -> String? {
-        state?.branch ?? lastKnownBranch ?? storedBranchName
+        guard let state else { return lastKnownBranch ?? storedBranchName }
+        return state.branch ?? storedBranchName
     }
 }
 
