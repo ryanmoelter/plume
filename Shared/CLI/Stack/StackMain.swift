@@ -15,7 +15,7 @@ nonisolated enum Stack {
     static let commands = [
         "list", "l", "la", "create", "c", "split", "track", "untrack",
         "checkout", "co", "prev", "next", "first", "last",
-        "restack", "submit", "sync", "setup", "help",
+        "restack", "submit", "sync", "undo", "setup", "help",
     ]
 
     static let helpCommands: Set<String> = ["help", "-h", "--help"]
@@ -104,6 +104,7 @@ nonisolated enum Stack {
         case "restack": try restack(ctx, rest)
         case "submit": try submit(ctx, rest)
         case "sync": try sync(ctx, rest)
+        case "undo": try undo(ctx, rest)
         case "setup": try setup(ctx, rest)
         case "__complete": try complete(ctx, rest)
         case "help", "-h", "--help": usage(ctx)
@@ -250,6 +251,16 @@ nonisolated enum Stack {
                     for the same scoped branches, skipping any already up to date on
                     origin, such as ones adopted from the remote (never creates PRs/MRs —
                     that's `submit`).
+
+              \(b)undo [<n>] [--list] [--dry-run]\(r)
+                    Put the stack's branch tips and state back as they were before the
+                    last restack, sync, split or create --insert. Branches the command
+                    created are deleted, ones it deleted are recreated, and the checkout
+                    returns to where the command started. Refuses a dirty working tree;
+                    a branch checked out in another clean worktree is reset there. Undo
+                    records a snapshot of its own, so a second undo redoes. --list shows
+                    the last 20 snapshots, newest first (a picker on a TTY); <n>
+                    restores the n-th of them.
 
               \(b)setup\(r)                     Open Plume's Settings ▸ Projects.
               \(b)help\(r)                      Show this text.

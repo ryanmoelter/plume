@@ -20,6 +20,7 @@ If `plume` is not on PATH, run `"$PLUME_CLI"` instead.
 - If the stack's state is unclear, run `restack`, `submit` or `sync` with `--dry-run` first.
 - Pass bare branch names. `create` and `split` add the branch prefix from Plume's Settings ▸ Projects themselves.
 - `restack` refuses a dirty working tree, and `plume stack` never stashes. Commit first.
+- If a `restack`, `sync`, `split` or `create --insert` left the stack wrong, run `plume stack undo`. Don't walk the reflog. `plume stack undo --list` lists older snapshots, and `plume stack undo <n>` restores one. Undo is local only, so re-push anything `sync --push` or `submit` already pushed.
 
 ## Common commands
 
@@ -33,3 +34,4 @@ If `plume` is not on PATH, run `"$PLUME_CLI"` instead.
 | Rebase after changing a branch | `plume stack restack` (`--all` for the whole tree, `--trunk` to also move the root onto the latest trunk) |
 | Push and open or retarget PRs | `plume stack submit` (`--all` for the whole tree) |
 | After a parent PR merged | `plume stack sync` (`--push` also pushes and retargets) |
+| Back out the last ref-moving command | `plume stack undo` (`--dry-run` first to see what moves) |

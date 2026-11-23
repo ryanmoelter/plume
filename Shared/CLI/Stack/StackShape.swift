@@ -31,6 +31,7 @@ nonisolated extension Stack {
             if insert, branches[current] == nil {
                 throw CLIFailure("--insert requires the current branch to be in a stack")
             }
+            if insert { _ = try ctx.recordUndo(undoLabel("create", arguments), branches) }
             let result = try ctx.git.run(["switch", "-c", branch], capture: false)
             if result.status != 0 { throw CLIFailure(nil, code: result.status) }
             if insert {
@@ -73,6 +74,7 @@ nonisolated extension Stack {
                 throw CLIFailure("branch '\(pair.name)' already exists")
             }
             if Set(pairs.map(\.name)).count != pairs.count { throw CLIFailure("duplicate branch names") }
+            _ = try ctx.recordUndo(undoLabel("split", arguments), branches)
             var previous = (name: entry.parent, sha: entry.base)
             for pair in pairs {
                 try ctx.git.git("branch", pair.name, pair.sha)

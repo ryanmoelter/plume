@@ -23,16 +23,18 @@ nonisolated extension Stack {
             try ctx.state.withLock {
                 branches = try ctx.loadAndFlushLocked()
                 current = try requireCurrentTracked(ctx, branches)
+                let snapshot = dryRun ? nil : try ctx.recordUndo(undoLabel("restack", arguments), branches)
                 if interactive {
                     try interactiveRestack(ctx, &branches, current)
-                    return
+                } else {
+                    let members = all
+                        ? StackGraph.subtree(branches, of: StackGraph.root(branches, of: current))
+                        : StackGraph.path(branches, to: current)
+                    var adopted = Set<String>()
+                    results = try restackStack(ctx, &branches, members, dryRun: dryRun, includeTrunk: includeTrunk, adopted: &adopted)
+                    if !dryRun { try ctx.saveState(branches) }
                 }
-                let members = all
-                    ? StackGraph.subtree(branches, of: StackGraph.root(branches, of: current))
-                    : StackGraph.path(branches, to: current)
-                var adopted = Set<String>()
-                results = try restackStack(ctx, &branches, members, dryRun: dryRun, includeTrunk: includeTrunk, adopted: &adopted)
-                if !dryRun { try ctx.saveState(branches) }
+                if let snapshot { try ctx.discardUndoIfUnchanged(snapshot, branches) }
             }
         } catch {
             returnToStartingBranch(ctx, starting, after: error, dryRun: dryRun)

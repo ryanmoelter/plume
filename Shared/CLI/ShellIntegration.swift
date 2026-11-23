@@ -187,6 +187,7 @@ nonisolated enum ShellIntegration {
             'restack:rebase each branch onto its parent'
             'submit:push + create/retarget draft PRs'
             'sync:fetch, absorb merged PRs, restack'
+            'undo:restore the branches from before the last stack command'
             'setup:open Settings, Projects in Plume'
             'help:show usage'
           )

@@ -24,6 +24,7 @@ PLUME-317 ported Ryan's Python `stack` tool (`dotfiles/cli-tools/src/stack`, ver
 - `restack` refuses a detached HEAD, a rebase in progress and a dirty working tree. A branch checked out in another worktree is rebased there, and only when that worktree is clean.
 - Adopting `origin/<branch>` replaces local commits only when the reflog of `refs/remotes/origin/<branch>` shows the local head was once pushed there.
 - `stack` never stashes.
+- `restack`, `sync`, `split` and `create --insert` record an undo snapshot first, under the lock (`StackUndo.swift`). It holds every local branch tip, the state, the command and the checkout, as `<git-common-dir>/stack/undo/<yyyyMMdd-HHmmss-SSS>-<counter>.json`. It is a subdirectory because the state store merges every `*.json` beside `branches.json`. The newest 20 are kept, and a command that changed nothing drops its snapshot. `undo` restores only branches tracked then or now: it moves, recreates or deletes each one, saves the old state, and returns the checkout to where the command started. It refuses a dirty tree, and resets a branch checked out in another clean worktree there. It never touches the remote. Undo records its own snapshot, so a second undo redoes. The Python tool has no `undo`.
 
 ## Python to Swift
 
