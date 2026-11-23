@@ -227,12 +227,13 @@ struct ModelEffortCommandTests {
     /// 200,000 and 1,000,000 are the exact figures a real `modelUsage` entry
     /// reports for a 200K and a 1M model, per `basic.ndjson`
     /// (`StreamJSONDecoderTests.largestContextWindowPicksTheMaxAcrossModelUsage`).
-    /// Haiku is 200K; every other preset is 1M.
+    /// Haiku 4.5 is 200K; every other preset, Haiku 5.5 included, is 1M.
     @Test(arguments: [
         (AgentModel.fable, 1_000_000),
         (AgentModel.opus, 1_000_000),
         (AgentModel.sonnet, 1_000_000),
-        (AgentModel.haiku, 200_000),
+        (AgentModel.haiku, 1_000_000),
+        (AgentModel(unrecognizedID: "claude-haiku-5-5"), 1_000_000),
         (AgentModel.opus5dot5, 1_000_000),
         (AgentModel.opus5, 1_000_000),
         (AgentModel.sonnet5, 1_000_000),
