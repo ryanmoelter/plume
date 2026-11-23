@@ -19,8 +19,12 @@ struct CodexSharedSessionTests {
                 switch method {
                 case "initialize": initializeCount += 1; result = .object([:])
                 case "thread/start":
-                    newThreadParameters.append(value["params"] ?? .null)
-                    result = .object(["thread": .object(["id": value["params"]?["cwd"] ?? .string("unknown")])])
+                    let params = value["params"] ?? .null
+                    newThreadParameters.append(params)
+                    let name = params["cwd"]?.stringValue.map { ($0 as NSString).lastPathComponent } ?? "unknown"
+                    var fields: [String: JSONValue] = ["thread": .object(["id": .string(name)])]
+                    fields["runtimeWorkspaceRoots"] = params["runtimeWorkspaceRoots"]
+                    result = .object(fields)
                 case "thread/read": result = .object(["thread": .object(["id": value["params"]?["threadId"] ?? .null])])
                 default: result = .object(["data": .array([])])
                 }
@@ -98,7 +102,7 @@ struct CodexSharedSessionTests {
             return .success("Passed to the coordinator")
         }
         codex.start(
-            workingDirectory: "parent", resumeThreadID: nil, model: nil,
+            workingDirectory: "/parent", resumeThreadID: nil, model: nil,
             childNotesDirectory: "/notes/parent", environment: [:]
         )
         for _ in 0..<1000 {
@@ -113,7 +117,7 @@ struct CodexSharedSessionTests {
         ])
         let startTool = try #require(tools.first { $0["name"] == .string("plume_start_session") })
         #expect(startTool["inputSchema"]?["properties"]?["context"]?["enum"] == .array([.string("fresh")]))
-        #expect(threadParameters["runtimeWorkspaceRoots"] == .array([.string("parent"), .string("/notes/parent")]))
+        #expect(threadParameters["runtimeWorkspaceRoots"] == .array([.string("/parent"), .string("/notes/parent")]))
         h.client.receive(#"{"method":"turn/started","params":{"threadId":"parent","turn":{"id":"turn-a"}}}"#)
         h.client.receive(#"{"id":902,"method":"item/tool/call","params":{"threadId":"parent","turnId":"turn-a","callId":"start-a","tool":"plume_start_session","arguments":{"title":"Verify report","prompt":"Check the generated report","initiation":"user_asked"}}}"#)
         #expect(calls.isEmpty)
