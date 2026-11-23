@@ -205,6 +205,7 @@ cat > "$VMS_DIR/base-$os.json" <<EOF
 EOF
 echo "==> Built $base ($mode)"
 
-# Slot clones were made from the old base.
+# Slot clones were made from the old base, and so was any grant plume-vm grant-fda hasn't saved.
+rm -f "$VMS_DIR/grant-fda-$os.pending"
 delete_stale_clones "$os"
 echo "==> Next, grant the debug app Full Disk Access once, so its sheet doesn't block agents: scripts/vm/plume-vm grant-fda (docs/vm-testing.md)"
