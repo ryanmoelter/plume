@@ -246,6 +246,7 @@ final class HeadlessSession: AgentSession {
     /// `effort` is never corrected; it only ever reflects what this host sent.
     private(set) var permissionMode: PermissionMode?
     private(set) var model: AgentModel?
+    private(set) var offeredModels: [AgentModel]?
     private(set) var effort: AgentEffort?
 
     /// False while `model`/`permissionMode` are still Plume's own guess —
@@ -1440,6 +1441,7 @@ final class HeadlessSession: AgentSession {
         switch pending {
         case .initialize:
             applyReportedCommands(in: response)
+            offeredModels = ClaudeModelCatalog.models(in: response.payload)
         case .remoteControl(let enabled):
             updateRemoteControl(RemoteControlState.applying(
                 response: response,

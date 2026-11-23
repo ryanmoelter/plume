@@ -234,7 +234,13 @@ final class TaskTab {
     }
 
     var model: AgentModel? {
-        get { modelRaw.flatMap { AgentModel.recognizing($0, provider: provider) } }
+        get {
+            guard let modelRaw, let recognized = AgentModel.recognizing(modelRaw, provider: provider) else { return nil }
+            if provider == .claudeCode, isModelUserChosen, recognized.id != modelRaw {
+                return AgentModel(unrecognizedID: modelRaw)
+            }
+            return recognized
+        }
         set { modelRaw = newValue?.id }
     }
 

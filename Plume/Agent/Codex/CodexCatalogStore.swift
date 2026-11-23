@@ -20,6 +20,26 @@ final class CodexCatalogStore {
         modelsByTab[tabID] ?? AgentModel.codexSelectable
     }
 
+    func discoverModels(workingDirectory: String?) async -> [JSONValue]? {
+        let client = CodexAppServerClient.sharedSessionClient()
+        do {
+            try client.start(workingDirectory: workingDirectory, environment: LoginShellCommand.sharedPlumeEnvironment())
+            let timeout = Task {
+                try await Task.sleep(for: .seconds(3))
+                client.stop()
+            }
+            defer {
+                timeout.cancel()
+                client.stop()
+            }
+            _ = try await client.send("initialize", CodexSession.initializeParameters)
+            client.notify("initialized")
+            return try await client.listModels()
+        } catch {
+            return nil
+        }
+    }
+
     func efforts(for tabID: UUID, modelID: String?) -> [AgentEffort] {
         if let modelID, let efforts = effortsByTabAndModel[tabID]?[modelID] {
             return efforts
@@ -91,11 +111,10 @@ final class CodexCatalogStore {
                 defaultEfforts[id] = defaultEffort
             }
         }
-        guard !models.isEmpty else { return }
         modelsByTab[tabID] = models
         effortsByTabAndModel[tabID] = efforts
         defaultEffortByTabAndModel[tabID] = defaultEfforts
-        defaultModelByTab[tabID] = defaultModel ?? models[0]
+        defaultModelByTab[tabID] = defaultModel ?? models.first
     }
 
     func replaceProfiles(tabID: UUID, values: [JSONValue]) {
@@ -110,12 +129,16 @@ final class CodexCatalogStore {
     }
 
     func forget(tabID: UUID) {
+        forgetModels(tabID: tabID)
+        profilesByTab[tabID] = nil
+        profilesLoaded.remove(tabID)
+    }
+
+    func forgetModels(tabID: UUID) {
         modelsByTab[tabID] = nil
         effortsByTabAndModel[tabID] = nil
         defaultEffortByTabAndModel[tabID] = nil
         defaultModelByTab[tabID] = nil
-        profilesByTab[tabID] = nil
-        profilesLoaded.remove(tabID)
     }
 
     private static func profileLabel(_ id: String) -> String {

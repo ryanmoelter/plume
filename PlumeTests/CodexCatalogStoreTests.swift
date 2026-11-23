@@ -44,6 +44,17 @@ struct CodexCatalogStoreTests {
         ])
     }
 
+    @Test func emptyVisibleModelCatalogDoesNotRestoreFallbackModels() {
+        let tabID = UUID()
+        let store = CodexCatalogStore()
+        #expect(!store.models(for: tabID).isEmpty)
+        store.replaceModels(tabID: tabID, values: [
+            .object(["id": .string("hidden"), "hidden": .bool(true)])
+        ])
+        #expect(store.models(for: tabID).isEmpty)
+        #expect(store.defaultModel(for: tabID) == nil)
+    }
+
     @Test func staleClaudePermissionFallsBackToCodexDefault() {
         let tabID = UUID()
         let store = CodexCatalogStore()

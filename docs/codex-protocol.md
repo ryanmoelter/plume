@@ -141,7 +141,7 @@ are minutes, and reset times are Unix seconds. The Codex status strip displays a
 windows other than 5h/7d, instead of assuming primary/secondary order.
 Accounts without a quota snapshot can still start conversations.
 
-`model/list` returns the catalog live, which Claude Code has no equivalent of.
+`model/list` returns the catalog live. The pre-launch picker reads it through a temporary app-server endpoint without creating a conversation.
 As of this writing it is `gpt-6-astra` (the default), `gpt-5.6-sol`,
 `gpt-5.6-terra`, `gpt-5.6-luna`, `gpt-5.5` and `gpt-5.4-mini`. Entries carry
 `hidden` and `isDefault`, and each lists its own `supportedReasoningEfforts`.

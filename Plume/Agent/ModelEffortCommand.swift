@@ -102,12 +102,7 @@ nonisolated struct AgentModel: Identifiable, Hashable, Sendable {
     static let fable5dot1 = AgentModel(id: "claude-fable-5-1")
     static let haiku4dot5At200K = AgentModel(id: "claude-haiku-4-5-20251001")
 
-    /// The models the "More" submenu offers.
-    ///
-    /// There is no live source for this list: the `init` event reports only
-    /// the model in use, and its `capabilities` array names protocol features,
-    /// not models. So it is maintained by hand from `claude --help`'s aliases
-    /// and the IDs the CLI accepted when probed.
+    /// Versioned presets for when Claude Code cannot report its catalog.
     static let more: [AgentModel] = [
         opus5dot5,
         opus5,

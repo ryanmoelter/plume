@@ -23,11 +23,13 @@ struct ModelMenuButton: NSViewRepresentable {
         button.setAccessibilityLabel("Model")
         button.setAccessibilityValue(label)
         button.setAccessibilityIdentifier(AccessibilityID.composerModelControl)
+        button.prepareMenu = { installed in await state.refreshModels(installed: installed) }
         button.makeMenu = { installed in ModelMenu.make(state: state, installed: installed, onOpenSettings: { openSettings() }, onCustomModel: onCustomModel) }
     }
 }
 
 final class ModelPopupButton: NSButton {
+    var prepareMenu: ((Set<AgentProviderKind>) async -> Void)?
     var makeMenu: ((Set<AgentProviderKind>) -> NSMenu)?
     private var checking = false
     override var intrinsicContentSize: NSSize { NSSize(width: NSView.noIntrinsicMetric, height: NSView.noIntrinsicMetric) }
@@ -36,14 +38,11 @@ final class ModelPopupButton: NSButton {
     override func draw(_ dirtyRect: NSRect) {}
 
     @objc func showModels() {
-        if let installed = AgentCLIAvailability.shared.providers {
-            showMenu(installed: installed)
-            return
-        }
         guard !checking else { return }
         checking = true
         Task { [weak self] in
             let installed = await AgentCLIAvailability.shared.load()
+            await self?.prepareMenu?(installed)
             guard let self else { return }
             checking = false
             showMenu(installed: installed)

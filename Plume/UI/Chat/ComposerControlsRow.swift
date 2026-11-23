@@ -276,9 +276,22 @@ private struct ModelControl: View, ThemedView {
         .accessibilityValue(label)
         // The NSMenu that `invoke` opens can't be driven, so a driver picks a model by name.
         .plumeID(AccessibilityID.composerModelControl, value: label, setValue: { name in
+            if let option = state.models.first(where: { $0.id == name || $0.label == name }) {
+                state.setModel(option)
+                return
+            }
             guard let model = AgentModel.recognizing(name, provider: state.provider) else { return }
             _ = state.setModel(model, provider: state.provider)
         })
+        .plumeMenuItem("composer.model.refresh") {
+            Task {
+                let installed = await AgentCLIAvailability.shared.load()
+                await state.refreshModels(installed: installed)
+            }
+        }
+        .plumeMenuItems("composer.model.option", state.models, label: \.label) {
+            state.setModel($0)
+        }
         .popover(isPresented: $isAskingForCustomID) {
             CustomModelIDField(id: $customID) {
                 state.setModel(AgentModel(unrecognizedID: $0), provider: customProvider)

@@ -18,6 +18,17 @@ final class CodexSession: AgentSession {
         )
     ])
 
+    static var initializeParameters: JSONValue {
+        .object([
+            "clientInfo": .object([
+                "name": .string("Plume"),
+                "title": .string(AppIdentity.displayName),
+                "version": .string(Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String ?? "0")
+            ]),
+            "capabilities": initializeCapabilities
+        ])
+    }
+
     let tabID: UUID
     var taskID: UUID
     var processIdentifier: Int32? { client.processIdentifier }
@@ -208,14 +219,7 @@ final class CodexSession: AgentSession {
         threadEnvironment: [String: String]
     ) async {
         do {
-            _ = try await client.send("initialize", .object([
-                "clientInfo": .object([
-                    "name": .string("Plume"),
-                    "title": .string(AppIdentity.displayName),
-                    "version": .string(Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String ?? "0")
-                ]),
-                "capabilities": Self.initializeCapabilities
-            ]))
+            _ = try await client.send("initialize", Self.initializeParameters)
             client.notify("initialized")
 
             await hydrateRateLimits()
@@ -279,10 +283,7 @@ final class CodexSession: AgentSession {
 
     private func hydrateCatalogs(workingDirectory: String?) async {
         do {
-            let values = try await paginated(
-                method: "model/list",
-                baseParams: ["includeHidden": .bool(false)]
-            )
+            let values = try await client.listModels()
             CodexCatalogStore.shared.replaceModels(tabID: tabID, values: values)
         } catch {
             Log.agent.error("Codex model catalog load failed: \(error.localizedDescription, privacy: .public)")

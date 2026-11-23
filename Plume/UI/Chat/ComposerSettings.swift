@@ -62,7 +62,9 @@ struct ComposerSettings {
             && tab.sessionJSONLPath?.isEmpty != false
     }
 
-    var model: AgentModel? { session?.model ?? tab.model ?? defaultModel }
+    var model: AgentModel? {
+        session?.model ?? models.first { $0.id == tab.modelRaw } ?? tab.model ?? defaultModel
+    }
     var effort: AgentEffort {
         let selected = session?.effort ?? tab.effort
         guard provider == .codex else { return selected ?? defaults.effort }
@@ -87,7 +89,35 @@ struct ComposerSettings {
         models(for: provider)
     }
     func models(for provider: AgentProviderKind) -> [AgentModel] {
-        provider == .codex ? CodexCatalogStore.shared.models(for: tab.id) : provider.models
+        if provider == .codex { return CodexCatalogStore.shared.models(for: tab.id) }
+        return (session as? HeadlessSession)?.offeredModels
+            ?? ClaudeModelCatalogStore.shared.models(in: workingDirectory)
+            ?? provider.models
+    }
+
+    private var workingDirectory: String? { TabDirectoryStore.shared.directory(for: tab) }
+
+    func refreshModels(installed: Set<AgentProviderKind>) async {
+        let providers = installed.intersection(canChangeProvider ? [.claudeCode, .codex] : [provider])
+        async let claude: Void = refreshClaudeModels(ifInstalled: providers.contains(.claudeCode))
+        async let codex: Void = refreshCodexModels(ifInstalled: providers.contains(.codex))
+        _ = await (claude, codex)
+    }
+
+    private func refreshClaudeModels(ifInstalled installed: Bool) async {
+        guard installed, (session as? HeadlessSession)?.offeredModels == nil,
+              let workingDirectory else { return }
+        await ClaudeModelCatalogStore.shared.refresh(in: workingDirectory)
+    }
+
+    private func refreshCodexModels(ifInstalled installed: Bool) async {
+        guard installed, !(session is CodexSession) else { return }
+        let directory = workingDirectory
+        let values = await CodexCatalogStore.shared.discoverModels(workingDirectory: directory)
+        guard directory == workingDirectory,
+              AgentSessionManager.shared.existingSession(for: tab.id)?.hasExited != false else { return }
+        CodexCatalogStore.shared.forgetModels(tabID: tab.id)
+        if let values { CodexCatalogStore.shared.replaceModels(tabID: tab.id, values: values) }
     }
     var efforts: [AgentEffort] {
         provider == .codex
