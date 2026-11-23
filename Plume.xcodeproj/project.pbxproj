@@ -588,7 +588,7 @@
 				CODE_SIGN_ENTITLEMENTS = Configuration/Plume.entitlements;
 				CODE_SIGN_STYLE = Automatic;
 				COMBINE_HIDPI_IMAGES = YES;
-				CURRENT_PROJECT_VERSION = 43;
+				CURRENT_PROJECT_VERSION = 44;
 				DEVELOPMENT_ASSET_PATHS = "\"Plume/Preview Content\"";
 				DEVELOPMENT_TEAM = U6J478KTGV;
 				ENABLE_APP_SANDBOX = NO;
@@ -602,7 +602,7 @@
 					"$(inherited)",
 					"@executable_path/../Frameworks",
 				);
-				MARKETING_VERSION = 0.20.0;
+				MARKETING_VERSION = "0.21.0-beta.1";
 				PRODUCT_BUNDLE_IDENTIFIER = com.ryanmoelter.Plume.debug;
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				REGISTER_APP_GROUPS = YES;
@@ -625,7 +625,7 @@
 				CODE_SIGN_ENTITLEMENTS = Configuration/Plume.entitlements;
 				CODE_SIGN_STYLE = Automatic;
 				COMBINE_HIDPI_IMAGES = YES;
-				CURRENT_PROJECT_VERSION = 43;
+				CURRENT_PROJECT_VERSION = 44;
 				DEVELOPMENT_ASSET_PATHS = "\"Plume/Preview Content\"";
 				DEVELOPMENT_TEAM = U6J478KTGV;
 				ENABLE_APP_SANDBOX = NO;
@@ -639,7 +639,7 @@
 					"$(inherited)",
 					"@executable_path/../Frameworks",
 				);
-				MARKETING_VERSION = 0.20.0;
+				MARKETING_VERSION = "0.21.0-beta.1";
 				PRODUCT_BUNDLE_IDENTIFIER = com.ryanmoelter.Plume;
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				REGISTER_APP_GROUPS = YES;
