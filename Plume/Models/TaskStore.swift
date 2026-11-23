@@ -713,6 +713,7 @@ enum TaskStore {
         AgentSessionManager.shared.closeSession(for: tabID)
         DeviceSessionManager.shared.closeSession(for: tabID)
         DeviceLeaseCoordinator.shared.tabForgotten(tabID)
+        VMManager.shared.tabForgotten(tabID)
         ChildSessionCoordinator.shared.tabForgotten(tabID)
         TitleStore.shared.forget(tabID: tabID)
         TabDirectoryStore.shared.forget(tabID: tabID)

@@ -36,6 +36,7 @@ final class CLICommandHandler {
     var directories: TabDirectoryStore = .shared
     var deviceSessions: DeviceSessionManager = .shared
     var deviceLeases: DeviceLeaseCoordinator = .shared
+    var vms: VMManager = .shared
     var physicalDiscovery: PhysicalDeviceDiscovery = .shared
     var remoteDevices = RemoteDeviceDefaults()
     var clock: () -> Date = Date.init
@@ -126,6 +127,47 @@ final class CLICommandHandler {
             return linkIssue(params, action: .link)
         case .unlinkIssue(let params):
             return linkIssue(params, action: .unlink)
+        case .claimVM, .vmStatus, .releaseVM, .renewVM, .listVMs, .resetVM, .vmInstalled:
+            return await handleVM(request)
+        }
+    }
+
+    /// The `vms.*` commands. A refusal names its reason; a full pool also lists every slot.
+    private func handleVM(_ request: CLIRequest) async -> CLIResponse {
+        do {
+            var response = CLIResponse.success
+            switch request {
+            case .claimVM(let params):
+                let claimed = try vms.claim(owner: params.owner, worktree: params.worktree, branch: params.branch, ttl: params.ttl)
+                response.vm = vms.info(claimed.slot)
+                response.created = !claimed.reused
+            case .vmStatus(let params):
+                response.vm = try vms.info(forKey: params.key)
+            case .releaseVM(let params):
+                try vms.release(params.key, owner: params.owner, force: params.force)
+                response.vm = try vms.info(forKey: params.key)
+            case .renewVM(let params):
+                _ = try vms.renew(params.key, owner: params.owner, ttl: params.ttl)
+                response.vm = try vms.info(forKey: params.key)
+            case .listVMs:
+                response.vms = vms.allInfo
+            case .resetVM(let params):
+                try await vms.reset(params.key)
+                response.vm = try vms.info(forKey: params.key)
+            case .vmInstalled(let params):
+                try vms.noteInstalled(params.key, branch: params.branch, worktree: params.worktree)
+                response.vm = try vms.info(forKey: params.key)
+            default:
+                return .failure("not a vms command")
+            }
+            return response
+        } catch VMManager.Failure.poolFull {
+            var response = CLIResponse.failure(VMManager.Failure.poolFull.localizedDescription)
+            response.poolFull = true
+            response.vms = vms.allInfo
+            return response
+        } catch {
+            return .failure(error.localizedDescription)
         }
     }
 

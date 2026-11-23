@@ -121,20 +121,53 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             confirmUserQuit: settings.confirmQuitWhileWorking,
             confirmSystemQuit: settings.confirmSystemInitiatedQuit
         )
-        guard shouldConfirm else {
-            return .terminateNow
+        if shouldConfirm {
+            let alert = NSAlert()
+            alert.messageText = "Quit While Agents Are Working?"
+            alert.informativeText =
+                "One or more tasks have an agent still working or waiting on you. " +
+                "Quitting now ends those processes without saving any in-progress response."
+            alert.addButton(withTitle: "Quit")
+            alert.addButton(withTitle: "Cancel")
+            alert.alertStyle = .warning
+            guard alert.runModal() == .alertFirstButtonReturn else { return .terminateCancel }
         }
+        return terminateStoppingVMs(confirm: !isSystemInitiatedQuit || settings.confirmSystemInitiatedQuit)
+    }
 
-        let alert = NSAlert()
-        alert.messageText = "Quit While Agents Are Working?"
-        alert.informativeText =
-            "One or more tasks have an agent still working or waiting on you. " +
-            "Quitting now ends those processes without saving any in-progress response."
-        alert.addButton(withTitle: "Quit")
-        alert.addButton(withTitle: "Cancel")
-        alert.alertStyle = .warning
+    /// A VM's guest gets a real shutdown, which needs the app alive, so the quit waits for it,
+    /// up to `VMManager.terminationDeadline`. Blocking in `applicationWillTerminate` instead would
+    /// starve the main-actor work the stops wait on.
+    private func terminateStoppingVMs(confirm: Bool) -> NSApplication.TerminateReply {
+        let vms = VMManager.shared
+        let running = vms.runningCount
+        guard running > 0 else { return .terminateNow }
+        if confirm {
+            let alert = NSAlert()
+            alert.messageText = running == 1 ? "Quit and Stop the Running VM?" : "Quit and Stop \(running) Running VMs?"
+            alert.informativeText = "Plume's VMs stop when it quits. Their clones stay, so the next boot is warm."
+            alert.addButton(withTitle: "Quit")
+            alert.addButton(withTitle: "Cancel")
+            alert.alertStyle = .warning
+            guard alert.runModal() == .alertFirstButtonReturn else { return .terminateCancel }
+        }
+        Task { @MainActor in
+            await vms.stopAllForTermination()
+            self.replyToTerminateOnce()
+        }
+        Task { @MainActor in
+            try? await Task.sleep(for: .seconds(VMManager.terminationDeadline))
+            self.replyToTerminateOnce()
+        }
+        return .terminateLater
+    }
 
-        return alert.runModal() == .alertFirstButtonReturn ? .terminateNow : .terminateCancel
+    private var repliedToTerminate = false
+
+    private func replyToTerminateOnce() {
+        guard !repliedToTerminate else { return }
+        repliedToTerminate = true
+        NSApp.reply(toApplicationShouldTerminate: true)
     }
 
     /// Headless agents are children of this process, and closing their stdin
