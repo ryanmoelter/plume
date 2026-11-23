@@ -410,7 +410,7 @@ cmd_grant_fda() {
 In Plume, open a device tab and click Show on $VM_KEY under macOS VMs. Then, in the guest's
 System Settings ▸ Privacy & Security ▸ Full Disk Access:
   1. Turn on Plume α, the debug build. If it isn't listed, click +, press ⌘⇧G, enter ~/PlumeVM/Plume.app, and click Open.
-  2. When asked for a password, enter: admin
+  2. When macOS asks for the password of "Managed by Tart", enter: admin
   3. If asked to quit and reopen it, click Later.
 Waiting up to 15 minutes for the grant...
 MSG
@@ -491,8 +491,13 @@ claim_fresh_vm() {
     grep -qxF "plume-$os-$SLOT" <<<"$before" || return 0
     log "plume-$os-$SLOT predates this run, so it may hold an older base or earlier test runs; resetting $VM_KEY"
     release_grant_vm || die "couldn't release $VM_KEY"
-    plume devices reset "$VM_KEY" >&2 \
-      || die "couldn't reset $VM_KEY; once it is free, run scripts/vm/plume-vm reset $VM_KEY, then grant-fda again"
+    # Reset refuses while the released VM is still stopping.
+    local i
+    for i in $(seq 1 60); do
+      plume devices reset "$VM_KEY" >/dev/null 2>&1 && break
+      [[ $i -lt 60 ]] || die "couldn't reset $VM_KEY; once it is free, run scripts/vm/plume-vm reset $VM_KEY, then grant-fda again"
+      sleep 2
+    done
   done
   die "every claim returned an older clone; run scripts/vm/plume-vm reset on each free slot, then grant-fda again"
 }
