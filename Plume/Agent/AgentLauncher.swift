@@ -262,7 +262,8 @@ enum AgentLauncher {
     /// as `haiku` or `opusplan` keeps its plan-mode behavior across a relaunch.
     /// `default` has no ID of its own, so the resolved model stands in.
     private static func persistChosenModel(of session: HeadlessSession, to tab: TaskTab) {
-        if let requested = session.requestedModelID, requested != "default" {
+        guard let requested = session.requestedModelID else { return }
+        if requested != "default" {
             if tab.modelRaw != requested { tab.modelRaw = requested }
         } else if let model = session.model, tab.model != model {
             tab.model = model

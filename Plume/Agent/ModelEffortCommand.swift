@@ -79,7 +79,7 @@ nonisolated struct AgentModel: Identifiable, Hashable, Sendable {
     /// a model this build has never heard of assumes nothing.
     var nominalContextWindow: Int? {
         if id == AgentModel.haiku4dot5At200K.id { return 200_000 }
-        if id.lowercased().hasPrefix("claude-haiku-5") { return 1_000_000 }
+        if id.lowercased().hasPrefix("claude-haiku-5-") { return 1_000_000 }
         guard AgentModel.selectable.contains(where: { $0.id == id }) else { return nil }
         return 1_000_000
     }
