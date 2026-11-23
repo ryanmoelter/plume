@@ -44,7 +44,7 @@ enum TitleSource: String, Comparable {
 @MainActor
 @Observable
 final class TitleStore {
-    static let shared = TitleStore()
+    static let shared = TitleStore(summarizer: .shared)
 
     private(set) var titles: [UUID: String] = [:]
 
@@ -60,7 +60,13 @@ final class TitleStore {
     /// `TaskTab.titleSource`) can clear it the same way.
     @ObservationIgnored var onConversationReset: ((UUID) -> Void)?
 
-    init() {}
+    /// Titles a task with several top-level chats. Nil leaves every task on
+    /// its representative tab's title.
+    @ObservationIgnored private let summarizer: TaskTitleSummarizer?
+
+    init(summarizer: TaskTitleSummarizer? = nil) {
+        self.summarizer = summarizer
+    }
 
     func title(forTab id: UUID) -> String? {
         titles[id]
@@ -159,9 +165,19 @@ final class TitleStore {
         return generatedTitle(for: task) ?? "New task"
     }
 
-    /// The agent's title for a task, ignoring the name the user gave it.
+    /// The agent's title for a task, ignoring the name the user gave it: a
+    /// summary of its top-level chats when it has several, else the
+    /// representative tab's title.
     func generatedTitle(for task: WorkTask) -> String? {
-        Self.representativeTab(of: task, hasTitle: { displayTitle(forTab: $0) != nil }).flatMap(displayTitle(forTab:))
+        if let summary = chatSummary(for: task) { return summary }
+        return Self.representativeTab(of: task, hasTitle: { displayTitle(forTab: $0) != nil }).flatMap(displayTitle(forTab:))
+    }
+
+    private func chatSummary(for task: WorkTask) -> String? {
+        guard let summarizer else { return nil }
+        let topLevel = TaskStore.nestedAgentTabs(of: task).filter { $0.depth == 0 }
+        guard topLevel.count > 1 else { return nil }
+        return summarizer.summary(forTask: task.id, chatTitles: topLevel.compactMap { displayTitle(forTab: $0.item) })
     }
 
     /// The tab's live title, else the snapshot saved from an earlier launch.

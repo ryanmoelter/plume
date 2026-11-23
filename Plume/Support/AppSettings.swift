@@ -21,6 +21,7 @@ final class AppSettings {
         static let confirmSystemInitiatedQuit = "confirmSystemInitiatedQuit"
         static let composerSendKeyRaw = "composerSendKeyRaw"
         static let escapeInterruptsTurn = "escapeInterruptsTurn"
+        static let summarizesTaskTitles = "summarizesTaskTitles"
         static let keepsPlumeShortcutsOnMac = "keepsPlumeShortcutsOnMac"
         static let recentRemoteDeviceModels = "recentRemoteDeviceModels"
         static let queuedMessageDeliveryRaw = "queuedMessageDeliveryRaw"
@@ -155,6 +156,9 @@ final class AppSettings {
         self.escapeInterruptsTurn = defaults.object(forKey: Key.escapeInterruptsTurn) == nil
             ? true
             : defaults.bool(forKey: Key.escapeInterruptsTurn)
+        self.summarizesTaskTitles = defaults.object(forKey: Key.summarizesTaskTitles) == nil
+            ? true
+            : defaults.bool(forKey: Key.summarizesTaskTitles)
         self.keepsPlumeShortcutsOnMac = defaults.object(forKey: Key.keepsPlumeShortcutsOnMac) == nil
             ? true
             : defaults.bool(forKey: Key.keepsPlumeShortcutsOnMac)
@@ -439,6 +443,14 @@ final class AppSettings {
     var escapeInterruptsTurn: Bool {
         didSet {
             defaults.set(escapeInterruptsTurn, forKey: Key.escapeInterruptsTurn)
+        }
+    }
+
+    /// Whether a task with several top-level chats takes a summary of their
+    /// titles as its title (`TaskTitleSummarizer`).
+    var summarizesTaskTitles: Bool {
+        didSet {
+            defaults.set(summarizesTaskTitles, forKey: Key.summarizesTaskTitles)
         }
     }
 
