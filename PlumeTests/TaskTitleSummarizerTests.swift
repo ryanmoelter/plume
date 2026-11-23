@@ -121,6 +121,26 @@ struct TaskTitleSummarizerTests {
         #expect(model.calls.count == 1)
     }
 
+    @Test func aFailedSummaryIsRetriedAfterTheRetryInterval() async throws {
+        let context = try makeContext()
+        let model = FakeTitleModel()
+        model.reply = .failure(ModelFailure())
+        var clock = Date(timeIntervalSince1970: 0)
+        let summarizer = TaskTitleSummarizer(model: model, isEnabled: { true }, now: { clock })
+        let store = TitleStore(summarizer: summarizer)
+        let (task, _, _) = twoChatTask(in: context, titles: store)
+        _ = store.displayTitle(for: task)
+        await summarizer.idle()
+
+        model.reply = .success("Shared work")
+        clock += TaskTitleSummarizer.retryInterval
+        _ = store.displayTitle(for: task)
+        await summarizer.idle()
+
+        #expect(store.displayTitle(for: task) == "Shared work")
+        #expect(model.calls.count == 2)
+    }
+
     @Test func aRetitledChatKeepsTheOldSummaryUntilTheNewOneArrives() async throws {
         let context = try makeContext()
         let model = FakeTitleModel()

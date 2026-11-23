@@ -41,6 +41,7 @@ struct GeneralSettingsPane: View {
                 Text(taskTitlesFooter)
                     .font(.callout)
                     .foregroundStyle(.secondary)
+                    .plumeID(AccessibilityID.settingsTaskTitlesFooter, value: taskTitlesFooter)
             }
 
             Section {

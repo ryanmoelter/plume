@@ -147,6 +147,7 @@ enum AccessibilityID {
     static let settingsProjectListRemoveButton = "settings-project-list-remove-button"
     static let settingsProjectListUseDefaultButton = "settings-project-list-use-default-button"
     static let settingsSummarizeTaskTitlesToggle = "settings-summarize-task-titles-toggle"
+    static let settingsTaskTitlesFooter = "settings-task-titles-footer"
     static let settingsImportCmuxButton = "settings-import-cmux-button"
     static let settingsImportOrcaButton = "settings-import-orca-button"
     static let settingsImportClaudeDesktopButton = "settings-import-claude-desktop-button"

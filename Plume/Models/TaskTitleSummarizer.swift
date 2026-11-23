@@ -45,20 +45,27 @@ final class TaskTitleSummarizer {
         /// Nil when the model failed or answered with nothing usable for these
         /// titles, so the task falls back instead of retrying on every render.
         let title: String?
+        let madeAt: Date
     }
+
+    /// How long a failed summary stands before the same titles are tried
+    /// again, since a failure can be transient (model assets still loading).
+    static let retryInterval: TimeInterval = 5 * 60
 
     private var summaries: [UUID: Summary] = [:]
 
     @ObservationIgnored private let model: TaskTitleModel
     @ObservationIgnored private let isEnabled: () -> Bool
+    @ObservationIgnored private let now: () -> Date
     @ObservationIgnored private var pending: [UUID: [String]] = [:]
     @ObservationIgnored private var queue: [UUID] = []
     @ObservationIgnored private var inFlight: (taskID: UUID, chatTitles: [String])?
     @ObservationIgnored private var worker: Task<Void, Never>?
 
-    init(model: TaskTitleModel, isEnabled: @escaping () -> Bool) {
+    init(model: TaskTitleModel, isEnabled: @escaping () -> Bool, now: @escaping () -> Date = Date.init) {
         self.model = model
         self.isEnabled = isEnabled
+        self.now = now
     }
 
     var isModelAvailable: Bool { model.isAvailable }
@@ -71,8 +78,12 @@ final class TaskTitleSummarizer {
         guard chatTitles.count > 1, isEnabled(), model.isAvailable else { return nil }
         let key = chatTitles.sorted()
         let current = summaries[id]
-        if current?.chatTitles != key { request(id, chatTitles: key) }
+        if current?.chatTitles != key || current.map(isRetryable) == true { request(id, chatTitles: key) }
         return current?.title
+    }
+
+    private func isRetryable(_ summary: Summary) -> Bool {
+        summary.title == nil && now().timeIntervalSince(summary.madeAt) >= Self.retryInterval
     }
 
     /// Waits for every queued summary to finish.
@@ -99,7 +110,7 @@ final class TaskTitleSummarizer {
             inFlight = (id, chatTitles)
             let reply = try? await model.summarize(chatTitles: chatTitles)
             inFlight = nil
-            summaries[id] = Summary(chatTitles: chatTitles, title: reply.flatMap(Self.cleaned))
+            summaries[id] = Summary(chatTitles: chatTitles, title: reply.flatMap(Self.cleaned), madeAt: now())
         }
     }
 
@@ -113,7 +124,7 @@ final class TaskTitleSummarizer {
         if line.lowercased().hasPrefix("title:") {
             line = line.dropFirst("title:".count).trimmingCharacters(in: .whitespaces)
         }
-        line = line.trimmingCharacters(in: CharacterSet(charactersIn: "\"'“”‘’*`."))
+        line = line.trimmingCharacters(in: CharacterSet(charactersIn: "\"“”*`."))
             .trimmingCharacters(in: .whitespaces)
         guard !line.isEmpty else { return nil }
         return line.count > 60 ? String(line.prefix(60)).trimmingCharacters(in: .whitespaces) + "…" : line
