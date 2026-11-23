@@ -388,7 +388,8 @@ nonisolated enum Devices {
                 let released = try pool.releaseMine(owner: claimant.owner).map(\.key)
                 let remote = try pool.remoteLeases(ownedBy: claimant.owner)
                 for (key, lease) in remote { try releaseRemote(key: key, lease: lease, pool: pool, app: app, console: console) }
-                let all = released + remote.map(\.key)
+                let vms = try releaseVMs(ownedBy: claimant.owner, environment: environment, app: app)
+                let all = released + remote.map(\.key) + vms
                 console.print(all.isEmpty ? "no leases held" : "released " + all.joined(separator: ", "))
             } else if let serial {
                 let key = try pool.leaseKey(for: serial)
@@ -435,8 +436,8 @@ nonisolated enum Devices {
             console.print(messages.isEmpty ? "nothing to reap" : messages.joined(separator: "\n"))
         case .help:
             console.print(usage)
-        case .vm(let vmCommand):
-            try runVM(vmCommand, environment: environment, console: console, devices: devices, app: app)
+        case .vm:
+            assertionFailure("Devices.main runs VM commands")
         }
     }
 

@@ -37,7 +37,9 @@ nonisolated extension Devices {
             throw CLIFailure("VMs need a running Plume, and none answered at \(socket): \(describe(error))")
         }
         if response.poolFull == true { throw VMPoolFull(slots: response.vms ?? []) }
-        guard response.ok else { throw CLIFailure(response.error ?? "Plume refused without saying why") }
+        guard response.ok else {
+            throw CLIFailure(response.error ?? "Plume refused without saying why", code: response.conflict == true ? conflictExitCode : CLIExitCode.failure)
+        }
         return response
     }
 
@@ -151,6 +153,17 @@ nonisolated extension Devices {
         console.printError("\(programName): VM pool full (\(VMPaths.slotCount) of \(VMPaths.slotCount) slots in use); current VM leases:")
         for slot in full.slots { console.printError("  " + vmListLine(slot, now: now, color: false)) }
         console.printError("(wait, or 'plume devices release vm:<n>' one you own)")
+    }
+
+    /// Releases every VM `owner` holds, returning their keys. None when no app answers, so
+    /// `release --mine` still releases the devices.
+    static func releaseVMs(ownedBy owner: DeviceLeaseOwner, environment: [String: String], app: any DeviceAppClient) throws -> [String] {
+        guard let socket = CLISocket.resolvedPath(environment: environment) else { return [] }
+        let mine = vmRowsIfAnswering(environment: environment, app: app).filter { $0.owner == owner }
+        for slot in mine {
+            _ = try sendVM(.releaseVM(.init(key: slot.key, owner: owner, force: false)), socket: socket, app: app)
+        }
+        return mine.map(\.key)
     }
 
     /// The app's VM rows, or none when no app answers: a plain `list` still shows the devices.

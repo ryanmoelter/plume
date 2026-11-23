@@ -277,6 +277,8 @@ nonisolated struct CLIResponse: Codable, Equatable, Sendable {
     var vms: [VMLeaseInfo]?
     /// A `vms.claim` refused because every slot is in use.
     var poolFull: Bool?
+    /// A `vms.*` command refused because another owner holds the lease.
+    var conflict: Bool?
 
     static let success = CLIResponse(ok: true)
 

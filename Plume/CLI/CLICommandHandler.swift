@@ -167,6 +167,10 @@ final class CLICommandHandler {
             response.poolFull = true
             response.vms = vms.allInfo
             return response
+        } catch let failure as VMManager.Failure {
+            var response = CLIResponse.failure(failure.localizedDescription)
+            if case .notOwner = failure { response.conflict = true }
+            return response
         } catch {
             return .failure(error.localizedDescription)
         }
@@ -461,6 +465,11 @@ final class CLICommandHandler {
     func hasLiveTab(_ id: UUID) -> Bool {
         guard let (task, _) = currentTask(ofTab: id) else { return false }
         return !task.isArchived
+    }
+
+    func hasLiveVMTab(_ id: UUID) -> Bool {
+        guard let (task, _) = currentTask(ofTab: id), !task.isArchived else { return false }
+        return task.tabs.contains { $0.id == id && $0.kind == .vm }
     }
 
     /// Git answers with symlinks resolved, so `/var/…` must match

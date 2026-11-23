@@ -248,4 +248,33 @@ struct VMDevicesTests {
         #expect(code == 0)
         #expect(console.stdout.split(separator: "\n").count == 1)
     }
+
+    @Test func releasingAnotherOwnersVMExitsTwo() throws {
+        let run = try Run()
+        run.app.reply = { _ in
+            var response = CLIResponse.failure("vm:1 is leased by another owner, a")
+            response.conflict = true
+            return response
+        }
+        let (code, console) = run(["release", "vm:1"])
+        #expect(code == Devices.conflictExitCode)
+        #expect(console.stderr.contains("leased by another owner"))
+    }
+
+    @Test func releaseMineAlsoReleasesMyVMs() throws {
+        let run = try Run()
+        run.app.reply = { request in
+            guard case .listVMs = request else { return .success }
+            var response = CLIResponse.success
+            response.vms = [
+                VMDevicesTests.slot(1, .ready),
+                VMDevicesTests.slot(2, .ready, owner: .label("someone else")),
+            ]
+            return response
+        }
+        let (code, console) = run(["release", "--mine"])
+        #expect(code == 0)
+        #expect(console.stdout == "released vm:1\n")
+        #expect(run.requests == [.listVMs, .releaseVM(.init(key: "vm:1", owner: .label("/repo/wt"), force: false))])
+    }
 }
