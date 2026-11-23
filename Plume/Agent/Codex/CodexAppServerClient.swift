@@ -14,6 +14,8 @@ final class CodexAppServerClient {
         case server(code: Int, message: String)
     }
 
+    private enum ModelCatalogFailure: Error { case malformedPage, repeatedCursor }
+
     private let sharedServer: CodexSharedAppServer?
     var usesSharedServer: Bool { sharedServer != nil }
     var sharedRemoteControl: CodexRemoteControl? { sharedServer?.remoteControl }
@@ -144,6 +146,24 @@ final class CodexAppServerClient {
         if let params { fields["params"] = params }
         guard let line = encode(fields) else { return }
         writeLine?(line)
+    }
+
+    func listModels() async throws -> [JSONValue] {
+        var cursor: String?
+        var seenCursors: Set<String> = []
+        var models: [JSONValue] = []
+        repeat {
+            var params: [String: JSONValue] = ["includeHidden": .bool(false)]
+            if let cursor {
+                guard seenCursors.insert(cursor).inserted else { throw ModelCatalogFailure.repeatedCursor }
+                params["cursor"] = .string(cursor)
+            }
+            let result = try await send("model/list", .object(params))
+            guard let page = result["data"]?.arrayValue else { throw ModelCatalogFailure.malformedPage }
+            models += page
+            cursor = result["nextCursor"]?.stringValue
+        } while cursor != nil
+        return models
     }
 
     func respond(to id: CodexRPC.RequestID, result: JSONValue) {

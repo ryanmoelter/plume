@@ -247,6 +247,7 @@ final class HeadlessSession: AgentSession {
     /// `effort` is never corrected; it only ever reflects what this host sent.
     private(set) var permissionMode: PermissionMode?
     private(set) var model: AgentModel?
+    private(set) var modelCatalog: ClaudeModelCatalog?
     private(set) var effort: AgentEffort?
 
     /// False while `model`/`permissionMode` are still Plume's own guess —
@@ -969,6 +970,13 @@ final class HeadlessSession: AgentSession {
         send(StreamJSONEncoder.setModel(newModel.token, requestID: nextRequestID()))
     }
 
+    func setDefaultModel() {
+        let requestID = nextRequestID()
+        guard send(StreamJSONEncoder.setModel("default", requestID: requestID)) else { return }
+        requestedModelID = "default"
+        pendingControlRequests[requestID] = .setDefaultModel
+    }
+
     /// Asks the CLI to name the conversation.
     ///
     /// The reply is what delivers the title. The CLI may also write an
@@ -1441,6 +1449,13 @@ final class HeadlessSession: AgentSession {
         switch pending {
         case .initialize:
             applyReportedCommands(in: response)
+            modelCatalog = ClaudeModelCatalog(payload: response.payload)
+        case .setDefaultModel:
+            if requestedModelID == "default", !response.isError,
+               let id = response.payload["model"]?.stringValue,
+               let reported = AgentModel.recognizing(id) {
+                model = reported
+            }
         case .remoteControl(let enabled):
             updateRemoteControl(RemoteControlState.applying(
                 response: response,
@@ -1868,6 +1883,7 @@ final class HeadlessSession: AgentSession {
     /// id until it arrives. Replies to everything else are ignored.
     private enum PendingControlRequest {
         case initialize
+        case setDefaultModel
         case remoteControl(enabled: Bool)
         case generateSessionTitle
         case setPermissionMode(PermissionMode)
