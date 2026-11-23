@@ -188,6 +188,37 @@ Right after launch, menu chords read disabled until a tab chip is invoked. Run t
 MSG
 }
 
+# Reads `xcresulttool get test-results tests` JSON on stdin and fails, naming each one, if any
+# -only-testing identifier (target[/suite...[/test]]) matches no test that ran. Each component
+# must match in full, and a test's trailing "()" is optional.
+UNMATCHED_FILTERS='
+import json, sys
+try:
+    nodes = json.load(sys.stdin).get("testNodes", [])
+except ValueError:
+    nodes = []
+ran = []
+def walk(node, path):
+    kind = node.get("nodeType", "")
+    if kind.endswith("test bundle") or kind == "Test Suite":
+        path = path + [node.get("name", "")]
+    elif kind == "Test Case":
+        if node.get("result") != "Skipped":
+            ran.append(path + [node.get("name", "")])
+        return
+    for child in node.get("children", []):
+        walk(child, path)
+for node in nodes:
+    walk(node, [])
+def same(a, b):
+    return a.removesuffix("()") == b.removesuffix("()")
+unmatched = [f for f in sys.argv[1:]
+             if not any(len(f.split("/")) <= len(p) and all(same(x, y) for x, y in zip(f.split("/"), p)) for p in ran)]
+for f in unmatched:
+    print("plume-vm: no tests from %s ran" % f, file=sys.stderr)
+sys.exit(1 if unmatched else 0)
+'
+
 cmd_test() {
   local only=() skip_build=0
   while [[ $# -gt 0 ]]; do
@@ -233,14 +264,8 @@ cmd_test() {
   echo "xcresult: $result"
   if [[ -d "$result" ]]; then
     xcrun xcresulttool get test-results summary --path "$result" --compact || true
-    local tests
-    tests="$(xcrun xcresulttool get test-results tests --path "$result" --compact 2>/dev/null || true)"
-    for t in "${only[@]}"; do
-      if ! grep -q "\"${t##*/}\"" <<<"$tests"; then
-        echo "plume-vm: no tests from $t ran" >&2
-        status=1
-      fi
-    done
+    xcrun xcresulttool get test-results tests --path "$result" --compact 2>/dev/null \
+      | python3 -c "$UNMATCHED_FILTERS" "${only[@]}" || status=1
   else
     echo "plume-vm: no result bundle was written" >&2
     status=1
