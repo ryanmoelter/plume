@@ -20,8 +20,9 @@ If `plume` is not on PATH, run `"$PLUME_CLI"` instead.
 - If the stack's state is unclear, run `restack`, `submit` or `sync` with `--dry-run` first.
 - Pass bare branch names. `create` and `split` add the branch prefix from Plume's Settings ▸ Projects themselves.
 - `restack` refuses a dirty working tree, and `plume stack` never stashes. Commit first.
+- To cut uncommitted work into several stacked branches, run `plume stack split --hunks --json` to see the numbered hunks with their lines. Then pass `plume stack split --hunks --map '[{"branch": "<name>", "hunks": [1, 3], "message": "<subject>"}, ...]'`, oldest branch first. A file path in `hunks` takes every hunk of that file. Hunks you leave out stay uncommitted on the top new branch.
 - To fix a commit lower in the stack, edit the file, `git add` the fix, and run `plume stack absorb`. It folds each staged hunk into the stack commit that last touched those lines and rebuilds the branches above. Check the "left staged" list it prints: those hunks had no clear target, so commit them yourself.
-- If a `restack`, `sync`, `split`, `absorb` or `create --insert` left the stack wrong, run `plume stack undo`. Don't walk the reflog. `plume stack undo --list` lists older snapshots, and `plume stack undo <n>` restores one. Undo is local only, so re-push anything `sync --push` or `submit` already pushed.
+- If a `restack`, `sync`, `split`, `split --hunks`, `absorb` or `create --insert` left the stack wrong, run `plume stack undo`. Don't walk the reflog. `plume stack undo --list` lists older snapshots, and `plume stack undo <n>` restores one. Undo is local only, so re-push anything `sync --push` or `submit` already pushed.
 
 ## Common commands
 
@@ -30,6 +31,7 @@ If `plume` is not on PATH, run `"$PLUME_CLI"` instead.
 | See the stack and its PRs | `plume stack list` (`--all` for every stack) |
 | New branch stacked on the current one | `plume stack create <name>` |
 | Split a branch into a stack | `plume stack split <name>:<commit> [<name>:<commit> ...]` |
+| Split uncommitted changes into stacked branches | `plume stack split --hunks --map '<json>'` (`--hunks --json` lists the hunks) |
 | Track existing branches | `plume stack track [<branch>] [--parent <p>]` |
 | Move through the stack | `plume stack prev`, `next`, `first`, `last` or `checkout <branch>` |
 | Rebase after changing a branch | `plume stack restack` (`--all` for the whole tree, `--trunk` to also move the root onto the latest trunk) |

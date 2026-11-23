@@ -47,6 +47,7 @@ nonisolated extension Stack {
     }
 
     static func split(_ ctx: StackContext, _ arguments: [String]) throws {
+        if arguments.contains("--hunks") { return try splitHunks(ctx, arguments.filter { $0 != "--hunks" }) }
         guard let current = ctx.git.currentBranch() else { throw CLIFailure("detached HEAD — check out a branch first") }
         try ctx.state.withLock {
             var branches = try ctx.loadAndFlushLocked()

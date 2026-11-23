@@ -189,6 +189,15 @@ nonisolated enum Stack {
                     keeps the commits above the last boundary. Never rewrites history —
                     branches are planted at existing commits. New names get the branch
                     prefix. With no args on a TTY, pick boundaries interactively.
+              \(b)split --hunks [--json] | split --hunks --map <json|file|->\(r)
+                    Split the uncommitted changes (staged, unstaged and untracked) into
+                    new branches stacked on the current one, hunk by hunk. Without
+                    --map, list the hunks, numbered (--json adds their lines). --map
+                    takes [{"branch": <name>, "hunks": [<n> or <path>, ...],
+                    "message": <optional>}, ...], oldest first: each entry becomes one
+                    branch with one commit, a path standing for all of that file's
+                    hunks. Hunks left out stay uncommitted on the top new branch, which
+                    is checked out without touching the working tree.
               \(b)track [<branch>] [--parent <p>]\(r)
                     Start tracking <branch> (default: current). Without --parent, any
                     untracked local branches whose tips sit between the trunk and
@@ -268,8 +277,9 @@ nonisolated enum Stack {
                     last restack, sync, split, absorb or create --insert. Branches the
                     command created are deleted, ones it deleted are recreated, and the
                     checkout returns to where the command started. Refuses a dirty
-                    working tree (except after absorb, which it undoes with a soft
-                    reset); a branch checked out in another clean worktree is reset
+                    working tree, except after absorb or split --hunks: those it undoes
+                    without touching the tree, so their changes come back staged. A
+                    branch checked out in another clean worktree is reset
                     there. Local only — nothing pushed is undone. Undo records a
                     snapshot of its own, so a second undo redoes. --list shows the last
                     20 snapshots, newest first (a picker on a TTY); <n> restores the

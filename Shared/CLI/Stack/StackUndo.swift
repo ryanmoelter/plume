@@ -14,9 +14,10 @@ nonisolated struct StackUndoSnapshot: Equatable, Sendable {
     /// can track a branch and then move it.
     var tips: [String: String]
     var state: StackBranches
-    /// Restoring moves the checked-out branch with `reset --soft`, so the
-    /// changes a command committed from the index (`absorb`) come back
-    /// staged.
+    /// Restoring touches neither the index nor the working tree: the
+    /// checked-out branch moves with `reset --soft` and the checkout with
+    /// `symbolic-ref`, so changes the command committed from the tree
+    /// (`absorb`, `split --hunks`) come back staged.
     var keepsIndex = false
 }
 
@@ -305,14 +306,18 @@ nonisolated extension Stack {
             byBranch[branch].map { $0.target != nil } ?? ctx.git.branchExists(branch)
         }
         // The checkout goes back to where the command found it, when that
-        // was this worktree. A tree that may be dirty stays where it is.
-        var target = snapshot.worktree == here && !snapshot.keepsIndex ? snapshot.current : checkedOut
+        // was this worktree.
+        var target = snapshot.worktree == here ? snapshot.current : checkedOut
         if let wanted = target, !survives(wanted) || worktrees[wanted] != nil { target = checkedOut }
         if let wanted = target, !survives(wanted) { target = ctx.trunk }
         var switched: String?
         if let target, target != checkedOut {
             if let sha = byBranch[target]?.target { try ctx.git.git("branch", "-f", target, sha) }
-            try ctx.git.switchTo(target, quiet: true)
+            if snapshot.keepsIndex {
+                try ctx.git.git("symbolic-ref", "HEAD", GitRef.local(target))
+            } else {
+                try ctx.git.switchTo(target, quiet: true)
+            }
             switched = target
         }
         let now = ctx.git.currentBranch()
