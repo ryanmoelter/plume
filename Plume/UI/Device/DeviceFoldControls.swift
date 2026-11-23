@@ -30,10 +30,10 @@ struct DeviceFoldControls: View {
                 .foregroundStyle(selected ? AnyShapeStyle(.tint) : AnyShapeStyle(.primary))
         }
         .buttonStyle(.borderless)
-        .help(posture.title)
+        .help(posture.help)
         .accessibilityLabel(posture.title)
         .accessibilityAddTraits(selected ? .isSelected : [])
-        .plumeID(AccessibilityID.deviceFoldPostureButton, label: posture.title, value: selected ? "selected" : nil, invoke: action)
+        .plumeID(AccessibilityID.deviceFoldPostureButton, label: posture.help, value: selected ? "selected" : nil, invoke: action)
     }
 }
 
@@ -43,6 +43,14 @@ extension DevicePosture {
         case .closed: "Closed"
         case .halfOpen: "Half-Open"
         case .open: "Open"
+        }
+    }
+
+    var help: String {
+        switch self {
+        case .closed: "Fold the device closed"
+        case .halfOpen: "Fold the device half open"
+        case .open: "Unfold the device fully"
         }
     }
 

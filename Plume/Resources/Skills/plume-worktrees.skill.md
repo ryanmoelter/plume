@@ -25,7 +25,7 @@ If `plume` is not on PATH, run `"$PLUME_CLI"` instead.
 | New branch in a new worktree | `plume wt cob <name> --no-tab` |
 | Existing branch in a new worktree | `plume wt co <branch> --no-tab` |
 | Move the current branch and its changes to a worktree | `plume wt bg [name] --no-tab` |
-| List worktrees with their status | `plume wt list` (`--json` to parse) |
+| List worktrees with their status | `plume wt list` (`--json` to parse). A yellow `!` marks worktrees that change the same files, so they will likely conflict; `--json` names the files in `overlaps`. |
 | Which worktree am I in | `plume wt current --json` |
 | Commit all changes in another worktree | `plume wt cm <name> [git-args...]` |
 | Rename a worktree's branch | `plume wt rename [name] <new>` (`-f` also renames the folder) |

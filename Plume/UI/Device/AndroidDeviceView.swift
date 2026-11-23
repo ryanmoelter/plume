@@ -128,24 +128,24 @@ struct AndroidDeviceView: View, ThemedView {
         let axis = vertical ? AnyLayout(VStackLayout(spacing: 2)) : AnyLayout(HStackLayout(spacing: 2))
         return axis {
             Group {
-                button("arrow.uturn.backward", "Back", AccessibilityID.deviceBackButton) { session.press(.back) }
-                button("circle", "Home", AccessibilityID.deviceHomeButton) { session.press(.home) }
-                button("square.on.square", "Overview", AccessibilityID.deviceOverviewButton) { session.press(.overview) }
+                button("arrow.uturn.backward", "Go back", AccessibilityID.deviceBackButton) { session.press(.back) }
+                button("circle", "Go to the home screen", AccessibilityID.deviceHomeButton) { session.press(.home) }
+                button("square.on.square", "Show recent apps", AccessibilityID.deviceOverviewButton) { session.press(.overview) }
                 separator(vertical: vertical)
                 // A phone's orientation follows its own sensor and auto-rotate setting, but nobody
                 // can turn a lab device. scrcpy's rotate only toggles, so it has no direction.
                 if session.isRemote {
-                    button("rotate.right", "Rotate", AccessibilityID.deviceRotateButton) { session.rotate(clockwise: true) }
+                    button("rotate.right", "Rotate the screen clockwise", AccessibilityID.deviceRotateButton) { session.rotate(clockwise: true) }
                     separator(vertical: vertical)
                 } else if !session.isPhysical {
-                    button("rotate.left", "Rotate Left", AccessibilityID.deviceRotateLeftButton) { session.rotate(clockwise: false) }
-                    button("rotate.right", "Rotate Right", AccessibilityID.deviceRotateRightButton) { session.rotate(clockwise: true) }
+                    button("rotate.left", "Rotate the screen counterclockwise", AccessibilityID.deviceRotateLeftButton) { session.rotate(clockwise: false) }
+                    button("rotate.right", "Rotate the screen clockwise", AccessibilityID.deviceRotateRightButton) { session.rotate(clockwise: true) }
                     separator(vertical: vertical)
                 }
                 DeviceFoldControls(session: session, vertical: vertical)
-                button("speaker.minus", "Volume Down", AccessibilityID.deviceVolumeDownButton) { session.press(.volumeDown) }
-                button("speaker.plus", "Volume Up", AccessibilityID.deviceVolumeUpButton) { session.press(.volumeUp) }
-                button("power", "Power", AccessibilityID.devicePowerButton) { session.press(.power) }
+                button("speaker.minus", "Turn the volume down", AccessibilityID.deviceVolumeDownButton) { session.press(.volumeDown) }
+                button("speaker.plus", "Turn the volume up", AccessibilityID.deviceVolumeUpButton) { session.press(.volumeUp) }
+                button("power", "Press the power button", AccessibilityID.devicePowerButton) { session.press(.power) }
             }
             .disabled(!session.isConnected)
             Menu {
@@ -191,7 +191,8 @@ struct AndroidDeviceView: View, ThemedView {
             .menuIndicator(.hidden)
             .fixedSize()
             .padding(.horizontal, 6)
-            .plumeID(AccessibilityID.deviceMoreMenu)
+            .help("More device actions")
+            .plumeID(AccessibilityID.deviceMoreMenu, label: "More device actions")
             .plumeMenuItem(
                 AccessibilityID.emulatorShutDownMenuItem,
                 isPresent: !session.isPhysical,
@@ -274,7 +275,7 @@ struct AndroidDeviceView: View, ThemedView {
         }
         .buttonStyle(.borderless)
         .help(help)
-        .plumeID(id, invoke: action)
+        .plumeID(id, label: help, invoke: action)
     }
 
     @ViewBuilder

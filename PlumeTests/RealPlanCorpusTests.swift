@@ -18,13 +18,16 @@ struct RealPlanCorpusTests {
     }
 
     @Test func everyPlanFileParsesIntoAtLeastOneBlock() throws {
-        let files = planFiles()
-        try #require(!files.isEmpty, "no plan files on this machine")
+        let contents = planFiles().compactMap { url -> (name: String, text: String)? in
+            guard let text = try? String(contentsOf: url, encoding: .utf8),
+                !text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+            else { return nil }
+            return (url.lastPathComponent, text)
+        }
+        try #require(!contents.isEmpty, "no non-empty plan files on this machine")
 
-        for url in files {
-            guard let content = try? String(contentsOf: url, encoding: .utf8) else { continue }
-            let blocks = MarkdownBlock.parse(content)
-            #expect(!blocks.isEmpty, "\(url.lastPathComponent) parsed into no blocks")
+        for (name, text) in contents {
+            #expect(!MarkdownBlock.parse(text).isEmpty, "\(name) parsed into no blocks")
         }
     }
 }

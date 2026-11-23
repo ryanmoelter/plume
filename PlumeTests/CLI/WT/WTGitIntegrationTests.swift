@@ -38,6 +38,25 @@ struct WTGitIntegrationTests {
         #expect(ctx.listWorktreeNames() == ["repo", "a"])
     }
 
+    @Test func listMarksWorktreesThatChangeTheSameFile() throws {
+        let tmp = try makeScratchDirectory()
+        defer { try? FileManager.default.removeItem(atPath: tmp) }
+        let repo = try makeScratchRepository(in: tmp)
+        for name in ["a", "b", "c"] {
+            try runGit(["worktree", "add", "-q", "-b", "ryanm/\(name)", "\(repo)/.plume/worktrees/\(name)"], in: repo)
+        }
+        for (name, file) in [("a", "README"), ("b", "README"), ("c", "other")] {
+            let dir = "\(repo)/.plume/worktrees/\(name)"
+            try "\(name)\n".write(toFile: "\(dir)/\(file)", atomically: true, encoding: .utf8)
+            try runGit(["add", file], in: dir)
+            try runGit(["commit", "-q", "-m", name], in: dir)
+        }
+        let rows = WT.buildRows(try detect(from: repo))
+        #expect(rows.map(\.overlaps.count) == [0, 1, 1, 0])
+        #expect(rows[1].overlaps.first?.name == "b")
+        #expect(rows[1].overlaps.first?.files == ["README"])
+    }
+
     @Test func detectFindsTheBareLayout() throws {
         let tmp = try makeScratchDirectory()
         defer { try? FileManager.default.removeItem(atPath: tmp) }

@@ -228,9 +228,35 @@ struct WTListTests {
         let expected: NSDictionary = [
             "name": "dotfiles", "path": "/repo", "branch": "main", "current": true,
             "ahead": 4, "dirty": true, "remote_ahead": 2, "remote_behind": 1,
-            "has_upstream": true, "pr": NSNull(),
+            "has_upstream": true, "overlaps": [], "pr": NSNull(),
         ]
         #expect(worktrees(got).first == expected)
+    }
+
+    @Test func overlapsPairWorktreesThatShareAChangedFile() {
+        let found = WT.overlaps(among: [
+            (name: "a", path: "/a", files: ["x", "y"]),
+            (name: "b", path: "/b", files: ["y", "z"]),
+            (name: "c", path: "/c", files: ["q"]),
+            (name: "d", path: "/d", files: []),
+        ])
+        #expect(found[0] == [WorktreeOverlap(name: "b", path: "/b", files: ["y"])])
+        #expect(found[1] == [WorktreeOverlap(name: "a", path: "/a", files: ["y"])])
+        #expect(found[2].isEmpty)
+        #expect(found[3].isEmpty)
+    }
+
+    @Test func overlappingRowsGetAMarkAndJSONNamesTheOverlap() throws {
+        let overlap = WorktreeOverlap(name: "scratch", path: "/repo/.plume/worktrees/scratch", files: ["a.swift"])
+        var marked = rows
+        marked[0].overlaps = [overlap]
+        let text = WT.renderList(marked, currentIndex: nil, prState: .off, prs: [:], numberPrefix: "#")
+        let lines = text.split(separator: "\n")
+        #expect(lines[0].contains("+ !"))
+        #expect(!lines[1].contains("!"))
+        let built = WT.buildListJSON(marked, currentIndex: nil, prState: .off, prs: [:], paths: WTFixtures.paths)
+        let first = try #require(worktrees(jsonObject(built.jsonString())).first)
+        #expect(first["overlaps"] as? NSArray == [["name": "scratch", "path": "/repo/.plume/worktrees/scratch", "files": ["a.swift"]]] as NSArray)
     }
 
     @Test func jsonMarksOnlyTheWorkingDirectorysRowCurrent() {
