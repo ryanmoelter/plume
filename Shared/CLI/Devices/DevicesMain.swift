@@ -20,6 +20,10 @@ nonisolated enum Devices {
                   Only from a Plume tab: the reservation is billed, and ends with the lease.
                   The model defaults to the one last reserved. --owner names the tab that
                   holds a remote device, to claim it again from anywhere.
+          claim --kind=vm [--worktree=<path>] [--owner=<label>] [--ttl=<sec>] [--json]
+                  Lease a macOS VM from the running Plume and wait until it's ready. The
+                  worktree (default: the current one) is shared read-only into the guest.
+                  Prints only vm:<n> on stdout; --json adds the address, ssh key and shares.
           release <serial> | --mine [--owner=<label>] [--force]
                   Release a lease. Another owner's lease needs --force. Releasing a remote
                   device ends its reservation.
@@ -27,15 +31,19 @@ nonisolated enum Devices {
                   Extend a lease you hold.
           installed <serial> [<branch>]
                   Record which branch's build is on the device.
-          list|ls [--json]
-                  Connected devices with their leases.
+          list|ls [--kind=vm] [--json]
+                  Connected devices with their leases, then the running Plume's VMs.
+                  --kind=vm lists only the VMs, and never runs adb.
+          reset vm:<n>
+                  Delete a free VM's clone, so its next claim starts from the base image.
           prune   Drop stale leases now (every command also does).
           help
 
         Inside a Plume tab the tab owns the lease; elsewhere the git worktree does, or --owner.
         Leases expire after 1h unless renewed. Target a device with ANDROID_SERIAL.
+        release, renew and installed take a vm:<n> key too.
 
-        exit codes: 0 ok · 1 error or usage · 2 leased by another owner · 3 nothing free
+        exit codes: 0 ok · 1 error or usage · 2 leased by another owner · 3 nothing free (or VM pool full)
         """
 
     enum Command: Equatable {
@@ -47,6 +55,7 @@ nonisolated enum Devices {
         case list(json: Bool)
         case prune
         case help
+        case vm(VMCommand)
     }
 
     struct UsageError: Error, Equatable {
@@ -85,8 +94,15 @@ nonisolated enum Devices {
             log: { console.printError("==> \($0)") }
         )
         do {
-            try run(command, pool: pool, environment: environment, console: console, app: app)
+            if case .vm(let vmCommand) = command {
+                try runVM(vmCommand, environment: environment, console: console, devices: devices, app: app)
+            } else {
+                try run(command, pool: pool, environment: environment, console: console, app: app)
+            }
             return CLIExitCode.success
+        } catch let full as VMPoolFull {
+            printVMPoolFull(full, console: console, now: devices.now())
+            return exhaustedExitCode
         } catch DevicePoolError.conflict(let key, let lease) {
             console.printError("\(programName): \(key) is leased by another owner:")
             for line in DevicePool.leaseLines(DeviceRegistry(devices: [key: lease]), now: devices.now()) {
@@ -128,15 +144,19 @@ nonisolated enum Devices {
             var ttl = DevicePool.defaultTTL
             var json = false
             var serial: String?
+            var vm = false
+            var worktree: String?
             while let argument = try flags.next() {
                 switch argument {
                 case .flag("--kind", let value):
                     let raw = try flags.require(value, for: "--kind")
                     remote = raw == DeviceKind.remote.rawValue
-                    guard remote || DeviceKindFilter(rawValue: raw) != nil else {
-                        throw UsageError(message: "--kind must be one of emulator|physical|any|remote, got: \(raw)")
+                    vm = raw == vmKind
+                    guard remote || vm || DeviceKindFilter(rawValue: raw) != nil else {
+                        throw UsageError(message: "--kind must be one of emulator|physical|any|remote|vm, got: \(raw)")
                     }
                     kind = DeviceKindFilter(rawValue: raw) ?? kind
+                case .flag("--worktree", let value): worktree = try flags.require(value, for: "--worktree")
                 case .flag("--model", let value): model = try flags.require(value, for: "--model")
                 case .flag("--form", let value):
                     let raw = try flags.require(value, for: "--form")
@@ -151,6 +171,13 @@ nonisolated enum Devices {
                 case .flag(let flag, _): throw UsageError(message: "unknown flag for claim: \(flag)")
                 }
             }
+            if vm {
+                guard serial == nil, model == nil, form == nil else {
+                    throw UsageError(message: "--kind=vm takes no <serial>, --model or --form")
+                }
+                return .vm(.claim(worktree: worktree, owner: owner, ttl: ttl, json: json))
+            }
+            guard worktree == nil else { throw UsageError(message: "--worktree needs --kind=vm") }
             if remote {
                 guard serial == nil else {
                     throw UsageError(message: "--kind=remote takes no <serial>; pick the device with --model or --form")
@@ -177,6 +204,7 @@ nonisolated enum Devices {
                 }
             }
             guard (serial != nil) != mine else { throw UsageError(message: "release takes a <serial> or --mine") }
+            if let serial, VMPaths.isKey(serial) { return .vm(.release(key: serial, owner: owner, force: force)) }
             return .release(serial: serial, mine: mine, owner: owner, force: force)
         case "renew":
             var serial: String?
@@ -191,6 +219,7 @@ nonisolated enum Devices {
                 }
             }
             guard let serial else { throw UsageError(message: "renew takes a <serial>") }
+            if VMPaths.isKey(serial) { return .vm(.renew(key: serial, owner: owner, ttl: ttl)) }
             return .renew(serial: serial, owner: owner, ttl: ttl)
         case "installed":
             var positionals: [String] = []
@@ -203,16 +232,35 @@ nonisolated enum Devices {
             guard (1...2).contains(positionals.count) else {
                 throw UsageError(message: "installed takes a <serial> and optionally a <branch>")
             }
-            return .installed(serial: positionals[0], branch: positionals.count > 1 ? positionals[1] : nil)
+            let branch = positionals.count > 1 ? positionals[1] : nil
+            if VMPaths.isKey(positionals[0]) { return .vm(.installed(key: positionals[0], branch: branch)) }
+            return .installed(serial: positionals[0], branch: branch)
         case "list", "ls":
             var json = false
+            var vmOnly = false
             while let argument = try flags.next() {
                 switch argument {
                 case .flag("--json", nil): json = true
+                case .flag("--kind", let value):
+                    let raw = try flags.require(value, for: "--kind")
+                    guard raw == vmKind else { throw UsageError(message: "list takes only --kind=vm, got: \(raw)") }
+                    vmOnly = true
                 case .positional(let value), .flag(let value, _): throw UsageError(message: "unknown argument for list: \(value)")
                 }
             }
-            return .list(json: json)
+            return vmOnly ? .vm(.list(json: json)) : .list(json: json)
+        case "reset":
+            var positionals: [String] = []
+            while let argument = try flags.next() {
+                switch argument {
+                case .positional(let value): positionals.append(value)
+                case .flag(let flag, _): throw UsageError(message: "unknown flag for reset: \(flag)")
+                }
+            }
+            guard positionals.count == 1, VMPaths.isKey(positionals[0]) else {
+                throw UsageError(message: "reset takes one vm:<n> key")
+            }
+            return .vm(.reset(key: positionals[0]))
         case "prune":
             if let argument = arguments.dropFirst().first { throw UsageError(message: "unexpected argument: \(argument)") }
             return .prune
@@ -231,7 +279,7 @@ nonisolated enum Devices {
             case positional(String)
         }
 
-        static let valued: Set<String> = ["--kind", "--form", "--owner", "--ttl", "--model"]
+        static let valued: Set<String> = ["--kind", "--form", "--owner", "--ttl", "--model", "--worktree"]
 
         private var rest: ArraySlice<String>
         private var onlyPositionals = false
@@ -266,6 +314,8 @@ nonisolated enum Devices {
             slot = value
         }
     }
+
+    static let vmKind = "vm"
 
     static func parseTTL(_ value: String) throws -> TimeInterval {
         guard let seconds = Int(value), seconds > 0 else {
@@ -371,19 +421,22 @@ nonisolated enum Devices {
             }
         case .list(let json):
             let rows = try pool.listing()
+            let vms = vmRowsIfAnswering(environment: environment, app: app)
             if json {
-                try console.print(jsonLine(ListResult(devices: rows), pretty: true))
-            } else if rows.isEmpty {
-                console.print("no devices connected")
+                try console.print(jsonLine(ListResult(devices: rows, vms: vms.isEmpty ? nil : vms), pretty: true))
             } else {
                 let color = console.stdoutIsTerminal && environment["NO_COLOR"] == nil
+                if rows.isEmpty { console.print("no devices connected") }
                 for row in rows { console.print(listLine(row, now: devices.now(), color: color)) }
+                for vm in vms { console.print(vmListLine(vm, now: devices.now(), color: color)) }
             }
         case .prune:
             let messages = try pool.prune()
             console.print(messages.isEmpty ? "nothing to reap" : messages.joined(separator: "\n"))
         case .help:
             console.print(usage)
+        case .vm(let vmCommand):
+            try runVM(vmCommand, environment: environment, console: console, devices: devices, app: app)
         }
     }
 
@@ -577,6 +630,7 @@ nonisolated enum Devices {
 
     private struct ListResult: Encodable {
         var devices: [DeviceListingRow]
+        var vms: [VMLeaseInfo]?
     }
 
     static func jsonLine(_ value: some Encodable, pretty: Bool = false) throws -> String {
@@ -607,7 +661,7 @@ nonisolated enum Devices {
         return pad(serial, 22) + " " + pad(what, 28) + " " + state
     }
 
-    private static func pad(_ text: String, _ width: Int) -> String {
+    static func pad(_ text: String, _ width: Int) -> String {
         text.count >= width ? text : text + String(repeating: " ", count: width - text.count)
     }
 }
