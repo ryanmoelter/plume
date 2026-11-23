@@ -133,12 +133,14 @@ enum TaskStore {
         return tab
     }
 
-    /// A headless Claude tab for a session `parent`'s agent started, placed
+    /// A headless agent tab for a session `parent`'s agent started, placed
     /// at the end of the parent's run in its pane, so it starts attached, and
     /// left unselected, so the user stays where they are.
-    static func addChildTab(to task: WorkTask, parent: TaskTab, in context: ModelContext) -> TaskTab {
+    static func addChildTab(
+        to task: WorkTask, parent: TaskTab, provider: AgentProviderKind = .claudeCode, in context: ModelContext
+    ) -> TaskTab {
         let tab = addTab(
-            to: task, kind: .agent, provider: .claudeCode, pane: parent.paneIndex, selecting: false, in: context
+            to: task, kind: .agent, provider: provider, pane: parent.paneIndex, selecting: false, in: context
         )
         tab.transport = .headless
         tab.parentTabID = parent.id

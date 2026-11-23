@@ -77,8 +77,8 @@ does not implement with a JSON-RPC error rather than silence.
 | `item/fileChange/requestApproval` | apply a patch |
 | `item/permissions/requestApproval` | widen the permission profile |
 | `item/tool/requestUserInput` | ask the user a question |
-| `mcpServer/elicitation/request` | ask the user for structured input or direct them to a website |
-| `item/tool/call` | not implemented |
+| `mcpServer/elicitation/request` | not implemented |
+| `item/tool/call` | run a Plume dynamic tool in the owning thread |
 
 **`item/fileChange/requestApproval` does not carry the patch.** It carries
 `{itemId, threadId, turnId, reason?}`, and the diff lives on the `fileChange`
@@ -99,6 +99,22 @@ Requests without a turn ID remain pending across turn completion.
 The matching turn's completion cancels correlated requests. A server resolution
 or disconnect removes the request, and closing the tab cancels its outstanding
 elicitations. Form values stay in the active prompt and are not cached.
+
+## Plume dynamic tools
+
+Plume registers `plume_presence` in `thread/start.dynamicTools`. It accepts
+an empty object and returns the same `awake`, `asleep`, or `locked` text as
+`plume presence`, using the same CoreGraphics reader.
+
+Codex asks for the tool through `item/tool/call`. Plume checks the root
+thread and active turn before dispatching. An unknown tool or invalid
+arguments produce a failed tool result. Native subagent threads and
+remote-control attachments do not run Plume's tool.
+
+Codex stores the registration with its thread. Resuming a thread created
+with the tool keeps it available. The 0.153.4 protocol only accepts dynamic
+tool definitions on `thread/start`. A thread created without the tool cannot
+gain it through `thread/resume`.
 
 ## History
 

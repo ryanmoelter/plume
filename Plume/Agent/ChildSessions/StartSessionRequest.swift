@@ -17,6 +17,7 @@ nonisolated struct StartSessionRequest: Equatable {
     static let titleLimit = 60
     static let nameLimit = 24
     static let minimumBackground = 80
+    static let codexForkError = "Codex sessions require fresh context. Put the conversation details in background."
 
     var title: String
     var prompt: String
@@ -26,6 +27,7 @@ nonisolated struct StartSessionRequest: Equatable {
     var context: Context = .fresh
     /// Nil follows the parent: a worktree when the parent works in one.
     var useWorktree: Bool?
+    var provider: AgentProviderKind = .claudeCode
     var model: AgentModel?
     var effort: AgentEffort?
     var permissionMode: PermissionMode?
@@ -48,6 +50,12 @@ nonisolated struct StartSessionRequest: Equatable {
             return .failure(.invalid("initiation must be one of \(Initiation.allCases.map(\.rawValue).joined(separator: ", "))"))
         }
         var request = StartSessionRequest(title: title, prompt: prompt, initiation: initiation)
+        if let value = arguments["provider"], value != .null {
+            guard let raw = text("provider"), let provider = AgentProviderKind(rawValue: raw) else {
+                return .failure(.invalid("provider must be claude-code or codex"))
+            }
+            request.provider = provider
+        }
 
         if let name = text("name") {
             guard name.count <= nameLimit, name.allSatisfy({ $0.isASCII && ($0.isLowercase || $0.isNumber || $0 == "-") })
@@ -62,6 +70,9 @@ nonisolated struct StartSessionRequest: Equatable {
             }
             request.context = context
         }
+        if request.provider == .codex, request.context == .fork {
+            return .failure(.invalid(codexForkError))
+        }
         if let background = text("background"), request.context == .fresh {
             guard background.count >= minimumBackground else {
                 return .failure(.invalid("background must be at least \(minimumBackground) characters, so the new session has what it needs from this conversation"))
@@ -70,19 +81,22 @@ nonisolated struct StartSessionRequest: Equatable {
         }
         request.useWorktree = arguments["use_worktree"]?.boolValue
         if let raw = text("model") {
-            guard let model = AgentModel.recognizing(raw, provider: .claudeCode) else {
+            guard let model = AgentModel.recognizing(raw, provider: request.provider) else {
                 return .failure(.invalid("unknown model \(raw)"))
             }
             request.model = model
         }
         if let raw = text("effort") {
-            let known = AgentProviderKind.claudeCode.efforts
+            let known = request.provider.efforts
             guard let effort = AgentEffort.recognizing(raw), known.contains(effort) else {
                 return .failure(.invalid("effort must be one of \(known.map(\.token).joined(separator: ", "))"))
             }
             request.effort = effort
         }
         if let raw = text("permission_mode") {
+            guard request.provider == .claudeCode else {
+                return .failure(.invalid("permission_mode applies only to Claude Code. Codex children start with Workspace permissions."))
+            }
             guard let mode = PermissionMode.recognizing(raw) else {
                 return .failure(.invalid("permission_mode must be one of \(PermissionMode.allCases.map(\.token).joined(separator: ", "))"))
             }

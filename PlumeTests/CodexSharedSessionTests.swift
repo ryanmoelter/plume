@@ -8,6 +8,7 @@ struct CodexSharedSessionTests {
         var client: CodexAppServerClient!
         var responses: [JSONValue] = []
         var initializeCount = 0
+        var newThreadParameters: [JSONValue] = []
         init() {
             client = CodexAppServerClient { [weak self] line in
                 guard let self, let value = try? JSONDecoder().decode(JSONValue.self, from: Data(line.utf8)) else { return false }
@@ -16,7 +17,9 @@ struct CodexSharedSessionTests {
                 let result: JSONValue
                 switch method {
                 case "initialize": initializeCount += 1; result = .object([:])
-                case "thread/start": result = .object(["thread": .object(["id": value["params"]?["cwd"] ?? .string("unknown")])])
+                case "thread/start":
+                    newThreadParameters.append(value["params"] ?? .null)
+                    result = .object(["thread": .object(["id": value["params"]?["cwd"] ?? .string("unknown")])])
                 case "thread/read": result = .object(["thread": .object(["id": value["params"]?["threadId"] ?? .null])])
                 default: result = .object(["data": .array([])])
                 }
@@ -49,6 +52,16 @@ struct CodexSharedSessionTests {
         #expect(a.sessionID == "first")
         #expect(b.sessionID == "second")
         #expect(h.initializeCount == 1)
+        #expect(h.newThreadParameters.count == 2)
+        #expect(h.newThreadParameters.allSatisfy { $0["dynamicTools"] == .array([CodexPresenceTool.definition]) })
+        h.client.receive(#"{"method":"turn/started","params":{"threadId":"first","turn":{"id":"turn-a"}}}"#)
+        h.client.receive(#"{"id":890,"method":"item/tool/call","params":{"threadId":"first","turnId":"turn-a","callId":"presence","tool":"plume_presence","arguments":{}}}"#)
+        h.client.receive(#"{"id":891,"method":"item/tool/call","params":{"threadId":"second","turnId":"turn-a","callId":"wrong-turn","tool":"plume_presence","arguments":{}}}"#)
+        let validCall = try #require(h.responses.first { $0["id"] == .number(890) })
+        #expect(validCall["result"]?["success"] == .bool(true))
+        let wrongTurn = try #require(h.responses.first { $0["id"] == .number(891) })
+        #expect(wrongTurn["error"]?["code"] == .number(-32601))
+        h.client.receive(#"{"method":"turn/completed","params":{"threadId":"first","turn":{"id":"turn-a","status":"completed"}}}"#)
         h.client.receive(#"{"method":"item/completed","params":{"threadId":"first","item":{"id":"a","type":"agentMessage","text":"First answer"}}}"#)
         h.client.receive(#"{"method":"item/completed","params":{"threadId":"second","item":{"id":"b","type":"agentMessage","text":"Second answer"}}}"#)
         #expect(items.item(tabID: a.tabID, id: "a") != nil)

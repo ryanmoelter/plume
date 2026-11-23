@@ -57,6 +57,20 @@ final class ChildSessionCoordinator {
         }
     }
 
+    func attach(to session: CodexSession, tab: TaskTab) {
+        session.onTurnFinished = { [weak self, weak tab] outcome in
+            guard let self, let tab, tab.isLive else { return }
+            self.turnFinished(in: tab, outcome: outcome)
+        }
+        session.onHostMessagesReturned = { [weak self, weak tab] messages in
+            guard let self, let tab, tab.isLive else { return }
+            self.hostMessagesReturned(messages, by: tab)
+            if messages.contains(where: \.isFromParent), let parent = self.parent(of: tab) {
+                self.recheckWake(of: parent)
+            }
+        }
+    }
+
     func tabForgotten(_ tabID: UUID) {
         policies.removeValue(forKey: tabID)
         childNames.removeValue(forKey: tabID)
@@ -72,11 +86,11 @@ final class ChildSessionCoordinator {
     /// wakes. Call before the child's session is discarded.
     func childClosing(_ child: TaskTab) {
         guard let parent = parent(of: child) else { return }
-        if let session = AgentSessionManager.shared.existingSession(for: child.id) as? HeadlessSession {
-            for case .fromParent(let text)? in session.unreadHostMessages.map(\.origin) {
-                let note = ChildSessionFormats.messageRemovedNote(child: participant(child), text: text, .closed)
-                hold([.init(childID: child.id, text: note, kind: .message)], for: parent)
-            }
+        let session = AgentSessionManager.shared.existingSession(for: child.id)
+        let unread = (session as? HeadlessSession)?.unreadHostMessages ?? (session as? CodexSession)?.unreadHostMessages ?? []
+        for case .fromParent(let text)? in unread.map(\.origin) {
+            let note = ChildSessionFormats.messageRemovedNote(child: participant(child), text: text, .closed)
+            hold([.init(childID: child.id, text: note, kind: .message)], for: parent)
         }
         recheckWake(of: parent, excluding: child.id)
     }
@@ -199,6 +213,12 @@ final class ChildSessionCoordinator {
         forkCut: String? = nil
     ) async -> Result<TaskTab, ChildSessionError> {
         guard !parent.isChildSession else { return .failure(.failed("This session cannot start sessions of its own.")) }
+        guard parent.provider == .claudeCode, parent.transport == .headless else {
+            return .failure(.failed("Only a headless Claude Code session can start a child session."))
+        }
+        if request.provider == .codex, request.context == .fork {
+            return .failure(.invalid(StartSessionRequest.codexForkError))
+        }
         guard parent.task != nil, let context = parent.modelContext else {
             return .failure(.failed("This session's task is gone."))
         }
@@ -233,7 +253,12 @@ final class ChildSessionCoordinator {
         }
 
         let name = request.name ?? WorkspaceProvisioner.slugify(request.title)
-        let child = TaskStore.addChildTab(to: task, parent: parent, in: context)
+        let child = TaskStore.addChildTab(to: task, parent: parent, provider: request.provider, in: context)
+        child.title = request.title
+        child.titleSource = .custom
+        TitleStore.shared.setTitle(request.title, forTab: child.id, source: .custom)
+        childNames[child.id] = name
+        if !request.wakeWhenDone { silentChildren.insert(child.id) }
         if let proposalID {
             let recorded = withProposals(of: parent, prunes: false) {
                 $0.markStarted(id: proposalID, sessionID: Self.sessionID(of: child), name: name, now: .now)
@@ -242,11 +267,16 @@ final class ChildSessionCoordinator {
                 Log.agent.error("Proposal \(proposalID, privacy: .public) vanished while it started")
             }
         }
-        TabLaunchChoices(parent).apply(to: child)
-        child.transport = .headless
-        child.providerID = AgentProviderKind.claudeCode.rawValue
-        if let model = live.model { child.model = model }
-        if let effort = live.effort { child.effort = effort }
+        if request.provider == .claudeCode {
+            TabLaunchChoices(parent).apply(to: child)
+            child.transport = .headless
+            if let model = live.model { child.model = model }
+            if let effort = live.effort { child.effort = effort }
+            child.permissionMode = mode
+        } else {
+            child.codexCollaborationMode = .default
+            child.permissionModeRaw = AgentPermissionPreset.codexWorkspace.id
+        }
         if let model = request.model {
             child.model = model
             child.isModelUserChosen = true
@@ -255,8 +285,6 @@ final class ChildSessionCoordinator {
             child.effort = effort
             child.isEffortUserChosen = true
         }
-        child.permissionMode = mode
-
         ChildSessionWorkspace.apply(worktree, to: child, parent: parent)
 
         let notes = AppPaths.sideSessionNotesDirectory(parentTabID: parent.id)
@@ -265,28 +293,23 @@ final class ChildSessionCoordinator {
         directories.append(notes.path)
         child.additionalDirectories = AdditionalDirectories.list(directories, excluding: nil)
 
-        child.title = request.title
-        child.titleSource = .custom
-        TitleStore.shared.setTitle(request.title, forTab: child.id, source: .custom)
-        childNames[child.id] = name
-        if !request.wakeWhenDone { silentChildren.insert(child.id) }
-
         let isFork = request.context == .fork
         let newSessionID = UUID().uuidString.lowercased()
-        child.agentSessionID = newSessionID
         // A fork launches where the parent's transcript is, whatever folder
         // the tab records, and the CLI writes the new transcript beside it.
         let launchDirectory = isFork
             ? AgentLauncher.claudeLaunchDirectory(for: parent, resumeSessionID: parentSessionID)
             : TabDirectoryStore.shared.directory(for: child)
-        if let directory = launchDirectory {
+        if request.provider == .claudeCode { child.agentSessionID = newSessionID }
+        if request.provider == .claudeCode, let directory = launchDirectory {
             child.sessionJSONLPath = SessionJSONLReader.resolvedTranscriptPath(
                 workingDirectory: directory, sessionID: newSessionID
             )
         }
 
         let brief = ChildSessionFormats.firstMessage(
-            prompt: request.prompt, background: request.background, notesFolder: notes.path
+            prompt: request.prompt, background: request.background,
+            notesFolder: request.provider == .codex && launchDirectory == nil ? nil : notes.path
         )
         PendingFirstMessageStore.shared.set(OptimisticFirstMessage(text: brief), forTab: child.id)
 
@@ -299,7 +322,7 @@ final class ChildSessionCoordinator {
             sessionID: isFork ? nil : newSessionID,
             effort: child.isEffortUserChosen ? child.effort : nil
         )
-        let session = AgentSessionManager.shared.existingSession(for: child.id) as? HeadlessSession
+        let session = AgentSessionManager.shared.existingSession(for: child.id)
         guard let session, !session.hasExited else {
             let reason = session.map(Self.launchFailure) ?? "no session was created"
             TaskStore.closeTab(child, in: context)
@@ -313,7 +336,7 @@ final class ChildSessionCoordinator {
             wire: [UserContentBlock.text(brief)].normalized,
             origin: .fromParent(text: request.prompt)
         )
-        if isFork, forkCut != nil {
+        if isFork, forkCut != nil, let session = session as? HeadlessSession {
             session.onCutRefused = { [weak self, weak child] in
                 guard let self, let child, child.isLive, let task = child.task else { return false }
                 let relaunched = AgentLauncher.relaunchForkWithoutCut(
@@ -332,7 +355,7 @@ final class ChildSessionCoordinator {
                 return true
             }
         }
-        session.submitFromHost(blocks: opening.wire, display: opening.display, origin: opening.origin)
+        Self.submit(opening, to: session)
         return .success(child)
     }
 
@@ -581,11 +604,11 @@ final class ChildSessionCoordinator {
         return store
     }
 
-    private static func launchFailure(of session: HeadlessSession) -> String {
+    private static func launchFailure(of session: any AgentSession) -> String {
         if let failure = session.startFailure {
             return [failure.title, failure.detail].compactMap { $0 }.joined(separator: ": ")
         }
-        return session.lastError ?? "claude exited at launch"
+        return session.lastError ?? "The agent exited at launch."
     }
 
     private func sendMessage(_ arguments: [String: JSONValue], from sender: TaskTab) -> Result<String, ChildSessionError> {
@@ -684,7 +707,7 @@ final class ChildSessionCoordinator {
         limitChecks.removeValue(forKey: parent.id)?.cancel()
         let now = Date()
         guard policies[parent.id]?.hasWakingNotes == true,
-              let deadline = workingChildren(of: parent).compactMap(\.workingSince)
+              let deadline = workingChildren(of: parent).compactMap({ $0.workingSince })
                 .filter({ ChildSessionWakePolicy.holdsWakes(workingSince: $0, now: now) }).min()?
                 .addingTimeInterval(ChildSessionWakePolicy.workingLimit)
         else { return }
@@ -706,12 +729,16 @@ final class ChildSessionCoordinator {
     }
 
     /// The running sessions of `parent`'s open children that are mid-turn.
-    private func workingChildren(of parent: TaskTab) -> [HeadlessSession] {
+    private func workingChildren(of parent: TaskTab) -> [(tabID: UUID, workingSince: Date?)] {
         TaskStore.openChildren(of: parent).compactMap { tab in
-            guard let session = AgentSessionManager.shared.existingSession(for: tab.id) as? HeadlessSession,
-                  !session.hasExited, session.isWorking
-            else { return nil }
-            return session
+            guard let session = AgentSessionManager.shared.existingSession(for: tab.id), !session.hasExited else { return nil }
+            if let headless = session as? HeadlessSession, headless.isWorking {
+                return (tab.id, headless.workingSince)
+            }
+            if let codex = session as? CodexSession, codex.isWorking || codex.hasPendingParentBrief {
+                return (tab.id, codex.workingSince)
+            }
+            return nil
         }
     }
 
@@ -781,24 +808,33 @@ final class ChildSessionCoordinator {
     private func submitFromHost(
         _ text: String, display: String, origin: HostMessageOrigin, to tab: TaskTab, in task: WorkTask
     ) -> Bool {
-        let existing = AgentSessionManager.shared.existingSession(for: tab.id) as? HeadlessSession
-        let session: HeadlessSession
+        guard tab.transport == .headless else { return false }
+        let existing = AgentSessionManager.shared.existingSession(for: tab.id)
+        let session: any AgentSession
         if let existing, !existing.hasExited {
             session = existing
         } else {
-            guard tab.provider == .claudeCode, tab.transport == .headless,
-                  let sessionID = tab.agentSessionID, !sessionID.isEmpty,
-                  let resumed = AgentLauncher.relaunchHeadless(task: task, tab: tab) as? HeadlessSession,
+            guard let sessionID = tab.agentSessionID, !sessionID.isEmpty,
+                  let resumed = AgentLauncher.relaunchHeadless(task: task, tab: tab),
                   !resumed.hasExited
             else { return false }
             session = resumed
         }
-        session.submitFromHost(blocks: [.text(text)], display: [.text(display)], origin: origin)
+        Self.submit(HostMessage(display: [.text(display)], wire: [.text(text)], origin: origin), to: session)
         return true
     }
 
+    private static func submit(_ message: HostMessage, to session: any AgentSession) {
+        if let session = session as? HeadlessSession {
+            session.submitFromHost(blocks: message.wire, display: message.display, origin: message.origin)
+        } else if let session = session as? CodexSession {
+            session.submit(QueuedMessage(parts: [.host(message)]))
+        }
+    }
+
     private func isWorking(_ tab: TaskTab) -> Bool {
-        (AgentSessionManager.shared.existingSession(for: tab.id) as? HeadlessSession)?.isWorking ?? false
+        let session = AgentSessionManager.shared.existingSession(for: tab.id)
+        return session?.isWorking == true || (session as? CodexSession)?.hasPendingParentBrief == true
     }
 
     /// The open tab that started `tab`, in any task.

@@ -1,6 +1,6 @@
 # Child sessions
 
-An agent in a headless Claude tab can start a **child session**: a separate, full Claude session in a new agent tab, opened in the parent's task. The user can then move it anywhere, another task included. The child runs many turns. The user can open, steer, interrupt or close it like any other tab. When a turn that the parent started ends, the child's reply reaches the parent as a note. This matches Claude Code Desktop's side sessions.
+An agent in a headless Claude Code tab can start a **child session** in a new agent tab in the parent's task. The child runs Claude Code by default. Set `provider: "codex"` to start a fresh Codex conversation. The user can move the child to another task and open, steer, interrupt or close it like any other tab. When a turn that the parent started ends, the child's reply reaches the parent as a note.
 
 The code lives in `Plume/Agent/ChildSessions/`. The wire shapes are in the `mcp_message` section of `docs/headless-protocol.md`.
 
@@ -29,9 +29,11 @@ Plume answers `can_use_tool` for its own tools (`PlumeMCPServer.decision`). In m
 | `proposal_id` | no | Starts that proposal exactly as proposed. `wake_when_done` may accompany it. A repeated brief or launch setting that matches the proposal is ignored, a differing one is refused, and a `null` or blank one counts as not sent |
 | `name` | no | A handle of `a-z`, `0-9` and `-`, at most 24 characters. Names the worktree branch, and the child in event rows |
 | `background` | no | What the child needs from this conversation, at least 80 characters. Ignored for a fork |
-| `context` | no | `fresh` (default) or `fork`, which copies the parent's whole conversation |
+| `provider` | no | `claude-code` (default) or `codex` |
+| `context` | no | `fresh` (default) or `fork`, which copies the parent's whole conversation into a Claude Code child |
 | `use_worktree` | no | A worktree of its own, cut from the parent's HEAD. Defaults to whether the parent works in a worktree. A fork never gets one: `true` is ignored, and the result says so |
-| `model`, `effort`, `permission_mode` | no | Override the launch settings copied from the parent. `permission_mode` may be more permissive than the parent's; bypass from a parent not in bypass needs the user's approval (see Permissions) |
+| `model`, `effort` | no | Override the child provider's launch settings. Claude Code inherits from the parent. Codex uses the Codex CLI defaults and accepts a model ID such as `gpt-5.6-luna` |
+| `permission_mode` | no | Claude Code only. Overrides the parent's mode. Bypass from a parent outside bypass needs the user's approval (see Permissions) |
 | `wake_when_done` | no | Defaults to true. False holds every report for the parent's next turn |
 
 The result tells the parent to end its turn:
@@ -48,7 +50,11 @@ The result tells the parent to end its turn:
 
 A child's `tools/list` has only `send_message`, so a child cannot start sessions of its own. A tab whose `parentTabIDRaw` is set stays a child after its parent closes; its `send_message` to the parent then returns an error saying the parent is closed.
 
+Codex children receive the parent's messages through app-server. The final reply from a turn started by the parent reaches it automatically. Turns the user starts in the Codex tab stay there. Codex has no Plume child-session MCP tools.
+
 ### Permissions
+
+Codex children start in Code mode with the built-in Workspace permission profile. When the child has a working directory, Plume includes it and the shared notes directory as runtime workspace roots on start and resume. The parent's Claude Code mode still decides whether the call can start the child or needs approval.
 
 `ChildSessionPermissions` picks the child's launch mode: the requested `permission_mode`, or the parent's live mode when the call names none. The parent's mode is not a limit. A child may ask for a more permissive mode than its parent's, and once running it changes mode like any other tab: its picker offers every mode, and an approved plan or an accepted mode suggestion applies as usual. Bypass is the exception. A child gets bypass only with Settings ▸ Agents ▸ "Show bypass permissions" on, and only if its parent is in bypass or the user approved the start: they allowed the call from the permission prompt (`HeadlessSession.takeUserApproval(ofStart:)`, keyed by tool use id), or clicked a proposal's or an offer's card. Otherwise it gets auto, and the `start_session` result says so. The CLI may never send `can_use_tool` for a call, as when an allow rule or the auto-mode classifier passes it, so the coordinator checks the approval itself rather than trusting the prompt to have run. The control server's `child-session.start` stands in for the agent, so it never approves. Neither card shows the mode, so a proposal or an offer records bypass only from a parent in bypass at that moment (`ChildSessionCoordinator.cardRequest`). From any other parent it records auto in its place, and the tool result says so. A start by `proposal_id` therefore never asks for bypass the user did not see either. A parent in plan mode cannot start a child: `can_use_tool` denies the call, and the tool itself returns the same error, telling it to exit plan mode first. A parent that entered plan mode on its own counts, since its `status` line reports the change. The parent's mode here is the one the gate reads, and a mode Plume does not recognize counts as manual.
 

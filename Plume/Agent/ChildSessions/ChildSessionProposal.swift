@@ -19,6 +19,7 @@ nonisolated struct ChildSessionProposal: Codable, Equatable, Identifiable {
     var background: String?
     var context: String?
     var useWorktree: Bool?
+    var provider: String?
     var model: String?
     var effort: String?
     var permissionMode: String?
@@ -45,6 +46,7 @@ nonisolated struct ChildSessionProposal: Codable, Equatable, Identifiable {
         background = request.background
         context = request.context.rawValue
         useWorktree = request.useWorktree
+        provider = request.provider == .claudeCode ? nil : request.provider.rawValue
         model = request.model?.token
         effort = request.effort?.token
         permissionMode = request.permissionMode?.token
@@ -80,6 +82,7 @@ nonisolated struct ChildSessionProposal: Codable, Equatable, Identifiable {
                 ("prompt", asked.prompt == proposed.prompt),
                 ("name", asked.name == proposed.name),
                 ("background", asked.background == proposed.background),
+                ("provider", asked.provider == proposed.provider),
                 ("model", asked.model == proposed.model),
                 ("effort", asked.effort == proposed.effort),
                 ("permission_mode", asked.permissionMode == proposed.permissionMode),
@@ -106,7 +109,7 @@ nonisolated struct ChildSessionProposal: Codable, Equatable, Identifiable {
         ]
         for (key, value) in [
             ("name", name), ("background", background), ("context", context),
-            ("model", model), ("effort", effort), ("permission_mode", permissionMode)
+            ("provider", provider), ("model", model), ("effort", effort), ("permission_mode", permissionMode)
         ] {
             if let value { arguments[key] = .string(value) }
         }
@@ -327,7 +330,7 @@ nonisolated enum StartSessionCall: Equatable {
 
     /// What a start by `proposal_id` may repeat, as long as it matches.
     static let repeatable: Set<String> = [
-        "title", "prompt", "name", "background", "model", "effort", "permission_mode", "use_worktree", "context"
+        "title", "prompt", "name", "background", "provider", "model", "effort", "permission_mode", "use_worktree", "context"
     ]
 
     static func parse(_ arguments: [String: JSONValue]) -> Result<StartSessionCall, ChildSessionError> {

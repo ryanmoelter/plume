@@ -23,9 +23,19 @@ struct ChildSessionFormatsTests {
         let request = try parse(minimal()).get()
         #expect(request.title == "Fix login")
         #expect(request.context == .fresh)
+        #expect(request.provider == .claudeCode)
         #expect(request.useWorktree == nil)
         #expect(request.wakeWhenDone)
         #expect(request.displayName == "Fix login")
+    }
+
+    @Test func codexRequestsUseCodexModelAndEffort() throws {
+        let request = try parse(minimal([
+            "provider": .string("codex"), "model": .string("gpt-5.6-luna"), "effort": .string("ultra")
+        ])).get()
+        #expect(request.provider == .codex)
+        #expect(request.model?.id == "gpt-5.6-luna")
+        #expect(request.effort == .ultra)
     }
 
     @Test func everyOptionalArgumentIsRead() throws {
@@ -54,7 +64,10 @@ struct ChildSessionFormatsTests {
         ["context": .string("clone")],
         ["initiation": .string("whenever")],
         ["effort": .string("ludicrous")],
-        ["prompt": .string("  ")]
+        ["prompt": .string("  ")],
+        ["provider": .string("unknown")],
+        ["provider": .string("codex"), "context": .string("fork")],
+        ["provider": .string("codex"), "permission_mode": .string("bypassPermissions")]
     ])
     func badArgumentsAreRefused(_ bad: [String: JSONValue]) {
         guard case .failure(.invalid) = parse(minimal(bad)) else {
