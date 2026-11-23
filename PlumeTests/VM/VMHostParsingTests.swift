@@ -81,4 +81,17 @@ struct VMHostParsingTests {
         #expect(!VMHost.consoleIsReady(ioregPlist: Self.ioreg(user: "someone")))
         #expect(!VMHost.consoleIsReady(ioregPlist: Data("not a plist".utf8)))
     }
+
+    @Test func readinessNeedsThisClonesMAC() {
+        let console = String(decoding: Self.ioreg(), as: UTF8.self)
+        let output = "76:7b:f5:77:06:5d\n" + VMHost.readinessSeparator + "\n" + console
+        #expect(VMHost.isReady(readinessOutput: output, mac: "76:7B:F5:77:6:5D"))
+        #expect(!VMHost.isReady(readinessOutput: output, mac: "e2:9a:0f:27:57:55"))
+        #expect(!VMHost.isReady(readinessOutput: console, mac: "76:7b:f5:77:06:5d"))
+    }
+
+    @Test func sshOffersOnlyTheVMKey() {
+        let arguments = VMHost.sshArguments(ip: "192.168.64.2", command: "true")
+        #expect(arguments.contains("IdentitiesOnly=yes"))
+    }
 }

@@ -718,8 +718,7 @@ enum TaskStore {
         AgentSessionManager.shared.closeSession(for: tabID)
         DeviceSessionManager.shared.closeSession(for: tabID)
         DeviceLeaseCoordinator.shared.tabForgotten(tabID)
-        // A VM tab only views its slot, even when it claimed it.
-        if tab.kind != .vm { VMManager.shared.tabForgotten(tabID) }
+        VMManager.shared.tabForgotten(tabID)
         ChildSessionCoordinator.shared.tabForgotten(tabID)
         TitleStore.shared.forget(tabID: tabID)
         TabDirectoryStore.shared.forget(tabID: tabID)

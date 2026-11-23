@@ -48,10 +48,15 @@ nonisolated enum VMHost {
         }
     }
 
-    /// `tart clone` copies the base's ecid, which would give two clones one machine identity.
+    /// `tart clone` copies the base's ecid, which would give two clones one machine identity. The
+    /// clone is built under a temporary name and renamed last, so a crash midway never leaves a
+    /// clone at `name` that still has the base's ecid.
     static func clone(base: String, to name: String) throws {
-        try tart(["clone", base, name])
-        try writeFreshECID(cloneDirectory: vmDirectory(name))
+        let partial = name + "-partial"
+        if vmExists(partial) { try delete(partial) }
+        try tart(["clone", base, partial])
+        try writeFreshECID(cloneDirectory: vmDirectory(partial))
+        try tart(["rename", partial, name])
     }
 
     static func delete(_ name: String) throws {
@@ -120,6 +125,7 @@ nonisolated enum VMHost {
     static func sshArguments(ip: String, command: String) -> [String] {
         [
             "-i", VMPaths.sshKey,
+            "-o", "IdentitiesOnly=yes",
             "-o", "BatchMode=yes",
             "-o", "StrictHostKeyChecking=no",
             "-o", "UserKnownHostsFile=/dev/null",
@@ -136,7 +142,19 @@ nonisolated enum VMHost {
 
     // MARK: Readiness
 
-    static let consoleQuery = "ioreg -n Root -d1 -a"
+    static let readinessSeparator = "--plume-readiness--"
+    /// The guest's MAC addresses, then its console users.
+    static let readinessQuery = "ifconfig | awk '$1 == \"ether\" { print $2 }'; echo \(readinessSeparator); ioreg -n Root -d1 -a"
+
+    /// Whether `readinessQuery`'s output shows the guest with `mac` ready. The MAC check keeps a
+    /// different guest that was handed the same address from passing for this one.
+    static func isReady(readinessOutput output: String, mac: String) -> Bool {
+        let parts = output.components(separatedBy: readinessSeparator + "\n")
+        guard parts.count == 2 else { return false }
+        let wanted = normalizeMAC(mac)
+        let macs = parts[0].split(whereSeparator: \.isNewline).map { normalizeMAC(String($0)) }
+        return macs.contains(wanted) && consoleIsReady(ioregPlist: Data(parts[1].utf8))
+    }
 
     /// The guest is ready once `user` is on the console with its login done and the screen
     /// unlocked; `launchctl print gui/<uid>` succeeds well before that.

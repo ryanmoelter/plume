@@ -4,11 +4,6 @@ import Virtualization
 /// Turns a Tart VM directory (`config.json`, `disk.img`, `nvram.bin`) into a configuration our own
 /// `VZVirtualMachine` boots. `docs/vm-testing.md` records the spike that proved it.
 nonisolated enum VMImage {
-    struct Failure: LocalizedError, Equatable {
-        var message: String
-        var errorDescription: String? { message }
-    }
-
     static let worktreeShareName = "worktree"
     static let shareName = "share"
 
@@ -18,14 +13,14 @@ nonisolated enum VMImage {
 
         let platform = VZMacPlatformConfiguration()
         guard let modelData = config.hardwareModelData, let model = VZMacHardwareModel(dataRepresentation: modelData) else {
-            throw Failure(message: "\(cloneDirectory.lastPathComponent) has an unreadable hardwareModel")
+            throw VMHost.Failure(message: "\(cloneDirectory.lastPathComponent) has an unreadable hardwareModel")
         }
         guard model.isSupported else {
-            throw Failure(message: "this Mac can't run \(cloneDirectory.lastPathComponent)'s hardware model")
+            throw VMHost.Failure(message: "this Mac can't run \(cloneDirectory.lastPathComponent)'s hardware model")
         }
         platform.hardwareModel = model
         guard let ecid = config.ecidData, let identifier = VZMacMachineIdentifier(dataRepresentation: ecid) else {
-            throw Failure(message: "\(cloneDirectory.lastPathComponent) has an unreadable ecid")
+            throw VMHost.Failure(message: "\(cloneDirectory.lastPathComponent) has an unreadable ecid")
         }
         platform.machineIdentifier = identifier
         platform.auxiliaryStorage = VZMacAuxiliaryStorage(url: cloneDirectory.appending(path: "nvram.bin"))
@@ -44,7 +39,7 @@ nonisolated enum VMImage {
         let network = VZVirtioNetworkDeviceConfiguration()
         network.attachment = VZNATNetworkDeviceAttachment()
         guard let mac = VZMACAddress(string: config.macAddress) else {
-            throw Failure(message: "\(cloneDirectory.lastPathComponent) has an unreadable macAddress \(config.macAddress)")
+            throw VMHost.Failure(message: "\(cloneDirectory.lastPathComponent) has an unreadable macAddress \(config.macAddress)")
         }
         network.macAddress = mac
         configuration.networkDevices = [network]

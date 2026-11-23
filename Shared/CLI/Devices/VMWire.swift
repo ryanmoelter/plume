@@ -3,14 +3,6 @@ import Foundation
 /// A slot's place in its boot: `idle → reserved → cloning → starting → ready → stopping`, or `failed`.
 nonisolated enum VMSlotState: String, Codable, Equatable, Sendable {
     case idle, reserved, cloning, starting, ready, stopping, failed
-
-    /// Whether the slot holds the clone's lock, and so may have a running VM.
-    var holdsClone: Bool {
-        switch self {
-        case .cloning, .starting, .ready, .stopping: true
-        case .idle, .reserved, .failed: false
-        }
-    }
 }
 
 /// One VM slot as the app reports it over the socket. `docs/vm-testing.md` is the reference.

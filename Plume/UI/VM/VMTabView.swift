@@ -15,7 +15,8 @@ struct VMTabHost: View {
     }
 }
 
-/// Views one slot of `VMManager`'s pool. Closing the tab never stops the VM; Release does.
+/// Views one slot of `VMManager`'s pool. A VM this tab claimed is its own: the lease renews while
+/// the tab exists, and closing the tab stops the VM. A VM another owner holds is only shown.
 struct VMTabView: View {
     let tab: TaskTab
 

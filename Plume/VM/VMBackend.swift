@@ -17,7 +17,8 @@ protocol VMBackend: AnyObject {
     /// What a `VZVirtualMachineView` shows the VM through.
     func start(slot: Int, worktree: String?) async throws -> VMDisplay?
     /// The guest's address, once ssh answers and the user's console session is unlocked.
-    func waitUntilReady(slot: Int) async throws -> String
+    /// `onAddress` hears each address as it's found, before the guest is ready.
+    func waitUntilReady(slot: Int, onAddress: (String) -> Void) async throws -> String
     func stop(slot: Int, ip: String?) async
     func deleteClone(slot: Int) async throws
 }
@@ -29,7 +30,6 @@ final class LiveVMBackend: VMBackend {
     var guestDidStop: ((_ slot: Int, _ reason: String?) -> Void)?
 
     static let gracefulStopWait: TimeInterval = 12
-    static let startingWait: TimeInterval = 10
     static let readinessPollInterval: Duration = .seconds(2)
 
     private var runtimes: [Int: VMRuntime] = [:]
@@ -71,22 +71,26 @@ final class LiveVMBackend: VMBackend {
         try await runtime(slot).start(worktree: worktree)
     }
 
-    func waitUntilReady(slot: Int) async throws -> String {
+    /// The DHCP lease is read again on every poll, since the guest can be handed a new address.
+    func waitUntilReady(slot: Int, onAddress: (String) -> Void) async throws -> String {
         let runtime = runtime(slot)
         guard let mac = try await runtime.perform({ $0.macAddress }) else {
             throw VMHost.Failure(message: "\(runtime.clone) isn't running")
         }
-        var ip: String?
+        var reported: String?
         while true {
             try Task.checkCancellation()
-            if ip == nil {
-                ip = await Task.detached(priority: .utility) { VMHost.ipAddress(forMAC: mac) }.value
-            }
-            if let ip,
-               let result = try? await VMHost.ssh(ip: ip, command: VMHost.consoleQuery, timeout: .seconds(10)),
-               result.status == 0,
-               VMHost.consoleIsReady(ioregPlist: Data(result.stdout.utf8)) {
-                return ip
+            let ip = await Task.detached(priority: .utility) { VMHost.ipAddress(forMAC: mac) }.value
+            if let ip {
+                if ip != reported {
+                    reported = ip
+                    onAddress(ip)
+                }
+                if let result = try? await VMHost.ssh(ip: ip, command: VMHost.readinessQuery, timeout: .seconds(10)),
+                   result.status == 0,
+                   VMHost.isReady(readinessOutput: result.stdout, mac: mac) {
+                    return ip
+                }
             }
             try await Task.sleep(for: Self.readinessPollInterval)
         }
@@ -102,7 +106,7 @@ final class LiveVMBackend: VMBackend {
         }) ?? false
         if running {
             if let ip { _ = try? await VMHost.ssh(ip: ip, command: "sudo shutdown -h now", timeout: .seconds(8)) }
-            await runtime.waitUntilStopped(timeout: Self.gracefulStopWait, startingGrace: Self.startingWait)
+            await runtime.waitUntilStopped(timeout: Self.gracefulStopWait)
         }
         await runtime.tearDown()
     }
@@ -169,18 +173,25 @@ nonisolated final class VMRuntime: NSObject, VZVirtualMachineDelegate, @unchecke
         }
     }
 
-    /// Waits for the guest to stop, then forces it. A VM still starting is given `startingGrace`
-    /// first, since it can't be stopped until it has started.
-    func waitUntilStopped(timeout: TimeInterval, startingGrace: TimeInterval) async {
+    /// Waits for the guest to stop, then forces it. It returns only once the VM has stopped, so
+    /// the clone lock is never released while the VM still holds the disk: a VM that can't be
+    /// stopped yet, such as one still starting, is waited on until it can.
+    func waitUntilStopped(timeout: TimeInterval) async {
         let deadline = Date().addingTimeInterval(timeout)
-        let startingDeadline = deadline.addingTimeInterval(startingGrace)
         while true {
-            let state = try? await perform { $0.machine?.state }
-            guard let state, state != .stopped, state != .error else { return }
-            let now = Date()
-            if now >= deadline, state != .starting || now >= startingDeadline { break }
+            let status = try? await perform { runtime in
+                runtime.machine.map { (state: $0.state, canStop: $0.canStop) }
+            }
+            guard let status, status.state != .stopped, status.state != .error else { return }
+            if Date() >= deadline, status.canStop {
+                await forceStop()
+                return
+            }
             try? await Task.sleep(for: .milliseconds(500))
         }
+    }
+
+    private func forceStop() async {
         await withCheckedContinuation { (continuation: CheckedContinuation<Void, Never>) in
             queue.async { [self] in
                 guard let machine, machine.canStop else { return continuation.resume() }

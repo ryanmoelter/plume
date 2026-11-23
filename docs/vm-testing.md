@@ -30,12 +30,12 @@ Pass `--xcode=<Xcode.app>` to copy another Xcode, `--image=<ref>` to start from 
 
 `VMManager.shared` (`Plume/VM/`) owns the guests, as `SurfaceManager` owns terminals. Slot `vm:<n>` always boots clone `plume-<os>-<n>` and keeps its share and control socket in `vms/vm<n>/`. Leases live in memory only, because the guests die with the app.
 
-- **Claiming.** A claim answers at once and boots in the background: `reserved`, `cloning` (lock the clone, and clone the base if the clone is missing), `starting`, then `ready` once ssh answers and the guest user is logged in and unlocked. The claimant polls `vms.status`. A boot has 4 minutes before it fails.
+- **Claiming.** A claim answers at once and boots in the background: `reserved`, `cloning` (lock the clone, and clone the base if the clone is missing), `starting`, then `ready` once ssh answers and the guest user is logged in and unlocked. A clone is made under `<clone>-partial` and renamed once its `ecid` is rewritten, so a clone that exists is always complete. Readiness reads the DHCP lease for the clone's MAC on every poll, and accepts an address only when the guest there reports that MAC. The slot records the address as soon as it is found, so a stop before `ready` still shuts the guest down over ssh. The claimant polls `vms.status`. A boot has 4 minutes before it fails.
 - **Owners.** An owner that already holds a slot gets it renewed, and booted again if its boot failed. A claim naming another worktree fails, since shares are fixed at boot.
 - **Clone locks.** An `flock` on `vms/<clone>.lock` is held for the VM's whole life. A slot whose clone another Plume holds reads `heldElsewhere`, and claims skip it.
 - **Pool full.** Every slot leased, or Virtualization refusing another macOS guest (`VZError` code 6), reads as pool full. The tool exits 3 and lists the slots.
 - **Failure.** A failed boot keeps its lease and `error`, so the claimant sees why; the tool then releases the slot.
-- **Stopping.** Release, expiry (checked every minute) and closing the owner tab (`TaskStore.forgetTab`) stop the guest and keep the clone, so the next boot is warm. A stop asks the guest to `sudo shutdown -h now` over ssh, and forces `stop()` after 12 seconds. `reset` deletes a free slot's clone, so the next claim clones the base again.
+- **Stopping.** Release, expiry (checked every minute) and closing or archiving the tab that owns the lease (`TaskStore.forgetTab`) stop the guest and keep the clone, so the next boot is warm. A VM tab that claimed a slot owns its lease: the lease renews itself while the tab is in a task that isn't archived, and closing the tab stops the guest. A VM tab that only shows a slot another owner holds never stops it on close. A lease an agent tab claimed through `plume devices` expires unless renewed. A stop runs after the slot's boot step in flight, asks the guest to `sudo shutdown -h now` over ssh, and forces `stop()` after 12 seconds. A VM still starting can't be stopped, so the stop waits for it. The clone lock is released only once the VM has stopped. `reset` deletes a free slot's clone, so the next claim clones the base again.
 - **Quitting.** Quitting with a guest running asks first, then stops every guest and answers `.terminateLater`. The app quits once all have stopped, or after 20 seconds.
 - **Display.** `VMManager.displays[n]` is what a `VZVirtualMachineView` shows. Call `attach(to:)` on the main actor; the VM itself stays on its slot's serial queue.
 - **Entitlement.** The app is signed with `com.apple.security.virtualization` (`Configuration/Plume.entitlements`, also passed by `scripts/lib/sign-bundle.sh`).
@@ -46,7 +46,7 @@ Pass `--xcode=<Xcode.app>` to copy another Xcode, `--image=<ref>` to start from 
 
 | Command | What it does |
 | --- | --- |
-| `claim [--worktree=P]` | Leases a VM and prints `vm:<n>`. Same as `plume devices claim --kind=vm`. |
+| `claim [--worktree=P]` | Leases a VM and prints `vm:<n>`. Same as `plume devices claim --kind=vm`, with the worktree defaulting to the script's checkout. |
 | `release vm:<n>` | Drops the slot's tunnel and pid files, then releases the VM. |
 | `list` | Lists the VM slots. |
 | `reset vm:<n>` | Deletes a free slot's clone. |
@@ -55,7 +55,7 @@ Pass `--xcode=<Xcode.app>` to copy another Xcode, `--image=<ref>` to start from 
 | `launch [--app PATH] [--seed N] [--env K=V]…` | Copies the debug app in, starts it frontmost, and forwards its control socket to the host. |
 | `test [--only-testing X]… [--skip-build]` | Builds for testing on the host, then runs the tests in the guest. |
 
-Every command that needs a VM first runs `plume devices claim --kind=vm --json`. That call is idempotent: it renews the lease you already hold.
+Every command that needs a VM first runs `plume devices claim --kind=vm --json --worktree=<the script's checkout>`, so the guest always shares the checkout the script builds from. That call is idempotent: it renews the lease you already hold. `claim` defaults `--worktree` to that checkout too.
 
 ### Path mirroring
 

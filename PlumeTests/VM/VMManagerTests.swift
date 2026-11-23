@@ -13,15 +13,28 @@ final class FakeVMBackend: VMBackend {
     var heldElsewhere: Set<Int> = []
     var startError: [Int: any Error] = [:]
     var holdStart = false
+    var holdPrepare = false
+    var holdReady = false
+    var holdStop = false
     private(set) var calls: [String] = []
     private(set) var stopped: [Int] = []
+    private(set) var stopIPs: [String?] = []
     private(set) var deleted: [Int] = []
     private var heldStarts: [Int: CheckedContinuation<VMDisplay?, any Error>] = [:]
+    private var heldPrepares: [Int: CheckedContinuation<Void, Never>] = [:]
+    private var heldReadies: [Int: CheckedContinuation<Void, Never>] = [:]
+    private var heldStops: [Int: CheckedContinuation<Void, Never>] = [:]
 
     func baseImageExists() -> Bool { baseExists }
     func isCloneFree(slot: Int) -> Bool { !heldElsewhere.contains(slot) }
 
-    func prepareClone(slot: Int) async throws { calls.append("prepare \(slot)") }
+    func prepareClone(slot: Int) async throws {
+        if holdPrepare { await withCheckedContinuation { heldPrepares[slot] = $0 } }
+        calls.append("prepare \(slot)")
+    }
+
+    func isPrepareHeld(_ slot: Int) -> Bool { heldPrepares[slot] != nil }
+    func finishPrepare(_ slot: Int) { heldPrepares.removeValue(forKey: slot)?.resume() }
 
     func start(slot: Int, worktree: String?) async throws -> VMDisplay? {
         calls.append("start \(slot) \(worktree ?? "-")")
@@ -36,12 +49,26 @@ final class FakeVMBackend: VMBackend {
         heldStarts.removeValue(forKey: slot)?.resume(returning: nil)
     }
 
-    func waitUntilReady(slot: Int) async throws -> String {
+    func waitUntilReady(slot: Int, onAddress: (String) -> Void) async throws -> String {
+        let ip = "192.168.64.\(slot + 1)"
+        onAddress(ip)
+        if holdReady { await withCheckedContinuation { heldReadies[slot] = $0 } }
         calls.append("ready \(slot)")
-        return "192.168.64.\(slot + 1)"
+        return ip
     }
 
-    func stop(slot: Int, ip: String?) async { stopped.append(slot) }
+    func isReadyHeld(_ slot: Int) -> Bool { heldReadies[slot] != nil }
+    func finishReady(_ slot: Int) { heldReadies.removeValue(forKey: slot)?.resume() }
+
+    func stop(slot: Int, ip: String?) async {
+        calls.append("stop \(slot)")
+        if holdStop { await withCheckedContinuation { heldStops[slot] = $0 } }
+        stopped.append(slot)
+        stopIPs.append(ip)
+    }
+
+    func isStopHeld(_ slot: Int) -> Bool { heldStops[slot] != nil }
+    func finishStop(_ slot: Int) { heldStops.removeValue(forKey: slot)?.resume() }
 
     func deleteClone(slot: Int) async throws { deleted.append(slot) }
 }
@@ -202,24 +229,26 @@ struct VMManagerTests {
         await settle { backend.isStartHeld(1) }
         #expect(state(1) == .starting)
         try manager.release("vm:1", owner: .label("a"), force: false)
-        await settle { state(1) == .idle }
         backend.finishStart(1)
-        await settle()
+        await settle { state(1) == .idle }
         #expect(state(1) == .idle)
         #expect(manager.displays[1] == nil)
         #expect(!backend.calls.contains("ready 1"))
     }
 
-    @Test func releaseDuringBootStopsTheSlotAndFreesIt() async throws {
+    @Test func releaseDuringAStartStopsTheVMOnceTheStartFinishes() async throws {
         backend.holdStart = true
         _ = try manager.claim(owner: .label("a"), worktree: nil, branch: nil)
         await settle { backend.isStartHeld(1) }
         try manager.release("vm:1", owner: .label("a"), force: false)
         #expect(state(1) == .stopping)
-        await settle { state(1) == .idle }
-        #expect(backend.stopped == [1])
+        await settle()
+        #expect(state(1) == .stopping)
+        #expect(backend.stopped.isEmpty)
         backend.holdStart = false
         backend.finishStart(1)
+        await settle { state(1) == .idle }
+        #expect(backend.stopped == [1])
         #expect(try manager.claim(owner: .label("b"), worktree: nil, branch: nil).slot == 1)
         await settle { state(1) == .ready }
         #expect(state(1) == .ready)
@@ -256,5 +285,73 @@ struct VMManagerTests {
         #expect(info.guestWorktree == "/Volumes/My Shared Files/worktree")
         #expect(info.user == "admin")
         #expect(info.sshKey.hasSuffix("/Plume/vms/id_ed25519"))
+    }
+    @Test func aReleaseWhileTheCloneIsPreparedStopsAfterIt() async throws {
+        backend.holdPrepare = true
+        _ = try manager.claim(owner: .label("a"), worktree: nil, branch: nil)
+        await settle { backend.isPrepareHeld(1) }
+        try manager.release("vm:1", owner: .label("a"), force: false)
+        await settle()
+        #expect(backend.stopped.isEmpty)
+        backend.finishPrepare(1)
+        await settle { state(1) == .idle }
+        #expect(backend.calls == ["prepare 1", "stop 1"])
+    }
+
+    @Test func aStopBeforeReadyShutsDownAtTheFoundAddress() async throws {
+        backend.holdReady = true
+        _ = try manager.claim(owner: .label("a"), worktree: nil, branch: nil)
+        await settle { backend.isReadyHeld(1) }
+        #expect(state(1) == .starting)
+        #expect(manager.slot(1)?.ip == "192.168.64.2")
+        try manager.release("vm:1", owner: .label("a"), force: false)
+        backend.finishReady(1)
+        await settle { state(1) == .idle }
+        #expect(backend.stopIPs == ["192.168.64.2"])
+    }
+
+    @Test func aFailedSlotStillStoppingCountsAsRunning() async throws {
+        backend.holdStop = true
+        backend.startError[1] = VMHost.Failure(message: "boom")
+        _ = try manager.claim(owner: .label("a"), worktree: nil, branch: nil)
+        await settle { backend.isStopHeld(1) }
+        #expect(state(1) == .failed)
+        #expect(manager.runningCount == 1)
+        backend.finishStop(1)
+        await settle { manager.runningCount == 0 }
+        #expect(manager.runningCount == 0)
+    }
+
+    @Test func aLiveVMTabsLeaseRenewsItselfAndClosingTheTabStopsIt() async throws {
+        let vmTab = UUID()
+        var live: Set<UUID> = [vmTab]
+        manager.isLiveVMTab = { live.contains($0) }
+        _ = try manager.claim(owner: .tab(id: vmTab, app: "/app/cli.sock"), worktree: nil, branch: nil, ttl: 60)
+        await settle { state(1) == .ready }
+        clock.date += 120
+        manager.reapExpired()
+        #expect(state(1) == .ready)
+        #expect(manager.slot(1)?.lease?.expiresAt == clock.date + VMManager.defaultTTL)
+        live = []
+        manager.tabForgotten(vmTab)
+        await settle { state(1) == .idle }
+        #expect(state(1) == .idle)
+    }
+
+    @Test func forgettingATabThatOnlyShowsAVMLeavesIt() async throws {
+        _ = try manager.claim(owner: .label("agent"), worktree: nil, branch: nil)
+        await settle { state(1) == .ready }
+        manager.tabForgotten(UUID())
+        #expect(state(1) == .ready)
+        #expect(backend.stopped.isEmpty)
+    }
+
+    @Test func quitAlertNamesAgentsAndVMsTogether() {
+        #expect(AppDelegate.quitAlertText(agentsWorking: false, runningVMs: 0) == nil)
+        let both = AppDelegate.quitAlertText(agentsWorking: true, runningVMs: 2)
+        #expect(both?.title == "Quit While Agents Are Working and Stop 2 Running VMs?")
+        #expect(both?.message.contains("agent") == true)
+        #expect(both?.message.contains("VMs stop") == true)
+        #expect(AppDelegate.quitAlertText(agentsWorking: false, runningVMs: 1)?.title == "Quit and Stop the Running VM?")
     }
 }

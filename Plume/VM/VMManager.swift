@@ -82,9 +82,14 @@ final class VMManager {
 
     @ObservationIgnored private let backend: any VMBackend
     @ObservationIgnored var now: () -> Date = Date.init
+    /// Whether a tab is a VM tab in a task that isn't archived. A lease such a tab owns renews
+    /// itself for as long as the tab is there.
+    @ObservationIgnored var isLiveVMTab: (UUID) -> Bool = { _ in false }
     @ObservationIgnored private var bootTasks: [Int: Task<Void, Never>] = [:]
     @ObservationIgnored private var deadlineTasks: [Int: Task<Void, Never>] = [:]
+    /// The slot's last stop, until it finishes.
     @ObservationIgnored private var stopTasks: [Int: Task<Void, Never>] = [:]
+    @ObservationIgnored private var stopIDs: [Int: UUID] = [:]
     @ObservationIgnored private var reapTask: Task<Void, Never>?
 
     init(backend: any VMBackend) {
@@ -105,7 +110,11 @@ final class VMManager {
 
     func slot(_ number: Int) -> Slot? { slots.first { $0.number == number } }
 
-    var runningCount: Int { slots.filter { $0.state != .idle && $0.state != .failed }.count }
+    /// Slots that may still have a VM, which a quit has to stop: a failed slot's VM is still
+    /// stopping until its stop finishes.
+    var runningCount: Int {
+        slots.filter { $0.state != .idle && ($0.state != .failed || stopTasks[$0.number] != nil) }.count
+    }
 
     // MARK: Leases
 
@@ -193,8 +202,13 @@ final class VMManager {
 
     func reapExpired() {
         let now = now()
-        for slot in slots where slot.lease.map({ $0.expiresAt <= now }) == true {
-            stopSlot(slot.number)
+        for slot in slots {
+            guard let lease = slot.lease else { continue }
+            if let tabID = lease.owner.tabID, isLiveVMTab(tabID) {
+                update(slot.number) { $0.lease?.expiresAt = now.addingTimeInterval(Self.defaultTTL) }
+            } else if lease.expiresAt <= now {
+                stopSlot(slot.number)
+            }
         }
     }
 
@@ -241,7 +255,10 @@ final class VMManager {
             let adaptor = try await backend.start(slot: number, worktree: slot(number)?.lease?.worktree)
             guard isCurrent(number, generation) else { return }
             displays[number] = adaptor
-            let ip = try await backend.waitUntilReady(slot: number)
+            let ip = try await backend.waitUntilReady(slot: number) { [weak self] ip in
+                guard let self, isCurrent(number, generation) else { return }
+                update(number) { $0.ip = ip }
+            }
             guard isCurrent(number, generation) else { return }
             update(number) {
                 $0.ip = ip
@@ -311,18 +328,29 @@ final class VMManager {
         stopBackend(number, ip: ip, finalState: .idle)
     }
 
-    /// Chained after any stop already running, so the slot's backend sees them in order.
+    /// Chained after the slot's boot and any stop already running, so the backend sees them in
+    /// order: a boot step still in flight, such as taking the clone lock, finishes before the
+    /// stop that has to undo it.
     private func stopBackend(_ number: Int, ip: String?, finalState: VMSlotState?) {
         let generation = slot(number)!.generation
         let previous = stopTasks[number]
+        let boot = bootTasks[number]
         let backend = backend
+        let id = UUID()
         let task = Task { [weak self] in
+            await boot?.value
             await previous?.value
             await backend.stop(slot: number, ip: ip)
-            guard let self, isCurrent(number, generation) else { return }
+            guard let self else { return }
+            if stopIDs[number] == id {
+                stopTasks[number] = nil
+                stopIDs[number] = nil
+            }
+            guard isCurrent(number, generation) else { return }
             if let finalState { update(number) { $0.state = finalState } }
         }
         stopTasks[number] = task
+        stopIDs[number] = id
     }
 
     /// Stops every VM for a quit, returning once all have stopped.
@@ -334,7 +362,7 @@ final class VMManager {
                 stopSlot(slot.number)
             }
         }
-        for task in stopTasks.values { await task.value }
+        for task in Array(stopTasks.values) { await task.value }
     }
 
     // MARK: Reporting
