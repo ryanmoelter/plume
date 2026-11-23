@@ -151,6 +151,7 @@ A device tab (`TabKind.device`) shows a live Android emulator over its gRPC cont
 - **`VMManager` owns the VMs, on private queues.** Views never create or stop one. Leases live in memory, and VMs die with the app.
 - **Every clone gets a fresh `ecid`.** `tart clone` copies it, so two clones would share a machine identity.
 - **Release never deletes a clone.** It stops the guest and keeps the clone, so the next boot is warm. Only `reset` deletes one.
+- **The base image has no Xcode by default.** `plume-vm launch` needs none; `plume-vm test` needs a base built with `make-base-image.sh --with-xcode` and refuses otherwise.
 - **Never leave a VM claimed after testing.** Each running VM holds about 8 GB, and the 2-VM limit is shared with every app on the host.
 - **Copy a bundle into the guest with `rsync -a`**, never `ditto` or `cp -a` from a share: virtiofs breaks bundle symlinks.
 
