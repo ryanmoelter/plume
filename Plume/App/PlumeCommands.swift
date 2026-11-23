@@ -158,9 +158,11 @@ struct PlumeCommands: Commands {
                 .plumeID(AccessibilityID.newAndroidDeviceTabCommand)
                 .disabled(task == nil)
 
-            Button("New VM Tab") { task?.addTab(.vm) }
-                .plumeID(AccessibilityID.newVMTabCommand)
-                .disabled(task == nil)
+            if VMManager.isSupported {
+                Button("New VM Tab") { task?.addTab(.vm) }
+                    .plumeID(AccessibilityID.newVMTabCommand)
+                    .disabled(task == nil)
+            }
         }
 
         CommandGroup(after: .importExport) {

@@ -3,9 +3,9 @@ import Observation
 import Virtualization
 
 /// The app's pool of macOS VMs: slots `vm:1` and `vm:2`, each booting clone `plume-<os>-<n>` of
-/// `plume-base-<os>`. Like `SurfaceManager`, views never create or destroy VMs; they read a slot
-/// and show its `displays` adaptor. Leases live in memory only, since the VMs die with the app.
-/// `docs/vm-testing.md` is the reference.
+/// `plume-base-<os>`. Views never create or destroy VMs; they read a slot and show its `displays`
+/// adaptor. Leases live in memory only, since the VMs die with the app. `docs/vm-testing.md` is the
+/// reference.
 @MainActor
 @Observable
 final class VMManager {
@@ -14,7 +14,17 @@ final class VMManager {
     static let defaultTTL: TimeInterval = 3600
     static let bootDeadline: Duration = .seconds(240)
     static let reapInterval: Duration = .seconds(60)
-    static let terminationDeadline: TimeInterval = 20
+    /// How long a quit lets guests shut down before it forces them.
+    static let terminationGracePeriod: TimeInterval = 8
+    /// When a quit stops waiting even on a forced stop that hasn't finished.
+    static let terminationDeadline: TimeInterval = 30
+
+    /// A VM tab hands its VM to the view through `VZVirtualMachineViewAdaptor`, new in macOS 27.
+    nonisolated static var isSupported: Bool {
+        if #available(macOS 27.0, *) { true } else { false }
+    }
+
+    nonisolated static let unsupportedMessage = "VMs need macOS 27"
 
     struct Lease: Equatable {
         var owner: DeviceLeaseOwner
@@ -49,6 +59,7 @@ final class VMManager {
         case busy(key: String, state: VMSlotState)
         case heldElsewhere(String)
         case slotTaken(String)
+        case unsupported
 
         var errorDescription: String? {
             switch self {
@@ -71,6 +82,8 @@ final class VMManager {
                 "another Plume is running \(key)'s clone"
             case .slotTaken(let key):
                 "\(key) is in use"
+            case .unsupported:
+                VMManager.unsupportedMessage
             }
         }
     }
@@ -95,7 +108,9 @@ final class VMManager {
     init(backend: any VMBackend) {
         self.backend = backend
         slots = (1...VMPaths.slotCount).map { Slot(number: $0) }
-        backend.guestDidStop = { [weak self] slot, reason in self?.guestStopped(slot, reason: reason) }
+        backend.guestDidStop = { [weak self] slot, generation, reason in
+            self?.guestStopped(slot, generation: generation, reason: reason)
+        }
     }
 
     func start() {
@@ -129,6 +144,7 @@ final class VMManager {
         ttl: TimeInterval? = nil,
         preferred: Int? = nil
     ) throws -> (slot: Int, reused: Bool) {
+        guard Self.isSupported else { throw Failure.unsupported }
         let ttl = ttl ?? Self.defaultTTL
         if let held = slots.first(where: { $0.lease?.owner == owner }) {
             let lease = held.lease!
@@ -252,7 +268,7 @@ final class VMManager {
             try await backend.prepareClone(slot: number)
             guard isCurrent(number, generation) else { return }
             update(number) { $0.state = .starting }
-            let adaptor = try await backend.start(slot: number, worktree: slot(number)?.lease?.worktree)
+            let adaptor = try await backend.start(slot: number, generation: generation, worktree: slot(number)?.lease?.worktree)
             guard isCurrent(number, generation) else { return }
             displays[number] = adaptor
             let ip = try await backend.waitUntilReady(slot: number) { [weak self] ip in
@@ -295,8 +311,10 @@ final class VMManager {
         stopBackend(number, ip: ip, finalState: nil)
     }
 
-    private func guestStopped(_ number: Int, reason: String?) {
-        guard let current = slot(number), current.state == .starting || current.state == .ready else { return }
+    private func guestStopped(_ number: Int, generation: UInt64, reason: String?) {
+        guard let current = slot(number), current.generation == generation,
+              current.state == .starting || current.state == .ready
+        else { return }
         bootTasks[number]?.cancel()
         fail(number, generation: current.generation, message: "\(current.key) stopped" + (reason.map { ": \($0)" } ?? ""))
     }
@@ -340,21 +358,30 @@ final class VMManager {
         let task = Task { [weak self] in
             await boot?.value
             await previous?.value
-            await backend.stop(slot: number, ip: ip)
+            let stopped = await backend.stop(slot: number, ip: ip)
             guard let self else { return }
             if stopIDs[number] == id {
                 stopTasks[number] = nil
                 stopIDs[number] = nil
             }
             guard isCurrent(number, generation) else { return }
-            if let finalState { update(number) { $0.state = finalState } }
+            if !stopped {
+                update(number) {
+                    $0.state = .failed
+                    $0.error = "\($0.key) didn't stop when forced; its clone stays locked until a retry stops it or Plume quits"
+                }
+            } else if let finalState {
+                update(number) { $0.state = finalState }
+            }
         }
         stopTasks[number] = task
         stopIDs[number] = id
     }
 
-    /// Stops every VM for a quit, returning once all have stopped.
+    /// Stops every VM for a quit, returning once all have stopped or a forced stop has failed.
+    /// Boot steps still on the host, such as `tart clone`, end at once.
     func stopAllForTermination() async {
+        backend.beginTermination(gracePeriod: Self.terminationGracePeriod)
         for slot in slots where slot.state != .idle {
             if slot.state == .failed {
                 stopBackend(slot.number, ip: nil, finalState: nil)

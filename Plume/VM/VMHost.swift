@@ -11,7 +11,6 @@ nonisolated enum VMHost {
         var errorDescription: String? { message }
     }
 
-    static let tartTimeout: Duration = .seconds(300)
     static let sshConnectTimeout = 3
 
     // MARK: Tart
@@ -37,11 +36,15 @@ nonisolated enum VMHost {
         FileManager.default.fileExists(atPath: vmDirectory(name).appending(path: TartVMConfig.fileName).path)
     }
 
-    static func tart(_ arguments: [String]) throws {
+    /// `isCancelled` kills the command, which then throws `CancellationError`.
+    static func tart(_ arguments: [String], isCancelled: () -> Bool) throws {
         guard let tart = locateTart() else {
             throw Failure(message: "tart not found; install it with `brew tap openai/tools && brew install tart`")
         }
-        let result = try ChildProcess.run(executable: tart, arguments: arguments, timeout: tartTimeout)
+        let result = try ChildProcess.run(
+            executable: tart, arguments: arguments, timeout: .seconds(VMPaths.tartTimeout), isCancelled: isCancelled
+        )
+        if isCancelled() { throw CancellationError() }
         guard result.status == 0, !result.timedOut else {
             let detail = result.stderr.trimmingCharacters(in: .whitespacesAndNewlines)
             throw Failure(message: "`tart \(arguments.joined(separator: " "))` failed: \(detail.isEmpty ? "exit \(result.status)" : detail)")
@@ -51,16 +54,16 @@ nonisolated enum VMHost {
     /// `tart clone` copies the base's ecid, which would give two clones one machine identity. The
     /// clone is built under a temporary name and renamed last, so a crash midway never leaves a
     /// clone at `name` that still has the base's ecid.
-    static func clone(base: String, to name: String) throws {
+    static func clone(base: String, to name: String, isCancelled: () -> Bool) throws {
         let partial = name + "-partial"
-        if vmExists(partial) { try delete(partial) }
-        try tart(["clone", base, partial])
+        if vmExists(partial) { try delete(partial, isCancelled: isCancelled) }
+        try tart(["clone", base, partial], isCancelled: isCancelled)
         try writeFreshECID(cloneDirectory: vmDirectory(partial))
-        try tart(["rename", partial, name])
+        try tart(["rename", partial, name], isCancelled: isCancelled)
     }
 
-    static func delete(_ name: String) throws {
-        try tart(["delete", name])
+    static func delete(_ name: String, isCancelled: () -> Bool) throws {
+        try tart(["delete", name], isCancelled: isCancelled)
     }
 
     static func writeFreshECID(cloneDirectory: URL) throws {
@@ -146,14 +149,26 @@ nonisolated enum VMHost {
     /// The guest's MAC addresses, then its console users.
     static let readinessQuery = "ifconfig | awk '$1 == \"ether\" { print $2 }'; echo \(readinessSeparator); ioreg -n Root -d1 -a"
 
-    /// Whether `readinessQuery`'s output shows the guest with `mac` ready. The MAC check keeps a
-    /// different guest that was handed the same address from passing for this one.
-    static func isReady(readinessOutput output: String, mac: String) -> Bool {
+    /// Whether `readinessQuery`'s output came from the guest with `mac`, not a different guest that
+    /// was handed the same address.
+    static func readinessShowsMAC(_ output: String, mac: String) -> Bool {
         let parts = output.components(separatedBy: readinessSeparator + "\n")
         guard parts.count == 2 else { return false }
         let wanted = normalizeMAC(mac)
-        let macs = parts[0].split(whereSeparator: \.isNewline).map { normalizeMAC(String($0)) }
-        return macs.contains(wanted) && consoleIsReady(ioregPlist: Data(parts[1].utf8))
+        return parts[0].split(whereSeparator: \.isNewline).contains { normalizeMAC(String($0)) == wanted }
+    }
+
+    /// Whether `readinessQuery`'s output shows the guest with `mac` ready.
+    static func isReady(readinessOutput output: String, mac: String) -> Bool {
+        let parts = output.components(separatedBy: readinessSeparator + "\n")
+        return readinessShowsMAC(output, mac: mac) && consoleIsReady(ioregPlist: Data(parts[1].utf8))
+    }
+
+    /// Shuts the guest down only if it has `mac`, so a stale address never reaches another clone.
+    /// `ifconfig` prints every octet as two digits, and Tart's config may not.
+    static func shutdownCommand(mac: String) -> String {
+        let padded = normalizeMAC(mac).split(separator: ":").map { $0.count == 1 ? "0" + $0 : String($0) }.joined(separator: ":")
+        return "ifconfig | grep -qiF 'ether \(padded)' && sudo shutdown -h now"
     }
 
     /// The guest is ready once `user` is on the console with its login done and the screen
@@ -180,38 +195,53 @@ nonisolated enum VMHost {
 
 /// An `flock` on `vms/<clone>.lock`, held for the VM's whole life so that no other Plume boots or
 /// resets the same clone. The kernel drops it when the process dies, so a crash frees the clone.
+/// The holder writes its pid into the file, so a check for a free clone reads instead of locking,
+/// and never blocks a real acquisition.
 nonisolated final class VMCloneLock: @unchecked Sendable {
     let path: String
     private var descriptor: Int32
+
+    static let acquireRetry: Duration = .seconds(1)
 
     private init(path: String, descriptor: Int32) {
         self.path = path
         self.descriptor = descriptor
     }
 
+    /// Blocks briefly on a contended lock, since an older Plume's check for a free clone holds it
+    /// for a moment.
     static func acquire(path: String) -> VMCloneLock? {
         try? FileManager.default.createDirectory(
             atPath: (path as NSString).deletingLastPathComponent, withIntermediateDirectories: true
         )
         let descriptor = open(path, O_RDWR | O_CREAT | O_CLOEXEC, 0o644)
         guard descriptor >= 0 else { return nil }
-        guard flock(descriptor, LOCK_EX | LOCK_NB) == 0 else {
-            close(descriptor)
-            return nil
+        let deadline = ContinuousClock.now + acquireRetry
+        while flock(descriptor, LOCK_EX | LOCK_NB) != 0 {
+            guard errno == EWOULDBLOCK, ContinuousClock.now < deadline else {
+                close(descriptor)
+                return nil
+            }
+            usleep(50_000)
         }
+        let pid = Array("\(getpid())".utf8)
+        ftruncate(descriptor, 0)
+        _ = pwrite(descriptor, pid, pid.count, 0)
         return VMCloneLock(path: path, descriptor: descriptor)
     }
 
-    /// Only meaningful for a clone this process doesn't hold: `flock` locks belong to an open file,
-    /// so a second open here would read this process's own lock as someone else's.
+    /// Whether the pid in the file is a live process. This process truncates the file when it
+    /// releases, so its own pid there means it still holds the clone.
     static func isFree(path: String) -> Bool {
-        guard let lock = acquire(path: path) else { return false }
-        lock.release()
-        return true
+        guard let text = try? String(contentsOfFile: path, encoding: .utf8),
+              let pid = pid_t(text.trimmingCharacters(in: .whitespacesAndNewlines)), pid > 0
+        else { return true }
+        return kill(pid, 0) != 0 && errno == ESRCH
     }
 
     func release() {
         guard descriptor >= 0 else { return }
+        ftruncate(descriptor, 0)
         flock(descriptor, LOCK_UN)
         close(descriptor)
         descriptor = -1

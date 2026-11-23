@@ -155,9 +155,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         }
     }
 
-    /// A VM's guest gets a real shutdown, which needs the app alive, so the quit waits for it,
-    /// up to `VMManager.terminationDeadline`. Blocking in `applicationWillTerminate` instead would
-    /// starve the main-actor work the stops wait on.
+    /// A VM's guest gets a real shutdown, which needs the app alive, so the quit waits for it and
+    /// then for the forced stop that follows, up to `VMManager.terminationDeadline` in all.
+    /// Blocking in `applicationWillTerminate` instead would starve the main-actor work the stops
+    /// wait on.
     private func terminateStoppingVMs(_ vms: VMManager) -> NSApplication.TerminateReply {
         Task { @MainActor in
             await vms.stopAllForTermination()

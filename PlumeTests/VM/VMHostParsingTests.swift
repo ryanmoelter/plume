@@ -94,4 +94,31 @@ struct VMHostParsingTests {
         let arguments = VMHost.sshArguments(ip: "192.168.64.2", command: "true")
         #expect(arguments.contains("IdentitiesOnly=yes"))
     }
+
+    @Test func readinessShowsTheMACBeforeTheConsoleIsReady() {
+        let locked = String(decoding: Self.ioreg(locked: true), as: UTF8.self)
+        let output = "76:7b:f5:77:06:5d\n" + VMHost.readinessSeparator + "\n" + locked
+        #expect(VMHost.readinessShowsMAC(output, mac: "76:7b:f5:77:6:5d"))
+        #expect(!VMHost.readinessShowsMAC(output, mac: "e2:9a:0f:27:57:55"))
+        #expect(!VMHost.isReady(readinessOutput: output, mac: "76:7b:f5:77:6:5d"))
+    }
+
+    @Test func shutdownChecksTheGuestsMACFirst() {
+        #expect(VMHost.shutdownCommand(mac: "76:7B:F5:77:6:5D")
+            == "ifconfig | grep -qiF 'ether 76:7b:f5:77:06:5d' && sudo shutdown -h now")
+    }
+
+    @Test func aCloneLockReadsAsHeldOnlyWhileALiveProcessHoldsIt() throws {
+        let directory = FileManager.default.temporaryDirectory.appending(path: "vm-lock-\(UUID().uuidString)")
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let path = directory.appending(path: "plume-27-1.lock").path
+        #expect(VMCloneLock.isFree(path: path))
+        let lock = try #require(VMCloneLock.acquire(path: path))
+        #expect(!VMCloneLock.isFree(path: path))
+        lock.release()
+        #expect(VMCloneLock.isFree(path: path))
+        // macOS pids stop at 99998 (PID_MAX), so no process has this one.
+        try "99999".write(toFile: path, atomically: true, encoding: .utf8)
+        #expect(VMCloneLock.isFree(path: path))
+    }
 }

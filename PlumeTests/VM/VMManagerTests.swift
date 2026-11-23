@@ -7,7 +7,7 @@ import Virtualization
 @MainActor
 final class FakeVMBackend: VMBackend {
     var hostOSMajor = 27
-    var guestDidStop: ((_ slot: Int, _ reason: String?) -> Void)?
+    var guestDidStop: ((_ slot: Int, _ generation: UInt64, _ reason: String?) -> Void)?
 
     var baseExists = true
     var heldElsewhere: Set<Int> = []
@@ -16,12 +16,15 @@ final class FakeVMBackend: VMBackend {
     var holdPrepare = false
     var holdReady = false
     var holdStop = false
+    var stopFails: Set<Int> = []
+    private(set) var terminationGracePeriod: TimeInterval?
+    private(set) var startGenerations: [Int: UInt64] = [:]
     private(set) var calls: [String] = []
     private(set) var stopped: [Int] = []
     private(set) var stopIPs: [String?] = []
     private(set) var deleted: [Int] = []
     private var heldStarts: [Int: CheckedContinuation<VMDisplay?, any Error>] = [:]
-    private var heldPrepares: [Int: CheckedContinuation<Void, Never>] = [:]
+    private var heldPrepares: [Int: CheckedContinuation<Void, any Error>] = [:]
     private var heldReadies: [Int: CheckedContinuation<Void, Never>] = [:]
     private var heldStops: [Int: CheckedContinuation<Void, Never>] = [:]
 
@@ -29,15 +32,23 @@ final class FakeVMBackend: VMBackend {
     func isCloneFree(slot: Int) -> Bool { !heldElsewhere.contains(slot) }
 
     func prepareClone(slot: Int) async throws {
-        if holdPrepare { await withCheckedContinuation { heldPrepares[slot] = $0 } }
+        if holdPrepare { try await withCheckedThrowingContinuation { heldPrepares[slot] = $0 } }
         calls.append("prepare \(slot)")
     }
 
     func isPrepareHeld(_ slot: Int) -> Bool { heldPrepares[slot] != nil }
     func finishPrepare(_ slot: Int) { heldPrepares.removeValue(forKey: slot)?.resume() }
 
-    func start(slot: Int, worktree: String?) async throws -> VMDisplay? {
+    /// Ends a held prepare the way a killed `tart clone` does.
+    func beginTermination(gracePeriod: TimeInterval) {
+        terminationGracePeriod = gracePeriod
+        for (_, prepare) in heldPrepares { prepare.resume(throwing: CancellationError()) }
+        heldPrepares = [:]
+    }
+
+    func start(slot: Int, generation: UInt64, worktree: String?) async throws -> VMDisplay? {
         calls.append("start \(slot) \(worktree ?? "-")")
+        startGenerations[slot] = generation
         if let error = startError[slot] { throw error }
         guard holdStart else { return nil }
         return try await withCheckedThrowingContinuation { heldStarts[slot] = $0 }
@@ -60,11 +71,13 @@ final class FakeVMBackend: VMBackend {
     func isReadyHeld(_ slot: Int) -> Bool { heldReadies[slot] != nil }
     func finishReady(_ slot: Int) { heldReadies.removeValue(forKey: slot)?.resume() }
 
-    func stop(slot: Int, ip: String?) async {
+    func stop(slot: Int, ip: String?) async -> Bool {
         calls.append("stop \(slot)")
         if holdStop { await withCheckedContinuation { heldStops[slot] = $0 } }
+        guard !stopFails.contains(slot) else { return false }
         stopped.append(slot)
         stopIPs.append(ip)
+        return true
     }
 
     func isStopHeld(_ slot: Int) -> Bool { heldStops[slot] != nil }
@@ -353,5 +366,40 @@ struct VMManagerTests {
         #expect(both?.message.contains("agent") == true)
         #expect(both?.message.contains("VMs stop") == true)
         #expect(AppDelegate.quitAlertText(agentsWorking: false, runningVMs: 1)?.title == "Quit and Stop the Running VM?")
+    }
+
+    @Test func aGuestStopFromAnEarlierBootIsIgnored() async throws {
+        _ = try manager.claim(owner: .label("a"), worktree: nil, branch: nil)
+        await settle { state(1) == .ready }
+        let firstBoot = try #require(backend.startGenerations[1])
+        try manager.release("vm:1", owner: .label("a"), force: false)
+        await settle { state(1) == .idle }
+        _ = try manager.claim(owner: .label("b"), worktree: nil, branch: nil)
+        await settle { state(1) == .ready }
+        backend.guestDidStop?(1, firstBoot, "late")
+        #expect(state(1) == .ready)
+        backend.guestDidStop?(1, try #require(backend.startGenerations[1]), "crashed")
+        #expect(state(1) == .failed)
+        #expect(manager.slot(1)?.error == "vm:1 stopped: crashed")
+    }
+
+    @Test func aVMThatWontStopLeavesTheSlotFailed() async throws {
+        backend.stopFails = [1]
+        _ = try manager.claim(owner: .label("a"), worktree: nil, branch: nil)
+        await settle { state(1) == .ready }
+        try manager.release("vm:1", owner: .label("a"), force: false)
+        await settle { state(1) != .stopping }
+        #expect(state(1) == .failed)
+        #expect(manager.slot(1)?.error?.contains("didn't stop") == true)
+    }
+
+    @Test func quittingEndsACloneInFlightWithoutStartingTheVM() async throws {
+        backend.holdPrepare = true
+        _ = try manager.claim(owner: .label("a"), worktree: nil, branch: nil)
+        await settle { backend.isPrepareHeld(1) }
+        await manager.stopAllForTermination()
+        #expect(backend.terminationGracePeriod == VMManager.terminationGracePeriod)
+        #expect(state(1) == .idle)
+        #expect(backend.calls == ["stop 1"])
     }
 }

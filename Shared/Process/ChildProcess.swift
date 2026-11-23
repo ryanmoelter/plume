@@ -61,6 +61,21 @@ nonisolated enum ChildProcess {
         )
     }
 
+    /// Blocks like `run` above, and kills the child once `isCancelled` turns true.
+    static func run(
+        executable: String,
+        arguments: [String],
+        timeout: Duration?,
+        isCancelled: () -> Bool
+    ) throws -> ChildProcessResult {
+        try run(
+            executable: executable, arguments: arguments, environment: nil,
+            workingDirectory: nil, input: .null, output: .pipes,
+            newProcessGroup: true, timeout: timeout, terminationGrace: .seconds(1),
+            killsGroupOnExit: false, isCancelled: isCancelled, onOutput: nil
+        )
+    }
+
     /// Runs off the calling thread. Cancelling the task kills the child and throws `CancellationError`.
     static func run(
         executable: String,

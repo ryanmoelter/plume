@@ -31,6 +31,18 @@ struct VMTabView: View {
     }
 
     var body: some View {
+        if VMManager.isSupported {
+            supportedBody
+        } else {
+            Text(VMManager.unsupportedMessage)
+                .foregroundStyle(.secondary)
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
+                .plumeID(AccessibilityID.vmTab, value: VMManager.unsupportedMessage)
+        }
+    }
+
+    @ViewBuilder
+    private var supportedBody: some View {
         let slot = tab.vmSlot == 0 ? nil : vms.slot(tab.vmSlot)
         let phase = VMTabPhase.of(vmSlot: tab.vmSlot, slot: slot, hasDisplay: vms.displays[tab.vmSlot] != nil)
         VStack(spacing: 0) {
@@ -151,7 +163,7 @@ struct VMTabView: View {
             }
             .padding()
         case .running(let number, let hasDisplay):
-            if hasDisplay {
+            if #available(macOS 27.0, *), hasDisplay {
                 VMDisplayView(display: vms.displays[number], capturesSystemKeys: capturesSystemKeys)
                     .plumeID(AccessibilityID.vmSurface, value: slot.key)
             } else {
@@ -261,6 +273,7 @@ struct VMTabView: View {
 
 /// `VZVirtualMachineView` showing a slot's VM through `VMDisplay`, which keeps the VM's own calls on
 /// its queue.
+@available(macOS 27.0, *)
 struct VMDisplayView: NSViewRepresentable {
     let display: VMDisplay?
     let capturesSystemKeys: Bool
