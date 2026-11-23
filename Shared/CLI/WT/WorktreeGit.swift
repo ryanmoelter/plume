@@ -327,7 +327,7 @@ nonisolated final class ProcessWorktreeGit: WorktreeGit {
 
     func changedFiles(_ path: String, baseRef: String) -> Set<String> {
         guard let mergeBase = outputOrNil(worktreeGit(path, "merge-base", baseRef, "HEAD")) else { return [] }
-        return Set(lines(outputOrNil(worktreeGit(path, "diff", "--name-only", mergeBase))))
+        return Set(lines(outputOrNil(worktreeGit(path, "-c", "core.quotePath=false", "diff", "--no-renames", "--name-only", mergeBase))))
     }
 
     private func checkoutArguments(_ path: String, ref: String, detach: Bool) -> [String] {

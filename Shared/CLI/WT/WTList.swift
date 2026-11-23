@@ -230,7 +230,7 @@ nonisolated extension WT {
         let all = statuses.all
         // The base branch's row is the comparison, not a participant.
         let changed = zip(all, paths).map { status, path in
-            (status.display == ctx.baseBranch ? [] : status.changedFiles, path)
+            (ctx.trunkBranches.contains(status.display) ? [] : status.changedFiles, path)
         }
         let overlapsByRow = overlaps(among: zip(names, changed).map { ($0, $1.1, $1.0) })
         return zip(names.indices, zip(names, all)).map { index, pair in
