@@ -272,6 +272,12 @@ struct WorkspacePickerView: View, ThemedView {
                     label: { $0 ?? ProjectSubfolder.rootTitle },
                     invoke: chooseSubfolder
                 )
+                .plumeMenuItems(
+                    AccessibilityID.workspaceChooseFolderItem,
+                    Self.debugChoosableFolders,
+                    label: { $0 },
+                    invoke: chooseAnyFolder
+                )
             } else {
                 inlineLabel(title, glyph: .pathSeparator, isControl: false)
                     .help("Subfolder: \(title)")
@@ -771,6 +777,17 @@ struct WorkspacePickerView: View, ThemedView {
     private func chooseSubfolder(_ name: String?) {
         guard let checkout = checkoutDirectory else { return }
         setDirectory(ProjectSubfolder.directory(checkoutRoot: checkout, subfolder: name), keepingBranch: true)
+    }
+
+    /// Folders a driver can pick without the open panel, named by
+    /// `PLUME_DEBUG_CHOOSE_FOLDERS` (comma-separated).
+    private static var debugChoosableFolders: [String] {
+        #if DEBUG
+        ProcessInfo.processInfo.environment["PLUME_DEBUG_CHOOSE_FOLDERS"]?
+            .split(separator: ",").map(String.init) ?? []
+        #else
+        []
+        #endif
     }
 
     /// "Choose folder…" can leave the repository, and a stored branch belongs

@@ -87,6 +87,12 @@ enum SmokeHarness {
             for tab in first.tabs { tab.workspace = .directory(cwd) }
         }
 
+        // PLUME_SEED_BRANCH stores a branch on the first task's tabs, for
+        // checking what clears it.
+        if let branch = environment["PLUME_SEED_BRANCH"], let first = tasks.first {
+            for tab in first.tabs { tab.branchName = branch }
+        }
+
         // PLUME_SEED_AGENT_SESSION_ID stores a session ID on the first task's
         // agent tab without launching anything, so lazy auto-resume can be
         // observed on first selection instead of at seed time.
