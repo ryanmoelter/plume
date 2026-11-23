@@ -79,4 +79,71 @@ struct CodexSharedSessionTests {
         #expect(h.responses.filter { $0["id"] == .number(900) }.count == 1)
         #expect(b.pendingPermissions.count == 1)
     }
+
+    @Test func childToolsRequireApprovalAndRespectPlanMode() async throws {
+        let h = Harness()
+        let host = CodexSharedAppServer(physical: h.client)
+        let codex = CodexSession(tabID: UUID(), taskID: UUID(), client: CodexAppServerClient(sharedServer: host))
+        defer {
+            codex.stop()
+            CodexItemStore.shared.forget(tabID: codex.tabID)
+            CodexSubagentStore.shared.forget(tabID: codex.tabID)
+        }
+        var calls: [PlumeMCPServer.ToolCall] = []
+        var approvals: [Bool] = []
+        codex.childSessionTools = CodexChildSessionTools(role: .parent) { call, approved in
+            calls.append(call)
+            approvals.append(approved)
+            return .success("Passed to the coordinator")
+        }
+        codex.start(
+            workingDirectory: "parent", resumeThreadID: nil, model: nil,
+            childNotesDirectory: "/notes/parent", environment: [:]
+        )
+        for _ in 0..<1000 {
+            if codex.sessionID == "parent" { break }
+            await Task.yield()
+        }
+        try #require(codex.sessionID == "parent")
+        let threadParameters = try #require(h.newThreadParameters.first)
+        let tools = try #require(threadParameters["dynamicTools"]?.arrayValue)
+        #expect(tools.compactMap { $0["name"]?.stringValue } == [
+            "plume_presence", "plume_start_session", "plume_send_message", "plume_dismiss_task"
+        ])
+        let startTool = try #require(tools.first { $0["name"] == .string("plume_start_session") })
+        #expect(startTool["inputSchema"]?["properties"]?["context"]?["enum"] == .array([.string("fresh")]))
+        #expect(threadParameters["runtimeWorkspaceRoots"] == .array([.string("parent"), .string("/notes/parent")]))
+        h.client.receive(#"{"method":"turn/started","params":{"threadId":"parent","turn":{"id":"turn-a"}}}"#)
+        h.client.receive(#"{"id":902,"method":"item/tool/call","params":{"threadId":"parent","turnId":"turn-a","callId":"start-a","tool":"plume_start_session","arguments":{"title":"Verify report","prompt":"Check the generated report","initiation":"user_asked"}}}"#)
+        #expect(calls.isEmpty)
+        let approval = try #require(codex.pendingPermissions.first)
+        #expect(approval.toolUseID == "turn-a#start-a")
+        codex.resolve(approval, with: .deny(message: "Declined"))
+        #expect(h.responses.first { $0["id"] == .number(902) }?["result"]?["success"] == .bool(false))
+        #expect(calls.isEmpty)
+
+        h.client.receive(#"{"id":903,"method":"item/tool/call","params":{"threadId":"parent","turnId":"turn-a","callId":"start-b","tool":"plume_start_session","arguments":{"title":"Verify report","prompt":"Check the generated report","initiation":"user_asked"}}}"#)
+        codex.resolve(try #require(codex.pendingPermissions.first), with: .allow(updatedInput: [:]))
+        for _ in 0..<1000 {
+            if h.responses.contains(where: { $0["id"] == .number(903) }) { break }
+            await Task.yield()
+        }
+        #expect(calls.map(\.tool) == [.startSession])
+        #expect(approvals == [true])
+
+        codex.setCollaborationMode(.plan)
+        h.client.receive(#"{"id":904,"method":"item/tool/call","params":{"threadId":"parent","turnId":"turn-a","callId":"offer","tool":"plume_start_session","arguments":{"initiation":"offer"}}}"#)
+        #expect(h.responses.first { $0["id"] == .number(904) }?["result"]?["success"] == .bool(false))
+        #expect(codex.pendingPermissions.isEmpty)
+        #expect(calls.count == 1)
+
+        h.client.receive(#"{"id":905,"method":"item/tool/call","params":{"threadId":"parent","turnId":"turn-a","callId":"proposal","tool":"plume_start_session","arguments":{"initiation":"own_initiative"}}}"#)
+        for _ in 0..<1000 {
+            if h.responses.contains(where: { $0["id"] == .number(905) }) { break }
+            await Task.yield()
+        }
+        #expect(calls.map(\.toolUseID) == ["turn-a#start-b", "turn-a#proposal"])
+        #expect(approvals == [true, false])
+    }
+
 }

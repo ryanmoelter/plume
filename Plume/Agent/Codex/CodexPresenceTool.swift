@@ -24,7 +24,7 @@ nonisolated enum CodexPresenceTool {
         return result(readPresence().state.rawValue, success: true)
     }
 
-    private static func result(_ text: String, success: Bool) -> JSONValue {
+    static func result(_ text: String, success: Bool) -> JSONValue {
         .object([
             "success": .bool(success),
             "contentItems": .array([.object(["type": .string("inputText"), "text": .string(text)])])

@@ -449,8 +449,8 @@ enum AgentLauncher {
             return
         }
         let workingDirectory = TabDirectoryStore.shared.directory(for: tab)
-        let notesDirectory = tab.parentTabID.map { AppPaths.sideSessionNotesDirectory(parentTabID: $0).path }
-        if let notesDirectory {
+        let notesDirectory = AppPaths.sideSessionNotesDirectory(parentTabID: tab.parentTabID ?? tab.id).path
+        if tab.isChildSession {
             let directories = tab.additionalDirectories.filter { $0 != notesDirectory }
             if directories != tab.additionalDirectories { tab.additionalDirectories = directories }
         }
@@ -459,8 +459,8 @@ enum AgentLauncher {
             AdditionalDirectoryStore.adopt(paths, into: tab)
         }
         session.declinedDirectories = { [weak tab] in tab?.removedAdditionalDirectories ?? [] }
+        ChildSessionCoordinator.shared.attach(to: session, tab: tab)
         if tab.isChildSession {
-            ChildSessionCoordinator.shared.attach(to: session, tab: tab)
             session.onThreadAdopted = { [weak tab] id in
                 guard let tab, tab.isLive else { return }
                 recordSessionID(id, on: tab)
@@ -475,7 +475,7 @@ enum AgentLauncher {
             defaultPermissionProfile: tab.isChildSession
                 ? AgentPermissionPreset.codexWorkspace.id : AppSettings.shared.defaultCodexPermissionProfile.id,
             isChildSession: tab.isChildSession,
-            childNotesDirectory: workingDirectory == nil ? nil : notesDirectory,
+            childNotesDirectory: notesDirectory,
             // One app-server runs every headless Codex tab, so the tab's own
             // IDs ride on its thread rather than on the process.
             environment: LoginShellCommand.sharedPlumeEnvironment(),

@@ -106,7 +106,11 @@ Plume registers `plume_presence` in `thread/start.dynamicTools`. It accepts
 an empty object and returns the same `awake`, `asleep`, or `locked` text as
 `plume presence`, using the same CoreGraphics reader.
 
-Codex asks for the tool through `item/tool/call`. Plume checks the root
+Plume also registers `plume_start_session`, `plume_dismiss_task` and
+`plume_send_message` for Codex parents. See [Child sessions](child-sessions.md)
+for launch settings, approvals, cards and reports.
+
+Codex asks for each tool through `item/tool/call`. Plume checks the root
 thread and active turn before dispatching. An unknown tool or invalid
 arguments produce a failed tool result. Native subagent threads and
 remote-control attachments do not run Plume's tool.

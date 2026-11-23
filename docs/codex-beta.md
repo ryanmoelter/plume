@@ -52,8 +52,8 @@ shared headless remote connection.
   Plume cannot open it directly. Terminal mode shows the refusal in the Codex
   TUI; Plume’s observer never takes ownership to test whether it is available.
 - Headless chats support standard MCP form and URL elicitation. Plume declines
-  forms whose fields or constraints it cannot render. Dynamic tool calls
-  (`item/tool/call`) still receive an unsupported-request error.
+  forms whose fields or constraints it cannot render. Dynamic tools are
+  available on threads Plume started with those tools registered.
 - Stay Awake tracks Codex’s managed terminal sessions. With the default zsh
   environment, it also tracks background processes that survive their command
   shell and retain the tab’s marker until Plume detects them. Some shells and

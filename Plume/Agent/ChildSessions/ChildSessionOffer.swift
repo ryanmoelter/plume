@@ -190,8 +190,12 @@ final class ChildSessionOfferBoard {
 
     private func reportAttention(_ toolUseID: String) {
         guard let offer = offers[toolUseID],
-              let session = AgentSessionManager.shared.existingSession(for: offer.parentTabID) as? HeadlessSession
+              let session = AgentSessionManager.shared.existingSession(for: offer.parentTabID)
         else { return }
-        session.setOffer(toolUseID, waitsForUser: offer.state == .pending)
+        if let claude = session as? HeadlessSession {
+            claude.setOffer(toolUseID, waitsForUser: offer.state == .pending)
+        } else if let codex = session as? CodexSession {
+            codex.setOffer(toolUseID, waitsForUser: offer.state == .pending)
+        }
     }
 }
