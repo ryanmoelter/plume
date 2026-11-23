@@ -73,12 +73,15 @@ nonisolated struct AgentModel: Identifiable, Hashable, Sendable {
     var token: String { id }
 
     /// The context window this model implies before any turn has reported
-    /// the real one. Every preset is 1M except Haiku, which has no 1M variant
-    /// on this subscription. Nil outside `selectable`: a model this build has
-    /// never heard of assumes nothing.
+    /// the real one. Every preset is 1M except Haiku 4.5, which has no 1M
+    /// variant on this subscription; Haiku 5.5 and the `haiku` alias (which
+    /// resolves to it) are 1M. Nil outside `selectable` and the Haiku 5.x IDs:
+    /// a model this build has never heard of assumes nothing.
     var nominalContextWindow: Int? {
+        if id == AgentModel.haiku4dot5At200K.id { return 200_000 }
+        if id.lowercased().hasPrefix("claude-haiku-5") { return 1_000_000 }
         guard AgentModel.selectable.contains(where: { $0.id == id }) else { return nil }
-        return id == AgentModel.haiku.id || id == AgentModel.haiku4dot5At200K.id ? 200_000 : 1_000_000
+        return 1_000_000
     }
 
     // MARK: - Presets

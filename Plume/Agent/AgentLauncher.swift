@@ -254,8 +254,19 @@ enum AgentLauncher {
             )
             if tab.permissionMode != nil || mode != inherited { tab.permissionMode = mode }
         }
-        if tab.isModelUserChosen, let model = session.model, tab.model != model { tab.model = model }
+        if tab.isModelUserChosen { persistChosenModel(of: session, to: tab) }
         if let effort = session.effort, tab.effort != effort { tab.effort = effort }
+    }
+
+    /// Saves what the user asked for, not what it resolved to, so an alias such
+    /// as `haiku` or `opusplan` keeps its plan-mode behavior across a relaunch.
+    /// `default` has no ID of its own, so the resolved model stands in.
+    private static func persistChosenModel(of session: HeadlessSession, to tab: TaskTab) {
+        if let requested = session.requestedModelID, requested != "default" {
+            if tab.modelRaw != requested { tab.modelRaw = requested }
+        } else if let model = session.model, tab.model != model {
+            tab.model = model
+        }
     }
 
     /// Records a headless session's id with the transcript it writes, which
