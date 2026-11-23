@@ -257,8 +257,10 @@ final class CodexSession: AgentSession {
 
             var params: [String: JSONValue] = [:]
             if let workingDirectory { params["cwd"] = .string(workingDirectory) }
-            if let workingDirectory, let childNotesDirectory {
-                params["runtimeWorkspaceRoots"] = .array([.string(workingDirectory), .string(childNotesDirectory)])
+            if let childNotesDirectory {
+                var roots = [childNotesDirectory]
+                if let workingDirectory { roots.insert(workingDirectory, at: 0) }
+                params["runtimeWorkspaceRoots"] = .array(roots.map(JSONValue.string))
             }
             if let model { params["model"] = .string(model.id) }
             selectedPermissionProfile = if isChildSession, resolvedPermissionProfile?.id != permissionProfile {

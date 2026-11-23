@@ -95,15 +95,23 @@ struct CodexSharedSessionTests {
             approvals.append(approved)
             return .success("Passed to the coordinator")
         }
-        codex.start(workingDirectory: "parent", resumeThreadID: nil, model: nil, environment: [:])
+        codex.start(
+            workingDirectory: "parent", resumeThreadID: nil, model: nil,
+            childNotesDirectory: "/notes/parent", environment: [:]
+        )
         for _ in 0..<1000 {
             if codex.sessionID == "parent" { break }
             await Task.yield()
         }
         try #require(codex.sessionID == "parent")
-        #expect(h.newThreadParameters.first?["dynamicTools"]?.arrayValue?.compactMap { $0["name"]?.stringValue } == [
+        let threadParameters = try #require(h.newThreadParameters.first)
+        let tools = try #require(threadParameters["dynamicTools"]?.arrayValue)
+        #expect(tools.compactMap { $0["name"]?.stringValue } == [
             "plume_presence", "plume_start_session", "plume_send_message", "plume_dismiss_task"
         ])
+        let startTool = try #require(tools.first { $0["name"] == .string("plume_start_session") })
+        #expect(startTool["inputSchema"]?["properties"]?["context"]?["enum"] == .array([.string("fresh")]))
+        #expect(threadParameters["runtimeWorkspaceRoots"] == .array([.string("parent"), .string("/notes/parent")]))
         h.client.receive(#"{"method":"turn/started","params":{"threadId":"parent","turn":{"id":"turn-a"}}}"#)
         h.client.receive(#"{"id":902,"method":"item/tool/call","params":{"threadId":"parent","turnId":"turn-a","callId":"start-a","tool":"plume_start_session","arguments":{"title":"Verify report","prompt":"Check the generated report","initiation":"user_asked"}}}"#)
         #expect(calls.isEmpty)

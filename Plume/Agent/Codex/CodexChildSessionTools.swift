@@ -15,7 +15,7 @@ struct CodexChildSessionTools {
                 "type": .string("function"),
                 "name": .string(tool.codexName),
                 "description": .string(description),
-                "inputSchema": ChildSessionFormats.inputSchema(of: tool)
+                "inputSchema": ChildSessionFormats.inputSchema(of: tool, parentProvider: .codex)
             ])
         }
     }

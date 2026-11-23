@@ -273,10 +273,11 @@ nonisolated enum ChildSessionFormats {
         }
     }
 
-    static func inputSchema(of tool: PlumeMCPTool) -> JSONValue {
+    static func inputSchema(of tool: PlumeMCPTool, parentProvider: AgentProviderKind = .claudeCode) -> JSONValue {
+        let supportsFork = parentProvider == .claudeCode
         switch tool {
         case .startSession:
-            schema(required: [], properties: [
+            return schema(required: [], properties: [
                 "title": string("Under \(StartSessionRequest.titleLimit) chars; names the task. Shown on the tab or card. Required unless proposal_id is set."),
                 "prompt": string("The brief: the task, the files or area, what done looks like, self-contained for a session that has not seen this conversation. Required unless proposal_id is set."),
                 "initiation": enumeration(StartSessionRequest.Initiation.allCases.map(\.rawValue), "\"user_asked\": the user asked in words for separate, parallel or background work, or told you to start this piece — it starts now. \"own_initiative\": work you propose yourself that the user has not told you to do — something you noticed, or the follow-up your own answer or work turned up; it waits as a proposal card until the user starts it; never for a task the user's message tells you to do. \"offer\": ask the user now whether this should run as a separate session or be done here by you; the call waits for their answer. Required unless proposal_id is set."),
@@ -288,20 +289,37 @@ nonisolated enum ChildSessionFormats {
                 ]),
                 "background": string("What the new session needs from this conversation. At least \(StartSessionRequest.minimumBackground) characters when context is fresh."),
                 "provider": enumeration(AgentProviderKind.allCases.map(\.rawValue), "claude-code (default) or codex. Codex starts fresh with Workspace permissions."),
-                "context": enumeration(StartSessionRequest.Context.allCases.map(\.rawValue), "fresh (default) starts from the brief alone; fork copies this conversation into a Claude Code child."),
-                "use_worktree": boolean("Give the session its own git worktree cut from this session's HEAD. Defaults to whether this session works in a worktree. A fork never gets one: it shares this session's folder."),
-                "model": string("A Claude Code model ID or alias, or an exact Codex model ID. Claude Code inherits this session's model. Codex uses its own default."),
-                "effort": enumeration(AgentProviderKind.codex.efforts.map(\.token), "Reasoning effort supported by the selected provider. Claude Code inherits this session's effort. Codex uses its own default."),
-                "permission_mode": enumeration(PermissionMode.allCases.map(\.token), "Claude Code only. Defaults to this session's mode."),
+                "context": supportsFork
+                    ? enumeration(StartSessionRequest.Context.allCases.map(\.rawValue), "fresh (default) starts from the brief alone; fork copies this conversation into a Claude Code child.")
+                    : enumeration([StartSessionRequest.Context.fresh.rawValue], "Start a fresh conversation from the brief."),
+                "use_worktree": boolean(
+                    "Give the session its own git worktree cut from this session's HEAD. Defaults to whether this session works in a worktree."
+                        + (supportsFork ? " A fork always shares this session's folder." : "")
+                ),
+                "model": string(
+                    "A Claude Code model ID or alias, or an exact Codex model ID."
+                        + (supportsFork ? " Claude Code inherits this session's model." : " Claude Code uses its own default.")
+                        + " Codex uses its own default."
+                ),
+                "effort": enumeration(
+                    AgentProviderKind.codex.efforts.map(\.token),
+                    "Reasoning effort supported by the selected provider."
+                        + (supportsFork ? " Claude Code inherits this session's effort." : " Claude Code uses its own default.")
+                        + " Codex uses its own default."
+                ),
+                "permission_mode": enumeration(
+                    PermissionMode.allCases.map(\.token),
+                    supportsFork ? "Claude Code only. Defaults to this session's mode." : "Claude Code only. Defaults to Manual."
+                ),
                 "wake_when_done": boolean("Whether its finished turns start a turn here. Defaults to true.")
             ])
         case .dismissTask:
-            schema(required: ["task_id"], properties: [
+            return schema(required: ["task_id"], properties: [
                 "task_id": string("The task_id the start_session proposal returned."),
                 "reason": string("Optional one-line reason the suggestion is no longer needed, e.g. \"fixed in this session\" or \"superseded by task_ab12cd34\".")
             ])
         case .sendMessage:
-            schema(required: ["to", "message"], properties: [
+            return schema(required: ["to", "message"], properties: [
                 "to": string("The session_id of the session to message."),
                 "message": string("The message.")
             ])
