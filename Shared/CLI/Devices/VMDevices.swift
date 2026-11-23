@@ -6,6 +6,7 @@ nonisolated extension Devices {
     enum VMCommand: Equatable {
         case claim(worktree: String?, owner: String?, ttl: TimeInterval, json: Bool)
         case release(key: String, owner: String?, force: Bool)
+        case releaseMine(owner: String?)
         case renew(key: String, owner: String?, ttl: TimeInterval)
         case installed(key: String, branch: String?)
         case reset(key: String)
@@ -75,6 +76,14 @@ nonisolated extension Devices {
             let owner = try claimant(ownerFlag: ownerFlag, environment: environment, devices: devices).owner
             _ = try sendVM(.releaseVM(.init(key: key, owner: owner, force: force)), socket: socket, app: app)
             console.print("released \(key)")
+        case .releaseMine(let ownerFlag):
+            let owner = try claimant(ownerFlag: ownerFlag, environment: environment, devices: devices).owner
+            let slots = try sendVM(.listVMs, socket: socket, app: app).vms ?? []
+            let vms = releaseVMs(slots.filter { $0.owner == owner }, owner: owner, socket: socket, app: app)
+            if !vms.released.isEmpty || vms.failures.isEmpty {
+                console.print(vms.released.isEmpty ? "no VMs held" : "released " + vms.released.joined(separator: ", "))
+            }
+            if !vms.failures.isEmpty { throw CLIFailure("couldn't release " + vms.failures.joined(separator: "; ")) }
         case .renew(let key, let ownerFlag, let ttl):
             let owner = try claimant(ownerFlag: ownerFlag, environment: environment, devices: devices).owner
             _ = try sendVM(.renewVM(.init(key: key, owner: owner, ttl: ttl)), socket: socket, app: app)
@@ -168,9 +177,16 @@ nonisolated extension Devices {
         ownedBy owner: DeviceLeaseOwner, environment: [String: String], app: any DeviceAppClient
     ) -> (released: [String], failures: [String]) {
         guard let socket = CLISocket.resolvedPath(environment: environment) else { return ([], []) }
+        let held = vmRowsIfAnswering(environment: environment, app: app).filter { $0.owner == owner }
+        return releaseVMs(held, owner: owner, socket: socket, app: app)
+    }
+
+    static func releaseVMs(
+        _ slots: [VMLeaseInfo], owner: DeviceLeaseOwner, socket: String, app: any DeviceAppClient
+    ) -> (released: [String], failures: [String]) {
         var released: [String] = []
         var failures: [String] = []
-        for slot in vmRowsIfAnswering(environment: environment, app: app) where slot.owner == owner {
+        for slot in slots {
             do {
                 _ = try sendVM(.releaseVM(.init(key: slot.key, owner: owner, force: false)), socket: socket, app: app)
                 released.append(slot.key)

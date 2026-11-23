@@ -3,7 +3,7 @@
 # docs/vm-testing.md is the reference.
 # Usage: plume-vm <command> [args]
 #   claim [--worktree=PATH]   lease a VM (the worktree defaults to this one); prints vm:<n>
-#   release vm:<n>            release the VM and drop its tunnel
+#   release [vm:<n>]          release your VM, or that one, and drop its tunnel
 #   list                      list the VM slots
 #   reset vm:<n>              delete a free slot's clone
 #   ssh [-- cmd...]           a shell, or one command, in your VM
@@ -12,8 +12,8 @@
 #                             copy the debug app into the guest, start it, and forward its control socket
 #   test [--only-testing X]... [--skip-build]
 #                             build for testing on the host, then run the UI tests in the guest
-# `plume` comes from $PLUME_CLI, else this worktree's build, else PATH. Set PLUME_SOCKET to the
-# socket of the app that should own the VM.
+# `plume` comes from $PLUME_CLI, else this worktree's build, else PATH, skipping any too old for
+# VMs. Set PLUME_SOCKET to the socket of the app that should own the VM.
 set -euo pipefail
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
@@ -42,22 +42,28 @@ products_dir() {
   printf '%s\n' "$dir"
 }
 
+supports_vms() { [[ -x "$1" ]] && "$1" devices help 2>&1 | grep -qF -- '--mine [--kind=vm]'; }
+
 PLUME=""
+# A Plume tab sets PLUME_CLI to its own app's tool, which may predate VMs and would read vm:<n>
+# as an Android serial.
 resolve_plume() {
   [[ -z "$PLUME" ]] || return 0
+  local candidate
   if [[ -n "${PLUME_CLI:-}" ]]; then
-    [[ -x "$PLUME_CLI" ]] || die "PLUME_CLI is not executable: $PLUME_CLI"
-    PLUME="$PLUME_CLI"
-    return 0
+    if supports_vms "$PLUME_CLI"; then
+      PLUME="$PLUME_CLI"
+      return 0
+    fi
+    log "skipping PLUME_CLI ($PLUME_CLI): it doesn't support VMs"
   fi
-  local built
-  built="$(products_dir 2>/dev/null)/Plume.app/Contents/Helpers/plume" || true
-  if [[ -x "$built" ]]; then
-    PLUME="$built"
-  elif built="$(type -P plume)" && "$built" devices help 2>&1 | grep -q -- '--kind=vm'; then
-    PLUME="$built"
+  candidate="$(products_dir 2>/dev/null)/Plume.app/Contents/Helpers/plume" || true
+  if supports_vms "$candidate"; then
+    PLUME="$candidate"
+  elif candidate="$(type -P plume)" && supports_vms "$candidate"; then
+    PLUME="$candidate"
   else
-    die "no plume tool supports --kind=vm: build this worktree (xcodebuild -scheme Plume build), or set PLUME_CLI"
+    die "no plume tool supports VMs: build this worktree (xcodebuild -scheme Plume build), or set PLUME_CLI"
   fi
 }
 
@@ -284,9 +290,14 @@ case "$cmd" in
   list) plume devices list --kind=vm "$@" ;;
   reset) plume devices reset "$@" ;;
   release)
-    [[ "${1:-}" == vm:* ]] || die "release takes a vm:<n> key; see 'plume-vm list'"
-    plume devices release "$@"
-    stop_slot "${1#vm:}"
+    if [[ "${1:-}" == vm:* ]]; then
+      plume devices release "$@"
+      stop_slot "${1#vm:}"
+    else
+      out="$(plume devices release --mine --kind=vm "$@")"
+      echo "$out"
+      for key in $(grep -oE 'vm:[0-9]+' <<<"$out"); do stop_slot "${key#vm:}"; done
+    fi
     ;;
   ssh)
     claim_vm

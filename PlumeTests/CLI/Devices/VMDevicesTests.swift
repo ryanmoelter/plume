@@ -41,6 +41,8 @@ struct VMDevicesTests {
         #expect(try Devices.parse(["installed", "vm:1", "main"]) == .vm(.installed(key: "vm:1", branch: "main")))
         #expect(try Devices.parse(["reset", "vm:2"]) == .vm(.reset(key: "vm:2")))
         #expect(try Devices.parse(["list", "--kind=vm", "--json"]) == .vm(.list(json: true)))
+        #expect(try Devices.parse(["release", "--mine", "--kind=vm"]) == .vm(.releaseMine(owner: nil)))
+        #expect(try Devices.parse(["release", "--kind", "vm", "--mine", "--owner=ci"]) == .vm(.releaseMine(owner: "ci")))
     }
 
     @Test func rejectsBadVMCommands() {
@@ -48,6 +50,7 @@ struct VMDevicesTests {
             ["claim", "--worktree=/w"], ["claim", "--kind=vm", "R5"], ["claim", "--kind=vm", "--form=tablet"],
             ["claim", "--kind=vm", "--model=x"], ["reset"], ["reset", "R5"], ["reset", "vm:1", "vm:2"],
             ["list", "--kind=emulator"], ["claim", "--kind=vm", "--worktree"],
+            ["release", "--kind=vm"], ["release", "vm:1", "--kind=vm"], ["release", "--mine", "--kind=emulator"],
         ] {
             #expect(throws: Devices.UsageError.self, "\(arguments)") { try Devices.parse(arguments) }
         }
@@ -318,5 +321,44 @@ struct VMDevicesTests {
         #expect(console.stdout == "released vm:2\n")
         #expect(console.stderr.contains("couldn't release vm:1: vm:1 is stopping"))
         #expect(run.requests.count == 3)
+    }
+
+    @Test func releaseMineKindVMReleasesOnlyMyVMsAndNeverTouchesTheRegistry() throws {
+        let run = try Run()
+        run.env.adbFailure = "adb not found"
+        run.app.reply = { request in
+            guard case .listVMs = request else { return .success }
+            var response = CLIResponse.success
+            response.vms = [
+                VMDevicesTests.slot(1, .ready, owner: .label("someone else")),
+                VMDevicesTests.slot(2, .ready),
+            ]
+            return response
+        }
+        let (code, console) = run(["release", "--mine", "--kind=vm"])
+        #expect(code == 0)
+        #expect(console.stdout == "released vm:2\n")
+        #expect(run.requests == [.listVMs, .releaseVM(.init(key: "vm:2", owner: .label("/repo/wt"), force: false))])
+    }
+
+    @Test func releaseMineKindVMSaysSoWhenNoneIsHeld() throws {
+        let run = try Run()
+        run.app.reply = { _ in
+            var response = CLIResponse.success
+            response.vms = [VMDevicesTests.slot(1, .ready, owner: .label("someone else"))]
+            return response
+        }
+        let (code, console) = run(["release", "--mine", "--kind=vm"])
+        #expect(code == 0)
+        #expect(console.stdout == "no VMs held\n")
+        #expect(run.requests == [.listVMs])
+    }
+
+    @Test func releaseMineKindVMFailsWhenNoAppAnswers() throws {
+        let run = try Run()
+        run.app.reply = { _ in throw CLIFailure("no app") }
+        let (code, console) = run(["release", "--mine", "--kind=vm"])
+        #expect(code == 1)
+        #expect(console.stdout.isEmpty)
     }
 }

@@ -24,9 +24,9 @@ nonisolated enum Devices {
                   Lease a macOS VM from the running Plume and wait until it's ready. The
                   worktree (default: the current one) is shared read-only into the guest.
                   Prints only vm:<n> on stdout; --json adds the address, ssh key and shares.
-          release <serial> | --mine [--owner=<label>] [--force]
+          release <serial> | --mine [--kind=vm] [--owner=<label>] [--force]
                   Release a lease. Another owner's lease needs --force. Releasing a remote
-                  device ends its reservation.
+                  device ends its reservation. --mine --kind=vm releases only your VMs.
           renew <serial> [--owner=<label>] [--ttl=<sec>]
                   Extend a lease you hold.
           installed <serial> [<branch>]
@@ -194,16 +194,25 @@ nonisolated enum Devices {
             var mine = false
             var owner: String?
             var force = false
+            var vmOnly = false
             while let argument = try flags.next() {
                 switch argument {
                 case .flag("--mine", nil): mine = true
                 case .flag("--force", nil): force = true
+                case .flag("--kind", let value):
+                    let raw = try flags.require(value, for: "--kind")
+                    guard raw == vmKind else { throw UsageError(message: "release takes only --kind=vm, got: \(raw)") }
+                    vmOnly = true
                 case .flag("--owner", let value): owner = try ownerLabel(flags.require(value, for: "--owner"))
                 case .positional(let value): try flags.setOnce(&serial, value)
                 case .flag(let flag, _): throw UsageError(message: "unknown flag for release: \(flag)")
                 }
             }
             guard (serial != nil) != mine else { throw UsageError(message: "release takes a <serial> or --mine") }
+            if vmOnly {
+                guard mine else { throw UsageError(message: "--kind=vm goes with --mine; a vm:<n> key needs no --kind") }
+                return .vm(.releaseMine(owner: owner))
+            }
             if let serial, VMPaths.isKey(serial) { return .vm(.release(key: serial, owner: owner, force: force)) }
             return .release(serial: serial, mine: mine, owner: owner, force: force)
         case "renew":
