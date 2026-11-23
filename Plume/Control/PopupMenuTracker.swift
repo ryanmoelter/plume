@@ -1,6 +1,5 @@
 #if DEBUG
 import AppKit
-import OSLog
 
 /// Remembers the menu AppKit is tracking, so the control server can read and
 /// pick from a menu a click opened. A SwiftUI `Menu` builds its `NSMenu` only
@@ -28,14 +27,13 @@ final class PopupMenuTracker: NSObject {
         if let menu = note.object as? NSMenu { ended(menu) }
     }
 
+    /// A submenu, the menu bar's included, is read through its root.
     private func began(_ menu: NSMenu) {
-        Log.control.info("menu began tracking: \(menu.title, privacy: .public) items=\(menu.items.count) main=\(menu === NSApp.mainMenu)")
-        guard menu !== NSApp.mainMenu, !open.contains(where: { $0 === menu }) else { return }
+        guard menu !== NSApp.mainMenu, menu.supermenu == nil, !open.contains(where: { $0 === menu }) else { return }
         open.append(menu)
     }
 
     private func ended(_ menu: NSMenu) {
-        Log.control.info("menu ended tracking: \(menu.title, privacy: .public)")
         open.removeAll { $0 === menu }
     }
 }

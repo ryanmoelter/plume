@@ -314,11 +314,14 @@ final class InProcessControlBackend: ControlBackend {
         return WindowSizeResult(windowNumber: window.windowNumber, width: size.width, height: size.height)
     }
 
-    /// Never expands a collapsed sidebar: the split view would put it back
-    /// at its old width, not the one asked for.
     func sidebarWidth(_ params: SidebarWidthParams) throws -> SidebarWidthResult {
         let window = try window(for: params.windowNumber)
         guard var state = SidebarSplit.width(in: window) else { throw ControlError.notFound("a sidebar in window \(window.windowNumber)") }
+        if params.expand == true, state.isCollapsed {
+            SidebarSplit.expand(in: window)
+            window.contentView?.layoutSubtreeIfNeeded()
+            state = SidebarSplit.width(in: window) ?? state
+        }
         let maximum = WindowMetrics.sidebarMaximumWidth(
             windowWidth: window.contentView?.bounds.width ?? window.frame.width,
             paneCount: (try? selectedTaskPaneCount()) ?? 1,

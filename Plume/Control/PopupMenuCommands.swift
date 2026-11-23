@@ -101,7 +101,10 @@ extension InProcessControlBackend {
             try? await Task.sleep(for: .milliseconds(20))
         }
         guard PopupMenuTracker.shared.open.last != nil else {
-            throw ControlError.notFound("a menu opened within \(params.timeout)s")
+            // SwiftUI never starts presenting a menu from a window that is
+            // not on screen.
+            let hidden = NSApp.isHidden ? "; a hidden app (open -j) opens no menus, relaunch without -j" : ""
+            throw ControlError.notFound("a menu opened within \(params.timeout)s\(hidden)")
         }
         return try menuItems()
     }
@@ -136,16 +139,20 @@ extension InProcessControlBackend {
         }
     }
 
-    /// The topmost popup-menu window this process has on screen.
+    /// The newest popup-menu window this process has. AppKit keeps an
+    /// earlier menu's window around, off screen, and a window on another
+    /// Space reads off screen too, so the newest wins over on-screen state.
     func menuScreenshot(_ params: MenuScreenshotParams) throws -> ScreenshotResult {
         _ = try openPopupMenu()
         let level = Int(CGWindowLevelForKey(.popUpMenuWindow))
         let pid = Int(getpid())
-        let windows = CGWindowListCopyWindowInfo([.optionOnScreenOnly], kCGNullWindowID) as? [[String: Any]] ?? []
-        guard let info = windows.first(where: {
-            ($0[kCGWindowOwnerPID as String] as? Int) == pid && ($0[kCGWindowLayer as String] as? Int) == level
-        }), let number = info[kCGWindowNumber as String] as? Int else {
-            throw ControlError.notFound("an on-screen menu window; a hidden app (open -j) shows none")
+        let windows = CGWindowListCopyWindowInfo([.optionAll], kCGNullWindowID) as? [[String: Any]] ?? []
+        guard let info = windows
+            .filter({ ($0[kCGWindowOwnerPID as String] as? Int) == pid && ($0[kCGWindowLayer as String] as? Int) == level })
+            .max(by: { ($0[kCGWindowNumber as String] as? Int ?? 0) < ($1[kCGWindowNumber as String] as? Int ?? 0) }),
+            let number = info[kCGWindowNumber as String] as? Int
+        else {
+            throw ControlError.notFound("a menu window")
         }
         guard let image = WindowCapture.image(windowID: UInt32(number)) else {
             throw ControlError.io("the window server has no image of the menu (\(WindowCapture.displayState))")

@@ -65,10 +65,12 @@ struct ControlNavigationTests {
 
     @Test func sidebarWidthDecodesAnOptionalWidth() throws {
         guard case .sidebarWidth(let read) = try decode(#"{"id":"1","command":"sidebar.width"}"#),
-              case .sidebarWidth(let set) = try decode(#"{"id":"2","command":"sidebar.width","width":300}"#)
+              case .sidebarWidth(let set) = try decode(#"{"id":"2","command":"sidebar.width","width":300,"expand":true}"#)
         else { Issue.record("not sidebar.width"); return }
         #expect(read.width == nil)
+        #expect(read.expand == nil)
         #expect(set.width == 300)
+        #expect(set.expand == true)
     }
 
     @Test func sidebarSplitReadsACollapsedSidebarAsZero() {

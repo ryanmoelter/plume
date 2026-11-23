@@ -183,6 +183,8 @@ nonisolated struct ScrollToResult: Codable, Equatable {
 /// Sets the sidebar's width, clamped to its range. Without `width`, reads it.
 nonisolated struct SidebarWidthParams: Decodable, Equatable {
     var width: Double?
+    /// Expands a collapsed sidebar before `width` applies.
+    var expand: Bool?
     var windowNumber: Int?
 }
 

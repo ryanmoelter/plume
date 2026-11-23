@@ -140,6 +140,13 @@ enum SidebarSplit {
         return (isCollapsed ? 0 : sidebar.frame.width, isCollapsed)
     }
 
+    /// Through the split view controller, so `NavigationSplitView`'s
+    /// column visibility follows.
+    static func expand(in window: NSWindow) {
+        guard let controller = splitView(in: window)?.delegate as? NSSplitViewController else { return }
+        controller.splitViewItems.first?.isCollapsed = false
+    }
+
     static func setWidth(_ width: CGFloat, in window: NSWindow) {
         splitView(in: window)?.setPosition(WindowMetrics.clampedSidebarWidth(width), ofDividerAt: 0)
     }
