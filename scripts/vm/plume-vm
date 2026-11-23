@@ -242,7 +242,7 @@ cmd_test() {
   host_xcode="$(xcodebuild -version | paste -sd' ' -)"
   guest_xcode="$(guest 'xcodebuild -version' | paste -sd' ' -)"
   [[ "$host_xcode" == "$guest_xcode" ]] \
-    || die "guest Xcode ($guest_xcode) differs from the host's ($host_xcode); rebuild the base image with make-base-image.sh"
+    || die "guest Xcode ($guest_xcode) differs from the host's ($host_xcode); rebuild the base image with make-base-image.sh, then run plume devices reset $VM_KEY once it is released"
 
   stop_slot "$SLOT"
   guest 'pkill -x Plume || true'

@@ -159,3 +159,19 @@ cat > "$VMS_DIR/base-$os.json" <<EOF
 }
 EOF
 echo "==> Built $base ($host_xcode)"
+
+# Slot clones were made from the old base. Delete each one under its clone lock, so a Plume
+# booting it meanwhile keeps it; the app's next claim clones the new base.
+skipped=()
+while IFS= read -r clone; do
+  [[ "$clone" =~ ^plume-$os-[0-9]+$ ]] || continue
+  if perl -e 'use Fcntl ":flock"; open(my $f, ">>", shift) or exit 2; flock($f, LOCK_EX | LOCK_NB) or exit 3; system(@ARGV); exit($? == 0 ? 0 : 1)' \
+    "$VMS_DIR/$clone.lock" tart delete "$clone"; then
+    echo "==> Deleted stale clone $clone"
+  else
+    skipped+=("$clone")
+  fi
+done < <(tart list --source local -q)
+for clone in ${skipped[@]+"${skipped[@]}"}; do
+  echo "warning: $clone is in use or could not be deleted, so it still has the old base; once it is free, run: plume devices reset vm:${clone##*-}" >&2
+done
