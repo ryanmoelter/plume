@@ -259,7 +259,7 @@ struct WorkspacePickerView: View, ThemedView {
                         choices: subfolderChoices,
                         checkoutRoot: checkoutDirectory,
                         choose: chooseSubfolder,
-                        chooseFolder: { setDirectory($0, keepingBranch: true) }
+                        chooseFolder: chooseAnyFolder
                     )
                 } label: {
                     inlineLabel(title, glyph: .pathSeparator)
@@ -520,8 +520,14 @@ struct WorkspacePickerView: View, ThemedView {
     /// guess before that arrives.
     private var chipBranchName: String {
         guard isSettled else { return Self.unsettledName }
-        return GitState.displayedBranch(state: state, storedBranchName: tab.branchName)
-            ?? repositoryBranch ?? "Worktree"
+        let branch = GitState.displayedBranch(
+            state: state,
+            storedBranchName: tab.branchName,
+            lastKnownBranch: GitStateStore.shared.lastKnownBranch(for: stateDirectory ?? directory)
+        )
+        // The repository's branch is the main checkout's, not this folder's.
+        if directoryExists { return branch ?? repositoryBranch ?? "Worktree" }
+        return branch ?? "Folder missing"
     }
 
     /// Whether the current checkout is a linked worktree. Keyed on
@@ -765,6 +771,19 @@ struct WorkspacePickerView: View, ThemedView {
     private func chooseSubfolder(_ name: String?) {
         guard let checkout = checkoutDirectory else { return }
         setDirectory(ProjectSubfolder.directory(checkoutRoot: checkout, subfolder: name), keepingBranch: true)
+    }
+
+    /// "Choose folder…" can leave the repository, and a stored branch belongs
+    /// to one repository only.
+    private func chooseAnyFolder(_ path: String) {
+        setDirectory(path, keepingBranch: Self.isInside(path, repository: tab.repoPath))
+    }
+
+    static func isInside(_ path: String, repository: String?) -> Bool {
+        guard let repository else { return false }
+        let child = URL(fileURLWithPath: path).resolvingSymlinksInPath().path
+        let root = URL(fileURLWithPath: repository).resolvingSymlinksInPath().path
+        return child == root || child.hasPrefix(root + "/")
     }
 
     private func setDirectory(_ path: String, keepingBranch: Bool = false) {

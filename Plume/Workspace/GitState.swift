@@ -66,8 +66,15 @@ nonisolated struct GitState: Equatable {
     /// one, or the tab's stored guess before that. Showing nothing while
     /// `git` is still answering would read as a directory with no branch
     /// rather than one still loading.
-    static func displayedBranch(state: GitState?, storedBranchName: String?) -> String? {
-        state?.branch ?? storedBranchName
+    ///
+    /// `lastKnownBranch` is the last branch `git` reported for the directory,
+    /// which outlives a deleted folder.
+    static func displayedBranch(
+        state: GitState?,
+        storedBranchName: String?,
+        lastKnownBranch: String? = nil
+    ) -> String? {
+        state?.branch ?? lastKnownBranch ?? storedBranchName
     }
 }
 
