@@ -79,6 +79,7 @@ claim_vm() {
   CLAIM="$(plume devices claim --kind=vm --json --worktree="$ROOT")"
   VM_KEY="$(json_get key)"
   [[ -n "$VM_KEY" ]] || die "claim returned no VM key: $CLAIM"
+  VM_LEASE_TOKEN="$(json_get leaseToken)"
   SLOT="${VM_KEY#vm:}"
   VM_IP="$(json_get ip)"
   VM_USER="$(json_get user)"
@@ -106,6 +107,19 @@ stop_slot() {
     fi
   fi
   rm -f "${dir:?}/tunnel.pid" "${dir:?}/app.pid"
+}
+
+release_vm() {
+  plume devices release "$@" || return
+  stop_slot "${1#vm:}"
+}
+
+release_my_vms() {
+  local out status=0 key
+  out="$(plume devices release --mine --kind=vm "$@")" || status=$?
+  [[ -z "$out" ]] || echo "$out"
+  for key in $(grep -oE 'vm:[0-9]+' <<<"$out"); do stop_slot "${key#vm:}"; done
+  return "$status"
 }
 
 # Guest bash that removes the links prepare made. Leaves $list set to the list file.
@@ -210,7 +224,7 @@ launch_app() {
   if [[ "$1" == --no-mirror ]]; then mirror=0; shift; fi
   local app=$1 seed=$2 envs=("${@:3}")
   stop_slot "$SLOT"
-  guest 'pkill -x Plume || true'
+  guest "$GUEST_APP_PATTERN"'pkill -f "$p" || true'
   [[ $mirror -eq 0 ]] || cmd_prepare
 
   # A fresh folder name each time: the guest's virtiofs can keep listing a recreated folder as empty.
@@ -231,7 +245,7 @@ launch_app() {
   log "Launching"
   guest "rm -f /tmp/plume-control.sock; open$open_envs \"\$HOME/PlumeVM/Plume.app\""
   wait_for_guest_socket || die "the guest app's control socket never appeared"
-  guest 'pgrep -x Plume | head -1' > "$SLOT_DIR/app.pid" || true
+  guest 'pgrep -f "^$HOME/PlumeVM/Plume\.app/Contents/MacOS/Plume( |\$)" | head -1' > "$SLOT_DIR/app.pid" || true
 
   log "Forwarding the control socket"
   mkdir -p "$(dirname "$CONTROL_SOCKET")"
@@ -342,38 +356,53 @@ cmd_grant_fda() {
     esac
   done
   app="$(resolve_app "$app")"
-  local id os base fda i
+  local id os base fda i held
   id="$(bundle_id "$app")"
   os="$(sw_vers -productVersion | cut -d. -f1)"
   base="plume-base-$os"
   recover_base "$os" "$base"
   tart get "$base" >/dev/null 2>&1 || die "no $base; build it with scripts/vm/make-base-image.sh"
 
+  # A claim returns a VM the caller already holds, which this run must never save or release.
+  held="$(my_vm_keys)" || die "couldn't list the VMs; is Plume running?"
+  [[ -z "$held" ]] || die "you already hold $(paste -sd' ' - <<<"$held"); release it with scripts/vm/plume-vm release, then run grant-fda again"
+
   # The claimed clone becomes the base, so it must be a fresh clone of the current one.
   delete_stale_clones "$os"
   local before
   before="$(tart list --source local -q)"
-  claim_vm
-  GRANT_VM_KEY=$VM_KEY
   trap release_grant_vm EXIT
   trap 'exit 130' INT
   trap 'exit 143' TERM
+  GRANT_CLAIMING=1
+  claim_vm
+  if [[ "$(json_get reused)" == true ]]; then
+    GRANT_CLAIMING=0
+    die "you already hold $VM_KEY; release it with scripts/vm/plume-vm release, then run grant-fda again"
+  fi
+  GRANT_VM_KEY=$VM_KEY
+  GRANT_CLAIMING=0
   local clone="plume-$os-$SLOT"
   if grep -qxF "$clone" <<<"$before"; then
     die "$clone was in use, so it may predate $base or hold earlier test runs; once it stops, run scripts/vm/plume-vm reset $VM_KEY, then grant-fda again"
   fi
 
   fda="$(guest_fda "$id")" || die "can't read $VM_KEY's TCC database over ssh"
-  if [[ "$fda" == 2 ]]; then
-    log "$base already grants $id Full Disk Access; nothing to save"
-    release_grant_vm || die "couldn't release $VM_KEY"
-    record_fda "$os" "$id"
-    return 0
-  fi
-
   local created
   created="$(guest_absent_paths)" || die "can't list $VM_KEY's home over ssh"
   launch_app --no-mirror "$app" ""
+
+  # The base's grant may name another signing certificate, which only the sheet reveals.
+  if [[ "$fda" == 2 ]]; then
+    log "$base already grants $id Full Disk Access; checking it matches this build"
+    check_no_fda_sheet "$app"
+    clean_guest "$id" "$created"
+    release_grant_vm || die "couldn't release $VM_KEY"
+    record_fda "$os" "$id"
+    log "$base already grants this build Full Disk Access; nothing to save"
+    return 0
+  fi
+
   guest "open 'x-apple.systempreferences:com.apple.preference.security?Privacy_AllFiles'"
   cat >&2 <<MSG
 
@@ -384,8 +413,18 @@ System Settings ▸ Privacy & Security ▸ Full Disk Access:
   3. If asked to quit and reopen it, click Later.
 Waiting up to 15 minutes for the grant...
 MSG
+  local status ssh_failures=0
   for i in $(seq 1 300); do
-    [[ "$(guest_fda "$id" 2>/dev/null)" == 2 ]] && break
+    status=0
+    fda="$(guest_fda "$id" 2>/dev/null)" || status=$?
+    [[ $status -ne 0 || "$fda" != 2 ]] || break
+    # ssh exits 255 when it can't reach the guest.
+    if [[ $status -eq 255 ]]; then
+      ssh_failures=$((ssh_failures + 1))
+      [[ $ssh_failures -lt 5 ]] || die "VM gone: ssh to $VM_KEY failed 5 times in a row, so it was released or crashed"
+    else
+      ssh_failures=0
+    fi
     [[ $i -lt 300 ]] || die "no grant after 15 minutes; run grant-fda again"
     sleep 3
   done
@@ -398,19 +437,8 @@ MSG
   check_no_fda_sheet "$app"
   log "The app holds Full Disk Access"
 
-  log "Cleaning up $VM_KEY"
-  quit_guest_app
-  # shellcheck disable=SC2086 # $created is one guest-quoted word per path
-  guest "bash -s -- $(q "$id") $created" <<<"$GUEST_UNLINK"'
-id=$1; shift
-pkill -x "System Settings"
-rm -f "$list"
-defaults delete "$id" 2>/dev/null
-rm -rf "$HOME/PlumeVM" "$HOME/Library/Application Support"/Plume.debug* \
-  "$HOME/Library/Caches/$id" "$HOME/Library/HTTPStorages/$id" "$HOME/Library/WebKit/$id" \
-  "$HOME/Library/Saved Application State/$id.savedState" /tmp/plume-control.sock
-for path in "$@"; do rm -rf "${HOME:?}/$path"; done
-true'
+  clean_guest "$id" "$created"
+  shut_down_guest
   release_grant_vm || die "couldn't release $VM_KEY"
 
   log "Waiting for $VM_KEY to stop"
@@ -422,7 +450,7 @@ true'
 
   # Every slot's lock is held across the swap, so no Plume clones a half-replaced base.
   log "Saving $clone as $base"
-  local status=0
+  status=0
   with_slot_locks "$os" bash -c "$SWAP_BASE" _ "$clone" "$base" || status=$?
   case $status in
     0) ;;
@@ -434,32 +462,113 @@ true'
   log "$base now grants $id Full Disk Access; every new clone inherits it"
 }
 
-# Paths under the guest's home the app may create, printed guest-quoted when absent, so cleanup
-# removes only what this run made.
+# Paths under the guest's home the app or its terminals may create, printed guest-quoted when
+# absent, so cleanup removes only what this run made.
 guest_absent_paths() {
-  guest 'bash -s' <<'EOF'
+  guest 'bash -s' <<'GUEST'
 cd "$HOME" || exit 1
-for p in .claude .claude/skills "Library/Application Support/Plume"; do
+for p in .claude .claude/skills .claude.json .zsh_history .zsh_sessions "Library/Application Support/Plume"; do
   [[ -e "$p" ]] || printf '%q ' "$p"
 done
-EOF
+GUEST
 }
+
+# Args: bundle ID, guest_absent_paths' output.
+clean_guest() {
+  log "Cleaning up $VM_KEY"
+  quit_guest_app
+  # shellcheck disable=SC2086 # $2 is one guest-quoted word per path
+  guest "bash -s -- $(q "$1") $2" <<<"$GUEST_UNLINK"'
+id=$1; shift
+pkill -x "System Settings"
+rm -f "$list"
+defaults delete "$id" 2>/dev/null
+defaults -currentHost delete "$id" 2>/dev/null
+/System/Library/Frameworks/CoreServices.framework/Frameworks/LaunchServices.framework/Support/lsregister -u "$HOME/PlumeVM/Plume.app" 2>/dev/null
+rm -rf "$HOME/PlumeVM" "$HOME/Library/Application Support"/Plume.debug* \
+  "$HOME/Library/Caches/$id" "$HOME/Library/HTTPStorages/$id" "$HOME/Library/WebKit/$id" \
+  "$HOME/Library/Saved Application State/$id.savedState" "$HOME/Library/Logs/$id" \
+  "$HOME/Library/Preferences/ByHost/$id".*.plist /tmp/plume-control.sock
+for path in "$@"; do rm -rf "${HOME:?}/$path"; done
+true'
+}
+
+# Guest shell that sets $p to a pgrep -f pattern for any copy of the app under ~/PlumeVM. Matches
+# the executable's path, since pgrep -x Plume can miss a running app.
+GUEST_APP_PATTERN='p="^$HOME/PlumeVM/(.*/)?Plume\.app/Contents/MacOS/Plume( |\$)"; '
 
 # Settles before the caller touches the app's defaults, which a quitting app may still write.
 quit_guest_app() {
-  guest 'pkill -x Plume; for _ in $(seq 1 20); do pgrep -x Plume >/dev/null || exit 0; sleep 0.5; done; exit 1' \
+  guest "$GUEST_APP_PATTERN"'pkill -f "$p"; for _ in $(seq 1 20); do pgrep -f "$p" >/dev/null || exit 0; sleep 0.5; done; exit 1' \
     || die "the guest app didn't quit"
 }
 
+# A guest that shuts itself down leaves a consistent disk, and the app reports that stop as the
+# failure "vm:<n> stopped" with no reason. A forced stop reports nothing, and a crash adds a reason.
+shut_down_guest() {
+  log "Shutting $VM_KEY down"
+  guest 'sudo shutdown -h now' >/dev/null 2>&1 || true
+  local i row
+  for i in $(seq 1 60); do
+    row="$(vm_state)" || row=""
+    case "$row" in
+      "failed $VM_KEY stopped") return 0 ;;
+      failed*) die "$VM_KEY failed instead of shutting down (${row#failed }), so nothing was saved" ;;
+      "") die "$VM_KEY lost this run's lease before it shut down, so nothing was saved" ;;
+    esac
+    [[ $i -lt 60 ]] || die "$VM_KEY didn't shut down within 2 minutes, so nothing was saved"
+    sleep 2
+  done
+}
+
+# Prints "<state> <error>" for this run's VM while the lease it claimed still holds the slot.
+vm_state() {
+  plume devices list --kind=vm --json | python3 -c '
+import json, sys
+key, token = sys.argv[1:]
+for vm in json.load(sys.stdin).get("vms", []):
+    if vm.get("key") == key and (not token or vm.get("leaseToken") == token):
+        print(vm.get("state", ""), vm.get("error") or "")
+' "$VM_KEY" "$VM_LEASE_TOKEN"
+}
+
+# The VM keys the caller leases, by plume devices' own rule: the Plume tab when PLUME_TAB_ID and
+# PLUME_SOCKET are set, else the git worktree around the current directory.
+my_vm_keys() {
+  local list top
+  list="$(plume devices list --kind=vm --json)" || return 1
+  top="$(git rev-parse --show-toplevel 2>/dev/null)" || top=""
+  python3 -c '
+import json, os, re, sys
+top = sys.argv[1]
+tab, socket = os.environ.get("PLUME_TAB_ID", ""), os.environ.get("PLUME_SOCKET", "")
+if not (socket and re.fullmatch(r"[0-9A-Fa-f]{8}(-[0-9A-Fa-f]{4}){3}-[0-9A-Fa-f]{12}", tab)):
+    tab = ""
+for vm in json.load(sys.stdin).get("vms", []):
+    owner = vm.get("owner") or {}
+    if tab:
+        mine = str(owner.get("tab", "")).upper() == tab.upper() and owner.get("app") == socket
+    else:
+        mine = bool(top) and owner.get("label") == top
+    if mine:
+        print(vm["key"])
+' "$top" <<<"$list"
+}
+
 GRANT_VM_KEY=""
-# Releases grant-fda's VM and drops its tunnel, once; also the EXIT trap for an early exit.
+GRANT_CLAIMING=0
+# Releases grant-fda's VM and drops its tunnel, once; also the EXIT trap for an early exit. While
+# the claim runs, the slot isn't known yet, so it releases every VM the caller holds, which
+# cmd_grant_fda has checked were none before it claimed.
 release_grant_vm() {
-  [[ -n "$GRANT_VM_KEY" ]] || return 0
-  local key=$GRANT_VM_KEY status=0
-  GRANT_VM_KEY=""
-  plume devices release "$key" >/dev/null || status=$?
-  stop_slot "${key#vm:}"
-  return "$status"
+  if [[ -n "$GRANT_VM_KEY" ]]; then
+    local key=$GRANT_VM_KEY
+    GRANT_VM_KEY=""
+    release_vm "$key" >/dev/null
+  elif [[ $GRANT_CLAIMING -eq 1 ]]; then
+    GRANT_CLAIMING=0
+    release_my_vms >&2
+  fi
 }
 
 # Waits for the main window, then for the sheet, which the window's .task presents a beat later.
@@ -527,12 +636,9 @@ case "$cmd" in
   reset) plume devices reset "$@" ;;
   release)
     if [[ "${1:-}" == vm:* ]]; then
-      plume devices release "$@"
-      stop_slot "${1#vm:}"
+      release_vm "$@"
     else
-      out="$(plume devices release --mine --kind=vm "$@")"
-      echo "$out"
-      for key in $(grep -oE 'vm:[0-9]+' <<<"$out"); do stop_slot "${key#vm:}"; done
+      release_my_vms "$@"
     fi
     ;;
   ssh)
