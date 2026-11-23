@@ -13,6 +13,8 @@
 #   test [--only-testing X]... [--skip-build]
 #                             build for testing on the host, then run the UI tests in the guest
 #                             (needs a base built with make-base-image.sh --with-xcode)
+#   grant-fda [--app PATH]    walk through granting the debug app Full Disk Access in a VM, then
+#                             save that VM as the base image (once per base image)
 # `plume` comes from $PLUME_CLI, else this worktree's build, else PATH, skipping any too old for
 # VMs. Set PLUME_SOCKET to the socket of the app that should own the VM.
 set -euo pipefail
@@ -25,7 +27,7 @@ DERIVED_DATA="$ROOT/build/vm-dd"
 DEFAULT_TESTS=(PlumeUITests PlumeTests/SurfaceCommandTests PlumeTests/TerminalShortcutReclaimTests PlumeTests/ControlHierarchyTests)
 CONTROL="$ROOT/scripts/debug/plume-control.py"
 
-usage() { sed -n '2,17p' "${BASH_SOURCE[0]}"; }
+usage() { sed -n '2,19p' "${BASH_SOURCE[0]}"; }
 die() { echo "plume-vm: $*" >&2; exit 1; }
 log() { echo "==> $*" >&2; }
 q() { printf '%q' "$1"; }
@@ -77,6 +79,7 @@ claim_vm() {
   CLAIM="$(plume devices claim --kind=vm --json --worktree="$ROOT")"
   VM_KEY="$(json_get key)"
   [[ -n "$VM_KEY" ]] || die "claim returned no VM key: $CLAIM"
+  VM_LEASE_TOKEN="$(json_get leaseToken)"
   SLOT="${VM_KEY#vm:}"
   VM_IP="$(json_get ip)"
   VM_USER="$(json_get user)"
@@ -106,15 +109,37 @@ stop_slot() {
   rm -f "${dir:?}/tunnel.pid" "${dir:?}/app.pid"
 }
 
+release_vm() {
+  plume devices release "$@" || return
+  stop_slot "${1#vm:}"
+}
+
+release_my_vms() {
+  local out status=0 key
+  out="$(plume devices release --mine --kind=vm "$@")" || status=$?
+  [[ -z "$out" ]] || echo "$out"
+  for key in $(grep -oE 'vm:[0-9]+' <<<"$out"); do stop_slot "${key#vm:}"; done
+  return "$status"
+}
+
+# Guest bash that removes the links prepare made. Leaves $list set to the list file.
+GUEST_UNLINK='list="$HOME/.plume-vm-links"
+if [[ -f "$list" ]]; then
+  while IFS= read -r link; do
+    if [[ -L "$link" ]]; then sudo rm -f "$link"; fi
+  done < "$list"
+fi
+'
+
+# Guest shell that sets $p to a pgrep -f pattern for any copy of the app under ~/PlumeVM. Matches
+# the executable's path, since pgrep -x Plume can miss a running app.
+GUEST_APP_PATTERN='p="^$HOME/PlumeVM/(.*/)?Plume\.app/Contents/MacOS/Plume( |\$)"; '
+
 cmd_prepare() {
   log "Mirroring host paths in $VM_KEY"
   local script
   script='set -euo pipefail
-list="$HOME/.plume-vm-links"
-if [[ -f "$list" ]]; then
-  while IFS= read -r link; do [[ -L "$link" ]] && sudo rm -f "$link"; done < "$list"
-fi
-: > "$list"
+'"$GUEST_UNLINK"': > "$list"
 rm -rf "$HOME/PlumeVM"
 while [[ $# -ge 2 ]]; do
   target="$1"; link="$2"; shift 2
@@ -124,6 +149,31 @@ while [[ $# -ge 2 ]]; do
   printf "%s\n" "$link" >> "$list"
 done'
   guest "bash -s -- $(q "$GUEST_WORKTREE") $(q "$WORKTREE") $(q "$GUEST_SHARE") $(q "$SHARE")" <<<"$script"
+}
+
+bundle_id() { plutil -extract CFBundleIdentifier raw -o - "$1/Contents/Info.plist"; }
+
+# The guest's Full Disk Access answer for a bundle ID: 2 granted, 0 denied, empty when never asked.
+# Fails when the TCC database is unreadable; the Cirrus image grants sshd Full Disk Access.
+guest_fda() {
+  guest "sqlite3 '/Library/Application Support/com.apple.TCC/TCC.db' \"select max(auth_value) from access where service='kTCCServiceSystemPolicyAllFiles' and client='$1' and client_type=0\""
+}
+
+# Reads --app PATH or --app=PATH from the front of the arguments into APP_ARG, and the count
+# it used into ARGS_USED.
+app_arg() {
+  case "$1" in
+    --app) [[ $# -ge 2 ]] || die "--app needs a path"; APP_ARG=$2; ARGS_USED=2 ;;
+    --app=*) APP_ARG="${1#--app=}"; ARGS_USED=1 ;;
+  esac
+}
+
+# Prints the app to install: the given path, else this worktree's debug build.
+resolve_app() {
+  local app=${1:-}
+  [[ -n "$app" ]] || app="$(products_dir)/Plume.app"
+  [[ -d "$app" ]] || die "no app at $app: build this worktree first, or pass --app"
+  printf '%s\n' "$app"
 }
 
 wait_for_guest_socket() {
@@ -138,8 +188,7 @@ cmd_launch() {
   local app="" seed="" envs=()
   while [[ $# -gt 0 ]]; do
     case "$1" in
-      --app) app="$2"; shift 2 ;;
-      --app=*) app="${1#--app=}"; shift ;;
+      --app|--app=*) app_arg "$@"; app=$APP_ARG; shift "$ARGS_USED" ;;
       --seed) seed="$2"; shift 2 ;;
       --seed=*) seed="${1#--seed=}"; shift ;;
       --env) envs+=("$2"); shift 2 ;;
@@ -147,41 +196,18 @@ cmd_launch() {
       *) die "unknown launch argument: $1" ;;
     esac
   done
-  [[ -n "$app" ]] || app="$(products_dir)/Plume.app"
-  [[ -d "$app" ]] || die "no app at $app: build this worktree first, or pass --app"
+  app="$(resolve_app "$app")"
 
   claim_vm
-  stop_slot "$SLOT"
-  guest 'pkill -x Plume || true'
-  cmd_prepare
+  launch_app "$app" "$seed" ${envs[@]+"${envs[@]}"}
 
-  log "Copying $(basename "$app") into the share"
-  rm -rf "${SHARE:?}/app"
-  mkdir -p "$SHARE/app"
-  cp -Rc "$app" "$SHARE/app/Plume.app"
-
-  # rsync, not ditto or cp: virtiofs breaks bundle symlinks for both.
-  log "Installing it in the guest"
-  guest "mkdir -p \"\$HOME/PlumeVM\" && rsync -a --delete $(q "$GUEST_SHARE/app/Plume.app/") \"\$HOME/PlumeVM/Plume.app/\""
-
-  local open_envs=" --env PLUME_CONTROL_SOCKET=/tmp/plume-control.sock" e
-  [[ -z "$seed" ]] || open_envs+=" --env $(q "PLUME_SEED_TASKS=$seed")"
-  for e in ${envs[@]+"${envs[@]}"}; do open_envs+=" --env $(q "$e")"; done
-  log "Launching"
-  guest "rm -f /tmp/plume-control.sock; open$open_envs \"\$HOME/PlumeVM/Plume.app\""
-  wait_for_guest_socket || die "the guest app's control socket never appeared"
-  guest 'pgrep -x Plume | head -1' > "$SLOT_DIR/app.pid" || true
-
-  log "Forwarding the control socket"
-  mkdir -p "$(dirname "$CONTROL_SOCKET")"
-  local forward="$CONTROL_SOCKET:/tmp/plume-control.sock" pattern
-  ssh -f -N -i "$VM_SSH_KEY" "${SSH_OPTS[@]}" -o ExitOnForwardFailure=yes -o StreamLocalBindUnlink=yes \
-    -L "$forward" "$VM_USER@$VM_IP"
-  pattern="$(printf '%s' "-L $forward" | sed 's/[][\.*^$+?(){}|]/\\&/g')"
-  pgrep -f -- "$pattern" | head -1 > "$SLOT_DIR/tunnel.pid" || true
-
-  python3 "$CONTROL" --socket "$CONTROL_SOCKET" --wait 30 tasks >/dev/null \
-    || die "the control socket forward doesn't answer"
+  local id fda
+  id="$(bundle_id "$app")"
+  if ! fda="$(guest_fda "$id" 2>/dev/null)"; then
+    log "couldn't read $VM_KEY's TCC database, so Full Disk Access is unknown"
+  elif [[ "$fda" != 2 ]]; then
+    echo "plume-vm: $id has no Full Disk Access in $VM_KEY, so it shows the \"Grant Full Disk Access?\" sheet on first launch; grant it once per base image with scripts/vm/plume-vm grant-fda" >&2
+  fi
 
   local branch
   branch="$(git -C "$ROOT" branch --show-current)"
@@ -193,6 +219,48 @@ $VM_KEY is running $(basename "$app") on $branch. Drive it with:
 Right after launch, menu chords read disabled until a tab chip is invoked. Run this once before sending chords:
   scripts/debug/plume-control.py --socket "$CONTROL_SOCKET" invoke target='{"id":"tab-chip","index":0}'
 MSG
+}
+
+# Copies the app into the claimed VM, starts it, and forwards its control socket. --no-mirror
+# skips prepare, whose links and parent directories would otherwise stay in the guest.
+launch_app() {
+  local mirror=1
+  if [[ "$1" == --no-mirror ]]; then mirror=0; shift; fi
+  local app=$1 seed=$2 envs=("${@:3}")
+  stop_slot "$SLOT"
+  guest "$GUEST_APP_PATTERN"'pkill -f "$p" || true'
+  [[ $mirror -eq 0 ]] || cmd_prepare
+
+  # A fresh folder name each time: the guest's virtiofs can keep listing a recreated folder as empty.
+  local drop
+  drop="app-$(date +%s)"
+  log "Copying $(basename "$app") into the share"
+  rm -rf "${SHARE:?}"/app "${SHARE:?}"/app-*
+  mkdir -p "$SHARE/$drop"
+  cp -Rc "$app" "$SHARE/$drop/Plume.app"
+
+  # rsync, not ditto or cp: virtiofs breaks bundle symlinks for both.
+  log "Installing it in the guest"
+  guest "mkdir -p \"\$HOME/PlumeVM\" && rsync -a --delete $(q "$GUEST_SHARE/$drop/Plume.app/") \"\$HOME/PlumeVM/Plume.app/\""
+
+  local open_envs=" --env PLUME_CONTROL_SOCKET=/tmp/plume-control.sock" e
+  [[ -z "$seed" ]] || open_envs+=" --env $(q "PLUME_SEED_TASKS=$seed")"
+  for e in ${envs[@]+"${envs[@]}"}; do open_envs+=" --env $(q "$e")"; done
+  log "Launching"
+  guest "rm -f /tmp/plume-control.sock; open$open_envs \"\$HOME/PlumeVM/Plume.app\""
+  wait_for_guest_socket || die "the guest app's control socket never appeared"
+  guest "$GUEST_APP_PATTERN"'pgrep -f "$p" | head -1' > "$SLOT_DIR/app.pid" || true
+
+  log "Forwarding the control socket"
+  mkdir -p "$(dirname "$CONTROL_SOCKET")"
+  local forward="$CONTROL_SOCKET:/tmp/plume-control.sock" pattern
+  ssh -f -N -i "$VM_SSH_KEY" "${SSH_OPTS[@]}" -o ExitOnForwardFailure=yes -o StreamLocalBindUnlink=yes \
+    -L "$forward" "$VM_USER@$VM_IP"
+  pattern="$(printf '%s' "-L $forward" | sed 's/[][\.*^$+?(){}|]/\\&/g')"
+  pgrep -f -- "$pattern" | head -1 > "$SLOT_DIR/tunnel.pid" || true
+
+  python3 "$CONTROL" --socket "$CONTROL_SOCKET" --wait 30 tasks >/dev/null \
+    || die "the control socket forward doesn't answer"
 }
 
 # Reads `xcresulttool get test-results tests` JSON on stdin and fails, naming each one, if any
@@ -247,7 +315,7 @@ cmd_test() {
     || die "guest Xcode ($guest_xcode) differs from the host's ($host_xcode); rebuild the base image with make-base-image.sh, then run plume devices reset $VM_KEY once it is released"
 
   stop_slot "$SLOT"
-  guest 'pkill -x Plume || true'
+  guest "$GUEST_APP_PATTERN"'pkill -f "$p" || true'
 
   if [[ $skip_build -eq 0 ]]; then
     log "Building for testing"
@@ -281,6 +349,399 @@ cmd_test() {
   return "$status"
 }
 
+# Full Disk Access is a TCC grant: SIP protects TCC.db and only MDM can push one, so a person
+# grants it once, in a VM tab, and that clone becomes the base every later clone inherits.
+cmd_grant_fda() {
+  local app=""
+  while [[ $# -gt 0 ]]; do
+    case "$1" in
+      --app|--app=*) app_arg "$@"; app=$APP_ARG; shift "$ARGS_USED" ;;
+      *) die "unknown grant-fda argument: $1" ;;
+    esac
+  done
+  app="$(resolve_app "$app")"
+  local id os base fda i held
+  id="$(bundle_id "$app")"
+  os="$(sw_vers -productVersion | cut -d. -f1)"
+  base="plume-base-$os"
+  recover_base "$os" "$base"
+  tart get "$base" >/dev/null 2>&1 || die "no $base; build it with scripts/vm/make-base-image.sh"
+
+  # A claim returns a VM the caller already holds, which this run must never save or release.
+  held="$(my_vm_keys)" || die "couldn't list the VMs; is Plume running?"
+  [[ -z "$held" ]] || die "you already hold $(paste -sd' ' - <<<"$held"); release it with scripts/vm/plume-vm release, then run grant-fda again"
+
+  local clone pending=0
+  clone="$(pending_grant "$os" "$id")" || pending=$?
+  case $pending in
+    0)
+      log "Resuming the save of $clone, which an earlier grant-fda granted"
+      save_grant "$os" "$id" "$clone" "$base"
+      return 0
+      ;;
+    2) exit 1 ;;
+  esac
+
+  trap release_grant_vm EXIT
+  trap 'exit 130' INT
+  trap 'exit 143' TERM
+  claim_fresh_vm "$os"
+  clone="plume-$os-$SLOT"
+
+  fda="$(guest_fda "$id")" || die "can't read $VM_KEY's TCC database over ssh"
+  local created
+  created="$(guest_absent_paths)" || die "can't list $VM_KEY's home over ssh"
+  launch_app --no-mirror "$app" ""
+
+  # The base's grant may name another signing certificate, which only the sheet reveals.
+  if [[ "$fda" == 2 ]]; then
+    log "$base already grants $id Full Disk Access; checking it matches this build"
+    check_no_fda_sheet "$app"
+    clean_guest "$id" "$created"
+    release_grant_vm || die "couldn't release $VM_KEY"
+    record_fda "$os" "$id"
+    log "$base already grants this build Full Disk Access; nothing to save"
+    return 0
+  fi
+
+  guest "open 'x-apple.systempreferences:com.apple.preference.security?Privacy_AllFiles'"
+  cat >&2 <<MSG
+
+In Plume, open a device tab and click Show on $VM_KEY under macOS VMs. Then, in the guest's
+System Settings ▸ Privacy & Security ▸ Full Disk Access:
+  1. Turn on Plume α, the debug build. If it isn't listed, click +, press ⌘⇧G, enter ~/PlumeVM/Plume.app, and click Open.
+  2. When macOS asks for the password of "Managed by Tart", enter: admin
+  3. If asked to quit and reopen it, click Later.
+Waiting up to 15 minutes for the grant...
+MSG
+  local status ssh_failures=0
+  for i in $(seq 1 300); do
+    status=0
+    fda="$(guest_fda "$id" 2>/dev/null)" || status=$?
+    [[ $status -ne 0 || "$fda" != 2 ]] || break
+    # ssh exits 255 when it can't reach the guest.
+    if [[ $status -eq 255 ]]; then
+      ssh_failures=$((ssh_failures + 1))
+      [[ $ssh_failures -lt 5 ]] || die "VM gone: ssh to $VM_KEY failed 5 times in a row, so it was released or crashed"
+    else
+      ssh_failures=0
+    fi
+    [[ $i -lt 300 ]] || die "no grant after 15 minutes; run grant-fda again"
+    sleep 3
+  done
+  log "Granted"
+
+  log "Checking the sheet stays away after a fresh launch"
+  quit_guest_app
+  guest "defaults delete $(q "$id") hasPromptedForFullDiskAccess 2>/dev/null || true"
+  launch_app --no-mirror "$app" ""
+  check_no_fda_sheet "$app"
+  log "The app holds Full Disk Access"
+
+  clean_guest "$id" "$created"
+  shut_down_guest
+  # The lease stays held through the save, so no one boots the granted clone meanwhile.
+  local mtime
+  mtime="$(clone_disk_mtime "$clone")" || die "found no disk for $clone under ${TART_HOME:-$HOME/.tart}/vms"
+  printf '%s\n%s\n%s\n' "$clone" "$id" "$mtime" > "$(pending_file "$os")"
+  save_grant "$os" "$id" "$clone" "$base"
+  release_grant_vm || echo "warning: couldn't release $VM_KEY; release it with scripts/vm/plume-vm release $VM_KEY" >&2
+}
+
+# A grant-fda whose save failed leaves this file naming its granted clone, the bundle ID and the
+# clone's disk mtime, so a rerun saves that clone instead of asking for the grant again.
+pending_file() { printf '%s\n' "$VMS_DIR/grant-fda-$1.pending"; }
+
+clone_disk_mtime() { stat -f %m "${TART_HOME:-$HOME/.tart}/vms/$1/disk.img" 2>/dev/null; }
+
+# Args: os, bundle ID. Prints the pending clone when it is still exactly as its grant left it,
+# and forgets it otherwise, since a boot since then changed it.
+pending_grant() {
+  local file clone id mtime
+  file="$(pending_file "$1")"
+  [[ -f "$file" ]] || return 1
+  { read -r clone; read -r id; read -r mtime; } < "$file" || true
+  if [[ -n "$clone" && -n "$mtime" && "$(clone_disk_mtime "$clone")" == "$mtime" ]]; then
+    if [[ "$id" != "$2" ]]; then
+      echo "plume-vm: $clone holds a grant for $id that was never saved; run grant-fda with that app, or delete $file to grant $2 afresh" >&2
+      return 2
+    fi
+    printf '%s\n' "$clone"
+    return 0
+  fi
+  log "Forgetting the unsaved grant in ${clone:-a clone}, which was deleted or booted since"
+  rm -f "$file"
+  return 1
+}
+
+# Claims a VM whose clone this claim created, resetting any slot whose clone predates it, since
+# the clone becomes the base.
+claim_fresh_vm() {
+  local os=$1 before attempt
+  for attempt in $(seq 1 $((VM_SLOTS + 1))); do
+    before="$(tart list --source local -q)"
+    GRANT_CLAIMING=1
+    claim_vm
+    if [[ "$(json_get reused)" == true ]]; then
+      GRANT_CLAIMING=0
+      die "you already hold $VM_KEY; release it with scripts/vm/plume-vm release, then run grant-fda again"
+    fi
+    GRANT_VM_KEY=$VM_KEY
+    GRANT_CLAIMING=0
+    grep -qxF "plume-$os-$SLOT" <<<"$before" || return 0
+    log "plume-$os-$SLOT predates this run, so it may hold an older base or earlier test runs; resetting $VM_KEY"
+    release_grant_vm || die "couldn't release $VM_KEY"
+    # Reset refuses while the released VM is still stopping.
+    local i
+    for i in $(seq 1 60); do
+      plume devices reset "$VM_KEY" >/dev/null 2>&1 && break
+      [[ $i -lt 60 ]] || die "couldn't reset $VM_KEY; once it is free, run scripts/vm/plume-vm reset $VM_KEY, then grant-fda again"
+      sleep 2
+    done
+  done
+  die "every claim returned an older clone; run scripts/vm/plume-vm reset on each free slot, then grant-fda again"
+}
+
+# Args: os, bundle ID, the granted clone, base. Swaps the clone in as the base under every slot's
+# lock, so no Plume clones a half-replaced base, and deletes the clones of the old base.
+save_grant() {
+  local os=$1 id=$2 clone=$3 base=$4 file status=0
+  file="$(pending_file "$os")"
+  log "Saving $clone as $base"
+  with_slot_locks_retrying "$os" bash -c "$SWAP_BASE" _ "$clone" "$base" "$os" "$file" || status=$?
+  local finish="The granted clone $clone is kept, so the grant isn't lost: release every VM, leave vm:${clone##*-} unclaimed, then run scripts/vm/plume-vm grant-fda again with the same app to finish the save without granting again"
+  case $status in
+    0) ;;
+    3) die "a VM was still running after 10 minutes, so $base wasn't replaced. $finish" ;;
+    *)
+      [[ -f "$file" ]] || die "$clone changed since its grant, so nothing was saved; run grant-fda again"
+      die "saving $clone as $base failed. $finish"
+      ;;
+  esac
+  rm -f "$file"
+  record_fda "$os" "$id"
+  log "$base now grants $id Full Disk Access; every new clone inherits it"
+}
+
+# Args: os, command. with_slot_locks, retried for up to 10 minutes while a slot is in use.
+with_slot_locks_retrying() {
+  local os=$1 i status busy last=""
+  shift
+  for i in $(seq 1 120); do
+    status=0
+    with_slot_locks "$os" "$@" || status=$?
+    [[ $status -eq 3 ]] || return "$status"
+    busy="$(busy_slots "$os")"
+    if [[ "$busy" != "$last" ]]; then
+      if [[ -n "$busy" && "$busy" == "$GRANT_VM_KEY" ]]; then
+        log "Waiting for $busy to stop"
+      else
+        log "Waiting up to 10 minutes for ${busy:-a VM} to stop; release it so grant-fda can go on"
+      fi
+      last=$busy
+    fi
+    [[ $i -eq 120 ]] || sleep 5
+  done
+  return 3
+}
+
+busy_slots() {
+  local lock n keys=()
+  for lock in "$VMS_DIR/plume-$1-"*.lock; do
+    [[ -e "$lock" ]] || continue
+    n="${lock##*-}"
+    with_locks 1 "$lock" true || [[ $? -ne 3 ]] || keys+=("vm:${n%.lock}")
+  done
+  echo ${keys[@]+"${keys[@]}"}
+}
+
+# Paths under the guest's home the app or its terminals may create, printed guest-quoted when
+# absent, so cleanup removes only what this run made.
+guest_absent_paths() {
+  guest 'bash -s' <<'GUEST'
+cd "$HOME" || exit 1
+for p in .claude .claude/skills .claude.json .zsh_history .zsh_sessions "Library/Application Support/Plume"; do
+  [[ -e "$p" ]] || printf '%q ' "$p"
+done
+GUEST
+}
+
+# Args: bundle ID, guest_absent_paths' output.
+clean_guest() {
+  log "Cleaning up $VM_KEY"
+  quit_guest_app
+  # shellcheck disable=SC2086 # $2 is one guest-quoted word per path
+  guest "bash -s -- $(q "$1") $2" <<<"$GUEST_UNLINK"'
+id=$1; shift
+pkill -x "System Settings"
+rm -f "$list"
+defaults delete "$id" 2>/dev/null
+defaults -currentHost delete "$id" 2>/dev/null
+/System/Library/Frameworks/CoreServices.framework/Frameworks/LaunchServices.framework/Support/lsregister -u "$HOME/PlumeVM/Plume.app" 2>/dev/null
+rm -rf "$HOME/PlumeVM" "$HOME/Library/Application Support"/Plume.debug* \
+  "$HOME/Library/Caches/$id" "$HOME/Library/HTTPStorages/$id" "$HOME/Library/WebKit/$id" \
+  "$HOME/Library/Saved Application State/$id.savedState" "$HOME/Library/Logs/$id" \
+  "$HOME/Library/Preferences/ByHost/$id".*.plist /tmp/plume-control.sock
+for path in "$@"; do rm -rf "${HOME:?}/$path"; done
+true'
+}
+
+# Settles before the caller touches the app's defaults, which a quitting app may still write.
+quit_guest_app() {
+  guest "$GUEST_APP_PATTERN"'pkill -f "$p"; for _ in $(seq 1 20); do pgrep -f "$p" >/dev/null || exit 0; sleep 0.5; done; exit 1' \
+    || die "the guest app didn't quit"
+}
+
+# A guest that shuts itself down leaves a consistent disk, and the app reports that stop as the
+# failure "vm:<n> stopped" with no reason. A forced stop reports nothing, and a crash adds a reason.
+shut_down_guest() {
+  log "Shutting $VM_KEY down"
+  guest 'sudo shutdown -h now' >/dev/null 2>&1 || true
+  local i row
+  for i in $(seq 1 60); do
+    if row="$(vm_state)"; then
+      case "$row" in
+        "failed $VM_KEY stopped") return 0 ;;
+        failed*) die "$VM_KEY failed instead of shutting down (${row#failed }), so nothing was saved" ;;
+        "") die "$VM_KEY lost this run's lease before it shut down, so nothing was saved" ;;
+      esac
+    else
+      log "couldn't read $VM_KEY's state from Plume; retrying"
+    fi
+    [[ $i -lt 60 ]] || die "$VM_KEY didn't report a shutdown within 2 minutes, so nothing was saved"
+    sleep 2
+  done
+}
+
+# Prints "<state> <error>" for this run's VM while the lease it claimed still holds the slot.
+vm_state() {
+  local list
+  list="$(plume devices list --kind=vm --json)" || return 1
+  python3 -c '
+import json, sys
+key, token = sys.argv[1:]
+for vm in json.load(sys.stdin).get("vms", []):
+    if vm.get("key") == key and (not token or vm.get("leaseToken") == token):
+        print(vm.get("state", ""), vm.get("error") or "")
+' "$VM_KEY" "$VM_LEASE_TOKEN" <<<"$list"
+}
+
+# The VM keys the caller leases, by plume devices' own rule: the Plume tab when PLUME_TAB_ID and
+# PLUME_SOCKET are set, else the git worktree around the current directory.
+my_vm_keys() {
+  local list top
+  list="$(plume devices list --kind=vm --json)" || return 1
+  top="$(git rev-parse --show-toplevel 2>/dev/null)" || top=""
+  python3 -c '
+import json, os, re, sys
+top = sys.argv[1]
+tab, socket = os.environ.get("PLUME_TAB_ID", ""), os.environ.get("PLUME_SOCKET", "")
+if not (socket and re.fullmatch(r"[0-9A-Fa-f]{8}(-[0-9A-Fa-f]{4}){3}-[0-9A-Fa-f]{12}", tab)):
+    tab = ""
+for vm in json.load(sys.stdin).get("vms", []):
+    owner = vm.get("owner") or {}
+    if tab:
+        mine = str(owner.get("tab", "")).upper() == tab.upper() and owner.get("app") == socket
+    else:
+        mine = bool(top) and owner.get("label") == top
+    if mine:
+        print(vm["key"])
+' "$top" <<<"$list"
+}
+
+GRANT_VM_KEY=""
+GRANT_CLAIMING=0
+# Releases grant-fda's VM and drops its tunnel, once; also the EXIT trap for an early exit. While
+# the claim runs, the slot isn't known yet, so it releases every VM the caller holds, which
+# cmd_grant_fda has checked were none before it claimed.
+release_grant_vm() {
+  if [[ -n "$GRANT_VM_KEY" ]]; then
+    local key=$GRANT_VM_KEY
+    GRANT_VM_KEY=""
+    release_vm "$key" >/dev/null
+  elif [[ $GRANT_CLAIMING -eq 1 ]]; then
+    GRANT_CLAIMING=0
+    release_my_vms >&2
+  fi
+}
+
+# Waits for the main window, then for the sheet, which the window's .task presents a beat later.
+check_no_fda_sheet() {
+  local i count
+  for i in $(seq 1 30); do
+    count="$(control_count sidebar-archive-button 2>/dev/null)" && [[ "$count" -gt 0 ]] && break
+    [[ $i -lt 30 ]] || die "the guest app's main window never appeared"
+    sleep 1
+  done
+  for i in $(seq 1 10); do
+    count="$(control_count full-disk-access-dismiss-button)" || die "couldn't read the guest app's controls"
+    [[ "$count" -eq 0 ]] \
+      || die "the app still shows its Full Disk Access sheet, so the grant doesn't match this build's signature; check codesign -d -r- on $1"
+    sleep 1
+  done
+}
+
+control_count() {
+  python3 "$CONTROL" --socket "$CONTROL_SOCKET" list plumeID="$1" \
+    | python3 -c 'import json, sys; print(len(json.load(sys.stdin)["result"]))'
+}
+
+record_fda() {
+  plutil -replace fullDiskAccess -string "$2" "$VMS_DIR/base-$1.json" \
+    || echo "warning: couldn't record the grant in $VMS_DIR/base-$1.json" >&2
+}
+
+vm_exists() { tart get "$1" >/dev/null 2>&1; }
+
+# Finishes a swap an interrupted grant-fda left. The swap renames $base to $base-old only once
+# $base-fda is a complete clone, so with $base missing, $base-fda is the granted base.
+recover_base() {
+  local os=$1 base=$2 status=0
+  if vm_exists "$base"; then
+    vm_exists "$base-old" || return 0
+    log "Deleting $base-old, left by an interrupted grant-fda"
+    with_slot_locks_retrying "$os" tart delete "$base-old" || status=$?
+    [[ $status -eq 0 ]] || die "couldn't delete $base-old; once every VM is released, run: tart delete $base-old"
+  elif vm_exists "$base-fda" && vm_exists "$base-old"; then
+    log "Finishing the save of $base, which an interrupted grant-fda left as $base-fda"
+    with_slot_locks_retrying "$os" bash -c 'tart rename "$1-fda" "$1" && tart delete "$1-old"' _ "$base" || status=$?
+    [[ $status -eq 0 ]] \
+      || die "couldn't finish saving $base; once every VM is released, run: tart rename $base-fda $base && tart delete $base-old"
+  elif vm_exists "$base-old"; then
+    log "Restoring $base from $base-old, left by an interrupted grant-fda"
+    with_slot_locks_retrying "$os" tart rename "$base-old" "$base" || status=$?
+    [[ $status -eq 0 ]] || die "couldn't restore $base; once every VM is released, run: tart rename $base-old $base"
+  fi
+}
+
+# Args: clone, base, os, pending file. The old base stays as $base-old until the new one is in
+# place. A clone whose disk changed since its grant was booted since, so it is no longer fresh.
+# shellcheck disable=SC2016
+SWAP_BASE='clone=$1 base=$2 os=$3 pending=$4
+expected="$(sed -n 3p "$pending" 2>/dev/null)"
+actual="$(stat -f %m "${TART_HOME:-$HOME/.tart}/vms/$clone/disk.img" 2>/dev/null)"
+if [[ -z "$expected" || "$actual" != "$expected" ]]; then
+  rm -f "$pending"
+  exit 1
+fi
+tart delete "$base-fda" >/dev/null 2>&1
+tart delete "$base-old" >/dev/null 2>&1
+tart clone "$clone" "$base-fda" || exit 1
+if ! tart rename "$base" "$base-old"; then
+  tart delete "$base-fda"
+  exit 1
+fi
+if ! tart rename "$base-fda" "$base"; then
+  tart rename "$base-old" "$base" || echo "plume-vm: $base is missing; restore it with: tart rename $base-old $base" >&2
+  exit 1
+fi
+tart delete "$base-old" || echo "warning: could not delete $base-old; delete it with: tart delete $base-old" >&2
+tart list --source local -q | grep -E "^plume-$os-[0-9]+\$" | while IFS= read -r stale; do
+  tart delete "$stale" && echo "==> Deleted stale clone $stale" >&2 \
+    || echo "warning: could not delete $stale, so it still has the old base; once it is free, run: plume devices reset vm:${stale##*-}" >&2
+done
+exit 0'
+
 cmd="${1:-help}"
 [[ $# -eq 0 ]] || shift
 case "$cmd" in
@@ -293,12 +754,9 @@ case "$cmd" in
   reset) plume devices reset "$@" ;;
   release)
     if [[ "${1:-}" == vm:* ]]; then
-      plume devices release "$@"
-      stop_slot "${1#vm:}"
+      release_vm "$@"
     else
-      out="$(plume devices release --mine --kind=vm "$@")"
-      echo "$out"
-      for key in $(grep -oE 'vm:[0-9]+' <<<"$out"); do stop_slot "${key#vm:}"; done
+      release_my_vms "$@"
     fi
     ;;
   ssh)
@@ -309,5 +767,6 @@ case "$cmd" in
   prepare) claim_vm; cmd_prepare ;;
   launch) cmd_launch "$@" ;;
   test) cmd_test "$@" ;;
+  grant-fda) cmd_grant_fda "$@" ;;
   *) usage >&2; exit 2 ;;
 esac

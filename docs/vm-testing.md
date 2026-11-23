@@ -5,15 +5,20 @@ A macOS guest has its own window server, focus and launchd. So a debug build can
 ## Setup
 
 0. Turn on **Settings ▸ Labs ▸ macOS VMs for testing** in the Plume that will own the VMs. It is off by default. Off, the device picker shows no macOS VMs section unless a VM is left from before, and every `vms.*` socket command answers "macOS VMs are a Labs feature; turn them on in Settings ▸ Labs", which `plume devices … --kind=vm` prints before exiting 1. From a shell, `defaults write com.ryanmoelter.Plume labsVMsEnabled -bool true` (`com.ryanmoelter.Plume.debug` for every debug build) turns it on; the app reads it at launch, so relaunch after. Turning it off while VMs run stops nothing: new claims are refused, while the socket, the picker and the VM tab still offer a VM left from before (leased, running, or one that didn't stop) so it can be shown and released, and leases run out or are released as usual. `VMManager` starts its reaper on the first claim and touches no Tart until then, so a Plume that never opts in pays nothing.
-1. Install Tart, which moved to `openai/tools`. Trust the `tart` and `softnet` formulas when Homebrew asks.
+1. Install Tart, which moved to `openai/tools`. Homebrew refuses its `tart` and `softnet` formulas until they are trusted.
 
    ```
    brew tap openai/tools
+   brew trust --formula openai/tools/tart
+   brew trust --formula openai/tools/softnet
    brew install tart
    ```
 
 2. Run `scripts/vm/make-base-image.sh`. It needs no input. The base has no Xcode, which is all `plume-vm launch` needs. To run `plume-vm test` too, add `--with-xcode`, which copies in the host's Xcode and takes longer (about 4 minutes once the vanilla image is cached; the Xcode copy is most of that). Without Xcode the base builds faster and is about 8 GB smaller on the host.
 3. Run a Plume that has the VM pool. `plume-vm` talks to the app at `PLUME_SOCKET`, so set it to the socket of the app that should own the VM. When you test a debug build of this feature, that is the debug build's socket, and `PLUME_CLI` is its `plume` tool.
+4. Grant the debug app Full Disk Access once per base image: build the debug app, then run `scripts/vm/plume-vm grant-fda` and follow what it prints. Without the grant, the app's first launch in each clone opens its "Grant Full Disk Access?" sheet, which blocks an agent driving it. See [Full Disk Access](#full-disk-access).
+
+The `plume-vm-setup` project skill walks through these steps and the rebuild.
 
 ## The base image
 
@@ -23,7 +28,7 @@ A macOS guest has its own window server, focus and launchd. So a debug build can
 2. Boot it with `tart run --no-graphics`, then install `~/Library/Application Support/Plume/vms/id_ed25519` with the vanilla password.
 3. With Xcode only: stream the host's selected `Xcode.app` in over ssh, then accept the license, run `-runFirstLaunch`, fail unless the guest's `xcodebuild -version` equals the host's, and enable DevTools, the `_developer` group and automation mode without authentication. Those three exist for `xcodebuild` and XCUITest.
 4. Turn off sleep, the screensaver, the screen lock, Spotlight and automatic updates.
-5. Shut down, rename the VM to `plume-base-<os>`, and write `vms/base-<os>.json`. The file records `"xcode": true` with `"xcodeVersion"`, or `"xcode": false`. A file without the field, or with a version string in `xcode` as older bases wrote, means the base has Xcode. The script prints the mode at the end.
+5. Shut down, rename the VM to `plume-base-<os>`, and write `vms/base-<os>.json`. The file records `"xcode": true` with `"xcodeVersion"`, or `"xcode": false`. A file without the field, or with a version string in `xcode` as older bases wrote, means the base has Xcode. It also records `"fullDiskAccess": false`. `plume-vm grant-fda` replaces it with the bundle ID it granted, a string, so the field is either `false` or a bundle ID. The script prints the mode at the end, then names `plume-vm grant-fda` as the next step, since a new base has no Full Disk Access grant.
 
 Pass `--with-xcode` to copy in the selected Xcode, `--with-xcode=<Xcode.app>` for another one, `--xip=<Xcode.xip>` to expand and copy a `.xip` (both imply Xcode), `--image=<ref>` to start from another image, and `--force` to replace an existing base. A rebuild then deletes every `plume-<os>-<n>` clone whose lock is free, since they were cloned from the old base, and names any it skipped; run `plume devices reset vm:<n>` on those once they are free. The guest user is `admin`, password `admin`, the image's published default.
 
@@ -57,6 +62,7 @@ A device tab is the one way into a VM from the UI. Its picker lists the slots un
 | `prepare` | Mirrors the host paths in the guest (see below). `launch` and `test` run it first. |
 | `launch [--app PATH] [--seed N] [--env K=V]…` | Copies the debug app in, starts it frontmost, and forwards its control socket to the host. |
 | `test [--only-testing X]… [--skip-build]` | Builds for testing on the host, then runs the tests in the guest. Needs a base with Xcode. |
+| `grant-fda [--app PATH]` | Walks a person through granting the debug app Full Disk Access in a VM, checks it, then saves that VM as the base image. See [Full Disk Access](#full-disk-access). |
 
 Every command that needs a VM first runs `plume devices claim --kind=vm --json --worktree=<the script's checkout>`, so the guest always shares the checkout the script builds from. That call is idempotent: it renews the lease you already hold. `claim` defaults `--worktree` to that checkout too.
 
@@ -72,7 +78,7 @@ PLUME_CLI=<worktree build>/Plume.app/Contents/Helpers/plume PLUME_SOCKET=<that a
 scripts/vm/plume-vm launch --seed 1
 ```
 
-`launch` keeps one app and one tunnel per slot, with their pids in `~/Library/Application Support/Plume/vms/vm<n>/`. It kills the previous tunnel and the guest's `Plume` first. It then copies the app into the share with `cp -Rc`, runs `rsync -a --delete` into `~/PlumeVM/Plume.app` in the guest, and starts it with `open --env PLUME_CONTROL_SOCKET=/tmp/plume-control.sock`. It forwards that socket to the slot's `controlSocket`, checks it answers, and records the branch with `plume devices installed`. It then prints the `plume-control.py --socket <controlSocket> …` line to drive the app, as in the `drive-plume` skill.
+`launch` keeps one app and one tunnel per slot, with their pids in `~/Library/Application Support/Plume/vms/vm<n>/`. It kills the previous tunnel and the guest's `Plume` first. It then copies the app into a fresh `app-<time>` folder in the share with `cp -Rc` (the guest's virtiofs can keep listing a recreated folder as empty), runs `rsync -a --delete` into `~/PlumeVM/Plume.app` in the guest, and starts it with `open --env PLUME_CONTROL_SOCKET=/tmp/plume-control.sock`. It forwards that socket to the slot's `controlSocket`, checks it answers, and records the branch with `plume devices installed`. It then prints the `plume-control.py --socket <controlSocket> …` line to drive the app, as in the `drive-plume` skill. After the launch, when the guest's TCC database has no Full Disk Access grant for the app, it prints one line naming `plume-vm grant-fda`. When it can't read the database, it says so instead. It never answers the sheet for you.
 
 Right after launch, the menu chords read disabled. Invoke the selected tab chip once, as the script prints:
 
@@ -87,6 +93,48 @@ Release the VM when you finish: `scripts/vm/plume-vm release`. A VM left claimed
 `test` needs a base built with `--with-xcode`. It checks the claimed guest for `/Applications/Xcode.app` over ssh (the metadata file is informational only, since a skipped clone can differ from the rebuilt base) and, with none, refuses before building, naming `scripts/vm/make-base-image.sh --with-xcode --force`. A `--force` rebuild leaves existing slot clones on the old base, so run `plume devices reset vm:<n>` on any it skipped. `launch`, `prepare` and `ssh` work on either kind of base. `test` also refuses when the guest's `xcodebuild -version` differs from the host's. It stops any app and tunnel that `launch` started. Unless `--skip-build` is set, it runs `build-for-testing` into `build/vm-dd`. It copies `Build/Products` into the share, runs `rsync -a --delete` into `~/PlumeVM/Products` in the guest, then runs `test-without-building -xctestrun`. The default set is `PlumeUITests`, `PlumeTests/SurfaceCommandTests`, `PlumeTests/TerminalShortcutReclaimTests` and `PlumeTests/ControlHierarchyTests`; each `--only-testing` replaces it.
 
 The script prints the host path of the `.xcresult` and its summary. It fails when any `--only-testing` identifier matches no test that ran, comparing each of its components (target, suite, test) in full, and otherwise exits with `xcodebuild`'s status.
+
+## Full Disk Access
+
+Plume shows its "Grant Full Disk Access?" sheet on the first launch that finds the permission missing (`MainWindow`, any build). `FullDiskAccess.isGranted` probes by opening TCC's database, and `hasPromptedForFullDiskAccess` in the app's defaults records that it asked, whatever the answer. A fresh clone has neither, so the sheet opens over the window an agent is about to drive.
+
+**No script can grant it.** Full Disk Access is a TCC grant. SIP protects `TCC.db` even from root (`sudo touch` there fails with `Operation not permitted` in the guest), the guest is enrolled in no MDM, and only MDM can push a profile that grants Full Disk Access. So a person grants it once per base image, by hand, and every clone inherits it.
+
+**The grant survives debug rebuilds.** TCC stores the grant against the bundle ID (`client_type` 0), not a path, with the app's designated requirement as its `csreq`. A Development-signed debug build's requirement names the bundle ID and the signing certificate's common name, with no cdhash: `identifier "com.ryanmoelter.Plume.debug" and anchor apple generic and certificate leaf[subject.CN] = "Apple Development: …" and certificate 1[field.1.2.840.113635.100.6.2.1] /* exists */`. So a rebuild signed with the same certificate keeps the grant, and so does `launch` deleting and recopying `~/PlumeVM/Plume.app`. A build signed by another certificate, or ad hoc, doesn't match. Rebuilding the base image with `make-base-image.sh` loses the grant, so grant it again afterwards; the script says so at the end.
+
+### Granting it: `plume-vm grant-fda`
+
+Run it from a terminal with `PLUME_SOCKET` naming the Plume whose VM tab you'll use, after building the debug app. It:
+
+1. Finishes a swap an earlier run left half done, under every slot's clone lock. With `plume-base-<os>` missing, it renames `plume-base-<os>-fda` into place and deletes `plume-base-<os>-old`, or, with no `-fda`, renames `-old` back. With the base present, it deletes a leftover `-old`.
+2. Refuses to start while you hold a VM, since a claim would hand that VM back and the script would later release it. If an earlier run's save failed, it resumes that save at step 10 instead of asking for the grant again (see below). Otherwise it claims a VM. The clone becomes the base, so it must be a fresh clone of the current base: if the claimed clone existed before the claim, the script releases it, resets that slot with `plume devices reset`, and claims again. Other slots' clones stay.
+3. Checks the guest's TCC database over ssh. The Cirrus image grants `sshd-keygen-wrapper` Full Disk Access, so ssh can read the database (`select max(auth_value) from access where service='kTCCServiceSystemPolicyAllFiles' and client='<bundle id>' and client_type=0`; 2 is granted).
+4. Launches the app without `prepare`'s path links. When the fresh clone already has the grant, the base has it too, but the grant may name another signing certificate. So the script runs the sheet check from step 7. If the sheet stays away, it cleans up as in step 8, releases the VM and stops there.
+5. Opens System Settings ▸ Privacy & Security ▸ Full Disk Access in the guest, then prints the steps. The app's probe already added it to that list, switched off. In Plume, open a device tab and click Show on the VM. In the guest, turn on Plume α, enter the password `admin`, and click Later if macOS offers to quit and reopen it.
+6. Polls the database every 3 seconds, for up to 15 minutes, until the grant appears. If ssh fails 5 times in a row, the VM is gone, and the script fails at once.
+7. Deletes `hasPromptedForFullDiskAccess` and relaunches the app. It waits for the main window, then fails if the sheet's `full-disk-access-dismiss-button` appears within 10 seconds.
+8. Quits the app, found by its path under `~/PlumeVM`, and System Settings. It unregisters `~/PlumeVM/Plume.app` from LaunchServices. It removes the debug app's defaults and ByHost defaults, `Plume.debug*` data, caches, logs and saved state, and `~/PlumeVM`. It also removes `~/.claude`, `~/.claude/skills`, `~/.claude.json`, `~/.zsh_history`, `~/.zsh_sessions` and `~/Library/Application Support/Plume` when they didn't exist before the launch.
+9. Shuts the guest down with `sudo shutdown -h now`. It waits up to 2 minutes for Plume to report that the guest stopped on its own: the slot reads `failed` with the error `vm:<n> stopped` and no reason. A forced stop or a crash can leave the disk inconsistent, so anything else fails the script and saves nothing.
+10. Writes `vms/grant-fda-<os>.pending`, naming the granted clone, the bundle ID and the clone's `disk.img` modification time. It keeps the VM's lease, so no one boots the clone meanwhile. Then it takes every slot's clone lock, so no Plume clones a half-replaced base. While any VM runs, it names the busy slot and retries for up to 10 minutes. Under the locks, it checks that the clone's disk is unchanged since the grant. It clones the slot's clone to `plume-base-<os>-fda`, renames the old base to `plume-base-<os>-old` and the new one into place, then deletes the old one. A failed rename puts the old base back. It then deletes every `plume-<os>-<n>` clone, since they all hold the old base.
+11. Deletes the pending file, records `"fullDiskAccess": "<bundle id>"` in `vms/base-<os>.json`, warning if it can't, and releases the VM.
+
+**A failed save keeps the grant.** If a VM still runs after 10 minutes, or the swap fails, the script exits but keeps the granted clone and the pending file, and says so. Release every VM, leave that slot unclaimed, and run `grant-fda` again with the same app: it skips the grant and resumes at the save. A rerun forgets the pending file when the clone is gone or its disk changed, since a boot since then makes it no longer fresh, and then grants afresh. `make-base-image.sh` deletes the pending file, since a rebuilt base makes it stale.
+
+If the script exits early, from an error, Ctrl-C or the 15-minute timeout, it releases its VM and drops the tunnel. A failed status poll while it waits for the shutdown is retried, not read as a lost lease. If you interrupt the claim, the script doesn't know the slot yet, so it releases every VM you hold. Step 2 made sure that is only this run's VM.
+
+The scripts take clone locks with `with_locks` in `scripts/vm/lib.sh`. While it holds a lock, it writes the pid and start-time record `VMCloneLock` writes, and it clears the record on release. So a Plume checking for a free clone sees the script's locks. `with_slot_locks` locks slots 1 to `VM_SLOTS` plus any other `plume-<os>-*.lock` that exists.
+
+The VM tab is the only window it needs; no `tart run` window opens on the host. A `tart run --no-graphics` boot of the base itself would need a VNC client to click in, because Plume's VM tab shows only the VMs Plume boots.
+
+### Findings
+
+Measured on 2026-11-23 in a clone of the macOS 27.2 base:
+
+- The guest has no per-user `~/Library/Application Support/com.apple.TCC/TCC.db`, and neither does a macOS 27.2 host. `FullDiskAccess.isGranted` therefore probes `/Library/Application Support/com.apple.TCC/TCC.db` first, which always exists, and the user's file second.
+- That system database refuses a process without Full Disk Access. A `launchctl submit` job in the guest gets `Operation not permitted` from it, and from `~/Library/Safari` and `~/Library/Mail`; ssh, which holds Full Disk Access, reads all three.
+- An app started with `open` over ssh is its own responsible process (`launchctl procinfo` names the app), so it doesn't inherit ssh's Full Disk Access. The debug app reads "Not granted" in Settings ▸ General.
+- The probe's denied read adds a `kTCCServiceSystemPolicyAllFiles` row for the bundle ID with `auth_value` 0, so the app is already listed in System Settings, switched off.
+- `screencapture` over ssh fails with `could not create image from display`, so check the guest's System Settings through the VM tab, not a guest screenshot.
 
 ## Limits
 
