@@ -38,7 +38,9 @@ nonisolated final class AgentProcess: @unchecked Sendable {
     private var hasProcessExited = false
     private var didLaunch = false
     private var hasOutputEnded = false
-    /// Held until stdout reaches end of file, so `onExit` follows every line.
+    private var hasErrorOutputEnded = false
+    /// Held until stdout and stderr reach end of file, so `onExit` follows
+    /// every line and carries stderr's last one.
     private var pendingExitStatus: Int32?
     private var exitWaiters: [CheckedContinuation<Void, Never>] = []
 
@@ -108,6 +110,7 @@ nonisolated final class AgentProcess: @unchecked Sendable {
             let data = handle.availableData
             guard !data.isEmpty else {
                 handle.readabilityHandler = nil
+                self?.errorOutputEnded()
                 return
             }
             let text = String(decoding: data, as: UTF8.self)
@@ -274,17 +277,18 @@ nonisolated final class AgentProcess: @unchecked Sendable {
         }
     }
 
-    /// How long an exit waits for stdout to close. A grandchild that keeps
-    /// the pipe open would otherwise hold `onExit` back for its whole life.
+    /// How long an exit waits for its pipes to close. A grandchild that keeps
+    /// one open would otherwise hold `onExit` back for its whole life.
     private static let outputDrainGrace: TimeInterval = 1
 
     /// The child can exit before the last of its output is read, so the exit
-    /// waits for stdout to end and every line reaches `onLine` first.
+    /// waits for both pipes to end: every line reaches `onLine` first, and a
+    /// failed launch's stderr reaches `onExit`.
     private func finish(status: Int32) {
         queue.async { [weak self] in
             guard let self else { return }
             self.pendingExitStatus = status
-            if self.hasOutputEnded {
+            if self.hasOutputEnded && self.hasErrorOutputEnded {
                 self.deliverExit()
             } else {
                 self.queue.asyncAfter(deadline: .now() + Self.outputDrainGrace) { self.deliverExit() }
@@ -297,7 +301,16 @@ nonisolated final class AgentProcess: @unchecked Sendable {
         queue.async { [weak self] in
             guard let self else { return }
             self.hasOutputEnded = true
-            self.deliverExit()
+            if self.hasErrorOutputEnded { self.deliverExit() }
+        }
+    }
+
+    /// Enqueued after the handler's last `lastErrorLine` write, so it runs after it.
+    private func errorOutputEnded() {
+        queue.async { [weak self] in
+            guard let self else { return }
+            self.hasErrorOutputEnded = true
+            if self.hasOutputEnded { self.deliverExit() }
         }
     }
 
