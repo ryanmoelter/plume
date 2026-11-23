@@ -1660,9 +1660,8 @@ struct ChatTabView: View, ThemedView {
     }
 
     private func persistModel(_ model: AgentModel?) {
-        guard let model, tab.model != model else { return }
+        guard !tab.isModelUserChosen, let model, tab.model != model else { return }
         tab.model = model
-        tab.isModelUserChosen = false
     }
 
     private func persistEffort(_ effort: AgentEffort?) {
