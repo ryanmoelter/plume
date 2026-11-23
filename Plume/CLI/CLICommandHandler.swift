@@ -471,12 +471,6 @@ final class CLICommandHandler {
         return !task.isArchived
     }
 
-    func hasLiveVMTab(_ id: UUID) -> Bool {
-        guard let (task, _) = currentTask(ofTab: id), !task.isArchived else { return false }
-        // A VM tab that went back to the device picker still owns the lease it claimed.
-        return task.tabs.contains { $0.id == id && ($0.kind == .vm || $0.kind == .device) }
-    }
-
     private func openSettings(_ params: CLIRequest.OpenSettings) -> CLIResponse {
         var pane: SettingsPane?
         if let section = params.section {

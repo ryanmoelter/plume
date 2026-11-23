@@ -64,7 +64,7 @@ struct VMPickerRow: Equatable {
     var canShow: Bool
 
     init(_ slot: VMManager.Slot) {
-        let isFree = slot.lease == nil && (slot.state == .idle || slot.state == .failed)
+        let isFree = slot.lease == nil && (slot.state == .idle || slot.state == .failed) && !slot.stillRunning
         canClaim = isFree
         canShow = !isFree
         if let lease = slot.lease {

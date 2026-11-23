@@ -33,6 +33,7 @@ final class VMManager {
         var branch: String?
         var claimedAt: Date
         var expiresAt: Date
+        var ttl: TimeInterval = VMManager.defaultTTL
         var installed: DeviceLease.Installed?
         var token = UUID()
     }
@@ -64,6 +65,8 @@ final class VMManager {
         case busy(key: String, state: VMSlotState)
         case heldElsewhere(String)
         case slotTaken(String)
+        case holdsOther(held: String, wanted: String)
+        case ownerClosed
         case stillRunning(String)
         case unsupported
         case labsDisabled
@@ -89,6 +92,10 @@ final class VMManager {
                 "another Plume is running \(key)'s clone"
             case .slotTaken(let key):
                 "\(key) is in use"
+            case .holdsOther(let held, let wanted):
+                "you already hold \(held), not \(wanted); release it first"
+            case .ownerClosed:
+                "the tab that asked for the VM closed"
             case .stillRunning(let key):
                 VMManager.stillRunningMessage(key)
             case .unsupported:
@@ -106,8 +113,8 @@ final class VMManager {
 
     @ObservationIgnored private let backend: any VMBackend
     @ObservationIgnored var now: () -> Date = Date.init
-    /// Whether a tab is a VM or device tab in a task that isn't archived. A lease such a tab owns renews
-    /// itself for as long as the tab is there.
+    /// Whether a tab is a VM tab in a task that isn't archived. A lease such a tab owns renews itself
+    /// for as long as the tab is there.
     @ObservationIgnored var isLiveVMTab: (UUID) -> Bool = { _ in false }
     /// The Labs toggle. Off, nothing new is claimed, but VMs already running keep their leases.
     @ObservationIgnored var isEnabled: () -> Bool = { true }
@@ -120,6 +127,8 @@ final class VMManager {
     /// As of the last claim or `refreshHeldElsewhere`, so reporting never reads lock files on the
     /// main actor.
     @ObservationIgnored private var heldElsewhere: Set<Int> = []
+    /// So a claim whose tab closed while it checked the host never boots a VM nobody owns.
+    @ObservationIgnored private var forgottenTabs: Set<UUID> = []
 
     init(backend: any VMBackend) {
         self.backend = backend
@@ -145,7 +154,12 @@ final class VMManager {
     /// With Labs off, the socket refuses every VM command until no VM is left from before, so a
     /// running one can still be listed and released.
     var refusesCommands: Bool {
-        !isEnabled() && runningCount == 0 && !slots.contains { $0.lease != nil }
+        !isEnabled() && !hasVMFromBefore
+    }
+
+    /// A VM that is leased or still running, which stays reachable with Labs off so it can be released.
+    var hasVMFromBefore: Bool {
+        runningCount > 0 || slots.contains { $0.lease != nil }
     }
 
     /// Slots that may still have a VM, which a quit has to stop: a failed slot's VM is still
@@ -164,10 +178,10 @@ final class VMManager {
     // MARK: Leases
 
     /// Leases a slot and boots it in the background, answering at once. A claim by an owner that
-    /// already holds a slot renews it, and boots it again if its boot failed. `preferred` asks for
-    /// one slot, as a VM tab's picker does, and fails rather than take another; an owner that
-    /// already holds a slot still gets its own. The host checks run off the main actor, and
-    /// everything after them reads the slots afresh.
+    /// already holds a slot renews it for `ttl`, or the lease's own TTL, and boots it again if its
+    /// boot failed. `preferred` asks for one slot, as a VM tab's picker does, and fails rather than
+    /// take another, including when the owner already holds a different one. The host checks run
+    /// off the main actor, and everything after them reads the slots afresh.
     func claim(
         owner: DeviceLeaseOwner,
         worktree requestedWorktree: String?,
@@ -178,17 +192,24 @@ final class VMManager {
         guard isEnabled() else { throw Failure.labsDisabled }
         guard Self.isSupported else { throw Failure.unsupported }
         start()
-        let ttl = ttl ?? Self.defaultTTL
         let worktree = await Self.resolved(requestedWorktree)
         let baseExists = await backend.baseImageExists()
         let elsewhere = await backend.clonesHeldElsewhere()
         heldElsewhere = elsewhere
+        if let tabID = owner.tabID, forgottenTabs.contains(tabID) { throw Failure.ownerClosed }
         if let held = slots.first(where: { $0.lease?.owner == owner }) {
             let lease = held.lease!
+            if let preferred, preferred != held.number {
+                throw Failure.holdsOther(held: held.key, wanted: VMPaths.key(preferred))
+            }
             if let worktree, worktree != lease.worktree {
                 throw Failure.worktreeMismatch(key: held.key, held: lease.worktree, wanted: worktree)
             }
-            update(held.number) { $0.lease?.expiresAt = now().addingTimeInterval(ttl) }
+            let ttl = ttl ?? lease.ttl
+            update(held.number) {
+                $0.lease?.ttl = ttl
+                $0.lease?.expiresAt = now().addingTimeInterval(ttl)
+            }
             if held.state == .failed { boot(held.number) }
             return (held.number, true)
         }
@@ -206,8 +227,12 @@ final class VMManager {
             free = first
         }
         let claimedAt = now()
+        let ttl = ttl ?? Self.defaultTTL
         update(free.number) {
-            $0.lease = Lease(owner: owner, worktree: worktree, branch: branch, claimedAt: claimedAt, expiresAt: claimedAt.addingTimeInterval(ttl))
+            $0.lease = Lease(
+                owner: owner, worktree: worktree, branch: branch, claimedAt: claimedAt,
+                expiresAt: claimedAt.addingTimeInterval(ttl), ttl: ttl
+            )
         }
         boot(free.number)
         return (free.number, false)
@@ -215,7 +240,10 @@ final class VMManager {
 
     func renew(_ key: String, owner: DeviceLeaseOwner, ttl: TimeInterval) throws -> Lease {
         let number = try leasedSlot(key, owner: owner, force: false)
-        update(number) { $0.lease?.expiresAt = now().addingTimeInterval(ttl) }
+        update(number) {
+            $0.lease?.ttl = ttl
+            $0.lease?.expiresAt = now().addingTimeInterval(ttl)
+        }
         return slot(number)!.lease!
     }
 
@@ -273,6 +301,7 @@ final class VMManager {
     }
 
     func tabForgotten(_ tabID: UUID) {
+        forgottenTabs.insert(tabID)
         for slot in slots where slot.lease?.owner.tabID == tabID {
             stopSlot(slot.number)
         }

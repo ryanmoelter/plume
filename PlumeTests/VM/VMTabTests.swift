@@ -91,7 +91,17 @@ struct VMTabTests {
         await #expect(throws: VMManager.Failure.slotTaken("vm:2")) {
             try await manager.claim(owner: .label("b"), worktree: nil, branch: nil, preferred: 2)
         }
-        #expect(try await manager.claim(owner: .label("a"), worktree: nil, branch: nil, preferred: 1).slot == 2)
+        await #expect(throws: VMManager.Failure.holdsOther(held: "vm:2", wanted: "vm:1")) {
+            try await manager.claim(owner: .label("a"), worktree: nil, branch: nil, preferred: 1)
+        }
+    }
+
+    @Test func aVMThatWontStopIsNotClaimable() {
+        var stuck = slot(.failed)
+        stuck.stillRunning = true
+        let row = VMPickerRow(stuck)
+        #expect(!row.canClaim)
+        #expect(row.canShow)
     }
 
     @Test func aFreeSlotOffersOnlyClaim() {
@@ -111,6 +121,22 @@ struct VMTabTests {
         let resetting = VMPickerRow(slot(.resetting))
         #expect(!resetting.canClaim)
         #expect(resetting.summary == "Resetting…")
+    }
+
+    @Test func onlyAVMTabInATaskThatIsntArchivedIsALiveVMOwner() throws {
+        let container = try ModelContainer(
+            for: Schema([TaskGroup.self, WorkTask.self, TaskTab.self]),
+            configurations: [ModelConfiguration(isStoredInMemoryOnly: true)]
+        )
+        let context = ModelContext(container)
+        let task = TaskStore.createTask(in: context, siblings: [])
+        let tab = TaskStore.addTab(to: task, kind: .device, in: context)
+        #expect(!TaskStore.isLiveVMTab(tab.id, in: context))
+        TaskStore.showVM(slot: 1, in: tab)
+        #expect(TaskStore.isLiveVMTab(tab.id, in: context))
+        task.isArchived = true
+        #expect(!TaskStore.isLiveVMTab(tab.id, in: context))
+        #expect(!TaskStore.isLiveVMTab(UUID(), in: context))
     }
 
     @Test func aDeviceTabTurnsIntoAVMTabAndBackInPlace() throws {

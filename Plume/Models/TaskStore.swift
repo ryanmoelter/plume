@@ -423,6 +423,13 @@ enum TaskStore {
         tab.vmSlot = 0
     }
 
+    /// Read from the store rather than from open windows, so a lease outlives a closed window.
+    static func isLiveVMTab(_ id: UUID, in context: ModelContext) -> Bool {
+        let tabs = (try? context.fetch(FetchDescriptor<TaskTab>(predicate: #Predicate { $0.id == id }))) ?? []
+        guard let tab = tabs.first, let task = tab.task else { return false }
+        return tab.kind == .vm && !task.isArchived
+    }
+
     /// Moves `tab` and its attached children into `pane`'s strip at the gap `position`
     /// (counted in the strip as drawn, `tab` included), or onto its end,
     /// wherever `TabStripMove` lets it land. A tab arriving from another pane

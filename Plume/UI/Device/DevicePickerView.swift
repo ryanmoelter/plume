@@ -81,7 +81,7 @@ struct DevicePickerView: View {
 
     @ViewBuilder
     private var vmSection: some View {
-        if AppSettings.shared.labsVMsEnabled {
+        if AppSettings.shared.labsVMsEnabled || VMManager.shared.hasVMFromBefore {
             section("macOS VMs") { VMPickerSection(tab: tab) }
         }
     }

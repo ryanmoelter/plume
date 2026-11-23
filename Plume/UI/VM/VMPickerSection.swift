@@ -46,7 +46,7 @@ struct VMPickerSection: View {
                 .disabled(!row.canShow)
             Button("Claim") { claim(slot.number) }
                 .plumeID(AccessibilityID.vmPickerClaimButton, label: slot.key, invoke: { claim(slot.number) })
-                .disabled(!row.canClaim)
+                .disabled(!row.canClaim || !AppSettings.shared.labsVMsEnabled)
         }
         .padding(10)
         .plumeID(AccessibilityID.vmPickerRow, label: slot.key, value: row.summary)
@@ -58,10 +58,10 @@ struct VMPickerSection: View {
     }
 
     private func claim(_ number: Int) {
+        actionError = nil
         Task {
             do {
-                let claimed = try await vms.claim(owner: tab.vmLeaseOwner, worktree: nil, branch: tab.branchName, preferred: number)
-                show(claimed.slot)
+                try await tab.claimVM(slot: number)
             } catch {
                 actionError = error.localizedDescription
             }
@@ -74,5 +74,11 @@ extension TaskTab {
     /// The owner of a VM lease claimed from this tab, which renews while the tab exists.
     var vmLeaseOwner: DeviceLeaseOwner {
         .tab(id: id, app: DeviceLeaseCoordinator.shared.appSocket ?? "")
+    }
+
+    /// Claims `slot` for this tab, or boots its own lease there again, and shows it here.
+    func claimVM(slot: Int) async throws {
+        let claimed = try await VMManager.shared.claim(owner: vmLeaseOwner, worktree: nil, branch: branchName, preferred: slot)
+        TaskStore.showVM(slot: claimed.slot, in: self)
     }
 }

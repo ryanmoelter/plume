@@ -16,8 +16,9 @@ struct VMTabHost: View {
 }
 
 /// Views one slot of `VMManager`'s pool. A VM this tab claimed is its own: the lease renews while
-/// the tab exists, and closing the tab stops the VM. A VM another owner holds is only shown. With no
-/// slot, the tab goes back to being a device tab, whose picker lists the slots.
+/// the tab shows it, and closing the tab or changing its slot stops the VM. A VM another owner
+/// holds is only shown. With no slot, the tab goes back to being a device tab, whose picker lists
+/// the slots.
 struct VMTabView: View {
     let tab: TaskTab
 
@@ -47,7 +48,7 @@ struct VMTabView: View {
         }
     }
 
-    /// With Labs off, a tab still shows a VM left running from before, so it can be released.
+    /// With Labs off, a tab still shows a VM left from before, so it can be released.
     private var showsLabsOff: Bool {
         guard !AppSettings.shared.labsVMsEnabled, tab.vmSlot != 0, let slot = vms.slot(tab.vmSlot) else { return false }
         return VMPickerRow(slot).canClaim
@@ -103,7 +104,7 @@ struct VMTabView: View {
                     .plumeID(AccessibilityID.vmToolbarHolder, value: lease.owner.description)
                 (Text("expires ") + Text(lease.expiresAt, style: .relative))
                     .foregroundStyle(.secondary)
-                    .plumeID(AccessibilityID.vmToolbarExpiry, value: ISO8601DateFormatter().string(from: lease.expiresAt))
+                    .plumeID(AccessibilityID.vmToolbarExpiry, value: lease.expiresAt.ISO8601Format())
             }
             Spacer(minLength: 8)
             Toggle("Capture system keys", isOn: $capturesSystemKeys)
@@ -128,8 +129,9 @@ struct VMTabView: View {
                 .help("Delete this slot's clone, so its next boot starts from the base image")
                 .plumeID(AccessibilityID.vmResetButton, invoke: { reset(slot) })
                 .disabled(!canReset)
-            Button("Change Slot") { showDevicePicker() }
-                .plumeID(AccessibilityID.vmChangeSlotButton, invoke: { showDevicePicker() })
+            Button("Change Slot") { changeSlot(slot) }
+                .help(lease?.owner == owner ? "Release this tab's VM and pick another slot" : "Pick another slot")
+                .plumeID(AccessibilityID.vmChangeSlotButton, invoke: { changeSlot(slot) })
         }
         .font(.callout)
         .controlSize(.small)
@@ -194,8 +196,10 @@ struct VMTabView: View {
                     .textSelection(.enabled)
                     .frame(maxWidth: 480)
                     .plumeID(AccessibilityID.vmErrorText, value: message)
-                Button("Retry") { retry(slot) }
-                    .plumeID(AccessibilityID.vmRetryButton, invoke: { retry(slot) })
+                if canRetry(slot) {
+                    Button("Retry") { claim(slot.number) }
+                        .plumeID(AccessibilityID.vmRetryButton, invoke: { claim(slot.number) })
+                }
             }
             .padding()
         case .running(let number, let hasDisplay):
@@ -220,38 +224,34 @@ struct VMTabView: View {
 
     // MARK: Actions
 
-    private func choose(_ number: Int) {
-        actionError = nil
-        tab.vmSlot = number
-    }
-
     private func showDevicePicker() {
         actionError = nil
         TaskStore.showDevicePicker(in: tab)
     }
 
+    private func changeSlot(_ slot: VMManager.Slot) {
+        if slot.lease?.owner == owner {
+            release(slot)
+        } else {
+            showDevicePicker()
+        }
+    }
+
+    /// A claim by a failed boot's own lease boots it again; it starts a slot with no lease.
     private func claim(_ number: Int) {
+        actionError = nil
         Task {
             do {
-                let claimed = try await vms.claim(owner: owner, worktree: nil, branch: tab.branchName, preferred: number)
-                choose(claimed.slot)
+                try await tab.claimVM(slot: number)
             } catch {
                 actionError = error.localizedDescription
             }
         }
     }
 
-    /// A failed boot keeps its lease, and a claim by that lease's owner boots it again.
-    private func retry(_ slot: VMManager.Slot) {
-        guard let lease = slot.lease else { return claim(slot.number) }
-        Task {
-            do {
-                _ = try await vms.claim(owner: lease.owner, worktree: lease.worktree, branch: lease.branch)
-                actionError = nil
-            } catch {
-                actionError = error.localizedDescription
-            }
-        }
+    /// Another owner's failed lease is theirs to retry, and with Labs off only Release is offered.
+    private func canRetry(_ slot: VMManager.Slot) -> Bool {
+        AppSettings.shared.labsVMsEnabled && (slot.lease == nil || slot.lease?.owner == owner)
     }
 
     /// This tab's own lease, or a slot with no lease whose VM didn't stop.
