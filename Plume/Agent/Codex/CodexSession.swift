@@ -65,7 +65,16 @@ final class CodexSession: AgentSession {
     private(set) var effort: AgentEffort?
     private(set) var collaborationMode: CodexCollaborationMode = .default
     private(set) var hasReportedModeAndModel = false
-    private(set) var queuedMessages: [[UserContentBlock]] = []
+    private(set) var queue: [QueuedMessage] = []
+    var queuedMessages: [[UserContentBlock]] { queue.map(\.display) }
+    var unreadHostMessages: [HostMessage] { queue.flatMap { $0.parts.hosts } }
+    var hasPendingParentBrief: Bool { !isReady && unreadHostMessages.contains(where: \.isFromParent) }
+    private(set) var workingSince: Date?
+    @ObservationIgnored var onTurnFinished: ((AgentTurnOutcome) -> Void)?
+    @ObservationIgnored var onHostMessagesReturned: (([HostMessage]) -> Void)?
+    @ObservationIgnored var onThreadAdopted: ((String) -> Void)?
+    private var activeHosts: [HostMessage] = []
+    private var finalReply: String?
 
     let supportsPlanApproval = true
     let supportsSteering = true
@@ -158,6 +167,7 @@ final class CodexSession: AgentSession {
         collaborationMode: CodexCollaborationMode = .default,
         permissionProfile: String? = nil,
         defaultPermissionProfile: String = AgentPermissionPreset.codexWorkspace.id,
+        isChildSession: Bool = false,
         preserveRemoteConfiguration: Bool = false,
         environment: [String: String],
         threadEnvironment: [String: String] = [:]
@@ -183,6 +193,7 @@ final class CodexSession: AgentSession {
                 resumeThreadID: resumeThreadID,
                 permissionProfile: permissionProfile,
                 defaultPermissionProfile: defaultPermissionProfile,
+                isChildSession: isChildSession,
                 preserveRemoteConfiguration: preserveRemoteConfiguration,
                 threadEnvironment: threadEnvironment
             )
@@ -204,6 +215,7 @@ final class CodexSession: AgentSession {
         resumeThreadID: String?,
         permissionProfile: String?,
         defaultPermissionProfile: String,
+        isChildSession: Bool,
         preserveRemoteConfiguration: Bool,
         threadEnvironment: [String: String]
     ) async {
@@ -231,8 +243,12 @@ final class CodexSession: AgentSession {
             var params: [String: JSONValue] = [:]
             if let workingDirectory { params["cwd"] = .string(workingDirectory) }
             if let model { params["model"] = .string(model.id) }
-            selectedPermissionProfile = resolvedPermissionProfile?.id
-            if let resolvedPermissionProfile { params["permissions"] = .string(resolvedPermissionProfile.id) }
+            selectedPermissionProfile = if isChildSession, resolvedPermissionProfile?.id != permissionProfile {
+                AgentPermissionPreset.codexWorkspace.id
+            } else {
+                resolvedPermissionProfile?.id
+            }
+            if let selectedPermissionProfile { params["permissions"] = .string(selectedPermissionProfile) }
             if let config = Self.threadConfig(environment: threadEnvironment) { params["config"] = config }
             let method: String
             if let resumeThreadID, !resumeThreadID.isEmpty {
@@ -262,6 +278,10 @@ final class CodexSession: AgentSession {
             flushQueue()
         } catch {
             reportFailure(error)
+            if hasPendingParentBrief {
+                activeHosts = unreadHostMessages
+                reportChildOutcome(text: lastError, isError: true, exited: true)
+            }
             stop()
         }
     }
@@ -319,6 +339,7 @@ final class CodexSession: AgentSession {
     private func adopt(startResponse result: JSONValue) -> Bool {
         guard let id = result["thread"]?["id"]?.stringValue, !id.isEmpty else { return false }
         sessionID = id
+        onThreadAdopted?(id)
         restoreRuntimeState(from: result["thread"] ?? .null)
         serverTitle = CodexThreadTitle.name(result["thread"]?["name"]?.stringValue)
         hasServerTitle = serverTitle != nil
@@ -476,17 +497,22 @@ final class CodexSession: AgentSession {
         let normalized = blocks.normalized
         guard normalized.hasContent else { return .queued }
         hasUserSubmitted = true
-        if openingMessage == nil, !normalized.plainText.isEmpty { openingMessage = normalized.plainText }
+        return submit(QueuedMessage(parts: [.user(normalized)]))
+    }
+
+    @discardableResult
+    func submit(_ message: QueuedMessage) -> AgentDelivery {
+        if openingMessage == nil, !message.display.plainText.isEmpty { openingMessage = message.display.plainText }
         // A normal follow-up is also an answer to a pending proposal. Clear
         // the decision surface immediately; `send` repeats this for a message
         // queued before the proposal arrived.
         planProposal = nil
-        guard isReady, let threadID = sessionID, !isWorking else {
-            queuedMessages.append(normalized)
+        guard isReady, let threadID = sessionID, !isWorking, pendingTurnStartSequence == nil else {
+            queue.append(message)
             return .queued
         }
         queuePaused = false
-        send(blocks: normalized, threadID: threadID)
+        send(parts: message.parts, threadID: threadID)
         return .sent
     }
 
@@ -519,12 +545,18 @@ final class CodexSession: AgentSession {
         }
     }
 
-    private func send(blocks: [UserContentBlock], threadID: String) {
+    private func send(parts: [QueuedMessage.Part], threadID: String) {
+        let turn = OutgoingTurn(parts: parts)
+        let blocks = turn.wire
+        activeHosts = turn.hosts
+        if turn.userBlocks != nil { hasUserSubmitted = true }
+        finalReply = nil
         planProposal = nil
         lastError = nil
         streamingText = ""
         streamingThinking = ""
         isWorking = true
+        workingSince = .now
         nextTurnStartSequence += 1
         let sequence = nextTurnStartSequence
         pendingTurnStartSequence = sequence
@@ -548,7 +580,7 @@ final class CodexSession: AgentSession {
                 finishTurnStart(sequence: sequence, result: result)
                 requestTitleIfDue()
             } catch {
-                failTurnStart(sequence: sequence, error: error, blocks: blocks)
+                failTurnStart(sequence: sequence, error: error, parts: parts)
             }
         }
     }
@@ -558,16 +590,16 @@ final class CodexSession: AgentSession {
               pendingTurnStartSequence == nil,
               let threadID = sessionID,
               !isWorking,
-              !queuedMessages.isEmpty
+              !queue.isEmpty
         else { return }
-        let next = sendsQueueAsOneTurn ? takeQueueAsOneTurn() : queuedMessages.removeFirst()
-        send(blocks: next, threadID: threadID)
+        let next = sendsQueueAsOneTurn ? takeQueueAsOneTurn() : queue.removeFirst().parts
+        send(parts: next, threadID: threadID)
     }
 
-    private func takeQueueAsOneTurn() -> [UserContentBlock] {
+    private func takeQueueAsOneTurn() -> [QueuedMessage.Part] {
         sendsQueueAsOneTurn = false
-        defer { queuedMessages = [] }
-        return queuedMessages.mergedIntoOneTurn
+        defer { queue = [] }
+        return queue.flatMap(\.parts)
     }
 
     private func finishTurnStart(sequence: Int, result: JSONValue) {
@@ -583,22 +615,29 @@ final class CodexSession: AgentSession {
         }
     }
 
-    private func failTurnStart(sequence: Int, error: Error, blocks: [UserContentBlock]) {
+    private func failTurnStart(sequence: Int, error: Error, parts: [QueuedMessage.Part]) {
         guard pendingTurnStartSequence == sequence else { return }
         pendingTurnStartSequence = nil
         if let failure = error as? CodexAppServerClient.Failure, failure == .notRunning {
-            queuedMessages.insert(blocks, at: 0)
+            queue.insert(QueuedMessage(parts: parts), at: 0)
         }
         // Once the request was written, a transport failure cannot tell us
         // whether Codex accepted it. Never put the text back in the queue and
         // risk running the same user turn twice after recovery.
         reportFailure(error)
+        reportChildOutcome(text: lastError, isError: true)
     }
 
     @discardableResult
     func removeQueuedMessage(at index: Int) -> [UserContentBlock]? {
-        guard queuedMessages.indices.contains(index) else { return nil }
-        return queuedMessages.remove(at: index)
+        guard queue.indices.contains(index) else { return nil }
+        let message = queue.remove(at: index)
+        if !message.parts.hosts.isEmpty { onHostMessagesReturned?(message.parts.hosts) }
+        return message.parts.userBlocks
+    }
+
+    func canEditQueuedMessage(at index: Int) -> Bool {
+        queue.indices.contains(index) && queue[index].parts.userBlocks != nil
     }
 
     /// The merged turn goes out when the interrupted turn completes, which
@@ -607,9 +646,9 @@ final class CodexSession: AgentSession {
         let normalized = blocks.normalized
         if normalized.hasContent {
             hasUserSubmitted = true
-            queuedMessages.append(normalized)
+            queue.append(QueuedMessage(parts: [.user(normalized)]))
         }
-        guard !queuedMessages.isEmpty else { return }
+        guard !queue.isEmpty else { return }
         sendsQueueAsOneTurn = true
         queuePaused = false
         if isWorking { interrupt() } else { flushQueue() }
@@ -993,6 +1032,7 @@ final class CodexSession: AgentSession {
         case "turn/started":
             currentTurnID = params["turn"]?["id"]?.stringValue
             isWorking = true
+            if workingSince == nil { workingSince = .now }
             streamingText = ""
             streamingThinking = ""
             StatusEngine.shared.setStatus(.working, taskID: taskID, tabID: tabID)
@@ -1044,10 +1084,12 @@ final class CodexSession: AgentSession {
             // the user has to act on.
             if params["willRetry"] != .bool(true) {
                 isWorking = false
+                workingSince = nil
                 currentTurnID = nil
                 interruptRequested = false
                 queuePaused = true
                 StatusEngine.shared.setStatus(.error, taskID: taskID, tabID: tabID, notifiable: hasUserSubmitted)
+                reportChildOutcome(text: lastError, isError: true)
             }
         case "serverRequest/resolved":
             dropPermission(requestID: params["requestId"])
@@ -1066,6 +1108,11 @@ final class CodexSession: AgentSession {
                 )
                 if lifecycle == .completed, item["type"]?.stringValue == "plan" {
                     planProposal = CodexItemStore.shared.latestPendingPlan(forTab: tabID)
+                }
+                if lifecycle == .completed, item["type"]?.stringValue == "agentMessage",
+                   item["phase"]?.stringValue != "commentary",
+                   params["turnId"]?.stringValue == currentTurnID {
+                    finalReply = item["text"]?.stringValue
                 }
             }
         case "item/commandExecution/outputDelta":
@@ -1097,12 +1144,16 @@ final class CodexSession: AgentSession {
         let completedID = turn["id"]?.stringValue
         if let currentTurnID, let completedID, currentTurnID != completedID { return }
         isWorking = false
+        workingSince = nil
         currentTurnID = nil
         interruptRequested = false
         pendingPermissions.removeAll()
         permissionKinds.removeAll()
         permissionRequestIDs.removeAll()
-        switch turn["status"]?.stringValue {
+        let status = turn["status"]?.stringValue
+        let reply = status == "failed" ? turn["error"]?["message"]?.stringValue : finalReply
+        let outcome = takeChildOutcome(text: reply, isError: status == "failed", interrupted: status == "interrupted")
+        switch status {
         case "failed":
             queuePaused = true
             sendsQueueAsOneTurn = false
@@ -1117,6 +1168,24 @@ final class CodexSession: AgentSession {
             if pendingTurnStartSequence == nil { flushQueue() }
             requestTitleIfDue()
         }
+        onTurnFinished?(outcome)
+    }
+
+    private func takeChildOutcome(
+        text: String?, isError: Bool, interrupted: Bool = false, exited: Bool = false
+    ) -> AgentTurnOutcome {
+        let outcome = AgentTurnOutcome(
+            text: text, isError: isError, wasInterrupted: interrupted,
+            isHostDriven: !activeHosts.isEmpty, isParentDriven: activeHosts.contains(where: \.isFromParent),
+            exitedMidTurn: exited
+        )
+        activeHosts = []
+        finalReply = nil
+        return outcome
+    }
+
+    private func reportChildOutcome(text: String?, isError: Bool, exited: Bool = false) {
+        onTurnFinished?(takeChildOutcome(text: text, isError: isError, exited: exited))
     }
 
     private func requestTitleIfDue() {
@@ -1433,6 +1502,7 @@ final class CodexSession: AgentSession {
 
     private func reportFailure(_ error: Error) {
         isWorking = false
+        workingSince = nil
         interruptRequested = false
         queuePaused = true
         sendsQueueAsOneTurn = false
@@ -1451,6 +1521,7 @@ final class CodexSession: AgentSession {
         hasExited = true
         exitStatus = status
         isWorking = false
+        workingSince = nil
         isReady = false
         pendingTurnStartSequence = nil
         interruptRequested = false
@@ -1465,6 +1536,10 @@ final class CodexSession: AgentSession {
         // that reaches here is an unexpected loss of the app-server, even if
         // the subprocess happened to return zero.
         StatusEngine.shared.setStatus(.error, taskID: taskID, tabID: tabID, notifiable: hasUserSubmitted)
+        if activeHosts.isEmpty, unreadHostMessages.contains(where: \.isFromParent), sessionID == nil {
+            activeHosts = unreadHostMessages
+        }
+        reportChildOutcome(text: lastError, isError: true, exited: true)
     }
 
     private enum SessionFailure: Error {

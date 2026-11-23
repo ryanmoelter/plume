@@ -63,6 +63,44 @@ struct CodexRecoveryTests {
                  "turns": .array([.object(["id": .string("remote-turn"), "status": .string("inProgress")])])])
     }
 
+    @Test func parentBriefAndUserFollowUpKeepTheirTurnOrigins() async throws {
+        let h = Harness()
+        let session = CodexSession(tabID: UUID(), taskID: UUID(), client: h.client)
+        defer { session.stop() }
+        var outcomes: [AgentTurnOutcome] = []
+        session.onTurnFinished = { outcomes.append($0) }
+        session.start(
+            workingDirectory: nil, resumeThreadID: nil, model: nil,
+            permissionProfile: AgentPermissionPreset.codexWorkspace.id,
+            defaultPermissionProfile: AgentPermissionPreset.codexDangerFullAccess.id,
+            isChildSession: true, environment: [:]
+        )
+        let brief = HostMessage(
+            display: [.text("Check login")], wire: [.text("Task:\nCheck login")],
+            origin: .fromParent(text: "Check login")
+        )
+        session.submit(QueuedMessage(parts: [.host(brief)]))
+        try await waitFor { h.turns.count == 1 }
+        let start = try #require(h.requests.first { $0["method"] == .string("thread/start") })
+        #expect(start["params"]?["permissions"] == .string(":workspace"))
+        #expect(h.turns.first?["params"]?["input"]?.arrayValue?.first?["text"] == .string("Task:\nCheck login"))
+        session.submit(text: "User follow-up")
+
+        h.reply(id: try #require(h.turns[0]["id"]), result: .object(["turn": .object(["id": .string("t1")])]))
+        h.client.receive(#"{"method":"turn/started","params":{"threadId":"thread","turn":{"id":"t1"}}}"#)
+        h.client.receive(#"{"method":"item/completed","params":{"threadId":"thread","turnId":"t1","item":{"id":"final","type":"agentMessage","phase":"final_answer","text":"Login works"}}}"#)
+        h.client.receive(#"{"method":"turn/completed","params":{"threadId":"thread","turn":{"id":"t1","status":"completed"}}}"#)
+        try await waitFor { h.turns.count == 2 }
+        #expect(outcomes.map(\.isParentDriven) == [true])
+        #expect(outcomes.first?.text == "Login works")
+
+        h.reply(id: try #require(h.turns[1]["id"]), result: .object(["turn": .object(["id": .string("t2")])]))
+        h.client.receive(#"{"method":"turn/started","params":{"threadId":"thread","turn":{"id":"t2"}}}"#)
+        h.client.receive(#"{"method":"turn/completed","params":{"threadId":"thread","turn":{"id":"t2","status":"completed"}}}"#)
+        try await waitFor { outcomes.count == 2 }
+        #expect(outcomes.map(\.isParentDriven) == [true, false])
+    }
+
     @Test func resumeRestoresRemoteTurnAndQueuesFollowupUntilItEnds() async throws {
         let h = Harness()
         h.resumedThread = activeRemoteThread

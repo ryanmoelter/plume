@@ -188,6 +188,7 @@ enum AgentLauncher {
 
     private static func queue(of session: (any AgentSession)?) -> [QueuedMessage] {
         if let headless = session as? HeadlessSession { return headless.queue }
+        if let codex = session as? CodexSession { return codex.queue }
         return (session?.queuedMessages ?? []).map { QueuedMessage(parts: [.user($0)]) }
     }
 
@@ -216,6 +217,8 @@ enum AgentLauncher {
             } else {
                 for message in queued { resumed.submit(message) }
             }
+        } else if let resumed = resumed as? CodexSession {
+            for message in queued { resumed.submit(message) }
         } else if let resumed {
             for message in queued { resumed.submit(blocks: message.display) }
         } else if !queued.isEmpty {
@@ -434,13 +437,22 @@ enum AgentLauncher {
             session.failToLaunch(reason: "This Codex conversation is already open in another \(AppIdentity.displayName) tab. Continue there, or close that tab before resuming here.")
             return
         }
+        if tab.isChildSession {
+            ChildSessionCoordinator.shared.attach(to: session, tab: tab)
+            session.onThreadAdopted = { [weak tab] id in
+                guard let tab, tab.isLive else { return }
+                recordSessionID(id, on: tab)
+            }
+        }
         session.start(
             workingDirectory: TabDirectoryStore.shared.directory(for: tab),
             resumeThreadID: resumeSessionID,
             model: resumeSessionID == nil || tab.isModelUserChosen ? tab.model : nil,
             collaborationMode: tab.codexCollaborationMode,
             permissionProfile: tab.permissionModeRaw,
-            defaultPermissionProfile: AppSettings.shared.defaultCodexPermissionProfile.id,
+            defaultPermissionProfile: tab.isChildSession
+                ? AgentPermissionPreset.codexWorkspace.id : AppSettings.shared.defaultCodexPermissionProfile.id,
+            isChildSession: tab.isChildSession,
             // One app-server runs every headless Codex tab, so the tab's own
             // IDs ride on its thread rather than on the process.
             environment: LoginShellCommand.sharedPlumeEnvironment(),
