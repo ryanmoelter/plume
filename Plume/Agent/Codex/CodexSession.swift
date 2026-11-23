@@ -103,12 +103,7 @@ final class CodexSession: AgentSession, SideQuestionSession {
         let liveTurnID = currentTurnID
         sideQuestionTasks[id] = Task { [weak self, client] in
             do {
-                let result = try await client.send("thread/turns/list", .object([
-                    "threadId": .string(threadID),
-                    "sortDirection": .string("desc"),
-                    "itemsView": .string("full"),
-                    "limit": .number(Double(CodexSideQuestion.turnLimit))
-                ]))
+                let result = try await client.readSideQuestionTurns(threadID: threadID)
                 guard !Task.isCancelled else { return }
                 guard let turns = result["data"]?.arrayValue else {
                     self?.finishSideQuestion(id, state: .failed("Couldn’t read completed turns."))
@@ -124,7 +119,9 @@ final class CodexSession: AgentSession, SideQuestionSession {
                     ?? .failed("Codex couldn’t answer the side question. Try again."))
             } catch {
                 guard !Task.isCancelled else { return }
-                self?.finishSideQuestion(id, state: .failed("Couldn’t read completed turns."))
+                let message = error is CodexAppServerClient.SideQuestionHistoryTimeout
+                    ? "Reading completed turns timed out." : "Couldn’t read completed turns."
+                self?.finishSideQuestion(id, state: .failed(message))
             }
         }
     }

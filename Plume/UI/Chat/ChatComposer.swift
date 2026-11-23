@@ -907,6 +907,10 @@ struct ChatComposer: View, ThemedView {
             sideQuestionError = "Enter a question after /btw."
             return
         }
+        guard question.utf8.count <= CodexSideQuestion.questionBytes else {
+            sideQuestionError = "Shorten the side question to 4,000 bytes."
+            return
+        }
         guard attachedImages.isEmpty else {
             sideQuestionError = "Remove the attachments to ask a side question."
             return
