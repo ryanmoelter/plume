@@ -13,6 +13,13 @@ import SwiftData
 final class ChildSessionCoordinator {
     static let shared = ChildSessionCoordinator()
 
+    typealias PrepareWorktree = @MainActor (StartSessionRequest, TaskTab) async -> Result<ChildSessionWorkspace.Worktree?, ChildSessionError>
+    private let prepareWorktree: PrepareWorktree
+
+    init(prepareWorktree: @escaping PrepareWorktree = ChildSessionWorkspace.worktree) {
+        self.prepareWorktree = prepareWorktree
+    }
+
     private var policies: [UUID: ChildSessionWakePolicy] = [:]
     private var childNames: [UUID: String] = [:]
     private var silentChildren: Set<UUID> = []
@@ -222,7 +229,8 @@ final class ChildSessionCoordinator {
         from parent: TaskTab,
         approvedByUser: Bool,
         proposalID: String? = nil,
-        forkCut: String? = nil
+        forkCut: String? = nil,
+        continuesAfterCancellation: Bool = false
     ) async -> Result<TaskTab, ChildSessionError> {
         guard !parent.isChildSession else { return .failure(.failed("This session cannot start sessions of its own.")) }
         guard parent.transport == .headless else {
@@ -252,17 +260,20 @@ final class ChildSessionCoordinator {
         }
 
         let parentIsOpen = { parent.isLive && parent.task?.isArchived == false }
+        let isCancelled = { Task.isCancelled && !continuesAfterCancellation }
+        let cancelled = ChildSessionError.failed("The request to start the session was cancelled.")
         guard parentIsOpen() else { return .failure(.parentClosed) }
+        guard !isCancelled() else { return .failure(cancelled) }
         let worktree: ChildSessionWorkspace.Worktree?
-        switch await ChildSessionWorkspace.worktree(for: request, parent: parent) {
+        switch await prepareWorktree(request, parent) {
         case .success(let made): worktree = made
         case .failure(let error): return .failure(error)
         }
         // Cutting the worktree took a while: the parent may have closed, or
         // moved to another task, where the child then opens.
-        guard parentIsOpen(), let task = parent.task else {
+        guard parentIsOpen(), !isCancelled(), let task = parent.task else {
             if let worktree { await ChildSessionWorkspace.remove(worktree) }
-            return .failure(.parentClosed)
+            return .failure(isCancelled() ? cancelled : .parentClosed)
         }
 
         let name = request.name ?? WorkspaceProvisioner.slugify(request.title)
@@ -463,7 +474,7 @@ final class ChildSessionCoordinator {
                 let launched = if let launch {
                     await launch(request, parent)
                 } else {
-                    await launchChild(request, from: parent, approvedByUser: true)
+                    await launchChild(request, from: parent, approvedByUser: true, continuesAfterCancellation: true)
                 }
                 switch launched {
                 case .success(let child):
@@ -546,7 +557,8 @@ final class ChildSessionCoordinator {
         activity.begin(id, in: parent.id)
         let child: TaskTab
         switch await launchChild(
-            request, from: parent, approvedByUser: byUser || approvedByUser, proposalID: id, forkCut: proposal.forkCut
+            request, from: parent, approvedByUser: byUser || approvedByUser,
+            proposalID: id, forkCut: proposal.forkCut, continuesAfterCancellation: byUser
         ) {
         case .success(let launched):
             activity.end(id, in: parent.id, failure: nil)
@@ -691,9 +703,10 @@ final class ChildSessionCoordinator {
                 recheckWake(of: parent)
             }
         }
-        guard var policy = policies[tab.id] else { return }
         // The user's queued message already answered the interrupt.
         let interrupted = outcome.wasInterrupted && !outcome.userTurnFollows
+        guard !tab.isChildSession, interrupted || policies[tab.id] != nil else { return }
+        var policy = policies[tab.id] ?? ChildSessionWakePolicy()
         let due = policy.parentTurnFinished(interrupted: interrupted, activity(of: tab))
         policies[tab.id] = policy
         settle(tab, due)
