@@ -100,6 +100,7 @@ nonisolated extension Stack {
         do {
             try ctx.state.withLock {
                 var branches = try ctx.loadAndFlushLocked()
+                let snapshot = dryRun ? nil : try ctx.recordUndo(undoLabel("sync", arguments), branches)
 
                 // Fresh-clone recovery: track local branches with open PRs.
                 let untrackedPRs = collectPRs(untrackedFetch)
@@ -180,6 +181,7 @@ nonisolated extension Stack {
                     }
                 }
                 if !dryRun { try ctx.saveState(branches) }
+                if let snapshot { try ctx.finishUndo(snapshot, branches) }
                 if !all, let anchor, branches[anchor] != nil {
                     try warnDescendantsNeedRestack(ctx, branches, anchor)
                 }
