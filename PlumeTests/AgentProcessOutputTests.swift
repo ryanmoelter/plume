@@ -100,4 +100,28 @@ struct AgentProcessOutputTests {
         process.terminate()
         #expect(exits.withLock { $0 } == [3])
     }
+
+    /// Stdout closes at once while a grandchild writes stderr after the exit,
+    /// the order a `command not found` launch can arrive in.
+    @Test(.timeLimit(.minutes(1))) func aFailedLaunchReportsStderrThatArrivesAfterTheExit() async throws {
+        let holder = Mutex<AgentProcess?>(nil)
+        let exit = await withCheckedContinuation { (continuation: CheckedContinuation<(Int32, String?), Never>) in
+            let process = AgentProcess(
+                label: "late stderr test",
+                onLine: { _ in },
+                onExit: { status, reason in continuation.resume(returning: (status, reason)) }
+            )
+            holder.withLock { $0 = process }
+            do {
+                try process.start(
+                    arguments: ["/bin/sh", "-c", "(exec 1>&-; sleep 0.3; echo 'claude: command not found' >&2) & exit 127"],
+                    workingDirectory: nil, environment: [:])
+            } catch {
+                continuation.resume(returning: (-1, nil))
+            }
+        }
+        defer { holder.withLock { $0 = nil } }
+        #expect(exit.0 == 127)
+        #expect(exit.1 == "claude: command not found")
+    }
 }
