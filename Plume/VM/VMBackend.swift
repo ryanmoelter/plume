@@ -11,10 +11,11 @@ protocol VMBackend: AnyObject {
     /// `generation` is the one passed to the `start` that booted it.
     var guestDidStop: ((_ slot: Int, _ generation: UInt64, _ reason: String?) -> Void)? { get set }
 
-    func baseImageExists() -> Bool
-    /// Whether no process holds the slot's clone lock. Only asked of a slot this app isn't running.
-    func isCloneFree(slot: Int) -> Bool
-    /// Takes the clone's lock, cloning from the base if the clone is missing.
+    func baseImageExists() async -> Bool
+    /// The slots whose clone lock another live process holds. This process's own locks never count.
+    func clonesHeldElsewhere() async -> Set<Int>
+    /// Takes the clone's lock, cloning from the base if the clone is missing. Cancelling the task
+    /// kills a `tart clone` in flight.
     func prepareClone(slot: Int) async throws
     /// What a `VZVirtualMachineView` shows the VM through.
     func start(slot: Int, generation: UInt64, worktree: String?) async throws -> VMDisplay?
@@ -52,28 +53,41 @@ final class LiveVMBackend: VMBackend {
         return runtime
     }
 
-    func baseImageExists() -> Bool {
-        VMHost.vmExists(VMPaths.baseName(os: hostOSMajor))
+    func baseImageExists() async -> Bool {
+        let base = VMPaths.baseName(os: hostOSMajor)
+        return await Task.detached(priority: .userInitiated) { VMHost.vmExists(base) }.value
     }
 
-    func isCloneFree(slot: Int) -> Bool {
-        VMCloneLock.isFree(path: VMPaths.lockFile(clone: VMPaths.cloneName(slot: slot, os: hostOSMajor)))
+    func clonesHeldElsewhere() async -> Set<Int> {
+        let os = hostOSMajor
+        return await Task.detached(priority: .userInitiated) {
+            Set((1...VMPaths.slotCount).filter { slot in
+                VMCloneLock.isHeldElsewhere(path: VMPaths.lockFile(clone: VMPaths.cloneName(slot: slot, os: os)))
+            })
+        }.value
     }
 
     func prepareClone(slot: Int) async throws {
         let base = VMPaths.baseName(os: hostOSMajor)
         let termination = termination
-        try await runtime(slot).perform { runtime in
-            if termination.isTerminating { throw CancellationError() }
-            if runtime.lock == nil {
-                guard let lock = VMCloneLock.acquire(path: VMPaths.lockFile(clone: runtime.clone)) else {
-                    throw VMHost.Failure(message: "another Plume is running \(runtime.clone)")
+        let cancelled = Mutex(false)
+        let isCancelled: @Sendable () -> Bool = { termination.isTerminating || cancelled.withLock { $0 } }
+        let runtime = runtime(slot)
+        try await withTaskCancellationHandler {
+            try await runtime.perform { runtime in
+                if isCancelled() { throw CancellationError() }
+                if runtime.lock == nil {
+                    guard let lock = VMCloneLock.acquire(path: VMPaths.lockFile(clone: runtime.clone)) else {
+                        throw VMHost.Failure(message: "another Plume is running \(runtime.clone)")
+                    }
+                    runtime.lock = lock
                 }
-                runtime.lock = lock
+                if !VMHost.vmExists(runtime.clone) {
+                    try VMHost.clone(base: base, to: runtime.clone, isCancelled: isCancelled)
+                }
             }
-            if !VMHost.vmExists(runtime.clone) {
-                try VMHost.clone(base: base, to: runtime.clone, isCancelled: { termination.isTerminating })
-            }
+        } onCancel: {
+            cancelled.withLock { $0 = true }
         }
     }
 
@@ -214,12 +228,15 @@ nonisolated final class VMRuntime: NSObject, VZVirtualMachineDelegate, @unchecke
     }
 
     static let forcedStopAttempts = 2
+    static let stopDeadline: TimeInterval = 60
 
     /// Waits for the guest to stop until `graceEnd`, then forces it, trying twice. A VM that can't
-    /// be stopped yet, such as one still starting, is waited on until it can.
+    /// be stopped yet, such as one still starting, is waited on until it can, for at most
+    /// `stopDeadline`; the caller's `tearDown` then reports it still running.
     func waitUntilStopped(graceEnd: @Sendable () -> Date) async {
+        let deadline = Date().addingTimeInterval(Self.stopDeadline)
         var forcedStops = 0
-        while true {
+        while Date() < deadline {
             let status = try? await perform { runtime in
                 runtime.machine.map { (state: $0.state, canStop: $0.canStop) }
             }

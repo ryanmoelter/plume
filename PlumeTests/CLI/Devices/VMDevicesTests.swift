@@ -150,6 +150,27 @@ struct VMDevicesTests {
         #expect(run.requests.last == .releaseVM(.init(key: "vm:1", owner: .label("/repo/wt"), force: false)))
     }
 
+    @Test func aLeaseTakenOverWhileBootingFailsTheClaimWithoutReleasingIt() throws {
+        for takeover in [DeviceLeaseOwner.label("someone else"), .label("/repo/wt")] {
+            let run = try Run()
+            var claimed = VMDevicesTests.slot(1, .reserved)
+            claimed.leaseToken = UUID()
+            var next = VMDevicesTests.slot(1, .starting, owner: takeover)
+            next.leaseToken = UUID()
+            run.app.reply = { request in
+                switch request {
+                case .claimVM: return VMDevicesTests.response(claimed)
+                case .vmStatus: return VMDevicesTests.response(next)
+                default: return .success
+                }
+            }
+            let (code, console) = run(["claim", "--kind=vm"])
+            #expect(code == 1)
+            #expect(console.stderr.contains("lease lost: vm:1"))
+            #expect(!run.requests.contains { if case .releaseVM = $0 { true } else { false } })
+        }
+    }
+
     @Test func aBootHittingTheVirtualizationLimitExitsThree() throws {
         let run = try Run()
         run.app.reply = { request in

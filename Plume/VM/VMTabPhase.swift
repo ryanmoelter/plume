@@ -8,6 +8,7 @@ enum VMTabPhase: Equatable {
     case booting(slot: Int, state: VMSlotState)
     case running(slot: Int, hasDisplay: Bool)
     case stopping(slot: Int)
+    case resetting(slot: Int)
     case failed(slot: Int, message: String, leased: Bool)
 
     static func of(vmSlot: Int, slot: VMManager.Slot?, hasDisplay: Bool) -> VMTabPhase {
@@ -18,6 +19,7 @@ enum VMTabPhase: Equatable {
         case .reserved, .cloning, .starting: return .booting(slot: vmSlot, state: slot.state)
         case .ready: return .running(slot: vmSlot, hasDisplay: hasDisplay)
         case .stopping: return .stopping(slot: vmSlot)
+        case .resetting: return .resetting(slot: vmSlot)
         case .failed: return .failed(slot: vmSlot, message: slot.error ?? "\(slot.key) failed", leased: slot.lease != nil)
         }
     }
@@ -30,6 +32,7 @@ enum VMTabPhase: Equatable {
         case .booting(_, let state): "booting: \(state.rawValue)"
         case .running(_, let hasDisplay): hasDisplay ? "running" : "running, no display"
         case .stopping: "stopping"
+        case .resetting: "resetting"
         case .failed: "failed"
         }
     }

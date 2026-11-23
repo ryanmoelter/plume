@@ -53,13 +53,19 @@ nonisolated enum VMHost {
 
     /// `tart clone` copies the base's ecid, which would give two clones one machine identity. The
     /// clone is built under a temporary name and renamed last, so a crash midway never leaves a
-    /// clone at `name` that still has the base's ecid.
+    /// clone at `name` that still has the base's ecid. A clone that fails or is cancelled removes
+    /// the partial copy directly, since `tart delete` would be cancelled too.
     static func clone(base: String, to name: String, isCancelled: () -> Bool) throws {
         let partial = name + "-partial"
         if vmExists(partial) { try delete(partial, isCancelled: isCancelled) }
-        try tart(["clone", base, partial], isCancelled: isCancelled)
-        try writeFreshECID(cloneDirectory: vmDirectory(partial))
-        try tart(["rename", partial, name], isCancelled: isCancelled)
+        do {
+            try tart(["clone", base, partial], isCancelled: isCancelled)
+            try writeFreshECID(cloneDirectory: vmDirectory(partial))
+            try tart(["rename", partial, name], isCancelled: isCancelled)
+        } catch {
+            try? FileManager.default.removeItem(at: vmDirectory(partial))
+            throw error
+        }
     }
 
     static func delete(_ name: String, isCancelled: () -> Bool) throws {
@@ -195,13 +201,44 @@ nonisolated enum VMHost {
 
 /// An `flock` on `vms/<clone>.lock`, held for the VM's whole life so that no other Plume boots or
 /// resets the same clone. The kernel drops it when the process dies, so a crash frees the clone.
-/// The holder writes its pid into the file, so a check for a free clone reads instead of locking,
-/// and never blocks a real acquisition.
+/// The holder writes its pid and start time into the file, so a check for a free clone reads
+/// instead of locking, and never blocks a real acquisition. The start time keeps a crashed holder's
+/// pid, reused by another process, from reading as a holder.
 nonisolated final class VMCloneLock: @unchecked Sendable {
     let path: String
     private var descriptor: Int32
 
     static let acquireRetry: Duration = .seconds(1)
+
+    struct Holder: Equatable {
+        var pid: pid_t
+        var startSeconds: UInt64
+        var startMicroseconds: UInt64
+
+        var record: String { "\(pid) \(startSeconds) \(startMicroseconds)\n" }
+
+        init(pid: pid_t, startSeconds: UInt64, startMicroseconds: UInt64) {
+            self.pid = pid
+            self.startSeconds = startSeconds
+            self.startMicroseconds = startMicroseconds
+        }
+
+        init?(record: String) {
+            let fields = record.split(whereSeparator: \.isWhitespace)
+            guard fields.count == 3, let pid = pid_t(fields[0]), pid > 0,
+                  let seconds = UInt64(fields[1]), let microseconds = UInt64(fields[2])
+            else { return nil }
+            self.init(pid: pid, startSeconds: seconds, startMicroseconds: microseconds)
+        }
+
+        /// Nil when the process doesn't exist.
+        static func running(pid: pid_t) -> Holder? {
+            var info = proc_bsdinfo()
+            let size = Int32(MemoryLayout<proc_bsdinfo>.size)
+            guard proc_pidinfo(pid, PROC_PIDTBSDINFO, 0, &info, size) == size else { return nil }
+            return Holder(pid: pid, startSeconds: info.pbi_start_tvsec, startMicroseconds: info.pbi_start_tvusec)
+        }
+    }
 
     private init(path: String, descriptor: Int32) {
         self.path = path
@@ -224,19 +261,24 @@ nonisolated final class VMCloneLock: @unchecked Sendable {
             }
             usleep(50_000)
         }
-        let pid = Array("\(getpid())".utf8)
+        let pid = getpid()
+        let record = Array((Holder.running(pid: pid) ?? Holder(pid: pid, startSeconds: 0, startMicroseconds: 0)).record.utf8)
         ftruncate(descriptor, 0)
-        _ = pwrite(descriptor, pid, pid.count, 0)
+        _ = pwrite(descriptor, record, record.count, 0)
         return VMCloneLock(path: path, descriptor: descriptor)
     }
 
-    /// Whether the pid in the file is a live process. This process truncates the file when it
-    /// releases, so its own pid there means it still holds the clone.
-    static func isFree(path: String) -> Bool {
-        guard let text = try? String(contentsOfFile: path, encoding: .utf8),
-              let pid = pid_t(text.trimmingCharacters(in: .whitespacesAndNewlines)), pid > 0
-        else { return true }
-        return kill(pid, 0) != 0 && errno == ESRCH
+    /// Whether another live process holds the lock. This process's own lock never counts, since
+    /// `VMManager` already knows which of its slots hold theirs.
+    static func isHeldElsewhere(path: String) -> Bool {
+        guard let text = try? String(contentsOfFile: path, encoding: .utf8) else { return false }
+        if let recorded = Holder(record: text) {
+            return recorded.pid != getpid() && Holder.running(pid: recorded.pid) == recorded
+        }
+        guard let pid = pid_t(text.trimmingCharacters(in: .whitespacesAndNewlines)), pid > 0, pid != getpid() else {
+            return false
+        }
+        return kill(pid, 0) == 0 || errno == EPERM
     }
 
     func release() {

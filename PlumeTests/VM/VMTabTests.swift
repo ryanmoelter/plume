@@ -52,6 +52,11 @@ struct VMTabTests {
         #expect(VMTabPhase.of(vmSlot: 1, slot: slot(.stopping), hasDisplay: false) == .stopping(slot: 1))
     }
 
+    @Test func resettingReadsResetting() {
+        #expect(VMTabPhase.of(vmSlot: 1, slot: slot(.resetting), hasDisplay: false) == .resetting(slot: 1))
+        #expect(VMTabPhase.resetting(slot: 1).label == "resetting")
+    }
+
     private let a = UUID(), b = UUID(), c = UUID()
 
     @Test func aClaimPrefersTheTabAlreadyOnItsSlot() {
@@ -78,12 +83,12 @@ struct VMTabTests {
         #expect(VMTabChoice.tab(for: 2, among: []) == nil)
     }
 
-    @Test func thePickerClaimsTheSlotItAsksFor() throws {
+    @Test func thePickerClaimsTheSlotItAsksFor() async throws {
         let manager = VMManager(backend: FakeVMBackend())
-        #expect(try manager.claim(owner: .label("a"), worktree: nil, branch: nil, preferred: 2).slot == 2)
-        #expect(throws: VMManager.Failure.slotTaken("vm:2")) {
-            try manager.claim(owner: .label("b"), worktree: nil, branch: nil, preferred: 2)
+        #expect(try await manager.claim(owner: .label("a"), worktree: nil, branch: nil, preferred: 2).slot == 2)
+        await #expect(throws: VMManager.Failure.slotTaken("vm:2")) {
+            try await manager.claim(owner: .label("b"), worktree: nil, branch: nil, preferred: 2)
         }
-        #expect(try manager.claim(owner: .label("a"), worktree: nil, branch: nil, preferred: 1).slot == 2)
+        #expect(try await manager.claim(owner: .label("a"), worktree: nil, branch: nil, preferred: 1).slot == 2)
     }
 }

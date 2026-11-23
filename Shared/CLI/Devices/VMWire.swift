@@ -1,8 +1,9 @@
 import Foundation
 
-/// A slot's place in its boot: `idle → reserved → cloning → starting → ready → stopping`, or `failed`.
+/// A slot's place in its boot: `idle → reserved → cloning → starting → ready → stopping`, or
+/// `failed`. A free slot goes `idle → resetting → idle` while `reset` deletes its clone.
 nonisolated enum VMSlotState: String, Codable, Equatable, Sendable {
-    case idle, reserved, cloning, starting, ready, stopping, failed
+    case idle, reserved, cloning, starting, ready, stopping, failed, resetting
 }
 
 /// One VM slot as the app reports it over the socket. `docs/vm-testing.md` is the reference.
@@ -19,6 +20,8 @@ nonisolated struct VMLeaseInfo: Codable, Equatable, Sendable {
     var guestWorktree: String?
     var controlSocket: String
     var owner: DeviceLeaseOwner?
+    /// Minted per lease, so a claimant polling the slot can tell its lease from a later one.
+    var leaseToken: UUID?
     var branch: String?
     var claimedAt: Date?
     var expiresAt: Date?

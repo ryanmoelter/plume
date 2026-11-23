@@ -23,6 +23,8 @@ struct VMTabView: View {
     @State private var capturesSystemKeys = false
     @State private var actionError: String?
     @State private var isResetting = false
+    /// Another owner's lease this tab asked to release, until the user confirms or cancels.
+    @State private var forceReleaseLease: VMManager.Lease?
 
     private var vms: VMManager { .shared }
 
@@ -102,10 +104,16 @@ struct VMTabView: View {
                     value: capturesSystemKeys ? "on" : "off",
                     invoke: { capturesSystemKeys.toggle() }
                 )
-            Button("Release") { release(slot) }
-                .help("Stop the VM and end its lease. The clone is kept, so the next boot is warm.")
-                .plumeID(AccessibilityID.vmReleaseButton, invoke: { release(slot) })
-                .disabled(lease == nil)
+            if let lease, lease.owner.tabID != tab.id {
+                Button("Force Release…") { forceReleaseLease = lease }
+                    .help("Stop the VM and end \(lease.owner.description)'s lease on it")
+                    .plumeID(AccessibilityID.vmReleaseButton, value: "force", invoke: { forceReleaseLease = lease })
+            } else {
+                Button("Release") { release(slot) }
+                    .help("Stop the VM and end its lease. The clone is kept, so the next boot is warm.")
+                    .plumeID(AccessibilityID.vmReleaseButton, invoke: { release(slot) })
+                    .disabled(lease == nil && !slot.stillRunning)
+            }
             Button("Reset") { reset(slot) }
                 .help("Delete this slot's clone, so its next boot starts from the base image")
                 .plumeID(AccessibilityID.vmResetButton, invoke: { reset(slot) })
@@ -117,6 +125,18 @@ struct VMTabView: View {
         .controlSize(.small)
         .padding(.horizontal, 10)
         .padding(.vertical, 6)
+        .alert(
+            "Force release \(slot.key)?",
+            isPresented: Binding(get: { forceReleaseLease != nil }, set: { if !$0 { forceReleaseLease = nil } }),
+            presenting: forceReleaseLease
+        ) { held in
+            Button("Force Release", role: .destructive) { forceRelease(slot.number, held) }
+                .plumeID(AccessibilityID.vmForceReleaseConfirmButton, invoke: { forceRelease(slot.number, held) })
+            Button("Cancel", role: .cancel) {}
+                .plumeID(AccessibilityID.vmForceReleaseCancelButton, invoke: { forceReleaseLease = nil })
+        } message: { held in
+            Text("\(held.owner.description) holds it. Releasing stops the VM, which ends whatever it is running there.")
+        }
     }
 
     private func holder(of lease: VMManager.Lease) -> String {
@@ -151,6 +171,12 @@ struct VMTabView: View {
                 Text("Stopping…").foregroundStyle(.secondary)
             }
             .plumeID(AccessibilityID.vmBootProgress, value: VMSlotState.stopping.rawValue)
+        case .resetting:
+            VStack(spacing: 10) {
+                ProgressView().controlSize(.small)
+                Text("Resetting…").foregroundStyle(.secondary)
+            }
+            .plumeID(AccessibilityID.vmBootProgress, value: VMSlotState.resetting.rawValue)
         case .failed(_, let message, _):
             VStack(spacing: 10) {
                 Text(message)
@@ -216,7 +242,7 @@ struct VMTabView: View {
     }
 
     private static func summary(of slot: VMManager.Slot) -> String {
-        guard let lease = slot.lease else { return slot.state.rawValue }
+        guard let lease = slot.lease else { return slot.state == .resetting ? "Resetting…" : slot.state.rawValue }
         return "\(slot.state.rawValue), held by \(lease.owner.description)"
     }
 
@@ -228,29 +254,48 @@ struct VMTabView: View {
     }
 
     private func claim(_ number: Int) {
-        do {
-            let claimed = try vms.claim(owner: owner, worktree: nil, branch: tab.branchName, preferred: number)
-            choose(claimed.slot)
-        } catch {
-            actionError = error.localizedDescription
+        Task {
+            do {
+                let claimed = try await vms.claim(owner: owner, worktree: nil, branch: tab.branchName, preferred: number)
+                choose(claimed.slot)
+            } catch {
+                actionError = error.localizedDescription
+            }
         }
     }
 
     /// A failed boot keeps its lease, and a claim by that lease's owner boots it again.
     private func retry(_ slot: VMManager.Slot) {
         guard let lease = slot.lease else { return claim(slot.number) }
+        Task {
+            do {
+                _ = try await vms.claim(owner: lease.owner, worktree: lease.worktree, branch: lease.branch)
+                actionError = nil
+            } catch {
+                actionError = error.localizedDescription
+            }
+        }
+    }
+
+    /// This tab's own lease, or a slot with no lease whose VM didn't stop.
+    private func release(_ slot: VMManager.Slot) {
         do {
-            _ = try vms.claim(owner: lease.owner, worktree: lease.worktree, branch: lease.branch)
+            try vms.release(slot.key, owner: slot.lease?.owner ?? owner, force: false)
             actionError = nil
         } catch {
             actionError = error.localizedDescription
         }
     }
 
-    private func release(_ slot: VMManager.Slot) {
-        guard let lease = slot.lease else { return }
+    /// Releases only the lease the user confirmed, not one claimed since.
+    private func forceRelease(_ number: Int, _ held: VMManager.Lease) {
+        forceReleaseLease = nil
+        guard let current = vms.slot(number), current.lease?.token == held.token else {
+            actionError = "\(VMPaths.key(number))'s lease changed; nothing was released"
+            return
+        }
         do {
-            try vms.release(slot.key, owner: lease.owner, force: true)
+            try vms.release(current.key, owner: held.owner, force: true)
             actionError = nil
         } catch {
             actionError = error.localizedDescription

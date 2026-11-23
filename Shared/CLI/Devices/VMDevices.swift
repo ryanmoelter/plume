@@ -55,14 +55,16 @@ nonisolated extension Devices {
         switch command {
         case .claim(let worktreeFlag, let ownerFlag, let ttl, let json):
             let claimant = try claimant(ownerFlag: ownerFlag, environment: environment, devices: devices)
-            let worktree = worktreeFlag.map(absolutePath) ?? claimant.worktree
+            let worktree = worktreeFlag.map { CLIPath.absolute($0) } ?? claimant.worktree
             let response = try sendVM(
                 .claimVM(.init(owner: claimant.owner, worktree: worktree, branch: claimant.branch, ttl: ttl)), socket: socket, app: app
             )
             guard let claimed = response.vm else { throw CLIFailure("Plume named no VM slot") }
             let reused = response.created == false
             if claimed.state != .ready { log("\(reused ? "renewed" : "claimed") \(claimed.key); booting \(claimed.clone)") }
-            let ready = try waitForVM(claimed.key, owner: claimant.owner, socket: socket, app: app, devices: devices, log: log)
+            let ready = try waitForVM(
+                claimed.key, owner: claimant.owner, token: claimed.leaseToken, socket: socket, app: app, devices: devices, log: log
+            )
             if json {
                 try console.print(jsonLine(VMClaimResult(ready, reused: reused)))
             } else {
@@ -99,10 +101,12 @@ nonisolated extension Devices {
     }
 
     /// Polls the app until the VM is ready. A failed boot releases the slot, so it isn't left
-    /// leased to a claimant that has given up.
+    /// leased to a claimant that has given up. The poll fails once the slot holds a lease other
+    /// than the one claimed: `token` is that lease's, or nil from an app that mints none.
     static func waitForVM(
         _ key: String,
         owner: DeviceLeaseOwner,
+        token: UUID?,
         socket: String,
         app: any DeviceAppClient,
         devices: any DeviceEnvironment,
@@ -121,6 +125,9 @@ nonisolated extension Devices {
             guard response.ok, let slot = response.vm else {
                 throw CLIFailure("Plume lost \(key) while booting it: \(response.error ?? "no reason given")")
             }
+            if let holder = slot.owner, holder != owner || (token != nil && slot.leaseToken != token) {
+                throw CLIFailure("lease lost: \(key) was released and claimed again by \(holder) before it was ready")
+            }
             switch slot.state {
             case .ready:
                 return slot
@@ -131,7 +138,7 @@ nonisolated extension Devices {
                     throw VMPoolFull(slots: slots)
                 }
                 throw CLIFailure("\(key) failed to boot: \(slot.error ?? "no reason given")")
-            case .idle, .stopping:
+            case .idle, .stopping, .resetting:
                 throw CLIFailure("\(key) was released before it was ready")
             case .reserved, .cloning, .starting:
                 break
@@ -200,13 +207,6 @@ nonisolated extension Devices {
         }
         if let error = slot.error { state += " · " + paint(error, "31") }
         return pad(slot.key, 22) + " " + pad(what, 28) + " " + state
-    }
-
-    static func absolutePath(_ path: String) -> String {
-        let expanded = (path as NSString).expandingTildeInPath
-        guard !expanded.hasPrefix("/") else { return (expanded as NSString).standardizingPath }
-        let joined = (FileManager.default.currentDirectoryPath as NSString).appendingPathComponent(expanded)
-        return (joined as NSString).standardizingPath
     }
 
     struct VMClaimResult: Encodable {

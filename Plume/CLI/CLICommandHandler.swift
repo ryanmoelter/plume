@@ -138,11 +138,12 @@ final class CLICommandHandler {
             var response = CLIResponse.success
             switch request {
             case .claimVM(let params):
-                let claimed = try vms.claim(owner: params.owner, worktree: params.worktree, branch: params.branch, ttl: params.ttl)
+                let claimed = try await vms.claim(owner: params.owner, worktree: params.worktree, branch: params.branch, ttl: params.ttl)
                 if !claimed.reused, let callerTabID = params.owner.tabID { showVMTab(slot: claimed.slot, besideTab: callerTabID) }
                 response.vm = vms.info(claimed.slot)
                 response.created = !claimed.reused
             case .vmStatus(let params):
+                await vms.refreshHeldElsewhere()
                 response.vm = try vms.info(forKey: params.key)
             case .releaseVM(let params):
                 try vms.release(params.key, owner: params.owner, force: params.force)
@@ -151,6 +152,7 @@ final class CLICommandHandler {
                 _ = try vms.renew(params.key, owner: params.owner, ttl: params.ttl)
                 response.vm = try vms.info(forKey: params.key)
             case .listVMs:
+                await vms.refreshHeldElsewhere()
                 response.vms = vms.allInfo
             case .resetVM(let params):
                 try await vms.reset(params.key)
@@ -391,7 +393,7 @@ final class CLICommandHandler {
             return .failure("no such directory: \(path)")
         }
         guard let checkout = await inspectCheckout(path),
-              Self.resolvedPath(checkout.facts.checkoutRoot) == Self.resolvedPath(path)
+              CLIPath.resolved(checkout.facts.checkoutRoot) == CLIPath.resolved(path)
         else { return .failure("not a git worktree: \(path)") }
 
         let windows = frontmostFirst
@@ -471,12 +473,6 @@ final class CLICommandHandler {
     func hasLiveVMTab(_ id: UUID) -> Bool {
         guard let (task, _) = currentTask(ofTab: id), !task.isArchived else { return false }
         return task.tabs.contains { $0.id == id && $0.kind == .vm }
-    }
-
-    /// Git answers with symlinks resolved, so `/var/…` must match
-    /// `/private/var/…`.
-    private static func resolvedPath(_ path: String) -> String {
-        URL(fileURLWithPath: path).resolvingSymlinksInPath().standardizedFileURL.path
     }
 
     private func openSettings(_ params: CLIRequest.OpenSettings) -> CLIResponse {
@@ -560,7 +556,7 @@ final class CLICommandHandler {
         )
         if let directory = params.directory {
             tab.workspace = Self.workspace(at: directory, checkout: checkout)
-            if let checkout, Self.resolvedPath(checkout.facts.checkoutRoot) == Self.resolvedPath(directory) {
+            if let checkout, CLIPath.resolved(checkout.facts.checkoutRoot) == CLIPath.resolved(directory) {
                 Self.recordCreatedWorktree(
                     at: directory, checkout: checkout, in: task,
                     worktree: params.createdWorktree, branch: params.createdBranch

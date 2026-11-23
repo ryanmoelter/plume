@@ -33,6 +33,7 @@ final class VMManager {
         var claimedAt: Date
         var expiresAt: Date
         var installed: DeviceLease.Installed?
+        var token = UUID()
     }
 
     struct Slot: Equatable, Identifiable {
@@ -42,7 +43,10 @@ final class VMManager {
         var ip: String?
         var error: String?
         var poolFull = false
-        /// Bumped by every boot and every stop, so a completion from an earlier one is ignored.
+        /// The last stop left the VM running even when forced, so the slot still holds its clone
+        /// lock. Whatever runs on the slot next stops it again first.
+        var stillRunning = false
+        /// Bumped by every boot, stop and reset, so a completion from an earlier one is ignored.
         var generation: UInt64 = 0
 
         var id: Int { number }
@@ -59,6 +63,7 @@ final class VMManager {
         case busy(key: String, state: VMSlotState)
         case heldElsewhere(String)
         case slotTaken(String)
+        case stillRunning(String)
         case unsupported
 
         var errorDescription: String? {
@@ -82,6 +87,8 @@ final class VMManager {
                 "another Plume is running \(key)'s clone"
             case .slotTaken(let key):
                 "\(key) is in use"
+            case .stillRunning(let key):
+                VMManager.stillRunningMessage(key)
             case .unsupported:
                 VMManager.unsupportedMessage
             }
@@ -104,6 +111,9 @@ final class VMManager {
     @ObservationIgnored private var stopTasks: [Int: Task<Void, Never>] = [:]
     @ObservationIgnored private var stopIDs: [Int: UUID] = [:]
     @ObservationIgnored private var reapTask: Task<Void, Never>?
+    /// As of the last claim or `refreshHeldElsewhere`, so reporting never reads lock files on the
+    /// main actor.
+    @ObservationIgnored private var heldElsewhere: Set<Int> = []
 
     init(backend: any VMBackend) {
         self.backend = backend
@@ -126,9 +136,16 @@ final class VMManager {
     func slot(_ number: Int) -> Slot? { slots.first { $0.number == number } }
 
     /// Slots that may still have a VM, which a quit has to stop: a failed slot's VM is still
-    /// stopping until its stop finishes.
+    /// stopping until its stop finishes, or running if that stop failed.
     var runningCount: Int {
-        slots.filter { $0.state != .idle && ($0.state != .failed || stopTasks[$0.number] != nil) }.count
+        slots.filter { slot in
+            slot.stillRunning
+                || (slot.state != .idle && slot.state != .resetting && (slot.state != .failed || stopTasks[slot.number] != nil))
+        }.count
+    }
+
+    nonisolated static func stillRunningMessage(_ key: String) -> String {
+        "\(key) didn't stop when forced; its clone stays locked until a retry stops it or Plume quits"
     }
 
     // MARK: Leases
@@ -136,16 +153,21 @@ final class VMManager {
     /// Leases a slot and boots it in the background, answering at once. A claim by an owner that
     /// already holds a slot renews it, and boots it again if its boot failed. `preferred` asks for
     /// one slot, as a VM tab's picker does, and fails rather than take another; an owner that
-    /// already holds a slot still gets its own.
+    /// already holds a slot still gets its own. The host checks run off the main actor, and
+    /// everything after them reads the slots afresh.
     func claim(
         owner: DeviceLeaseOwner,
-        worktree: String?,
+        worktree requestedWorktree: String?,
         branch: String?,
         ttl: TimeInterval? = nil,
         preferred: Int? = nil
-    ) throws -> (slot: Int, reused: Bool) {
+    ) async throws -> (slot: Int, reused: Bool) {
         guard Self.isSupported else { throw Failure.unsupported }
         let ttl = ttl ?? Self.defaultTTL
+        let worktree = await Self.resolved(requestedWorktree)
+        let baseExists = await backend.baseImageExists()
+        let elsewhere = await backend.clonesHeldElsewhere()
+        heldElsewhere = elsewhere
         if let held = slots.first(where: { $0.lease?.owner == owner }) {
             let lease = held.lease!
             if let worktree, worktree != lease.worktree {
@@ -155,9 +177,9 @@ final class VMManager {
             if held.state == .failed { boot(held.number) }
             return (held.number, true)
         }
-        guard backend.baseImageExists() else { throw Failure.missingBase(VMPaths.baseName(os: backend.hostOSMajor)) }
+        guard baseExists else { throw Failure.missingBase(VMPaths.baseName(os: backend.hostOSMajor)) }
         let isFree = { (slot: Slot) in
-            slot.lease == nil && (slot.state == .idle || slot.state == .failed) && self.backend.isCloneFree(slot: slot.number)
+            slot.lease == nil && (slot.state == .idle || slot.state == .failed) && !elsewhere.contains(slot.number)
         }
         let free: Slot
         if let preferred {
@@ -182,8 +204,13 @@ final class VMManager {
         return slot(number)!.lease!
     }
 
-    /// Stops the VM and keeps its clone, so the next boot is warm.
+    /// Stops the VM and keeps its clone, so the next boot is warm. A slot with no lease whose VM
+    /// didn't stop is stopped again, whoever asks.
     func release(_ key: String, owner: DeviceLeaseOwner, force: Bool) throws {
+        if let number = VMPaths.slot(fromKey: key), let current = slot(number),
+           current.lease == nil, current.stillRunning, current.state == .failed {
+            return stopSlot(number)
+        }
         stopSlot(try leasedSlot(key, owner: owner, force: force))
     }
 
@@ -193,21 +220,41 @@ final class VMManager {
         update(number) { $0.lease?.installed = DeviceLease.Installed(branch: branch, worktree: worktree, at: now()) }
     }
 
-    /// Deletes a free slot's clone, so its next boot starts from the base again.
+    /// Deletes a free slot's clone, so its next boot starts from the base again. A stop still
+    /// running finishes first, and a VM that didn't stop is stopped again before anything is
+    /// deleted.
     func reset(_ key: String) async throws {
         guard let number = VMPaths.slot(fromKey: key) else { throw Failure.unknownKey(key) }
-        let current = slot(number)!
-        guard current.lease == nil, current.state == .idle || current.state == .failed else {
-            throw Failure.busy(key: key, state: current.state)
+        try checkResettable(number)
+        if let pending = stopTasks[number] { await pending.value }
+        if slot(number)!.stillRunning {
+            try checkResettable(number)
+            stopBackend(number, ip: nil, finalState: nil)
+            await stopTasks[number]?.value
+            guard !slot(number)!.stillRunning else { throw Failure.stillRunning(key) }
         }
-        guard backend.isCloneFree(slot: number) else { throw Failure.heldElsewhere(key) }
+        let elsewhere = await backend.clonesHeldElsewhere()
+        heldElsewhere = elsewhere
+        try checkResettable(number)
+        guard !elsewhere.contains(number) else { throw Failure.heldElsewhere(key) }
         update(number) {
-            $0.state = .reserved
+            $0.generation += 1
+            $0.state = .resetting
             $0.error = nil
             $0.poolFull = false
         }
-        defer { update(number) { $0.state = .idle } }
+        let generation = slot(number)!.generation
+        defer {
+            if isCurrent(number, generation) { update(number) { $0.state = .idle } }
+        }
         try await backend.deleteClone(slot: number)
+    }
+
+    private func checkResettable(_ number: Int) throws {
+        let current = slot(number)!
+        guard current.lease == nil, current.state == .idle || current.state == .failed else {
+            throw Failure.busy(key: current.key, state: current.state)
+        }
     }
 
     func tabForgotten(_ tabID: UUID) {
@@ -240,6 +287,7 @@ final class VMManager {
     private func boot(_ number: Int) {
         bootTasks[number]?.cancel()
         deadlineTasks[number]?.cancel()
+        if slot(number)!.stillRunning { stopBackend(number, ip: nil, finalState: nil) }
         update(number) {
             $0.generation += 1
             $0.state = .reserved
@@ -263,6 +311,9 @@ final class VMManager {
 
     private func runBoot(_ number: Int, generation: UInt64) async {
         guard isCurrent(number, generation) else { return }
+        if slot(number)!.stillRunning {
+            return fail(number, generation: generation, message: Self.stillRunningMessage(VMPaths.key(number)), stopsBackend: false)
+        }
         update(number) { $0.state = .cloning }
         do {
             try await backend.prepareClone(slot: number)
@@ -296,7 +347,7 @@ final class VMManager {
     }
 
     /// Keeps the lease, so the claimant polling `vms.status` sees why; it releases the slot.
-    private func fail(_ number: Int, generation: UInt64, message: String, poolFull: Bool = false) {
+    private func fail(_ number: Int, generation: UInt64, message: String, poolFull: Bool = false, stopsBackend: Bool = true) {
         guard isCurrent(number, generation) else { return }
         deadlineTasks[number]?.cancel()
         let ip = slot(number)?.ip
@@ -308,7 +359,7 @@ final class VMManager {
             $0.ip = nil
         }
         displays[number] = nil
-        stopBackend(number, ip: ip, finalState: nil)
+        if stopsBackend { stopBackend(number, ip: ip, finalState: nil) }
     }
 
     private func guestStopped(_ number: Int, generation: UInt64, reason: String?) {
@@ -364,11 +415,12 @@ final class VMManager {
                 stopTasks[number] = nil
                 stopIDs[number] = nil
             }
+            update(number) { $0.stillRunning = !stopped }
             guard isCurrent(number, generation) else { return }
             if !stopped {
                 update(number) {
                     $0.state = .failed
-                    $0.error = "\($0.key) didn't stop when forced; its clone stays locked until a retry stops it or Plume quits"
+                    $0.error = Self.stillRunningMessage($0.key)
                 }
             } else if let finalState {
                 update(number) { $0.state = finalState }
@@ -382,7 +434,7 @@ final class VMManager {
     /// Boot steps still on the host, such as `tart clone`, end at once.
     func stopAllForTermination() async {
         backend.beginTermination(gracePeriod: Self.terminationGracePeriod)
-        for slot in slots where slot.state != .idle {
+        for slot in slots where (slot.state != .idle && slot.state != .resetting) || slot.stillRunning {
             if slot.state == .failed {
                 stopBackend(slot.number, ip: nil, finalState: nil)
             } else {
@@ -408,14 +460,24 @@ final class VMManager {
             guestWorktree: worktree == nil ? nil : VMPaths.guestWorktree,
             controlSocket: VMPaths.controlSocket(number),
             owner: lease?.owner,
+            leaseToken: lease?.token,
             branch: lease?.branch,
             claimedAt: lease?.claimedAt,
             expiresAt: lease?.expiresAt,
             installed: lease?.installed,
             error: slot.error,
             poolFull: slot.poolFull ? true : nil,
-            heldElsewhere: slot.state == .idle && lease == nil && !backend.isCloneFree(slot: number) ? true : nil
+            heldElsewhere: slot.state == .idle && lease == nil && heldElsewhere.contains(number) ? true : nil
         )
+    }
+
+    func refreshHeldElsewhere() async {
+        heldElsewhere = await backend.clonesHeldElsewhere()
+    }
+
+    private nonisolated static func resolved(_ worktree: String?) async -> String? {
+        guard let worktree else { return nil }
+        return await Task.detached(priority: .userInitiated) { CLIPath.resolved(worktree) }.value
     }
 
     func info(forKey key: String) throws -> VMLeaseInfo {

@@ -107,18 +107,4 @@ struct VMHostParsingTests {
         #expect(VMHost.shutdownCommand(mac: "76:7B:F5:77:6:5D")
             == "ifconfig | grep -qiF 'ether 76:7b:f5:77:06:5d' && sudo shutdown -h now")
     }
-
-    @Test func aCloneLockReadsAsHeldOnlyWhileALiveProcessHoldsIt() throws {
-        let directory = FileManager.default.temporaryDirectory.appending(path: "vm-lock-\(UUID().uuidString)")
-        defer { try? FileManager.default.removeItem(at: directory) }
-        let path = directory.appending(path: "plume-27-1.lock").path
-        #expect(VMCloneLock.isFree(path: path))
-        let lock = try #require(VMCloneLock.acquire(path: path))
-        #expect(!VMCloneLock.isFree(path: path))
-        lock.release()
-        #expect(VMCloneLock.isFree(path: path))
-        // macOS pids stop at 99998 (PID_MAX), so no process has this one.
-        try "99999".write(toFile: path, atomically: true, encoding: .utf8)
-        #expect(VMCloneLock.isFree(path: path))
-    }
 }

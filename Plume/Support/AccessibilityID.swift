@@ -251,6 +251,8 @@ enum AccessibilityID {
     static let vmToolbarExpiry = "vm-toolbar-expiry"
     static let vmCaptureKeysToggle = "vm-capture-keys-toggle"
     static let vmReleaseButton = "vm-release-button"
+    static let vmForceReleaseConfirmButton = "vm-force-release-confirm-button"
+    static let vmForceReleaseCancelButton = "vm-force-release-cancel-button"
     static let vmResetButton = "vm-reset-button"
     static let vmChangeSlotButton = "vm-change-slot-button"
     static let vmStartButton = "vm-start-button"
