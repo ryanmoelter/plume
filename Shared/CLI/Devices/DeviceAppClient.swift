@@ -13,8 +13,15 @@ nonisolated final class SocketDeviceAppClient: DeviceAppClient {
     /// The app answers an extension only once Device Streaming has, which can take 30 seconds.
     static let extendReplyTimeout: TimeInterval = 60
 
+    /// A reset answers once `tart delete` has, which the app allows `VMPaths.tartTimeout`.
+    static let resetVMReplyTimeout: TimeInterval = VMPaths.tartTimeout + replyTimeout
+
     func send(_ request: CLIRequest, to socket: String) throws -> CLIResponse {
-        let timeout = if case .extendDevice = request { Self.extendReplyTimeout } else { Self.replyTimeout }
+        let timeout = switch request {
+        case .extendDevice: Self.extendReplyTimeout
+        case .resetVM: Self.resetVMReplyTimeout
+        default: Self.replyTimeout
+        }
         return try CLISocket.send(request, to: socket, replyTimeout: timeout)
     }
 }

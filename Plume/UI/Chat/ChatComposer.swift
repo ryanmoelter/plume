@@ -405,7 +405,8 @@ struct ChatComposer: View, ThemedView {
                         : nil,
                     referenceResolver: ComposerReferenceResolver(tabID: tab.id, directory: tabDirectories.directory(for: tab)),
                     referencePalette: ReferenceChipPalette(colors: colors, colorScheme: colorScheme),
-                    activeMention: autocomplete.mention.isPresented ? autocomplete.mention.query?.range : nil
+                    activeMention: autocomplete.mention.isPresented ? autocomplete.mention.query?.range : nil,
+                    accessibilityIdentifier: AccessibilityID.composerField
                 )
                 // Its own line-fragment padding already covers part of the
                 // composer's inset, so the first glyph lands over the control

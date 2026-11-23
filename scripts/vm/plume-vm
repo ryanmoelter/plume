@@ -1,0 +1,311 @@
+#!/usr/bin/env bash
+# Runs this worktree's debug build, or its UI tests, inside one of Plume's macOS VMs.
+# docs/vm-testing.md is the reference.
+# Usage: plume-vm <command> [args]
+#   claim [--worktree=PATH]   lease a VM (the worktree defaults to this one); prints vm:<n>
+#   release [vm:<n>]          release your VM, or that one, and drop its tunnel
+#   list                      list the VM slots
+#   reset vm:<n>              delete a free slot's clone
+#   ssh [-- cmd...]           a shell, or one command, in your VM
+#   prepare                   mirror the host's worktree and share paths in the guest
+#   launch [--app PATH] [--seed N] [--env K=V]...
+#                             copy the debug app into the guest, start it, and forward its control socket
+#   test [--only-testing X]... [--skip-build]
+#                             build for testing on the host, then run the UI tests in the guest
+# `plume` comes from $PLUME_CLI, else this worktree's build, else PATH, skipping any too old for
+# VMs. Set PLUME_SOCKET to the socket of the app that should own the VM.
+set -euo pipefail
+
+ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
+# shellcheck source=lib.sh
+source "$ROOT/scripts/vm/lib.sh"
+
+DERIVED_DATA="$ROOT/build/vm-dd"
+DEFAULT_TESTS=(PlumeUITests PlumeTests/SurfaceCommandTests PlumeTests/TerminalShortcutReclaimTests PlumeTests/ControlHierarchyTests)
+CONTROL="$ROOT/scripts/debug/plume-control.py"
+
+usage() { sed -n '2,16p' "${BASH_SOURCE[0]}"; }
+die() { echo "plume-vm: $*" >&2; exit 1; }
+log() { echo "==> $*" >&2; }
+q() { printf '%q' "$1"; }
+
+products_dir() {
+  local cache="$ROOT/build/vm-products-dir" dir=""
+  [[ -f "$cache" ]] && dir="$(<"$cache")"
+  if [[ -z "$dir" || ! -d "$dir" ]]; then
+    dir="$(cd "$ROOT" && xcodebuild -scheme Plume -destination 'platform=macOS' -showBuildSettings 2>/dev/null \
+      | awk '/ BUILT_PRODUCTS_DIR = /{ sub(/^[^=]*= /, ""); print; exit }')"
+    [[ -n "$dir" ]] || die "xcodebuild -showBuildSettings gave no BUILT_PRODUCTS_DIR"
+    mkdir -p "$ROOT/build"
+    printf '%s\n' "$dir" > "$cache"
+  fi
+  printf '%s\n' "$dir"
+}
+
+supports_vms() { [[ -x "$1" ]] && "$1" devices help 2>&1 | grep -qF -- '--mine [--kind=vm]'; }
+
+PLUME=""
+# A Plume tab sets PLUME_CLI to its own app's tool, which may predate VMs and would read vm:<n>
+# as an Android serial.
+resolve_plume() {
+  [[ -z "$PLUME" ]] || return 0
+  local candidate
+  if [[ -n "${PLUME_CLI:-}" ]]; then
+    if supports_vms "$PLUME_CLI"; then
+      PLUME="$PLUME_CLI"
+      return 0
+    fi
+    log "skipping PLUME_CLI ($PLUME_CLI): it doesn't support VMs"
+  fi
+  candidate="$(products_dir 2>/dev/null)/Plume.app/Contents/Helpers/plume" || true
+  if supports_vms "$candidate"; then
+    PLUME="$candidate"
+  elif candidate="$(type -P plume)" && supports_vms "$candidate"; then
+    PLUME="$candidate"
+  else
+    die "no plume tool supports VMs: build this worktree (xcodebuild -scheme Plume build), or set PLUME_CLI"
+  fi
+}
+
+plume() { resolve_plume; "$PLUME" "$@"; }
+
+json_get() { printf '%s' "$CLAIM" | plutil -extract "$1" raw -o - - 2>/dev/null || true; }
+
+# Leases (or renews) the caller's VM, sharing this checkout, and loads its fields.
+claim_vm() {
+  CLAIM="$(plume devices claim --kind=vm --json --worktree="$ROOT")"
+  VM_KEY="$(json_get key)"
+  [[ -n "$VM_KEY" ]] || die "claim returned no VM key: $CLAIM"
+  SLOT="${VM_KEY#vm:}"
+  VM_IP="$(json_get ip)"
+  VM_USER="$(json_get user)"
+  VM_SSH_KEY="$(json_get sshKey)"
+  SHARE="$(json_get share)"
+  GUEST_SHARE="$(json_get guestShare)"
+  WORKTREE="$(json_get worktree)"
+  GUEST_WORKTREE="$(json_get guestWorktree)"
+  CONTROL_SOCKET="$(json_get controlSocket)"
+  SLOT_DIR="$VMS_DIR/vm$SLOT"
+  mkdir -p "$SLOT_DIR"
+}
+
+SSH_OPTS=(-o IdentitiesOnly=yes -o BatchMode=yes -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null -o LogLevel=ERROR -o ConnectTimeout=5 -o ServerAliveInterval=30)
+guest() { ssh -i "$VM_SSH_KEY" "${SSH_OPTS[@]}" "$VM_USER@$VM_IP" "$@"; }
+
+# Kills the slot's tunnel and forgets its pid files. app.pid names a guest process, which dies with the VM.
+stop_slot() {
+  local dir="$VMS_DIR/vm${1:?}" pid=""
+  if [[ -f "$dir/tunnel.pid" ]]; then
+    pid="$(<"$dir/tunnel.pid")"
+    if [[ -n "$pid" ]] && ps -p "$pid" -o command= 2>/dev/null | grep -q '^ssh ' \
+      && ps -p "$pid" -o command= 2>/dev/null | grep -qF -- " -L $dir/control.sock:"; then
+      kill "$pid" 2>/dev/null || true
+    fi
+  fi
+  rm -f "${dir:?}/tunnel.pid" "${dir:?}/app.pid"
+}
+
+cmd_prepare() {
+  log "Mirroring host paths in $VM_KEY"
+  local script
+  script='set -euo pipefail
+list="$HOME/.plume-vm-links"
+if [[ -f "$list" ]]; then
+  while IFS= read -r link; do [[ -L "$link" ]] && sudo rm -f "$link"; done < "$list"
+fi
+: > "$list"
+rm -rf "$HOME/PlumeVM"
+while [[ $# -ge 2 ]]; do
+  target="$1"; link="$2"; shift 2
+  [[ -e "$link" && ! -L "$link" ]] && { echo "$link exists in the guest and is not a symlink" >&2; exit 1; }
+  sudo mkdir -p "$(dirname "$link")"
+  sudo ln -sfn "$target" "$link"
+  printf "%s\n" "$link" >> "$list"
+done'
+  guest "bash -s -- $(q "$GUEST_WORKTREE") $(q "$WORKTREE") $(q "$GUEST_SHARE") $(q "$SHARE")" <<<"$script"
+}
+
+wait_for_guest_socket() {
+  for _ in $(seq 1 30); do
+    guest 'test -S /tmp/plume-control.sock' 2>/dev/null && return 0
+    sleep 2
+  done
+  return 1
+}
+
+cmd_launch() {
+  local app="" seed="" envs=()
+  while [[ $# -gt 0 ]]; do
+    case "$1" in
+      --app) app="$2"; shift 2 ;;
+      --app=*) app="${1#--app=}"; shift ;;
+      --seed) seed="$2"; shift 2 ;;
+      --seed=*) seed="${1#--seed=}"; shift ;;
+      --env) envs+=("$2"); shift 2 ;;
+      --env=*) envs+=("${1#--env=}"); shift ;;
+      *) die "unknown launch argument: $1" ;;
+    esac
+  done
+  [[ -n "$app" ]] || app="$(products_dir)/Plume.app"
+  [[ -d "$app" ]] || die "no app at $app: build this worktree first, or pass --app"
+
+  claim_vm
+  stop_slot "$SLOT"
+  guest 'pkill -x Plume || true'
+  cmd_prepare
+
+  log "Copying $(basename "$app") into the share"
+  rm -rf "${SHARE:?}/app"
+  mkdir -p "$SHARE/app"
+  cp -Rc "$app" "$SHARE/app/Plume.app"
+
+  # rsync, not ditto or cp: virtiofs breaks bundle symlinks for both.
+  log "Installing it in the guest"
+  guest "mkdir -p \"\$HOME/PlumeVM\" && rsync -a --delete $(q "$GUEST_SHARE/app/Plume.app/") \"\$HOME/PlumeVM/Plume.app/\""
+
+  local open_envs=" --env PLUME_CONTROL_SOCKET=/tmp/plume-control.sock" e
+  [[ -z "$seed" ]] || open_envs+=" --env $(q "PLUME_SEED_TASKS=$seed")"
+  for e in ${envs[@]+"${envs[@]}"}; do open_envs+=" --env $(q "$e")"; done
+  log "Launching"
+  guest "rm -f /tmp/plume-control.sock; open$open_envs \"\$HOME/PlumeVM/Plume.app\""
+  wait_for_guest_socket || die "the guest app's control socket never appeared"
+  guest 'pgrep -x Plume | head -1' > "$SLOT_DIR/app.pid" || true
+
+  log "Forwarding the control socket"
+  mkdir -p "$(dirname "$CONTROL_SOCKET")"
+  local forward="$CONTROL_SOCKET:/tmp/plume-control.sock" pattern
+  ssh -f -N -i "$VM_SSH_KEY" "${SSH_OPTS[@]}" -o ExitOnForwardFailure=yes -o StreamLocalBindUnlink=yes \
+    -L "$forward" "$VM_USER@$VM_IP"
+  pattern="$(printf '%s' "-L $forward" | sed 's/[][\.*^$+?(){}|]/\\&/g')"
+  pgrep -f -- "$pattern" | head -1 > "$SLOT_DIR/tunnel.pid" || true
+
+  python3 "$CONTROL" --socket "$CONTROL_SOCKET" --wait 30 tasks >/dev/null \
+    || die "the control socket forward doesn't answer"
+
+  local branch
+  branch="$(git -C "$ROOT" branch --show-current)"
+  plume devices installed "$VM_KEY" "$branch" >/dev/null
+
+  cat <<MSG
+$VM_KEY is running $(basename "$app") on $branch. Drive it with:
+  scripts/debug/plume-control.py --socket "$CONTROL_SOCKET" hierarchy
+Right after launch, menu chords read disabled until a tab chip is invoked. Run this once before sending chords:
+  scripts/debug/plume-control.py --socket "$CONTROL_SOCKET" invoke target='{"id":"tab-chip","index":0}'
+MSG
+}
+
+# Reads `xcresulttool get test-results tests` JSON on stdin and fails, naming each one, if any
+# -only-testing identifier (target[/suite...[/test]]) matches no test that ran. Each component
+# must match in full, and a test's trailing "()" is optional.
+UNMATCHED_FILTERS='
+import json, sys
+try:
+    nodes = json.load(sys.stdin).get("testNodes", [])
+except ValueError:
+    nodes = []
+ran = []
+def walk(node, path):
+    kind = node.get("nodeType", "")
+    if kind.endswith("test bundle") or kind == "Test Suite":
+        path = path + [node.get("name", "")]
+    elif kind == "Test Case":
+        if node.get("result") != "Skipped":
+            ran.append(path + [node.get("name", "")])
+        return
+    for child in node.get("children", []):
+        walk(child, path)
+for node in nodes:
+    walk(node, [])
+def same(a, b):
+    return a.removesuffix("()") == b.removesuffix("()")
+unmatched = [f for f in sys.argv[1:]
+             if not any(len(f.split("/")) <= len(p) and all(same(x, y) for x, y in zip(f.split("/"), p)) for p in ran)]
+for f in unmatched:
+    print("plume-vm: no tests from %s ran" % f, file=sys.stderr)
+sys.exit(1 if unmatched else 0)
+'
+
+cmd_test() {
+  local only=() skip_build=0
+  while [[ $# -gt 0 ]]; do
+    case "$1" in
+      --only-testing) only+=("$2"); shift 2 ;;
+      --only-testing=*) only+=("${1#--only-testing=}"); shift ;;
+      --skip-build) skip_build=1; shift ;;
+      *) die "unknown test argument: $1" ;;
+    esac
+  done
+  [[ ${#only[@]} -gt 0 ]] || only=("${DEFAULT_TESTS[@]}")
+
+  claim_vm
+  local host_xcode guest_xcode
+  host_xcode="$(xcodebuild -version | paste -sd' ' -)"
+  guest_xcode="$(guest 'xcodebuild -version' | paste -sd' ' -)"
+  [[ "$host_xcode" == "$guest_xcode" ]] \
+    || die "guest Xcode ($guest_xcode) differs from the host's ($host_xcode); rebuild the base image with make-base-image.sh, then run plume devices reset $VM_KEY once it is released"
+
+  stop_slot "$SLOT"
+  guest 'pkill -x Plume || true'
+
+  if [[ $skip_build -eq 0 ]]; then
+    log "Building for testing"
+    (cd "$ROOT" && xcodebuild -scheme Plume -destination 'platform=macOS' -derivedDataPath "$DERIVED_DATA" build-for-testing)
+  fi
+  [[ -d "$DERIVED_DATA/Build/Products" ]] || die "no build products in $DERIVED_DATA; run without --skip-build"
+
+  cmd_prepare
+  log "Copying the products into the share"
+  rm -rf "${SHARE:?}/products"
+  cp -Rc "$DERIVED_DATA/Build/Products" "$SHARE/products"
+  guest "mkdir -p \"\$HOME/PlumeVM\" && rsync -a --delete $(q "$GUEST_SHARE/products/") \"\$HOME/PlumeVM/Products/\""
+
+  local stamp only_args="" t status=0
+  stamp="$(date +%Y%m%d-%H%M%S)"
+  mkdir -p "$SHARE/results"
+  for t in "${only[@]}"; do only_args+=" -only-testing:$(q "$t")"; done
+  log "Running ${only[*]} in $VM_KEY"
+  guest "xctestrun=\$(ls \"\$HOME\"/PlumeVM/Products/*.xctestrun | head -1) && xcodebuild test-without-building -xctestrun \"\$xctestrun\" -destination 'platform=macOS'$only_args -resultBundlePath $(q "$GUEST_SHARE/results/$stamp.xcresult")" || status=$?
+
+  local result="$SHARE/results/$stamp.xcresult"
+  echo "xcresult: $result"
+  if [[ -d "$result" ]]; then
+    xcrun xcresulttool get test-results summary --path "$result" --compact || true
+    xcrun xcresulttool get test-results tests --path "$result" --compact 2>/dev/null \
+      | python3 -c "$UNMATCHED_FILTERS" "${only[@]}" || status=1
+  else
+    echo "plume-vm: no result bundle was written" >&2
+    status=1
+  fi
+  return "$status"
+}
+
+cmd="${1:-help}"
+[[ $# -eq 0 ]] || shift
+case "$cmd" in
+  -h|--help|help) usage ;;
+  claim)
+    [[ " $* " == *" --worktree"* ]] || set -- --worktree="$ROOT" "$@"
+    plume devices claim --kind=vm "$@"
+    ;;
+  list) plume devices list --kind=vm "$@" ;;
+  reset) plume devices reset "$@" ;;
+  release)
+    if [[ "${1:-}" == vm:* ]]; then
+      plume devices release "$@"
+      stop_slot "${1#vm:}"
+    else
+      out="$(plume devices release --mine --kind=vm "$@")"
+      echo "$out"
+      for key in $(grep -oE 'vm:[0-9]+' <<<"$out"); do stop_slot "${key#vm:}"; done
+    fi
+    ;;
+  ssh)
+    claim_vm
+    [[ "${1:-}" != -- ]] || shift
+    guest "$@"
+    ;;
+  prepare) claim_vm; cmd_prepare ;;
+  launch) cmd_launch "$@" ;;
+  test) cmd_test "$@" ;;
+  *) usage >&2; exit 2 ;;
+esac

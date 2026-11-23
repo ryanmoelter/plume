@@ -14,6 +14,9 @@ sign_bundle() {
   local versions="$sparkle/Versions/B"
   local helper="$app/Contents/MacOS/PlumeSleepHelper"
   local tool="$app/Contents/Helpers/plume"
+  # Re-signing drops the entitlements Xcode signed in, and VMs need com.apple.security.virtualization.
+  local entitlements
+  entitlements="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)/Configuration/Plume.entitlements"
 
   [ -d "$sparkle" ] || fail "Sparkle.framework missing from $app/Contents/Frameworks"
 
@@ -42,6 +45,8 @@ sign_bundle() {
   codesign --force --sign "$identity" --options runtime --timestamp "$tool" \
     || fail "codesign of the plume tool failed"
 
-  codesign --force --sign "$identity" --options runtime --timestamp "$app" \
+  [ -f "$entitlements" ] || fail "entitlements missing at $entitlements"
+  codesign --force --sign "$identity" --options runtime --timestamp \
+    --entitlements "$entitlements" "$app" \
     || fail "codesign of the app failed"
 }

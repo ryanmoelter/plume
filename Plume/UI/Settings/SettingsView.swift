@@ -85,6 +85,7 @@ struct SettingsView: View {
         case .shortcuts: ShortcutsSettingsPane()
         case .integrations: IntegrationsSettingsPane()
         case .updates: UpdatesSettingsPane()
+        case .labs: LabsSettingsPane()
         case .about: AboutSettingsPane()
         #if DEBUG
         case .debug: DebugSettingsPane()
@@ -103,6 +104,7 @@ enum SettingsPane: String, CaseIterable, Identifiable {
     case keepAwake
     case shortcuts
     case updates
+    case labs
     case about
     #if DEBUG
     case debug
@@ -125,6 +127,7 @@ enum SettingsPane: String, CaseIterable, Identifiable {
         case .shortcuts: "Shortcuts"
         case .integrations: "Integrations"
         case .updates: "Updates"
+        case .labs: "Labs"
         case .about: "About"
         #if DEBUG
         case .debug: "Debug"
@@ -143,6 +146,7 @@ enum SettingsPane: String, CaseIterable, Identifiable {
         case .shortcuts: "keyboard"
         case .integrations: "puzzlepiece.extension"
         case .updates: "arrow.down.circle"
+        case .labs: "flask"
         case .about: "info.circle"
         #if DEBUG
         case .debug: "ladybug"

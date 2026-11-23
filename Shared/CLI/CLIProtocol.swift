@@ -17,6 +17,13 @@ nonisolated enum CLIRequest: Equatable, Sendable {
     case extendDevice(ExtendDevice)
     case linkIssue(LinkIssue)
     case unlinkIssue(LinkIssue)
+    case claimVM(ClaimVM)
+    case vmStatus(VMKey)
+    case releaseVM(ReleaseVM)
+    case renewVM(RenewVM)
+    case listVMs
+    case resetVM(VMKey)
+    case vmInstalled(VMInstalled)
 
     struct Notify: Codable, Equatable, Sendable {
         var tabID: UUID
@@ -101,6 +108,39 @@ nonisolated enum CLIRequest: Equatable, Sendable {
         var taskID: UUID?
         var tabID: UUID?
     }
+
+    /// Leases a VM slot for `owner`, booting it in the background. The app answers with the slot at
+    /// once; the claimant polls `vms.status` until it is ready. `worktree` is shared read-only into
+    /// the guest, and is fixed for as long as the VM runs.
+    struct ClaimVM: Codable, Equatable, Sendable {
+        var owner: DeviceLeaseOwner
+        var worktree: String?
+        var branch: String?
+        var ttl: TimeInterval?
+    }
+
+    struct VMKey: Codable, Equatable, Sendable {
+        var key: String
+    }
+
+    /// Another owner's lease needs `force`.
+    struct ReleaseVM: Codable, Equatable, Sendable {
+        var key: String
+        var owner: DeviceLeaseOwner
+        var force: Bool = false
+    }
+
+    struct RenewVM: Codable, Equatable, Sendable {
+        var key: String
+        var owner: DeviceLeaseOwner
+        var ttl: TimeInterval
+    }
+
+    struct VMInstalled: Codable, Equatable, Sendable {
+        var key: String
+        var branch: String
+        var worktree: String?
+    }
 }
 
 nonisolated extension CLIRequest: Codable {
@@ -119,6 +159,13 @@ nonisolated extension CLIRequest: Codable {
         case extendDevice = "devices.extend"
         case linkIssue = "issue.link"
         case unlinkIssue = "issue.unlink"
+        case claimVM = "vms.claim"
+        case vmStatus = "vms.status"
+        case releaseVM = "vms.release"
+        case renewVM = "vms.renew"
+        case listVMs = "vms.list"
+        case resetVM = "vms.reset"
+        case vmInstalled = "vms.installed"
     }
 
     init(from decoder: any Decoder) throws {
@@ -141,6 +188,13 @@ nonisolated extension CLIRequest: Codable {
         case .extendDevice: self = .extendDevice(try container.decode(ExtendDevice.self, forKey: .params))
         case .linkIssue: self = .linkIssue(try container.decode(LinkIssue.self, forKey: .params))
         case .unlinkIssue: self = .unlinkIssue(try container.decode(LinkIssue.self, forKey: .params))
+        case .claimVM: self = .claimVM(try container.decode(ClaimVM.self, forKey: .params))
+        case .vmStatus: self = .vmStatus(try container.decode(VMKey.self, forKey: .params))
+        case .releaseVM: self = .releaseVM(try container.decode(ReleaseVM.self, forKey: .params))
+        case .renewVM: self = .renewVM(try container.decode(RenewVM.self, forKey: .params))
+        case .listVMs: self = .listVMs
+        case .resetVM: self = .resetVM(try container.decode(VMKey.self, forKey: .params))
+        case .vmInstalled: self = .vmInstalled(try container.decode(VMInstalled.self, forKey: .params))
         }
     }
 
@@ -179,6 +233,26 @@ nonisolated extension CLIRequest: Codable {
         case .unlinkIssue(let params):
             try container.encode(Command.unlinkIssue, forKey: .command)
             try container.encode(params, forKey: .params)
+        case .claimVM(let params):
+            try container.encode(Command.claimVM, forKey: .command)
+            try container.encode(params, forKey: .params)
+        case .vmStatus(let params):
+            try container.encode(Command.vmStatus, forKey: .command)
+            try container.encode(params, forKey: .params)
+        case .releaseVM(let params):
+            try container.encode(Command.releaseVM, forKey: .command)
+            try container.encode(params, forKey: .params)
+        case .renewVM(let params):
+            try container.encode(Command.renewVM, forKey: .command)
+            try container.encode(params, forKey: .params)
+        case .listVMs:
+            try container.encode(Command.listVMs, forKey: .command)
+        case .resetVM(let params):
+            try container.encode(Command.resetVM, forKey: .command)
+            try container.encode(params, forKey: .params)
+        case .vmInstalled(let params):
+            try container.encode(Command.vmInstalled, forKey: .command)
+            try container.encode(params, forKey: .params)
         }
     }
 }
@@ -197,6 +271,14 @@ nonisolated struct CLIResponse: Codable, Equatable, Sendable {
     var claimID: UUID?
     /// The Linear identifier `issue.link` or `issue.unlink` acted on, uppercased.
     var issue: String?
+    /// The slot a `vms.*` command acted on.
+    var vm: VMLeaseInfo?
+    /// Every slot, from `vms.list`, and with a pool-full refusal.
+    var vms: [VMLeaseInfo]?
+    /// A `vms.claim` refused because every slot is in use.
+    var poolFull: Bool?
+    /// A `vms.*` command refused because another owner holds the lease.
+    var conflict: Bool?
 
     static let success = CLIResponse(ok: true)
 

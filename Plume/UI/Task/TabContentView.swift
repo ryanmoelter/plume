@@ -112,6 +112,8 @@ struct TabContentView: View {
                     }
                 }
             }
+            // Without its own element, the pane's identifier replaces every child's.
+            .accessibilityElement(children: .contain)
             .plumeID(
                 AccessibilityID.tabPane,
                 label: tab.displayTitle,
@@ -154,6 +156,8 @@ struct TabContentView: View {
             TerminalTabHost(task: task, tab: tab, isVisible: isVisible, isFocused: isFocused)
         case .device:
             DeviceTabHost(tab: tab, isVisible: isVisible)
+        case .vm:
+            VMTabHost(tab: tab, isVisible: isVisible)
         }
     }
 }

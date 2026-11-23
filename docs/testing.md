@@ -12,6 +12,10 @@ xcodebuild -scheme Plume -destination 'platform=macOS' test -only-testing:PlumeT
 
 `-only-testing` with a name that matches no Swift Testing test prints `** TEST SUCCEEDED **` having run nothing, and `-parallel-testing-enabled NO` silently skips Swift Testing suites entirely. Both read as a pass. Confirm the test name appears in the output before believing a green run.
 
+## GUI suites in a VM
+
+`PlumeUITests` and the GUI suites put windows on screen and take focus, so run them in a macOS VM instead of on your host: `scripts/vm/plume-vm test`. It builds for testing, runs the default set in a guest, and prints the `.xcresult` path. `docs/vm-testing.md` covers setup and limits.
+
 ## Reading failures
 
 The console hides Swift Testing's `Expectation failed: …` text and prints only that the test failed. Pass `-resultBundlePath /tmp/x.xcresult`, then read `xcrun xcresulttool get test-results tests --path /tmp/x.xcresult`. A `Crash:` node there means the test host died; its `.ips` in `~/Library/Logs/DiagnosticReports/` has the stack.

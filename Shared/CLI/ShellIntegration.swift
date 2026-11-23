@@ -124,20 +124,22 @@ nonisolated enum ShellIntegration {
             'installed:record which branch is installed on a device'
             'list:show devices and their leases'
             'ls:show devices and their leases'
+            'reset:delete a free VM clone'
             'prune:drop stale leases now'
             'help:show usage'
           )
           _describe -t commands 'devices command' devices_commands
         else
           local -a serials
-          serials=("${(@f)$(command adb devices 2>/dev/null | awk 'NR > 1 && NF >= 2 { print $1 }')}")
+          serials=("${(@f)$(command adb devices 2>/dev/null | awk 'NR > 1 && NF >= 2 { print $1 }')}" vm:1 vm:2)
           local subcommand=$words[2]
           shift words
           (( CURRENT-- ))
           case $subcommand in
             claim)
               _arguments \\
-                '--kind=[Device kind]:kind:(emulator physical any remote)' \\
+                '--kind=[Device kind]:kind:(emulator physical any remote vm)' \\
+                '--worktree=[Worktree to share into the VM]:worktree:_files -/' \\
                 '--form=[Form factor]:form:(phone tablet foldable)' \\
                 '--model=[Remote device model]:codename/api:' \\
                 '--owner=[Lease owner]:owner:' \\
@@ -156,7 +158,10 @@ nonisolated enum ShellIntegration {
               _arguments '1:serial:compadd -a serials' '2:branch:'
               ;;
             list|ls)
-              _arguments '--json[Print JSON]'
+              _arguments '--json[Print JSON]' '--kind=[Only VMs]:kind:(vm)'
+              ;;
+            reset)
+              _arguments '1:vm:(vm:1 vm:2)'
               ;;
           esac
         fi

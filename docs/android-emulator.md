@@ -7,7 +7,7 @@ A device tab (`TabKind.device`, platform `androidEmulator`) shows a live Android
 - `Packages/EmulatorControl/` holds all gRPC and protobuf code. It is a local package rather than part of the app target because the app's `SWIFT_DEFAULT_ACTOR_ISOLATION = MainActor` breaks generated protobuf code. Its public facade (`EmulatorConnection` and value types) is the only API the app sees.
 - `Packages/EmulatorControl/Sources/EmulatorControl/Generated/` is generated. Never edit it by hand; run `scripts/android/generate-emulator-grpc.sh`. `--update-proto` first copies the proto from the SDK into `Packages/EmulatorControl/Protos/`; `--check` diffs a fresh generation against the checked-in files.
 - `Plume/Android/` holds SDK discovery, the AVD catalog, the running-emulator discovery, the launcher, the input mappers and the per-tab `DeviceSession`. `EmulatorDeviceConnection` adapts `EmulatorConnection` to `DeviceConnecting`, the protocol the session talks to.
-- `Plume/UI/Device/` holds the tab host, the picker (physical devices, running emulators and AVDs in one list) and the device view.
+- `Plume/UI/Device/` holds the tab host, the picker (physical devices, running emulators, AVDs, macOS VM slots and remote devices in one list) and the device view.
 
 ## Finding the SDK
 

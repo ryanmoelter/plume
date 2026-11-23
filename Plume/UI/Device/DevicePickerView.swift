@@ -1,8 +1,9 @@
 import SwiftUI
 
-/// Lists physical devices and running emulators to show, AVDs to boot, and remote devices to
-/// reserve. Discovery runs only while this view is on screen.
+/// Lists physical devices and running emulators to show, AVDs to boot, remote devices to reserve,
+/// and macOS VM slots. Discovery runs only while this view is on screen.
 struct DevicePickerView: View {
+    let tab: TaskTab
     let onConnect: (PhysicalDevice) -> Void
     let onAttach: (RunningEmulator) -> Void
     let onBoot: (AVD) -> Void
@@ -22,7 +23,7 @@ struct DevicePickerView: View {
     var body: some View {
         ScrollView {
             VStack(alignment: .leading, spacing: 20) {
-                Label("Android Device", systemImage: "ipad.landscape.and.iphone")
+                Label("Device", systemImage: "ipad.landscape.and.iphone")
                     .font(.title2.weight(.semibold))
                 content
             }
@@ -69,10 +70,19 @@ struct DevicePickerView: View {
                 Button("Look Again") { Task { await load(refresh: true) } }
                     .plumeID(AccessibilityID.devicePickerRetryButton)
             }
+            vmSection
         case .found(let sdk):
             physicalSection(hasADB: sdk.adbURL != nil)
             emulatorSections(hasEmulator: sdk.emulatorURL != nil)
+            vmSection
             remoteSection
+        }
+    }
+
+    @ViewBuilder
+    private var vmSection: some View {
+        if AppSettings.shared.labsVMsEnabled || VMManager.shared.hasVMFromBefore {
+            section("macOS VMs") { VMPickerSection(tab: tab) }
         }
     }
 

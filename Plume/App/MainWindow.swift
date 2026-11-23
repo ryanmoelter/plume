@@ -79,10 +79,6 @@ struct MainWindow: View {
             AppSettings.shared.hasPromptedForFullDiskAccess = true
             fullDiskAccessShown = !FullDiskAccess.isGranted
         }
-        .focusedSceneValue(\.showArchiveAction) { archiveShown = true }
-        .focusedSceneValue(\.showImportAction) { source in
-            if importSource == nil { importSource = source }
-        }
         .background {
             WindowProbe { window in
                 guard hostWindow !== window else { return }
@@ -220,8 +216,15 @@ struct MainWindow: View {
 
     /// Its own `ViewModifier` so `body`'s modifier chain stays within a
     /// Release build's type-checking budget.
+    ///
+    /// The window's focused scene values are published here, and republished
+    /// when the window becomes key or the app becomes active. SwiftUI hands
+    /// the menu bar only values published while the scene is active, so values
+    /// from a launch that rendered before activation would stay nil until
+    /// something else re-rendered this view.
     private struct SceneCommands: ViewModifier {
         let window: MainWindow
+        @State private var activations = 0
 
         private var splitToggle: (() -> Void)? {
             guard let task = window.selectedTask else { return nil }
@@ -230,7 +233,18 @@ struct MainWindow: View {
         }
 
         func body(content: Content) -> some View {
+            let _ = activations
             content
+                .onReceive(NotificationCenter.default.publisher(for: NSApplication.didBecomeActiveNotification)) { _ in
+                    activations += 1
+                }
+                .onReceive(NotificationCenter.default.publisher(for: NSWindow.didBecomeKeyNotification)) { note in
+                    if let hostWindow = window.hostWindow, note.object as? NSWindow === hostWindow { activations += 1 }
+                }
+                .focusedSceneValue(\.showArchiveAction) { window.archiveShown = true }
+                .focusedSceneValue(\.showImportAction) { source in
+                    if window.importSource == nil { window.importSource = source }
+                }
                 .plumeMenuItem(
                     AccessibilityID.splitToggle,
                     label: window.selectedTask?.isSplit == true ? "close split" : "split right",

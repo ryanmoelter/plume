@@ -17,7 +17,18 @@ import Testing
 /// Needs a real GUI session for the same reason `SurfaceCommandTests` does —
 /// it builds real `NSWindow`s and surfaces.
 @MainActor
-@Suite struct TerminalShortcutReclaimTests {
+@Suite(.serialized) struct TerminalShortcutReclaimTests {
+    /// libghostty claims ⌥J only when the user's config binds it.
+    private static var userConfigBindsOptionJ: Bool {
+        guard let path = GhosttyConfigLoader.userConfigPath(),
+              let expanded = GhosttyConfigLoader.expandConfig(rootPath: path)
+        else { return false }
+        return expanded.lines.contains { line in
+            let content = line.content.replacingOccurrences(of: " ", with: "")
+            return content.hasPrefix("keybind=") && content.contains("alt+j=")
+        }
+    }
+
     /// A live terminal surface hosted in a real window, focused.
     @MainActor
     private struct FocusedTerminal {
@@ -40,6 +51,7 @@ import Testing
                 backing: .buffered,
                 defer: false
             )
+            window.isReleasedWhenClosed = false
             window.contentView = host
             window.orderFrontRegardless()
             window.makeKey()
@@ -144,6 +156,9 @@ import Testing
     /// Whatever the answer, the monitor has already had its turn by then; this
     /// documents how much the monitor is actually saving.
     @Test func focusedSurfaceConsumesOptionChordsWithoutTheMonitor() async throws {
+        guard Self.userConfigBindsOptionJ else {
+            try Test.cancel("the user's Ghostty config does not bind alt+j")
+        }
         let terminal = FocusedTerminal()
         defer { terminal.close() }
 

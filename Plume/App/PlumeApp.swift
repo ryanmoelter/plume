@@ -48,6 +48,9 @@ struct PlumeApp: App {
             if let socket = CLIServer.shared.socketPath {
                 DeviceLeaseCoordinator.shared.start(appSocket: socket, liveTabIDs: Self.liveTabIDs(in: modelContainer.mainContext))
             }
+            let context = modelContainer.mainContext
+            VMManager.shared.isLiveVMTab = { TaskStore.isLiveVMTab($0, in: context) }
+            VMManager.shared.isEnabled = { AppSettings.shared.labsVMsEnabled }
         }
     }
 

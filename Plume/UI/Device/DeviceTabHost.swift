@@ -11,6 +11,7 @@ struct DeviceTabHost: View {
             if isVisible, let session {
                 if session.state == .needsDevice {
                     DevicePickerView(
+                        tab: tab,
                         onConnect: session.attach,
                         onAttach: session.attach,
                         onBoot: session.boot,

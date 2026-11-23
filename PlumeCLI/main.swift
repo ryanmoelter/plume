@@ -85,7 +85,7 @@ enum NewTab {
             return CLIExitCode.failure
         }
         if let directory {
-            let path = absolutePath(directory)
+            let path = CLIPath.absolute(directory)
             var isDirectory: ObjCBool = false
             guard FileManager.default.fileExists(atPath: path, isDirectory: &isDirectory), isDirectory.boolValue else {
                 printError("plume: no such directory: \(directory)")
@@ -114,12 +114,6 @@ enum NewTab {
             printError("plume: \(error.localizedDescription)")
             return CLIExitCode.failure
         }
-    }
-
-    private static func absolutePath(_ path: String) -> String {
-        let expanded = (path as NSString).expandingTildeInPath
-        let base = URL(fileURLWithPath: FileManager.default.currentDirectoryPath, isDirectory: true)
-        return URL(fileURLWithPath: expanded, relativeTo: base).standardizedFileURL.path
     }
 }
 

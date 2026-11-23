@@ -149,6 +149,8 @@ nonisolated enum TabKind: String, CaseIterable, Sendable {
     case agent
     case terminal
     case device
+    /// Views a slot of `VMManager`'s pool; the slot is `TaskTab.vmSlot`.
+    case vm
 }
 
 /// What a `.device` tab mirrors. Persisted on `TaskTab.devicePlatformRaw`.

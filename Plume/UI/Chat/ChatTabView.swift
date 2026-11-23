@@ -1066,7 +1066,8 @@ struct ChatTabView: View, ThemedView {
             sendKey: settings.composerSendKey,
             onSend: { answerPlan(.reject) },
             onOptionReturn: { answerPlan(codexPlan == nil ? .approveWithFeedback : .reject) },
-            verticalInset: DecisionCard.composerFieldTextInset
+            verticalInset: DecisionCard.composerFieldTextInset,
+            accessibilityIdentifier: AccessibilityID.planFeedbackField
         )
         // `NSTextView` already inset its first glyph, so the shared field's
         // padding has to give that back rather than add to it.

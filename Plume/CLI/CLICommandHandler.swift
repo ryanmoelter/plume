@@ -36,6 +36,7 @@ final class CLICommandHandler {
     var directories: TabDirectoryStore = .shared
     var deviceSessions: DeviceSessionManager = .shared
     var deviceLeases: DeviceLeaseCoordinator = .shared
+    var vms: VMManager = .shared
     var physicalDiscovery: PhysicalDeviceDiscovery = .shared
     var remoteDevices = RemoteDeviceDefaults()
     var clock: () -> Date = Date.init
@@ -126,7 +127,79 @@ final class CLICommandHandler {
             return linkIssue(params, action: .link)
         case .unlinkIssue(let params):
             return linkIssue(params, action: .unlink)
+        case .claimVM, .vmStatus, .releaseVM, .renewVM, .listVMs, .resetVM, .vmInstalled:
+            return await handleVM(request)
         }
+    }
+
+    /// The `vms.*` commands. A refusal names its reason; a full pool also lists every slot.
+    private func handleVM(_ request: CLIRequest) async -> CLIResponse {
+        if vms.refusesCommands { return .failure(VMManager.labsDisabledMessage) }
+        do {
+            var response = CLIResponse.success
+            switch request {
+            case .claimVM(let params):
+                let claimed = try await vms.claim(owner: params.owner, worktree: params.worktree, branch: params.branch, ttl: params.ttl)
+                if !claimed.reused, let callerTabID = params.owner.tabID { showVMTab(slot: claimed.slot, besideTab: callerTabID) }
+                response.vm = vms.info(claimed.slot)
+                response.created = !claimed.reused
+            case .vmStatus(let params):
+                await vms.refreshHeldElsewhere()
+                response.vm = try vms.info(forKey: params.key)
+            case .releaseVM(let params):
+                try vms.release(params.key, owner: params.owner, force: params.force)
+                response.vm = try vms.info(forKey: params.key)
+            case .renewVM(let params):
+                _ = try vms.renew(params.key, owner: params.owner, ttl: params.ttl)
+                response.vm = try vms.info(forKey: params.key)
+            case .listVMs:
+                await vms.refreshHeldElsewhere()
+                response.vms = vms.allInfo
+            case .resetVM(let params):
+                try await vms.reset(params.key)
+                response.vm = try vms.info(forKey: params.key)
+            case .vmInstalled(let params):
+                try vms.noteInstalled(params.key, branch: params.branch, worktree: params.worktree)
+                response.vm = try vms.info(forKey: params.key)
+            default:
+                return .failure("not a vms command")
+            }
+            return response
+        } catch VMManager.Failure.poolFull {
+            var response = CLIResponse.failure(VMManager.Failure.poolFull.localizedDescription)
+            response.poolFull = true
+            response.vms = vms.allInfo
+            return response
+        } catch let failure as VMManager.Failure {
+            var response = CLIResponse.failure(failure.localizedDescription)
+            if case .notOwner = failure { response.conflict = true }
+            return response
+        } catch {
+            return .failure(error.localizedDescription)
+        }
+    }
+
+    /// Best effort: a claim from a tab Plume doesn't show opens nothing. A VM tab that claimed
+    /// shows the slot itself; any other caller gets a VM tab opposite its pane, behind the
+    /// selection. Only a new lease opens one, so a tab the user closed stays closed while the
+    /// lease is renewed.
+    private func showVMTab(slot: Int, besideTab callerTabID: UUID) {
+        guard let (task, context) = currentTask(ofTab: callerTabID) else { return }
+        if let caller = task.tabs.first(where: { $0.id == callerTabID }), caller.kind == .vm {
+            caller.vmSlot = slot
+            return
+        }
+        let candidates = task.orderedTabs.filter { $0.kind == .vm }.map { tab in
+            let shown = tab.vmSlot == 0 ? nil : vms.slot(tab.vmSlot)
+            return VMTabChoice.Candidate(
+                id: tab.id,
+                vmSlot: tab.vmSlot,
+                showsLiveSlot: shown.map { $0.lease != nil || $0.state != .idle } ?? false
+            )
+        }
+        let tab = VMTabChoice.tab(for: slot, among: candidates).flatMap { id in task.tabs.first { $0.id == id } }
+            ?? TaskStore.addDeviceTab(to: task, kind: .vm, besideTab: callerTabID, in: context)
+        tab.vmSlot = slot
     }
 
     /// The task the tab is in now, which a moved tab changes.
@@ -321,7 +394,7 @@ final class CLICommandHandler {
             return .failure("no such directory: \(path)")
         }
         guard let checkout = await inspectCheckout(path),
-              Self.resolvedPath(checkout.facts.checkoutRoot) == Self.resolvedPath(path)
+              CLIPath.resolved(checkout.facts.checkoutRoot) == CLIPath.resolved(path)
         else { return .failure("not a git worktree: \(path)") }
 
         let windows = frontmostFirst
@@ -396,12 +469,6 @@ final class CLICommandHandler {
     func hasLiveTab(_ id: UUID) -> Bool {
         guard let (task, _) = currentTask(ofTab: id) else { return false }
         return !task.isArchived
-    }
-
-    /// Git answers with symlinks resolved, so `/var/…` must match
-    /// `/private/var/…`.
-    private static func resolvedPath(_ path: String) -> String {
-        URL(fileURLWithPath: path).resolvingSymlinksInPath().standardizedFileURL.path
     }
 
     private func openSettings(_ params: CLIRequest.OpenSettings) -> CLIResponse {
@@ -485,7 +552,7 @@ final class CLICommandHandler {
         )
         if let directory = params.directory {
             tab.workspace = Self.workspace(at: directory, checkout: checkout)
-            if let checkout, Self.resolvedPath(checkout.facts.checkoutRoot) == Self.resolvedPath(directory) {
+            if let checkout, CLIPath.resolved(checkout.facts.checkoutRoot) == CLIPath.resolved(directory) {
                 Self.recordCreatedWorktree(
                     at: directory, checkout: checkout, in: task,
                     worktree: params.createdWorktree, branch: params.createdBranch
