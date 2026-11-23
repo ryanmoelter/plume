@@ -1,5 +1,13 @@
 import Foundation
 
+/// Another worktree that changes some of the same files as a row's.
+nonisolated struct WorktreeOverlap: Encodable, Equatable, Sendable {
+    var name: String
+    var path: String
+    /// Sorted.
+    var files: [String]
+}
+
 /// One row of `wt list`.
 nonisolated struct WorktreeRow: Equatable, Sendable {
     var name: String
@@ -12,8 +20,13 @@ nonisolated struct WorktreeRow: Equatable, Sendable {
     var remoteAhead: Int
     var remoteBehind: Int
     var hasUpstream: Bool
+    var overlaps: [WorktreeOverlap]
 
-    init(name: String, branch: String, ahead: String, dirty: Bool, remoteAhead: Int, remoteBehind: Int, hasUpstream: Bool) {
+    init(
+        name: String, branch: String, ahead: String, dirty: Bool, remoteAhead: Int, remoteBehind: Int, hasUpstream: Bool,
+        overlaps: [WorktreeOverlap] = []
+    ) {
+        self.overlaps = overlaps
         self.name = name
         self.branch = branch
         self.ahead = ahead
@@ -60,10 +73,11 @@ nonisolated struct WorktreeListPayload: Encodable, Equatable, Sendable {
         var remoteAhead: Int
         var remoteBehind: Int
         var hasUpstream: Bool
+        var overlaps: [WorktreeOverlap]
         var pr: PR?
 
         private enum CodingKeys: String, CodingKey {
-            case name, path, branch, current, ahead, dirty, pr
+            case name, path, branch, current, ahead, dirty, pr, overlaps
             case remoteAhead = "remote_ahead"
             case remoteBehind = "remote_behind"
             case hasUpstream = "has_upstream"
@@ -80,6 +94,7 @@ nonisolated struct WorktreeListPayload: Encodable, Equatable, Sendable {
             try container.encode(remoteAhead, forKey: .remoteAhead)
             try container.encode(remoteBehind, forKey: .remoteBehind)
             try container.encode(hasUpstream, forKey: .hasUpstream)
+            try container.encode(overlaps, forKey: .overlaps)
             try container.encodeOrNull(pr, forKey: .pr)
         }
     }
@@ -157,12 +172,15 @@ nonisolated extension WT {
 
     /// The plain `↗<ahead> ↑<remote ahead> ↓<remote behind> +` cluster. Width
     /// math runs on this, never on the colored twin.
-    static func statusCluster(ahead: String, dirty: Bool, remoteAhead: Int = 0, remoteBehind: Int = 0) -> String {
+    static func statusCluster(
+        ahead: String, dirty: Bool, remoteAhead: Int = 0, remoteBehind: Int = 0, overlaps: Bool = false
+    ) -> String {
         var parts: [String] = []
         if !ahead.isEmpty, ahead != "0" { parts.append("\(TerminalUI.ahead)\(ahead)") }
         if remoteAhead != 0 { parts.append("\(TerminalUI.up)\(remoteAhead)") }
         if remoteBehind != 0 { parts.append("\(TerminalUI.down)\(remoteBehind)") }
         if dirty { parts.append("+") }
+        if overlaps { parts.append(TerminalUI.overlap) }
         return parts.joined(separator: " ")
     }
 
@@ -170,7 +188,7 @@ nonisolated extension WT {
     static func colorizeCluster(_ plain: String, ui: TerminalUI) -> String {
         if plain.isEmpty { return "" }
         return plain.split(separator: " ").map { segment in
-            let color = segment.hasPrefix(TerminalUI.ahead) ? ui.dim : ui.green
+            let color = segment.hasPrefix(TerminalUI.ahead) ? ui.dim : segment == TerminalUI.overlap ? ui.yellow : ui.green
             return "\(color)\(segment)\(ui.reset)"
         }.joined(separator: " ")
     }
@@ -208,7 +226,15 @@ nonisolated extension WT {
             }.start()
         }
         finished.wait()
-        return zip(ctx.listWorktreeNames(), statuses.all).map { name, status in
+        let names = ctx.listWorktreeNames()
+        let all = statuses.all
+        // The base branch's row is the comparison, not a participant.
+        let changed = zip(all, paths).map { status, path in
+            (status.display == ctx.baseBranch ? [] : status.changedFiles, path)
+        }
+        let overlapsByRow = overlaps(among: zip(names, changed).map { ($0, $1.1, $1.0) })
+        return zip(names.indices, zip(names, all)).map { index, pair in
+            let (name, status) = pair
             return WorktreeRow(
                 name: name,
                 branch: status.display,
@@ -216,8 +242,22 @@ nonisolated extension WT {
                 dirty: status.dirty,
                 remoteAhead: status.remoteAhead,
                 remoteBehind: status.remoteBehind,
-                hasUpstream: status.hasUpstream
+                hasUpstream: status.hasUpstream,
+                overlaps: overlapsByRow[index]
             )
+        }
+    }
+
+    /// For each worktree, the others that change a file it changes, in list
+    /// order.
+    static func overlaps(among worktrees: [(name: String, path: String, files: Set<String>)]) -> [[WorktreeOverlap]] {
+        worktrees.indices.map { index in
+            worktrees.indices.compactMap { other in
+                guard other != index else { return nil }
+                let shared = worktrees[index].files.intersection(worktrees[other].files)
+                guard !shared.isEmpty else { return nil }
+                return WorktreeOverlap(name: worktrees[other].name, path: worktrees[other].path, files: shared.sorted())
+            }
         }
     }
 
@@ -273,7 +313,10 @@ nonisolated extension WT {
         let names = rows.map { TerminalUI.truncate($0.name, toWidth: nameMax) }
         let branches = rows.map { TerminalUI.truncate($0.branch, toWidth: nameMax) }
         let clusters = rows.map {
-            statusCluster(ahead: $0.ahead, dirty: $0.dirty, remoteAhead: $0.remoteAhead, remoteBehind: $0.remoteBehind)
+            statusCluster(
+                ahead: $0.ahead, dirty: $0.dirty, remoteAhead: $0.remoteAhead, remoteBehind: $0.remoteBehind,
+                overlaps: !$0.overlaps.isEmpty
+            )
         }
         let prChips = rows.map { row -> Chip in
             if !row.hasUpstream, prState != .off {
@@ -369,6 +412,7 @@ nonisolated extension WT {
                 remoteAhead: row.remoteAhead,
                 remoteBehind: row.remoteBehind,
                 hasUpstream: row.hasUpstream,
+                overlaps: row.overlaps,
                 pr: pr.map { .init(number: $0.number, state: $0.state.rawValue, isDraft: $0.isDraft, url: $0.url, title: $0.title) }
             )
         }

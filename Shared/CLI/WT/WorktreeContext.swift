@@ -20,8 +20,14 @@ nonisolated struct WorktreeStatus: Equatable, Sendable {
     var remoteAhead: Int
     var remoteBehind: Int
     var hasUpstream: Bool
+    /// Files changed relative to the base ref.
+    var changedFiles: Set<String>
 
-    init(display: String, ahead: String, dirty: Bool, remoteAhead: Int = 0, remoteBehind: Int = 0, hasUpstream: Bool) {
+    init(
+        display: String, ahead: String, dirty: Bool, remoteAhead: Int = 0, remoteBehind: Int = 0, hasUpstream: Bool,
+        changedFiles: Set<String> = []
+    ) {
+        self.changedFiles = changedFiles
         self.display = display
         self.ahead = ahead
         self.dirty = dirty
@@ -373,7 +379,8 @@ nonisolated final class WorktreeContext: WTContext {
             dirty: dirty,
             remoteAhead: remoteAhead,
             remoteBehind: remoteBehind,
-            hasUpstream: hasUpstream
+            hasUpstream: hasUpstream,
+            changedFiles: git.changedFiles(path, baseRef: GitRef.origin(baseBranch))
         )
     }
 

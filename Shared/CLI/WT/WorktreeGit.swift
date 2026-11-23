@@ -89,6 +89,9 @@ nonisolated protocol WorktreeGit: AnyObject {
     func shortHead(_ path: String) -> String?
     /// Commits ahead of `baseRef`, as a string; empty when unanswerable.
     func aheadCount(_ path: String, baseRef: String) -> String
+    /// Files that differ from where the branch left `baseRef`: committed
+    /// and uncommitted changes to tracked files. Empty when unanswerable.
+    func changedFiles(_ path: String, baseRef: String) -> Set<String>
     func checkoutOK(_ path: String, ref: String, detach: Bool, silent: Bool) -> Bool
     func checkoutFatal(_ path: String, ref: String, detach: Bool, quietStdout: Bool) throws
     /// Stashes every change, untracked files included, and returns the new
@@ -320,6 +323,11 @@ nonisolated final class ProcessWorktreeGit: WorktreeGit {
 
     func aheadCount(_ path: String, baseRef: String) -> String {
         outputOrNil(worktreeGit(path, "rev-list", "--count", "\(baseRef)..HEAD")) ?? ""
+    }
+
+    func changedFiles(_ path: String, baseRef: String) -> Set<String> {
+        guard let mergeBase = outputOrNil(worktreeGit(path, "merge-base", baseRef, "HEAD")) else { return [] }
+        return Set(lines(outputOrNil(worktreeGit(path, "diff", "--name-only", mergeBase))))
     }
 
     private func checkoutArguments(_ path: String, ref: String, detach: Bool) -> [String] {

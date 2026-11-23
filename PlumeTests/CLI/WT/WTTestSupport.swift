@@ -205,6 +205,7 @@ nonisolated final class FakeWorktreeGit: WorktreeGit {
     func statusV2Lines(_ path: String) -> [String] { statusLines[path] ?? [] }
     func shortHead(_ path: String) -> String? { "abc123" }
     func aheadCount(_ path: String, baseRef: String) -> String { "" }
+    func changedFiles(_ path: String, baseRef: String) -> Set<String> { [] }
     func checkoutOK(_ path: String, ref: String, detach: Bool, silent: Bool) -> Bool {
         !checkoutFails(path, ref, detach)
     }

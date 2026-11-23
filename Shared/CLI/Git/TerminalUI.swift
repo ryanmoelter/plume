@@ -117,6 +117,8 @@ nonisolated struct TerminalUI: Equatable, Sendable {
     static let noPullRequest = "–"
     /// Commits not on the parent branch.
     static let ahead = "↗"
+    /// Another worktree changes some of the same files.
+    static let overlap = "!"
     /// Commits not pushed.
     static let up = "↑"
     /// Commits on the remote, not local.
@@ -298,6 +300,7 @@ nonisolated struct TerminalUI: Equatable, Sendable {
             (Self.up, .green),
             (Self.down, .green),
             ("+", .green),
+            (Self.overlap, .yellow),
         ]
     }
 
