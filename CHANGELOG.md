@@ -1,5 +1,34 @@
 # Changelog
 
+## 0.21.0-beta.1 (44)
+
+### New
+
+- Labs: Run macOS VMs, from a device tab
+  - Turn on in Settings > Labs
+- Better Codex support
+  - Start child sessions from Codex chats, and Codex child sessions from Claude chats
+  - Ask Codex a side question with `/btw`
+  - Answer MCP requests in Codex chats
+  - Switch between Code and Plan in the Codex composer
+  - Fill the model menu from the models the CLI offers, and honor the CLI's default model
+- Misc fixes (Codex mostly)
+  - Open files an agent generates from links in the chat
+  - Support linked folders in Codex chats
+  - Detect Linear activity in Codex tabs
+  - Keep the Mac awake for Codex background work started from a shell
+  - Protect Codex resumes when another app opens the same thread
+  - Report a child session that fails to start back to its parent
+  - Keep symlinks in `plume tab new --directory`
+
+### Recently
+
+- Let agents start child sessions in new tabs
+- Show each agent in a task in the sidebar
+- Show Fable quota and usage credits
+- Clean up info pane
+- Revamp conversation minimap
+
 ## 0.20.0 (43)
 
 ### New
