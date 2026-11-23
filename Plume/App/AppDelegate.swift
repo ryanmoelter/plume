@@ -115,42 +115,50 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     }
 
     func applicationShouldTerminate(_ sender: NSApplication) -> NSApplication.TerminateReply {
-        let shouldConfirm = Self.shouldConfirmQuit(
+        let agentsWorking = Self.shouldConfirmQuit(
             statuses: statusEngine.effectiveTabStatuses,
             isSystemInitiated: isSystemInitiatedQuit,
             confirmUserQuit: settings.confirmQuitWhileWorking,
             confirmSystemQuit: settings.confirmSystemInitiatedQuit
         )
-        if shouldConfirm {
+        let vms = VMManager.shared
+        let runningVMs = vms.runningCount
+        let confirmVMs = runningVMs > 0 && (!isSystemInitiatedQuit || settings.confirmSystemInitiatedQuit)
+        if let text = Self.quitAlertText(agentsWorking: agentsWorking, runningVMs: confirmVMs ? runningVMs : 0) {
             let alert = NSAlert()
-            alert.messageText = "Quit While Agents Are Working?"
-            alert.informativeText =
-                "One or more tasks have an agent still working or waiting on you. " +
-                "Quitting now ends those processes without saving any in-progress response."
+            alert.messageText = text.title
+            alert.informativeText = text.message
             alert.addButton(withTitle: "Quit")
             alert.addButton(withTitle: "Cancel")
             alert.alertStyle = .warning
             guard alert.runModal() == .alertFirstButtonReturn else { return .terminateCancel }
         }
-        return terminateStoppingVMs(confirm: !isSystemInitiatedQuit || settings.confirmSystemInitiatedQuit)
+        guard runningVMs > 0 else { return .terminateNow }
+        return terminateStoppingVMs(vms)
+    }
+
+    /// One alert for everything a quit would interrupt, or nil when nothing needs confirming.
+    static func quitAlertText(agentsWorking: Bool, runningVMs: Int) -> (title: String, message: String)? {
+        let agents = "One or more tasks have an agent still working or waiting on you. "
+            + "Quitting now ends those processes without saving any in-progress response."
+        let vms = "Plume's VMs stop when it quits. Their clones stay, so the next boot is warm."
+        let vmNoun = runningVMs == 1 ? "the Running VM" : "\(runningVMs) Running VMs"
+        switch (agentsWorking, runningVMs > 0) {
+        case (true, true):
+            return ("Quit While Agents Are Working and Stop \(vmNoun)?", agents + "\n\n" + vms)
+        case (true, false):
+            return ("Quit While Agents Are Working?", agents)
+        case (false, true):
+            return ("Quit and Stop \(vmNoun)?", vms)
+        case (false, false):
+            return nil
+        }
     }
 
     /// A VM's guest gets a real shutdown, which needs the app alive, so the quit waits for it,
     /// up to `VMManager.terminationDeadline`. Blocking in `applicationWillTerminate` instead would
     /// starve the main-actor work the stops wait on.
-    private func terminateStoppingVMs(confirm: Bool) -> NSApplication.TerminateReply {
-        let vms = VMManager.shared
-        let running = vms.runningCount
-        guard running > 0 else { return .terminateNow }
-        if confirm {
-            let alert = NSAlert()
-            alert.messageText = running == 1 ? "Quit and Stop the Running VM?" : "Quit and Stop \(running) Running VMs?"
-            alert.informativeText = "Plume's VMs stop when it quits. Their clones stay, so the next boot is warm."
-            alert.addButton(withTitle: "Quit")
-            alert.addButton(withTitle: "Cancel")
-            alert.alertStyle = .warning
-            guard alert.runModal() == .alertFirstButtonReturn else { return .terminateCancel }
-        }
+    private func terminateStoppingVMs(_ vms: VMManager) -> NSApplication.TerminateReply {
         Task { @MainActor in
             await vms.stopAllForTermination()
             self.replyToTerminateOnce()
