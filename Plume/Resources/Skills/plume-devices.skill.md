@@ -34,3 +34,7 @@ If `plume` is not on PATH, run `"$PLUME_CLI"` instead.
 | Done with a device | `plume devices release <serial>` |
 | Release everything you hold | `plume devices release --mine` |
 | Record which branch's build is installed | `plume devices installed <serial> [<branch>]` |
+
+## macOS VMs
+
+`--kind=vm` leases one of the running Plume's macOS VMs, for testing a debug build with the app frontmost. `plume devices claim --kind=vm [--worktree=<path>] --json` boots a VM and prints its `key` (`vm:<n>`), `ip`, `controlSocket` and share paths. `release`, `renew`, `installed` and `reset` take the `vm:<n>` key. A full pool (2 slots, shared host-wide) exits 3. VMs stop when the app quits, so release yours when you finish. `scripts/vm/plume-vm` in the Plume repo drives them; `docs/vm-testing.md` is the reference.

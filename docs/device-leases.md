@@ -95,3 +95,7 @@ A claim from a tab asks that tab's app to show the device (`devices.show`), and 
 | snake_case keys (`expires_at`) | camelCase keys (`expiresAt`) |
 | Owner is the worktree or a label | Also a Plume tab, named with its app's socket |
 | No app | A tab owner gets a device tab, and the app releases the lease with the tab |
+
+## VM leases
+
+macOS VM leases (`plume devices … --kind=vm`) are not in `registry.json`. The app serves them from memory (`VMManager`), because VMs die with the app and a lease has no meaning without it. An old `plume` decodes a lease's `kind` strictly, so a new kind in the file would make every command of an old tool fail. `docs/vm-testing.md` covers the pool.

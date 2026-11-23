@@ -32,6 +32,18 @@ When done, kill the instance by the `$PID` captured above — never `pkill -f` o
 kill "$PID"
 ```
 
+## When the app must be frontmost
+
+A scratch instance is never active, so menu commands and chords read disabled, activation and focus behavior can't be tested, and a screenshot needs a visible window. For those checks, run the build in a macOS VM instead. The guest has its own window server, so the host's focus never moves. `docs/vm-testing.md` is the reference.
+
+```
+scripts/vm/plume-vm claim
+scripts/vm/plume-vm launch --seed 1
+c() { scripts/debug/plume-control.py --socket "<controlSocket from launch>" "$@"; }
+```
+
+`launch` prints the `--socket` line and a one-time `invoke` of the selected `tab-chip`; run that before sending chords. Drive the VM like a scratch instance, but skip `--assert-frontmost`, which checks the host. Release the VM when you finish: `scripts/vm/plume-vm release vm:<n>`. Never leave one claimed.
+
 ## Inspect before you screenshot
 
 Each step is cheaper than the next to read. Stop at the first one that answers the question.

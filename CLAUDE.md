@@ -142,6 +142,16 @@ A device tab (`TabKind.device`) shows a live Android emulator over its gRPC cont
 - **`scrcpy-server` ships without a `.jar` extension and lives in Git LFS.** Xcode drops a `.jar` from Resources, and a checkout without LFS has a pointer file there.
 - **Frames never pass through `@Observable` state.** `DeviceSurfaceView` sets its layer's contents directly, and the session streams only while a surface in a visible window is attached. A hidden tab unmounts its surface, so it costs nothing — except that a physical device stays connected for 5 seconds, so a quick tab switch doesn't pay a reconnect, and then closes its connection until the tab is shown again.
 
+## VMs
+
+`VMManager.shared` runs up to 2 macOS guests, which `plume devices --kind=vm` leases and `scripts/vm/plume-vm` drives. Use one when a check needs the debug app frontmost. **`docs/vm-testing.md` is the reference** — setup, path mirroring, the spike findings and the limits. Read it before touching `Plume/VM/` or `scripts/vm/`.
+
+- **`VMManager` owns the VMs, on private queues.** Views never create or stop one. Leases live in memory, and VMs die with the app.
+- **Every clone gets a fresh `ecid`.** `tart clone` copies it, so two clones would share a machine identity.
+- **Release never deletes a clone.** It stops the guest and keeps the clone, so the next boot is warm. Only `reset` deletes one.
+- **Never leave a VM claimed after testing.** Each running VM holds about 8 GB, and the 2-VM limit is shared with every app on the host.
+- **Copy a bundle into the guest with `rsync -a`**, never `ditto` or `cp -a` from a share: virtiofs breaks bundle symlinks.
+
 ## Ghostty
 
 Terminals come from the `GhosttyTerminal` product of `Lakr233/libghostty-spm`, pinned `.exact("1.5.2")`. **`docs/ghostty-pin.md` is the reference** — pin details, why the wrapper was adopted, config search order, upgrade steps, and the self-vendoring fallback. Read it before touching anything Ghostty-related or upgrading the package.

@@ -2,6 +2,18 @@
 
 A macOS guest has its own window server, focus and launchd. So a debug build can be frontmost there, run menu commands, take screenshots and run UI tests without touching the host. PLUME-290 builds a pool of at most 2 guests, owned by the installed app. This document covers the base image, the pool in the app, and the spike that proved the path.
 
+## Setup
+
+1. Install Tart, which moved to `openai/tools`. Trust the `tart` and `softnet` formulas when Homebrew asks.
+
+   ```
+   brew tap openai/tools
+   brew install tart
+   ```
+
+2. Run `scripts/vm/make-base-image.sh`. It needs no input and takes about 4 minutes once the vanilla image is cached.
+3. Run a Plume that has the VM pool. `plume-vm` talks to the app at `PLUME_SOCKET`, so set it to the socket of the app that should own the VM. When you test a debug build of this feature, that is the debug build's socket, and `PLUME_CLI` is its `plume` tool.
+
 ## The base image
 
 `scripts/vm/make-base-image.sh` builds `plume-base-<os>`, a stopped Tart VM in `~/.tart/vms`, where `<os>` is the host's macOS major. It runs in about 4 minutes once the vanilla image is cached; the first run downloads about 30 GB. It runs these steps:
@@ -27,6 +39,60 @@ Pass `--xcode=<Xcode.app>` to copy another Xcode, `--image=<ref>` to start from 
 - **Quitting.** Quitting with a guest running asks first, then stops every guest and answers `.terminateLater`. The app quits once all have stopped, or after 20 seconds.
 - **Display.** `VMManager.displays[n]` is what a `VZVirtualMachineView` shows. Call `attach(to:)` on the main actor; the VM itself stays on its slot's serial queue.
 - **Entitlement.** The app is signed with `com.apple.security.virtualization` (`Configuration/Plume.entitlements`, also passed by `scripts/lib/sign-bundle.sh`).
+
+## Using a VM: `scripts/vm/plume-vm`
+
+`plume-vm` runs the debug build of the current worktree, or its UI tests, in a VM. It resolves the `plume` tool from `$PLUME_CLI`, else this worktree's build, else `plume` on PATH when `plume devices help` mentions `--kind=vm`. Any other result fails and names the problem.
+
+| Command | What it does |
+| --- | --- |
+| `claim [--worktree=P]` | Leases a VM and prints `vm:<n>`. Same as `plume devices claim --kind=vm`. |
+| `release vm:<n>` | Drops the slot's tunnel and pid files, then releases the VM. |
+| `list` | Lists the VM slots. |
+| `reset vm:<n>` | Deletes a free slot's clone. |
+| `ssh [-- cmd…]` | Opens a shell, or runs one command, in your VM. |
+| `prepare` | Mirrors the host paths in the guest (see below). `launch` and `test` run it first. |
+| `launch [--app PATH] [--seed N] [--env K=V]…` | Copies the debug app in, starts it frontmost, and forwards its control socket to the host. |
+| `test [--only-testing X]… [--skip-build]` | Builds for testing on the host, then runs the tests in the guest. |
+
+Every command that needs a VM first runs `plume devices claim --kind=vm --json`. That call is idempotent: it renews the lease you already hold.
+
+### Path mirroring
+
+`prepare` symlinks the host's worktree path and share path in the guest to the mounts under `/Volumes/My Shared Files` (`worktree` and `share`). So `#filePath`, `BuildInfo.sourceRoot`, captures and xcresult paths read the same on both sides. It removes the previous owner's symlinks and the `~/PlumeVM` leftovers first. `BuildInfo.branch` reads nil in the guest, because the worktree's `.git` file points outside the share.
+
+### Driving a VM build
+
+```
+PLUME_CLI=<worktree build>/Plume.app/Contents/Helpers/plume PLUME_SOCKET=<that app's socket> \
+  scripts/vm/plume-vm claim
+scripts/vm/plume-vm launch --seed 1
+```
+
+`launch` keeps one app and one tunnel per slot, with their pids in `~/Library/Application Support/Plume/vms/vm<n>/`. It kills the previous tunnel and the guest's `Plume` first. It then copies the app into the share with `cp -Rc`, runs `rsync -a --delete` into `~/PlumeVM/Plume.app` in the guest, and starts it with `open --env PLUME_CONTROL_SOCKET=/tmp/plume-control.sock`. It forwards that socket to the slot's `controlSocket`, checks it answers, and records the branch with `plume devices installed`. It then prints the `plume-control.py --socket <controlSocket> …` line to drive the app, as in the `drive-plume` skill.
+
+Right after launch, the menu chords read disabled. Invoke the selected tab chip once, as the script prints:
+
+```
+scripts/debug/plume-control.py --socket <controlSocket> invoke target='{"id":"tab-chip","index":0}'
+```
+
+Release the VM when you finish: `scripts/vm/plume-vm release vm:<n>`. A VM left claimed holds one of the 2 slots until its lease expires.
+
+### Running the tests
+
+`test` refuses to run when the guest's `xcodebuild -version` differs from the host's. It stops any app and tunnel that `launch` started. Unless `--skip-build` is set, it runs `build-for-testing` into `build/vm-dd`. It copies `Build/Products` into the share, runs `rsync -a --delete` into `~/PlumeVM/Products` in the guest, then runs `test-without-building -xctestrun`. The default set is `PlumeUITests`, `PlumeTests/SurfaceCommandTests`, `PlumeTests/TerminalShortcutReclaimTests` and `PlumeTests/ControlHierarchyTests`; each `--only-testing` replaces it.
+
+The script prints the host path of the `.xcresult` and its summary. It fails when a requested suite ran zero tests, and otherwise exits with `xcodebuild`'s status.
+
+## Limits
+
+- Guest Metal is paravirtualized. Use a VM for correctness, not performance.
+- A guest never really sleeps, so it can't test sleep behavior.
+- Each running VM uses about 8 GB of RAM.
+- The guest's Xcode must match the host's. Rebuild the base image after an Xcode update.
+- VMs die with their owning app. Quitting, relaunching or crashing it stops them.
+- Virtualization allows 2 macOS guests per host, shared with every other app that runs one.
 
 ## Spike findings
 

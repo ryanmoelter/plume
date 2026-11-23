@@ -10,9 +10,8 @@
 set -euo pipefail
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
-VMS_DIR="$HOME/Library/Application Support/Plume/vms"
-KEY="$VMS_DIR/id_ed25519"
-GUEST_USER=admin
+# shellcheck source=lib.sh
+source "$ROOT/scripts/vm/lib.sh"
 # Cirrus's published default; the vanilla image ships with it.
 GUEST_PASSWORD=admin
 
