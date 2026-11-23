@@ -1,4 +1,5 @@
 import Foundation
+import SwiftData
 import Testing
 @testable import Plume
 
@@ -135,6 +136,74 @@ struct CodexSharedSessionTests {
         }
         #expect(calls.map(\.toolUseID) == ["turn-a#start-b", "turn-a#proposal"])
         #expect(approvals == [true, false])
+    }
+
+    @Test func codexChildCanSendNotesToItsParentFromAUserTurn() async throws {
+        let container = try ModelContainer(
+            for: Schema([TaskGroup.self, WorkTask.self, TaskTab.self]),
+            configurations: [ModelConfiguration(isStoredInMemoryOnly: true)]
+        )
+        let context = ModelContext(container)
+        let task = TaskStore.createTask(in: context, title: "Task", siblings: [])
+        let parent = try #require(task.tabs.first)
+        let child = TaskStore.addChildTab(to: task, parent: parent, in: context)
+        let sibling = TaskStore.addChildTab(to: task, parent: parent, in: context)
+        try context.save()
+
+        let h = Harness()
+        let host = CodexSharedAppServer(physical: h.client)
+        let childSession = CodexSession(tabID: child.id, taskID: task.id, client: CodexAppServerClient(sharedServer: host))
+        let parentSession = HeadlessSession(tabID: parent.id, taskID: task.id)
+        let coordinator = ChildSessionCoordinator()
+        coordinator.attach(to: childSession, tab: child)
+        coordinator.attach(to: parentSession, task: task, tab: parent)
+        defer {
+            childSession.stop()
+            CodexItemStore.shared.forget(tabID: child.id)
+            CodexSubagentStore.shared.forget(tabID: child.id)
+        }
+
+        childSession.start(workingDirectory: "child", resumeThreadID: nil, model: nil, isChildSession: true, environment: [:])
+        for _ in 0..<1000 {
+            if childSession.sessionID == "child" { break }
+            await Task.yield()
+        }
+        try #require(childSession.sessionID == "child")
+        #expect(h.newThreadParameters.first?["dynamicTools"]?.arrayValue?.compactMap { $0["name"]?.stringValue } == [
+            "plume_presence", "plume_send_message"
+        ])
+        h.client.receive(#"{"method":"turn/started","params":{"threadId":"child","turn":{"id":"user-turn"}}}"#)
+
+        func call(_ id: Int, _ tool: String, to: String, message: String, turn: String = "user-turn") async throws -> JSONValue {
+            h.client.receive(#"{"id":\#(id),"method":"item/tool/call","params":{"threadId":"child","turnId":"\#(turn)","callId":"call-\#(id)","tool":"\#(tool)","arguments":{"to":"\#(to)","message":"\#(message)"}}}"#)
+            for _ in 0..<1000 {
+                if let reply = h.responses.first(where: { $0["id"] == .number(Double(id)) }) { return reply }
+                await Task.yield()
+            }
+            return try #require(h.responses.first { $0["id"] == .number(Double(id)) })
+        }
+
+        let stale = try await call(910, "plume_send_message", to: "parent", message: "Stale note", turn: "old-turn")
+        #expect(stale["error"]?["code"] == .number(-32601))
+        let sideways = try await call(911, "plume_send_message", to: sibling.id.uuidString, message: "Sibling note")
+        #expect(sideways["result"]?["success"] == .bool(false))
+        let start = try await call(912, "plume_start_session", to: "parent", message: "Start")
+        #expect(start["result"]?["success"] == .bool(false))
+        let dismiss = try await call(913, "plume_dismiss_task", to: "parent", message: "Dismiss")
+        #expect(dismiss["result"]?["success"] == .bool(false))
+        #expect(parentSession.userMessagePreamble?() == nil)
+
+        let alias = try await call(914, "plume_send_message", to: "parent", message: "Need a decision")
+        #expect(alias["result"]?["success"] == .bool(true))
+        let uuid = try await call(915, "plume_send_message", to: parent.id.uuidString.lowercased(), message: "See the draft")
+        #expect(uuid["result"]?["success"] == .bool(true))
+        #expect(childSession.pendingPermissions.isEmpty)
+        h.client.receive(#"{"method":"turn/completed","params":{"threadId":"child","turn":{"id":"user-turn","status":"completed"}}}"#)
+        let preamble = try #require(parentSession.userMessagePreamble?()?.wire.plainText)
+        #expect(preamble.contains("Need a decision"))
+        #expect(preamble.contains("See the draft"))
+        #expect(preamble.contains(#""event":"message""#))
+        #expect(!preamble.contains(#""event":"turn_finished""#))
     }
 
 }

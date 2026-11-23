@@ -7,7 +7,7 @@ The code lives in `Plume/Agent/ChildSessions/`. Claude Code uses `mcp_message` a
 ## The pieces
 
 - **`PlumeMCPServer`** is Plume's own MCP server. Every headless Claude launch serves it, through `sdkMcpServers` in `initialize` and `mcp_message` control requests. It is pure JSON-RPC: it answers `initialize`, `tools/list`, `tools/call` and `ping`, and hands each call to a closure.
-- **`CodexChildSessionTools`** registers the parent tools as `plume_start_session`, `plume_dismiss_task` and `plume_send_message` when Plume starts a Codex parent thread. A resumed thread keeps the registration it started with.
+- **`CodexChildSessionTools`** registers the parent tools as `plume_start_session`, `plume_dismiss_task` and `plume_send_message` when Plume starts a Codex parent thread. A Codex child thread registers only `plume_send_message` from this set. A resumed thread keeps the registration it started with.
 - **`ChildSessionCoordinator`** opens a child's tab, launches it, carries notes both ways and decides when a note wakes the parent. `AgentLauncher` attaches it to both headless providers before `start`.
 - **`ChildSessionWakePolicy`** is the pure state machine for one parent's notes.
 - **`ChildSessionFormats`** holds every piece of text the models see.
@@ -51,7 +51,7 @@ The result tells the parent to end its turn:
 
 A child's `tools/list` has only `send_message`, so a child cannot start sessions of its own. A tab whose `parentTabIDRaw` is set stays a child after its parent closes; its `send_message` to the parent then returns an error saying the parent is closed.
 
-Codex children receive the parent's messages through app-server. The final reply from a turn started by the parent reaches it automatically. Turns the user starts in the Codex tab stay there. Codex children receive messages and report automatically through the coordinator.
+A Codex child can call `plume_send_message` from any turn, including a turn the user starts. The final reply from a turn the parent starts still reaches it automatically. Explicit notes follow the same queue and wake rules as Claude Code notes. An existing Codex child thread that started without the tool needs a fresh conversation to gain it.
 
 ### Permissions
 
