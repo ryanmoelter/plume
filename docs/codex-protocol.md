@@ -107,7 +107,8 @@ an empty object and returns the same `awake`, `asleep`, or `locked` text as
 `plume presence`, using the same CoreGraphics reader.
 
 Plume also registers `plume_start_session`, `plume_dismiss_task` and
-`plume_send_message` for Codex parents. See [Child sessions](child-sessions.md)
+`plume_send_message` for Codex parents. Codex children register only
+`plume_send_message` from this set and can address their own parent. See [Child sessions](child-sessions.md)
 for launch settings, approvals, cards and reports.
 
 Codex asks for each tool through `item/tool/call`. Plume checks the root

@@ -8,7 +8,11 @@ struct CodexChildSessionTools {
     var definitions: [JSONValue] {
         tools.map { tool in
             var description = ChildSessionFormats.description(of: tool)
-            if tool == .startSession {
+            if case .child(let parentID) = role {
+                description = """
+                Send a note to the Plume session that started this one. Set `to` to "parent" or its session ID, \(parentID), and put the note in `message`. Use this in any turn, including one the user started here. The final reply from a turn your parent started already reaches it automatically. Finish your turn after sending so Plume can deliver queued notes.
+                """
+            } else if tool == .startSession {
                 description += " A Codex parent starts fresh sessions only. Use a native subagent for a quick lookup that must finish before you continue. Reports arrive as later turns; do not poll."
             }
             return .object([

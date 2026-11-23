@@ -59,11 +59,10 @@ final class ChildSessionCoordinator {
 
     func attach(to session: CodexSession, tab: TaskTab) {
         let tabID = tab.id
-        if !tab.isChildSession {
-            session.childSessionTools = CodexChildSessionTools(role: .parent) { [weak self, weak tab] call, approvedByUser in
-                guard let self, let tab, tab.isLive else { return .failure("This session's tab is closed.") }
-                return await self.handle(call, from: tab, forkCut: nil, approvedByUser: approvedByUser)
-            }
+        let role: PlumeMCPServer.Role = tab.isChildSession ? .child(parentID: tab.parentTabIDRaw) : .parent
+        session.childSessionTools = CodexChildSessionTools(role: role) { [weak self, weak tab] call, approvedByUser in
+            guard let self, let tab, tab.isLive else { return .failure("This session's tab is closed.") }
+            return await self.handle(call, from: tab, forkCut: nil, approvedByUser: approvedByUser)
         }
         session.userMessagePreamble = { [weak self] in self?.takePreamble(forParent: tabID) }
         session.onTurnFinished = { [weak self, weak tab] outcome in
@@ -638,20 +637,13 @@ final class ChildSessionCoordinator {
         else { return .failure(.invalid("message is required")) }
         guard sender.task != nil else { return .failure(.failed("This session's task is gone.")) }
 
-        let parent = parent(of: sender)
-        if sender.isChildSession, parent == nil, to == "parent" || to.caseInsensitiveCompare(sender.parentTabIDRaw) == .orderedSame {
-            return .failure(.failed("The session that started this one is closed, so nothing can reach it."))
-        }
-        let target: TaskTab
-        if to == "parent", let parent {
-            target = parent
-        } else if let id = UUID(uuidString: to), let tab = TaskStore.openTab(id, in: sender.modelContext) {
-            target = tab
-        } else {
-            return .failure(.unknownSession(to))
-        }
-
-        if let parent, target.id == parent.id {
+        if sender.isChildSession {
+            guard to == "parent" || to.caseInsensitiveCompare(sender.parentTabIDRaw) == .orderedSame else {
+                return .failure(.notRelated(to))
+            }
+            guard let parent = parent(of: sender) else {
+                return .failure(.failed("The session that started this one is closed, so nothing can reach it."))
+            }
             let text = ChildSessionFormats.messageFromChildNote(child: participant(sender), text: message)
             let note = ChildSessionWakePolicy.Note(childID: sender.id, text: text, kind: .message)
             deliver(note, toParent: parent, wakes: true)
@@ -664,6 +656,9 @@ final class ChildSessionCoordinator {
                 activity(of: parent).childIsWorking ? .awaitingSessions : .queued
             }
             return .success(ChildSessionFormats.delivered(to: TitleStore.shared.chipTitle(for: parent), delivery))
+        }
+        guard let id = UUID(uuidString: to), let target = TaskStore.openTab(id, in: sender.modelContext) else {
+            return .failure(.unknownSession(to))
         }
         guard target.parentTabID == sender.id else { return .failure(.notRelated(to)) }
         let note = ChildSessionFormats.messageFromParentNote(parent: participant(sender), text: message)
