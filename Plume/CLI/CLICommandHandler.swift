@@ -139,6 +139,7 @@ final class CLICommandHandler {
             switch request {
             case .claimVM(let params):
                 let claimed = try vms.claim(owner: params.owner, worktree: params.worktree, branch: params.branch, ttl: params.ttl)
+                if let callerTabID = params.owner.tabID { showVMTab(slot: claimed.slot, besideTab: callerTabID) }
                 response.vm = vms.info(claimed.slot)
                 response.created = !claimed.reused
             case .vmStatus(let params):
@@ -169,6 +170,28 @@ final class CLICommandHandler {
         } catch {
             return .failure(error.localizedDescription)
         }
+    }
+
+    /// Best effort: a claim from a tab Plume doesn't show opens nothing. A VM tab that claimed
+    /// shows the slot itself; any other caller gets a VM tab opposite its pane, behind the
+    /// selection, as `devices.show` places a device tab.
+    private func showVMTab(slot: Int, besideTab callerTabID: UUID) {
+        guard let (task, context) = currentTask(ofTab: callerTabID) else { return }
+        if let caller = task.tabs.first(where: { $0.id == callerTabID }), caller.kind == .vm {
+            caller.vmSlot = slot
+            return
+        }
+        let candidates = task.orderedTabs.filter { $0.kind == .vm }.map { tab in
+            let shown = tab.vmSlot == 0 ? nil : vms.slot(tab.vmSlot)
+            return VMTabChoice.Candidate(
+                id: tab.id,
+                vmSlot: tab.vmSlot,
+                showsLiveSlot: shown.map { $0.lease != nil || $0.state != .idle } ?? false
+            )
+        }
+        let tab = VMTabChoice.tab(for: slot, among: candidates).flatMap { id in task.tabs.first { $0.id == id } }
+            ?? TaskStore.addDeviceTab(to: task, kind: .vm, besideTab: callerTabID, in: context)
+        tab.vmSlot = slot
     }
 
     /// The task the tab is in now, which a moved tab changes.

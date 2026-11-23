@@ -87,6 +87,9 @@ final class TaskTab {
     var remoteDeviceModel: String? = nil
     var remoteExpiresAt: Date? = nil
 
+    /// The `VMManager` slot a `.vm` tab shows, or 0 for none chosen yet.
+    var vmSlot: Int = 0
+
     /// A chat tab's unread mark: the ID of the conversation's latest message
     /// when the mark was set. Nil reads as read. `UnreadPersistence` owns it.
     var unreadMessageID: String? = nil
@@ -284,6 +287,7 @@ final class TaskTab {
         case .agent: return "Agent"
         case .terminal: return "Terminal"
         case .device: return "Device"
+        case .vm: return vmSlot == 0 ? "VM" : VMPaths.key(vmSlot)
         }
     }
 }

@@ -154,6 +154,8 @@ struct TabContentView: View {
             TerminalTabHost(task: task, tab: tab, isVisible: isVisible, isFocused: isFocused)
         case .device:
             DeviceTabHost(tab: tab, isVisible: isVisible)
+        case .vm:
+            VMTabHost(tab: tab, isVisible: isVisible)
         }
     }
 }

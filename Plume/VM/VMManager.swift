@@ -48,6 +48,7 @@ final class VMManager {
         case notOwner(key: String, holder: String)
         case busy(key: String, state: VMSlotState)
         case heldElsewhere(String)
+        case slotTaken(String)
 
         var errorDescription: String? {
             switch self {
@@ -68,6 +69,8 @@ final class VMManager {
                 "\(key) is \(state.rawValue); release it first"
             case .heldElsewhere(let key):
                 "another Plume is running \(key)'s clone"
+            case .slotTaken(let key):
+                "\(key) is in use"
             }
         }
     }
@@ -107,8 +110,16 @@ final class VMManager {
     // MARK: Leases
 
     /// Leases a slot and boots it in the background, answering at once. A claim by an owner that
-    /// already holds a slot renews it, and boots it again if its boot failed.
-    func claim(owner: DeviceLeaseOwner, worktree: String?, branch: String?, ttl: TimeInterval? = nil) throws -> (slot: Int, reused: Bool) {
+    /// already holds a slot renews it, and boots it again if its boot failed. `preferred` asks for
+    /// one slot, as a VM tab's picker does, and fails rather than take another; an owner that
+    /// already holds a slot still gets its own.
+    func claim(
+        owner: DeviceLeaseOwner,
+        worktree: String?,
+        branch: String?,
+        ttl: TimeInterval? = nil,
+        preferred: Int? = nil
+    ) throws -> (slot: Int, reused: Bool) {
         let ttl = ttl ?? Self.defaultTTL
         if let held = slots.first(where: { $0.lease?.owner == owner }) {
             let lease = held.lease!
@@ -120,10 +131,18 @@ final class VMManager {
             return (held.number, true)
         }
         guard backend.baseImageExists() else { throw Failure.missingBase(VMPaths.baseName(os: backend.hostOSMajor)) }
-        let free = slots.first { slot in
-            slot.lease == nil && (slot.state == .idle || slot.state == .failed) && backend.isCloneFree(slot: slot.number)
+        let isFree = { (slot: Slot) in
+            slot.lease == nil && (slot.state == .idle || slot.state == .failed) && self.backend.isCloneFree(slot: slot.number)
         }
-        guard let free else { throw Failure.poolFull }
+        let free: Slot
+        if let preferred {
+            guard let wanted = slot(preferred) else { throw Failure.unknownKey(VMPaths.key(preferred)) }
+            guard isFree(wanted) else { throw Failure.slotTaken(wanted.key) }
+            free = wanted
+        } else {
+            guard let first = slots.first(where: isFree) else { throw Failure.poolFull }
+            free = first
+        }
         let claimedAt = now()
         update(free.number) {
             $0.lease = Lease(owner: owner, worktree: worktree, branch: branch, claimedAt: claimedAt, expiresAt: claimedAt.addingTimeInterval(ttl))

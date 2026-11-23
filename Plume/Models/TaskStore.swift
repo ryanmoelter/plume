@@ -382,10 +382,15 @@ enum TaskStore {
         return .pane(occupied == 0 ? paneCount - 1 : 0)
     }
 
-    /// A new device tab, shown in the pane `deviceTabPlacement` picks, with
-    /// focus left where it was: the claiming agent is usually mid-turn.
+    /// A new device or VM tab, shown in the pane `deviceTabPlacement` picks,
+    /// with focus left where it was: the claiming agent is usually mid-turn.
     @discardableResult
-    static func addDeviceTab(to task: WorkTask, besideTab launchingTabID: UUID, in context: ModelContext) -> TaskTab {
+    static func addDeviceTab(
+        to task: WorkTask,
+        kind: TabKind = .device,
+        besideTab launchingTabID: UUID,
+        in context: ModelContext
+    ) -> TaskTab {
         let previous = focusedTab(of: task)
         let placement = deviceTabPlacement(
             launchingPane: task.tabs.first { $0.id == launchingTabID }?.paneIndex,
@@ -395,10 +400,10 @@ enum TaskStore {
         let tab: TaskTab
         switch placement {
         case .newPane:
-            tab = addTab(to: task, kind: .device, in: context)
+            tab = addTab(to: task, kind: kind, in: context)
             openInSplit(tab, side: .right, in: task)
         case .pane(let pane):
-            tab = addTab(to: task, kind: .device, pane: pane, in: context)
+            tab = addTab(to: task, kind: kind, pane: pane, in: context)
         }
         if let previous { selectTab(previous, in: task) }
         return tab
@@ -713,7 +718,8 @@ enum TaskStore {
         AgentSessionManager.shared.closeSession(for: tabID)
         DeviceSessionManager.shared.closeSession(for: tabID)
         DeviceLeaseCoordinator.shared.tabForgotten(tabID)
-        VMManager.shared.tabForgotten(tabID)
+        // A VM tab only views its slot, even when it claimed it.
+        if tab.kind != .vm { VMManager.shared.tabForgotten(tabID) }
         ChildSessionCoordinator.shared.tabForgotten(tabID)
         TitleStore.shared.forget(tabID: tabID)
         TabDirectoryStore.shared.forget(tabID: tabID)
