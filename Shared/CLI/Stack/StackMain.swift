@@ -15,7 +15,7 @@ nonisolated enum Stack {
     static let commands = [
         "list", "l", "la", "create", "c", "split", "track", "untrack",
         "checkout", "co", "prev", "next", "first", "last",
-        "restack", "submit", "sync", "undo", "setup", "help",
+        "restack", "absorb", "submit", "sync", "undo", "setup", "help",
     ]
 
     static let helpCommands: Set<String> = ["help", "-h", "--help"]
@@ -102,6 +102,7 @@ nonisolated enum Stack {
         case "first": try navigate(ctx, .first, rest)
         case "last": try navigate(ctx, .last, rest)
         case "restack": try restack(ctx, rest)
+        case "absorb": try absorb(ctx, rest)
         case "submit": try submit(ctx, rest)
         case "sync": try sync(ctx, rest)
         case "undo": try undo(ctx, rest)
@@ -227,6 +228,16 @@ nonisolated enum Stack {
                     forge. On a conflict: exits 3; resolve, `git rebase --continue`, then
                     re-run `stack restack` (it resumes where it stopped; `git rebase
                     --abort` backs out of the current step only).
+              \(b)absorb [--dry-run]\(r)
+                    Fold each staged hunk into the commit of the current stack (this
+                    branch and its ancestors down to trunk) that last touched its lines,
+                    then rebuild the branches above that commit, as a fixup plus
+                    autosquash would. A hunk with no clear target (lines last changed
+                    outside the stack, context changed again by a later commit, a new
+                    file, a binary or mode change) stays staged and is listed. Never
+                    touches the working tree, so unstaged edits are fine; branches
+                    forking off a rewritten branch are restacked once the tree is clean.
+                    `stack undo` puts the absorbed changes back in the index.
               \(b)submit [--all] [--ready] [--dry-run]\(r)
                     Push the current branch and its ancestors (force-with-lease), create
                     PRs/MRs for branches that lack one (base = parent; DRAFT unless
@@ -254,13 +265,15 @@ nonisolated enum Stack {
 
               \(b)undo [<n>] [--list] [--dry-run]\(r)
                     Put the stack's branch tips and state back as they were before the
-                    last restack, sync, split or create --insert. Branches the command
-                    created are deleted, ones it deleted are recreated, and the checkout
-                    returns to where the command started. Refuses a dirty working tree;
-                    a branch checked out in another clean worktree is reset there. Undo
-                    records a snapshot of its own, so a second undo redoes. --list shows
-                    the last 20 snapshots, newest first (a picker on a TTY); <n>
-                    restores the n-th of them.
+                    last restack, sync, split, absorb or create --insert. Branches the
+                    command created are deleted, ones it deleted are recreated, and the
+                    checkout returns to where the command started. Refuses a dirty
+                    working tree (except after absorb, which it undoes with a soft
+                    reset); a branch checked out in another clean worktree is reset
+                    there. Local only — nothing pushed is undone. Undo records a
+                    snapshot of its own, so a second undo redoes. --list shows the last
+                    20 snapshots, newest first (a picker on a TTY); <n> restores the
+                    n-th of them.
 
               \(b)setup\(r)                     Open Plume's Settings ▸ Projects.
               \(b)help\(r)                      Show this text.

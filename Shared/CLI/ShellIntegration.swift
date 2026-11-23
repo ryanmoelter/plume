@@ -185,6 +185,7 @@ nonisolated enum ShellIntegration {
             'first:switch to the stack root'
             'last:switch to the stack tip'
             'restack:rebase each branch onto its parent'
+            'absorb:fold staged hunks into the stack commits they fix'
             'submit:push + create/retarget draft PRs'
             'sync:fetch, absorb merged PRs, restack'
             'undo:restore the branches from before the last stack command'

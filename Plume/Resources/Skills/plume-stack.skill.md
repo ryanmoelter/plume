@@ -1,6 +1,6 @@
 ---
 name: plume-stack
-description: Manage stacked branches and their PRs or MRs with Plume's `plume stack` command — create, split, track, navigate, restack, submit and sync. Use on "stack these changes", "restack", "submit the stack", and whenever a branch is or will be based on another feature branch rather than the trunk ("base this on X", "branch off X"), inside a Plume tab ($PLUME is set).
+description: Manage stacked branches and their PRs or MRs with Plume's `plume stack` command — create, split, track, navigate, restack, absorb fixes, submit, sync and undo. Use on "stack these changes", "restack", "submit the stack", and whenever a branch is or will be based on another feature branch rather than the trunk ("base this on X", "branch off X"), inside a Plume tab ($PLUME is set).
 ---
 
 # Stacked branches with `plume stack`
@@ -20,7 +20,8 @@ If `plume` is not on PATH, run `"$PLUME_CLI"` instead.
 - If the stack's state is unclear, run `restack`, `submit` or `sync` with `--dry-run` first.
 - Pass bare branch names. `create` and `split` add the branch prefix from Plume's Settings ▸ Projects themselves.
 - `restack` refuses a dirty working tree, and `plume stack` never stashes. Commit first.
-- If a `restack`, `sync`, `split` or `create --insert` left the stack wrong, run `plume stack undo`. Don't walk the reflog. `plume stack undo --list` lists older snapshots, and `plume stack undo <n>` restores one. Undo is local only, so re-push anything `sync --push` or `submit` already pushed.
+- To fix a commit lower in the stack, edit the file, `git add` the fix, and run `plume stack absorb`. It folds each staged hunk into the stack commit that last touched those lines and rebuilds the branches above. Check the "left staged" list it prints: those hunks had no clear target, so commit them yourself.
+- If a `restack`, `sync`, `split`, `absorb` or `create --insert` left the stack wrong, run `plume stack undo`. Don't walk the reflog. `plume stack undo --list` lists older snapshots, and `plume stack undo <n>` restores one. Undo is local only, so re-push anything `sync --push` or `submit` already pushed.
 
 ## Common commands
 
@@ -34,4 +35,5 @@ If `plume` is not on PATH, run `"$PLUME_CLI"` instead.
 | Rebase after changing a branch | `plume stack restack` (`--all` for the whole tree, `--trunk` to also move the root onto the latest trunk) |
 | Push and open or retarget PRs | `plume stack submit` (`--all` for the whole tree) |
 | After a parent PR merged | `plume stack sync` (`--push` also pushes and retargets) |
+| Fold staged fixes into earlier stack commits | `plume stack absorb` (`--dry-run` to see where each hunk goes) |
 | Back out the last ref-moving command | `plume stack undo` (`--dry-run` first to see what moves) |

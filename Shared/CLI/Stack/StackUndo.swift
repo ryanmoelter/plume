@@ -14,6 +14,10 @@ nonisolated struct StackUndoSnapshot: Equatable, Sendable {
     /// can track a branch and then move it.
     var tips: [String: String]
     var state: StackBranches
+    /// Restoring moves the checked-out branch with `reset --soft`, so the
+    /// changes a command committed from the index (`absorb`) come back
+    /// staged.
+    var keepsIndex = false
 }
 
 nonisolated enum StackUndoCodec {
@@ -29,7 +33,7 @@ nonisolated enum StackUndoCodec {
             StackJSONMember("current", snapshot.current.map(StackJSON.string) ?? .null),
             StackJSONMember("tips", .object(snapshot.tips.map { StackJSONMember($0.key, .string($0.value)) })),
             StackJSONMember("state", state),
-        ])
+        ] + (snapshot.keepsIndex ? [StackJSONMember("keepsIndex", .bool(true))] : []))
         return document.rendered(sortKeys: true) + "\n"
     }
 
@@ -53,7 +57,10 @@ nonisolated enum StackUndoCodec {
             state[record.name] = record.entry
         }
         let current: String? = if case .string(let name)? = document["current"] { name } else { nil }
-        return StackUndoSnapshot(id: id, command: command, created: created, worktree: worktree, current: current, tips: tips, state: state)
+        return StackUndoSnapshot(
+            id: id, command: command, created: created, worktree: worktree, current: current, tips: tips, state: state,
+            keepsIndex: document["keepsIndex"] == .bool(true)
+        )
     }
 
     private static func timestampFormatter() -> ISO8601DateFormatter {
@@ -168,7 +175,7 @@ nonisolated extension StackContext {
     /// Records the branches and `branches` before a command moves refs. The
     /// caller holds the state lock, and passes the result to
     /// `discardUndoIfUnchanged` once the command succeeds.
-    func recordUndo(_ command: String, _ branches: StackBranches) throws -> StackUndoSnapshot {
+    func recordUndo(_ command: String, _ branches: StackBranches, keepsIndex: Bool = false) throws -> StackUndoSnapshot {
         var snapshot = StackUndoSnapshot(
             id: "",
             command: command,
@@ -176,7 +183,8 @@ nonisolated extension StackContext {
             worktree: try git.git("rev-parse", "--show-toplevel"),
             current: git.currentBranch(),
             tips: try localTips(),
-            state: branches
+            state: branches,
+            keepsIndex: keepsIndex
         )
         do {
             snapshot.id = try undoStore.save(snapshot)
@@ -235,7 +243,16 @@ nonisolated extension Stack {
         } else {
             chosen = snapshots[0]
         }
-        if !dryRun { try restackPreflight(ctx) }
+        if !dryRun {
+            if chosen.keepsIndex {
+                if ctx.git.currentBranch() == nil { throw CLIFailure("detached HEAD — check out a branch first") }
+                if try rebaseInProgress(ctx) {
+                    throw CLIFailure("a rebase is in progress — `git rebase --continue` or `git rebase --abort` first")
+                }
+            } else {
+                try restackPreflight(ctx)
+            }
+        }
         try ctx.state.withLock {
             let branches = try ctx.loadAndFlushLocked()
             let changes = StackUndoChange.plan(chosen, state: branches, tips: try ctx.localTips())
@@ -247,7 +264,7 @@ nonisolated extension Stack {
             }
             let here = try ctx.git.git("rev-parse", "--show-toplevel")
             let worktrees = try otherWorktrees(ctx, changes, here: here)
-            let preUndo = try ctx.recordUndo("undo", branches)
+            let preUndo = try ctx.recordUndo("undo", branches, keepsIndex: chosen.keepsIndex)
             try restore(ctx, chosen, changes, here: here, worktrees: worktrees)
             try ctx.saveState(chosen.state)
             ctx.undoStore.remove(chosen.id)
@@ -288,8 +305,8 @@ nonisolated extension Stack {
             byBranch[branch].map { $0.target != nil } ?? ctx.git.branchExists(branch)
         }
         // The checkout goes back to where the command found it, when that
-        // was this worktree.
-        var target = snapshot.worktree == here ? snapshot.current : checkedOut
+        // was this worktree. A tree that may be dirty stays where it is.
+        var target = snapshot.worktree == here && !snapshot.keepsIndex ? snapshot.current : checkedOut
         if let wanted = target, !survives(wanted) || worktrees[wanted] != nil { target = checkedOut }
         if let wanted = target, !survives(wanted) { target = ctx.trunk }
         var switched: String?
@@ -303,7 +320,7 @@ nonisolated extension Stack {
             switch change {
             case .move(let branch, _, let to):
                 if branch == now {
-                    try ctx.git.git("reset", "-q", "--keep", to)
+                    try ctx.git.git("reset", "-q", snapshot.keepsIndex ? "--soft" : "--keep", to)
                 } else if let worktree = worktrees[branch] {
                     try ctx.git.git("-C", worktree, "reset", "-q", "--keep", to)
                 } else {
