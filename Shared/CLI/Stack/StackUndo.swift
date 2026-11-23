@@ -19,6 +19,10 @@ nonisolated struct StackUndoSnapshot: Equatable, Sendable {
     /// `symbolic-ref`, so changes the command committed from the tree
     /// (`absorb`, `split --hunks`) come back staged.
     var keepsIndex = false
+    /// The branch the command left checked out, recorded once it finishes.
+    /// An index-keeping restore is only right from that checkout, since it
+    /// keeps whatever index it finds.
+    var leftOn: String?
 }
 
 nonisolated enum StackUndoCodec {
@@ -34,7 +38,8 @@ nonisolated enum StackUndoCodec {
             StackJSONMember("current", snapshot.current.map(StackJSON.string) ?? .null),
             StackJSONMember("tips", .object(snapshot.tips.map { StackJSONMember($0.key, .string($0.value)) })),
             StackJSONMember("state", state),
-        ] + (snapshot.keepsIndex ? [StackJSONMember("keepsIndex", .bool(true))] : []))
+        ] + (snapshot.keepsIndex ? [StackJSONMember("keepsIndex", .bool(true))] : [])
+            + (snapshot.leftOn.map { [StackJSONMember("leftOn", .string($0))] } ?? []))
         return document.rendered(sortKeys: true) + "\n"
     }
 
@@ -58,9 +63,10 @@ nonisolated enum StackUndoCodec {
             state[record.name] = record.entry
         }
         let current: String? = if case .string(let name)? = document["current"] { name } else { nil }
+        let leftOn: String? = if case .string(let name)? = document["leftOn"] { name } else { nil }
         return StackUndoSnapshot(
             id: id, command: command, created: created, worktree: worktree, current: current, tips: tips, state: state,
-            keepsIndex: document["keepsIndex"] == .bool(true)
+            keepsIndex: document["keepsIndex"] == .bool(true), leftOn: leftOn
         )
     }
 
@@ -110,6 +116,10 @@ nonisolated struct StackUndoStore {
         return names.filter { $0.hasSuffix(".json") }
             .map { String($0.dropLast(".json".count)) }
             .sorted { StackJSON.codePointPrecedes($1, $0) }
+    }
+
+    func replace(_ snapshot: StackUndoSnapshot) throws {
+        try StackUndoCodec.encode(snapshot).write(toFile: path(snapshot.id), atomically: true, encoding: .utf8)
     }
 
     func remove(_ id: String) {
@@ -175,7 +185,7 @@ nonisolated extension StackContext {
 
     /// Records the branches and `branches` before a command moves refs. The
     /// caller holds the state lock, and passes the result to
-    /// `discardUndoIfUnchanged` once the command succeeds.
+    /// `finishUndo` once the command succeeds.
     func recordUndo(_ command: String, _ branches: StackBranches, keepsIndex: Bool = false) throws -> StackUndoSnapshot {
         var snapshot = StackUndoSnapshot(
             id: "",
@@ -197,11 +207,32 @@ nonisolated extension StackContext {
         return snapshot
     }
 
+    /// Runs `body`, finishing `snapshot` when it throws, so a failed command
+    /// leaves no no-op snapshot ahead of the real previous one. A conflict
+    /// stop keeps it: the stopped rebase moves the branch only later.
+    func guardingUndo<T>(_ snapshot: StackUndoSnapshot, _ body: () throws -> T) throws -> T {
+        do {
+            return try body()
+        } catch {
+            if (error as? CLIFailure)?.code != Stack.conflictExitCode, let state = try? loadState() {
+                try? finishUndo(snapshot, state)
+            }
+            throw error
+        }
+    }
+
     /// Drops a snapshot whose command changed nothing, so `undo` never
-    /// restores a no-op.
-    func discardUndoIfUnchanged(_ snapshot: StackUndoSnapshot, _ branches: StackBranches) throws {
+    /// restores a no-op, and records where an index-keeping one left the
+    /// checkout.
+    func finishUndo(_ snapshot: StackUndoSnapshot, _ branches: StackBranches) throws {
         let changes = StackUndoChange.plan(snapshot, state: branches, tips: try localTips())
-        if changes.isEmpty, snapshot.state == branches { undoStore.remove(snapshot.id) }
+        if changes.isEmpty, snapshot.state == branches {
+            undoStore.remove(snapshot.id)
+        } else if snapshot.keepsIndex {
+            var finished = snapshot
+            finished.leftOn = git.currentBranch()
+            try undoStore.replace(finished)
+        }
     }
 }
 
@@ -264,12 +295,18 @@ nonisolated extension Stack {
                 return
             }
             let here = try ctx.git.git("rev-parse", "--show-toplevel")
+            if chosen.keepsIndex {
+                let leftOn = chosen.leftOn ?? chosen.current
+                guard here == chosen.worktree, let leftOn, ctx.git.currentBranch() == leftOn else {
+                    throw CLIFailure("`stack \(chosen.command)` keeps the index, so undo it from \(chosen.worktree) on '\(leftOn ?? "?")', where it left the checkout")
+                }
+            }
             let worktrees = try otherWorktrees(ctx, changes, here: here)
             let preUndo = try ctx.recordUndo("undo", branches, keepsIndex: chosen.keepsIndex)
             try restore(ctx, chosen, changes, here: here, worktrees: worktrees)
             try ctx.saveState(chosen.state)
             ctx.undoStore.remove(chosen.id)
-            try ctx.discardUndoIfUnchanged(preUndo, chosen.state)
+            try ctx.finishUndo(preUndo, chosen.state)
             for change in changes { ctx.console.print("  " + describe(change, dryRun: false)) }
             if changes.isEmpty { ctx.console.print("  (no branch moves)") }
         }

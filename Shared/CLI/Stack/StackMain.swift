@@ -196,8 +196,8 @@ nonisolated enum Stack {
                     takes [{"branch": <name>, "hunks": [<n> or <path>, ...],
                     "message": <optional>}, ...], oldest first: each entry becomes one
                     branch with one commit, a path standing for all of that file's
-                    hunks. Hunks left out stay uncommitted on the top new branch, which
-                    is checked out without touching the working tree.
+                    hunks. Hunks left out stay uncommitted, and unstaged, on the top new
+                    branch, which is checked out without touching the working tree.
               \(b)track [<branch>] [--parent <p>]\(r)
                     Start tracking <branch> (default: current). Without --parent, any
                     untracked local branches whose tips sit between the trunk and

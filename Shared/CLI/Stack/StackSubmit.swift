@@ -181,7 +181,7 @@ nonisolated extension Stack {
                     }
                 }
                 if !dryRun { try ctx.saveState(branches) }
-                if let snapshot { try ctx.discardUndoIfUnchanged(snapshot, branches) }
+                if let snapshot { try ctx.finishUndo(snapshot, branches) }
                 if !all, let anchor, branches[anchor] != nil {
                     try warnDescendantsNeedRestack(ctx, branches, anchor)
                 }

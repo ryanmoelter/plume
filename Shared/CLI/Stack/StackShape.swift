@@ -31,9 +31,12 @@ nonisolated extension Stack {
             if insert, branches[current] == nil {
                 throw CLIFailure("--insert requires the current branch to be in a stack")
             }
-            if insert { _ = try ctx.recordUndo(undoLabel("create", arguments), branches) }
+            let snapshot = insert ? try ctx.recordUndo(undoLabel("create", arguments), branches) : nil
             let result = try ctx.git.run(["switch", "-c", branch], capture: false)
-            if result.status != 0 { throw CLIFailure(nil, code: result.status) }
+            if result.status != 0 {
+                if let snapshot { try? ctx.finishUndo(snapshot, branches) }
+                throw CLIFailure(nil, code: result.status)
+            }
             if insert {
                 // Their base already equals this tip, so it stays consistent.
                 for child in branches.keys where branches[child]?.parent == current {
@@ -75,16 +78,18 @@ nonisolated extension Stack {
                 throw CLIFailure("branch '\(pair.name)' already exists")
             }
             if Set(pairs.map(\.name)).count != pairs.count { throw CLIFailure("duplicate branch names") }
-            _ = try ctx.recordUndo(undoLabel("split", arguments), branches)
-            var previous = (name: entry.parent, sha: entry.base)
-            for pair in pairs {
-                try ctx.git.git("branch", pair.name, pair.sha)
-                branches[pair.name] = StackEntry(parent: previous.name, base: previous.sha)
-                previous = pair
+            let snapshot = try ctx.recordUndo(undoLabel("split", arguments), branches)
+            try ctx.guardingUndo(snapshot) {
+                var previous = (name: entry.parent, sha: entry.base)
+                for pair in pairs {
+                    try ctx.git.git("branch", pair.name, pair.sha)
+                    branches[pair.name] = StackEntry(parent: previous.name, base: previous.sha)
+                    previous = pair
+                }
+                branches[current]?.parent = previous.name
+                branches[current]?.base = previous.sha
+                try ctx.saveState(branches)
             }
-            branches[current]?.parent = previous.name
-            branches[current]?.base = previous.sha
-            try ctx.saveState(branches)
             ctx.console.print("split '\(current)' into: \(pairs.map(\.name).joined(separator: ", ")) ← \(current)")
             let root = StackGraph.root(branches, of: current)
             ctx.console.print(try render(ctx, branches, roots: [root], current: current, prs: [:], prState: .off))

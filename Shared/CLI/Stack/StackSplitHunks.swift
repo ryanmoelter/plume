@@ -142,9 +142,7 @@ nonisolated extension Stack {
             index += 1
         }
         guard let current = ctx.git.currentBranch() else { throw CLIFailure("detached HEAD — check out a branch first") }
-        if try rebaseInProgress(ctx) {
-            throw CLIFailure("a rebase is in progress — `git rebase --continue` or `git rebase --abort` first")
-        }
+        try requireNoOperationInProgress(ctx)
         let units = StackHunkSplit.units(try uncommittedChanges(ctx))
         if units.isEmpty { throw CLIFailure("no uncommitted changes to split") }
         guard let map else {
@@ -157,7 +155,12 @@ nonisolated extension Stack {
             return
         }
         if json { throw CLIFailure("--json lists hunks; it can't be combined with --map") }
-        let assignments = try StackHunkSplit.parseMap(try readMap(map), units: units).map { assignment in
+        let parsed = try StackHunkSplit.parseMap(try readMap(map), units: units)
+        let assignedUnits = Set(parsed.flatMap(\.units))
+        if let lossy = units.first(where: { assignedUnits.contains($0.id) && $0.file.kind == .unsupported(StackDiffFile.Kind.notUTF8) }) {
+            throw CLIFailure("\(lossy.file.path) is not UTF-8 text, so it can't be carried in a patch — leave it out and commit it by hand")
+        }
+        let assignments = parsed.map { assignment in
             var named = assignment
             named.branch = ctx.applyPrefix(assignment.branch)
             return named
@@ -193,16 +196,19 @@ nonisolated extension Stack {
                 parent = (assignment.branch, commit)
                 tree = next
             }
-            _ = try ctx.recordUndo(undoLabel("split", ["--hunks"]), branches, keepsIndex: true)
-            for branch in planned {
-                try ctx.git.git("branch", branch.name, branch.sha)
-                branches[branch.name] = StackEntry(parent: branch.base.name, base: branch.base.sha)
+            let snapshot = try ctx.recordUndo(undoLabel("split", ["--hunks"]), branches, keepsIndex: true)
+            try ctx.guardingUndo(snapshot) {
+                for branch in planned {
+                    try ctx.git.git("branch", branch.name, branch.sha)
+                    branches[branch.name] = StackEntry(parent: branch.base.name, base: branch.base.sha)
+                }
+                // Moves the checkout without touching the working tree, which
+                // already holds every hunk; the index follows the new tip.
+                try ctx.git.git("symbolic-ref", "HEAD", GitRef.local(parent.name))
+                try ctx.git.git("reset", "-q")
+                try ctx.saveState(branches)
+                try ctx.finishUndo(snapshot, branches)
             }
-            // Moves the checkout without touching the working tree, which
-            // already holds every hunk; the index follows the new tip.
-            try ctx.git.git("symbolic-ref", "HEAD", GitRef.local(parent.name))
-            try ctx.git.git("reset", "-q")
-            try ctx.saveState(branches)
             let assigned = assignments.reduce(0) { $0 + $1.units.count }
             let made = zip(planned, assignments).map { "\($0.name) (\($1.units.count) hunk(s))" }
             ctx.console.print("split the uncommitted changes into: \(made.joined(separator: " ← "))")

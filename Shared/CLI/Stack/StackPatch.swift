@@ -46,6 +46,8 @@ nonisolated struct StackDiffFile: Equatable, Sendable {
         /// A mode change, binary contents or a path git had to quote: the
         /// hunks can't be carried on their own.
         case unsupported(String)
+
+        static let notUTF8 = "not UTF-8 text"
     }
 
     var path: String
@@ -119,6 +121,10 @@ nonisolated enum StackPatch {
         let kind: StackDiffFile.Kind
         if path.hasPrefix("\"") {
             kind = .unsupported("path needs quoting")
+        } else if hunks.contains(where: { $0.lines.contains { $0.contains("\u{FFFD}") } }) {
+            // Output is decoded as UTF-8, so other bytes arrive replaced and
+            // a patch of them would commit the replacement character.
+            kind = .unsupported(StackDiffFile.Kind.notUTF8)
         } else if header.contains(where: { $0.hasPrefix("old mode") || $0.hasPrefix("new mode") }) {
             kind = .unsupported("mode change")
         } else if hunks.isEmpty {
@@ -145,6 +151,20 @@ nonisolated enum StackPatch {
         }
         guard let old = range(fields[1]), let new = range(fields[2]) else { return nil }
         return StackHunk(header: header, lines: lines, oldStart: old.0, oldCount: old.1, newStart: new.0, newCount: new.1)
+    }
+}
+
+nonisolated extension Stack {
+    /// For the commands that write commits from the index or the working
+    /// tree, where any half-done operation's state would be swept in.
+    static func requireNoOperationInProgress(_ ctx: StackContext) throws {
+        if try rebaseInProgress(ctx) {
+            throw CLIFailure("a rebase is in progress — `git rebase --continue` or `git rebase --abort` first")
+        }
+        for (ref, name) in [("MERGE_HEAD", "merge"), ("CHERRY_PICK_HEAD", "cherry-pick"), ("REVERT_HEAD", "revert")]
+        where ctx.git.resolve(ref) != nil {
+            throw CLIFailure("a \(name) is in progress — finish or abort it first")
+        }
     }
 }
 
@@ -176,6 +196,9 @@ nonisolated extension StackContext {
         let fields = try git.git("log", "-1", "--format=%an%x00%ae%x00%ad", "--date=raw", original).components(separatedBy: "\u{0}")
         guard fields.count == 3 else { throw CLIFailure("could not read the author of \(original.prefix(12))") }
         let message = try git.run(["log", "-1", "--format=%B", original]).stdout
+        if message.contains("\u{FFFD}") || fields[0].contains("\u{FFFD}") {
+            throw CLIFailure("\(original.prefix(12))'s message or author isn't UTF-8 — it can't be rewritten without changing it")
+        }
         let environment = ["GIT_AUTHOR_NAME=\(fields[0])", "GIT_AUTHOR_EMAIL=\(fields[1])", "GIT_AUTHOR_DATE=\(fields[2])"]
         let result = try CLIProcess.run(
             environment + ["git", "commit-tree", tree, "-p", parent, "-F", "-"],
@@ -193,7 +216,10 @@ nonisolated extension StackContext {
     /// on a conflict.
     func replayTree(_ commit: String, onto: String) throws -> String? {
         let merge = try git.run(["merge-tree", "--write-tree", "--merge-base=\(commit)^", onto, commit])
-        guard merge.status == 0 else { return nil }
+        if merge.status == 1 { return nil }
+        guard merge.status == 0 else {
+            throw CLIFailure("`git merge-tree` failed: \(merge.stderr.trimmingCharacters(in: .whitespacesAndNewlines))")
+        }
         return merge.stdout.split(whereSeparator: \.isWhitespace).first.map(String.init)
     }
 

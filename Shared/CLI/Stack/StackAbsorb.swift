@@ -54,9 +54,7 @@ nonisolated extension Stack {
         if let leftover = arguments.first(where: { $0 != "--dry-run" }) { throw CLIFailure("unknown argument: \(leftover)") }
         let dryRun = arguments.contains("--dry-run")
         if ctx.git.currentBranch() == nil { throw CLIFailure("detached HEAD — check out a branch first") }
-        if try rebaseInProgress(ctx) {
-            throw CLIFailure("a rebase is in progress — `git rebase --continue` or `git rebase --abort` first")
-        }
+        try requireNoOperationInProgress(ctx)
         try ctx.state.withLock {
             var branches = try ctx.loadAndFlushLocked()
             let current = try requireCurrentTracked(ctx, branches)
@@ -82,10 +80,12 @@ nonisolated extension Stack {
             if absorbed.isEmpty { throw CLIFailure("no staged hunk has a clear target in the stack") }
             if dryRun { return }
             let snapshot = try ctx.recordUndo(undoLabel("absorb", arguments), branches, keepsIndex: true)
-            let moved = try rewrite(ctx, &branches, path, stack, files, absorbed)
-            try ctx.saveState(branches)
-            try restackForks(ctx, &branches, path: path, moved: moved, current: current)
-            try ctx.discardUndoIfUnchanged(snapshot, branches)
+            try ctx.guardingUndo(snapshot) {
+                let moved = try rewrite(ctx, &branches, path, stack, files, absorbed)
+                try ctx.saveState(branches)
+                try restackForks(ctx, &branches, path: path, moved: moved, current: current)
+                try ctx.finishUndo(snapshot, branches)
+            }
         }
     }
 
@@ -136,7 +136,17 @@ nonisolated extension Stack {
             }
             let top = try ctx.git.git("rev-parse", "--show-toplevel")
             let blame = StackAbsorbPlanner.parseBlame(try ctx.git.git("-C", top, "blame", "--porcelain", "HEAD", "--", file.path))
-            return file.hunks.map { StackAbsorbPlanner.target($0, file: file.path, blame: blame, stackIndex: stack.index) }
+            return try file.hunks.map { hunk in
+                var target = StackAbsorbPlanner.target(hunk, file: file.path, blame: blame, stackIndex: stack.index)
+                // Blame can't see everything apply needs, such as a later
+                // commit cutting the end of the file the hunk's context reaches.
+                if let index = target.commit,
+                   try ctx.applying(file.patch([hunk]), to: try ctx.git.git("rev-parse", "\(stack.commits[index])^{tree}")) == nil {
+                    target.commit = nil
+                    target.reason = "doesn't apply at \(stack.commits[index].prefix(10))"
+                }
+                return target
+            }
         }
     }
 

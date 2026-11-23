@@ -136,6 +136,42 @@ struct StackAbsorbTests {
         #expect(try show("parent", "p.txt").contains("p3 fixed"))
         #expect(try repo.git("diff", "--cached", "--name-only").isEmpty)
     }
+
+    @Test func undoRefusesAnotherCheckout() throws {
+        try edit("p.txt", Self.parentFile, replacing: 2, with: "p3 fixed")
+        try Stack.absorb(repo.context(), [])
+        let after = try repo.rev("child")
+        try repo.git("switch", "-q", "main")
+        let failure = stackFailure { try Stack.undo(repo.context(), []) }
+        #expect(failure?.message?.contains("keeps the index, so undo it from") == true)
+        #expect(failure?.message?.contains("on 'child'") == true)
+        #expect(try repo.rev("child") == after)
+    }
+
+    /// `child` cuts the end of `p.txt`, so a fix to its new last line blames
+    /// to `parent` but can't apply there, where the file goes on.
+    @Test func aHunkThatDoesNotApplyAtItsTargetStaysStaged() throws {
+        try commit("p.txt", Array(Self.parentFile.prefix(10)), "cut p")
+        try edit("p.txt", Array(Self.parentFile.prefix(10)), replacing: 9, with: "p10 fixed")
+        try edit("c.txt", Self.childFile, replacing: 2, with: "c3 fixed")
+        try Stack.absorb(repo.context(console: console), ["--dry-run"])
+        #expect(console.stdout.contains("  p.txt @@ -9,2 +9,2 @@: doesn't apply at "))
+        #expect(console.stdout.contains("would absorb c.txt"))
+    }
+
+    @Test func aMergeInProgressIsRefused() throws {
+        try edit("p.txt", Self.parentFile, replacing: 2, with: "p3 fixed")
+        let mergeHead = try repo.git("rev-parse", "--path-format=absolute", "--git-path", "MERGE_HEAD")
+        try (try repo.rev("main") + "\n").write(toFile: mergeHead, atomically: true, encoding: .utf8)
+        #expect(stackFailure { try Stack.absorb(repo.context(), []) }?.message == "a merge is in progress — finish or abort it first")
+    }
+
+    @Test func aFailedAbsorbLeavesNoSnapshot() throws {
+        try repo.git("worktree", "add", "-q", "\(repo.directory)/wt-parent", "parent")
+        try edit("p.txt", Self.parentFile, replacing: 2, with: "p3 fixed")
+        #expect(stackFailure { try Stack.absorb(repo.context(), []) } != nil)
+        #expect(try repo.context().undoStore.list().isEmpty)
+    }
 }
 
 struct StackAbsorbPlannerTests {
@@ -199,5 +235,10 @@ struct StackAbsorbPlannerTests {
         #expect(files[0].hunks[0].oldCount == 1)
         #expect(files[0].hunks[1].removedOldLines == [9, 10])
         #expect(files[0].patch([files[0].hunks[1]]) == "diff --git a/m b/m\nindex 1..2 100644\n--- a/m\n+++ b/m\n@@ -9,2 +9,0 @@\n-c\n-d\n")
+    }
+
+    @Test func aDiffDecodedWithReplacementsIsUnsupported() {
+        let files = StackPatch.parse("diff --git a/f b/f\n--- a/f\n+++ b/f\n@@ -1 +1 @@\n-a\n+\u{FFFD}\n")
+        #expect(files[0].kind == .unsupported(StackDiffFile.Kind.notUTF8))
     }
 }
