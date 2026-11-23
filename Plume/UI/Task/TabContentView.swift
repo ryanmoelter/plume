@@ -112,6 +112,8 @@ struct TabContentView: View {
                     }
                 }
             }
+            // Without its own element, the pane's identifier replaces every child's.
+            .accessibilityElement(children: .contain)
             .plumeID(
                 AccessibilityID.tabPane,
                 label: tab.displayTitle,

@@ -83,6 +83,8 @@ struct MarkdownComposerTextView: NSViewRepresentable {
     /// The mention token being searched, drawn in the accent color. Nil
     /// while no mention menu is open.
     var activeMention: NSRange?
+    /// Set on the `NSTextView` itself, which a SwiftUI identifier never reaches.
+    var accessibilityIdentifier: String?
 
     static let minLines: CGFloat = 1
     static let maxLines: CGFloat = 8
@@ -106,6 +108,7 @@ struct MarkdownComposerTextView: NSViewRepresentable {
         context.coordinator.activeMention = activeMention
         context.coordinator.apply(text: text, fontSize: fontSize, to: textView)
         view.setVerticalInset(verticalInset)
+        textView.setAccessibilityIdentifier(accessibilityIdentifier)
         return view
     }
 
@@ -126,6 +129,7 @@ struct MarkdownComposerTextView: NSViewRepresentable {
         textView.onOptionReturn = onOptionReturn
         textView.onAttachImages = onAttachImages
         textView.onDeleteBackwardWhenEmpty = onDeleteBackwardWhenEmpty
+        textView.setAccessibilityIdentifier(accessibilityIdentifier)
 
         let commandsChanged = context.coordinator.recognizedSlashCommandNames != recognizedSlashCommandNames
         context.coordinator.recognizedSlashCommandNames = recognizedSlashCommandNames
