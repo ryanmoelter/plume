@@ -314,6 +314,30 @@ final class InProcessControlBackend: ControlBackend {
         return WindowSizeResult(windowNumber: window.windowNumber, width: size.width, height: size.height)
     }
 
+    func sidebarWidth(_ params: SidebarWidthParams) throws -> SidebarWidthResult {
+        let window = try window(for: params.windowNumber)
+        guard var state = SidebarSplit.width(in: window) else { throw ControlError.notFound("a sidebar in window \(window.windowNumber)") }
+        if params.expand == true, state.isCollapsed {
+            SidebarSplit.expand(in: window)
+            window.contentView?.layoutSubtreeIfNeeded()
+            state = SidebarSplit.width(in: window) ?? state
+        }
+        let maximum = WindowMetrics.sidebarMaximumWidth(
+            windowWidth: window.contentView?.bounds.width ?? window.frame.width,
+            paneCount: (try? selectedTaskPaneCount()) ?? 1,
+            sidebarWidth: state.width
+        )
+        if let requested = params.width, !state.isCollapsed {
+            SidebarSplit.setWidth(min(CGFloat(requested), maximum), in: window)
+            window.contentView?.layoutSubtreeIfNeeded()
+            state = SidebarSplit.width(in: window) ?? state
+        }
+        return SidebarWidthResult(
+            width: state.width, isCollapsed: state.isCollapsed, requested: params.width,
+            minimum: WindowMetrics.sidebarMinimumWidth, maximum: maximum
+        )
+    }
+
     func menu() throws -> MenuResult {
         guard let main = NSApp.mainMenu else { throw ControlError.notFound("main menu") }
         var items: [MenuItemDescription] = []
@@ -582,16 +606,16 @@ final class InProcessControlBackend: ControlBackend {
         window.contentView?.bounds.height ?? window.frame.height
     }
 
-    private func composerTextView() throws -> ComposerNSTextView {
-        let window = try window(for: nil)
+    private func composerTextView(in requested: NSWindow? = nil) throws -> ComposerNSTextView {
+        let window = try requested ?? window(for: nil)
         guard let content = window.contentView,
               let composer = inFocusedPane(ViewFinder.all(ComposerNSTextView.self, in: content), of: window)
         else { throw ControlError.noComposer }
         return composer
     }
 
-    private func chatListDocumentView() throws -> ChatListDocumentView {
-        let window = try window(for: nil)
+    private func chatListDocumentView(in requested: NSWindow? = nil) throws -> ChatListDocumentView {
+        let window = try requested ?? window(for: nil)
         guard let content = window.contentView,
               let list = inFocusedPane(ViewFinder.all(ChatListDocumentView.self, in: content), of: window)
         else { throw ControlError.notFound("chat list") }
@@ -687,9 +711,10 @@ final class InProcessControlBackend: ControlBackend {
 
     // MARK: Scrolling
 
-    func scrollTo(_ params: ScrollToParams) throws {
-        try params.validate()
-        let window = try window(for: params.windowNumber, target: params.target)
+    func scrollTo(_ params: ScrollToParams) throws -> ScrollToResult {
+        let destination = try params.destination()
+        let anchor: ControlTarget? = if case .control(let target) = destination { target } else { params.within }
+        let window = try window(for: params.windowNumber, target: anchor)
         guard let content = window.contentView else { throw ControlError.noWindow }
         let scrollable = ViewFinder.all(NSScrollView.self, in: content).filter { scrollView in
             guard !scrollView.isHiddenOrHasHiddenAncestor, let document = scrollView.documentView else { return false }
@@ -699,56 +724,76 @@ final class InProcessControlBackend: ControlBackend {
         let topLeftFrame = { (view: NSView) in
             WindowGeometry.topLeftRect(fromAppKit: view.convert(view.bounds, to: nil), contentHeight: height)
         }
+        let area = { (view: NSView) in view.frame.width * view.frame.height }
 
-        if let edge = params.edge {
-            guard edge == "top" || edge == "bottom" else { throw ControlError.badParams("edge is top or bottom") }
-            guard let scrollView = scrollable.max(by: { $0.frame.width * $0.frame.height < $1.frame.width * $1.frame.height })
-            else { throw ControlError.notFound("a scrollable view") }
-            scroll(scrollView, toBottom: edge == "bottom")
-            return
+        let scrollView: NSScrollView
+        switch anchor {
+        case .chatList?:
+            guard let list = try chatListDocumentView(in: window).enclosingScrollView else { throw ControlError.notFound("the chat list's scroll view") }
+            scrollView = list
+        case .composer?:
+            guard let composer = try composerTextView(in: window).enclosingScrollView else { throw ControlError.notFound("the composer's scroll view") }
+            scrollView = composer
+        case .control?:
+            let control = anchor!
+            let entry = try registry.resolve(control)
+            // The innermost scroll view whose column holds the control.
+            guard let containing = scrollable
+                .filter({ let frame = topLeftFrame($0); return frame.minX <= entry.frame.midX && entry.frame.midX <= frame.maxX })
+                .min(by: { area($0) < area($1) })
+            else { throw ControlError.notFound("a scrollable view around \(control)") }
+            scrollView = containing
+        case .window?, nil:
+            guard let largest = scrollable.max(by: { area($0) < area($1) }) else { throw ControlError.notFound("a scrollable view") }
+            scrollView = largest
         }
 
-        let entry = try registry.resolve(params.target!)
-        // The innermost scroll view whose column holds the control.
-        let containing = scrollable
-            .filter { let frame = topLeftFrame($0); return frame.minX <= entry.frame.midX && entry.frame.midX <= frame.maxX }
-            .min { $0.frame.width * $0.frame.height < $1.frame.width * $1.frame.height }
-        guard let scrollView = containing else { throw ControlError.notFound("a scroll view around \(params.target!)") }
-        let visible = topLeftFrame(scrollView.contentView)
-        let margin: CGFloat = 12
-        let delta: CGFloat
-        if entry.frame.minY < visible.minY {
-            delta = entry.frame.minY - visible.minY - margin
-        } else if entry.frame.maxY > visible.maxY {
-            delta = min(entry.frame.maxY - visible.maxY + margin, entry.frame.minY - visible.minY - margin)
-        } else {
-            return
+        switch destination {
+        case .control(let target):
+            let entry = try registry.resolve(target)
+            let visible = topLeftFrame(scrollView.contentView)
+            let margin: CGFloat = 12
+            if entry.frame.minY < visible.minY {
+                scroll(scrollView, by: entry.frame.minY - visible.minY - margin)
+            } else if entry.frame.maxY > visible.maxY {
+                scroll(scrollView, by: min(entry.frame.maxY - visible.maxY + margin, entry.frame.minY - visible.minY - margin))
+            }
+        case .top: setTopOffset(0, of: scrollView)
+        case .bottom: setTopOffset(.greatestFiniteMagnitude, of: scrollView)
+        case .offset(let offset): setTopOffset(offset, of: scrollView)
+        case .by(let delta): scroll(scrollView, by: delta)
         }
-        scroll(scrollView, by: delta)
+        return ScrollToResult(
+            offset: topOffset(of: scrollView), maxOffset: maxTopOffset(of: scrollView),
+            visibleHeight: scrollView.contentView.bounds.height,
+            documentHeight: Double(scrollView.documentView?.frame.height ?? 0),
+            frame: Rect(topLeftFrame(scrollView))
+        )
     }
 
     /// `delta` is in screen direction: positive moves the content up, the
     /// way scrolling down does.
     private func scroll(_ scrollView: NSScrollView, by delta: CGFloat) {
-        let clip = scrollView.contentView
-        let flipped = scrollView.documentView?.isFlipped ?? true
-        var origin = clip.bounds.origin
-        origin.y += flipped ? delta : -delta
-        setOrigin(origin, of: scrollView)
+        setTopOffset(topOffset(of: scrollView) + delta, of: scrollView)
     }
 
-    private func scroll(_ scrollView: NSScrollView, toBottom: Bool) {
-        let flipped = scrollView.documentView?.isFlipped ?? true
-        let maxY = (scrollView.documentView?.frame.height ?? 0) - scrollView.contentView.bounds.height
-        var origin = scrollView.contentView.bounds.origin
-        origin.y = toBottom == flipped ? maxY : 0
-        setOrigin(origin, of: scrollView)
+    private func maxTopOffset(of scrollView: NSScrollView) -> CGFloat {
+        max((scrollView.documentView?.frame.height ?? 0) - scrollView.contentView.bounds.height, 0)
     }
 
-    private func setOrigin(_ origin: CGPoint, of scrollView: NSScrollView) {
+    /// The clip's distance from the document's top, whichever way the
+    /// document is flipped.
+    private func topOffset(of scrollView: NSScrollView) -> CGFloat {
+        let y = scrollView.contentView.bounds.origin.y
+        return (scrollView.documentView?.isFlipped ?? true) ? y : maxTopOffset(of: scrollView) - y
+    }
+
+    private func setTopOffset(_ offset: CGFloat, of scrollView: NSScrollView) {
         let clip = scrollView.contentView
-        let maxY = max((scrollView.documentView?.frame.height ?? 0) - clip.bounds.height, 0)
-        clip.scroll(to: CGPoint(x: origin.x, y: min(max(origin.y, 0), maxY)))
+        let maxOffset = maxTopOffset(of: scrollView)
+        let clamped = min(max(offset, 0), maxOffset)
+        let y = (scrollView.documentView?.isFlipped ?? true) ? clamped : maxOffset - clamped
+        clip.scroll(to: CGPoint(x: clip.bounds.origin.x, y: y))
         scrollView.reflectScrolledClipView(clip)
     }
 

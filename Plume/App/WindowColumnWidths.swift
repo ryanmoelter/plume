@@ -95,7 +95,7 @@ fileprivate struct SidebarDividerBehavior: NSViewRepresentable {
         }
 
         private var splitView: NSSplitView? {
-            window?.contentView?.firstDescendant(ofType: NSSplitView.self)
+            window.flatMap(SidebarSplit.splitView(in:))
         }
 
         private func handle(_ event: NSEvent) -> Bool {
@@ -113,7 +113,7 @@ fileprivate struct SidebarDividerBehavior: NSViewRepresentable {
         }
 
         func setWidth(_ width: CGFloat) {
-            splitView?.setPosition(WindowMetrics.clampedSidebarWidth(width), ofDividerAt: 0)
+            if let window { SidebarSplit.setWidth(width, in: window) }
         }
 
         func resetWidth() { setWidth(WindowMetrics.sidebarIdealWidth) }
@@ -124,6 +124,32 @@ final class SidebarDivider {
     fileprivate weak var view: SidebarDividerBehavior.DividerView?
 
     func setWidth(_ width: CGFloat) { view?.setWidth(width) }
+}
+
+/// The window's sidebar as the split view holds it.
+@MainActor
+enum SidebarSplit {
+    static func splitView(in window: NSWindow) -> NSSplitView? {
+        window.contentView?.firstDescendant(ofType: NSSplitView.self)
+    }
+
+    /// Nil when the window has no sidebar split. A collapsed sidebar reads 0.
+    static func width(in window: NSWindow) -> (width: CGFloat, isCollapsed: Bool)? {
+        guard let split = splitView(in: window), let sidebar = split.arrangedSubviews.first else { return nil }
+        let isCollapsed = split.isSubviewCollapsed(sidebar) || sidebar.isHidden || sidebar.frame.width <= 0
+        return (isCollapsed ? 0 : sidebar.frame.width, isCollapsed)
+    }
+
+    /// Through the split view controller, so `NavigationSplitView`'s
+    /// column visibility follows.
+    static func expand(in window: NSWindow) {
+        guard let controller = splitView(in: window)?.delegate as? NSSplitViewController else { return }
+        controller.splitViewItems.first?.isCollapsed = false
+    }
+
+    static func setWidth(_ width: CGFloat, in window: NSWindow) {
+        splitView(in: window)?.setPosition(WindowMetrics.clampedSidebarWidth(width), ofDividerAt: 0)
+    }
 }
 
 private extension NSView {

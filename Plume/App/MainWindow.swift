@@ -212,6 +212,7 @@ struct MainWindow: View {
             requestDelete: { requestRemoval(of: $0, verb: .delete) }
         )
         .modifier(SidebarColumnWidth(task: selectedTask, widths: columnWidths))
+        .plumeControlsHidden(columnVisibility == .detailOnly)
     }
 
     /// Its own `ViewModifier` so `body`'s modifier chain stays within a

@@ -78,14 +78,22 @@ enum SyntheticClick {
             // The view's tracking loop runs the run loop in event-tracking
             // mode until the mouse-up, so the follow-ups ride timers in the
             // common modes; a sleeping task would never resume to post them.
+            installWindowHook()
             let runner = FollowUpRunner(followUps)
+            directDelivery = DirectDelivery(eventNumber: down.eventNumber, view: view)
             runner.schedule()
             let start = ContinuousClock.now
-            if view.acceptsFirstResponder, window.firstResponder !== view { window.makeFirstResponder(view) }
-            view.mouseDown(with: down)
+            NSApp.postEvent(down, atStart: false)
             let remaining = total - (ContinuousClock.now - start)
             if remaining > .zero { try? await Task.sleep(for: remaining) }
+            // A busy run loop can dequeue the mouse-down late; returning first
+            // would let it land after the caller's next step.
+            let deadline = ContinuousClock.now + .seconds(2)
+            while directDelivery != nil, ContinuousClock.now < deadline {
+                try? await Task.sleep(for: .milliseconds(10))
+            }
             runner.flush()
+            directDelivery = nil
         } else {
             NSApp.postEvent(down, atStart: false)
             for followUp in followUps {
@@ -96,11 +104,59 @@ enum SyntheticClick {
         await Task.yield()
     }
 
+    /// A posted mouse-down the window must hand straight to `view`. Posting it
+    /// first runs every local `NSEvent` monitor, as a real click does; only
+    /// the window's own first-click handling is skipped.
+    private struct DirectDelivery {
+        let eventNumber: Int
+        let view: NSView
+    }
+
+    private static var directDelivery: DirectDelivery?
+    private static var nextEventNumber = 4242
+
+    /// Called from `NSWindow.sendEvent(_:)`. True when the event went to the
+    /// view and the window must not handle it.
+    fileprivate static func deliverDirectly(_ event: NSEvent, in window: NSWindow) -> Bool {
+        guard event.type == .leftMouseDown, let pending = directDelivery,
+              event.eventNumber == pending.eventNumber, pending.view.window === window
+        else { return false }
+        directDelivery = nil
+        let view = pending.view
+        if view.acceptsFirstResponder, window.firstResponder !== view { window.makeFirstResponder(view) }
+        view.mouseDown(with: event)
+        return true
+    }
+
+    /// Routes `NSWindow.sendEvent(_:)` through `deliverDirectly` first. A
+    /// window spends a mouse-down on a view that refuses first mouse making
+    /// itself key, which a never-active instance's window never becomes.
+    static func installWindowHook() {
+        guard !isHookInstalled else { return }
+        isHookInstalled = true
+        let selector = #selector(NSWindow.sendEvent(_:))
+        guard let method = class_getInstanceMethod(NSWindow.self, selector) else { return }
+        typealias SendEvent = @convention(c) (NSWindow, Selector, NSEvent) -> Void
+        let original = unsafeBitCast(method_getImplementation(method), to: SendEvent.self)
+        let replacement: @convention(block) (NSWindow, NSEvent) -> Void = { window, event in
+            let handled = MainActor.assumeIsolated { deliverDirectly(event, in: window) }
+            if !handled { original(window, selector, event) }
+        }
+        method_setImplementation(method, imp_implementationWithBlock(replacement))
+    }
+
+    private static var isHookInstalled = false
+
+    private static func takeEventNumber() -> Int {
+        nextEventNumber += 1
+        return nextEventNumber
+    }
+
     private static func event(_ type: NSEvent.EventType, at point: NSPoint, in window: NSWindow, clickCount: Int) -> NSEvent? {
         NSEvent.mouseEvent(
             with: type, location: point, modifierFlags: [],
             timestamp: ProcessInfo.processInfo.systemUptime, windowNumber: window.windowNumber,
-            context: nil, eventNumber: 4242, clickCount: clickCount, pressure: type == .leftMouseUp ? 0 : 1
+            context: nil, eventNumber: takeEventNumber(), clickCount: clickCount, pressure: type == .leftMouseUp ? 0 : 1
         )
     }
 }

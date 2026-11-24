@@ -32,12 +32,18 @@ struct ControlDispatcherTests {
             #"{"id":"19","command":"resize","width":600,"height":400,"live":true,"steps":4}"#,
             #"{"id":"20","command":"scrollTo","edge":"bottom"}"#,
             #"{"id":"21","command":"injectUsage","fable":0.5}"#,
+            #"{"id":"22","command":"sidebar.width","width":300}"#,
+            #"{"id":"23","command":"menu.open","target":{"id":"x"}}"#,
+            #"{"id":"24","command":"menu.items"}"#,
+            #"{"id":"25","command":"menu.pick","item":"Copy"}"#,
+            #"{"id":"26","command":"menu.close"}"#,
+            #"{"id":"27","command":"menu.screenshot"}"#,
         ]
         for line in lines {
             let response = await ControlDispatcher.handle(line: line, backend: backend)
             #expect(response.ok, "\(line) → \(response.error ?? "")")
         }
-        #expect(backend.calls == ["list", "describe", "invoke", "setValue", "readText", "clickSpan", "click", "screenshot", "hierarchy", "hover", "clear", "selection", "selectText", "recordStart", "recordStop", "tasks", "selectTask", "appendTurn", "resize", "scrollTo", "injectUsage"])
+        #expect(backend.calls == ["list", "describe", "invoke", "setValue", "readText", "clickSpan", "click", "screenshot", "hierarchy", "hover", "clear", "selection", "selectText", "recordStart", "recordStop", "tasks", "selectTask", "appendTurn", "resize", "scrollTo", "injectUsage", "sidebar.width", "menu.open", "menu.items", "menu.pick", "menu.close", "menu.screenshot"])
         #expect(backend.lastValue == "v")
         #expect(backend.lastSelectTask == SelectTaskParams(task: "Task 1", from: "Task 2", repeatCount: 3))
         #expect(backend.lastAppendTurn == AppendTurnParams(repeatCount: 4, reply: false))
@@ -217,8 +223,38 @@ final class FakeControlBackend: ControlBackend {
         return InjectUsageResult(isUsingOverage: false, hasWindows: false, readsUsage: false, alwaysShow: false, shows: [])
     }
 
-    func scrollTo(_ params: ScrollToParams) throws {
+    func scrollTo(_ params: ScrollToParams) throws -> ScrollToResult {
         try record("scrollTo")
+        return ScrollToResult(offset: 0, maxOffset: 0, visibleHeight: 0, documentHeight: 0, frame: Rect(.zero))
+    }
+
+    func sidebarWidth(_ params: SidebarWidthParams) throws -> SidebarWidthResult {
+        try record("sidebar.width")
+        return SidebarWidthResult(width: params.width ?? 0, isCollapsed: false, requested: params.width, minimum: 0, maximum: 0)
+    }
+
+    func openMenu(_ params: MenuOpenParams) async throws -> PopupMenuResult {
+        try record("menu.open")
+        return PopupMenuResult(items: [], picked: nil)
+    }
+
+    func menuItems() throws -> PopupMenuResult {
+        try record("menu.items")
+        return PopupMenuResult(items: [], picked: nil)
+    }
+
+    func pickMenuItem(_ params: MenuPickParams) async throws -> PopupMenuResult {
+        try record("menu.pick")
+        return PopupMenuResult(items: [], picked: params.item)
+    }
+
+    func closeMenus() async {
+        try? record("menu.close")
+    }
+
+    func menuScreenshot(_ params: MenuScreenshotParams) throws -> ScreenshotResult {
+        try record("menu.screenshot")
+        return ScreenshotResult(path: "/dev/null", width: 0, height: 0, scale: 1)
     }
 }
 
