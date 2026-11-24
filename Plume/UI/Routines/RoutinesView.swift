@@ -61,12 +61,8 @@ private struct RoutinesContent: View, ThemedView {
             "Delete \(pendingDelete?.name ?? "routine")?",
             isPresented: Binding(get: { pendingDelete != nil }, set: { if !$0 { pendingDelete = nil } })
         ) {
-            Button("Delete Routine", role: .destructive) {
-                guard let routine = pendingDelete else { return }
-                RoutineScheduler.shared.forget(routine.id)
-                context.delete(routine)
-                pendingDelete = nil
-            }
+            Button("Delete Routine", role: .destructive, action: confirmDelete)
+                .plumeID(AccessibilityID.routineDeleteConfirmButton, label: pendingDelete?.name, invoke: confirmDelete)
         } message: {
             Text("Tasks it already started stay in the sidebar.")
         }
@@ -84,6 +80,13 @@ private struct RoutinesContent: View, ThemedView {
             }
             .plumeID(AccessibilityID.routinesNewButton, invoke: { editing = .init(routine: nil) })
         }
+    }
+
+    private func confirmDelete() {
+        guard let routine = pendingDelete else { return }
+        RoutineScheduler.shared.forget(routine.id)
+        context.delete(routine)
+        pendingDelete = nil
     }
 
     private func save(_ draft: RoutineDraft, to existing: Routine?) {

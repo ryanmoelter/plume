@@ -11,6 +11,7 @@ extension AccessibilityID {
     static let routineRunNowButton = "routine-run-now-button"
     static let routineEditButton = "routine-edit-button"
     static let routineDeleteButton = "routine-delete-button"
+    static let routineDeleteConfirmButton = "routine-delete-confirm-button"
     static let routineOpenLastRunButton = "routine-open-last-run-button"
     static let routineLastRunError = "routine-last-run-error"
 

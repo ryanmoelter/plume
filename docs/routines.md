@@ -32,7 +32,7 @@ With `notifiesOnFinish`, the scheduler watches the run's tab through `StatusEngi
 
 ## Driving
 
-`plume routine list` and `plume routine run <name>` (`docs/cli.md`), and the debug control server's `routines.list`, `routines.create`, `routines.run` and `routines.tick`, which takes a fake `now` (`docs/control-server.md`).
+`plume routine list` and `plume routine run <name>` (`docs/cli.md`), and the debug control server's `routines.list`, `routines.create`, `routines.run`, `routines.delete` and `routines.tick`, which takes a fake `now` (`docs/control-server.md`).
 
 ## Not built yet
 

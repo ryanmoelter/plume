@@ -154,6 +154,7 @@ enum ControlDispatcher {
             case .listRoutines: result = .routines(try ControlRoutineCommands.list())
             case .createRoutine(let params): result = .routine(try await ControlRoutineCommands.create(params))
             case .runRoutine(let params): result = .routineRun(try await ControlRoutineCommands.run(params))
+            case .deleteRoutine(let params): result = .routineDelete(try ControlRoutineCommands.delete(params))
             case .tickRoutines(let params): result = .routineTick(try ControlRoutineCommands.tick(params))
             }
             return .success(id: request.id, result)

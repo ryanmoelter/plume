@@ -43,7 +43,14 @@ nonisolated struct ControlRoutineInfo: Encodable, Equatable {
     let repoPath: String?
     let newWorktree: Bool
     let provider: String
+    let model: String?
+    let effort: String?
     let permissionMode: String?
+    /// Only the fields of the routine's own trigger are set.
+    let intervalHours: Int?
+    let weekdays: [String]?
+    let time: String?
+    let date: String?
     let notifiesOnFinish: Bool
     let nextRunAt: String?
     let lastRunAt: String?
@@ -60,6 +67,11 @@ nonisolated struct RoutineRunResult: Encodable, Equatable {
     let routine: ControlRoutineInfo
     let taskID: UUID?
     let tabID: UUID?
+}
+
+nonisolated struct RoutineDeleteResult: Encodable, Equatable {
+    let deleted: UUID
+    let name: String
 }
 
 nonisolated struct RoutineTickResult: Encodable, Equatable {
@@ -129,6 +141,16 @@ enum ControlRoutineCommands {
         return RoutineRunResult(routine: info(routine, scheduler), taskID: lastRun.taskID, tabID: lastRun.tabID)
     }
 
+    static func delete(_ params: RoutineRunParams, scheduler: RoutineScheduler = .shared) throws -> RoutineDeleteResult {
+        guard let query = params.routine else { throw ControlError.badParams("routines.delete needs routine") }
+        let context = try context(scheduler)
+        let routine = try RoutineCommands.routine(query, in: context)
+        let result = RoutineDeleteResult(deleted: routine.id, name: routine.name)
+        scheduler.forget(routine.id)
+        context.delete(routine)
+        return result
+    }
+
     static func tick(_ params: RoutineTickParams, scheduler: RoutineScheduler = .shared) throws -> RoutineTickResult {
         _ = try context(scheduler)
         let now = try params.now.map(parseDate) ?? scheduler.now()
@@ -142,6 +164,18 @@ enum ControlRoutineCommands {
 
     private static func info(_ routine: Routine, _ scheduler: RoutineScheduler) -> ControlRoutineInfo {
         let lastRun = scheduler.lastRuns[routine.id]
+        var intervalHours: Int?
+        var weekdays: [String]?
+        var time: String?
+        var date: String?
+        switch routine.trigger {
+        case .interval(let hours): intervalHours = hours
+        case .weekly(let days, let minuteOfDay):
+            weekdays = Self.shortWeekdays.indices.filter { days.contains(weekday: $0 + 1) }.map { Self.shortWeekdays[$0] }
+            let minutes = RoutineTrigger.clamped(minuteOfDay: minuteOfDay)
+            time = String(format: "%02d:%02d", minutes / 60, minutes % 60)
+        case .once(let onceDate): date = routine.onceDate == nil ? nil : onceDate.ISO8601Format()
+        }
         return ControlRoutineInfo(
             id: routine.id,
             name: routine.name,
@@ -152,7 +186,13 @@ enum ControlRoutineCommands {
             repoPath: routine.repoPath,
             newWorktree: routine.runsInNewWorktree,
             provider: routine.provider.rawValue,
+            model: routine.modelRaw,
+            effort: routine.effortRaw,
             permissionMode: routine.permissionModeRaw,
+            intervalHours: intervalHours,
+            weekdays: weekdays,
+            time: time,
+            date: date,
             notifiesOnFinish: routine.notifiesOnFinish,
             nextRunAt: routine.nextFireDate(calendar: scheduler.calendar())?.ISO8601Format(),
             lastRunAt: routine.lastRunAt?.ISO8601Format(),
@@ -169,8 +209,11 @@ enum ControlRoutineCommands {
         return date
     }
 
+    /// Indexed by Calendar weekday minus one.
+    private static let shortWeekdays = ["sun", "mon", "tue", "wed", "thu", "fri", "sat"]
+
     private static func weekdays(_ names: [String]) throws -> RoutineWeekdays {
-        let short = ["sun", "mon", "tue", "wed", "thu", "fri", "sat"]
+        let short = shortWeekdays
         var days: RoutineWeekdays = []
         for name in names.map({ $0.lowercased() }) {
             switch name {

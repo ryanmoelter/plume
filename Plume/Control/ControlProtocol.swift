@@ -72,6 +72,7 @@ nonisolated struct ControlServerRequest: Decodable {
         case "routines.list": command = .listRoutines
         case "routines.create": command = .createRoutine(try RoutineCreateParams(from: decoder))
         case "routines.run": command = .runRoutine(try RoutineRunParams(from: decoder))
+        case "routines.delete": command = .deleteRoutine(try RoutineRunParams(from: decoder))
         case "routines.tick": command = .tickRoutines(try RoutineTickParams(from: decoder))
         default:
             throw DecodingError.dataCorruptedError(
@@ -133,6 +134,7 @@ nonisolated enum ControlCommand {
     case listRoutines
     case createRoutine(RoutineCreateParams)
     case runRoutine(RoutineRunParams)
+    case deleteRoutine(RoutineRunParams)
     case tickRoutines(RoutineTickParams)
 }
 
@@ -1077,6 +1079,7 @@ nonisolated enum ControlResult: Encodable {
     case routines(RoutineListResult)
     case routine(ControlRoutineInfo)
     case routineRun(RoutineRunResult)
+    case routineDelete(RoutineDeleteResult)
     case routineTick(RoutineTickResult)
 
     func encode(to encoder: Encoder) throws {
@@ -1115,6 +1118,7 @@ nonisolated enum ControlResult: Encodable {
         case .routines(let v): try v.encode(to: encoder)
         case .routine(let v): try v.encode(to: encoder)
         case .routineRun(let v): try v.encode(to: encoder)
+        case .routineDelete(let v): try v.encode(to: encoder)
         case .routineTick(let v): try v.encode(to: encoder)
         }
     }
