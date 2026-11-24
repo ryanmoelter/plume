@@ -6,9 +6,9 @@ import Foundation
 /// task lists come from `@Query`. The list's own selection used to provide
 /// this, but the rows disable it so the selection fill can be drawn by hand.
 enum SidebarKeyboardNavigation {
-    /// Home, then every task in the order the sidebar shows them.
+    /// Home, Routines, then every task in the order the sidebar shows them.
     static func entries(taskIDs: [UUID]) -> [SidebarSelection] {
-        [.home] + taskIDs.map(SidebarSelection.task)
+        [.home, .routines] + taskIDs.map(SidebarSelection.task)
     }
 
     /// The entry to select after moving `offset` rows, or `nil` to stay put.

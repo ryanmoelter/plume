@@ -44,6 +44,8 @@ struct MainWindow: View {
                 TaskDetailView(task: task)
             } else if selection == .home {
                 HomeView(tasks: navigableTasks, open: open(taskID:tabID:), select: selectStartedFromHome)
+            } else if selection == .routines {
+                RoutinesView(open: { choose(.task($0)) })
             } else {
                 ContentUnavailableView(
                     "No Task Selected",

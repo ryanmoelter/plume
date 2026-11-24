@@ -3,6 +3,7 @@ import Foundation
 /// What the sidebar has selected: the Home overview or one task.
 nonisolated enum SidebarSelection: Hashable {
     case home
+    case routines
     case task(UUID)
 
     var taskID: UUID? {

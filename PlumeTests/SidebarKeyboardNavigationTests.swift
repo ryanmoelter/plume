@@ -33,9 +33,10 @@ struct SidebarKeyboardNavigationTests {
         #expect(SidebarKeyboardNavigation.destination(from: UUID(), in: ordered, offset: 1) == a)
     }
 
-    @Test func upFromTheFirstTaskLandsOnHome() {
+    @Test func upFromTheFirstTaskLandsOnRoutines() {
         let entries = SidebarKeyboardNavigation.entries(taskIDs: ordered)
-        #expect(SidebarKeyboardNavigation.destination(from: .task(a), in: entries, offset: -1) == .home)
+        #expect(SidebarKeyboardNavigation.destination(from: .task(a), in: entries, offset: -1) == .routines)
+        #expect(SidebarKeyboardNavigation.destination(from: .routines, in: entries, offset: -1) == .home)
     }
 
     @Test func upFromHomeStaysPut() {
@@ -43,9 +44,10 @@ struct SidebarKeyboardNavigationTests {
         #expect(SidebarKeyboardNavigation.destination(from: .home, in: entries, offset: -1) == nil)
     }
 
-    @Test func downFromHomeLandsOnTheFirstTask() {
+    @Test func downFromHomeLandsOnRoutinesThenTheFirstTask() {
         let entries = SidebarKeyboardNavigation.entries(taskIDs: ordered)
-        #expect(SidebarKeyboardNavigation.destination(from: .home, in: entries, offset: 1) == .task(a))
+        #expect(SidebarKeyboardNavigation.destination(from: .home, in: entries, offset: 1) == .routines)
+        #expect(SidebarKeyboardNavigation.destination(from: .routines, in: entries, offset: 1) == .task(a))
     }
 
     @Test func nothingSelectedSelectsHome() {
@@ -53,8 +55,8 @@ struct SidebarKeyboardNavigationTests {
         #expect(SidebarKeyboardNavigation.destination(from: nil, in: entries, offset: 1) == .home)
     }
 
-    @Test func homeLeadsEvenWithNoTasks() {
-        #expect(SidebarKeyboardNavigation.entries(taskIDs: []) == [.home])
+    @Test func homeAndRoutinesLeadEvenWithNoTasks() {
+        #expect(SidebarKeyboardNavigation.entries(taskIDs: []) == [.home, .routines])
     }
 
     @Test func anEmptySidebarHasNowhereToGo() {

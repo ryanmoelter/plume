@@ -39,6 +39,10 @@ struct SidebarView: View {
                             .sidebarRow(isSelected: selection == .home)
                             .onTapGesture(perform: selectHome)
                             .id(SidebarSelection.home)
+                        SidebarRoutinesRow(isSelected: selection == .routines, onSelect: selectRoutines)
+                            .sidebarRow(isSelected: selection == .routines)
+                            .onTapGesture(perform: selectRoutines)
+                            .id(SidebarSelection.routines)
 
                         ForEach(groups) { group in
                             groupHeader(group)
@@ -57,8 +61,8 @@ struct SidebarView: View {
                     .padding(.bottom, SidebarMetrics.rowVerticalPadding)
                 }
                 .onChange(of: selection) { _, selection in
-                    if selection == .home {
-                        withAnimation { proxy.scrollTo(SidebarSelection.home) }
+                    if selection == .home || selection == .routines {
+                        withAnimation { proxy.scrollTo(selection) }
                         return
                     }
                     guard let task = tasks.first(where: { $0.id == selection?.taskID }) else { return }
@@ -261,6 +265,11 @@ struct SidebarView: View {
 
     private func selectHome() {
         selection = .home
+        isListFocused = true
+    }
+
+    private func selectRoutines() {
+        selection = .routines
         isListFocused = true
     }
 

@@ -40,7 +40,7 @@ final class RoutineScheduler {
     func start() {
         guard timer == nil else { return }
         let timer = Timer(timeInterval: Self.tickInterval, repeats: true) { _ in
-            MainActor.assumeIsolated { RoutineScheduler.shared.tick() }
+            MainActor.assumeIsolated { _ = RoutineScheduler.shared.tick() }
         }
         timer.tolerance = 5
         RunLoop.main.add(timer, forMode: .common)
@@ -48,7 +48,7 @@ final class RoutineScheduler {
         wakeObserver = NSWorkspace.shared.notificationCenter.addObserver(
             forName: NSWorkspace.didWakeNotification, object: nil, queue: .main
         ) { _ in
-            MainActor.assumeIsolated { RoutineScheduler.shared.tick() }
+            MainActor.assumeIsolated { _ = RoutineScheduler.shared.tick() }
         }
         StatusEngine.shared.setTabStatusObserver("RoutineScheduler") { [weak self] _, tabID, status, _ in
             self?.tabStatusChanged(tabID: tabID, status: status)
