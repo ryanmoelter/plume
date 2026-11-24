@@ -140,6 +140,7 @@ Measured on 2026-11-23 in a clone of the macOS 27.2 base:
 
 - Guest Metal is paravirtualized. Use a VM for correctness, not performance.
 - A guest never really sleeps, so it can't test sleep behavior.
+- Nothing in a guest can move the real pointer for an agent, so a VM can't test cursor changes. A `CGEvent` posted over ssh is dropped, because the process lacks Accessibility. `CGWarpMouseCursorPosition` moves the pointer but delivers no events, so no tracking area fires. The VM view on the host passes only the host's own pointer.
 - Each running VM uses about 8 GB of RAM.
 - With `--with-xcode`, the guest's Xcode must match the host's, so rebuild the base image after an Xcode update. A base without Xcode has no such limit, and `plume-vm test` is unavailable on it.
 - VMs die with their owning app. Quitting, relaunching or crashing it stops them.
