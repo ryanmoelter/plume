@@ -17,6 +17,7 @@ nonisolated enum CLIInvocation: Equatable, Sendable {
     case stack([String])
     /// `plume devices …`.
     case devices([String])
+    case routine(CLIRoutineCommand)
 }
 
 nonisolated enum IssueAction: String, Equatable, Sendable {
@@ -56,6 +57,8 @@ nonisolated enum CLICommandLine {
           wt <command>              Manage worktrees (`plume wt help`)
           stack <command>           Manage stacked branches (`plume stack help`)
           devices <command>         Lease Android devices between agents (`plume devices help`)
+          routine list [--json]     List routines with their next and last runs
+          routine run <NAME|ID>     Run a routine now
           init zsh [--aliases] [--alias NAME]
                                     Print zsh completions, for `eval "$(plume init zsh)"`;
                                     --aliases adds a bare `wt`, whose `wt switch` cds,
@@ -76,6 +79,10 @@ nonisolated enum CLICommandLine {
 
     static let tabUsage = "usage: plume tab new [--cwd DIR] [--task ID] [--select]"
     static let issueUsage = "usage: plume issue link|unlink <ID|URL> [--task ID]"
+    static let routineUsage = """
+        usage: plume routine list [--json]
+               plume routine run <NAME|ID>
+        """
     static let initUsage = "usage: plume init zsh [--aliases] [--alias wt|stack]..."
 
     /// `arguments` excludes argv[0]; `executableName` is its basename.
@@ -112,6 +119,8 @@ nonisolated enum CLICommandLine {
             return .stack(rest)
         case "devices":
             return .devices(rest)
+        case "routine", "routines":
+            return try parseRoutine(rest)
         default:
             throw CLIUsageError(message: "unknown command '\(command)'", usage: usage)
         }
@@ -223,6 +232,33 @@ nonisolated enum CLICommandLine {
             throw CLIUsageError(message: "an issue identifier or URL is required", usage: issueUsage)
         }
         return .issue(action, issue: issue, taskID: taskID)
+    }
+
+    static func parseRoutine(_ arguments: [String]) throws -> CLIInvocation {
+        guard let action = arguments.first else {
+            throw CLIUsageError(message: "expected 'routine list' or 'routine run'", usage: routineUsage)
+        }
+        let rest = Array(arguments.dropFirst())
+        switch action {
+        case "list", "ls":
+            switch rest {
+            case []: return .routine(.list(json: false))
+            case ["--json"]: return .routine(.list(json: true))
+            default: throw CLIUsageError(message: "unexpected argument '\(rest[0])'", usage: routineUsage)
+            }
+        case "run":
+            guard let name = rest.first, !name.isEmpty, !name.hasPrefix("-") else {
+                throw CLIUsageError(message: "a routine name or ID is required", usage: routineUsage)
+            }
+            guard rest.count == 1 else {
+                throw CLIUsageError(message: "unexpected argument '\(rest[1])'", usage: routineUsage)
+            }
+            return .routine(.run(name))
+        case "help", "-h", "--help":
+            throw CLIUsageError(message: nil, usage: routineUsage)
+        default:
+            throw CLIUsageError(message: "unknown routine command '\(action)'", usage: routineUsage)
+        }
     }
 
     static func parseInit(_ arguments: [String]) throws -> CLIInvocation {

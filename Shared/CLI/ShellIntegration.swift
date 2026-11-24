@@ -49,6 +49,16 @@ nonisolated enum ShellIntegration {
         Command(name: "wt", summary: "Manage worktrees", completion: wtCompletion),
         Command(name: "stack", summary: "Manage stacked branches", completion: stackCompletion),
         Command(name: "devices", summary: "Lease Android devices between agents", completion: devicesCompletion),
+        Command(name: "routine", summary: "List and run routines", completion: """
+            if (( CURRENT == 2 )); then
+              local -a routine_commands=('list:List routines' 'run:Run a routine now')
+              _describe -t commands 'routine command' routine_commands
+            else
+              shift words
+              (( CURRENT-- ))
+              _arguments '--json[Print JSON]' '1:routine name or ID:'
+            fi
+            """),
         Command(name: "init", summary: "Print shell integration", completion: """
             if (( CURRENT == 2 )); then
               _values 'shell' zsh

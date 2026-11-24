@@ -36,6 +36,8 @@ func run(_ invocation: CLIInvocation) -> Int32 {
         return Stack.main(arguments, environment: environment, console: StandardConsole(), version: BundleVersion.current())
     case .devices(let arguments):
         return Devices.main(arguments, environment: environment, console: StandardConsole())
+    case .routine(let command):
+        return RoutineCommand.run(command)
     }
     return CLIExitCode.success
 }
@@ -156,6 +158,65 @@ enum IssueLink {
             printError("plume: \(error.localizedDescription)")
             return CLIExitCode.failure
         }
+    }
+}
+
+enum RoutineCommand {
+    static func run(_ command: CLIRoutineCommand) -> Int32 {
+        guard let path = CLISocket.resolvedPath(environment: environment) else {
+            printError("plume: this tab's Plume exported no \(CLISocket.pathEnvironmentKey), so it can't be reached")
+            return CLIExitCode.failure
+        }
+        let request: CLIRequest
+        switch command {
+        case .list: request = .listRoutines
+        case .run(let routine): request = .runRoutine(.init(routine: routine))
+        }
+        let response: CLIResponse
+        do {
+            response = try CLISocket.send(request, to: path, replyTimeout: 120)
+        } catch CLISocket.ClientError.unreachable {
+            printError("plume: Plume isn't running")
+            return CLIExitCode.failure
+        } catch {
+            printError("plume: \(error.localizedDescription)")
+            return CLIExitCode.failure
+        }
+        guard response.ok else {
+            printError("plume: \(response.error ?? "Plume could not do that")")
+            return CLIExitCode.failure
+        }
+        switch command {
+        case .list(let json):
+            let routines = response.routines ?? []
+            if json {
+                let encoder = JSONEncoder()
+                encoder.outputFormatting = [.sortedKeys, .withoutEscapingSlashes, .prettyPrinted]
+                encoder.dateEncodingStrategy = .iso8601
+                guard let data = try? encoder.encode(routines) else { return CLIExitCode.failure }
+                FileHandle.standardOutput.write(data + Data("\n".utf8))
+            } else {
+                routines.forEach { print(line(for: $0)) }
+            }
+        case .run:
+            if let taskID = response.taskID { print(taskID.uuidString) }
+        }
+        return CLIExitCode.success
+    }
+
+    /// Tab-separated: name, schedule, next run, last run, and any error.
+    private static func line(for routine: CLIRoutineInfo) -> String {
+        func format(_ date: Date?) -> String {
+            date.map { $0.formatted(date: .abbreviated, time: .shortened) } ?? "-"
+        }
+        var fields = [
+            routine.name,
+            routine.isEnabled ? routine.schedule : "\(routine.schedule) (off)",
+            "next: \(format(routine.nextRunAt))",
+            "last: \(format(routine.lastRunAt))",
+        ]
+        if let error = routine.lastError { fields.append("error: \(error)") }
+        return fields.joined(separator: "\t")
     }
 }
 

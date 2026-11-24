@@ -129,6 +129,8 @@ final class CLICommandHandler {
             return linkIssue(params, action: .unlink)
         case .claimVM, .vmStatus, .releaseVM, .renewVM, .listVMs, .resetVM, .vmInstalled:
             return await handleVM(request)
+        case .listRoutines, .runRoutine:
+            return await RoutineCommands.handle(request)
         }
     }
 

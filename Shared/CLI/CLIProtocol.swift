@@ -24,6 +24,8 @@ nonisolated enum CLIRequest: Equatable, Sendable {
     case listVMs
     case resetVM(VMKey)
     case vmInstalled(VMInstalled)
+    case listRoutines
+    case runRoutine(RunRoutine)
 
     struct Notify: Codable, Equatable, Sendable {
         var tabID: UUID
@@ -136,6 +138,11 @@ nonisolated enum CLIRequest: Equatable, Sendable {
         var ttl: TimeInterval
     }
 
+    /// `routine` is an ID, an exact name, or a unique part of a name.
+    struct RunRoutine: Codable, Equatable, Sendable {
+        var routine: String
+    }
+
     struct VMInstalled: Codable, Equatable, Sendable {
         var key: String
         var branch: String
@@ -166,6 +173,8 @@ nonisolated extension CLIRequest: Codable {
         case listVMs = "vms.list"
         case resetVM = "vms.reset"
         case vmInstalled = "vms.installed"
+        case listRoutines = "routines.list"
+        case runRoutine = "routines.run"
     }
 
     init(from decoder: any Decoder) throws {
@@ -195,6 +204,8 @@ nonisolated extension CLIRequest: Codable {
         case .listVMs: self = .listVMs
         case .resetVM: self = .resetVM(try container.decode(VMKey.self, forKey: .params))
         case .vmInstalled: self = .vmInstalled(try container.decode(VMInstalled.self, forKey: .params))
+        case .listRoutines: self = .listRoutines
+        case .runRoutine: self = .runRoutine(try container.decode(RunRoutine.self, forKey: .params))
         }
     }
 
@@ -253,6 +264,11 @@ nonisolated extension CLIRequest: Codable {
         case .vmInstalled(let params):
             try container.encode(Command.vmInstalled, forKey: .command)
             try container.encode(params, forKey: .params)
+        case .listRoutines:
+            try container.encode(Command.listRoutines, forKey: .command)
+        case .runRoutine(let params):
+            try container.encode(Command.runRoutine, forKey: .command)
+            try container.encode(params, forKey: .params)
         }
     }
 }
@@ -279,6 +295,10 @@ nonisolated struct CLIResponse: Codable, Equatable, Sendable {
     var poolFull: Bool?
     /// A `vms.*` command refused because another owner holds the lease.
     var conflict: Bool?
+    /// Every routine, from `routines.list`.
+    var routines: [CLIRoutineInfo]?
+    /// The routine `routines.run` started.
+    var routine: CLIRoutineInfo?
 
     static let success = CLIResponse(ok: true)
 
