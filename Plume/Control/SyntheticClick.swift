@@ -86,6 +86,12 @@ enum SyntheticClick {
             NSApp.postEvent(down, atStart: false)
             let remaining = total - (ContinuousClock.now - start)
             if remaining > .zero { try? await Task.sleep(for: remaining) }
+            // A busy run loop can dequeue the mouse-down late; returning first
+            // would let it land after the caller's next step.
+            let deadline = ContinuousClock.now + .seconds(2)
+            while directDelivery != nil, ContinuousClock.now < deadline {
+                try? await Task.sleep(for: .milliseconds(10))
+            }
             runner.flush()
             directDelivery = nil
         } else {
