@@ -69,6 +69,10 @@ nonisolated struct ControlServerRequest: Decodable {
         case "menu.pick": command = .pickMenuItem(try MenuPickParams(from: decoder))
         case "menu.close": command = .closeMenus
         case "menu.screenshot": command = .menuScreenshot(try MenuScreenshotParams(from: decoder))
+        case "routines.list": command = .listRoutines
+        case "routines.create": command = .createRoutine(try RoutineCreateParams(from: decoder))
+        case "routines.run": command = .runRoutine(try RoutineRunParams(from: decoder))
+        case "routines.tick": command = .tickRoutines(try RoutineTickParams(from: decoder))
         default:
             throw DecodingError.dataCorruptedError(
                 forKey: .command, in: container, debugDescription: "unknown command \"\(name)\""
@@ -126,6 +130,10 @@ nonisolated enum ControlCommand {
     case pickMenuItem(MenuPickParams)
     case closeMenus
     case menuScreenshot(MenuScreenshotParams)
+    case listRoutines
+    case createRoutine(RoutineCreateParams)
+    case runRoutine(RoutineRunParams)
+    case tickRoutines(RoutineTickParams)
 }
 
 /// Scrolls the scroll view under `target` until the control is visible, or
@@ -1066,6 +1074,10 @@ nonisolated enum ControlResult: Encodable {
     case scrollTo(ScrollToResult)
     case sidebarWidth(SidebarWidthResult)
     case popupMenu(PopupMenuResult)
+    case routines(RoutineListResult)
+    case routine(ControlRoutineInfo)
+    case routineRun(RoutineRunResult)
+    case routineTick(RoutineTickResult)
 
     func encode(to encoder: Encoder) throws {
         switch self {
@@ -1100,6 +1112,10 @@ nonisolated enum ControlResult: Encodable {
         case .scrollTo(let v): try v.encode(to: encoder)
         case .sidebarWidth(let v): try v.encode(to: encoder)
         case .popupMenu(let v): try v.encode(to: encoder)
+        case .routines(let v): try v.encode(to: encoder)
+        case .routine(let v): try v.encode(to: encoder)
+        case .routineRun(let v): try v.encode(to: encoder)
+        case .routineTick(let v): try v.encode(to: encoder)
         }
     }
 }
