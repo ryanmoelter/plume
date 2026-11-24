@@ -64,7 +64,7 @@ struct PlumeApp: App {
     /// than leaving an installed app that cannot launch. Losing the data beats
     /// having no way in; the moved-aside file keeps it recoverable by hand.
     private static func makeModelContainer() -> ModelContainer {
-        let schema = Schema([TaskGroup.self, WorkTask.self, TaskTab.self])
+        let schema = Schema([TaskGroup.self, WorkTask.self, TaskTab.self, Routine.self])
         let configuration = ModelConfiguration(schema: schema, url: AppPaths.storeFile)
 
         do {

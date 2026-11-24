@@ -51,6 +51,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
         OrphanedAgentReaper.shared.start()
 
+        if NSClassFromString("XCTestCase") == nil { RoutineScheduler.shared.start() }
+
         BundledSkillsStatus.shared.start()
 
         #if DEBUG

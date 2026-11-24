@@ -11,6 +11,8 @@ final class TaskGroup {
     var tintRaw: String? = nil
     /// An SF Symbol name.
     var iconName: String? = nil
+    /// A `TaskGroupKind` raw value.
+    var kindRaw: String = TaskGroupKind.user.rawValue
 
     @Relationship(deleteRule: .cascade, inverse: \WorkTask.group)
     var tasks: [WorkTask] = []
@@ -20,6 +22,11 @@ final class TaskGroup {
         self.name = name
         self.orderIndex = orderIndex
         self.isExpanded = true
+    }
+
+    var kind: TaskGroupKind {
+        get { TaskGroupKind(rawValue: kindRaw) ?? .user }
+        set { kindRaw = newValue.rawValue }
     }
 
     var tint: SidebarTint? {
@@ -38,6 +45,13 @@ final class TaskGroup {
         let settled = trimmed.isEmpty ? TaskStore.defaultGroupName : trimmed
         if settled != name { name = settled }
     }
+}
+
+/// `routines` is the group routine runs land in, found by kind so renaming
+/// it keeps it.
+nonisolated enum TaskGroupKind: String, Sendable {
+    case user
+    case routines
 }
 
 extension PersistentModel {
