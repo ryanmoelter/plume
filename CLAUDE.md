@@ -40,6 +40,7 @@ Plume/
   Sessions/   SurfaceManager, LoginShellCommand
   Agent/      AgentProvider, ClaudeCodeProvider, AgentLauncher, hook plumbing, SessionJSONLReader, Skills/ (BundledSkills, AgentPromptRule), ChildSessions/ (PlumeMCPServer, ChildSessionCoordinator)
   Status/     StatusEngine, StatusPersistence
+  Routines/   Routine model, RoutineTrigger, RoutineScheduler, RoutineRunner (docs/routines.md)
   Workspace/  WorkspaceProvisioner, GitRunner, ProjectRoot (the key Settings ▸ Projects shares with `plume wt`)
   Linear/     LinearStore, LinearSyncCache (delta-synced disk cache; docs/linear-sync.md), LinearClient, LinearAccounts
   Android/    Observable emulator and adb discovery, DeviceSession(Manager), DeviceLeases, connection adapters, input mappers, Remote/
@@ -47,7 +48,7 @@ Plume/
   CLI/        CLIServer (the socket the `plume` tool talks to), CLICommandHandler
   Control/    The debug control server: PlumeID, ControlRegistry, ControlServer, InProcessControlBackend (DEBUG)
   Resources/  Fonts, Themes, Mermaid, Skills (flat `<name>.skill.md` files plus the formatting rule; docs/agent-skills.md)
-  UI/         Sidebar/, Task/, Settings/, Device/
+  UI/         Sidebar/, Task/, Settings/, Device/, Routines/
 PlumeCLI/     The `plume` tool's entry point and command dispatch (target PlumeCLI)
 Shared/CLI/   Compiled into both the app and PlumeCLI: wire types, socket path, Presence, argument parsing
   Devices/    `plume devices`: the lease registry, DevicePool, and the command
