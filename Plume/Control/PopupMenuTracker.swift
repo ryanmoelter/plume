@@ -36,5 +36,9 @@ final class PopupMenuTracker: NSObject {
     private func ended(_ menu: NSMenu) {
         open.removeAll { $0 === menu }
     }
+
+    func forgetAll() {
+        open.removeAll()
+    }
 }
 #endif

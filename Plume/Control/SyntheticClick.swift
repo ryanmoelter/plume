@@ -78,6 +78,7 @@ enum SyntheticClick {
             // The view's tracking loop runs the run loop in event-tracking
             // mode until the mouse-up, so the follow-ups ride timers in the
             // common modes; a sleeping task would never resume to post them.
+            installWindowHook()
             let runner = FollowUpRunner(followUps)
             directDelivery = DirectDelivery(eventNumber: down.eventNumber, view: view)
             runner.schedule()

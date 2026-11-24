@@ -738,7 +738,6 @@ struct ClaudeUsageTests {
         #expect(byEdge.edge == "bottom")
     }
 
-
     @Test func injectUsageRejectsOutOfRangeParams() throws {
         #expect(throws: ControlError.self) { try InjectUsageParams(fable: 1.5).validate() }
         #expect(throws: ControlError.self) { try InjectUsageParams(fable: -0.1).validate() }

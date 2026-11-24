@@ -137,6 +137,8 @@ extension InProcessControlBackend {
         while !PopupMenuTracker.shared.open.isEmpty, ContinuousClock.now < deadline {
             try? await Task.sleep(for: .milliseconds(10))
         }
+        // A menu AppKit never reports ending would refuse every later menu.open.
+        PopupMenuTracker.shared.forgetAll()
     }
 
     /// The newest popup-menu window this process has. AppKit keeps an

@@ -606,16 +606,16 @@ final class InProcessControlBackend: ControlBackend {
         window.contentView?.bounds.height ?? window.frame.height
     }
 
-    private func composerTextView() throws -> ComposerNSTextView {
-        let window = try window(for: nil)
+    private func composerTextView(in requested: NSWindow? = nil) throws -> ComposerNSTextView {
+        let window = try requested ?? window(for: nil)
         guard let content = window.contentView,
               let composer = inFocusedPane(ViewFinder.all(ComposerNSTextView.self, in: content), of: window)
         else { throw ControlError.noComposer }
         return composer
     }
 
-    private func chatListDocumentView() throws -> ChatListDocumentView {
-        let window = try window(for: nil)
+    private func chatListDocumentView(in requested: NSWindow? = nil) throws -> ChatListDocumentView {
+        let window = try requested ?? window(for: nil)
         guard let content = window.contentView,
               let list = inFocusedPane(ViewFinder.all(ChatListDocumentView.self, in: content), of: window)
         else { throw ControlError.notFound("chat list") }
@@ -729,10 +729,10 @@ final class InProcessControlBackend: ControlBackend {
         let scrollView: NSScrollView
         switch anchor {
         case .chatList?:
-            guard let list = try chatListDocumentView().enclosingScrollView else { throw ControlError.notFound("the chat list's scroll view") }
+            guard let list = try chatListDocumentView(in: window).enclosingScrollView else { throw ControlError.notFound("the chat list's scroll view") }
             scrollView = list
         case .composer?:
-            guard let composer = try composerTextView().enclosingScrollView else { throw ControlError.notFound("the composer's scroll view") }
+            guard let composer = try composerTextView(in: window).enclosingScrollView else { throw ControlError.notFound("the composer's scroll view") }
             scrollView = composer
         case .control?:
             let control = anchor!
