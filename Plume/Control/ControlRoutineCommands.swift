@@ -136,7 +136,7 @@ enum ControlRoutineCommands {
     }
 
     private static func context(_ scheduler: RoutineScheduler) throws -> ModelContext {
-        guard let context = scheduler.context() else { throw ControlError.noWindow }
+        guard let context = scheduler.readyContext() else { throw ControlError.noWindow }
         return context
     }
 

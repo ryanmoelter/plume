@@ -59,7 +59,7 @@ enum RoutineCommands {
     }
 
     static func handle(_ request: CLIRequest, scheduler: RoutineScheduler = .shared) async -> CLIResponse {
-        guard let context = scheduler.context() else { return .failure(LookupError.noWindow.localizedDescription) }
+        guard let context = scheduler.readyContext() else { return .failure(LookupError.noWindow.localizedDescription) }
         switch request {
         case .listRoutines:
             var response = CLIResponse.success

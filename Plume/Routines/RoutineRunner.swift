@@ -39,17 +39,18 @@ enum RoutineRunner {
         return nil
     }
 
-    static func start(_ routine: Routine, in context: ModelContext) async throws -> WorkTask {
-        let snapshot = RoutinePlanInputs(routine)
-        let failure = await Task.detached(priority: .userInitiated) { () -> Failure? in
-            let installed = snapshot.provider == .claudeCode ? nil : await AgentCLIAvailability.shared.load()
+    /// Runs `preflight` against the disk and the installed CLIs, off the
+    /// main actor.
+    static func check(_ inputs: RoutinePlanInputs) async -> Failure? {
+        await Task.detached(priority: .userInitiated) { () -> Failure? in
+            let installed = inputs.provider == .claudeCode ? nil : await AgentCLIAvailability.shared.load()
             return preflight(
-                prompt: snapshot.prompt,
-                folder: snapshot.folderPath,
-                provider: snapshot.provider,
+                prompt: inputs.prompt,
+                folder: inputs.folderPath,
+                provider: inputs.provider,
                 // A new worktree's folder doesn't exist yet; the launch
                 // itself refuses it if untrusted, which `start` reads back.
-                checksTrust: !snapshot.usesNewWorktree,
+                checksTrust: !inputs.usesNewWorktree,
                 folderExists: { FileManager.default.fileExists(atPath: $0) },
                 isTrusted: { ClaudeTrustStore.isTrusted($0) },
                 isInstalled: { provider in
@@ -57,18 +58,30 @@ enum RoutineRunner {
                 }
             )
         }.value
-        if let failure { throw failure }
+    }
 
+    /// Creates the run's task and launches its agent. `beforeLaunch` sees the
+    /// task once its tab exists, before the agent can report any status.
+    static func start(
+        _ inputs: RoutinePlanInputs,
+        in context: ModelContext,
+        beforeLaunch: @MainActor (WorkTask) -> Void = { _ in }
+    ) async throws -> WorkTask {
         var prefix = WorkspaceProvisioner.defaultBranchPrefix
-        if snapshot.usesNewWorktree {
+        var checkoutRoot: String?
+        if inputs.usesNewWorktree {
             prefix = await GitService.shared.configuredBranchPrefix(
-                in: snapshot.repoPath, configuration: AppSettings.shared.projectsConfiguration
+                in: inputs.repoPath, configuration: AppSettings.shared.projectsConfiguration
             ) ?? prefix
+            let folder = inputs.folderPath
+            checkoutRoot = await Task.detached { GitRunner.checkoutFacts(containing: folder)?.checkoutRoot }.value
         }
         let group = RoutineGroup.findOrCreate(in: context)
-        let plan = snapshot.plan(groupID: group.id, branchPrefix: prefix)
-        let task = try await HomeTaskStarter.start(plan, in: context)
-        task.title = snapshot.name
+        let plan = inputs.plan(groupID: group.id, branchPrefix: prefix, checkoutRoot: checkoutRoot)
+        let task = try await HomeTaskStarter.start(plan, in: context, beforeLaunch: { task in
+            task.title = inputs.name
+            beforeLaunch(task)
+        })
         if let tab = task.orderedTabs.first, let path = UntrustedDirectoryStore.shared.path(forTab: tab.id) {
             throw Failure.untrusted(path)
         }
@@ -116,7 +129,14 @@ nonisolated struct RoutinePlanInputs: Equatable, Sendable {
         self.choices = choices
     }
 
-    func plan(groupID: UUID?, branchPrefix: String, branchSuffix: String = WorkspaceProvisioner.randomSuffix()) -> HomeTaskPlan {
+    /// `checkoutRoot` is the checkout holding `folderPath`, which may be a
+    /// linked worktree rather than the repository itself.
+    func plan(
+        groupID: UUID?,
+        branchPrefix: String,
+        checkoutRoot: String? = nil,
+        branchSuffix: String = WorkspaceProvisioner.randomSuffix()
+    ) -> HomeTaskPlan {
         var choices = choices
         choices.transportRaw = AgentTransport.headless.rawValue
         guard usesNewWorktree, let repoPath else {
@@ -132,18 +152,16 @@ nonisolated struct RoutinePlanInputs: Equatable, Sendable {
         return HomeTaskPlan(
             groupID: groupID,
             workspace: .newWorktree(repository: repoPath, branch: branch),
-            subfolder: subfolder(inRepository: repoPath),
+            subfolder: subfolder(inCheckout: checkoutRoot ?? ProjectRoot.root(forRepositoryDirectory: repoPath)),
             message: prompt,
             choices: choices
         )
     }
 
-    /// `folderPath` relative to its project's root, so each new worktree
-    /// runs in the same subfolder. Nil at the root.
-    private func subfolder(inRepository repository: String) -> String? {
-        let root = ProjectRoot.root(forRepositoryDirectory: repository)
-        guard folderPath.hasPrefix(root + "/") else { return nil }
-        let relative = String(folderPath.dropFirst(root.count + 1))
-        return relative.isEmpty ? nil : relative
+    /// `folderPath` relative to its checkout, so each new worktree runs in
+    /// the same subfolder. Nil at the root.
+    private func subfolder(inCheckout checkout: String) -> String? {
+        guard let relative = ProjectSubfolder.relativePath(of: folderPath, in: checkout), !relative.isEmpty else { return nil }
+        return relative
     }
 }

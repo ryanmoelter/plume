@@ -124,6 +124,13 @@ struct RoutineTriggerTests {
         #expect(RoutineTrigger.daysText(.everyDay, calendar: calendar) == "Every day")
     }
 
+    @Test func summaryClampsTheTimeLikeTheSchedule() {
+        let calendar = Self.calendar
+        let late = RoutineTrigger.timeText(minuteOfDay: 24 * 60 + 30, calendar: calendar)
+        #expect(late == RoutineTrigger.timeText(minuteOfDay: 24 * 60 - 1, calendar: calendar))
+        #expect(RoutineTrigger.timeText(minuteOfDay: -5, calendar: calendar) == RoutineTrigger.timeText(minuteOfDay: 0, calendar: calendar))
+    }
+
     @Test func weekdayBitsMatchTheCalendar() {
         #expect(RoutineWeekdays(weekday: 1) == .sunday)
         #expect(RoutineWeekdays.weekdays.contains(weekday: 2))

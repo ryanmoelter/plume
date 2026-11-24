@@ -10,7 +10,8 @@ enum HomeTaskStarter {
     static func start(
         _ plan: HomeTaskPlan,
         in context: ModelContext,
-        pendingFirstMessages: PendingFirstMessageStore = .shared
+        pendingFirstMessages: PendingFirstMessageStore = .shared,
+        beforeLaunch: @MainActor (WorkTask) -> Void = { _ in }
     ) async throws -> WorkTask {
         let directory: String
         switch plan.workspace {
@@ -24,6 +25,7 @@ enum HomeTaskStarter {
             )
         }
         let task = createTask(for: plan, directory: directory, in: context)
+        beforeLaunch(task)
         if let tab = task.orderedTabs.first {
             pendingFirstMessages.set(OptimisticFirstMessage(text: plan.blocks.plainText), forTab: tab.id)
             AgentLauncher.launch(blocks: plan.blocks, task: task, tab: tab)

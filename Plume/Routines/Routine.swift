@@ -22,6 +22,7 @@ final class Routine {
     var modelRaw: String? = nil
     var effortRaw: String? = nil
     var permissionModeRaw: String? = PermissionMode.auto.rawValue
+    var codexCollaborationModeRaw: String = "default"
 
     /// A `RoutineTriggerKind` raw value.
     var triggerKindRaw: String = RoutineTriggerKind.weekly.rawValue
@@ -92,7 +93,8 @@ final class Routine {
                 isModelUserChosen: modelRaw != nil,
                 effortRaw: effortRaw,
                 isEffortUserChosen: effortRaw != nil,
-                permissionModeRaw: permissionModeRaw
+                permissionModeRaw: permissionModeRaw,
+                codexCollaborationModeRaw: codexCollaborationModeRaw
             )
         }
         set {
@@ -100,6 +102,7 @@ final class Routine {
             modelRaw = newValue.modelRaw
             effortRaw = newValue.effortRaw
             permissionModeRaw = newValue.permissionModeRaw
+            codexCollaborationModeRaw = newValue.codexCollaborationModeRaw
         }
     }
 

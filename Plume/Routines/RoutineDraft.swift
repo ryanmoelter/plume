@@ -18,6 +18,9 @@ nonisolated struct RoutineDraft: Equatable {
         transportRaw: AgentTransport.headless.rawValue,
         permissionModeRaw: PermissionMode.auto.rawValue
     )
+    /// The saved routine's trigger, so a `once` date already spent stays
+    /// valid until the user changes the schedule.
+    var savedTrigger: RoutineTrigger?
 
     var trigger: RoutineTrigger {
         switch triggerKind {
@@ -35,7 +38,7 @@ nonisolated struct RoutineDraft: Equatable {
         switch triggerKind {
         case .interval where intervalHours < 1: return "Run at least every hour."
         case .weekly where weekdays.isEmpty: return "Choose at least one day."
-        case .once where onceDate <= now: return "Choose a time in the future."
+        case .once where onceDate <= now && trigger != savedTrigger: return "Choose a time in the future."
         default: return nil
         }
     }
@@ -55,12 +58,14 @@ extension RoutineDraft {
             minuteOfDay: routine.weeklyMinuteOfDay,
             onceDate: routine.onceDate ?? Date().addingTimeInterval(3600),
             notifiesOnFinish: routine.notifiesOnFinish,
-            choices: routine.launchChoices
+            choices: routine.launchChoices,
+            savedTrigger: routine.trigger
         )
     }
 
     /// A changed schedule counts from `now`, so editing never fires a slot
-    /// the old schedule missed.
+    /// the old schedule missed. A new future `once` date turns the routine
+    /// back on.
     func apply(to routine: Routine, now: Date = Date()) {
         let rescheduled = routine.trigger != trigger
         routine.name = name.trimmingCharacters(in: .whitespacesAndNewlines)
@@ -72,5 +77,6 @@ extension RoutineDraft {
         routine.notifiesOnFinish = notifiesOnFinish
         routine.launchChoices = choices
         if rescheduled { routine.scheduledFrom = now }
+        if rescheduled, case .once(let date) = trigger, date > now { routine.isEnabled = true }
     }
 }

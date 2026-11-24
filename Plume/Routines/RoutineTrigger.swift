@@ -60,8 +60,9 @@ nonisolated enum RoutineTrigger: Equatable, Sendable {
             return reference.addingTimeInterval(TimeInterval(max(hours, 1)) * 3600)
         case .weekly(let weekdays, let minuteOfDay):
             guard !weekdays.isEmpty else { return nil }
-            let hour = min(max(minuteOfDay, 0), 24 * 60 - 1) / 60
-            let minute = min(max(minuteOfDay, 0), 24 * 60 - 1) % 60
+            let minuteOfDay = Self.clamped(minuteOfDay: minuteOfDay)
+            let hour = minuteOfDay / 60
+            let minute = minuteOfDay % 60
             let startOfDay = calendar.startOfDay(for: reference)
             for offset in 0...7 {
                 guard let day = calendar.date(byAdding: .day, value: offset, to: startOfDay),
@@ -144,7 +145,12 @@ nonisolated enum RoutineTrigger: Equatable, Sendable {
         (0..<7).map { (calendar.firstWeekday - 1 + $0) % 7 + 1 }
     }
 
+    static func clamped(minuteOfDay: Int) -> Int {
+        min(max(minuteOfDay, 0), 24 * 60 - 1)
+    }
+
     static func timeText(minuteOfDay: Int, calendar: Calendar, locale: Locale = .current) -> String {
+        let minuteOfDay = clamped(minuteOfDay: minuteOfDay)
         var components = DateComponents()
         components.hour = minuteOfDay / 60
         components.minute = minuteOfDay % 60
