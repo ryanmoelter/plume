@@ -29,6 +29,22 @@ struct GeneralSettingsPane: View {
             }
 
             Section {
+                Toggle("Summarize the title of a task with several chats", isOn: $settings.summarizesTaskTitles)
+                    .plumeID(
+                        AccessibilityID.settingsSummarizeTaskTitlesToggle,
+                        value: settings.summarizesTaskTitles ? "on" : "off",
+                        invoke: { settings.summarizesTaskTitles.toggle() }
+                    )
+            } header: {
+                Text("Task titles")
+            } footer: {
+                Text(taskTitlesFooter)
+                    .font(.callout)
+                    .foregroundStyle(.secondary)
+                    .plumeID(AccessibilityID.settingsTaskTitlesFooter, value: taskTitlesFooter)
+            }
+
+            Section {
                 HStack {
                     TextField("Worktree base path", text: worktreeBasePathBinding, prompt: Text(".plume/worktrees/"))
                         .textFieldStyle(.roundedBorder)
@@ -66,6 +82,14 @@ struct GeneralSettingsPane: View {
         .onReceive(NotificationCenter.default.publisher(for: NSApplication.didBecomeActiveNotification)) { _ in
             fullDiskAccessGranted = FullDiskAccess.isGranted
         }
+    }
+
+    private var taskTitlesFooter: String {
+        let fallback = "the chat you used last names the task."
+        guard TaskTitleSummarizer.shared.isModelAvailable else {
+            return "Apple Intelligence isn't available on this Mac, so \(fallback)"
+        }
+        return "Uses Apple Intelligence on this Mac. Off, \(fallback)"
     }
 
     @ViewBuilder
